@@ -85,11 +85,6 @@ pub fn send(cmd: Command) -> anyhow::Result<String> {
     Ok(out.trim().to_string())
 }
 
-/// Un démon répond-il déjà sur la socket ?
-pub fn daemon_running() -> bool {
-    socket_path().ok().is_some_and(|p| StdUnixStream::connect(p).is_ok())
-}
-
 /// Serveur : flux des commandes reçues. `status` est servi sans passer par l'UI.
 pub fn server_stream() -> impl Stream<Item = Command> {
     iced::stream::channel(16, async move |mut out: iced::futures::channel::mpsc::Sender<Command>| {
@@ -127,6 +122,25 @@ pub fn server_stream() -> impl Stream<Item = Command> {
             };
             let _ = w.write_all(format!("{reply}\n").as_bytes()).await;
         }
+    })
+}
+
+/// SIGTERM (systemctl stop) ou SIGINT (Ctrl-C) : quitter proprement, comme
+/// `hyprdesk quit` (fenêtres rendues, raccourcis retirés).
+pub fn signal_stream() -> impl Stream<Item = Command> {
+    iced::stream::channel(1, async move |mut out: iced::futures::channel::mpsc::Sender<Command>| {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut term), Ok(mut int)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt())) else {
+            tracing::warn!("signaux indisponibles : arrêt propre sur SIGTERM désactivé");
+            return;
+        };
+        tokio::select! {
+            _ = term.recv() => tracing::info!("SIGTERM : arrêt propre"),
+            _ = int.recv() => tracing::info!("SIGINT : arrêt propre"),
+        }
+        let _ = out.send(Command::Quit).await;
+        // Le démon quitte ; ne plus rien émettre.
+        std::future::pending::<()>().await;
     })
 }
 

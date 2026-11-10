@@ -688,8 +688,9 @@ impl App {
     fn publish_status(&self) {
         let screens: Vec<String> = self.monitors.iter().map(|m| format!("{}:{}", m.name, m.workspace)).collect();
         control::set_status(format!(
-            "{} — écrans {} — config {} ({})",
+            "{} (pid {}) — écrans {} — config {} ({})",
             if self.visible { "affiché" } else { "caché" },
+            std::process::id(),
             screens.join(" "),
             match &self.config_error {
                 None => "ok".to_string(),
@@ -1414,6 +1415,7 @@ impl App {
     fn subscription(&self) -> Subscription<Msg> {
         let mut subs = vec![
             Subscription::run(control::server_stream).map(Msg::Control),
+            Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), watch_stream).map(|_| Msg::ConfigChanged),
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),

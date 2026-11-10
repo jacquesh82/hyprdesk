@@ -15,7 +15,7 @@ iced = { version = "0.14", features = ["image", "svg", "tokio"] }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 # IPC Hyprland partagé avec mindlog.hyprland_tools (MIT), épinglé sur un commit poussé.
 hyprpanel-core = { git = "https://github.com/jacquesh82/mindlog.hyprland_tools", rev = "275671f" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "process", "sync", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "process", "sync", "fs", "signal"] }
 notify = "8.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 sysinfo = "0.40"

@@ -8,6 +8,7 @@ mod control;
 mod hypr;
 mod launch;
 mod settings;
+mod single;
 mod layout;
 mod ui;
 mod widgets;
@@ -21,7 +22,8 @@ hyprdesk — bureau à la demande pour Hyprland
 Usage : hyprdesk [--config <fichier>] [commande]
 
 Commandes :
-  daemon            lance le démon (par défaut)
+  daemon            lance le démon (par défaut) ; une seule instance par session
+  daemon --replace  remplace proprement l'instance en place
   toggle            affiche ou masque le bureau
   show | hide       affiche / masque le bureau
   settings [onglet] affiche le bureau et ouvre l'écran Réglages
@@ -40,7 +42,8 @@ const STUBS: &str = include_str!("../assets/hyprdesk.meta.lua");
 
 const SNIPPET: &str = r#"-- hyprdesk : à ajouter dans ~/.config/hypr/hyprland.lua
 
--- Démarrage (inutile si le service systemd utilisateur est activé),
+-- Démarrage : SEULEMENT si le service systemd utilisateur n'est pas activé
+-- (une seule instance tourne de toute façon : la seconde s'arrête aussitôt),
 -- dans le bloc hl.on("hyprland.start", …) ; hyprdesk remplace hyprpaper.
 hl.exec_cmd("hyprdesk")
 
@@ -88,12 +91,39 @@ fn init_tracing() {
     tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();
 }
 
-fn daemon(path: PathBuf) -> ExitCode {
+fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     init_tracing();
-    if control::daemon_running() {
-        eprintln!("hyprdesk : un démon tourne déjà (hyprdesk status)");
-        return ExitCode::FAILURE;
-    }
+    let lock = single::lock_path();
+    let _guard = match single::acquire(&lock) {
+        Ok(g) => g,
+        Err(pid) if replace => {
+            // Relève propre : l'instance en place rend les fenêtres et ses
+            // raccourcis en quittant, puis libère le verrou.
+            tracing::info!("remplacement de l'instance en place{}", pid.map(|p| format!(" (pid {p})")).unwrap_or_default());
+            if let Err(e) = control::send(control::Command::Quit) {
+                tracing::warn!("arrêt de l'instance en place : {e}");
+            }
+            match single::acquire_within(&lock, std::time::Duration::from_secs(5)) {
+                Ok(g) => g,
+                Err(pid) => {
+                    eprintln!(
+                        "hyprdesk : l'instance en place{} ne s'arrête pas ; arrêtez-la (hyprdesk quit, ou systemctl --user stop hyprdesk)",
+                        pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
+                    );
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        Err(pid) => {
+            // Sortie SANS erreur : systemd (Restart=on-failure) ne doit pas
+            // relancer en boucle un démon qui fait double emploi.
+            eprintln!(
+                "hyprdesk : déjà lancé{} — une seule instance par session (hyprdesk daemon --replace pour la remplacer)",
+                pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
+            );
+            return ExitCode::SUCCESS;
+        }
+    };
     // Arrêt brutal précédent, bureau affiché : on rend les raccourcis.
     if hypr::current_submap() == hypr::SUBMAP {
         tracing::info!("submap « {} » laissée active par un arrêt précédent : remise à zéro", hypr::SUBMAP);
@@ -137,9 +167,15 @@ fn main() -> ExitCode {
         config_path = PathBuf::from(p);
         args.drain(i..=i + 1);
     }
+    let replace = if let Some(i) = args.iter().position(|a| a == "--replace") {
+        args.remove(i);
+        true
+    } else {
+        false
+    };
     let cmd = args.first().map(String::as_str).unwrap_or("daemon");
     match cmd {
-        "daemon" => daemon(config_path),
+        "daemon" => daemon(config_path, replace),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
             ExitCode::SUCCESS

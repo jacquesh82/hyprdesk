@@ -130,11 +130,26 @@ Il ne modifie pas `hyprland.lua`. Les lignes recommandées s'obtiennent avec
 
 Pensez aussi à retirer `hyprpaper` de l'autostart.
 
+## Une seule instance
+
+Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
+`$XDG_RUNTIME_DIR/hyprdesk.lock` pendant toute sa vie.
+- **Seconde instance** : qu'elle vienne du service, d'un `hl.exec_cmd` ou d'un
+  lancement manuel, elle signale celle en place (son PID) et s'arrête sans
+  erreur. systemd ne la relance donc pas en boucle.
+- **Remplacement** : `hyprdesk daemon --replace` remplace proprement
+  l'instance en place. Le service systemd démarre ainsi.
+- **Arrêt propre** : sur `SIGTERM` (`systemctl --user stop`) ou `SIGINT`,
+  hyprdesk rend les fenêtres mises de côté et retire ses raccourcis.
+- **Arrêt brutal** : le noyau libère le verrou ; au démarrage suivant,
+  hyprdesk rend les fenêtres restées de côté.
+
 ## Commandes
 
 | Commande | Effet |
 |---|---|
-| `hyprdesk` / `hyprdesk daemon` | lance le démon |
+| `hyprdesk` / `hyprdesk daemon` | lance le démon (une seule instance par session) |
+| `hyprdesk daemon --replace` | remplace proprement l'instance en place |
 | `hyprdesk toggle` · `show` · `hide` | affiche / masque le bureau |
 | `hyprdesk settings [onglet]` | affiche le bureau et ouvre les réglages (`bureau`, `icones`, `fond`, `effets`) |
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
