@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 license = "MIT"
 description = "Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par workspace, configuré en Lua"
-repository = "https://github.com/jacquesh82/mindlog.hyprland_desktop"
+repository = "https://github.com/jacquesh82/hyprdesk"
 
 [dependencies]
 # Couple iced / iced_layershell : iced_layershell 0.19 suit iced 0.14.
