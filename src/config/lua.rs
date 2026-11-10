@@ -37,6 +37,15 @@ struct Plugin {
     options: Vec<String>,
 }
 
+/// Facultatif : une fonction Lua nommée `key`, ou erreur si autre chose.
+fn opt_fn(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Function>> {
+    match t.get::<Value>(key)? {
+        Value::Nil => Ok(None),
+        Value::Function(f) => Ok(Some(f)),
+        v => Err(err(format!("{ctx} : « {key} » doit être une fonction, pas {}", v.type_name()))),
+    }
+}
+
 /// Placement partiel (`hd.place`) : les champs absents gardent leur valeur.
 #[derive(Default)]
 struct PlacePatch {
@@ -54,13 +63,20 @@ fn parse_anchor(s: &str, ctx: &str) -> mlua::Result<Anchor> {
 }
 
 /// Charge un plugin de widget : un fichier Lua qui rend une table avec `render`.
-fn load_plugin(lua: &Lua, id: &str, path: &Path) -> Result<(Plugin, WidgetType), String> {
-    let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let v: Value = lua.load(src.as_str()).set_name(format!("@{}", path.display())).eval().map_err(|e| short_lua_error(&e))?;
+fn load_plugin(lua: &Lua, id: &str, source: &crate::widgets::plugins::Source) -> Result<(Plugin, WidgetType), String> {
+    use crate::widgets::plugins::Source;
+    let (src, name, wsource) = match source {
+        Source::File(p) => (std::fs::read_to_string(p).map_err(|e| e.to_string())?, p.display().to_string(), WidgetSource::Plugin(p.clone())),
+        Source::Bundled(s) => (s.to_string(), format!("intégré:{id}.lua"), WidgetSource::Bundled),
+    };
+    let v: Value = lua.load(src.as_str()).set_name(format!("@{name}")).eval().map_err(|e| short_lua_error(&e))?;
     let Value::Table(t) = v else { return Err("le fichier doit rendre une table (return { … })".into()) };
     let ctx = format!("plugin « {id} »");
     let run = || -> mlua::Result<(Plugin, WidgetType)> {
-        check_keys(&t, &["name", "description", "interval", "anchor", "options", "render"], &ctx)?;
+        check_keys(&t, &["name", "description", "interval", "anchor", "options", "render", "on_click", "on_scroll", "menu"], &ctx)?;
+        for k in ["on_click", "on_scroll", "menu"] {
+            opt_fn(&t, k, &ctx)?;
+        }
         if !matches!(t.get::<Value>("render")?, Value::Function(_)) {
             return Err(err(format!("{ctx} : « render » doit être une fonction")));
         }
@@ -83,7 +99,7 @@ fn load_plugin(lua: &Lua, id: &str, path: &Path) -> Result<(Plugin, WidgetType),
             id: id.to_string(),
             name: opt_string(&t, "name", &ctx)?.unwrap_or_else(|| id.to_string()),
             description: opt_string(&t, "description", &ctx)?.unwrap_or_default(),
-            source: WidgetSource::Plugin(path.to_path_buf()),
+            source: wsource,
             anchor,
             toggleable: true,
             error: None,
@@ -457,8 +473,15 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table) -> mlua::Result<
                     Value::Function(f) => f,
                     _ => return Err(err(format!("{ctx} : « render » doit être une fonction"))),
                 };
-                b.funcs.push(lua.create_registry_value(f)?);
-                WidgetKind::Lua { func: b.funcs.len() - 1 }
+                let mut reg = |f: Function| -> mlua::Result<usize> {
+                    b.funcs.push(lua.create_registry_value(f)?);
+                    Ok(b.funcs.len() - 1)
+                };
+                let func = reg(f)?;
+                let click = opt_fn(t, "on_click", ctx)?.map(&mut reg).transpose()?;
+                let scroll = opt_fn(t, "on_scroll", ctx)?.map(&mut reg).transpose()?;
+                let menu = opt_fn(t, "menu", ctx)?.map(&mut reg).transpose()?;
+                WidgetKind::Lua { func, click, scroll, menu }
             }
             other => return Err(err(format!("{ctx} : widget intégré « {other} » sans configuration"))),
         };
@@ -481,10 +504,20 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table) -> mlua::Result<
                 opts.set(k.as_str(), v)?;
             }
         }
-        let render: Function = table.get("render")?;
-        let wrapper: Function = lua.load("local f, o = ... return function() return f(o) end").set_name("=hyprdesk").call((render, opts))?;
-        b.funcs.push(lua.create_registry_value(wrapper)?);
-        (p.interval, p.anchor, WidgetKind::Lua { func: b.funcs.len() - 1 })
+        // Chaque fonction du plugin reçoit ses options : render(o), on_click(o),
+        // on_scroll(o, sens), menu(o).
+        let bind = |f: Function| -> mlua::Result<Function> {
+            lua.load("local f, o = ... return function(...) return f(o, ...) end").set_name("=hyprdesk").call((f, opts.clone()))
+        };
+        let mut reg = |f: Function| -> mlua::Result<usize> {
+            b.funcs.push(lua.create_registry_value(bind(f)?)?);
+            Ok(b.funcs.len() - 1)
+        };
+        let func = reg(table.get("render")?)?;
+        let click = opt_fn(&table, "on_click", ctx)?.map(&mut reg).transpose()?;
+        let scroll = opt_fn(&table, "on_scroll", ctx)?.map(&mut reg).transpose()?;
+        let menu = opt_fn(&table, "menu", ctx)?.map(&mut reg).transpose()?;
+        (p.interval, p.anchor, WidgetKind::Lua { func, click, scroll, menu })
     } else {
         let mut known: Vec<String> = crate::widgets::BUILTINS.iter().map(|b| b.id.to_string()).collect();
         let mut plugins: Vec<String> = b.plugins.keys().cloned().collect();
@@ -712,6 +745,16 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
     hd.set("exec", lua.create_function(|_, cmd: String| Ok(shell_output(&cmd)))?)?;
+    // Lance sans attendre, par Hyprland (le programme ne dépend pas de hyprdesk).
+    hd.set(
+        "spawn",
+        lua.create_function(|_, cmd: String| {
+            if crate::hypr::exec(&cmd).is_err() {
+                let _ = std::process::Command::new("setsid").args(["-f", "sh", "-c", &cmd]).spawn();
+            }
+            Ok(())
+        })?,
+    )?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
     lua.globals().set("hd", hd)?;
     // Les fonctions Rust ne connaissent pas la ligne appelante : chaque `hd.x`
@@ -751,16 +794,75 @@ impl Loaded {
     }
 
     /// Appelle la fonction `render` d'un widget Lua.
-    pub fn render(&self, idx: usize) -> Result<String, String> {
+    /// Appelle `render` : une chaîne, ou une table { text, icon, tooltip, state }.
+    pub fn render(&self, idx: usize) -> Result<Rendered, String> {
         let f = self.func(idx).map_err(|e| e.to_string())?;
-        match f.call::<Value>(()) {
-            Ok(Value::String(s)) => Ok(s.to_string_lossy().to_string()),
-            Ok(Value::Nil) => Ok(String::new()),
-            Ok(Value::Integer(i)) => Ok(i.to_string()),
-            Ok(Value::Number(n)) => Ok(n.to_string()),
-            Ok(v) => Err(format!("render doit rendre une chaîne, pas {}", v.type_name())),
-            Err(e) => Err(short_lua_error(&e)),
+        let v = f.call::<Value>(()).map_err(|e| short_lua_error(&e))?;
+        match v {
+            Value::Table(t) => {
+                let s = |k: &str| -> Result<Option<String>, String> { opt_string(&t, k, "render").map_err(|e| short_lua_error(&e)) };
+                let state = match s("state")? {
+                    None => RenderState::Normal,
+                    Some(x) => RenderState::parse(&x).ok_or_else(|| format!("render : state « {x} » inconnu (normal, active, warning, critical, hidden)"))?,
+                };
+                Ok(Rendered { text: s("text")?.unwrap_or_default(), icon: s("icon")?, tooltip: s("tooltip")?, state })
+            }
+            other => Ok(Rendered { text: scalar_text(&other).map_err(|t| format!("render doit rendre une chaîne ou une table, pas {t}"))?, ..Default::default() }),
         }
+    }
+
+    /// Appelle `on_click` (sans argument) ou `on_scroll` (sens ±1).
+    pub fn call(&self, idx: usize, arg: Option<i64>) -> Result<(), String> {
+        let f = self.func(idx).map_err(|e| e.to_string())?;
+        match arg {
+            Some(a) => f.call::<()>(a),
+            None => f.call::<()>(()),
+        }
+        .map_err(|e| short_lua_error(&e))
+    }
+
+    /// Appelle `menu` ; les fonctions `action` des entrées sont rangées dans
+    /// `actions`, l'entrée en garde l'index.
+    pub fn menu(&self, idx: usize, actions: &mut Vec<Function>) -> Result<Vec<MenuEntry>, String> {
+        let f = self.func(idx).map_err(|e| e.to_string())?;
+        let t: Table = match f.call::<Value>(()).map_err(|e| short_lua_error(&e))? {
+            Value::Table(t) => t,
+            Value::Nil => return Ok(Vec::new()),
+            v => return Err(format!("menu doit rendre une liste, pas {}", v.type_name())),
+        };
+        actions.clear();
+        let mut out = Vec::new();
+        for v in t.sequence_values::<Value>() {
+            match v.map_err(|e| e.to_string())? {
+                Value::String(s) if s.to_string_lossy() == "-" => out.push(MenuEntry::Separator),
+                Value::Table(e) => {
+                    let gs = |k: &str| opt_string(&e, k, "menu").map_err(|e| short_lua_error(&e));
+                    if let Some(h) = gs("header")? {
+                        out.push(MenuEntry::Header(h));
+                        continue;
+                    }
+                    let action = match e.get::<Value>("action").map_err(|e| e.to_string())? {
+                        Value::Function(f) => {
+                            actions.push(f);
+                            Some(actions.len() as i64 - 1)
+                        }
+                        _ => None,
+                    };
+                    let flag = |k: &str| opt_bool(&e, k, "menu").map_err(|e| short_lua_error(&e));
+                    out.push(MenuEntry::Item {
+                        label: gs("label")?.unwrap_or_default(),
+                        detail: gs("detail")?,
+                        icon: gs("icon")?,
+                        checked: flag("checked")?,
+                        enabled: !flag("disabled")?.unwrap_or(false),
+                        action,
+                        confirm: gs("confirm")?,
+                    });
+                }
+                other => return Err(format!("menu : entrée inattendue ({})", other.type_name())),
+            }
+        }
+        Ok(out)
     }
 
     /// Appelle un hook `hd.on` avec `{ event, monitor, workspace }`.
@@ -771,6 +873,16 @@ impl Loaded {
         let _ = t.set("monitor", monitor);
         let _ = t.set("workspace", workspace);
         f.call::<()>(t).map_err(|e| short_lua_error(&e))
+    }
+}
+
+fn scalar_text(v: &Value) -> Result<String, &'static str> {
+    match v {
+        Value::String(s) => Ok(s.to_string_lossy().to_string()),
+        Value::Nil => Ok(String::new()),
+        Value::Integer(i) => Ok(i.to_string()),
+        Value::Number(n) => Ok(n.to_string()),
+        v => Err(v.type_name()),
     }
 }
 
@@ -806,12 +918,15 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
     // plugin cassé apparaît en erreur dans le catalogue sans bloquer le reste.
     let mut catalog = crate::widgets::builtin_types();
     let mut plugins = std::collections::HashMap::new();
-    for (id, path) in crate::widgets::plugins::discover(&crate::widgets::plugins::dirs(base_dir)) {
+    for (id, source) in crate::widgets::plugins::all(&crate::widgets::plugins::dirs(base_dir)) {
         let broken = |error: String| WidgetType {
             id: id.clone(),
             name: id.clone(),
             description: String::new(),
-            source: WidgetSource::Plugin(path.clone()),
+            source: match &source {
+                crate::widgets::plugins::Source::File(p) => WidgetSource::Plugin(p.clone()),
+                crate::widgets::plugins::Source::Bundled(_) => WidgetSource::Bundled,
+            },
             anchor: Anchor::TopRight,
             toggleable: false,
             error: Some(error),
@@ -824,13 +939,13 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
             catalog.push(broken(format!("« {id} » est le nom d'un widget intégré")));
             continue;
         }
-        match load_plugin(&lua, &id, &path) {
+        match load_plugin(&lua, &id, &source) {
             Ok((p, wt)) => {
                 plugins.insert(id.clone(), p);
                 catalog.push(wt);
             }
             Err(e) => {
-                tracing::warn!("plugin {} : {e}", path.display());
+                tracing::warn!("plugin {id} : {e}");
                 catalog.push(broken(e));
             }
         }
@@ -899,7 +1014,10 @@ pub fn load_settings_only(config_path: &Path) -> Result<Config, String> {
 
 enum Req {
     Load { path: PathBuf, reply: oneshot::Sender<Result<Config, String>> },
-    Render { func: usize, reply: oneshot::Sender<Result<String, String>> },
+    Render { func: usize, reply: oneshot::Sender<Result<Rendered, String>> },
+    Call { func: usize, arg: Option<i64>, reply: oneshot::Sender<Result<(), String>> },
+    Menu { func: usize, reply: oneshot::Sender<Result<Vec<MenuEntry>, String>> },
+    MenuAction { action: usize, reply: oneshot::Sender<Result<(), String>> },
     Hook { funcs: Vec<usize>, event: String, monitor: String, workspace: String },
 }
 
@@ -916,6 +1034,8 @@ impl LuaHandle {
             .name("hyprdesk-lua".into())
             .spawn(move || {
                 let mut current: Option<Loaded> = None;
+                // Actions du dernier menu ouvert (fonctions Lua des entrées).
+                let mut actions: Vec<Function> = Vec::new();
                 while let Ok(req) = rx.recv() {
                     match req {
                         Req::Load { path, reply } => match load_file(&path) {
@@ -931,6 +1051,21 @@ impl LuaHandle {
                         },
                         Req::Render { func, reply } => {
                             let r = current.as_ref().ok_or_else(|| "aucune config chargée".to_string()).and_then(|l| l.render(func));
+                            let _ = reply.send(r);
+                        }
+                        Req::Call { func, arg, reply } => {
+                            let r = current.as_ref().ok_or_else(|| "aucune config chargée".to_string()).and_then(|l| l.call(func, arg));
+                            let _ = reply.send(r);
+                        }
+                        Req::Menu { func, reply } => {
+                            let r = current.as_ref().ok_or_else(|| "aucune config chargée".to_string()).and_then(|l| l.menu(func, &mut actions));
+                            let _ = reply.send(r);
+                        }
+                        Req::MenuAction { action, reply } => {
+                            let r = match actions.get(action) {
+                                Some(f) => f.call::<()>(()).map_err(|e| short_lua_error(&e)),
+                                None => Err("action de menu introuvable".into()),
+                            };
                             let _ = reply.send(r);
                         }
                         Req::Hook { funcs, event, monitor, workspace } => {
@@ -955,9 +1090,27 @@ impl LuaHandle {
         rx.await.map_err(|_| "thread Lua arrêté".to_string())?
     }
 
-    pub async fn render(&self, func: usize) -> Result<String, String> {
+    pub async fn render(&self, func: usize) -> Result<Rendered, String> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(Req::Render { func, reply }).map_err(|_| "thread Lua arrêté".to_string())?;
+        rx.await.map_err(|_| "thread Lua arrêté".to_string())?
+    }
+
+    pub async fn call(&self, func: usize, arg: Option<i64>) -> Result<(), String> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(Req::Call { func, arg, reply }).map_err(|_| "thread Lua arrêté".to_string())?;
+        rx.await.map_err(|_| "thread Lua arrêté".to_string())?
+    }
+
+    pub async fn menu(&self, func: usize) -> Result<Vec<MenuEntry>, String> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(Req::Menu { func, reply }).map_err(|_| "thread Lua arrêté".to_string())?;
+        rx.await.map_err(|_| "thread Lua arrêté".to_string())?
+    }
+
+    pub async fn menu_action(&self, action: usize) -> Result<(), String> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(Req::MenuAction { action, reply }).map_err(|_| "thread Lua arrêté".to_string())?;
         rx.await.map_err(|_| "thread Lua arrêté".to_string())?
     }
 
@@ -1016,8 +1169,8 @@ mod tests {
         assert_eq!(c.widgets.len(), 3);
         assert_eq!(c.widgets[0].anchor, Anchor::TopLeft);
         assert!(matches!(c.widgets[1].kind, WidgetKind::System { ref show } if show[1] == SysItem::Disk("/home".into())));
-        let WidgetKind::Lua { func } = c.widgets[2].kind else { panic!() };
-        assert_eq!(l.render(func).unwrap(), format!("salut {}", env!("CARGO_PKG_VERSION")));
+        let WidgetKind::Lua { func, .. } = c.widgets[2].kind else { panic!() };
+        assert_eq!(l.render(func).unwrap().text, format!("salut {}", env!("CARGO_PKG_VERSION")));
         assert_eq!(c.hooks.len(), 1);
     }
 
@@ -1096,7 +1249,7 @@ mod tests {
         assert!(c.catalog.iter().find(|t| t.id == "casse").unwrap().error.is_some());
         assert_eq!(c.catalog.iter().find(|t| t.id == "meteo").unwrap().name, "Météo");
         let render = |i: usize| match c.widgets[i].kind {
-            WidgetKind::Lua { func } => l.render(func).unwrap(),
+            WidgetKind::Lua { func, .. } => l.render(func).unwrap().text,
             _ => panic!(),
         };
         assert_eq!(render(0), "il fait beau à Paris");
@@ -1138,6 +1291,37 @@ mod tests {
         assert!(e.contains("hd.bar.left[1]"), "{e}");
         let off = load(r#"hd.bar({ left = { "clock" } }) hd.bar(false)"#).unwrap();
         assert!(off.config.bar.is_none() && off.config.widgets.is_empty());
+    }
+
+    #[test]
+    fn plugin_riche_clic_et_menu() {
+        let l = load(
+            r#"local etat = { n = 0 }
+               hd.widget("lua", {
+                 render = function() return { text = tostring(etat.n), icon = "x-symbolic", state = etat.n > 1 and "warning" or "normal" } end,
+                 on_click = function() etat.n = etat.n + 1 end,
+                 on_scroll = function(d) etat.n = etat.n + d * 10 end,
+                 menu = function() return { { header = "Titre" }, { label = "Ajouter", action = function() etat.n = 100 end }, "-",
+                                            { label = "Coché", checked = true, disabled = true } } end,
+               })"#,
+        )
+        .unwrap();
+        let WidgetKind::Lua { func, click: Some(c), scroll: Some(sc), menu: Some(m) } = l.config.widgets[0].kind else { panic!() };
+        assert_eq!(l.render(func).unwrap().icon.as_deref(), Some("x-symbolic"));
+        l.call(c, None).unwrap();
+        l.call(c, None).unwrap();
+        assert_eq!(l.render(func).unwrap().state, RenderState::Warning);
+        l.call(sc, Some(1)).unwrap();
+        assert_eq!(l.render(func).unwrap().text, "12");
+        let mut actions = Vec::new();
+        let menu = l.menu(m, &mut actions).unwrap();
+        assert_eq!(menu.len(), 4);
+        assert_eq!(menu[0], MenuEntry::Header("Titre".into()));
+        assert!(matches!(&menu[1], MenuEntry::Item { label, action: Some(0), .. } if label == "Ajouter"));
+        assert_eq!(menu[2], MenuEntry::Separator);
+        assert!(matches!(&menu[3], MenuEntry::Item { checked: Some(true), enabled: false, .. }));
+        actions[0].call::<()>(()).unwrap();
+        assert_eq!(l.render(func).unwrap().text, "100");
     }
 
     #[test]

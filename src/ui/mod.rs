@@ -14,6 +14,7 @@ use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 mod bar;
 mod panel;
+mod popover;
 mod widget_view;
 
 use iced::widget::{Space, Stack, button, column, container, image, mouse_area, pin, row, svg, text, tooltip};
@@ -81,7 +82,21 @@ pub enum Msg {
     BarScroll(String, i32),
     VolumeMute,
     VolumeStep(i32),
+    VolumeSet(f32),
     VolumeValue(Option<(f32, bool)>),
+    /// Ouvre (ou referme) un menu sous un module de la barre : (barre, clé du module, contenu).
+    OpenPopover(Id, String, popover::Request),
+    PopoverReady(Id, String, popover::Kind),
+    ClosePopover,
+    Popover(popover::PMsg),
+    /// Appelle une fonction Lua d'un widget (on_click, on_scroll) puis le relève.
+    LuaCall(String, usize, Option<i64>),
+    /// Relève un widget tout de suite.
+    Repoll(String),
+    IconResolved(u64, String, Option<PathBuf>),
+    TrayItems(Vec<crate::tray::TrayItem>),
+    /// (barre, bus, chemin, secondaire)
+    TrayActivate(Id, String, String, bool),
     /// Raccourcis installés : conflits (raccourci, action déjà liée) et raccourcis universels.
     KeysInstalled(Result<(Vec<(String, String)>, Vec<String>), String>),
     ConfigChanged,
@@ -234,6 +249,15 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    popover: Option<popover::Popover>,
+    /// Icônes du thème par nom (symboliques teintées), résolues à la demande.
+    named_icons: HashMap<String, IconImg>,
+    named_pending: HashSet<String>,
+    tray: Vec<crate::tray::TrayItem>,
+    /// Images fournies par les applications de la zone de notification : clé → (empreinte, image).
+    tray_imgs: HashMap<String, (u64, image::Handle)>,
+    /// Police de l'interface (barre, menus) : celle de la config, sinon Noto Sans.
+    ui_family: &'static str,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
@@ -413,6 +437,12 @@ impl App {
             workspaces: Vec::new(),
             active_window: None,
             volume: None,
+            popover: None,
+            named_icons: HashMap::new(),
+            named_pending: HashSet::new(),
+            tray: Vec::new(),
+            tray_imgs: HashMap::new(),
+            ui_family: "Noto Sans",
         };
         let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
         let t = Task::batch([app.load_config(), apps]);
@@ -448,6 +478,10 @@ impl App {
                 // Les noms de police doivent vivre aussi longtemps que le programme.
                 Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
                 None => Font::DEFAULT,
+            };
+            self.ui_family = match &n.font {
+                Some(f) => Box::leak(f.clone().into_boxed_str()),
+                None => "Noto Sans",
             };
         }
         if o.theme != n.theme {
@@ -649,6 +683,40 @@ impl App {
             s.prev = Some(Wall::Color(bgc));
             s.since = Instant::now();
         }
+    }
+
+    /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
+    /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
+    fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
+        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
+        let Some(bar_id) = self
+            .bar_surfaces
+            .iter()
+            .find(|(_, s)| Some(&s.monitor) == focused.as_ref())
+            .or_else(|| self.bar_surfaces.iter().next())
+            .map(|(id, _)| *id)
+        else {
+            return Task::none();
+        };
+        let items: Vec<config::BarItem> = self.cfg.bar.iter().flat_map(|b| b.zones.iter().flatten().cloned()).collect();
+        for it in items {
+            let req = match &it {
+                config::BarItem::Volume if kind == "volume" => Some(("volume".to_string(), popover::Request::Volume)),
+                config::BarItem::Tray if kind == "tray" => self.tray.iter().find_map(|t| {
+                    t.menu.clone().map(|m| (format!("tray:{}", t.key), popover::Request::Tray { bus: t.bus.clone(), menu_path: m }))
+                }),
+                config::BarItem::Widget(id) => self.cfg.widgets.iter().find(|w| &w.id == id && w.type_id == kind).and_then(|w| match &w.kind {
+                    config::WidgetKind::Clock { .. } | config::WidgetKind::Calendar => Some((id.clone(), popover::Request::Calendar)),
+                    config::WidgetKind::Lua { menu: Some(f), .. } => Some((id.clone(), popover::Request::LuaMenu { widget: id.clone(), func: *f })),
+                    _ => None,
+                }),
+                _ => None,
+            };
+            if let Some((key, req)) = req {
+                return Task::done(Msg::OpenPopover(bar_id, key, req));
+            }
+        }
+        Task::none()
     }
 
     /// Résout les icônes des classes de fenêtres pas encore connues.
@@ -980,9 +1048,13 @@ impl App {
         }
         let bar_ids = self.bar_widget_ids();
         todo.extend(cfg.widgets.iter().filter(|w| bar_ids.contains(&w.id)));
-        if self.bar_has_volume() && self.last_poll.get("bar:volume").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
+        if self.bar_has(&config::BarItem::Volume) && self.last_poll.get("bar:volume").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
             self.last_poll.insert("bar:volume".into(), now);
             tasks.push(Task::perform(bar::read_volume(), Msg::VolumeValue));
+        }
+        if self.bar_has(&config::BarItem::Tray) && self.last_poll.get("bar:tray").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
+            self.last_poll.insert("bar:tray".into(), now);
+            tasks.push(Task::perform(crate::tray::items(), Msg::TrayItems));
         }
         {
             for w in todo {
@@ -1015,12 +1087,12 @@ impl App {
                         let (c, t) = (exec.clone(), *timeout);
                         Some(Task::perform(async move { widgets::run_command(&c, t).await }, move |v| Msg::WidgetValue(wid.clone(), v)))
                     }
-                    WidgetKind::Lua { func } => {
+                    WidgetKind::Lua { func, .. } => {
                         let (lua, f) = (self.lua.clone(), *func);
                         Some(Task::perform(
                             async move {
                                 match lua.render(f).await {
-                                    Ok(s) => widgets::Value::Text(s),
+                                    Ok(r) => widgets::Value::Rich(r),
                                     Err(e) => widgets::Value::Error(e),
                                 }
                             },
@@ -1064,6 +1136,53 @@ impl App {
             }
             None => IconImg::None,
         }
+    }
+
+    /// Police de l'interface, à la graisse voulue.
+    pub(super) fn ui_font(&self, weight: iced::font::Weight) -> Font {
+        Font { family: iced::font::Family::Name(self.ui_family), weight, ..Font::DEFAULT }
+    }
+
+    /// Icône du thème par nom ; les icônes symboliques sont teintées (`tint`).
+    pub(super) fn icon_named<'a>(&self, name: &str, size: f32, tint: Color) -> Option<Element<'a, Msg>> {
+        match self.named_icons.get(name).copied()? {
+            IconImg::Vector(i) => {
+                let symbolic = name.ends_with("-symbolic");
+                Some(
+                    svg(self.vectors[i].clone())
+                        .width(size)
+                        .height(size)
+                        .style(move |_, _| svg::Style { color: symbolic.then_some(tint) })
+                        .into(),
+                )
+            }
+            IconImg::Raster(i) => Some(image(self.rasters[i].clone()).width(size).height(size).into()),
+            IconImg::None => None,
+        }
+    }
+
+    /// Résout une icône par nom (une fois), hors du thread UI.
+    pub(super) fn want_icon(&mut self, name: &str) -> Task<Msg> {
+        if self.named_icons.contains_key(name) || !self.named_pending.insert(name.to_string()) {
+            return Task::none();
+        }
+        let (n, theme, gen_) = (name.to_string(), self.cfg.general.icon_theme.clone(), self.icons_gen);
+        Task::perform(
+            async move {
+                let n2 = n.clone();
+                let p = tokio::task::spawn_blocking(move || {
+                    launch::lookup_icon(&n2, theme.as_deref(), 32)
+                        // Repli : la version non symbolique, puis le thème par défaut.
+                        .or_else(|| n2.strip_suffix("-symbolic").and_then(|b| launch::lookup_icon(b, theme.as_deref(), 32)))
+                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), 32))
+                })
+                .await
+                .ok()
+                .flatten();
+                (n, p)
+            },
+            move |(n, p)| Msg::IconResolved(gen_, n, p),
+        )
     }
 
     fn img_element(&self, img: IconImg, size: f32, alpha: f32) -> Option<Element<'_, Msg>> {
@@ -1162,6 +1281,7 @@ impl App {
     // -- Mise à jour -------------------------------------------------------------
 
     fn update(&mut self, msg: Msg) -> Task<Msg> {
+        self.count_msg(&msg);
         let t = self.update_inner(msg);
         self.publish_status();
         t
@@ -1191,6 +1311,7 @@ impl App {
                     iced::exit()
                 }
                 control::Command::Status => Task::none(),
+                control::Command::Menu(kind) => self.open_menu_by_type(&kind),
                 control::Command::Settings(tab) => {
                     let s = self.show();
                     let o = self.open_panel();
@@ -1366,10 +1487,23 @@ impl App {
                 self.icon_imgs = list.iter().map(|r| self.handle_for(r.image.as_deref())).collect();
                 self.ui_imgs = media.iter().map(|p| self.handle_for(p.as_deref())).collect();
                 self.icons = list;
-                // Les poignées des fenêtres vivaient dans les vecteurs vidés plus haut.
+                // Les poignées des fenêtres et des icônes nommées vivaient dans les vecteurs vidés plus haut.
                 self.class_imgs.clear();
                 self.class_pending.clear();
-                self.resolve_class_icons()
+                self.named_icons.clear();
+                self.named_pending.clear();
+                let mut again: Vec<Task<Msg>> = bar::STATIC_ICONS.iter().map(|n| self.want_icon(n)).collect();
+                let names: Vec<String> = self
+                    .values
+                    .values()
+                    .filter_map(|v| if let widgets::Value::Rich(r) = v { r.icon.clone() } else { None })
+                    .chain(self.tray.iter().filter_map(|t| t.icon_name.clone()))
+                    .collect();
+                for n in names {
+                    again.push(self.want_icon(&n));
+                }
+                again.push(self.resolve_class_icons());
+                Task::batch(again)
             }
             Msg::WallLoaded(key, r) => {
                 self.loading.remove(&key);
@@ -1412,14 +1546,121 @@ impl App {
             }
             Msg::Poll => self.poll(),
             Msg::WidgetValue(id, v) => {
+                let t = match &v {
+                    widgets::Value::Rich(r) => r.icon.clone().map(|i| self.want_icon(&i)).unwrap_or_else(Task::none),
+                    _ => Task::none(),
+                };
                 self.values.insert(id, v);
+                t
+            }
+            Msg::IconResolved(gen_, name, path) => {
+                if gen_ == self.icons_gen {
+                    self.named_pending.remove(&name);
+                    let img = self.handle_for(path.as_deref());
+                    self.named_icons.insert(name, img);
+                }
                 Task::none()
+            }
+            Msg::OpenPopover(bar_id, key, req) => match req {
+                popover::Request::Volume => self.open_popover(bar_id, key, popover::Kind::Volume),
+                popover::Request::Calendar => self.open_popover(bar_id, key, popover::Kind::Calendar),
+                popover::Request::LuaMenu { widget, func } => {
+                    if self.popover.as_ref().is_some_and(|p| p.key == key) {
+                        return self.close_popover();
+                    }
+                    let lua = self.lua.clone();
+                    Task::perform(async move { lua.menu(func).await }, move |r| match r {
+                        Ok(entries) => {
+                            Msg::PopoverReady(bar_id, key.clone(), popover::Kind::Menu { entries, source: popover::MenuSource::Lua { widget: widget.clone() } })
+                        }
+                        Err(e) => {
+                            tracing::warn!("menu de {widget} : {e}");
+                            hypr::notify(0, 5000, &format!("hyprdesk : menu de « {widget} » — {e}"));
+                            Msg::Noop
+                        }
+                    })
+                }
+                popover::Request::Tray { bus, menu_path } => {
+                    if self.popover.as_ref().is_some_and(|p| p.key == key) {
+                        return self.close_popover();
+                    }
+                    Task::perform(
+                        {
+                            let (b, m) = (bus.clone(), menu_path.clone());
+                            async move { crate::tray::menu(&b, &m).await }
+                        },
+                        move |r| match r {
+                            Ok(entries) => Msg::PopoverReady(
+                                bar_id,
+                                key.clone(),
+                                popover::Kind::Menu { entries, source: popover::MenuSource::Tray { bus: bus.clone(), menu_path: menu_path.clone() } },
+                            ),
+                            Err(e) => {
+                                tracing::warn!("menu de la zone de notification : {e}");
+                                Msg::Noop
+                            }
+                        },
+                    )
+                }
+            },
+            Msg::PopoverReady(bar_id, key, kind) => self.open_popover(bar_id, key, kind),
+            Msg::ClosePopover => self.close_popover(),
+            Msg::Popover(m) => self.popover_update(m),
+            Msg::LuaCall(widget, func, arg) => {
+                let lua = self.lua.clone();
+                Task::perform(
+                    async move {
+                        if let Err(e) = lua.call(func, arg).await {
+                            tracing::warn!("{widget} : {e}");
+                        }
+                        widget
+                    },
+                    Msg::Repoll,
+                )
+            }
+            Msg::Repoll(widget) => {
+                self.last_poll.remove(&widget);
+                self.poll()
+            }
+            Msg::VolumeSet(v) => {
+                if let Some(cur) = self.volume.as_mut() {
+                    cur.0 = v;
+                }
+                self.volume_action(vec!["set-volume".into(), "@DEFAULT_AUDIO_SINK@".into(), format!("{v:.2}")])
+            }
+            Msg::TrayItems(items) => {
+                let mut tasks = Vec::new();
+                for t in &items {
+                    if let Some((w, h, data)) = &t.pixmap {
+                        use std::hash::{Hash, Hasher};
+                        let mut hs = std::collections::hash_map::DefaultHasher::new();
+                        data.hash(&mut hs);
+                        let fp = hs.finish();
+                        if self.tray_imgs.get(&t.key).is_none_or(|(f, _)| *f != fp) {
+                            self.tray_imgs.insert(t.key.clone(), (fp, image::Handle::from_rgba(*w, *h, data.clone())));
+                        }
+                    } else if let Some(n) = &t.icon_name {
+                        self.tray_imgs.remove(&t.key);
+                        tasks.push(self.want_icon(n));
+                    }
+                }
+                self.tray = items;
+                Task::batch(tasks)
+            }
+            Msg::TrayActivate(_bar, bus, path, secondary) => {
+                // Les applications attendent des coordonnées globales.
+                let (x, y) = hypr::cursor_pos().unwrap_or_default();
+                Task::perform(crate::tray::activate(bus, path, secondary, x as i32, y as i32), |_| Msg::Noop)
             }
             Msg::Resized(id, size) => {
                 self.sizes.insert(id, size);
                 Task::none()
             }
             Msg::Closed(id) => {
+                if self.popover.as_ref().is_some_and(|p| p.win == id || p.catcher == id) {
+                    // Fermé par le compositeur : on referme l'autre surface aussi.
+                    return self.close_popover();
+                }
                 self.bar_surfaces.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
@@ -1467,6 +1708,9 @@ impl App {
             },
             Msg::Key(id, key) => {
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    if self.popover.is_some() {
+                        return self.close_popover();
+                    }
                     if self.panel.is_some() {
                         self.panel = None;
                         return Task::none();
@@ -1523,8 +1767,13 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
-        if !self.raised.is_empty() {
+        if !self.raised.is_empty() || self.popover.is_some() {
+            // Bureau affiché (glisser-déposer, clavier) ou menu ouvert (Échap).
+            // Jamais pour la seule barre : chaque mouvement de souris coûterait
+            // un rendu de toutes les surfaces.
             subs.push(iced::event::listen_with(listen));
+        }
+        if !self.raised.is_empty() {
             subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Msg::Poll));
         } else if self.cfg.bar.is_some() {
             // La barre reste visible : horloge et relevés continuent, à 1 Hz.
@@ -1544,6 +1793,14 @@ impl App {
     fn view(&self, id: Id) -> Element<'_, Msg> {
         if self.bar_surfaces.contains_key(&id) {
             return self.view_bar(id);
+        }
+        if let Some(p) = &self.popover {
+            if p.win == id {
+                return self.view_popover();
+            }
+            if p.catcher == id {
+                return self.view_catcher();
+            }
         }
         let Some((m, d)) = self.desktop_of(id) else {
             return Space::new().into();
@@ -1766,6 +2023,51 @@ impl App {
         .align_y(Alignment::End)
         .padding(Padding { bottom: 24.0, ..Padding::ZERO })
         .into()
+    }
+}
+
+/// Diagnostic : messages traités par type, relevé toutes les 5 s ; un trafic
+/// anormal (> 1500 messages, soit 300/s) est signalé dans le journal.
+static MSG_STATS: std::sync::Mutex<Option<(Instant, HashMap<&'static str, u32>)>> = std::sync::Mutex::new(None);
+
+fn msg_name(m: &Msg) -> &'static str {
+    match m {
+        Msg::Control(_) => "Control",
+        Msg::Hypr(hypr::Update::Monitors(_)) => "Hypr::Monitors",
+        Msg::Hypr(hypr::Update::Clients(_)) => "Hypr::Clients",
+        Msg::Hypr(hypr::Update::Workspaces(_)) => "Hypr::Workspaces",
+        Msg::Hypr(hypr::Update::ActiveWindow(_)) => "Hypr::ActiveWindow",
+        Msg::Hypr(hypr::Update::Reloaded) => "Hypr::Reloaded",
+        Msg::Poll => "Poll",
+        Msg::Frame => "Frame",
+        Msg::Rotate => "Rotate",
+        Msg::WidgetValue(..) => "WidgetValue",
+        Msg::Cursor(..) => "Cursor",
+        Msg::Resized(..) => "Resized",
+        Msg::IconResolved(..) => "IconResolved",
+        Msg::TrayItems(_) => "TrayItems",
+        Msg::VolumeValue(_) => "VolumeValue",
+        Msg::WallLoaded(..) => "WallLoaded",
+        Msg::Noop => "Noop",
+        Msg::ConfigChanged | Msg::ConfigLoaded(_) => "Config",
+        _ => "autre",
+    }
+}
+
+impl App {
+    fn count_msg(&self, m: &Msg) {
+        let Ok(mut g) = MSG_STATS.lock() else { return };
+        let (start, map) = g.get_or_insert_with(|| (Instant::now(), HashMap::new()));
+        *map.entry(msg_name(m)).or_default() += 1;
+        if start.elapsed() >= Duration::from_secs(5) {
+            let total: u32 = map.values().sum();
+            if total > 1500 {
+                let mut v: Vec<_> = map.iter().map(|(k, n)| (*n, *k)).collect();
+                v.sort_by(|a, b| b.cmp(a));
+                tracing::warn!("trafic élevé : {total} messages en 5 s — {:?}", &v[..v.len().min(6)]);
+            }
+            *g = Some((Instant::now(), HashMap::new()));
+        }
     }
 }
 

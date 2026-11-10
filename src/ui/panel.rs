@@ -298,8 +298,9 @@ impl App {
 
     fn save(&self) -> Task<Msg> {
         let (s, path) = (self.settings.clone(), self.config_path.clone());
+        let revision = crate::storage::revision();
         Task::perform(
-            async move { tokio::task::spawn_blocking(move || s.save(&path).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())? },
+            async move { tokio::task::spawn_blocking(move || s.save_versioned(&path, revision).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())? },
             |r| match r {
                 Ok(_) => Msg::Noop,
                 Err(e) => {
@@ -1307,6 +1308,7 @@ impl App {
             let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
                 WidgetSource::Builtin => "intégré".to_string(),
+                WidgetSource::Bundled => "plugin livré".to_string(),
                 WidgetSource::Plugin(path) => format!("plugin · {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
             };
             let mut info = column![

@@ -59,7 +59,7 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 --     position = "top", height = 36,
 --     left   = { "workspaces", "window" },
 --     center = { { "clock", format = "%a %d %b  %H:%M" } },
---     right  = { "media", "volume", "desktop" },
+--     right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
 -- })
 
 -- Session : composants lancés et supervisés par hyprdesk (relancés s'ils

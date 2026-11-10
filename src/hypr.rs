@@ -24,6 +24,16 @@ pub struct Monitor {
     pub focused: bool,
     /// Zone réservée par les barres (gauche, haut, droite, bas), en pixels logiques.
     pub reserved: (f32, f32, f32, f32),
+    /// Position de l'écran dans l'espace global (coordonnées logiques).
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Position globale du curseur, demandée à Hyprland au moment du clic (pas de
+/// suivi continu du pointeur : chaque mouvement coûterait un rendu complet).
+pub fn cursor_pos() -> Option<(f32, f32)> {
+    let v = ipc::query_json("cursorpos").ok()?;
+    Some((v["x"].as_f64()? as f32, v["y"].as_f64()? as f32))
 }
 
 /// Workspace, pour le module « workspaces » de la barre.
@@ -181,6 +191,8 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
                 workspace,
                 focused: m["focused"].as_bool().unwrap_or(false),
                 reserved: (r(0), r(1), r(2), r(3)),
+                x: m["x"].as_f64().unwrap_or(0.0) as f32,
+                y: m["y"].as_f64().unwrap_or(0.0) as f32,
             })
         })
         .collect()
@@ -365,6 +377,11 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
         }
     }
     lua += "end)\n";
+    // Barre et menus : flou derrière leur fond translucide, apparition en douceur.
+    lua += "if __hyprdesk_rules then for _, r in ipairs(__hyprdesk_rules) do pcall(function() r:set_enabled(false) end) end end\n\
+            __hyprdesk_rules = {}\n\
+            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-(bar|popover)$\" }, blur = true, ignore_alpha = 0.2, xray = false })) end)\n\
+            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-popover$\" }, animation = \"popin 92%\" })) end)\n";
     lua
 }
 

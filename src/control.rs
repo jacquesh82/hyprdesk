@@ -11,7 +11,7 @@ use iced::futures::{SinkExt, Stream};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Toggle,
     Show,
@@ -22,6 +22,8 @@ pub enum Command {
     /// Affiche le bureau et ouvre l'écran Réglages sur un onglet
     /// (0 bureau, 1 icônes, 2 fond d'écran, 3 effets, 4 widgets).
     Settings(u8),
+    /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
+    Menu(String),
 }
 
 impl Command {
@@ -38,11 +40,19 @@ impl Command {
             "settings fond" => Command::Settings(2),
             "settings effets" => Command::Settings(3),
             "settings widgets" => Command::Settings(4),
+            m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             _ => return None,
         })
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub fn to_line(&self) -> String {
+        match self {
+            Command::Menu(m) => format!("menu {m}"),
+            c => c.as_str().to_string(),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
         match self {
             Command::Toggle => "toggle",
             Command::Show => "show",
@@ -55,6 +65,7 @@ impl Command {
             Command::Settings(3) => "settings effets",
             Command::Settings(4) => "settings widgets",
             Command::Settings(_) => "settings",
+            Command::Menu(_) => "menu",
         }
     }
 }
@@ -78,7 +89,7 @@ pub fn send(cmd: Command) -> anyhow::Result<String> {
     let mut s = StdUnixStream::connect(&path)
         .map_err(|e| anyhow::anyhow!("démon hyprdesk injoignable ({}) : {e} — est-il lancé ?", path.display()))?;
     s.set_read_timeout(Some(Duration::from_secs(5)))?;
-    s.write_all(format!("{}\n", cmd.as_str()).as_bytes())?;
+    s.write_all(format!("{}\n", cmd.to_line()).as_bytes())?;
     s.shutdown(std::net::Shutdown::Write)?;
     let mut out = String::new();
     s.read_to_string(&mut out)?;
@@ -151,8 +162,9 @@ mod tests {
     #[test]
     fn aller_retour_des_commandes() {
         for c in [Command::Toggle, Command::Show, Command::Hide, Command::Reload, Command::Status, Command::Quit, Command::Settings(0), Command::Settings(2)] {
-            assert_eq!(Command::parse(&format!("{}\n", c.as_str())), Some(c));
+            assert_eq!(Command::parse(&format!("{}\n", c.to_line())), Some(c.clone()));
         }
         assert_eq!(Command::parse("nope"), None);
+        assert_eq!(Command::parse("menu reseau"), Some(Command::Menu("reseau".into())));
     }
 }

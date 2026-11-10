@@ -1,0 +1,426 @@
+//! Menus déroulants de la barre, à la manière de macOS : une carte arrondie,
+//! translucide et floutée, ombre portée, qui descend sous le module cliqué.
+//!
+//! Deux surfaces : la carte (calque `overlay`, clavier exclusif pour Échap)
+//! et un « capteur » transparent plein écran juste dessous, qui ferme le menu
+//! au premier clic ailleurs.
+
+use iced::widget::{Space, button, column, container, mouse_area, row, rule, slider, text, toggler};
+use iced::window::Id;
+use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Shadow, Size, Task, Vector};
+use iced_layershell::reexport::{Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption};
+
+use super::{App, Msg, color, format_now};
+use crate::config::{BarPosition, MenuEntry};
+
+pub const POPOVER_NAMESPACE: &str = "hyprdesk-popover";
+/// Marge transparente autour de la carte, pour son ombre.
+pub const SHADOW: f32 = 18.0;
+const WIDTH: f32 = 300.0;
+/// Écart entre la barre et le haut de la carte.
+const GAP: f32 = 6.0;
+
+/// Ce qu'on demande d'ouvrir (le contenu peut devoir être calculé avant).
+#[derive(Debug, Clone)]
+pub enum Request {
+    Volume,
+    Calendar,
+    /// Menu d'un widget Lua : sa fonction `menu`, et l'id du widget à rafraîchir après une action.
+    LuaMenu { widget: String, func: usize },
+    /// Menu dbusmenu d'une icône de la zone de notification.
+    Tray { bus: String, menu_path: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum MenuSource {
+    Lua { widget: String },
+    Tray { bus: String, menu_path: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum Kind {
+    Volume,
+    Calendar,
+    Menu { entries: Vec<MenuEntry>, source: MenuSource },
+}
+
+#[derive(Debug, Clone)]
+pub enum PMsg {
+    /// Clic sur l'entrée n du menu.
+    Activate(usize),
+    /// Confirmation d'une entrée « confirm ».
+    Confirm(usize),
+    CancelConfirm,
+    Spawn(String),
+}
+
+pub struct Popover {
+    pub win: Id,
+    pub catcher: Id,
+    /// Module d'origine : recliquer dessus referme.
+    pub key: String,
+    pub kind: Kind,
+    pub size: Size,
+    /// Entrée en attente de confirmation.
+    pub confirm: Option<usize>,
+}
+
+/// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
+/// l'ensemble ne tiendrait pas sur une ligne.
+fn stacked(label: &str, detail: Option<&str>) -> bool {
+    detail.is_some_and(|d| d.chars().count() > 22 || label.chars().count() + d.chars().count() > 32)
+}
+
+/// Semaines affichées par le calendrier du mois en cours.
+fn calendar_weeks() -> u32 {
+    use chrono::Datelike;
+    let today = chrono::Local::now().date_naive();
+    let first = today.with_day(1).unwrap_or(today);
+    let next = if first.month() == 12 {
+        chrono::NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+    } else {
+        chrono::NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+    };
+    let days = next.map(|n| (n - first).num_days() as u32).unwrap_or(30);
+    (first.weekday().num_days_from_monday() + days).div_ceil(7)
+}
+
+/// Hauteur de la carte pour un contenu donné (les surfaces layer-shell ont une taille fixe).
+fn card_height(kind: &Kind, confirm: Option<usize>) -> f32 {
+    let inner = match kind {
+        Kind::Volume => 150.0,
+        Kind::Calendar => 112.0 + calendar_weeks() as f32 * 23.0,
+        Kind::Menu { entries, .. } => {
+            let rows: f32 = entries
+                .iter()
+                .enumerate()
+                .map(|(i, e)| match e {
+                    MenuEntry::Header(_) => 26.0,
+                    MenuEntry::Separator => 11.0,
+                    MenuEntry::Item { label, detail, .. } => {
+                        let base = if stacked(label, detail.as_deref()) { 44.0 } else { 30.0 };
+                        base + if confirm == Some(i) { 40.0 } else { 0.0 }
+                    }
+                })
+                .sum();
+            rows.max(30.0)
+        }
+    };
+    inner + 12.0
+}
+
+impl App {
+    /// Ouvre un menu sous le module cliqué de la barre `bar` (ou le referme).
+    pub(super) fn open_popover(&mut self, bar: Id, key: String, kind: Kind) -> Task<Msg> {
+        let toggling = self.popover.as_ref().is_some_and(|p| p.key == key);
+        let mut tasks = vec![self.close_popover()];
+        if toggling {
+            return Task::batch(tasks);
+        }
+        let Some(b) = self.bar_surfaces.get(&bar).cloned() else { return Task::batch(tasks) };
+        let Some(m) = self.monitors.iter().find(|m| m.name == b.monitor).cloned() else { return Task::batch(tasks) };
+        let h = card_height(&kind, None);
+        let size = Size::new(WIDTH + 2.0 * SHADOW, h + 2.0 * SHADOW);
+        // Centré sous le curseur (position demandée à Hyprland), sans déborder de l'écran.
+        let cx = crate::hypr::cursor_pos()
+            .map(|(x, _)| x - m.x)
+            .filter(|x| (0.0..=m.width as f32).contains(x))
+            .unwrap_or(m.width as f32 - WIDTH / 2.0 - 16.0);
+        let left = (cx - WIDTH / 2.0).clamp(8.0, (m.width as f32 - WIDTH - 8.0).max(8.0)) - SHADOW;
+        let (catcher, win) = (Id::unique(), Id::unique());
+        // Le capteur d'abord : la carte, créée ensuite et sur le calque overlay, passe au-dessus.
+        tasks.push(Task::done(Msg::NewLayerShell {
+            settings: NewLayerShellSettings {
+                size: Some((0, 0)),
+                layer: Layer::Top,
+                anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                exclusive_zone: Some(-1),
+                keyboard_interactivity: KeyboardInteractivity::None,
+                output_option: OutputOption::OutputName(m.name.clone()),
+                namespace: Some("hyprdesk-catcher".into()),
+                ..Default::default()
+            },
+            id: catcher,
+        }));
+        let edge = if b.position == BarPosition::Top { LsAnchor::Top } else { LsAnchor::Bottom };
+        // Zone exclusive 0 : la carte se place après les barres ; la marge (négative)
+        // ramène la carte à GAP pixels de la barre malgré la marge d'ombre.
+        let v = (GAP - SHADOW) as i32;
+        let margin = if b.position == BarPosition::Top { (v, 0, 0, left as i32) } else { (0, 0, v, left as i32) };
+        tasks.push(Task::done(Msg::NewLayerShell {
+            settings: NewLayerShellSettings {
+                size: Some((size.width as u32, size.height as u32)),
+                layer: Layer::Overlay,
+                anchor: edge | LsAnchor::Left,
+                exclusive_zone: Some(0),
+                margin: Some(margin),
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                output_option: OutputOption::OutputName(m.name.clone()),
+                namespace: Some(POPOVER_NAMESPACE.into()),
+                ..Default::default()
+            },
+            id: win,
+        }));
+        if let Kind::Menu { entries, .. } = &kind {
+            for e in entries {
+                if let MenuEntry::Item { icon: Some(i), .. } = e {
+                    tasks.push(self.want_icon(i));
+                }
+            }
+        }
+        tasks.push(self.want_icon("object-select-symbolic"));
+        self.popover = Some(Popover { win, catcher, key, kind, size, confirm: None });
+        Task::batch(tasks)
+    }
+
+    pub(super) fn close_popover(&mut self) -> Task<Msg> {
+        match self.popover.take() {
+            Some(p) => Task::batch([iced::window::close(p.win), iced::window::close(p.catcher)]),
+            None => Task::none(),
+        }
+    }
+
+    pub(super) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
+        let Some(p) = self.popover.as_mut() else { return Task::none() };
+        match m {
+            PMsg::Spawn(cmd) => {
+                let t = self.run_from_desktop(cmd, false);
+                Task::batch([t, self.close_popover()])
+            }
+            PMsg::CancelConfirm => {
+                p.confirm = None;
+                self.resize_popover()
+            }
+            PMsg::Activate(i) => {
+                let Kind::Menu { entries, .. } = &p.kind else { return Task::none() };
+                let Some(MenuEntry::Item { enabled: true, confirm, .. }) = entries.get(i) else { return Task::none() };
+                if confirm.is_some() && p.confirm != Some(i) {
+                    p.confirm = Some(i);
+                    return self.resize_popover();
+                }
+                self.popover_update(PMsg::Confirm(i))
+            }
+            PMsg::Confirm(i) => {
+                let Kind::Menu { entries, source } = &p.kind else { return Task::none() };
+                let Some(MenuEntry::Item { action: Some(action), .. }) = entries.get(i) else { return self.close_popover() };
+                let action = *action;
+                let t = match source.clone() {
+                    MenuSource::Lua { widget } => {
+                        let lua = self.lua.clone();
+                        Task::perform(
+                            async move {
+                                if let Err(e) = lua.menu_action(action as usize).await {
+                                    tracing::warn!("menu : {e}");
+                                }
+                                widget
+                            },
+                            Msg::Repoll,
+                        )
+                    }
+                    MenuSource::Tray { bus, menu_path } => Task::perform(
+                        async move { crate::tray::menu_event(&bus, &menu_path, action as i32).await },
+                        |_| Msg::Noop,
+                    ),
+                };
+                Task::batch([t, self.close_popover()])
+            }
+        }
+    }
+
+    fn resize_popover(&mut self) -> Task<Msg> {
+        let Some(p) = self.popover.as_mut() else { return Task::none() };
+        let h = card_height(&p.kind, p.confirm) + 2.0 * SHADOW;
+        p.size.height = h;
+        Task::done(Msg::SizeChange { id: p.win, size: (p.size.width as u32, h as u32) })
+    }
+
+    pub(super) fn view_catcher(&self) -> Element<'_, Msg> {
+        mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill))
+            .on_press(Msg::ClosePopover)
+            .on_right_press(Msg::ClosePopover)
+            .into()
+    }
+
+    pub(super) fn view_popover(&self) -> Element<'_, Msg> {
+        let Some(p) = &self.popover else { return Space::new().into() };
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let content: Element<'_, Msg> = match &p.kind {
+            Kind::Volume => self.pop_volume(),
+            Kind::Calendar => self.pop_calendar(),
+            Kind::Menu { entries, .. } => self.pop_menu(entries, p.confirm),
+        };
+        let bg = color(th.bg, 0.86);
+        let edge = Color { a: 0.12, ..fg };
+        let card = container(content)
+            .padding(6)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(bg.into()),
+                border: Border::default().rounded(12).width(1).color(edge),
+                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: Vector::new(0.0, 8.0), blur_radius: 22.0 },
+                text_color: Some(fg),
+                ..Default::default()
+            });
+        container(card).padding(SHADOW).width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn pop_header(&self, label: String) -> Element<'_, Msg> {
+        let dim = color(self.cfg.general.theme.fg, 0.5);
+        container(text(label).size(11.5).color(dim).font(self.ui_font(iced::font::Weight::Semibold)))
+            .padding(Padding { top: 6.0, right: 10.0, bottom: 4.0, left: 10.0 })
+            .height(26)
+            .into()
+    }
+
+    fn pop_separator(&self) -> Element<'_, Msg> {
+        let line = color(self.cfg.general.theme.fg, 0.10);
+        container(rule::horizontal(1).style(move |_| rule::Style { color: line, radius: 0.0.into(), fill_mode: rule::FillMode::Full, snap: true }))
+            .padding([5, 10])
+            .height(11)
+            .into()
+    }
+
+    /// Ligne de menu à la macOS : surlignage plein en couleur d'accent au survol.
+    /// `enabled` à faux : entrée grisée ; sans action (`clickable` faux) : ligne
+    /// d'information, lisible mais sans survol.
+    fn pop_row<'a>(&'a self, lead: Element<'a, Msg>, label: String, detail: Option<String>, enabled: bool, clickable: bool, msg: Option<Msg>) -> Element<'a, Msg> {
+        let th = &self.cfg.general.theme;
+        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        let dim = color(th.fg, if enabled { 0.55 } else { 0.3 });
+        let font = self.ui_font(iced::font::Weight::Normal);
+        let long = stacked(&label, detail.as_deref());
+        let active = enabled && clickable;
+        let label_el = text(label).size(13.5).font(font).wrapping(iced::widget::text::Wrapping::None);
+        let body: Element<'_, Msg> = match detail {
+            Some(d) if long => column![label_el, text(d).size(11.5).color(dim).font(font).wrapping(iced::widget::text::Wrapping::None)].spacing(1).into(),
+            Some(d) => row![label_el.width(Length::Fill), text(d).size(12).color(dim).font(font)].align_y(Alignment::Center).into(),
+            None => label_el.into(),
+        };
+        button(row![container(lead).width(18).align_x(Alignment::Center), body].spacing(8).align_y(Alignment::Center))
+            .width(Length::Fill)
+            .height(if long { 44 } else { 30 })
+            .padding([4, 10])
+            .on_press_maybe(if active { msg } else { None })
+            .style(move |_, st| {
+                let hot = active && matches!(st, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: hot.then_some(Background::Color(accent)),
+                    text_color: if !enabled {
+                        Color { a: 0.35, ..fg }
+                    } else if hot {
+                        Color::WHITE
+                    } else {
+                        fg
+                    },
+                    border: Border::default().rounded(6),
+                    ..Default::default()
+                }
+            })
+            .into()
+    }
+
+    fn pop_menu<'a>(&'a self, entries: &'a [MenuEntry], confirm: Option<usize>) -> Element<'a, Msg> {
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let mut col = column![].spacing(0);
+        if entries.is_empty() {
+            col = col.push(self.pop_row(Space::new().into(), "Rien à afficher".into(), None, false, false, None));
+        }
+        for (i, e) in entries.iter().enumerate() {
+            col = col.push(match e {
+                MenuEntry::Header(h) => self.pop_header(h.clone()),
+                MenuEntry::Separator => self.pop_separator(),
+                MenuEntry::Item { label, detail, icon, checked, enabled, action, confirm: ask } => {
+                    let lead: Element<'_, Msg> = match (checked, icon) {
+                        (Some(true), _) => self.icon_named("object-select-symbolic", 14.0, fg).unwrap_or_else(|| text("•").size(13).into()),
+                        (_, Some(name)) => self.icon_named(name, 16.0, fg).unwrap_or_else(|| Space::new().into()),
+                        _ => Space::new().into(),
+                    };
+                    let row_el = self.pop_row(lead, label.clone(), detail.clone(), *enabled, action.is_some(), Some(Msg::Popover(PMsg::Activate(i))));
+                    if confirm == Some(i) {
+                        let question = ask.clone().unwrap_or_else(|| "Confirmer ?".into());
+                        let danger = Color::from_rgb8(0xff, 0x55, 0x55);
+                        let font = self.ui_font(iced::font::Weight::Medium);
+                        column![
+                            row_el,
+                            row![
+                                text(question).size(12.5).font(font).width(Length::Fill),
+                                button(text("Annuler").size(12.5).font(font)).padding([4, 10]).on_press(Msg::Popover(PMsg::CancelConfirm)).style(
+                                    move |_, st| button::Style {
+                                        background: Some(Background::Color(Color { a: if matches!(st, button::Status::Hovered) { 0.18 } else { 0.10 }, ..fg })),
+                                        text_color: fg,
+                                        border: Border::default().rounded(6),
+                                        ..Default::default()
+                                    }
+                                ),
+                                button(text("Confirmer").size(12.5).font(font)).padding([4, 10]).on_press(Msg::Popover(PMsg::Confirm(i))).style(
+                                    move |_, st| button::Style {
+                                        background: Some(Background::Color(Color { a: if matches!(st, button::Status::Hovered) { 1.0 } else { 0.85 }, ..danger })),
+                                        text_color: Color::WHITE,
+                                        border: Border::default().rounded(6),
+                                        ..Default::default()
+                                    }
+                                ),
+                            ]
+                            .spacing(6)
+                            .align_y(Alignment::Center)
+                            .padding([4, 10])
+                            .height(40),
+                        ]
+                        .into()
+                    } else {
+                        row_el
+                    }
+                }
+            });
+        }
+        col.into()
+    }
+
+    fn pop_volume(&self) -> Element<'_, Msg> {
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let (v, muted) = self.volume.unwrap_or((0.0, false));
+        let font = self.ui_font(iced::font::Weight::Medium);
+        let icon = super::bar::volume_icon(self.volume);
+        column![
+            self.pop_header("Son".into()),
+            row![
+                self.icon_named(icon, 16.0, fg).unwrap_or_else(|| Space::new().into()),
+                slider(0.0..=1.5f32, v.min(1.5), Msg::VolumeSet).step(0.01f32).width(Length::Fill),
+                text(format!("{:.0} %", v * 100.0)).size(12.5).font(font).width(40).align_x(Alignment::End),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .padding([6, 10]),
+            row![text("Muet").size(13.5).font(self.ui_font(iced::font::Weight::Normal)).width(Length::Fill), toggler(muted).on_toggle(|_| Msg::VolumeMute)]
+                .align_y(Alignment::Center)
+                .padding([4, 10]),
+            self.pop_separator(),
+            self.pop_row(Space::new().into(), "Réglages audio…".into(), None, true, true, Some(Msg::Popover(PMsg::Spawn("pavucontrol".into())))),
+        ]
+        .into()
+    }
+
+    fn pop_calendar(&self) -> Element<'_, Msg> {
+        let th = &self.cfg.general.theme;
+        let (fg, dim, accent) = (color(th.fg, 1.0), color(th.fg, 0.55), color(th.accent, 1.0));
+        let title = format_now("%A %-d %B %Y");
+        let mut t = title.chars();
+        let title = t.next().map(|c| c.to_uppercase().collect::<String>() + t.as_str()).unwrap_or_default();
+        column![
+            container(
+                column![
+                    text(title).size(15).font(self.ui_font(iced::font::Weight::Semibold)).color(fg),
+                    text(format_now("%H:%M")).size(12.5).color(dim).font(self.ui_font(iced::font::Weight::Normal)),
+                ]
+                .spacing(2)
+            )
+            .padding([6, 10]),
+            container(self.view_calendar(12.5, fg, dim, accent)).padding([4, 10]),
+        ]
+        .into()
+    }
+}

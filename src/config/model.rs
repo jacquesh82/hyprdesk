@@ -161,6 +161,61 @@ impl Default for Grid {
     }
 }
 
+/// État d'un widget rendu : teinte (avertissement, critique), mise en avant, ou masqué.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderState {
+    #[default]
+    Normal,
+    /// Mis en avant (ex. Wi-Fi connecté, Ne pas déranger actif).
+    Active,
+    Warning,
+    Critical,
+    /// Rien à afficher (ex. pas de batterie) : le module disparaît.
+    Hidden,
+}
+
+impl RenderState {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "normal" => RenderState::Normal,
+            "active" => RenderState::Active,
+            "warning" => RenderState::Warning,
+            "critical" => RenderState::Critical,
+            "hidden" => RenderState::Hidden,
+            _ => return None,
+        })
+    }
+}
+
+/// Ce qu'un widget Lua rend : du texte, ou une table { text, icon, tooltip, state }.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Rendered {
+    pub text: String,
+    /// Nom d'icône du thème (de préférence `…-symbolic`, teintée) ou chemin.
+    pub icon: Option<String>,
+    pub tooltip: Option<String>,
+    pub state: RenderState,
+}
+
+/// Entrée d'un menu déroulant (plugin, zone de notification).
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuEntry {
+    Item {
+        label: String,
+        detail: Option<String>,
+        icon: Option<String>,
+        /// Case à cocher : Some(coché).
+        checked: Option<bool>,
+        enabled: bool,
+        /// Index de l'action (fonction Lua, ou id dbusmenu).
+        action: Option<i64>,
+        /// Demander confirmation avant l'action (texte de la question).
+        confirm: Option<String>,
+    },
+    Separator,
+    Header(String),
+}
+
 /// Position de la barre.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BarPosition {
@@ -179,13 +234,15 @@ pub enum BarItem {
     Desktop,
     /// Volume de la sortie audio (wpctl).
     Volume,
+    /// Zone de notification (StatusNotifierItem).
+    Tray,
     /// Widget (intégré ou plugin) affiché en version compacte.
     Widget(String),
 }
 
 /// Modules propres à la barre (les autres noms sont des types de widgets).
 pub const BAR_ITEMS: &[(&str, &str)] =
-    &[("workspaces", "Workspaces"), ("window", "Fenêtre active"), ("volume", "Volume"), ("desktop", "Bouton bureau")];
+    &[("workspaces", "Workspaces"), ("window", "Fenêtre active"), ("volume", "Volume"), ("tray", "Zone de notification"), ("desktop", "Bouton bureau")];
 
 impl BarItem {
     pub fn builtin(name: &str) -> Option<Self> {
@@ -194,6 +251,7 @@ impl BarItem {
             "window" => BarItem::Window,
             "desktop" => BarItem::Desktop,
             "volume" => BarItem::Volume,
+            "tray" => BarItem::Tray,
             _ => return None,
         })
     }
@@ -426,8 +484,9 @@ pub enum WidgetKind {
     /// `player` : sous-chaîne du nom MPRIS, `*` = le premier qui joue.
     Media { player: String },
     Command { exec: String, timeout: Duration },
-    /// Index de la fonction `render` dans le registre Lua.
-    Lua { func: usize },
+    /// Fonctions Lua (index dans le registre) : `render`, et les facultatives
+    /// `on_click`, `on_scroll` et `menu`.
+    Lua { func: usize, click: Option<usize>, scroll: Option<usize>, menu: Option<usize> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -487,6 +546,8 @@ pub enum WidgetSource {
     Builtin,
     /// Fichier Lua détecté dans un dossier de plugins.
     Plugin(PathBuf),
+    /// Plugin livré avec hyprdesk (réseau, Bluetooth…), remplaçable par un fichier du même nom.
+    Bundled,
 }
 
 /// Entrée du catalogue des widgets disponibles.

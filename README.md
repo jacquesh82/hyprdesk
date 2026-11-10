@@ -65,6 +65,63 @@ return {
 }
 ```
 
+Un plugin peut faire plus que du texte. C'est ce qui permet d'ajouter à la
+barre tout ce qui manque, de façon classique :
+
+```lua
+return {
+    name = "VPN", description = "État du VPN", interval = 5, anchor = "top-right",
+    options = { interface = "wg0" },
+    -- texte, ou table : icône (de préférence « …-symbolic », teintée selon le thème),
+    -- info-bulle, état (normal, active, warning, critical, hidden)
+    render = function(o)
+        local up = hd.exec("ip link show " .. o.interface .. " 2>/dev/null") ~= ""
+        return { icon = up and "network-vpn-symbolic" or "network-vpn-disabled-symbolic",
+                 tooltip = up and "VPN actif" or "VPN coupé", state = up and "active" or "normal" }
+    end,
+    on_click  = function(o) end,              -- clic (clic droit si un menu existe)
+    on_scroll = function(o, sens) end,        -- molette : +1 / -1
+    menu = function(o)                        -- menu déroulant sous le module
+        return {
+            { header = "VPN" },
+            { label = "Connecter", icon = "network-vpn-symbolic", action = function() hd.spawn("wg-quick up wg0") end },
+            "-",
+            { label = "Tout couper…", confirm = "Couper le VPN ?", action = function() hd.exec("wg-quick down wg0") end },
+        }
+    end,
+}
+```
+
+- **`hd.exec(cmd)`** rend la sortie d'une commande.
+- **`hd.spawn(cmd)`** lance un programme sans attendre, par Hyprland.
+- **Entrées de menu** : `label`, `detail`, `icon`, `checked`, `disabled`,
+  `action` et `confirm`. Une entrée avec `confirm` demande une confirmation
+  dans le menu même.
+
+**Plugins livrés.** Ils sont intégrés au binaire, et un fichier du même nom
+les remplace :
+
+| Plugin | Rôle |
+|---|---|
+| `reseau` | filaire et Wi-Fi, réseaux à proximité, connexion, activation du Wi-Fi |
+| `bluetooth` | activation, appareils appairés (connexion, déconnexion) |
+| `batterie` | batterie de l'ordinateur et des périphériques (souris, clavier) ; masqué s'il n'y en a pas |
+| `notifications` | Ne pas déranger, dernières notifications, tout effacer (service de wayle) |
+| `session` | verrouiller, veille, déconnexion, redémarrage, extinction (avec confirmation) |
+
+**Modules propres à la barre.**
+- `workspaces` : pastilles ; clic pour y aller, molette pour passer d'un
+  workspace à l'autre.
+- `window` : titre de la fenêtre active.
+- `volume` : menu avec curseur et coupure ; clic du milieu pour couper,
+  molette pour régler.
+- `tray` : zone de notification. Clic pour activer l'application, clic
+  droit pour son menu natif (dbusmenu).
+- `desktop` : bouton qui affiche ou masque le bureau vide.
+
+L'horloge ouvre un calendrier. `hyprdesk menu <module>` ouvre un menu au
+clavier, par exemple `hyprdesk menu volume` ou `hyprdesk menu reseau`.
+
 Emplacements des plugins :
 - un fichier `<nom>.lua`, ou un dossier `<nom>/init.lua` ;
 - cherchés aussi dans `~/.local/share/hyprdesk/widgets` et

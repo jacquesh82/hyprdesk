@@ -150,12 +150,20 @@ impl App {
     fn view_value(&self, v: Option<&widgets::Value>, size: f32, fg: Color, dim: Color) -> Element<'_, Msg> {
         match v {
             Some(widgets::Value::Text(s)) => text(s.clone()).size(size).color(fg).font(self.font).into(),
+            Some(widgets::Value::Rich(r)) if r.state != crate::config::RenderState::Hidden => {
+                let mut c = row![].spacing(8).align_y(Alignment::Center);
+                if let Some(icon) = r.icon.as_deref().and_then(|i| self.icon_named(i, size * 1.3, fg)) {
+                    c = c.push(icon);
+                }
+                c.push(text(r.text.clone()).size(size).color(fg).font(self.font)).into()
+            }
+            Some(widgets::Value::Rich(_)) => Space::new().into(),
             Some(widgets::Value::Error(e)) => text(format!("⚠ {e}")).size(size).color(Color { r: 1.0, g: 0.5, b: 0.5, a: dim.a }).font(self.font).into(),
             _ => text("…").size(size).color(dim).font(self.font).into(),
         }
     }
 
-    fn view_calendar(&self, size: f32, fg: Color, dim: Color, accent: Color) -> Element<'_, Msg> {
+    pub(super) fn view_calendar(&self, size: f32, fg: Color, dim: Color, accent: Color) -> Element<'_, Msg> {
         let today = Local::now().date_naive();
         let first = today.with_day(1).unwrap_or(today);
         let next_month = if first.month() == 12 {

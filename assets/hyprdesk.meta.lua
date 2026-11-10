@@ -125,6 +125,37 @@ function hd.bar(spec) end
 ---@param spec { exec: string, restart?: boolean }
 function hd.component(name, spec) end
 
+---@class HD.Rendered
+---@field text? string
+---@field icon? string # nom d'icône du thème (« …-symbolic » : teintée) ou chemin
+---@field tooltip? string
+---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
+
+---@class HD.MenuEntry
+---@field header? string # titre de section
+---@field label? string
+---@field detail? string
+---@field icon? string
+---@field checked? boolean
+---@field disabled? boolean
+---@field confirm? string # question de confirmation avant l'action
+---@field action? fun()
+
+---@class HD.Plugin
+---@field name? string
+---@field description? string
+---@field interval? number
+---@field anchor? HD.Anchor
+---@field options? table<string, any>
+---@field render fun(o: table): string|HD.Rendered
+---@field on_click? fun(o: table)
+---@field on_scroll? fun(o: table, dir: integer)
+---@field menu? fun(o: table): (HD.MenuEntry|"-")[]
+
+--- Lance un programme sans attendre (par Hyprland).
+---@param cmd string
+function hd.spawn(cmd) end
+
 --- Exécute une commande shell et rend sa sortie standard.
 ---@param cmd string
 ---@return string

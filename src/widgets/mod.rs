@@ -40,6 +40,8 @@ pub struct MediaInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Text(String),
+    /// Rendu riche d'un widget Lua : icône, texte, info-bulle, état.
+    Rich(crate::config::Rendered),
     Sys(Vec<SysLine>),
     Media(Option<MediaInfo>),
     Error(String),
@@ -114,7 +116,7 @@ pub const BUILTINS: &[Builtin] = &[
         id: "lua",
         name: "Fonction Lua",
         description: "Texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
-        options: &["render"],
+        options: &["render", "on_click", "on_scroll", "menu"],
         interval: 5.0,
         anchor: Anchor::Left,
         toggleable: false,

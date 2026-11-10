@@ -15,6 +15,34 @@
 
 use std::path::{Path, PathBuf};
 
+/// Plugins livrés avec hyprdesk : chargés si aucun fichier du même nom ne les remplace.
+pub const BUNDLED: &[(&str, &str)] = &[
+    ("reseau", include_str!("../../assets/widgets/integres/reseau.lua")),
+    ("bluetooth", include_str!("../../assets/widgets/integres/bluetooth.lua")),
+    ("batterie", include_str!("../../assets/widgets/integres/batterie.lua")),
+    ("notifications", include_str!("../../assets/widgets/integres/notifications.lua")),
+    ("session", include_str!("../../assets/widgets/integres/session.lua")),
+];
+
+/// Source d'un plugin : un fichier, ou un plugin livré.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    File(PathBuf),
+    Bundled(&'static str),
+}
+
+/// Plugins disponibles : fichiers des dossiers, puis plugins livrés non remplacés.
+pub fn all(dirs: &[PathBuf]) -> Vec<(String, Source)> {
+    let mut out: Vec<(String, Source)> = discover(dirs).into_iter().map(|(id, p)| (id, Source::File(p))).collect();
+    for (id, src) in BUNDLED {
+        if !out.iter().any(|(i, _)| i == id) {
+            out.push((id.to_string(), Source::Bundled(src)));
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// Dossiers de plugins, du plus prioritaire au moins prioritaire.
 pub fn dirs(config_dir: &Path) -> Vec<PathBuf> {
     let mut out = vec![config_dir.join("hyprdesk").join("widgets")];

@@ -10,6 +10,8 @@ mod launch;
 mod session;
 mod settings;
 mod single;
+mod storage;
+mod tray;
 mod layout;
 mod ui;
 mod widgets;
@@ -29,6 +31,7 @@ Commandes :
   show | hide       affiche / masque le bureau
   settings [onglet] affiche le bureau et ouvre l'écran Réglages
                     (onglet : bureau, icones, fond, widgets, effets)
+  menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon

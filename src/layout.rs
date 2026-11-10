@@ -90,7 +90,7 @@ impl Layout {
             if let Some(d) = p.parent() {
                 std::fs::create_dir_all(d)?;
             }
-            std::fs::write(&p, toml::to_string_pretty(self)?)?;
+            crate::storage::write(&p, toml::to_string_pretty(self)?.as_bytes(), crate::storage::revision())?;
             Ok(())
         };
         if let Err(e) = write() {

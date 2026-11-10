@@ -52,7 +52,18 @@ impl Default for BarSettings {
             zones: [
                 vec![BarEntry::new("workspaces"), BarEntry::new("window")],
                 vec![BarEntry { type_id: "clock".into(), fields: vec![format!("format = {}", q("%a %d %b  %H:%M"))] }],
-                vec![BarEntry::new("media"), BarEntry::new("volume"), BarEntry::new("desktop")],
+                vec![
+                    BarEntry::new("tray"),
+                    BarEntry::new("media"),
+                    BarEntry::new("reseau"),
+                    BarEntry::new("bluetooth"),
+                    BarEntry::new("batterie"),
+                    BarEntry::new("volume"),
+                    BarEntry::new("notifications"),
+                    // Accès au bureau vide, toujours en bout de barre.
+                    BarEntry::new("desktop"),
+                    BarEntry::new("session"),
+                ],
             ],
         }
     }
@@ -110,6 +121,7 @@ impl Settings {
                             BarItem::Window => BarEntry::new("window"),
                             BarItem::Desktop => BarEntry::new("desktop"),
                             BarItem::Volume => BarEntry::new("volume"),
+                            BarItem::Tray => BarEntry::new("tray"),
                             BarItem::Widget(id) => match c.widgets.iter().find(|w| &w.id == id) {
                                 Some(w) => BarEntry { type_id: w.type_id.clone(), fields: widget_fields(&w.kind) },
                                 None => BarEntry::new("clock"),
@@ -476,13 +488,12 @@ impl Settings {
     /// Écriture atomique (fichier temporaire + renommage) : la surveillance de
     /// la config ne voit jamais un fichier à moitié écrit.
     pub fn save(&self, config_path: &Path) -> std::io::Result<PathBuf> {
+        self.save_versioned(config_path, crate::storage::revision())
+    }
+
+    pub fn save_versioned(&self, config_path: &Path, revision: u64) -> std::io::Result<PathBuf> {
         let p = crate::config::lua::settings_path(config_path);
-        if let Some(d) = p.parent() {
-            std::fs::create_dir_all(d)?;
-        }
-        let tmp = p.with_extension("lua.tmp");
-        std::fs::write(&tmp, self.to_lua())?;
-        std::fs::rename(&tmp, &p)?;
+        crate::storage::write(&p, self.to_lua().as_bytes(), revision)?;
         Ok(p)
     }
 }
