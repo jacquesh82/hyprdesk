@@ -369,6 +369,110 @@ impl App {
         Task::batch([Task::perform(async move { lua.load(path).await.map(Arc::new) }, Msg::ConfigLoaded), settings])
     }
 
+    /// Remplace la config effective en ne refaisant que ce qui a changé : un
+    /// réglage modifié en direct, ou un rechargement identique, ne fait ni
+    /// clignoter les icônes ni repartir le diaporama.
+    fn install_config(&mut self, cfg: Arc<Config>) -> Task<Msg> {
+        let old = std::mem::replace(&mut self.cfg, cfg);
+        let n_owned = self.cfg.general.clone();
+        let (o, n) = (&old.general, &n_owned);
+        if o.font != n.font || self.icons_gen == 0 {
+            self.font = match &n.font {
+                // Les noms de police doivent vivre aussi longtemps que le programme.
+                Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
+                None => Font::DEFAULT,
+            };
+        }
+        if o.theme != n.theme {
+            self.theme = make_theme(&self.cfg);
+        }
+        if old.wallpapers != self.cfg.wallpapers {
+            self.rot.clear();
+        }
+        let mut tasks = Vec::new();
+        if old.widgets != self.cfg.widgets {
+            self.values.clear();
+            self.last_poll.clear();
+            if self.visible {
+                tasks.push(Task::done(Msg::Poll));
+            }
+        }
+        // La taille d'icône ne demande pas de nouvelle recherche : l'image est mise à l'échelle.
+        let icons_changed =
+            old.icons != self.cfg.icons || o.icon_theme != n.icon_theme || o.terminal != n.terminal || self.icons_gen == 0;
+        if icons_changed {
+            self.selected = None;
+            self.icons_gen += 1;
+            let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
+            tasks.push(Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        let g = &cfg.general;
+                        let icons = cfg
+                            .icons
+                            .iter()
+                            .map(|d| launch::resolve(d, g.icon_theme.as_deref(), g.grid.icon_size, &g.terminal))
+                            .collect::<Vec<_>>();
+                        let media = UI_ICONS.iter().map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24)).collect::<Vec<_>>();
+                        (icons, media)
+                    })
+                    .await
+                    .unwrap_or_default()
+                },
+                move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
+            ));
+        } else if o.running_apps != n.running_apps {
+            tasks.push(self.resolve_class_icons());
+        }
+        if o.show_on != n.show_on {
+            tasks.push(self.sync_raised());
+        }
+        tasks.push(self.refresh_walls());
+        Task::batch(tasks)
+    }
+
+    /// Bureau affiché : aligne les surfaces levées sur `show_on` (écran actif ou tous).
+    fn sync_raised(&mut self) -> Task<Msg> {
+        if !self.visible {
+            return Task::none();
+        }
+        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
+        let all = self.cfg.general.show_on == ShowOn::All;
+        let panel_win = self.panel.as_ref().map(|p| p.win);
+        let mut tasks = Vec::new();
+        for (id, mon) in self.surfaces.clone() {
+            let want = all || Some(&mon) == focused.as_ref() || Some(id) == panel_win;
+            let has = self.raised.contains(&id);
+            if want && !has {
+                self.raised.insert(id);
+                tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
+                tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
+            } else if !want && has {
+                self.raised.remove(&id);
+                tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
+                tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Background }));
+                tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    /// Rejoue l'apparition du bureau (aperçu d'une transition).
+    fn replay_fade(&mut self) {
+        if self.visible {
+            self.fade = Some(Fade { from: 0.0, to: 1.0, start: Instant::now(), dur: self.fade_duration() });
+        }
+    }
+
+    /// Rejoue un fondu enchaîné sur un écran, depuis l'aplat de fond (aperçu).
+    fn replay_crossfade(&mut self, monitor: &str) {
+        let bgc = self.cfg.general.background;
+        if let Some(s) = self.shown.get_mut(monitor) {
+            s.prev = Some(Wall::Color(bgc));
+            s.since = Instant::now();
+        }
+    }
+
     /// Résout les icônes des classes de fenêtres pas encore connues.
     fn resolve_class_icons(&mut self) -> Task<Msg> {
         if self.cfg.general.running_apps == RunningApps::Off {
@@ -915,44 +1019,7 @@ impl App {
                 if self.config_error.take().is_some() {
                     hypr::notify(3, 2500, "hyprdesk : configuration rechargée");
                 }
-                self.font = match &cfg.general.font {
-                    // Les noms de police doivent vivre aussi longtemps que le programme.
-                    Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
-                    None => Font::DEFAULT,
-                };
-                self.theme = make_theme(&cfg);
-                self.cfg = cfg;
-                self.rot.clear();
-                self.values.clear();
-                self.last_poll.clear();
-                self.selected = None;
-                self.icons_gen += 1;
-                let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
-                let resolve_icons = Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let g = &cfg.general;
-                            let icons = cfg
-                                .icons
-                                .iter()
-                                .map(|d| launch::resolve(d, g.icon_theme.as_deref(), g.grid.icon_size, &g.terminal))
-                                .collect::<Vec<_>>();
-                            let media = UI_ICONS
-                                .iter()
-                                .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
-                                .collect::<Vec<_>>();
-                            (icons, media)
-                        })
-                        .await
-                        .unwrap_or_default()
-                    },
-                    move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
-                );
-                let mut t = vec![resolve_icons, self.refresh_walls()];
-                if self.visible {
-                    t.push(Task::done(Msg::Poll));
-                }
-                Task::batch(t)
+                self.install_config(cfg)
             }
             Msg::ConfigLoaded(Err(e)) => {
                 tracing::error!("config : {e}");
@@ -1123,20 +1190,25 @@ impl App {
         } else {
             layers.push(self.view_wall(&m.name, t));
         }
-        if self.panel.as_ref().is_some_and(|p| p.win == id) {
-            layers.push(self.view_panel());
-        } else if raised {
+        let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
+        if raised {
             let mut content: Vec<Element<'_, Msg>> = vec![self.view_icons(id, t)];
             for w in &d.widgets {
                 content.push(self.view_widget(w, t));
             }
             content.push(self.view_dock(m, t));
             let shift = if self.cfg.general.transition == Transition::Slide { (1.0 - t) * SLIDE_PX } else { 0.0 };
+            // Le tiroir des réglages occupe la droite : le bureau reste visible
+            // à côté et montre chaque réglage en direct.
+            let right = if panel_here { panel::DRAWER_W } else { 0.0 };
             layers.push(
                 container(Stack::with_children(content).width(Length::Fill).height(Length::Fill))
-                    .padding(Padding { top: shift, ..Padding::ZERO })
+                    .padding(Padding { top: shift, right, ..Padding::ZERO })
                     .into(),
             );
+        }
+        if panel_here {
+            layers.push(self.view_panel());
         }
         Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
     }

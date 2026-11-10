@@ -58,6 +58,46 @@ impl Settings {
         }
     }
 
+    /// Config effective avec ces réglages, sans repasser par Lua : les règles
+    /// des réglages remplacent celles de l'ancien settings.lua (toujours en
+    /// tête, comme au chargement), et une clé posée par l'utilisateur dans
+    /// hyprdesk.lua garde sa valeur.
+    pub fn apply_to(&self, cfg: &Config) -> Config {
+        let mut c = cfg.clone();
+        let free = |k: &str| !cfg.keys_user.contains(k);
+        let g = &mut c.general;
+        macro_rules! set {
+            ($field:ident, $key:literal, $target:expr) => {
+                if let Some(v) = self.$field.clone()
+                    && free($key)
+                {
+                    $target = v;
+                }
+            };
+        }
+        set!(show_on, "show_on", g.show_on);
+        set!(mode, "mode", g.mode);
+        set!(glass_opacity, "glass_opacity", g.glass_opacity);
+        set!(close_on_launch, "close_on_launch", g.close_on_launch);
+        set!(fade_ms, "fade_ms", g.fade_ms);
+        set!(transition, "transition", g.transition);
+        set!(crossfade_ms, "crossfade_ms", g.crossfade_ms);
+        set!(running_apps, "running_apps", g.running_apps);
+        set!(icon_size, "grid.icon_size", g.grid.icon_size);
+        set!(cell, "grid.cell", g.grid.cell);
+        set!(accent, "theme.accent", g.theme.accent);
+        if let Some(t) = &self.icon_theme
+            && free("icon_theme")
+        {
+            g.icon_theme = Some(t.clone());
+        }
+        let user = |o: Origin| o == Origin::User;
+        c.wallpapers = self.wallpapers.iter().cloned().chain(cfg.wallpapers.iter().filter(|w| user(w.origin)).cloned()).collect();
+        c.desktops = self.desktops.iter().cloned().chain(cfg.desktops.iter().filter(|d| user(d.origin)).cloned()).collect();
+        c.icons = self.icons.iter().cloned().chain(cfg.icons.iter().filter(|i| user(i.origin)).cloned()).collect();
+        c
+    }
+
     pub fn set_wallpaper(&mut self, sel: Selector, source: WallSource, fit: Fit) {
         self.wallpapers.retain(|w| w.sel != sel);
         self.wallpapers.push(WallpaperRule { origin: Origin::Settings, sel, source, fit });
@@ -349,6 +389,36 @@ mod tests {
         assert_eq!(c.icons.len(), 1);
         assert_eq!(Settings::from_config(&crate::config::lua::load_settings_only(&cfg_path).unwrap()), s);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn application_en_direct_identique_au_rechargement() {
+        let user_src = r##"hd.config({ fade_ms = 50 }) hd.wallpaper({ color = "#222222" }) hd.icon({ app = "kitty" })"##;
+        let old = Settings { show_on: Some(ShowOn::Focused), ..Default::default() };
+        let base = load_chunks(
+            &[(old.to_lua(), "settings.lua".into(), Origin::Settings), (user_src.into(), "user.lua".into(), Origin::User)],
+            Path::new("/cfg"),
+        )
+        .unwrap()
+        .config;
+        let mut new = old.clone();
+        new.show_on = Some(ShowOn::All);
+        new.fade_ms = Some(900); // surchargé par l'utilisateur : sans effet
+        new.running_apps = Some(RunningApps::Workspace);
+        new.set_wallpaper(Selector::default(), WallSource::Color(Rgba(1, 1, 1, 255)), Fit::Cover);
+        new.add_app("firefox", None);
+        let live = new.apply_to(&base);
+        let reloaded = load_chunks(
+            &[(new.to_lua(), "settings.lua".into(), Origin::Settings), (user_src.into(), "user.lua".into(), Origin::User)],
+            Path::new("/cfg"),
+        )
+        .unwrap()
+        .config;
+        assert_eq!(live.general, reloaded.general);
+        assert_eq!(live.wallpapers, reloaded.wallpapers);
+        assert_eq!(live.icons, reloaded.icons);
+        assert_eq!(live.general.fade_ms, 50);
+        assert_eq!(live.general.show_on, ShowOn::All);
     }
 
     #[test]

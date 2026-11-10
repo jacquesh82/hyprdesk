@@ -92,6 +92,10 @@ pub enum PanelMsg {
     Themes(Vec<String>),
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
+    /// Idem, puis rejoue l'apparition du bureau (aperçu de la durée).
+    CommitFade,
+    /// Idem, puis rejoue un fondu enchaîné de fond (aperçu).
+    CommitCrossfade,
 }
 
 pub struct Panel {
@@ -119,7 +123,10 @@ const SWATCHES: [Rgba; 8] = [
     Rgba(0x00, 0x00, 0x00, 0xff),
 ];
 
-const THUMB: (u32, u32) = (192, 108);
+const THUMB: (u32, u32) = (160, 90);
+/// Largeur du tiroir des réglages, marge comprise.
+pub const DRAWER_W: f32 = 620.0;
+const DRAWER_GAP: f32 = 12.0;
 const MAX_IMAGES: usize = 60;
 
 fn default_folder() -> String {
@@ -192,13 +199,27 @@ impl App {
         })
     }
 
-    /// Enregistre settings.lua puis recharge la config.
-    fn commit(&self) -> Task<Msg> {
+    /// Applique les réglages à la config effective, tout de suite, sans
+    /// repasser par Lua : le bureau à côté du tiroir change en direct.
+    fn apply(&mut self) -> Task<Msg> {
+        let next = self.settings.apply_to(&self.cfg);
+        self.install_config(Arc::new(next))
+    }
+
+    /// Applique puis enregistre settings.lua (sans rechargement : la mémoire
+    /// est déjà à jour ; un rechargement déclenché par la surveillance du
+    /// fichier retombe sur la même config et ne change rien).
+    fn commit(&mut self) -> Task<Msg> {
+        let applied = self.apply();
+        Task::batch([applied, self.save()])
+    }
+
+    fn save(&self) -> Task<Msg> {
         let (s, path) = (self.settings.clone(), self.config_path.clone());
         Task::perform(
             async move { tokio::task::spawn_blocking(move || s.save(&path).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())? },
             |r| match r {
-                Ok(_) => Msg::ConfigChanged,
+                Ok(_) => Msg::Noop,
                 Err(e) => {
                     tracing::error!("enregistrement des réglages : {e}");
                     crate::hypr::notify(4, 6000, &format!("hyprdesk : réglages non enregistrés — {e}"));
@@ -206,11 +227,6 @@ impl App {
                 }
             },
         )
-    }
-
-    /// Aperçu immédiat d'un réglage général, avant l'enregistrement.
-    fn preview(&mut self, f: impl FnOnce(&mut crate::config::General)) {
-        f(&mut Arc::make_mut(&mut self.cfg).general);
     }
 
     fn panel_ctx(&self) -> Option<(String, String)> {
@@ -261,8 +277,7 @@ impl App {
             }
             PanelMsg::GlassOpacity(v) => {
                 self.settings.glass_opacity = Some(v);
-                self.preview(|g| g.glass_opacity = v);
-                Task::none()
+                self.apply()
             }
             PanelMsg::CloseOnLaunch(v) => {
                 self.settings.close_on_launch = Some(v);
@@ -284,13 +299,11 @@ impl App {
             }
             PanelMsg::IconSize(v) => {
                 self.settings.icon_size = Some(v);
-                self.preview(|g| g.grid.icon_size = v);
-                Task::none()
+                self.apply()
             }
             PanelMsg::CellSize(v) => {
                 self.settings.cell = Some(v);
-                self.preview(|g| g.grid.cell = v);
-                Task::none()
+                self.apply()
             }
             PanelMsg::Theme(t) => {
                 self.settings.icon_theme = Some(t);
@@ -414,23 +427,35 @@ impl App {
             }
             PanelMsg::Transition(t) => {
                 self.settings.transition = Some(t);
-                self.commit()
+                let c = self.commit();
+                self.replay_fade();
+                c
             }
             PanelMsg::FadeMs(v) => {
                 self.settings.fade_ms = Some(v);
-                self.preview(|g| g.fade_ms = v);
-                Task::none()
+                self.apply()
             }
             PanelMsg::CrossfadeMs(v) => {
                 self.settings.crossfade_ms = Some(v);
-                self.preview(|g| g.crossfade_ms = v);
-                Task::none()
+                self.apply()
             }
             PanelMsg::Accent(c) => {
                 self.settings.accent = Some(c);
                 self.commit()
             }
             PanelMsg::Commit => self.commit(),
+            PanelMsg::CommitFade => {
+                let c = self.commit();
+                self.replay_fade();
+                c
+            }
+            PanelMsg::CommitCrossfade => {
+                let c = self.commit();
+                if let Some((mon, _)) = self.panel_ctx() {
+                    self.replay_crossfade(&mon);
+                }
+                c
+            }
         }
     }
 
@@ -442,9 +467,9 @@ impl App {
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let tab_btn = |label: &'static str, tab: Tab| {
             let active = p.tab == tab;
-            button(text(label).size(15))
+            button(text(label).size(14).align_x(Alignment::Center).width(Length::Fill))
                 .width(Length::Fill)
-                .padding([10, 14])
+                .padding([8, 6])
                 .on_press(Msg::Panel(PanelMsg::Tab(tab)))
                 .style(move |_, status| button::Style {
                     background: if active {
@@ -460,51 +485,60 @@ impl App {
                 })
         };
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
-        let sidebar = column![
-            text("Réglages").size(22).color(fg),
-            text(format!("{mon} · workspace {ws}")).size(12).color(Color { a: 0.6, ..fg }),
-            Space::new().height(12),
+        let header = row![
+            column![
+                text("Réglages").size(22).color(fg),
+                text(format!("{mon} · workspace {ws} — appliqué en direct")).size(12).color(Color { a: 0.6, ..fg }),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            button(text("Fermer").size(14)).padding([6, 12]).on_press(Msg::Panel(PanelMsg::Close)),
+        ]
+        .align_y(Alignment::Center);
+        let tabs = row![
             tab_btn("Bureau", Tab::Desktop),
             tab_btn("Icônes", Tab::Icons),
             tab_btn("Fond d'écran", Tab::Wallpaper),
             tab_btn("Effets", Tab::Effects),
-            Space::new().height(Length::Fill),
-            button(text("Fermer").size(15)).width(Length::Fill).padding([10, 14]).on_press(Msg::Panel(PanelMsg::Close)),
         ]
-        .spacing(6)
-        .width(200);
+        .spacing(6);
         let content = match p.tab {
             Tab::Desktop => self.tab_desktop(&ws),
             Tab::Icons => self.tab_icons(p),
             Tab::Wallpaper => self.tab_wallpaper(p),
             Tab::Effects => self.tab_effects(),
         };
-        let bg = color(th.bg, 0.97);
-        let card = container(row![sidebar, rule::vertical(1), scrollable(container(content).padding([4, 24])).height(Length::Fill)].spacing(16))
-            .padding(20)
-            .width(Length::Fixed(960.0))
-            .height(Length::Fixed(700.0))
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                border: Border::default().rounded(16).color(Color { a: 0.15, ..fg }).width(1),
-                text_color: Some(fg),
-                ..Default::default()
-            });
-        // Le fond assombri absorbe les clics : rien ne passe au bureau dessous.
-        let dim = Color::from_rgba(0.0, 0.0, 0.0, 0.45);
-        mouse_area(container(card).center(Length::Fill).style(move |_| container::Style { background: Some(dim.into()), ..Default::default() }))
-            .on_press(Msg::Noop)
+        let bg = color(th.bg, 0.94);
+        let card = container(
+            column![header, tabs, rule::horizontal(1), scrollable(container(content).padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO })).height(Length::Fill)]
+                .spacing(14),
+        )
+        .padding(20)
+        .width(Length::Fixed(DRAWER_W - 2.0 * DRAWER_GAP))
+        .height(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(bg.into()),
+            border: Border::default().rounded(16).color(Color { a: 0.15, ..fg }).width(1),
+            text_color: Some(fg),
+            ..Default::default()
+        });
+        // Le tiroir absorbe ses clics ; le reste du bureau reste utilisable.
+        container(mouse_area(card).on_press(Msg::Noop))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .padding(DRAWER_GAP)
             .into()
     }
 
-    /// Ligne « libellé — contrôle », avec un avertissement si hyprdesk.lua surcharge la clé.
+    /// Champ : libellé (et avertissement si hyprdesk.lua surcharge la clé), puis le contrôle.
     fn field<'a>(&self, label: &'a str, key: &str, control: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let mut left = column![text(label).size(15).color(fg)].spacing(2).width(Length::Fixed(230.0));
+        let mut head = row![text(label).size(14).color(Color { a: 0.85, ..fg })].spacing(10).align_y(Alignment::Center);
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
-            left = left.push(text("surchargé dans hyprdesk.lua").size(11).color(Color::from_rgb8(0xff, 0xb8, 0x6c)));
+            head = head.push(text("surchargé dans hyprdesk.lua — sans effet ici").size(11).color(Color::from_rgb8(0xff, 0xb8, 0x6c)));
         }
-        row![left, control.into()].spacing(16).align_y(Alignment::Center).into()
+        column![head, control.into()].spacing(6).into()
     }
 
     fn section<'a>(&self, title: &'a str) -> Element<'a, Msg> {
@@ -885,7 +919,7 @@ impl App {
                 row![
                     slider(0..=1000u32, g.fade_ms.min(1000) as u32, |v| Msg::Panel(PanelMsg::FadeMs(v as u64)))
                         .step(10u32)
-                        .on_release(Msg::Panel(PanelMsg::Commit))
+                        .on_release(Msg::Panel(PanelMsg::CommitFade))
                         .width(260),
                     text(format!("{} ms", g.fade_ms)).size(14),
                 ]
@@ -898,7 +932,7 @@ impl App {
                 row![
                     slider(0..=3000u32, g.crossfade_ms.min(3000) as u32, |v| Msg::Panel(PanelMsg::CrossfadeMs(v as u64)))
                         .step(50u32)
-                        .on_release(Msg::Panel(PanelMsg::Commit))
+                        .on_release(Msg::Panel(PanelMsg::CommitCrossfade))
                         .width(260),
                     text(format!("{} ms", g.crossfade_ms)).size(14),
                 ]
