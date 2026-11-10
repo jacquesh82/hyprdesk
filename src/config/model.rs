@@ -185,6 +185,9 @@ pub struct General {
     /// Bureau affiché : suspendre les raccourcis de Hyprland (submap
     /// « hyprdesk »), sauf ceux marqués `submap_universal`.
     pub suspend_binds: bool,
+    /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
+    /// le bureau autour d'elles.
+    pub float_launched: bool,
     pub mode: Mode,
     pub fade_ms: u64,
     pub transition: Transition,
@@ -210,6 +213,7 @@ impl Default for General {
         General {
             keys: Keys::default(),
             suspend_binds: true,
+            float_launched: true,
             mode: Mode::Opaque,
             fade_ms: 150,
             transition: Transition::Fade,

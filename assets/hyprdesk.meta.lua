@@ -9,6 +9,7 @@
 ---@class HD.ConfigSpec
 ---@field keys? { toggle?: string|false, settings?: string|false, leave?: string|false }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
+---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field mode? "opaque"|"glass"
 ---@field fade_ms? integer
 ---@field transition? "fade"|"slide"|"none"
@@ -38,6 +39,7 @@
 ---@class HD.DesktopSpec: HD.RuleSpec
 ---@field keys? { toggle?: string|false, settings?: string|false, leave?: string|false }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
+---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field mode? "opaque"|"glass"
 ---@field inherit? boolean # false : ignore les icônes et widgets déclarés pour tous les workspaces
 

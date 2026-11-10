@@ -330,10 +330,93 @@ pub fn current_submap() -> String {
     ipc::repl("hl.get_current_submap()").unwrap_or_default().trim().to_string()
 }
 
+// ---------------------------------------------------------------------------
+// Fenêtres mises de côté pendant que le bureau est affiché (comme « afficher
+// le bureau » ailleurs) : elles attendent dans un workspace spécial, et le
+// bureau, resté sous les fenêtres, contient celles qu'on ouvre depuis lui.
+
+/// Workspace spécial où attendent les fenêtres mises de côté.
+pub const STASH: &str = "special:hyprdesk";
+
+/// Fenêtre mise de côté : où la rendre.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Stashed {
+    pub address: String,
+    pub workspace: String,
+    pub monitor: String,
+}
+
+/// Déplace une fenêtre sans la suivre.
+pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.window.move({{ workspace = \"{}\", follow = false, window = \"address:{}\" }})",
+        ipc::lua_escape(workspace),
+        ipc::lua_escape(address)
+    ))?;
+    if r.trim() != "ok" {
+        tracing::warn!("déplacement de {address} vers {workspace} : {r}");
+    }
+    Ok(())
+}
+
+/// Fichier qui garde la liste, pour rendre les fenêtres même après un arrêt brutal.
+fn stash_path() -> Option<std::path::PathBuf> {
+    ipc::instance_dir().ok().map(|d| d.join("hyprdesk-stash.json"))
+}
+
+pub fn save_stash(list: &[Stashed]) {
+    let Some(p) = stash_path() else { return };
+    let r = if list.is_empty() {
+        std::fs::remove_file(&p).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+    } else {
+        serde_json::to_string(list).map_err(std::io::Error::other).and_then(|s| std::fs::write(&p, s))
+    };
+    if let Err(e) = r {
+        tracing::warn!("{} : {e}", p.display());
+    }
+}
+
+/// Rend les fenêtres listées à leur workspace (celles qui existent encore).
+pub fn restore(list: &[Stashed]) {
+    let alive: Vec<String> = ipc::query_json("clients").map(|v| parse_clients(&v)).unwrap_or_default().into_iter().map(|c| c.address).collect();
+    for s in list {
+        if alive.contains(&s.address)
+            && let Err(e) = move_window(&s.address, &s.workspace)
+        {
+            tracing::warn!("restitution de {} : {e}", s.address);
+        }
+    }
+}
+
+/// Au démarrage : rend les fenêtres d'une session précédente interrompue.
+pub fn restore_leftover_stash() {
+    let Some(p) = stash_path() else { return };
+    let Ok(s) = std::fs::read_to_string(&p) else { return };
+    let list: Vec<Stashed> = serde_json::from_str(&s).unwrap_or_default();
+    if !list.is_empty() {
+        tracing::info!("{} fenêtre(s) mise(s) de côté par une session précédente : restituées", list.len());
+        restore(&list);
+    }
+    let _ = std::fs::remove_file(&p);
+}
+
 /// Lance une commande par Hyprland (`hl.dsp.exec_cmd`) : le processus est un
 /// enfant du compositeur, pas de hyprdesk, et les règles d'exec s'appliquent.
 pub fn exec(cmd: &str) -> Result<(), ipc::IpcError> {
     let r = ipc::dispatch(&format!("hl.dsp.exec_cmd(\"{}\")", ipc::lua_escape(cmd)))?;
+    if r.trim() != "ok" {
+        tracing::warn!("exec « {cmd} » : réponse inattendue de Hyprland : {r}");
+    }
+    Ok(())
+}
+
+/// Lance une commande dont la fenêtre s'ouvre flottante et centrée, de la
+/// taille donnée : le bureau reste visible autour.
+pub fn exec_floating(cmd: &str, w: u32, h: u32) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.exec_cmd(\"{}\", {{ float = true, center = true, size = \"{w} {h}\" }})",
+        ipc::lua_escape(cmd)
+    ))?;
     if r.trim() != "ok" {
         tracing::warn!("exec « {cmd} » : réponse inattendue de Hyprland : {r}");
     }

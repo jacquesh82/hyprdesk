@@ -99,6 +99,8 @@ fn daemon(path: PathBuf) -> ExitCode {
         tracing::info!("submap « {} » laissée active par un arrêt précédent : remise à zéro", hypr::SUBMAP);
         hypr::set_submap(None);
     }
+    // Fenêtres laissées de côté par un arrêt brutal, bureau affiché : on les rend.
+    hypr::restore_leftover_stash();
     // Le dossier des modules et des plugins doit exister dès le démarrage :
     // c'est lui que la surveillance suit pour détecter les nouveaux widgets.
     let widget_dir = widgets::plugins::dirs(path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();

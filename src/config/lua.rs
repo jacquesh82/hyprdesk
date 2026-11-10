@@ -224,7 +224,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     check_keys(
         t,
         &[
-            "keys", "suspend_binds", "mode", "fade_ms", "transition", "crossfade_ms", "running_apps", "show_on", "close_on_launch", "icon_theme",
+            "keys", "suspend_binds", "float_launched", "mode", "fade_ms", "transition", "crossfade_ms", "running_apps", "show_on", "close_on_launch", "icon_theme",
             "font", "font_size", "terminal", "grid", "theme", "glass_opacity", "background",
         ],
         CTX,
@@ -237,6 +237,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     let g = &mut b.config.general;
     if let Some(v) = opt_bool(t, "suspend_binds", CTX)? {
         g.suspend_binds = v;
+    }
+    if let Some(v) = opt_bool(t, "float_launched", CTX)? {
+        g.float_launched = v;
     }
     if let Some(k) = t.get::<Option<Table>>("keys")? {
         const C: &str = "hd.config.keys";

@@ -8,11 +8,20 @@ peut avoir son propre bureau. La configuration est en Lua, dans le style de
 
 - **Au repos**, hyprdesk dessine le fond d'écran du workspace affiché sur le
   calque `background`. Il remplace hyprpaper, qui ne connaît qu'un fond par écran.
-- **Appelé** (`hyprdesk toggle`), il passe sur le calque `top` en fondu :
-  au-dessus des fenêtres, sous la barre. Il prend le clavier et affiche icônes
-  et widgets. Échap, la même touche ou un lancement le renvoient.
-- **Mode `glass`** : au lieu du fond d'écran, un voile translucide, avec les
-  fenêtres floutées par Hyprland.
+- **Appelé** (SUPER + D), il agit comme « afficher le bureau » :
+  - les fenêtres du workspace sont mises de côté (workspace spécial
+    `special:hyprdesk`) ;
+  - le bureau, resté **sous** les fenêtres, apparaît avec ses icônes et ses
+    widgets ;
+  - ce qu'on ouvre depuis le bureau s'ouvre **dessus**, flottant et centré
+    (`float_launched`) : le bureau contient ces fenêtres ;
+  - masqué, il rend les fenêtres mises de côté, à côté de celles ouvertes
+    entre-temps.
+
+  La liste des fenêtres mises de côté est gardée sur disque : après un arrêt
+  brutal, hyprdesk les rend au démarrage suivant.
+- **Mode `glass`** : le bureau passe au-dessus des fenêtres, en voile
+  translucide, sans les déplacer. Les fenêtres restent floutées derrière.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
   (un clic donne le focus à la fenêtre), puis le bouton ⚙ des réglages.
 
@@ -102,8 +111,9 @@ Il ne modifie pas `hyprland.lua`. Les lignes recommandées s'obtiennent avec
   vérifie qu'il n'est pas déjà lié. S'il l'est, il ne l'installe pas et le
   signale par une notification et dans les réglages.
 - **Bureau affiché, les raccourcis de Hyprland sont suspendus.** hyprdesk
-  active la submap `hyprdesk` : SUPER + Q, SUPER + F, etc. n'agissent plus
-  sur les fenêtres cachées derrière le bureau. Restent actifs :
+  active la submap `hyprdesk` : SUPER + Q, SUPER + F, etc. ne visent plus
+  les fenêtres. Dès qu'une fenêtre est ouverte depuis le bureau, ils sont
+  rendus pour agir sur elle. Pendant la suspension, restent actifs :
   - les raccourcis de hyprdesk ;
   - ceux que vous marquez `{ submap_universal = true }` dans `hyprland.lua`,
     typiquement le changement de workspace, et le bureau suit alors.

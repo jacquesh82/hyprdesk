@@ -103,6 +103,7 @@ pub enum PanelMsg {
     WidgetCard(bool),
     WidgetReset,
     SuspendBinds(bool),
+    FloatLaunched(bool),
     /// Saisie d'un raccourci (0 afficher, 1 réglages, 2 secours).
     KeyInput(usize, String),
     KeySubmit(usize),
@@ -497,6 +498,10 @@ impl App {
                 self.commit()
             }
             PanelMsg::Commit => self.commit(),
+            PanelMsg::FloatLaunched(v) => {
+                self.settings.float_launched = Some(v);
+                self.commit()
+            }
             PanelMsg::SuspendBinds(v) => {
                 self.settings.suspend_binds = Some(v);
                 self.commit()
@@ -541,8 +546,8 @@ impl App {
             PanelMsg::OpenWidgetDir => {
                 let dir = crate::widgets::plugins::dirs(self.config_path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
                 let _ = std::fs::create_dir_all(&dir);
-                let cmd = format!("xdg-open {}", launch::sh_quote(&dir.display().to_string()));
-                Task::perform(async move { tokio::task::spawn_blocking(move || crate::hypr::exec(&cmd)).await }, |_| Msg::Noop)
+                // Le bureau reste affiché : la fenêtre s'ouvre dessus, flottante.
+                self.run_from_desktop(format!("xdg-open {}", launch::sh_quote(&dir.display().to_string())), true)
             }
             PanelMsg::SelectWidget(id) => {
                 panel.widget_sel = Some(id);
@@ -701,6 +706,12 @@ impl App {
                 "close_on_launch",
                 toggler(g.close_on_launch).on_toggle(|v| Msg::Panel(PanelMsg::CloseOnLaunch(v))),
             ),
+            self.field(
+                "Bureau resté affiché : fenêtres ouvertes flottantes et centrées",
+                "float_launched",
+                toggler(g.float_launched).on_toggle(|v| Msg::Panel(PanelMsg::FloatLaunched(v))),
+            ),
+            text("Bureau affiché, les fenêtres du workspace sont mises de côté ; celles qu'on ouvre depuis le bureau s'ouvrent dessus. Elles reviennent toutes quand on le masque.").size(12),
             self.section("Mode"),
             self.field(
                 "Mode par défaut",

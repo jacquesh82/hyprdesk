@@ -23,6 +23,7 @@ pub struct Settings {
     pub key_settings: Option<String>,
     pub key_leave: Option<String>,
     pub suspend_binds: Option<bool>,
+    pub float_launched: Option<bool>,
     pub show_on: Option<ShowOn>,
     pub mode: Option<Mode>,
     pub glass_opacity: Option<f32>,
@@ -54,6 +55,7 @@ impl Settings {
             key_settings: has("keys.settings").then(|| g.keys.settings.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
+            float_launched: has("float_launched").then_some(g.float_launched),
             show_on: has("show_on").then_some(g.show_on),
             mode: has("mode").then_some(g.mode),
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
@@ -139,6 +141,7 @@ impl Settings {
         set!(key_settings, "keys.settings", g.keys.settings);
         set!(key_leave, "keys.leave", g.keys.leave);
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
+        set!(float_launched, "float_launched", g.float_launched);
         set!(show_on, "show_on", g.show_on);
         set!(mode, "mode", g.mode);
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
@@ -244,6 +247,9 @@ impl Settings {
         }
         if let Some(v) = self.suspend_binds {
             cfg.push(format!("suspend_binds = {v}"));
+        }
+        if let Some(v) = self.float_launched {
+            cfg.push(format!("float_launched = {v}"));
         }
         if let Some(v) = self.show_on {
             cfg.push(format!("show_on = {}", q(if v == ShowOn::All { "all" } else { "focused" })));
@@ -472,6 +478,7 @@ mod tests {
             key_toggle: Some("SUPER + SHIFT + D".into()),
             key_settings: Some(String::new()),
             suspend_binds: Some(false),
+            float_launched: Some(false),
             show_on: Some(ShowOn::Focused),
             mode: Some(Mode::Glass),
             glass_opacity: Some(0.5),

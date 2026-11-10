@@ -200,6 +200,12 @@ pub struct App {
     universal_binds: Vec<String>,
     /// La submap « hyprdesk » est active (raccourcis de Hyprland suspendus).
     in_submap: bool,
+    /// Surfaces passées au-dessus des fenêtres (mode verre seulement).
+    overlay: HashSet<Id>,
+    /// Fenêtres mises de côté pendant que le bureau est affiché.
+    stash: Vec<hypr::Stashed>,
+    /// Fenêtres ouvertes pendant la session bureau : le bureau les contient.
+    session_windows: HashSet<String>,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
@@ -370,6 +376,9 @@ impl App {
             key_conflicts: Vec::new(),
             universal_binds: Vec::new(),
             in_submap: false,
+            overlay: HashSet::new(),
+            stash: Vec::new(),
+            session_windows: HashSet::new(),
         };
         let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
         let t = Task::batch([app.load_config(), apps]);
@@ -480,7 +489,9 @@ impl App {
     /// Submap « hyprdesk » active si et seulement si le bureau est affiché
     /// et que la suspension des raccourcis est demandée.
     fn sync_submap(&mut self) -> Task<Msg> {
-        let want = self.visible && self.cfg.general.suspend_binds;
+        // Dès qu'une fenêtre est ouverte depuis le bureau, ses raccourcis
+        // habituels doivent pouvoir agir sur elle.
+        let want = self.visible && self.cfg.general.suspend_binds && self.session_windows.is_empty();
         if want == self.in_submap {
             return Task::none();
         }
@@ -493,7 +504,7 @@ impl App {
         )
     }
 
-    /// Bureau affiché : aligne les surfaces levées sur `show_on` (écran actif ou tous).
+    /// Bureau affiché : aligne les surfaces actives sur `show_on` (écran actif ou tous).
     fn sync_raised(&mut self) -> Task<Msg> {
         if !self.visible {
             return Task::none();
@@ -506,17 +517,99 @@ impl App {
             let want = all || Some(&mon) == focused.as_ref() || Some(id) == panel_win;
             let has = self.raised.contains(&id);
             if want && !has {
-                self.raised.insert(id);
-                tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
-                tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
+                tasks.extend(self.activate_surface(id, Some(&mon) == focused.as_ref()));
             } else if !want && has {
                 self.raised.remove(&id);
                 tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
-                tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Background }));
-                tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }));
+                tasks.extend(self.lower_surface(id));
+                tasks.push(self.restore_stash(Some(&mon)));
             }
         }
         Task::batch(tasks)
+    }
+
+    /// Active le bureau sur une surface. Mode opaque : les fenêtres du
+    /// workspace sont mises de côté et la surface reste SOUS les fenêtres,
+    /// pour contenir celles qu'on ouvre depuis le bureau. Mode verre : la
+    /// surface passe au-dessus des fenêtres, en voile translucide.
+    fn activate_surface(&mut self, id: Id, has_focus: bool) -> Vec<Task<Msg>> {
+        let Some(m) = self.monitor(id).cloned() else { return Vec::new() };
+        let glass = resolve(&self.cfg, &m.name, &m.workspace).mode == Mode::Glass;
+        self.raised.insert(id);
+        let mut tasks = Vec::new();
+        if glass {
+            self.overlay.insert(id);
+            tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
+        } else {
+            tasks.push(self.stash_workspace(&m));
+        }
+        // Zone exclusive 0 : le bureau respecte la barre.
+        tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
+        let kb = if has_focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
+        tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: kb }));
+        self.fire(HookEvent::Show, "show", &m);
+        tasks
+    }
+
+    /// Redescend une surface au repos (fond d'écran seul, plein écran).
+    fn lower_surface(&mut self, id: Id) -> Vec<Task<Msg>> {
+        let mut t = Vec::new();
+        if self.overlay.remove(&id) {
+            t.push(Task::done(Msg::LayerChange { id, layer: Layer::Background }));
+        }
+        t.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }));
+        t
+    }
+
+    /// Met de côté les fenêtres du workspace affiché sur cet écran (sauf
+    /// celles ouvertes depuis le bureau).
+    fn stash_workspace(&mut self, m: &Monitor) -> Task<Msg> {
+        let picked: Vec<hypr::Stashed> = self
+            .clients
+            .iter()
+            .filter(|c| c.workspace == m.workspace && !self.session_windows.contains(&c.address))
+            .filter(|c| !self.stash.iter().any(|s| s.address == c.address))
+            .map(|c| hypr::Stashed { address: c.address.clone(), workspace: c.workspace.clone(), monitor: m.name.clone() })
+            .collect();
+        if picked.is_empty() {
+            return Task::none();
+        }
+        self.stash.extend(picked.iter().cloned());
+        let all = self.stash.clone();
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || {
+                    hypr::save_stash(&all);
+                    for s in &picked {
+                        if let Err(e) = hypr::move_window(&s.address, hypr::STASH) {
+                            tracing::warn!("mise de côté de {} : {e}", s.address);
+                        }
+                    }
+                })
+                .await;
+            },
+            |_| Msg::Noop,
+        )
+    }
+
+    /// Rend les fenêtres mises de côté (d'un écran, ou toutes).
+    fn restore_stash(&mut self, monitor: Option<&str>) -> Task<Msg> {
+        let (back, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.stash).into_iter().partition(|s| monitor.is_none_or(|m| s.monitor == m));
+        self.stash = keep;
+        if back.is_empty() {
+            return Task::none();
+        }
+        let rest = self.stash.clone();
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || {
+                    hypr::restore(&back);
+                    hypr::save_stash(&rest);
+                })
+                .await;
+            },
+            |_| Msg::Noop,
+        )
     }
 
     /// Rejoue l'apparition du bureau (aperçu d'une transition).
@@ -639,13 +732,8 @@ impl App {
         self.selected = None;
         let mut tasks = Vec::new();
         for (id, has_focus) in targets {
-            self.raised.insert(id);
-            tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
-            tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
-            let kb = if has_focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
-            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: kb }));
-            if let Some(m) = self.monitor(id) {
-                self.fire(HookEvent::Show, "show", m);
+            if !self.raised.contains(&id) {
+                tasks.extend(self.activate_surface(id, has_focus));
             }
         }
         self.last_poll.clear();
@@ -683,6 +771,9 @@ impl App {
                 self.fire(HookEvent::Hide, "hide", m);
             }
         }
+        // Les fenêtres mises de côté reviennent, à côté de celles ouvertes depuis le bureau.
+        tasks.push(self.restore_stash(None));
+        self.session_windows.clear();
         tasks.push(self.sync_submap());
         tasks.push(self.finish_fade());
         Task::batch(tasks)
@@ -700,12 +791,8 @@ impl App {
             return Task::none();
         }
         let ids: Vec<Id> = self.raised.drain().collect();
-        Task::batch(ids.into_iter().flat_map(|id| {
-            [
-                Task::done(Msg::LayerChange { id, layer: Layer::Background }),
-                Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }),
-            ]
-        }))
+        let tasks: Vec<Task<Msg>> = ids.into_iter().flat_map(|id| self.lower_surface(id)).collect();
+        Task::batch(tasks)
     }
 
     // -- Écrans ----------------------------------------------------------------
@@ -751,6 +838,19 @@ impl App {
                 self.fire(HookEvent::Workspace, "workspace", m);
                 self.selected = None;
             }
+        }
+        // Bureau affiché, on change de workspace : ses fenêtres sont mises de côté à leur tour.
+        let to_stash: Vec<Monitor> = self
+            .monitors
+            .iter()
+            .filter(|m| {
+                old.iter().find(|o| o.name == m.name).is_some_and(|o| o.workspace != m.workspace)
+                    && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id) && !self.overlay.contains(id))
+            })
+            .cloned()
+            .collect();
+        for m in to_stash {
+            tasks.push(self.stash_workspace(&m));
         }
         tasks.push(self.refresh_walls());
         if self.visible {
@@ -932,18 +1032,34 @@ impl App {
     fn launch(&mut self, idx: usize) -> Task<Msg> {
         let Some(r) = self.icons.get(idx) else { return Task::none() };
         let cmd = r.command.clone();
+        let stays = !self.cfg.general.close_on_launch;
+        let t = self.run_from_desktop(cmd, stays);
+        if stays { t } else { Task::batch([t, self.hide()]) }
+    }
+
+    /// Lance une commande depuis le bureau. S'il reste affiché, la fenêtre
+    /// s'y ouvre flottante et centrée (option `float_launched`) : le bureau
+    /// la contient.
+    pub(super) fn run_from_desktop(&self, cmd: String, stays: bool) -> Task<Msg> {
+        let size = (stays && self.cfg.general.float_launched)
+            .then(|| self.monitors.iter().find(|m| m.focused).map(|m| ((m.width as f32 * 0.6) as u32, (m.height as f32 * 0.7) as u32)))
+            .flatten();
         tracing::info!("lancement : {cmd}");
-        let t = Task::perform(
+        Task::perform(
             async move {
-                match tokio::task::spawn_blocking(move || hypr::exec(&cmd)).await {
+                let r = tokio::task::spawn_blocking(move || match size {
+                    Some((w, h)) => hypr::exec_floating(&cmd, w, h),
+                    None => hypr::exec(&cmd),
+                })
+                .await;
+                match r {
                     Ok(Err(e)) => tracing::warn!("lancement : {e}"),
                     Err(e) => tracing::warn!("lancement : {e}"),
                     Ok(Ok(())) => {}
                 }
             },
             |_| Msg::Noop,
-        );
-        if self.cfg.general.close_on_launch { Task::batch([t, self.hide()]) } else { t }
+        )
     }
 
     fn navigate(&mut self, id: Id, key: &keyboard::Key) -> Task<Msg> {
@@ -1021,6 +1137,8 @@ impl App {
                     if self.in_submap {
                         hypr::set_submap(None);
                     }
+                    hypr::restore(&self.stash);
+                    hypr::save_stash(&[]);
                     hypr::remove_keys();
                     iced::exit()
                 }
@@ -1064,8 +1182,36 @@ impl App {
                 Task::none()
             }
             Msg::Hypr(hypr::Update::Clients(list)) => {
+                let mut tasks = Vec::new();
+                if self.visible {
+                    // Fenêtre ouverte sur un bureau affiché : le bureau la contient ;
+                    // elle reçoit le clavier et ses raccourcis habituels.
+                    let fresh: Vec<Client> = list
+                        .iter()
+                        .filter(|c| !self.clients.iter().any(|o| o.address == c.address))
+                        .filter(|c| c.workspace != hypr::STASH)
+                        .cloned()
+                        .collect();
+                    for c in fresh {
+                        let surfaces: Vec<Id> = self
+                            .surfaces
+                            .iter()
+                            .filter(|(id, n)| self.raised.contains(id) && self.monitors.iter().any(|m| &m.name == *n && m.workspace == c.workspace))
+                            .map(|(id, _)| *id)
+                            .collect();
+                        if surfaces.is_empty() {
+                            continue;
+                        }
+                        self.session_windows.insert(c.address.clone());
+                        for id in surfaces {
+                            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::OnDemand }));
+                        }
+                    }
+                    tasks.push(self.sync_submap());
+                }
                 self.clients = list;
-                self.resolve_class_icons()
+                tasks.push(self.resolve_class_icons());
+                Task::batch(tasks)
             }
             Msg::Apps(list) => {
                 self.apps = Arc::new(list);
@@ -1309,11 +1455,12 @@ impl App {
         let raised = self.raised.contains(&id);
         let t = if raised { self.fade_value() } else { 1.0 };
         let mut layers: Vec<Element<'_, Msg>> = Vec::new();
-        if raised && d.mode == Mode::Glass {
+        if self.overlay.contains(&id) {
             let veil = color(self.cfg.general.theme.bg, self.cfg.general.glass_opacity * t);
             layers.push(container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(veil)).into());
         } else {
-            layers.push(self.view_wall(&m.name, t));
+            // Sous les fenêtres, le fond d'écran reste plein : seul le contenu apparaît en fondu.
+            layers.push(self.view_wall(&m.name, 1.0));
         }
         let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
         if raised {
