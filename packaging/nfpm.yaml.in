@@ -59,8 +59,14 @@ contents:
 scripts:
   postinstall: packaging/postinstall.sh
 
-# Liées : glibc, PAM (verrouillage), libgcc. Chargées à l'exécution : Wayland,
-# xkbcommon, Vulkan (rendu wgpu).
+# Relevé du binaire et du code (scripts/package.sh n'invente rien) :
+# - liées : glibc, PAM (verrouillage), libgcc ;
+# - chargées à l'exécution : Wayland, xkbcommon, Vulkan, et EGL + wayland-egl
+#   (rendu de secours sans pilote Vulkan) ; X11 seulement hors Wayland, non requis ;
+# - programmes : xdg-mime / xdg-open (applications par défaut, ouverture des
+#   fichiers), tar (partage, thèmes), systemctl / loginctl (session, veille),
+#   fc-list (polices) ; wl-copy / wl-paste (copier-coller) ;
+# - facultatifs : les outils orchestrés (hyprdesk doctor) et les renvois des menus.
 overrides:
   deb:
     depends:
@@ -68,46 +74,77 @@ overrides:
       - libgcc-s1
       - libpam0g
       - libwayland-client0
+      - libwayland-egl1
       - libxkbcommon0
       - libvulkan1
+      - libegl1
+      - xdg-utils
+      - systemd
+      - fontconfig
     recommends:
       - hyprland
       - hypridle
       - wireplumber
-      - fontconfig
+      - wl-clipboard
+      - mesa-vulkan-drivers
     suggests:
       - network-manager
+      - network-manager-gnome
       - bluez
+      - blueman
       - brightnessctl
       - power-profiles-daemon
+      - polkitd
       - xdg-desktop-portal-hyprland
       - xdg-desktop-portal-gtk
       - hyprshot
       - wf-recorder
-      - wl-clipboard
       - cliphist
       - hyprsunset
+      - pavucontrol
+      - unzip
+      - git
+      - curl
+      - kitty
   rpm:
     depends:
       - "glibc >= @GLIBC@"
       - libgcc
       - pam
       - libwayland-client
+      - libwayland-egl
       - libxkbcommon
       - vulkan-loader
+      - libglvnd-egl
+      - xdg-utils
+      - tar
+      - systemd
+      - fontconfig
     recommends:
       - hyprland
       - hypridle
       - wireplumber
-      - fontconfig
+      - wl-clipboard
+      - mesa-vulkan-drivers
     suggests:
       - NetworkManager
+      - nm-connection-editor
       - bluez
+      - blueman
       - brightnessctl
       - power-profiles-daemon
+      - polkit
       - xdg-desktop-portal-hyprland
       - xdg-desktop-portal-gtk
-      - wl-clipboard
+      - hyprshot
+      - wf-recorder
+      - cliphist
+      - hyprsunset
+      - pavucontrol
+      - unzip
+      - git
+      - curl
+      - kitty
   archlinux:
     depends:
       - "glibc>=@GLIBC@"
@@ -116,19 +153,33 @@ overrides:
       - wayland
       - libxkbcommon
       - vulkan-icd-loader
+      - libglvnd
+      - xdg-utils
+      - tar
+      - systemd
+      - fontconfig
       - hyprland
     # optdepends : « paquet: raison ».
     suggests:
       - "hypridle: veille et verrouillage automatique"
       - "wireplumber: son (wpctl)"
+      - "wl-clipboard: copier-coller (wl-copy, wl-paste)"
       - "networkmanager: réseau (nmcli)"
+      - "nm-connection-editor: réglages réseau avancés"
       - "bluez-utils: Bluetooth (bluetoothctl)"
+      - "blueman: réglages Bluetooth avancés"
       - "brightnessctl: assombrir l'écran à l'inactivité"
       - "power-profiles-daemon: profils d'énergie"
+      - "polkit: authentification administrateur"
       - "xdg-desktop-portal-hyprland: partage d'écran"
       - "xdg-desktop-portal-gtk: sélecteur de fichiers"
       - "hyprshot: captures d'écran"
       - "wf-recorder: enregistrement de l'écran"
-      - "wl-clipboard: presse-papiers"
       - "cliphist: historique du presse-papiers"
       - "hyprsunset: éclairage nocturne"
+      - "pavucontrol: réglages du son avancés"
+      - "unzip: thèmes au format .zip"
+      - "git: plugins depuis un dépôt git"
+      - "curl: widget météo d'exemple"
+      - "kitty: thème des applications (terminal)"
+      - "wayle: notifications (en attendant le démon intégré)"
