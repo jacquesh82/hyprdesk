@@ -487,6 +487,8 @@ impl Settings {
 
     /// Écriture atomique (fichier temporaire + renommage) : la surveillance de
     /// la config ne voit jamais un fichier à moitié écrit.
+    /// Enregistrement simple ; l'écran Réglages passe par `save_versioned`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn save(&self, config_path: &Path) -> std::io::Result<PathBuf> {
         self.save_versioned(config_path, crate::storage::revision())
     }
