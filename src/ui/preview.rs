@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 33] = [
+const SCENES: [&str; 34] = [
     "desktop",
     "typography",
     "icons",
@@ -57,6 +57,7 @@ const SCENES: [&str; 33] = [
     "launcher-menu-long",
     "layouts",
     "tour",
+    "veille",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -465,6 +466,7 @@ impl Preview {
             24 => Some("desktop"),
             31 => Some("layouts"),
             32 => Some("wallpaper"),
+            33 => Some("lock"),
             _ => None,
         };
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -477,6 +479,11 @@ impl Preview {
         Arc::make_mut(&mut self.app.cfg).general.tour_seen = SCENES[self.scene] != "tour";
         if self.scene == 1 {
             self.app.subtabs.insert("theme", "texte");
+        }
+        // Verrouillage → Veille, hyprdesk gérant la veille (délais par défaut).
+        if SCENES[self.scene] == "veille" {
+            self.app.subtabs.insert("lock", "veille");
+            Arc::make_mut(&mut self.app.cfg).general.idle.manage = true;
         }
         if let Ok(spec) = std::env::var("HYPRDESK_PREVIEW_SUBTAB") {
             for pair in spec.split(',') {

@@ -179,6 +179,34 @@ impl Default for LockCfg {
     }
 }
 
+/// Inactivité et veille, orchestrées par hyprdesk via hypridle (`crate::idle`).
+/// Délais en secondes depuis la dernière activité ; 0 = étape coupée.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IdleCfg {
+    /// hyprdesk écrit la config de hypridle et le lance (sinon : rien).
+    pub manage: bool,
+    /// Assombrir l'écran.
+    pub dim: u32,
+    /// Verrouiller (`hyprdesk lock`).
+    pub lock: u32,
+    /// Éteindre les écrans.
+    pub dpms: u32,
+    /// Mettre en veille.
+    pub suspend: u32,
+}
+
+impl Default for IdleCfg {
+    fn default() -> Self {
+        IdleCfg {
+            manage: false,
+            dim: 240,
+            lock: 300,
+            dpms: 360,
+            suspend: 0,
+        }
+    }
+}
+
 /// Bord du bureau où se tient le lanceur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LauncherPosition {
@@ -609,6 +637,8 @@ pub struct General {
     pub launcher: LauncherCfg,
     /// Écran de verrouillage.
     pub lock: LockCfg,
+    /// Inactivité et veille (hypridle orchestré).
+    pub idle: IdleCfg,
     pub show_on: ShowOn,
     pub close_on_launch: bool,
     /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
@@ -670,6 +700,7 @@ impl Default for General {
             launcher_group: LauncherGroup::None,
             launcher: LauncherCfg::default(),
             lock: LockCfg::default(),
+            idle: IdleCfg::default(),
             show_on: ShowOn::All,
             close_on_launch: true,
             advanced_settings: false,

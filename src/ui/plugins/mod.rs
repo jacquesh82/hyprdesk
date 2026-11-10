@@ -142,6 +142,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "workspaces" => workspaces::TABS,
         "layouts" => layouts::TABS,
         "widgets" => widgets::TABS,
+        "lock" => lock::TABS,
         _ => &[],
     }
 }

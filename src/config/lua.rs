@@ -458,6 +458,11 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "lock_show_user",
             "lock_show_battery",
             "lock_show_media",
+            "idle_manage",
+            "idle_dim",
+            "idle_lock",
+            "idle_dpms",
+            "idle_suspend",
             "show_on",
             "close_on_launch",
             "advanced_settings",
@@ -595,6 +600,20 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "lock_show_media", CTX)? {
         g.lock.show_media = v;
+    }
+    if let Some(v) = opt_bool(t, "idle_manage", CTX)? {
+        g.idle.manage = v;
+    }
+    for (key, slot) in [
+        ("idle_dim", &mut g.idle.dim),
+        ("idle_lock", &mut g.idle.lock),
+        ("idle_dpms", &mut g.idle.dpms),
+        ("idle_suspend", &mut g.idle.suspend),
+    ] {
+        if let Some(v) = opt_num(t, key, CTX)? {
+            // Secondes, jusqu'à 24 h ; 0 coupe l'étape.
+            *slot = v.clamp(0.0, 86_400.0) as u32;
+        }
     }
     if let Some(v) = opt_bool(t, "launcher_show_settings", CTX)? {
         g.launcher.show_settings = v;
@@ -2228,6 +2247,20 @@ mod tests {
         assert!(current.render(old).is_err());
         assert_eq!(current.render(new).unwrap().text, "new");
         assert_eq!(previous.render(old).unwrap().text, "old");
+    }
+
+    #[test]
+    fn veille_geree() {
+        let c = load(
+            "hd.config({ idle_manage = true, idle_lock = 600, idle_suspend = 0, idle_dim = 1e9 })",
+        )
+        .unwrap()
+        .config;
+        let i = &c.general.idle;
+        assert!(i.manage);
+        assert_eq!((i.lock, i.suspend, i.dim), (600, 0, 86_400));
+        assert_eq!(i.dpms, crate::config::IdleCfg::default().dpms);
+        assert!(load("hd.config({ idle_lock = 'tard' })").is_err());
     }
 
     #[test]

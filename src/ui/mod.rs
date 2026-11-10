@@ -797,11 +797,28 @@ impl App {
             self.last_poll.retain(|k, _| !k.starts_with("bar:"));
             tasks.push(Task::done(Msg::Poll));
         }
-        if old.components != self.cfg.components || old.catalog.is_empty() {
-            // Composants de session : lancés, arrêtés ou relancés selon la config.
-            let defs = self.cfg.components.clone();
+        let idle_changed = o.idle != n.idle;
+        if old.components != self.cfg.components || idle_changed || old.catalog.is_empty() {
+            // Composants de session : lancés, arrêtés ou relancés selon la config ;
+            // hypridle s'y ajoute quand hyprdesk gère la veille (`crate::idle`).
+            let mut defs = self.cfg.components.clone();
+            if let Err(e) = crate::idle::write(&n.idle) {
+                tracing::warn!("{}", crate::tr!("configuration de hypridle : {e}", e = e));
+            }
+            if let Some(d) = crate::idle::component(&n.idle)
+                && !defs.iter().any(|c| c.name == d.name)
+            {
+                defs.push(d);
+            }
+            // Délais changés, composant identique : relire le fichier.
+            let reload_idle = idle_changed && o.idle.manage && n.idle.manage;
             tasks.push(Task::perform(
-                async move { crate::session::sync(&defs).await },
+                async move {
+                    crate::session::sync(&defs).await;
+                    if reload_idle {
+                        crate::session::restart(crate::idle::COMPONENT).await;
+                    }
+                },
                 |_| Msg::Noop,
             ));
         }

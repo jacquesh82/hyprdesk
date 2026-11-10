@@ -10,6 +10,11 @@
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
+---@field idle_manage? boolean # hyprdesk gère la veille : écrit la config de hypridle et le lance
+---@field idle_dim? integer # secondes sans activité avant d'assombrir l'écran (0 : jamais)
+---@field idle_lock? integer # secondes avant de verrouiller (0 : jamais)
+---@field idle_dpms? integer # secondes avant d'éteindre les écrans (0 : jamais)
+---@field idle_suspend? integer # secondes avant la mise en veille (0 : jamais)
 ---@field mode? "opaque"|"glass"
 ---@field fade_ms? integer
 ---@field transition? "fade"|"slide"|"none"

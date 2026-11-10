@@ -116,6 +116,11 @@ pub struct Settings {
     pub lock_show_user: Option<bool>,
     pub lock_show_battery: Option<bool>,
     pub lock_show_media: Option<bool>,
+    pub idle_manage: Option<bool>,
+    pub idle_dim: Option<u32>,
+    pub idle_lock: Option<u32>,
+    pub idle_dpms: Option<u32>,
+    pub idle_suspend: Option<u32>,
     pub icon_theme: Option<String>,
     pub font: Option<String>,
     pub font_size: Option<f32>,
@@ -256,6 +261,11 @@ impl Settings {
             lock_show_user: has("lock_show_user").then_some(g.lock.show_user),
             lock_show_battery: has("lock_show_battery").then_some(g.lock.show_battery),
             lock_show_media: has("lock_show_media").then_some(g.lock.show_media),
+            idle_manage: has("idle_manage").then_some(g.idle.manage),
+            idle_dim: has("idle_dim").then_some(g.idle.dim),
+            idle_lock: has("idle_lock").then_some(g.idle.lock),
+            idle_dpms: has("idle_dpms").then_some(g.idle.dpms),
+            idle_suspend: has("idle_suspend").then_some(g.idle.suspend),
             launcher_show_assistant: has("launcher_show_assistant")
                 .then_some(g.launcher.show_assistant),
             icon_theme: if has("icon_theme") {
@@ -504,6 +514,11 @@ impl Settings {
         set!(lock_show_user, "lock_show_user", g.lock.show_user);
         set!(lock_show_battery, "lock_show_battery", g.lock.show_battery);
         set!(lock_show_media, "lock_show_media", g.lock.show_media);
+        set!(idle_manage, "idle_manage", g.idle.manage);
+        set!(idle_dim, "idle_dim", g.idle.dim);
+        set!(idle_lock, "idle_lock", g.idle.lock);
+        set!(idle_dpms, "idle_dpms", g.idle.dpms);
+        set!(idle_suspend, "idle_suspend", g.idle.suspend);
         if free("lock_image") {
             g.lock.image = self.lock_image.clone();
         }
@@ -918,6 +933,17 @@ impl Settings {
             ("lock_show_user", self.lock_show_user),
             ("lock_show_battery", self.lock_show_battery),
             ("lock_show_media", self.lock_show_media),
+            ("idle_manage", self.idle_manage),
+        ] {
+            if let Some(v) = v {
+                cfg.push(format!("{k} = {v}"));
+            }
+        }
+        for (k, v) in [
+            ("idle_dim", self.idle_dim),
+            ("idle_lock", self.idle_lock),
+            ("idle_dpms", self.idle_dpms),
+            ("idle_suspend", self.idle_suspend),
         ] {
             if let Some(v) = v {
                 cfg.push(format!("{k} = {v}"));
@@ -1425,6 +1451,8 @@ mod tests {
             lock_dim: Some(0.5),
             lock_image: Some("/img/verrou.png".into()),
             lock_show_media: Some(false),
+            idle_manage: Some(true),
+            idle_suspend: Some(1800),
             icon_theme: Some("Papirus-Dark".into()),
             icon_size: Some(64),
             cell: Some(112),

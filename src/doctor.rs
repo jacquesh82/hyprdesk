@@ -76,6 +76,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "brightnessctl",
+        probe: Probe::Program(&["brightnessctl"]),
+        package: "brightnessctl",
+        feature: "Assombrir l'écran à l'inactivité",
+        essential: false,
+    },
+    Dep {
         name: "polkit-agent-helper-1",
         probe: Probe::File(&[
             "/usr/lib/polkit-1/polkit-agent-helper-1",

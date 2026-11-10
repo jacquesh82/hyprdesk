@@ -14,6 +14,7 @@ mod doctor;
 mod fonts;
 mod hypr;
 mod i18n;
+mod idle;
 mod launch;
 mod layout;
 mod lock;

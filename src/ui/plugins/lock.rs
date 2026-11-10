@@ -20,6 +20,18 @@ pub const INFO: PluginInfo = PluginInfo {
     builtin: true,
 };
 
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[("ecran", "Écran"), ("veille", "Veille")];
+
+/// Étapes de l'inactivité, dans l'ordre où elles arrivent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleStep {
+    Dim,
+    Lock,
+    Dpms,
+    Suspend,
+}
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Lock(m)))
 }
@@ -34,10 +46,18 @@ pub enum Msg {
     ShowBattery(bool),
     ShowMedia(bool),
     LockNow,
+    /// hyprdesk gère la veille (hypridle).
+    IdleManage(bool),
+    /// Délai d'une étape en minutes pendant le glissé (0 = jamais), puis enregistrement.
+    IdleDelay(IdleStep, u32),
+    IdleCommit,
 }
 
 impl App {
     pub(in crate::ui) fn lock_page(&self) -> Element<'_, UiMsg> {
+        if self.on_subtab(INFO.id, "veille") {
+            return self.idle_section();
+        }
         let g = &self.cfg.general;
         let l = &g.lock;
         let fg = color(g.theme.fg, 1.0);
@@ -134,8 +154,105 @@ impl App {
         .into()
     }
 
+    /// Inactivité et veille : hypridle orchestré par hyprdesk.
+    fn idle_section(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let i = &g.idle;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = color(g.theme.accent, 1.0);
+        let mut col = column![
+            self.section("Veille"),
+            text("À chaque étape, après ce délai sans activité. hyprdesk écrit la configuration de hypridle et le lance ; une application qui demande à rester éveillée (vidéo, appel) l'en empêche.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            self.field(
+                "hyprdesk gère la veille",
+                "idle_manage",
+                toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v))),
+            ),
+        ]
+        .spacing(14);
+        if !crate::launch::executable("hypridle") {
+            col = col.push(
+                text("hypridle est absent (paquet hypridle) : rien ne se passera à l'inactivité.")
+                    .font(self.font)
+                    .size(12)
+                    .color(warn),
+            );
+        }
+        if let Some(pid) = crate::idle::foreign_cached() {
+            col = col.push(
+                text(crate::tr!(
+                    "Un hypridle lancé hors de hyprdesk tourne déjà (pid {pid}). Pour que hyprdesk gère la veille, retirez son lancement de hyprland.lua : deux hypridle verrouilleraient deux fois.",
+                    pid = pid
+                ))
+                .font(self.font)
+                .size(12)
+                .color(if i.manage { warn } else { dim }),
+            );
+        }
+        if !i.manage {
+            return col.into();
+        }
+        for (step, label, key, secs) in [
+            (IdleStep::Dim, "Assombrir l'écran", "idle_dim", i.dim),
+            (IdleStep::Lock, "Verrouiller", "idle_lock", i.lock),
+            (IdleStep::Dpms, "Éteindre les écrans", "idle_dpms", i.dpms),
+            (
+                IdleStep::Suspend,
+                "Mettre en veille",
+                "idle_suspend",
+                i.suspend,
+            ),
+        ] {
+            let minutes = secs.div_ceil(60);
+            let value = if minutes == 0 {
+                crate::i18n::tr("jamais").to_string()
+            } else {
+                crate::tr!("{n} min", n = minutes)
+            };
+            col = col.push(
+                self.field(
+                    label,
+                    key,
+                    row![
+                        slider(0..=120u32, minutes, move |m| wrap(Msg::IdleDelay(step, m)))
+                            .on_release(wrap(Msg::IdleCommit))
+                            .width(260),
+                        text(value).font(self.font).size(14),
+                    ]
+                    .spacing(12),
+                ),
+            );
+        }
+        col = col.push(
+            text("Avant une mise en veille, la session est toujours verrouillée ; au réveil, les écrans se rallument. Assombrir passe par brightnessctl.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
+        col.into()
+    }
+
     pub(in crate::ui) fn lock_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
+            Msg::IdleManage(v) => {
+                self.settings.idle_manage = Some(v);
+                self.commit()
+            }
+            Msg::IdleDelay(step, minutes) => {
+                let secs = Some(minutes * 60);
+                match step {
+                    IdleStep::Dim => self.settings.idle_dim = secs,
+                    IdleStep::Lock => self.settings.idle_lock = secs,
+                    IdleStep::Dpms => self.settings.idle_dpms = secs,
+                    IdleStep::Suspend => self.settings.idle_suspend = secs,
+                }
+                self.apply()
+            }
+            Msg::IdleCommit => self.commit(),
             Msg::Blur(v) => {
                 self.settings.lock_blur = Some(v);
                 self.commit()

@@ -340,6 +340,26 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.lock.show_media),
         |s, v, c| { s.lock_show_media = Some(parse_bool(v)?); Ok(()) },
         |s| s.lock_show_media = None;
+    "idle_manage", "lock", "on | off — hyprdesk gère la veille (lance hypridle avec ses délais)",
+        |c| on_off(c.general.idle.manage),
+        |s, v, c| { s.idle_manage = Some(parse_bool(v)?); Ok(()) },
+        |s| s.idle_manage = None;
+    "idle_dim", "lock", "0..86400 s — assombrir l'écran après inactivité (0 : jamais)",
+        |c| c.general.idle.dim.to_string(),
+        |s, v, c| { s.idle_dim = Some(number(v, 0u32, 86_400)?); Ok(()) },
+        |s| s.idle_dim = None;
+    "idle_lock", "lock", "0..86400 s — verrouiller après inactivité (0 : jamais)",
+        |c| c.general.idle.lock.to_string(),
+        |s, v, c| { s.idle_lock = Some(number(v, 0u32, 86_400)?); Ok(()) },
+        |s| s.idle_lock = None;
+    "idle_dpms", "lock", "0..86400 s — éteindre les écrans après inactivité (0 : jamais)",
+        |c| c.general.idle.dpms.to_string(),
+        |s, v, c| { s.idle_dpms = Some(number(v, 0u32, 86_400)?); Ok(()) },
+        |s| s.idle_dpms = None;
+    "idle_suspend", "lock", "0..86400 s — mettre en veille après inactivité (0 : jamais)",
+        |c| c.general.idle.suspend.to_string(),
+        |s, v, c| { s.idle_suspend = Some(number(v, 0u32, 86_400)?); Ok(()) },
+        |s| s.idle_suspend = None;
     "assistant_mode", "assistant", "window | terminal — ouverture de LYRA (fournisseur : apps.ai)",
         |c| c.general.assistant_mode.as_str().into(),
         |s, v, c| { s.assistant_mode = Some(choice(v, crate::assistant::AssistantMode::parse, "window, terminal")?); Ok(()) },
