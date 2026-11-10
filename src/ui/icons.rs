@@ -164,6 +164,14 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Luminosité de l'écran : un soleil.
+        "display-brightness" | "brightness-display" => {
+            r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>"#
+        }
+        // Rétroéclairage du clavier : un clavier, rayons au-dessus.
+        "keyboard-brightness" => {
+            r#"<rect x="2" y="11" width="20" height="10" rx="2.5"/><path d="M6 15h.01M10 15h.01M14 15h.01M18 15h.01M8 18h8M12 3v3M6.5 5l1.5 2M17.5 5 16 7"/>"#
+        }
         "system-reboot" => r#"<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>"#,
         "system-log-out" => {
             r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M9 8l-4 4 4 4M5 12h11"/>"#
@@ -203,6 +211,7 @@ mod tests {
             root.join("src/ui/bar.rs"),
             root.join("src/ui/popover.rs"),
             root.join("src/ui/widget_view.rs"),
+            root.join("src/ui/osd.rs"),
         ];
         for e in std::fs::read_dir(root.join("assets/widgets/integres"))
             .unwrap()

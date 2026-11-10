@@ -711,6 +711,13 @@ fn main() -> ExitCode {
             };
             match block_on(osd::apply(kind, step)) {
                 Ok(l) => {
+                    // Affichage à l'écran par le démon, s'il tourne.
+                    let _ = control::send(control::Command::Osd(format!(
+                        "{} {} {}",
+                        kind.as_str(),
+                        l.value,
+                        u8::from(l.muted)
+                    )));
                     println!(
                         "{} {:.0} %{}",
                         kind.as_str(),

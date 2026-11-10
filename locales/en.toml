@@ -1158,3 +1158,6 @@
 "luminosité (logind) : {e}" = "brightness (logind): {e}"
 "volume illisible (wpctl)" = "unreadable volume (wpctl)"
 "wpctl : {e}" = "wpctl: {e}"
+
+# Affichage à l'écran (MLG-4).
+"muet" = "muted"

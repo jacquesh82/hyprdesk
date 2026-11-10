@@ -16,6 +16,7 @@ pub(crate) mod bar;
 mod chat;
 mod design;
 mod icons;
+mod osd;
 mod panel;
 pub(crate) mod plugins;
 mod popover;
@@ -164,6 +165,8 @@ pub enum Msg {
     IconsResolved(u64, Vec<launch::Resolved>, Vec<Option<PathBuf>>),
     WallLoaded(WallKey, Result<DecodedWall, String>),
     Rotate,
+    /// L'affichage à l'écran (OSD) s'efface-t-il ?
+    OsdTick,
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -325,6 +328,8 @@ pub struct App {
     /// ramenées) : flottantes, elles suivent le bureau quand il est masqué
     /// (`hypr::DESK`) et reviennent avec lui.
     desk_windows: HashSet<String>,
+    /// Affichage à l'écran des touches de volume et de luminosité.
+    osd: Option<osd::Osd>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -629,6 +634,7 @@ impl App {
             },
             session_windows: HashSet::new(),
             desk_windows: HashSet::new(),
+            osd: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -2415,6 +2421,10 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                control::Command::Osd(line) => match osd::parse(&line) {
+                    Some((kind, value, muted)) => self.show_osd(kind, value, muted),
+                    None => Task::none(),
+                },
                 control::Command::Menu(kind) => self.open_menu_by_type(&kind),
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
@@ -2840,6 +2850,7 @@ impl App {
                 }
                 self.refresh_walls()
             }
+            Msg::OsdTick => self.osd_tick(),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3110,6 +3121,10 @@ impl App {
                 Task::none()
             }
             Msg::Closed(id) => {
+                if self.osd.as_ref().is_some_and(|o| o.win == id) {
+                    self.osd = None;
+                    return Task::none();
+                }
                 if self
                     .popover
                     .as_ref()
@@ -3293,6 +3308,9 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        if self.osd.is_some() {
+            subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
+        }
         if !self.raised.is_empty()
             || self.popover.is_some()
             || self.panel.is_some()
@@ -3397,6 +3415,9 @@ impl App {
                 return Space::new().into();
             };
             return self.view_launcher(m, self.fade_value());
+        }
+        if self.osd.as_ref().is_some_and(|o| o.win == id) {
+            return self.view_osd();
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3742,6 +3763,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Poll => "Poll",
         Msg::Frame => "Frame",
         Msg::Rotate => "Rotate",
+        Msg::OsdTick => "OsdTick",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",

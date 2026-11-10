@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 34] = [
+const SCENES: [&str; 35] = [
     "desktop",
     "typography",
     "icons",
@@ -58,6 +58,7 @@ const SCENES: [&str; 34] = [
     "layouts",
     "tour",
     "veille",
+    "osd",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -542,6 +543,10 @@ impl Preview {
                 .app
                 .open_popover(self.bar, "volume".into(), popover::Kind::Volume);
         }
+        // Touche de volume : la carte d'affichage à l'écran.
+        if SCENES[self.scene] == "osd" {
+            let _ = self.app.show_osd(crate::osd::Kind::Volume, 0.62, false);
+        }
     }
 
     fn update(&mut self, msg: PreviewMsg) -> Task<PreviewMsg> {
@@ -740,6 +745,20 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.osd.is_some() {
+            layers.push(
+                container(self.app.view_osd())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(iced::Alignment::Center)
+                    .align_y(iced::Alignment::End)
+                    .padding(Padding {
+                        bottom: 140.0,
+                        ..Padding::ZERO
+                    })
+                    .into(),
             );
         }
         if let Some(p) = &self.app.launcher_popup {
