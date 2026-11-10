@@ -472,8 +472,9 @@ fenêtre d’application ; le bureau et la barre ne sont pas des fenêtres XDG.
 Certaines pièces viennent d'autres projets de la famille Mindlog ; elles sont
 référencées ici, sans être présentées comme des éléments de hyprdesk :
 
-- **Mindlog** — la police par défaut, embarquée sous
-  [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt) ;
+- **[Mindlog](https://github.com/jacquesh82/mindlog.fonts)** — la police par
+  défaut (embarquée ici sous
+  [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt)) ;
 - **LYRA** — l'assistant IA : le tiroir de l'assistant intègre LYRA
   (`hyprpanel-chat`), de
   [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) ;

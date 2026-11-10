@@ -305,7 +305,8 @@ bash scripts/verify.sh --visual     # adds screenshots at 1440, 900 and 640 px
 Some pieces come from other projects of the Mindlog family; they are
 referenced here rather than presented as hyprdesk's own:
 
-- **Mindlog** — the default typeface, bundled under
+- **[Mindlog](https://github.com/jacquesh82/mindlog.fonts)** — the default
+  typeface, bundled here under
   [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt);
 - **LYRA** — the AI assistant: the assistant drawer integrates LYRA
   (`hyprpanel-chat`) from
