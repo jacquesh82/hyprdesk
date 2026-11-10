@@ -359,6 +359,38 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
     Ok(())
 }
 
+/// Referme le workspace spécial des fenêtres mises de côté s'il s'est ouvert :
+/// quand la fenêtre qui avait le focus y part, Hyprland l'ouvre pour suivre
+/// le focus, et les fenêtres réapparaissent par-dessus le bureau.
+pub fn close_stash_view() {
+    let Ok(v) = ipc::query_json("monitors") else { return };
+    let Some(list) = v.as_array() else { return };
+    let focused = list.iter().find(|m| m["focused"].as_bool() == Some(true)).and_then(|m| m["name"].as_str()).map(String::from);
+    let open: Vec<String> = list
+        .iter()
+        .filter(|m| m["specialWorkspace"]["name"].as_str() == Some(STASH))
+        .filter_map(|m| m["name"].as_str().map(String::from))
+        .collect();
+    if open.is_empty() {
+        return;
+    }
+    let name = STASH.trim_start_matches("special:");
+    for mon in &open {
+        // toggle_special agit sur l'écran qui a le focus.
+        if Some(mon) != focused.as_ref() {
+            let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(mon)));
+        }
+        if let Err(e) = ipc::dispatch(&format!("hl.dsp.workspace.toggle_special(\"{}\")", ipc::lua_escape(name))) {
+            tracing::warn!("fermeture de {STASH} : {e}");
+        }
+    }
+    if let Some(f) = focused
+        && !open.contains(&f)
+    {
+        let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(&f)));
+    }
+}
+
 /// Fichier qui garde la liste, pour rendre les fenêtres même après un arrêt brutal.
 fn stash_path() -> Option<std::path::PathBuf> {
     ipc::instance_dir().ok().map(|d| d.join("hyprdesk-stash.json"))

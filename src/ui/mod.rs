@@ -583,6 +583,7 @@ impl App {
                 tracing::warn!("mise de côté de {} : {e}", s.address);
             }
         }
+        hypr::close_stash_view();
         Task::none()
     }
 
