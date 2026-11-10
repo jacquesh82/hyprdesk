@@ -1250,3 +1250,18 @@
 "GNOME" = "GNOME"
 "Glisser en fondu" = "Slide and fade"
 "Glisser en fondu (vertical)" = "Slide and fade (vertical)"
+
+# Agent polkit (MLG-5).
+"Action : {a}" = "Action: {a}"
+"Agent polkit en place (Ctrl+C pour l'arrêter)." = "Polkit agent running (Ctrl+C to stop it)."
+"Autorisé." = "Authorized."
+"Mot de passe refusé, réessayez." = "Password rejected, try again."
+"Refusé." = "Denied."
+"annulé par l'utilisateur" = "cancelled by the user"
+"aucune identité utilisable" = "no usable identity"
+"authentification refusée" = "authentication denied"
+"compte inconnu" = "unknown account"
+"hyprdesk polkit-agent : enregistrement refusé ({e}) — un autre agent est-il déjà en place ?" = "hyprdesk polkit-agent: registration refused ({e}) — is another agent already running?"
+"polkit : {e}" = "polkit: {e}"
+"polkit-agent-helper-1 introuvable" = "polkit-agent-helper-1 not found"
+"  polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)" = "  polkit-agent      polkit authentication agent in the terminal (testing, or a session without the daemon)"

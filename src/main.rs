@@ -21,6 +21,7 @@ mod launch;
 mod layout;
 mod lock;
 mod osd;
+mod polkit;
 mod processes;
 mod screens;
 mod session;
@@ -86,6 +87,7 @@ Commandes :
                     règle le son ou la luminosité (touches XF86, keys.media)
   media <play-pause|next|previous>
                     commande le lecteur en cours (MPRIS)
+  polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -746,6 +748,28 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Agent polkit au terminal : mot de passe demandé ici (comme pkttyagent).
+        "polkit-agent" => block_on(async {
+            let _conn = match polkit::register(std::sync::Arc::new(polkit::TtyPrompter)).await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        crate::tr!(
+                            "hyprdesk polkit-agent : enregistrement refusé ({e}) — un autre agent est-il déjà en place ?",
+                            e = e
+                        )
+                    );
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!(
+                "{}",
+                crate::i18n::tr("Agent polkit en place (Ctrl+C pour l'arrêter).")
+            );
+            let _ = tokio::signal::ctrl_c().await;
+            ExitCode::SUCCESS
+        }),
         // Dépendances externes : présentes, absentes, et ce qui en dépend.
         "doctor" => {
             let list = doctor::check();
