@@ -269,7 +269,8 @@ return {
 
 The same plugin works on the desktop and in the bar (`hd.bar({ right = { "vpn" } })`).
 Available helpers: `hd.exec` (output of a command, time-bounded) and
-`hd.spawn` (launch through Hyprland). The Lua runs on a dedicated thread,
+`hd.spawn` (launch through Hyprland); `hd.exe` is the path of the running
+hyprdesk, to call it without relying on PATH (`hd.spawn(hd.exe .. " lock")`). The Lua runs on a dedicated thread,
 with a time budget per call. A failing plugin is flagged in the
 settings without blocking the others.
 

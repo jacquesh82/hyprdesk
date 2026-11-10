@@ -267,7 +267,8 @@ return {
 
 Le même plugin sert sur le bureau et dans la barre (`hd.bar({ right = { "vpn" } })`).
 Aides disponibles : `hd.exec` (sortie d'une commande, temps borné) et
-`hd.spawn` (lancement par Hyprland). Le Lua s'exécute sur un thread dédié,
+`hd.spawn` (lancement par Hyprland) ; `hd.exe` est le chemin du hyprdesk en
+cours, pour l'appeler sans dépendre du PATH (`hd.spawn(hd.exe .. " lock")`). Le Lua s'exécute sur un thread dédié,
 avec un budget de temps par appel. Un plugin en erreur est signalé dans les
 réglages sans bloquer les autres.
 

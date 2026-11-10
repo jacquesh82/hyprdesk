@@ -1,4 +1,4 @@
--- Session : verrouiller, veille, déconnexion, redémarrage, extinction.
+-- Session : verrouiller (écran de hyprdesk), veille, déconnexion, redémarrage, extinction.
 return {
     name        = hd.t("Session"),
     description = hd.t("Verrouiller, mettre en veille, se déconnecter, redémarrer, éteindre."),
@@ -11,7 +11,7 @@ return {
         local host = hd.exec("cat /etc/hostname 2>/dev/null")
         return {
             { header = (os.getenv("USER") or "") .. (host ~= "" and (" · " .. host) or "") },
-            { label = hd.t("Verrouiller"), icon = "system-lock-screen-symbolic", action = function() hd.spawn("hyprlock") end },
+            { label = hd.t("Verrouiller"), icon = "system-lock-screen-symbolic", action = function() hd.spawn(string.format("%q lock", hd.exe)) end },
             { label = hd.t("Mettre en veille"), icon = "weather-clear-night-symbolic", action = function() hd.spawn("systemctl suspend") end },
             "-",
             { label = hd.t("Se déconnecter…"), icon = "system-log-out-symbolic", confirm = hd.t("Fermer la session ?"),

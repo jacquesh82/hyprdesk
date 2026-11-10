@@ -115,6 +115,7 @@
 
 ---@class HD.API
 ---@field version string
+---@field exe string Chemin du hyprdesk en cours (ex. hd.spawn(hd.exe .. " lock")).
 hd = {}
 
 ---@param spec HD.ConfigSpec

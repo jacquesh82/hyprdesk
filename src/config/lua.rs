@@ -1616,6 +1616,13 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|_, ()| Ok(crate::i18n::code()))?,
     )?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
+    // Chemin du hyprdesk en cours : les plugins l'appellent sans dépendre du PATH.
+    hd.set(
+        "exe",
+        std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "hyprdesk".into()),
+    )?;
     lua.globals().set("hd", hd)?;
     // Les fonctions Rust ne connaissent pas la ligne appelante : chaque `hd.x`
     // relance l'erreur au niveau 2, pour qu'elle désigne `fichier:ligne` de
@@ -2221,6 +2228,11 @@ mod tests {
         assert!(current.render(old).is_err());
         assert_eq!(current.render(new).unwrap().text, "new");
         assert_eq!(previous.render(old).unwrap().text, "old");
+    }
+
+    #[test]
+    fn chemin_du_binaire_expose() {
+        assert!(load("assert(type(hd.exe) == 'string' and #hd.exe > 0)").is_ok());
     }
 
     #[test]
