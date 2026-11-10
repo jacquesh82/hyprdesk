@@ -2046,9 +2046,18 @@ impl App {
 
     /// Résout une icône par nom (une fois), hors du thread UI.
     pub(super) fn want_icon(&mut self, name: &str) -> Task<Msg> {
-        if self.named_icons.contains_key(name) || !self.named_pending.insert(name.to_string()) {
+        if self.named_icons.contains_key(name) || self.named_pending.contains(name) {
             return Task::none();
         }
+        // Icône d'interface : le jeu de hyprdesk d'abord (cohérence graphique),
+        // sans passer par le thème d'icônes.
+        let symbolic = name.ends_with("-symbolic") || name.starts_with("hyprdesk-");
+        if symbolic && icons::get(name).is_some() {
+            let img = self.builtin_icon(name);
+            self.named_icons.insert(name.to_string(), img);
+            return Task::none();
+        }
+        self.named_pending.insert(name.to_string());
         let (n, theme, gen_) = (
             name.to_string(),
             self.cfg.general.icon_theme.clone(),
@@ -2058,12 +2067,9 @@ impl App {
             async move {
                 let n2 = n.clone();
                 let p = tokio::task::spawn_blocking(move || {
+                    // Repli : le thème par défaut. Jamais la version en couleur
+                    // d'une icône symbolique : elle détonnerait dans la barre.
                     launch::lookup_icon(&n2, theme.as_deref(), 32)
-                        // Repli : la version non symbolique, puis le thème par défaut.
-                        .or_else(|| {
-                            n2.strip_suffix("-symbolic")
-                                .and_then(|b| launch::lookup_icon(b, theme.as_deref(), 32))
-                        })
                         .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), 32))
                 })
                 .await
