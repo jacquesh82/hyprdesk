@@ -479,6 +479,8 @@ pub struct Config {
     pub catalog: Vec<WidgetType>,
     /// Positions imposées par l'écran Réglages (`hd.place`), par id de widget.
     pub placements: std::collections::BTreeMap<String, Placement>,
+    /// Widgets désactivés depuis les réglages (`hd.disable`) : id → type.
+    pub disabled: std::collections::BTreeMap<String, String>,
 }
 
 #[cfg(test)]

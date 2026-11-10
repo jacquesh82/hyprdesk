@@ -25,6 +25,8 @@ struct Builder {
     plugins: std::collections::HashMap<String, Plugin>,
     /// `hd.place` dans l'ordre d'appel : les réglages, puis l'utilisateur.
     places: Vec<(Origin, String, PlacePatch)>,
+    /// `hd.disable` : widgets à retirer une fois tout déclaré.
+    disabled: Vec<String>,
 }
 
 /// Plugin de widget chargé : sa table Lua et ses valeurs par défaut.
@@ -621,6 +623,15 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         "_place",
         lua.create_function(|lua, (id, t): (String, Table)| with_builder(lua, |b| hd_place(b, &id, &t)))?,
     )?;
+    hd.set(
+        "_disable",
+        lua.create_function(|lua, id: String| {
+            with_builder(lua, |b| {
+                b.disabled.push(id);
+                Ok(())
+            })
+        })?,
+    )?;
     hd.set("exec", lua.create_function(|_, cmd: String| Ok(shell_output(&cmd)))?)?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
     lua.globals().set("hd", hd)?;
@@ -629,7 +640,7 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
     // l'appel dans la config, comme une erreur Lua ordinaire.
     lua.load(
         r#"
-        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "place", "on" }) do
+        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "place", "disable", "on" }) do
             local f = hd["_" .. name]
             hd["_" .. name] = nil
             hd[name] = function(...)
@@ -754,6 +765,7 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         origin: Origin::User,
         plugins,
         places: Vec::new(),
+        disabled: Vec::new(),
     }));
     for (src, name, origin) in chunks {
         if let Some(b) = lua.app_data_ref::<RefCell<Builder>>() {
@@ -763,6 +775,16 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
     }
     let mut b = lua.remove_app_data::<RefCell<Builder>>().expect("builder posé plus haut").into_inner();
     apply_places(&mut b);
+    // Widgets désactivés depuis les réglages, quelle que soit leur origine.
+    for id in std::mem::take(&mut b.disabled) {
+        match b.config.widgets.iter().position(|w| w.id == id) {
+            Some(i) => {
+                let w = b.config.widgets.remove(i);
+                b.config.disabled.insert(id, w.type_id);
+            }
+            None => tracing::warn!("hd.disable : aucun widget « {id} »"),
+        }
+    }
     Ok(Loaded { lua, config: b.config, funcs: b.funcs })
 }
 

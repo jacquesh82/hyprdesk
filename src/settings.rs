@@ -43,6 +43,8 @@ pub struct Settings {
     pub widgets: Vec<WidgetDef>,
     /// Positions imposées aux widgets déclarés dans hyprdesk.lua (`hd.place`).
     pub placements: BTreeMap<String, Placement>,
+    /// Widgets de hyprdesk.lua désactivés depuis les réglages : id → type.
+    pub disabled: BTreeMap<String, String>,
 }
 
 impl Settings {
@@ -78,6 +80,28 @@ impl Settings {
                 .filter(|(id, _)| !c.widgets.iter().any(|w| &w.id == *id && w.origin == Origin::Settings))
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
+            disabled: c.disabled.clone(),
+        }
+    }
+
+    /// Active ou désactive un type de widget, quelle que soit l'origine de ses
+    /// instances. `user_ids` : les widgets de ce type déclarés dans hyprdesk.lua.
+    pub fn set_widget_type(&mut self, type_id: &str, on: bool, anchor: Anchor, user_ids: &[String], taken: &[String]) -> Option<String> {
+        if on {
+            let was_disabled: Vec<String> = self.disabled.iter().filter(|(_, t)| *t == type_id).map(|(id, _)| id.clone()).collect();
+            if !was_disabled.is_empty() {
+                for id in was_disabled {
+                    self.disabled.remove(&id);
+                }
+                return None;
+            }
+            Some(self.add_widget(type_id, anchor, taken))
+        } else {
+            self.widgets.retain(|w| w.type_id != type_id);
+            for id in user_ids {
+                self.disabled.insert(id.clone(), type_id.to_string());
+            }
+            None
         }
     }
 
@@ -106,6 +130,7 @@ impl Settings {
         id
     }
 
+    #[cfg(test)]
     pub fn remove_widget(&mut self, id: &str) {
         self.widgets.retain(|w| w.id != id);
     }
@@ -175,6 +200,8 @@ impl Settings {
             }
         }
         c.placements = self.placements.clone();
+        c.widgets.retain(|w| !self.disabled.contains_key(&w.id));
+        c.disabled = self.disabled.clone();
         c
     }
 
@@ -340,6 +367,9 @@ impl Settings {
         }
         for (id, p) in &self.placements {
             let _ = writeln!(o, "hd.place({}, {{ {} }})", q(id), placement_fields(p).join(", "));
+        }
+        for id in self.disabled.keys() {
+            let _ = writeln!(o, "hd.disable({})", q(id));
         }
         for i in &self.icons {
             let mut f = selector_fields(&i.sel);
@@ -536,6 +566,27 @@ mod tests {
         let live = moved.apply_to(&cfg);
         let reloaded = load_chunks(&chunks(moved.to_lua()), Path::new("/cfg")).unwrap().config;
         assert_eq!(live.widgets, reloaded.widgets);
+    }
+
+    #[test]
+    fn desactiver_un_widget_de_l_utilisateur() {
+        let user = r#"hd.widget("clock") hd.widget("calendar")"#;
+        let chunks = |l: String| vec![(l, "settings.lua".to_string(), Origin::Settings), (user.to_string(), "u.lua".to_string(), Origin::User)];
+        let base = load_chunks(&chunks(String::new()), Path::new("/cfg")).unwrap().config;
+        let mut s = Settings::from_config(&base);
+        // Éteindre l'horloge (déclarée dans hyprdesk.lua) : elle disparaît, en direct comme au rechargement.
+        s.set_widget_type("clock", false, Anchor::TopRight, &["clock#0".to_string()], &[]);
+        let live = s.apply_to(&base);
+        let reloaded = load_chunks(&chunks(s.to_lua()), Path::new("/cfg")).unwrap().config;
+        assert!(!live.widgets.iter().any(|w| w.type_id == "clock"));
+        assert_eq!(live.widgets, reloaded.widgets);
+        assert_eq!(reloaded.disabled.get("clock#0").map(String::as_str), Some("clock"));
+        // La rallumer réactive celle de l'utilisateur, sans en créer une seconde.
+        let mut s2 = Settings::from_config(&load_chunks(&chunks(s.to_lua()), Path::new("/cfg")).unwrap().config);
+        assert_eq!(s2.set_widget_type("clock", true, Anchor::TopRight, &[], &[]), None);
+        let back = load_chunks(&chunks(s2.to_lua()), Path::new("/cfg")).unwrap().config;
+        assert_eq!(back.widgets.iter().filter(|w| w.type_id == "clock").count(), 1);
+        assert!(back.disabled.is_empty());
     }
 
     #[test]

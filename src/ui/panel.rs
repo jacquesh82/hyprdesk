@@ -527,20 +527,22 @@ impl App {
                 self.commit()
             }
             PanelMsg::WidgetToggle(type_id, on) => {
-                if on {
-                    let anchor = self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.anchor).unwrap_or_default();
-                    let taken: Vec<String> = self.cfg.widgets.iter().map(|w| w.id.clone()).collect();
-                    let id = self.settings.add_widget(&type_id, anchor, &taken);
-                    if let Some(p) = self.panel.as_mut() {
-                        p.widget_sel = Some(id);
-                    }
-                } else {
-                    let ids: Vec<String> = self.settings.widgets.iter().filter(|w| w.type_id == type_id).map(|w| w.id.clone()).collect();
-                    for id in ids {
-                        self.settings.remove_widget(&id);
-                    }
+                let anchor = self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.anchor).unwrap_or_default();
+                let taken: Vec<String> = self.cfg.widgets.iter().map(|w| w.id.clone()).collect();
+                let user_ids: Vec<String> =
+                    self.cfg.widgets.iter().filter(|w| w.type_id == type_id && w.origin == Origin::User).map(|w| w.id.clone()).collect();
+                if let Some(id) = self.settings.set_widget_type(&type_id, on, anchor, &user_ids, &taken)
+                    && let Some(p) = self.panel.as_mut()
+                {
+                    p.widget_sel = Some(id);
                 }
-                self.commit_reload()
+                // Éteindre s'applique tout de suite ; allumer demande de relire
+                // la config (contenu du widget, fonctions Lua des plugins).
+                if on {
+                    self.commit_reload()
+                } else {
+                    self.commit()
+                }
             }
             PanelMsg::RescanWidgets => Task::done(Msg::ConfigChanged),
             PanelMsg::OpenWidgetDir => {
@@ -1090,8 +1092,10 @@ impl App {
         // -- Catalogue ---------------------------------------------------------
         let mut catalog = column![].spacing(10);
         for t in &self.cfg.catalog {
-            let in_settings = self.settings.widgets.iter().any(|w| w.type_id == t.id);
+            // Actif = présent sur le bureau, qu'il vienne des réglages ou de hyprdesk.lua.
+            let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id);
             let in_user = self.cfg.widgets.iter().filter(|w| w.type_id == t.id && w.origin == Origin::User).count();
+            let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
                 WidgetSource::Builtin => "intégré".to_string(),
                 WidgetSource::Plugin(path) => format!("plugin · {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
@@ -1105,7 +1109,10 @@ impl App {
                 info = info.push(text(t.description.clone()).size(12).color(dim));
             }
             if in_user > 0 {
-                info = info.push(text(format!("déjà déclaré {in_user} fois dans hyprdesk.lua")).size(11).color(dim));
+                info = info.push(text(format!("déclaré {in_user} fois dans hyprdesk.lua")).size(11).color(dim));
+            }
+            if disabled > 0 {
+                info = info.push(text(format!("{disabled} instance(s) de hyprdesk.lua désactivée(s) ici")).size(11).color(dim));
             }
             if let Some(e) = &t.error {
                 info = info.push(text(format!("⚠ {e}")).size(12).color(warn));
@@ -1114,7 +1121,11 @@ impl App {
                 Space::new().into()
             } else if t.toggleable {
                 let id = t.id.clone();
-                toggler(in_settings).on_toggle(move |on| Msg::Panel(PanelMsg::WidgetToggle(id.clone(), on))).into()
+                toggler(active).on_toggle(move |on| Msg::Panel(PanelMsg::WidgetToggle(id.clone(), on))).into()
+            } else if active || disabled > 0 {
+                // command / lua : pas de création d'un clic, mais on peut éteindre ou rallumer.
+                let id = t.id.clone();
+                toggler(active).on_toggle(move |on| Msg::Panel(PanelMsg::WidgetToggle(id.clone(), on))).into()
             } else {
                 text("dans hyprdesk.lua").size(11).color(dim).into()
             };

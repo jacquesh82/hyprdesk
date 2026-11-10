@@ -562,7 +562,8 @@ impl App {
     }
 
     /// Met de côté les fenêtres du workspace affiché sur cet écran (sauf
-    /// celles ouvertes depuis le bureau).
+    /// celles ouvertes depuis le bureau). Fait de façon SYNCHRONE (quelques
+    /// requêtes IPC) : aucune sortie ne peut s'intercaler et perdre une fenêtre.
     fn stash_workspace(&mut self, m: &Monitor) -> Task<Msg> {
         let picked: Vec<hypr::Stashed> = self
             .clients
@@ -575,41 +576,25 @@ impl App {
             return Task::none();
         }
         self.stash.extend(picked.iter().cloned());
-        let all = self.stash.clone();
-        Task::perform(
-            async move {
-                let _ = tokio::task::spawn_blocking(move || {
-                    hypr::save_stash(&all);
-                    for s in &picked {
-                        if let Err(e) = hypr::move_window(&s.address, hypr::STASH) {
-                            tracing::warn!("mise de côté de {} : {e}", s.address);
-                        }
-                    }
-                })
-                .await;
-            },
-            |_| Msg::Noop,
-        )
+        // La liste est écrite AVANT de déplacer : un arrêt brutal ne perd rien.
+        hypr::save_stash(&self.stash);
+        for s in &picked {
+            if let Err(e) = hypr::move_window(&s.address, hypr::STASH) {
+                tracing::warn!("mise de côté de {} : {e}", s.address);
+            }
+        }
+        Task::none()
     }
 
-    /// Rend les fenêtres mises de côté (d'un écran, ou toutes).
+    /// Rend les fenêtres mises de côté (d'un écran, ou toutes), de façon synchrone.
     fn restore_stash(&mut self, monitor: Option<&str>) -> Task<Msg> {
         let (back, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.stash).into_iter().partition(|s| monitor.is_none_or(|m| s.monitor == m));
         self.stash = keep;
-        if back.is_empty() {
-            return Task::none();
+        if !back.is_empty() {
+            hypr::restore(&back);
+            hypr::save_stash(&self.stash);
         }
-        let rest = self.stash.clone();
-        Task::perform(
-            async move {
-                let _ = tokio::task::spawn_blocking(move || {
-                    hypr::restore(&back);
-                    hypr::save_stash(&rest);
-                })
-                .await;
-            },
-            |_| Msg::Noop,
-        )
+        Task::none()
     }
 
     /// Rejoue l'apparition du bureau (aperçu d'une transition).
@@ -1137,8 +1122,8 @@ impl App {
                     if self.in_submap {
                         hypr::set_submap(None);
                     }
-                    hypr::restore(&self.stash);
-                    hypr::save_stash(&[]);
+                    // Rien ne doit rester de côté après l'arrêt.
+                    let _ = self.restore_stash(None);
                     hypr::remove_keys();
                     iced::exit()
                 }

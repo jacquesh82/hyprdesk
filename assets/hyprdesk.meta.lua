@@ -98,6 +98,10 @@ function hd.widget(kind, spec) end
 ---@param spec { anchor?: HD.Anchor, x?: number, y?: number, size?: number, card?: boolean }
 function hd.place(id, spec) end
 
+--- Retire un widget par son id (écrit par l'écran Réglages quand on éteint un widget de hyprdesk.lua).
+---@param id string
+function hd.disable(id) end
+
 ---@param event "show"|"hide"|"workspace"
 ---@param fn fun(e: HD.HookEvent)
 function hd.on(event, fn) end

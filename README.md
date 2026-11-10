@@ -70,6 +70,11 @@ Emplacements des plugins :
 
 Un plugin en erreur est signalé dans les réglages sans bloquer le reste.
 
+Dans Réglages → Widgets, chaque interrupteur reflète l'état réel du bureau,
+que le widget vienne des réglages ou de `hyprdesk.lua`. Éteindre un widget de
+`hyprdesk.lua` écrit `hd.disable("clock#0")` dans `settings.lua`, sans
+modifier votre fichier. Le rallumer retire cette ligne.
+
 Pour repositionner un widget déclaré dans `hyprdesk.lua`, on utilise
 `hd.place("clock#0", { anchor = "top", y = 20 })`. Quand on le déplace depuis
 les réglages, c'est ce `hd.place` qui est écrit dans `settings.lua`.
