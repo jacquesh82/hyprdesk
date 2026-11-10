@@ -58,6 +58,8 @@ pub enum Msg {
     OpenPanel,
     Panel(PanelMsg),
     SettingsLoaded(DeskSettings),
+    /// Raccourcis installés : conflits (raccourci, action déjà liée) et raccourcis universels.
+    KeysInstalled(Result<(Vec<(String, String)>, Vec<String>), String>),
     ConfigChanged,
     ConfigLoaded(Result<Arc<Config>, String>),
     /// Génération, icônes du bureau, puis icônes des commandes média.
@@ -194,6 +196,10 @@ pub struct App {
     class_imgs: HashMap<String, IconImg>,
     class_pending: HashSet<String>,
     theme: iced::Theme,
+    key_conflicts: Vec<(String, String)>,
+    universal_binds: Vec<String>,
+    /// La submap « hyprdesk » est active (raccourcis de Hyprland suspendus).
+    in_submap: bool,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
@@ -361,6 +367,9 @@ impl App {
             class_imgs: HashMap::new(),
             class_pending: HashSet::new(),
             theme: make_theme(&Config::default()),
+            key_conflicts: Vec::new(),
+            universal_binds: Vec::new(),
+            in_submap: false,
         };
         let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
         let t = Task::batch([app.load_config(), apps]);
@@ -444,8 +453,44 @@ impl App {
         if o.show_on != n.show_on {
             tasks.push(self.sync_raised());
         }
+        // Premier chargement (catalogue vide avant) ou raccourcis modifiés.
+        if o.keys != n.keys || old.catalog.is_empty() {
+            tasks.push(self.install_keys());
+        }
+        if o.suspend_binds != n.suspend_binds {
+            tasks.push(self.sync_submap());
+        }
         tasks.push(self.refresh_walls());
         Task::batch(tasks)
+    }
+
+    /// (Ré)installe les raccourcis de hyprdesk dans Hyprland.
+    fn install_keys(&self) -> Task<Msg> {
+        let keys = self.cfg.general.keys.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || hypr::install_keys(&keys).map_err(|e| e.to_string()))
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            Msg::KeysInstalled,
+        )
+    }
+
+    /// Submap « hyprdesk » active si et seulement si le bureau est affiché
+    /// et que la suspension des raccourcis est demandée.
+    fn sync_submap(&mut self) -> Task<Msg> {
+        let want = self.visible && self.cfg.general.suspend_binds;
+        if want == self.in_submap {
+            return Task::none();
+        }
+        self.in_submap = want;
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || hypr::set_submap(want.then_some(hypr::SUBMAP))).await;
+            },
+            |_| Msg::Noop,
+        )
     }
 
     /// Bureau affiché : aligne les surfaces levées sur `show_on` (écran actif ou tous).
@@ -605,6 +650,8 @@ impl App {
         }
         self.last_poll.clear();
         tasks.push(Task::done(Msg::Poll));
+        // Les raccourcis de Hyprland ne doivent pas agir sur les fenêtres cachées.
+        tasks.push(self.sync_submap());
         Task::batch(tasks)
     }
 
@@ -636,6 +683,7 @@ impl App {
                 self.fire(HookEvent::Hide, "hide", m);
             }
         }
+        tasks.push(self.sync_submap());
         tasks.push(self.finish_fade());
         Task::batch(tasks)
     }
@@ -969,7 +1017,13 @@ impl App {
                 control::Command::Show => self.show(),
                 control::Command::Hide => self.hide(),
                 control::Command::Reload => self.load_config(),
-                control::Command::Quit => iced::exit(),
+                control::Command::Quit => {
+                    if self.in_submap {
+                        hypr::set_submap(None);
+                    }
+                    hypr::remove_keys();
+                    iced::exit()
+                }
                 control::Command::Status => Task::none(),
                 control::Command::Settings(tab) => {
                     let s = self.show();
@@ -985,6 +1039,30 @@ impl App {
                 }
             },
             Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
+            Msg::Hypr(hypr::Update::Reloaded) => {
+                // Une relecture de la config Hyprland efface nos raccourcis et notre submap.
+                let mut t = vec![self.install_keys()];
+                if self.in_submap {
+                    self.in_submap = false;
+                    t.push(self.sync_submap());
+                }
+                Task::batch(t)
+            }
+            Msg::KeysInstalled(r) => {
+                match r {
+                    Ok((conflicts, universal)) => {
+                        if !conflicts.is_empty() && conflicts != self.key_conflicts {
+                            let list: Vec<String> = conflicts.iter().map(|(k, w)| format!("{k} (déjà lié à {w})")).collect();
+                            tracing::warn!("raccourcis non installés : {}", list.join(", "));
+                            hypr::notify(0, 8000, &format!("hyprdesk : raccourci non installé — {}", list.join(", ")));
+                        }
+                        self.key_conflicts = conflicts;
+                        self.universal_binds = universal;
+                    }
+                    Err(e) => tracing::warn!("raccourcis : {e}"),
+                }
+                Task::none()
+            }
             Msg::Hypr(hypr::Update::Clients(list)) => {
                 self.clients = list;
                 self.resolve_class_icons()

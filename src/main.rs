@@ -41,11 +41,18 @@ const STUBS: &str = include_str!("../assets/hyprdesk.meta.lua");
 const SNIPPET: &str = r#"-- hyprdesk : à ajouter dans ~/.config/hypr/hyprland.lua
 
 -- Démarrage (inutile si le service systemd utilisateur est activé),
--- à mettre dans le bloc hl.on("hyprland.start", …) ; hyprdesk remplace hyprpaper.
+-- dans le bloc hl.on("hyprland.start", …) ; hyprdesk remplace hyprpaper.
 hl.exec_cmd("hyprdesk")
 
--- Afficher / masquer le bureau
-hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("hyprdesk toggle"))
+-- Les raccourcis de hyprdesk (SUPER + D par défaut) sont installés par
+-- hyprdesk lui-même : voir hd.config({ keys = … }) ou Réglages → Bureau.
+--
+-- Bureau affiché, les raccourcis de Hyprland sont suspendus (submap
+-- « hyprdesk ») : ils n'agissent plus sur les fenêtres cachées. Pour en
+-- garder un actif sur le bureau, marquez-le submap_universal, par exemple
+-- le changement de workspace (le bureau suit alors le workspace) :
+hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }), { submap_universal = true })
+hl.bind(mainMod .. " + Right",     hl.dsp.focus({ workspace = "+1" }), { submap_universal = true })
 
 -- Mode « glass » : flou des fenêtres derrière le bureau (xray = false pour
 -- flouter les fenêtres et non le seul fond d'écran)
@@ -86,6 +93,11 @@ fn daemon(path: PathBuf) -> ExitCode {
     if control::daemon_running() {
         eprintln!("hyprdesk : un démon tourne déjà (hyprdesk status)");
         return ExitCode::FAILURE;
+    }
+    // Arrêt brutal précédent, bureau affiché : on rend les raccourcis.
+    if hypr::current_submap() == hypr::SUBMAP {
+        tracing::info!("submap « {} » laissée active par un arrêt précédent : remise à zéro", hypr::SUBMAP);
+        hypr::set_submap(None);
     }
     // Le dossier des modules et des plugins doit exister dès le démarrage :
     // c'est lui que la surveillance suit pour détecter les nouveaux widgets.

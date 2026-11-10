@@ -19,6 +19,10 @@ use crate::config::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
+    pub key_toggle: Option<String>,
+    pub key_settings: Option<String>,
+    pub key_leave: Option<String>,
+    pub suspend_binds: Option<bool>,
     pub show_on: Option<ShowOn>,
     pub mode: Option<Mode>,
     pub glass_opacity: Option<f32>,
@@ -46,6 +50,10 @@ impl Settings {
         let g = &c.general;
         let has = |k: &str| c.keys_settings.contains(k);
         Settings {
+            key_toggle: has("keys.toggle").then(|| g.keys.toggle.clone()),
+            key_settings: has("keys.settings").then(|| g.keys.settings.clone()),
+            key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
+            suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             show_on: has("show_on").then_some(g.show_on),
             mode: has("mode").then_some(g.mode),
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
@@ -127,6 +135,10 @@ impl Settings {
                 }
             };
         }
+        set!(key_toggle, "keys.toggle", g.keys.toggle);
+        set!(key_settings, "keys.settings", g.keys.settings);
+        set!(key_leave, "keys.leave", g.keys.leave);
+        set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(show_on, "show_on", g.show_on);
         set!(mode, "mode", g.mode);
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
@@ -221,6 +233,18 @@ impl Settings {
 
         let mut cfg: Vec<String> = Vec::new();
         let mut grid: Vec<String> = Vec::new();
+        let mut keys: Vec<String> = Vec::new();
+        for (name, v) in [("toggle", &self.key_toggle), ("settings", &self.key_settings), ("leave", &self.key_leave)] {
+            if let Some(k) = v {
+                keys.push(if k.is_empty() { format!("{name} = false") } else { format!("{name} = {}", q(k)) });
+            }
+        }
+        if !keys.is_empty() {
+            cfg.push(format!("keys = {{ {} }}", keys.join(", ")));
+        }
+        if let Some(v) = self.suspend_binds {
+            cfg.push(format!("suspend_binds = {v}"));
+        }
         if let Some(v) = self.show_on {
             cfg.push(format!("show_on = {}", q(if v == ShowOn::All { "all" } else { "focused" })));
         }
@@ -445,6 +469,9 @@ mod tests {
     #[test]
     fn aller_retour_lua() {
         let mut s = Settings {
+            key_toggle: Some("SUPER + SHIFT + D".into()),
+            key_settings: Some(String::new()),
+            suspend_binds: Some(false),
             show_on: Some(ShowOn::Focused),
             mode: Some(Mode::Glass),
             glass_opacity: Some(0.5),

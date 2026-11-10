@@ -161,8 +161,30 @@ impl Default for Grid {
     }
 }
 
+/// Raccourcis de hyprdesk, installés dans Hyprland par hyprdesk lui-même.
+/// Chaîne vide = pas de raccourci.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Keys {
+    /// Afficher / masquer le bureau.
+    pub toggle: String,
+    /// Ouvrir les réglages.
+    pub settings: String,
+    /// Sortie de secours : masque le bureau et rend tous les raccourcis.
+    pub leave: String,
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Keys { toggle: "SUPER + D".into(), settings: String::new(), leave: "SUPER + Escape".into() }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct General {
+    pub keys: Keys,
+    /// Bureau affiché : suspendre les raccourcis de Hyprland (submap
+    /// « hyprdesk »), sauf ceux marqués `submap_universal`.
+    pub suspend_binds: bool,
     pub mode: Mode,
     pub fade_ms: u64,
     pub transition: Transition,
@@ -186,6 +208,8 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         General {
+            keys: Keys::default(),
+            suspend_binds: true,
             mode: Mode::Opaque,
             fade_ms: 150,
             transition: Transition::Fade,

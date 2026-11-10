@@ -98,7 +98,7 @@ fn present_keys(t: &Table) -> mlua::Result<Vec<String>> {
     for pair in t.pairs::<String, Value>() {
         let (k, v) = pair?;
         match v {
-            Value::Table(sub) if k == "grid" || k == "theme" => {
+            Value::Table(sub) if k == "grid" || k == "theme" || k == "keys" => {
                 for p in sub.pairs::<String, Value>() {
                     out.push(format!("{k}.{}", p?.0));
                 }
@@ -224,7 +224,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     check_keys(
         t,
         &[
-            "mode", "fade_ms", "transition", "crossfade_ms", "running_apps", "show_on", "close_on_launch", "icon_theme",
+            "keys", "suspend_binds", "mode", "fade_ms", "transition", "crossfade_ms", "running_apps", "show_on", "close_on_launch", "icon_theme",
             "font", "font_size", "terminal", "grid", "theme", "glass_opacity", "background",
         ],
         CTX,
@@ -235,6 +235,27 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         Origin::User => b.config.keys_user.extend(keys),
     }
     let g = &mut b.config.general;
+    if let Some(v) = opt_bool(t, "suspend_binds", CTX)? {
+        g.suspend_binds = v;
+    }
+    if let Some(k) = t.get::<Option<Table>>("keys")? {
+        const C: &str = "hd.config.keys";
+        check_keys(&k, &["toggle", "settings", "leave"], C)?;
+        for (name, slot) in [("toggle", &mut g.keys.toggle), ("settings", &mut g.keys.settings), ("leave", &mut g.keys.leave)] {
+            match k.get::<Value>(name)? {
+                Value::Nil => {}
+                Value::Boolean(false) => slot.clear(),
+                Value::String(s) => {
+                    let s = s.to_str()?.trim().to_string();
+                    if !s.is_empty() && crate::hypr::parse_combo(&s).is_none() {
+                        return Err(err(format!("{C} : raccourci « {s} » illisible (ex. \"SUPER + SHIFT + D\")")));
+                    }
+                    *slot = s;
+                }
+                v => return Err(err(format!("{C} : « {name} » attend une chaîne ou false, pas {}", v.type_name()))),
+            }
+        }
+    }
     if let Some(s) = opt_string(t, "transition", CTX)? {
         g.transition = Transition::parse(&s).ok_or_else(|| err(format!("{CTX} : transition « {s} » inconnue (fade, slide, none)")))?;
     }

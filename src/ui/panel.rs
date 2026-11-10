@@ -102,6 +102,10 @@ pub enum PanelMsg {
     WidgetSize(f32),
     WidgetCard(bool),
     WidgetReset,
+    SuspendBinds(bool),
+    /// Saisie d'un raccourci (0 afficher, 1 réglages, 2 secours).
+    KeyInput(usize, String),
+    KeySubmit(usize),
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
     /// Idem, puis rejoue l'apparition du bureau (aperçu de la durée).
@@ -123,6 +127,9 @@ pub struct Panel {
     themes: Vec<String>,
     /// Widget sélectionné (liste ou clic sur le bureau).
     pub widget_sel: Option<String>,
+    /// Raccourcis en cours de saisie, et l'erreur de saisie éventuelle.
+    keys: [String; 3],
+    key_error: Option<String>,
 }
 
 /// Couleurs proposées (palette Dracula PRO).
@@ -165,6 +172,8 @@ impl Panel {
             hex: String::new(),
             themes: Vec::new(),
             widget_sel: None,
+            keys: Default::default(),
+            key_error: None,
         }
     }
 
@@ -213,7 +222,10 @@ impl App {
             .or_else(|| self.surfaces.iter().find(|(id, _)| self.raised.contains(id)))
             .map(|(id, _)| *id);
         let Some(win) = win else { return Task::none() };
-        self.panel = Some(Panel::new(win));
+        let mut p = Panel::new(win);
+        let k = &self.cfg.general.keys;
+        p.keys = [k.toggle.clone(), k.settings.clone(), k.leave.clone()];
+        self.panel = Some(p);
         self.selected = None;
         Task::perform(async { tokio::task::spawn_blocking(launch::icon_themes).await.unwrap_or_default() }, |t| {
             Msg::Panel(PanelMsg::Themes(t))
@@ -485,6 +497,30 @@ impl App {
                 self.commit()
             }
             PanelMsg::Commit => self.commit(),
+            PanelMsg::SuspendBinds(v) => {
+                self.settings.suspend_binds = Some(v);
+                self.commit()
+            }
+            PanelMsg::KeyInput(i, v) => {
+                if let Some(slot) = panel.keys.get_mut(i) {
+                    *slot = v;
+                }
+                panel.key_error = None;
+                Task::none()
+            }
+            PanelMsg::KeySubmit(i) => {
+                let v = panel.keys.get(i).cloned().unwrap_or_default().trim().to_string();
+                if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
+                    panel.key_error = Some(format!("« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)"));
+                    return Task::none();
+                }
+                match i {
+                    0 => self.settings.key_toggle = Some(v),
+                    1 => self.settings.key_settings = Some(v),
+                    _ => self.settings.key_leave = Some(v),
+                }
+                self.commit()
+            }
             PanelMsg::WidgetToggle(type_id, on) => {
                 if on {
                     let anchor = self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.anchor).unwrap_or_default();
@@ -698,9 +734,61 @@ impl App {
                 .spacing(12),
             ),
             text("Le flou du mode verre demande la règle de calque de `hyprdesk snippet` dans hyprland.lua.").size(12),
+            self.keys_section(),
         ]
         .spacing(14)
         .into()
+    }
+
+    fn keys_section(&self) -> Element<'_, Msg> {
+        let Some(p) = &self.panel else { return Space::new().into() };
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let key_field = |i: usize, label: &'static str, cfg_key: &'static str| {
+            self.field(
+                label,
+                cfg_key,
+                text_input("aucun", &p.keys[i])
+                    .on_input(move |v| Msg::Panel(PanelMsg::KeyInput(i, v)))
+                    .on_submit(Msg::Panel(PanelMsg::KeySubmit(i)))
+                    .padding(8)
+                    .width(260),
+            )
+        };
+        let mut col = column![
+            self.section("Raccourcis"),
+            self.field(
+                "Bureau affiché : suspendre les raccourcis de Hyprland",
+                "suspend_binds",
+                toggler(g.suspend_binds).on_toggle(|v| Msg::Panel(PanelMsg::SuspendBinds(v))),
+            ),
+            text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").size(12).color(dim),
+            key_field(0, "Afficher / masquer le bureau", "keys.toggle"),
+            key_field(1, "Ouvrir les réglages", "keys.settings"),
+            key_field(2, "Sortie de secours (bureau affiché)", "keys.leave"),
+            text("Valider avec Entrée. Vide = aucun raccourci.").size(11).color(dim),
+        ]
+        .spacing(10);
+        if let Some(e) = &p.key_error {
+            col = col.push(text(e.clone()).size(12).color(warn));
+        }
+        for (k, what) in &self.key_conflicts {
+            col = col.push(text(format!("⚠ {k} est déjà lié à « {what} » dans Hyprland : non installé, choisissez-en un autre.")).size(12).color(warn));
+        }
+        col = col.push(text("Raccourcis de Hyprland actifs sur le bureau").size(14).color(fg));
+        if self.universal_binds.is_empty() {
+            col = col.push(
+                text("Aucun. Pour garder un raccourci (ex. changer de workspace), ajoutez { submap_universal = true } à son hl.bind dans hyprland.lua.")
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        for b in &self.universal_binds {
+            col = col.push(text(b.clone()).size(12).color(dim));
+        }
+        col.into()
     }
 
     fn tab_icons<'a>(&'a self, p: &'a Panel) -> Element<'a, Msg> {

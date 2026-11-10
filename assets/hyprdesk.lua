@@ -14,6 +14,8 @@
 -- Tout ce qui est décommenté ici prend le pas sur l'écran ⚙.
 hd.config({
     terminal = "kitty",
+    -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", leave = "SUPER + Escape" },
+    -- suspend_binds   = true,       -- bureau affiché : raccourcis de Hyprland suspendus
     -- mode            = "opaque",   -- "opaque" (fond d'écran) ou "glass" (fenêtres floutées)
     -- show_on         = "all",      -- "all" ou "focused"
     -- running_apps    = "off",      -- dock des fenêtres ouvertes : "off", "workspace", "all"

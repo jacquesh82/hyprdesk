@@ -23,10 +23,47 @@ un panneau par-dessus le bureau, sur l'écran actif. Il a quatre onglets :
 
 | Onglet | Réglages |
 |---|---|
-| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile |
+| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) |
 | Icônes | fenêtres ouvertes dans le dock (non, ce workspace, toutes) ; raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image choisie dans un dossier (vignettes), diaporama (intervalle, ordre aléatoire) ou couleur unie ; ajustement |
+| Widgets | widgets disponibles (intégrés et plugins détectés), activation à l'unité ; placement des widgets du bureau : ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
 | Effets | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
+
+Tout s'applique **en direct**. Le panneau est un tiroir à droite, et le bureau
+reste visible et utilisable à côté.
+
+## Widgets plug-n-play
+
+Les widgets intégrés sont `clock`, `calendar`, `system` et `media`, plus
+`command` et `lua`, qui se déclarent dans le Lua. Pour en ajouter un autre, il
+suffit de déposer un fichier Lua dans `~/.config/hypr/hyprdesk/widgets/`, sans
+rien recompiler :
+- le fichier est détecté aussitôt ;
+- il apparaît dans Réglages → Widgets, où on l'active d'un clic ;
+- on peut aussi l'utiliser en Lua avec `hd.widget("<nom>", { … })`.
+
+```lua
+-- ~/.config/hypr/hyprdesk/widgets/meteo.lua
+return {
+    name = "Météo", description = "wttr.in", interval = 900, anchor = "top-left",
+    options = { ville = "Paris" },                       -- valeurs par défaut
+    render = function(o)
+        return hd.exec("curl -s 'wttr.in/" .. o.ville .. "?format=3'")
+    end,
+}
+```
+
+Emplacements des plugins :
+- un fichier `<nom>.lua`, ou un dossier `<nom>/init.lua` ;
+- cherchés aussi dans `~/.local/share/hyprdesk/widgets` et
+  `/usr/share/hyprdesk/widgets` ; le premier dossier trouvé l'emporte ;
+- `hyprdesk init` installe deux exemples : `meteo` et `notes`.
+
+Un plugin en erreur est signalé dans les réglages sans bloquer le reste.
+
+Pour repositionner un widget déclaré dans `hyprdesk.lua`, on utilise
+`hd.place("clock#0", { anchor = "top", y = 20 })`. Quand on le déplace depuis
+les réglages, c'est ce `hd.place` qui est écrit dans `settings.lua`.
 
 Les réglages sont enregistrés en Lua généré, dans
 `~/.config/hypr/hyprdesk/settings.lua`, comme le fait hyprdmc pour
@@ -48,16 +85,33 @@ Le script :
   définitions LuaLS ;
 - active le service systemd utilisateur.
 
-Il ne modifie pas `hyprland.lua`. Les lignes à y ajouter s'obtiennent avec
-`hyprdesk snippet` :
+Il ne modifie pas `hyprland.lua`. Les lignes recommandées s'obtiennent avec
+`hyprdesk snippet` : la règle de flou du mode verre, et le marquage
+`submap_universal` des raccourcis à garder sur le bureau (voir ci-dessous).
 
-```lua
-hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("hyprdesk toggle"))
+## Raccourcis
 
--- flou du mode glass (xray = false : flouter les fenêtres, pas le seul fond)
-hl.layer_rule({ name = "hyprdesk-blur", match = { namespace = "^hyprdesk$" },
-                blur = true, ignore_alpha = 0.05, xray = false })
-```
+- **Les raccourcis de hyprdesk sont installés par hyprdesk lui-même**, avec
+  ceux de `hd.config({ keys = … })` ou de Réglages → Bureau :
+  - `toggle`, `SUPER + D` par défaut, affiche ou masque le bureau ;
+  - `settings` ouvre les réglages ;
+  - `leave`, `SUPER + Escape` par défaut, est la sortie de secours.
+
+  Ils sont réinstallés après chaque `hyprctl reload`.
+- **Pas de conflit avec Hyprland.** Avant d'installer un raccourci, hyprdesk
+  vérifie qu'il n'est pas déjà lié. S'il l'est, il ne l'installe pas et le
+  signale par une notification et dans les réglages.
+- **Bureau affiché, les raccourcis de Hyprland sont suspendus.** hyprdesk
+  active la submap `hyprdesk` : SUPER + Q, SUPER + F, etc. n'agissent plus
+  sur les fenêtres cachées derrière le bureau. Restent actifs :
+  - les raccourcis de hyprdesk ;
+  - ceux que vous marquez `{ submap_universal = true }` dans `hyprland.lua`,
+    typiquement le changement de workspace, et le bureau suit alors.
+
+  `suspend_binds = false` désactive ce comportement.
+- **On ne reste jamais bloqué.** Les raccourcis de la submap rendent la main
+  à Hyprland *avant* d'appeler hyprdesk. Au démarrage, hyprdesk referme une
+  submap laissée ouverte par un arrêt brutal.
 
 Pensez aussi à retirer `hyprpaper` de l'autostart.
 

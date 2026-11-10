@@ -7,6 +7,8 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
+---@field keys? { toggle?: string|false, settings?: string|false, leave?: string|false }
+---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field mode? "opaque"|"glass"
 ---@field fade_ms? integer
 ---@field transition? "fade"|"slide"|"none"
@@ -34,6 +36,8 @@
 ---@field fit? "cover"|"contain"|"fill"|"center"
 
 ---@class HD.DesktopSpec: HD.RuleSpec
+---@field keys? { toggle?: string|false, settings?: string|false, leave?: string|false }
+---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field mode? "opaque"|"glass"
 ---@field inherit? boolean # false : ignore les icônes et widgets déclarés pour tous les workspaces
 
@@ -83,9 +87,14 @@ function hd.desktop(spec) end
 ---@param spec HD.IconSpec
 function hd.icon(spec) end
 
----@param kind "clock"|"calendar"|"system"|"media"|"command"|"lua"
+---@param kind "clock"|"calendar"|"system"|"media"|"command"|"lua"|string # ou nom d'un plugin
 ---@param spec? HD.WidgetSpec
 function hd.widget(kind, spec) end
+
+--- Repositionne un widget par son id (`clock#0` pour le premier `hd.widget("clock")`).
+---@param id string
+---@param spec { anchor?: HD.Anchor, x?: number, y?: number, size?: number, card?: boolean }
+function hd.place(id, spec) end
 
 ---@param event "show"|"hide"|"workspace"
 ---@param fn fun(e: HD.HookEvent)

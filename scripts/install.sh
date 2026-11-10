@@ -38,4 +38,6 @@ echo " hyprdesk installé — à ajouter dans ~/.config/hypr/hyprland.lua :"
 echo "=================================================================="
 "$BIN_DIR/hyprdesk" snippet | grep -v '^hl.exec_cmd("hyprdesk")'
 echo
+echo "Raccourci par défaut : SUPER + D (installé par hyprdesk, modifiable dans Réglages → Bureau)."
+echo
 echo "hyprdesk dessine le fond d'écran : retirez hyprpaper de l'autostart."
