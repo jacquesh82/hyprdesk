@@ -4,7 +4,8 @@
 
 use std::time::Duration;
 
-use iced::widget::{button, column, container, pick_list, radio, row, text, toggler};
+use crate::i18n::text;
+use iced::widget::{Space, button, column, container, pick_list, radio, row, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -22,6 +23,9 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[("disposition", "Disposition"), ("ecran", "Écran")];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Screens(m)))
 }
@@ -70,8 +74,8 @@ pub(in crate::ui) fn apply_screens(list: Vec<Screen>) -> Task<UiMsg> {
         },
         |r| {
             if let Err(e) = r {
-                tracing::error!("écrans : {e}");
-                hypr::notify(3, 6000, &format!("hyprdesk : écrans — {e}"));
+                tracing::error!("{}", crate::tr!("écrans : {e}", e = e));
+                hypr::notify(3, 6000, &crate::tr!("hyprdesk : écrans — {e}", e = e));
             }
             UiMsg::Noop
         },
@@ -109,8 +113,9 @@ impl App {
             col = col.push(
                 container(
                     row![
-                        text(format!(
-                            "Garder cet affichage ? Retour automatique dans {left} s"
+                        text(crate::tr!(
+                            "Garder cet affichage ? Retour automatique dans {left} s",
+                            left = left
                         ))
                         .font(self.font)
                         .size(14)
@@ -136,7 +141,8 @@ impl App {
         }
 
         // Plan des écrans actifs, à l'échelle ; un clic sélectionne.
-        const MAP_W: f32 = 500.0;
+        // Le plan et la cote verticale tiennent dans le tiroir (≈ 520 px utiles).
+        const MAP_W: f32 = 420.0;
         const MAP_H: f32 = 210.0;
         let on: Vec<&Screen> = l.iter().filter(|s| s.enabled).collect();
         let rect = |s: &Screen| {
@@ -167,6 +173,31 @@ impl App {
                 if main {
                     label = label.push(text("★ principal").font(self.font).size(11).color(accent));
                 }
+                // Cotes de l'écran : pixels dans son sens d'affichage (la taille
+                // d'image à préparer), échelle, position dans la disposition.
+                let (pw, ph) = if s.transform % 2 == 1 {
+                    (s.height, s.width)
+                } else {
+                    (s.width, s.height)
+                };
+                let scale = if (s.scale - 1.0).abs() > 0.01 {
+                    format!(" · ×{}", (s.scale * 100.0).round() / 100.0)
+                } else {
+                    String::new()
+                };
+                label = label
+                    .push(
+                        text(format!("{pw} × {ph}{scale}"))
+                            .font(self.font)
+                            .size(11)
+                            .color(dim),
+                    )
+                    .push(
+                        text(format!("{}, {}", s.x, s.y))
+                            .font(self.font)
+                            .size(10)
+                            .color(Color { a: 0.45, ..fg }),
+                    );
                 let tile = button(container(label).center(Length::Fill))
                     .width((w * k - 4.0).max(24.0))
                     .height((h * k - 4.0).max(24.0))
@@ -216,6 +247,74 @@ impl App {
                 border: Border::default().rounded(10),
                 ..Default::default()
             });
+        // Cotes de l'ensemble (pixels logiques), comme sur un plan : largeur
+        // sous le plan, hauteur à droite, alignées sur les écrans.
+        let (span_w, span_h) = ((x1 - x0).max(0.0), (y1 - y0).max(0.0));
+        let ink = Color { a: 0.5, ..fg };
+        let bar = move |w: Length, h: Length| {
+            container(Space::new().width(w).height(h)).style(move |_| container::Style {
+                background: Some(ink.into()),
+                ..Default::default()
+            })
+        };
+        let hdim = container(
+            row![
+                bar(Length::Fixed(1.0), Length::Fixed(9.0)),
+                bar(Length::Fill, Length::Fixed(1.0)),
+                text(format!("{} px", span_w.round() as i32))
+                    .font(self.font)
+                    .size(11)
+                    .color(dim),
+                bar(Length::Fill, Length::Fixed(1.0)),
+                bar(Length::Fixed(1.0), Length::Fixed(9.0)),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .width((span_w * k).max(40.0)),
+        )
+        .padding(iced::Padding {
+            left: ox,
+            ..iced::Padding::ZERO
+        });
+        let vdim = container(
+            column![
+                bar(Length::Fixed(9.0), Length::Fixed(1.0)),
+                bar(Length::Fixed(1.0), Length::Fill),
+                text(format!("{} px", span_h.round() as i32))
+                    .font(self.font)
+                    .size(11)
+                    .color(dim)
+                    .wrapping(iced::widget::text::Wrapping::None),
+                bar(Length::Fixed(1.0), Length::Fill),
+                bar(Length::Fixed(9.0), Length::Fixed(1.0)),
+            ]
+            .spacing(6)
+            .align_x(Alignment::Center)
+            .width(64)
+            .height((span_h * k).max(40.0)),
+        )
+        .padding(iced::Padding {
+            top: oy,
+            ..iced::Padding::ZERO
+        });
+        let map = column![
+            row![map, vdim].spacing(8),
+            hdim,
+            text(crate::tr!(
+                "Ensemble : {w} × {h} px logiques, de ({x0}, {y0}) à ({x1}, {y1}). \
+                 Sous chaque écran : sa taille d'image et sa position.",
+                w = span_w.round() as i32,
+                h = span_h.round() as i32,
+                x0 = x0.round() as i32,
+                y0 = y0.round() as i32,
+                x1 = x1.round() as i32,
+                y1 = y1.round() as i32
+            ))
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(6);
         let off: Vec<String> = l
             .iter()
             .filter(|s| !s.enabled)
@@ -233,34 +332,60 @@ impl App {
                 );
             }
         }
-        col = col
-            .push(self.section("Disposition"))
-            .push(map)
-            .push(chips)
-            .push(
-                row![
-                    button(text("Disposition automatique").font(self.font).size(13))
-                        .padding([5, 12])
-                        .on_press(wrap(Msg::ScreensAuto)),
-                    button(text("Détecter").font(self.font).size(13))
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::ScreensDetect)),
-                    button(text("Identifier").font(self.font).size(13))
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Identify)),
-                    button(text("Enregistrer").font(self.font).size(13))
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press_maybe(
-                            self.screens_pending
-                                .is_none()
-                                .then_some(wrap(Msg::ScreensKeep)),
-                        ),
-                ]
-                .spacing(10),
-            );
+        if !self.on_subtab(INFO.id, "ecran") {
+            col = col
+                .push(self.section("Disposition"))
+                .push(map)
+                .push(chips)
+                .push(
+                    row![
+                        button(text("Disposition automatique").font(self.font).size(13))
+                            .padding([5, 12])
+                            .on_press(wrap(Msg::ScreensAuto)),
+                        button(text("Détecter").font(self.font).size(13))
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::ScreensDetect)),
+                        button(text("Identifier").font(self.font).size(13))
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Identify)),
+                        button(text("Enregistrer").font(self.font).size(13))
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press_maybe(
+                                self.screens_pending
+                                    .is_none()
+                                    .then_some(wrap(Msg::ScreensKeep)),
+                            ),
+                    ]
+                    .spacing(10),
+                );
+            return col.into();
+        }
+        // Onglet « Écran » : choix de l'écran, puis ses réglages.
+        col = col.push(
+            row(l.iter().map(|s| {
+                let mut label = s.name.clone();
+                if primary.as_deref() == Some(s.name.as_str()) {
+                    label.push_str("  ★");
+                }
+                if !s.enabled {
+                    label.push_str("  (désactivé)");
+                }
+                button(text(label).font(self.font).size(13))
+                    .padding([5, 12])
+                    .style(if s.name == sel {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::ScreenSelect(s.name.clone())))
+                    .into()
+            }))
+            .spacing(8)
+            .wrap(),
+        );
 
         // Réglages de l'écran sélectionné.
         let Some(s) = l.iter().find(|s| s.name == sel) else {
@@ -278,7 +403,7 @@ impl App {
         col = col.push(
             row![
                 toggler(s.enabled)
-                    .label("Activé")
+                    .label(crate::i18n::tr("Activé"))
                     .on_toggle(|v| wrap(Msg::ScreenEnable(v))),
                 if is_main {
                     Element::from(
@@ -344,24 +469,34 @@ impl App {
                 column![
                     column(
                         [
-                            [(0u16, "Paysage"), (180, "Paysage retourné")],
-                            [(90, "Portrait"), (270, "Portrait retourné")],
+                            [
+                                (0u16, crate::i18n::tr("Paysage")),
+                                (180, crate::i18n::tr("Paysage retourné"))
+                            ],
+                            [
+                                (90, crate::i18n::tr("Portrait")),
+                                (270, crate::i18n::tr("Portrait retourné"))
+                            ],
                         ]
                         .into_iter()
                         .map(|pair| {
                             row(pair.into_iter().map(|(d, label)| {
-                                radio(label, d, Some(rot), |v| wrap(Msg::ScreenRotate(v)))
-                                    .font(self.font)
-                                    .width(190)
-                                    .into()
+                                radio(crate::i18n::tr(label), d, Some(rot), |v| {
+                                    wrap(Msg::ScreenRotate(v))
+                                })
+                                .font(self.font)
+                                .width(190)
+                                .into()
                             }))
                             .into()
                         })
                     )
                     .spacing(8),
-                    toggler(s.flipped())
-                        .label("Image en miroir")
-                        .on_toggle(|v| wrap(Msg::ScreenFlip(v))),
+                    self.adv(
+                        toggler(s.flipped())
+                            .label(crate::i18n::tr("Image en miroir"))
+                            .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
+                    ),
                 ]
                 .spacing(10),
             ),
@@ -533,12 +668,18 @@ impl App {
             },
             |r| {
                 match r {
-                    Ok(()) => {
-                        hypr::notify(5, 3000, "hyprdesk : disposition des écrans enregistrée")
-                    }
+                    Ok(()) => hypr::notify(
+                        5,
+                        3000,
+                        crate::i18n::tr("hyprdesk : disposition des écrans enregistrée"),
+                    ),
                     Err(e) => {
-                        tracing::error!("monitors.lua : {e}");
-                        hypr::notify(3, 6000, &format!("hyprdesk : monitors.lua non écrit — {e}"));
+                        tracing::error!("{}", crate::tr!("monitors.lua : {e}", e = e));
+                        hypr::notify(
+                            3,
+                            6000,
+                            &crate::tr!("hyprdesk : monitors.lua non écrit — {e}", e = e),
+                        );
                     }
                 }
                 UiMsg::Noop
@@ -556,7 +697,11 @@ impl App {
     pub(in crate::ui) fn screens_tick(&mut self) -> Task<UiMsg> {
         match &self.screens_pending {
             Some((_, deadline)) if std::time::Instant::now() >= *deadline => {
-                hypr::notify(1, 4000, "hyprdesk : disposition des écrans rétablie");
+                hypr::notify(
+                    1,
+                    4000,
+                    crate::i18n::tr("hyprdesk : disposition des écrans rétablie"),
+                );
                 self.screens_revert()
             }
             _ => Task::none(),
@@ -570,6 +715,8 @@ impl App {
         match msg {
             Msg::ScreenSelect(name) => {
                 panel.screens.screen_sel = Some(name);
+                // Choisi sur le plan : ses réglages sont dans l'onglet « Écran ».
+                self.subtabs.insert(INFO.id, "ecran");
                 Task::none()
             }
             Msg::ScreenPrimary(name) => {
@@ -585,7 +732,11 @@ impl App {
                 };
                 let others_on = self.screens.iter().any(|s| s.name != sel && s.enabled);
                 if !on && !others_on {
-                    crate::hypr::notify(3, 4000, "hyprdesk : au moins un écran doit rester actif");
+                    crate::hypr::notify(
+                        3,
+                        4000,
+                        crate::i18n::tr("hyprdesk : au moins un écran doit rester actif"),
+                    );
                     return Task::none();
                 }
                 self.edit_screens(|l, _| {

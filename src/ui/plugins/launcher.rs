@@ -8,10 +8,18 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
+mod contrast;
+mod lifecycle;
 mod motion;
 
-use iced::widget::{Space, button, column, container, mouse_area, radio, row, text};
-use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Task};
+pub(in crate::ui) use contrast::Backdrop;
+pub(in crate::ui) use lifecycle::{Placement, Runtime, screen_anchor};
+
+use crate::i18n::text;
+use iced::widget::{Space, button, column, container, mouse_area, radio, row};
+use iced::{
+    Alignment, Background, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task,
+};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, IconImg, Msg as UiMsg, color, design};
@@ -28,6 +36,13 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[
+    ("contenu", "Contenu"),
+    ("apparence", "Apparence"),
+    ("epinglees", "Épinglées"),
+];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Launcher(m)))
 }
@@ -152,6 +167,9 @@ pub struct Popup {
     pub monitor: String,
     pub key: String,
     pub content: PopupContent,
+    pub(in crate::ui) fade: crate::ui::Fade,
+    pub(in crate::ui) placement: lifecycle::Placement,
+    pub max_height: f32,
 }
 
 /// Épaisseur de la surface du lanceur : boutons, carte, points, marge.
@@ -162,8 +180,8 @@ pub(in crate::ui) fn thickness(size: u16) -> u32 {
 /// Taille de la bulle selon son contenu.
 fn popup_size(content: &PopupContent, lines: usize) -> (u32, u32) {
     match content {
-        PopupContent::Label(t) => ((t.chars().count() as u32 * 8 + 32).clamp(80, 440), 36),
-        PopupContent::Windows(_) => (400, lines.max(1) as u32 * 36 + 24),
+        PopupContent::Label(t) => ((t.chars().count() as u32 * 8 + 48).clamp(96, 456), 50),
+        PopupContent::Windows(_) => (416, lines.max(1) as u32 * 36 + 30),
     }
 }
 
@@ -246,6 +264,11 @@ impl App {
         for (id, s) in self.launcher_surfaces.clone() {
             if !(want.contains(&s.monitor) && (s.position, s.thickness) == spec) {
                 self.launcher_surfaces.remove(&id);
+                self.launcher_runtime.docks.remove(&s.monitor);
+                self.launcher_runtime
+                    .anchors
+                    .retain(|(m, _), _| m != &s.monitor);
+                let _ = self.launcher_pointer(&s.monitor, None);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
@@ -256,6 +279,8 @@ impl App {
             }
             let id = iced::window::Id::unique();
             let (pos, th) = spec;
+            let fade = self.launcher_transition(0.0, 0.0, 0);
+            self.launcher_runtime.docks.insert(mon.clone(), fade);
             let (size, anchor) = match pos {
                 LauncherPosition::Bottom => {
                     ((0, th), Anchor::Bottom | Anchor::Left | Anchor::Right)
@@ -304,6 +329,8 @@ impl App {
     /// Le lanceur dans sa surface : applications épinglées, fenêtres, puis
     /// boutons de l'assistant et des réglages, contre le bord choisi.
     pub(in crate::ui) fn view_launcher<'a>(&'a self, m: &Monitor, t: f32) -> Element<'a, UiMsg> {
+        let progress = self.launcher_progress(&m.name);
+        let t = t * progress;
         let g = &self.cfg.general;
         let l = &g.launcher;
         let vertical = l.position.vertical();
@@ -344,82 +371,106 @@ impl App {
         };
         let monitor = m.name.clone();
         // Bouton d'une entrée, grossi au survol ; le survol ouvre la bulle.
-        let item = |index: usize,
-                    key: String,
-                    face: Element<'a, UiMsg>,
-                    badge: usize,
-                    active: bool,
-                    popup: PopupContent,
-                    msg: UiMsg|
-         -> Element<'a, UiMsg> {
-            let over = self.hover_value(&format!("dock-wave:{monitor}:{index}"));
-            let motion = if g.transition == crate::config::Transition::None {
-                0.0
-            } else {
-                over
-            };
-            let lift = match l.position {
-                LauncherPosition::Bottom => iced::Vector::new(0.0, -2.5 * motion),
-                LauncherPosition::Top => iced::Vector::new(0.0, 2.5 * motion),
-                LauncherPosition::Left => iced::Vector::new(2.5 * motion, 0.0),
-                LauncherPosition::Right => iced::Vector::new(-2.5 * motion, 0.0),
-            };
-            // Halo et icône partagent une boîte fixe ; aucun déplacement des voisins.
-            let face = motion::face(
-                container(face).center(size),
-                1.0 + 0.09 * motion,
-                lift,
-                self.motion_duration(),
-            );
-            let icon: Element<'a, UiMsg> = container(face)
-                .style(move |_| container::Style {
-                    background: Some(
-                        Color {
-                            a: 0.07 * over * t,
-                            ..accent
-                        }
-                        .into(),
-                    ),
-                    border: Border::default().rounded(12),
-                    ..Default::default()
-                })
-                .into();
-            // La piste de 4 px est réservée même pour une application fermée.
-            let mark = container(Space::new())
-                .width(if vertical {
-                    4.0
-                } else if active {
-                    12.0
-                } else {
-                    4.0
-                })
-                .height(if vertical && active { 12.0 } else { 4.0 })
-                .style(move |_| container::Style {
-                    background: (badge > 0).then_some(Background::Color(if active {
-                        accent
+        let item =
+            |index: usize,
+             key: String,
+             face: Element<'a, UiMsg>,
+             badge: usize,
+             active: bool,
+             popup: PopupContent,
+             msg: UiMsg|
+             -> Element<'a, UiMsg> {
+                let over = self.hover_value(&format!("dock-wave:{monitor}:{index}"));
+                let launching = key
+                    .strip_prefix("dock-pin:")
+                    .and_then(|id| self.launcher_runtime.launches.get(id));
+                let pulse = launching.map(|launch| {
+                    if g.transition == crate::config::Transition::None {
+                        1.0
                     } else {
-                        Color { a: 0.5 * t, ..fg }
-                    })),
-                    border: Border::default().rounded(2),
-                    ..Default::default()
+                        0.5 + 0.5
+                            * (launch.started.elapsed().as_secs_f32() * std::f32::consts::TAU / 1.1)
+                                .sin()
+                    }
                 });
-            let indicator: Element<'a, UiMsg> = if vertical {
-                container(mark).width(4).height(size).center_y(size).into()
-            } else {
-                container(mark).width(size).height(4).center_x(size).into()
-            };
-            let body: Element<'a, UiMsg> = match l.position {
-                LauncherPosition::Bottom => column![icon, indicator].spacing(4).into(),
-                LauncherPosition::Top => column![indicator, icon].spacing(4).into(),
-                LauncherPosition::Left => row![indicator, icon].spacing(4).into(),
-                LauncherPosition::Right => row![icon, indicator].spacing(4).into(),
-            };
-            let pointer_monitor = monitor.clone();
-            mouse_area(
-                button(body)
-                    .padding(6)
-                    .on_press(msg)
-                    .style(move |_, status| {
+                let motion = if g.transition == crate::config::Transition::None {
+                    0.0
+                } else {
+                    over
+                };
+                let lift = match l.position {
+                    LauncherPosition::Bottom => iced::Vector::new(0.0, -2.5 * motion),
+                    LauncherPosition::Top => iced::Vector::new(0.0, 2.5 * motion),
+                    LauncherPosition::Left => iced::Vector::new(2.5 * motion, 0.0),
+                    LauncherPosition::Right => iced::Vector::new(-2.5 * motion, 0.0),
+                };
+                // Halo et icône partagent une boîte fixe ; aucun déplacement des voisins.
+                let face = motion::face(
+                    container(face).center(size),
+                    1.0 + 0.09 * motion,
+                    lift,
+                    self.motion_duration(),
+                );
+                let icon: Element<'a, UiMsg> = container(face)
+                    .style(move |_| container::Style {
+                        background: Some(
+                            Color {
+                                a: 0.07 * over * t,
+                                ..accent
+                            }
+                            .into(),
+                        ),
+                        border: Border::default().rounded(12),
+                        ..Default::default()
+                    })
+                    .into();
+                // La piste de 4 px est réservée même pour une application fermée.
+                let mark = container(Space::new())
+                    .width(if vertical {
+                        4.0
+                    } else if active || launching.is_some() {
+                        12.0
+                    } else {
+                        4.0
+                    })
+                    .height(if vertical && (active || launching.is_some()) {
+                        12.0
+                    } else {
+                        4.0
+                    })
+                    .style(move |_| container::Style {
+                        background: if let Some(pulse) = pulse {
+                            Some(
+                                Color {
+                                    a: (0.4 + 0.6 * pulse) * t,
+                                    ..accent
+                                }
+                                .into(),
+                            )
+                        } else {
+                            (badge > 0).then_some(Background::Color(if active {
+                                accent
+                            } else {
+                                Color { a: 0.5 * t, ..fg }
+                            }))
+                        },
+                        border: Border::default().rounded(2),
+                        ..Default::default()
+                    });
+                let indicator: Element<'a, UiMsg> = if vertical {
+                    container(mark).width(4).height(size).center_y(size).into()
+                } else {
+                    container(mark).width(size).height(4).center_x(size).into()
+                };
+                let body: Element<'a, UiMsg> = match l.position {
+                    LauncherPosition::Bottom => column![icon, indicator].spacing(4).into(),
+                    LauncherPosition::Top => column![indicator, icon].spacing(4).into(),
+                    LauncherPosition::Left => row![indicator, icon].spacing(4).into(),
+                    LauncherPosition::Right => row![icon, indicator].spacing(4).into(),
+                };
+                let pointer_monitor = monitor.clone();
+                let area = mouse_area(button(body).padding(6).on_press(msg).style(
+                    move |_, status| {
                         let alpha = match status {
                             button::Status::Pressed => 0.15,
                             button::Status::Hovered => 0.025 + 0.035 * over,
@@ -430,26 +481,35 @@ impl App {
                             border: Border::default().rounded(12),
                             ..Default::default()
                         }
-                    }),
-            )
-            .on_enter(UiMsg::LauncherHover(Some((
-                monitor.clone(),
-                key.clone(),
-                popup,
-                index,
-            ))))
-            .on_exit(UiMsg::LauncherHover(None))
-            .on_move(move |p| {
-                let along = if vertical { p.y } else { p.x };
-                UiMsg::LauncherPointer(
-                    pointer_monitor.clone(),
-                    Some(index as f32 + (along - (size + 12.0) / 2.0) / (size + 16.0)),
-                )
-            })
-            .into()
-        };
+                    },
+                ))
+                .on_enter(UiMsg::LauncherHover(Some((
+                    monitor.clone(),
+                    key.clone(),
+                    popup,
+                    index,
+                ))))
+                .on_exit(UiMsg::LauncherHover(None))
+                .on_move(move |p| {
+                    let along = if vertical { p.y } else { p.x };
+                    UiMsg::LauncherPointer(
+                        pointer_monitor.clone(),
+                        Some(index as f32 + (along - (size + 12.0) / 2.0) / (size + 16.0)),
+                    )
+                });
+                motion::anchor(area, monitor.clone(), key)
+            };
+        let assistant = l.show_assistant
+            && self.cfg.plugin_on("assistant")
+            && crate::assistant::lyra_installed();
         let extent = if vertical { m.height } else { m.width } as f32;
-        let room = ((extent - 110.0) / (size + 16.0)).max(1.0) as usize;
+        let commands = usize::from(assistant) + usize::from(l.show_settings);
+        let command_width = (commands as f32 * (size + 16.0) - 4.0).max(0.0);
+        // Deux marges de 8 px et deux de 10 px. Le séparateur occupe 9 px,
+        // avec 4 px de chaque côté ; les boutons de commande gardent leur place.
+        let room = ((extent - 36.0 - command_width - if commands > 0 { 13.0 } else { -4.0 })
+            / (size + 16.0))
+            .max(0.0) as usize;
         let wins = windows(&self.clients, g.running_apps, &m.workspace);
         let focused = |c: &Client| {
             m.focused
@@ -535,9 +595,6 @@ impl App {
                     .into(),
             });
         }
-        let assistant = l.show_assistant
-            && self.cfg.plugin_on("assistant")
-            && crate::assistant::lyra_installed();
         if !items.is_empty() && (assistant || l.show_settings) {
             let sep = Color { a: 0.12 * t, ..fg };
             let line = if vertical {
@@ -591,7 +648,7 @@ impl App {
                 gear,
                 0,
                 false,
-                PopupContent::Label("Réglages".into()),
+                PopupContent::Label(crate::i18n::tr("Réglages").into()),
                 UiMsg::OpenPanel,
             ));
         }
@@ -603,10 +660,46 @@ impl App {
         } else {
             row(items).spacing(4).align_y(Alignment::Center).into()
         };
+        let roi = self
+            .launcher_runtime
+            .anchors
+            .iter()
+            .filter(|((name, _), _)| name == &m.name)
+            .map(|(_, r)| lifecycle::screen_anchor(m, l.position, l.size, *r))
+            .reduce(|a, b| a.union(&b))
+            .unwrap_or_else(|| match l.position {
+                LauncherPosition::Bottom => Rectangle::new(
+                    Point::new(0.0, m.height as f32 - thickness(l.size) as f32),
+                    Size::new(m.width as f32, thickness(l.size) as f32),
+                ),
+                LauncherPosition::Top => Rectangle::new(
+                    Point::ORIGIN,
+                    Size::new(m.width as f32, thickness(l.size) as f32),
+                ),
+                LauncherPosition::Left => Rectangle::new(
+                    Point::ORIGIN,
+                    Size::new(thickness(l.size) as f32, m.height as f32),
+                ),
+                LauncherPosition::Right => Rectangle::new(
+                    Point::new(m.width as f32 - thickness(l.size) as f32, 0.0),
+                    Size::new(thickness(l.size) as f32, m.height as f32),
+                ),
+            });
+        let base = self.launcher_material_opacity(&m.name, roi);
         let dock = container(inner)
             .padding(10)
-            .style(move |_| design::launcher_surface(&self.theme, t, false));
+            .style(move |_| design::launcher_surface(&self.theme, t, false, base));
         let dock = mouse_area(dock).on_exit(UiMsg::LauncherPointer(monitor, None));
+        let dock = motion::surface(
+            dock,
+            1.0,
+            lifecycle::edge_offset(l.position, (1.0 - progress) * 8.0),
+            Point::new(0.5, 0.5),
+        );
+        let shown_monitor = m.name.clone();
+        let dock = iced::widget::sensor(dock)
+            .key(m.name.clone())
+            .on_show(move |_| UiMsg::LauncherShown(shown_monitor.clone()));
         let (ax, ay) = match l.position {
             LauncherPosition::Bottom => (Alignment::Center, Alignment::End),
             LauncherPosition::Top => (Alignment::Center, Alignment::Start),
@@ -636,92 +729,135 @@ impl App {
             .collect()
     }
 
-    /// Survol d'une entrée : la bulle s'ouvre (sa propre surface, au-dessus de
-    /// tout, au niveau du curseur) ; quitter l'entrée la referme après un court
-    /// délai, le temps d'atteindre la bulle.
+    /// Le survol prépare la bulle ; le délai est annulable par un autre survol.
     pub(in crate::ui) fn launcher_hover(
         &mut self,
         spec: Option<(String, String, PopupContent, usize)>,
     ) -> Task<UiMsg> {
-        use iced_layershell::reexport::{
-            Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
-        };
         self.launcher_popup_token = self.launcher_popup_token.wrapping_add(1);
+        let token = self.launcher_popup_token;
         let Some((monitor, key, content, index)) = spec else {
+            self.launcher_runtime.pending = None;
             return self.schedule_popup_close();
         };
         let _ = self.launcher_pointer(&monitor, Some(index as f32));
+        self.launcher_popup_hover = false;
         if self
             .launcher_popup
             .as_ref()
-            .is_some_and(|p| p.key == key && p.monitor == monitor)
+            .is_some_and(|p| p.key == key && p.monitor == monitor && p.content == content)
+        {
+            self.launcher_runtime.pending = None;
+            if self.launcher_popup.as_ref().unwrap().fade.to == 0.0 {
+                let value = self
+                    .launcher_popup
+                    .as_ref()
+                    .unwrap()
+                    .fade
+                    .value(std::time::Instant::now());
+                let fade = self.launcher_transition(value, 1.0, 160);
+                self.launcher_popup.as_mut().unwrap().fade = fade;
+            }
+            return Task::none();
+        }
+        self.launcher_runtime.pending = Some(lifecycle::Pending {
+            monitor,
+            key,
+            content,
+            token,
+        });
+        let close = self.dismiss_launcher_popup();
+        let open = Task::perform(
+            async { tokio::time::sleep(lifecycle::OPEN_DELAY).await },
+            move |_| UiMsg::LauncherPopupOpen(token),
+        );
+        Task::batch([close, open])
+    }
+
+    pub(in crate::ui) fn launcher_popup_open(&mut self, token: u64) -> Task<UiMsg> {
+        use iced_layershell::reexport::{
+            Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
+        };
+        if !self.visible
+            || !self.cfg.plugin_on("launcher")
+            || token != self.launcher_popup_token
+            || !self
+                .launcher_runtime
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.token == token)
         {
             return Task::none();
         }
-        let mut tasks = vec![self.close_launcher_popup()];
-        let lines = match &content {
-            PopupContent::Windows(class) => self.popup_windows(&monitor, class).len(),
+        let pending = self.launcher_runtime.pending.take().unwrap();
+        let Some(local) = self
+            .launcher_runtime
+            .anchors
+            .get(&(pending.monitor.clone(), pending.key.clone()))
+            .copied()
+        else {
+            return Task::none();
+        };
+        let Some(m) = self.monitors.iter().find(|m| m.name == pending.monitor) else {
+            return Task::none();
+        };
+        let l = &self.cfg.general.launcher;
+        let anchor = lifecycle::screen_anchor(m, l.position, l.size, local);
+        let lines = match &pending.content {
+            PopupContent::Windows(class) => self.popup_windows(&pending.monitor, class).len(),
             PopupContent::Label(_) => 1,
         };
-        let (w, h) = popup_size(&content, lines);
-        let l = &self.cfg.general.launcher;
-        let Some((sid, surf)) = self
-            .launcher_surfaces
-            .iter()
-            .find(|(_, s)| s.monitor == monitor)
-            .map(|(id, s)| (*id, s.clone()))
-        else {
-            return Task::batch(tasks);
-        };
-        let m = self.monitors.iter().find(|m| m.name == monitor).cloned();
-        let (mw, mh) = m.map_or((1920.0, 1080.0), |m| (m.width as f32, m.height as f32));
-        let cursor = self.cursor.get(&sid).copied().unwrap_or_default();
-        // Centrée sur le curseur le long du bord, collée au lanceur.
-        let along = |c: f32, len: f32, span: u32| {
-            (c - span as f32 / 2.0).clamp(8.0, (len - span as f32 - 8.0).max(8.0)) as i32
-        };
-        let gap = 6;
-        let (anchor, margin) = match l.position {
-            LauncherPosition::Bottom => (
-                Anchor::Bottom | Anchor::Left,
-                (0, 0, gap, along(cursor.x, mw, w)),
-            ),
-            LauncherPosition::Top => (
-                Anchor::Top | Anchor::Left,
-                (gap, 0, 0, along(cursor.x, mw, w)),
-            ),
-            LauncherPosition::Left => (
-                Anchor::Left | Anchor::Top,
-                (along(cursor.y, mh, h), 0, 0, gap),
-            ),
-            LauncherPosition::Right => (
-                Anchor::Right | Anchor::Top,
-                (along(cursor.y, mh, h), gap, 0, 0),
-            ),
-        };
-        let _ = surf;
+        let (w, h) = popup_size(&pending.content, lines);
+        let max_height = (m.height as f32 - m.reserved.1 - m.reserved.3 - 16.0).max(36.0);
+        let placement = lifecycle::place_popup(
+            l.position,
+            lifecycle::workarea(m, l.position, l.size),
+            anchor,
+            Size::new(w as f32, (h as f32).min(max_height)),
+        );
+        let close = self.close_launcher_popup();
         let id = iced::window::Id::unique();
         self.launcher_popup = Some(Popup {
             id,
-            monitor: monitor.clone(),
-            key,
-            content,
+            monitor: pending.monitor.clone(),
+            key: pending.key,
+            content: pending.content,
+            fade: self.launcher_transition(0.0, 1.0, 160),
+            placement,
+            max_height,
         });
-        tasks.push(Task::done(UiMsg::NewLayerShell {
-            settings: NewLayerShellSettings {
-                size: Some((w, h)),
-                layer: Layer::Overlay,
-                anchor,
-                exclusive_zone: Some(0),
-                margin: Some(margin),
-                keyboard_interactivity: KeyboardInteractivity::None,
-                output_option: OutputOption::OutputName(monitor),
-                namespace: Some(POPUP_NAMESPACE.into()),
-                ..Default::default()
-            },
-            id,
-        }));
-        Task::batch(tasks)
+        let bounds = placement.bounds;
+        Task::batch([
+            close,
+            Task::done(UiMsg::NewLayerShell {
+                settings: NewLayerShellSettings {
+                    size: Some((bounds.width as u32, bounds.height as u32)),
+                    layer: Layer::Overlay,
+                    anchor: Anchor::Top | Anchor::Left,
+                    // Coordonnées absolues dans l'écran, indépendantes des zones exclusives.
+                    exclusive_zone: Some(-1),
+                    margin: Some((bounds.y as i32, 0, 0, bounds.x as i32)),
+                    keyboard_interactivity: KeyboardInteractivity::None,
+                    output_option: OutputOption::OutputName(pending.monitor),
+                    namespace: Some(POPUP_NAMESPACE.into()),
+                    ..Default::default()
+                },
+                id,
+            }),
+        ])
+    }
+
+    fn dismiss_launcher_popup(&mut self) -> Task<UiMsg> {
+        if let Some(p) = &self.launcher_popup {
+            if p.fade.to == 0.0 {
+                return Task::none();
+            }
+            let value = p.fade.value(std::time::Instant::now());
+            let fade = self.launcher_transition(value, 0.0, 125);
+            self.launcher_popup.as_mut().unwrap().fade = fade;
+            return Task::done(UiMsg::Frame);
+        }
+        Task::none()
     }
 
     fn schedule_popup_close(&self) -> Task<UiMsg> {
@@ -738,13 +874,19 @@ impl App {
         if token != self.launcher_popup_token || self.launcher_popup_hover {
             return Task::none();
         }
-        self.close_launcher_popup()
+        self.dismiss_launcher_popup()
     }
 
     pub(in crate::ui) fn launcher_popup_hover(&mut self, on: bool) -> Task<UiMsg> {
         self.launcher_popup_hover = on;
         if on {
             self.launcher_popup_token = self.launcher_popup_token.wrapping_add(1);
+            self.launcher_runtime.pending = None;
+            if let Some(p) = &self.launcher_popup {
+                let fade =
+                    self.launcher_transition(p.fade.value(std::time::Instant::now()), 1.0, 160);
+                self.launcher_popup.as_mut().unwrap().fade = fade;
+            }
             Task::none()
         } else {
             self.schedule_popup_close()
@@ -753,6 +895,7 @@ impl App {
 
     pub(in crate::ui) fn close_launcher_popup(&mut self) -> Task<UiMsg> {
         self.launcher_popup_hover = false;
+        self.launcher_runtime.pending = None;
         match self.launcher_popup.take() {
             Some(p) => iced::window::close(p.id),
             None => Task::none(),
@@ -765,12 +908,17 @@ impl App {
             return iced::widget::Space::new().into();
         };
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = color(g.theme.fg, 0.55);
-        let accent = color(g.theme.accent, 1.0);
+        let t = if g.transition == crate::config::Transition::None {
+            p.fade.to
+        } else {
+            p.fade.value(std::time::Instant::now())
+        };
+        let fg = color(g.theme.fg, t);
+        let dim = color(g.theme.fg, 0.55 * t);
+        let accent = color(g.theme.accent, t);
         let hover = move |_: &iced::Theme, s: button::Status| button::Style {
             background: matches!(s, button::Status::Hovered)
-                .then(|| Background::Color(Color { a: 0.15, ..fg })),
+                .then(|| Background::Color(Color { a: 0.15 * t, ..fg })),
             border: Border::default().rounded(8),
             ..Default::default()
         };
@@ -801,7 +949,7 @@ impl App {
                         .copied()
                         .unwrap_or(IconImg::None);
                     let icon = self
-                        .img_element(img, 18.0, 1.0)
+                        .img_element(img, 18.0, t)
                         .unwrap_or_else(|| iced::widget::Space::new().width(18).into());
                     button(
                         row![
@@ -827,7 +975,7 @@ impl App {
                         if active {
                             style.background = Some(
                                 Color {
-                                    a: if matches!(status, button::Status::Hovered) {
+                                    a: t * if matches!(status, button::Status::Hovered) {
                                         0.18
                                     } else {
                                         0.10
@@ -836,7 +984,10 @@ impl App {
                                 }
                                 .into(),
                             );
-                            style.border = style.border.width(1).color(Color { a: 0.18, ..accent });
+                            style.border = style.border.width(1).color(Color {
+                                a: 0.18 * t,
+                                ..accent
+                            });
                         }
                         style
                     })
@@ -847,17 +998,33 @@ impl App {
                 .into()
             }
         };
-        mouse_area(
+        let popup_id = p.id;
+        let measured = iced::widget::sensor(body)
+            .key(p.id)
+            .on_resize(move |size| UiMsg::LauncherPopupMeasured(popup_id, size.height));
+        let body = iced::widget::scrollable(measured).height(Length::Fill);
+        let base = self.launcher_popup_opacity();
+        let card = mouse_area(
             container(body)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding(8)
                 .center_y(Length::Fill)
-                .style(move |_| design::launcher_surface(&self.theme, 1.0, true)),
+                .style(move |_| design::launcher_surface(&self.theme, t, true, base)),
         )
         .on_enter(UiMsg::LauncherPopupHover(true))
-        .on_exit(UiMsg::LauncherPopupHover(false))
-        .into()
+        .on_exit(UiMsg::LauncherPopupHover(false));
+        let card = motion::surface(
+            card,
+            0.97 + 0.03 * t,
+            lifecycle::edge_offset(g.launcher.position, (1.0 - t) * 6.0),
+            p.placement.pivot,
+        );
+        container(card)
+            .padding(8)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 }
 
@@ -876,6 +1043,11 @@ impl App {
 
     /// Lance une application épinglée ; le mode du bureau ne change pas.
     pub(in crate::ui) fn launcher_launch(&mut self, id: &str) -> Task<UiMsg> {
+        if self.launcher_runtime.launches.contains_key(id) {
+            return Task::none();
+        }
+        let feedback = self.launcher_launch_started(id.to_string());
+        let token = self.launcher_runtime.launches[id].started;
         let def = crate::config::IconDef {
             origin: Default::default(),
             sel: Default::default(),
@@ -885,11 +1057,20 @@ impl App {
             icon: None,
             pos: None,
         };
-        let r = crate::launch::resolve(&def, None, 16, &self.cfg.general.terminal);
-        if r.command.is_empty() {
-            return Task::none();
-        }
-        self.run_from_desktop(r.command, true)
+        let terminal = self.cfg.general.terminal.clone();
+        let id = id.to_string();
+        let resolve = Task::perform(
+            async move {
+                let command = tokio::task::spawn_blocking(move || {
+                    crate::launch::resolve(&def, None, 16, &terminal).command
+                })
+                .await
+                .unwrap_or_default();
+                (id, command)
+            },
+            move |(id, command)| UiMsg::LauncherResolved(id, token, command),
+        );
+        Task::batch([feedback, resolve])
     }
 
     /// Clic sur une application regroupée : sa fenêtre suivante, à tour de
@@ -920,20 +1101,29 @@ impl App {
         let fg = color(g.theme.fg, 1.0);
         let dim = Color { a: 0.6, ..fg };
         let running = |label: &'static str, v: RunningApps| {
-            radio(label, v, Some(g.running_apps), |v| wrap(Msg::Running(v))).font(self.font)
+            radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
+                wrap(Msg::Running(v))
+            })
+            .font(self.font)
         };
         let group = |label: &'static str, v: LauncherGroup| {
-            radio(label, v, Some(g.launcher_group), |v| wrap(Msg::Group(v))).font(self.font)
+            radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
+                wrap(Msg::Group(v))
+            })
+            .font(self.font)
         };
+        if !self.on_subtab(INFO.id, "contenu") {
+            return self.launcher_look();
+        }
         column![
             self.section("Fenêtres"),
             self.field(
                 "Fenêtres ouvertes dans le lanceur",
                 "running_apps",
                 column![
-                    running("Aucune (épingles et boutons uniquement)", RunningApps::Off),
-                    running("Celles du workspace affiché", RunningApps::Workspace),
-                    running("Toutes", RunningApps::All),
+                    running(crate::i18n::tr("Aucune (épingles et boutons uniquement)"), RunningApps::Off),
+                    running(crate::i18n::tr("Celles du workspace affiché"), RunningApps::Workspace),
+                    running(crate::i18n::tr("Toutes"), RunningApps::All),
                 ]
                 .spacing(8),
             ),
@@ -942,19 +1132,18 @@ impl App {
                 "Regrouper les fenêtres",
                 "launcher_group",
                 column![
-                    group("Aucun : une entrée par fenêtre", LauncherGroup::None),
+                    group(crate::i18n::tr("Aucun : une entrée par fenêtre"), LauncherGroup::None),
                     group(
-                        "Par application (binaire) : une entrée, un clic passe de l'une à l'autre",
+                        crate::i18n::tr("Par application (binaire) : une entrée, un clic passe de l'une à l'autre"),
                         LauncherGroup::App
                     ),
                     group(
-                        "Par workspace : rangées sous leur numéro",
+                        crate::i18n::tr("Par workspace : rangées sous leur numéro"),
                         LauncherGroup::Workspace
                     ),
                 ]
                 .spacing(8),
             ),
-            self.launcher_look(),
             text(
                 "Le lanceur a sa propre couche, au-dessus des fenêtres : en launcher-only, \
                  les fenêtres lui laissent sa place. L'utiliser ne change jamais le mode du bureau."
@@ -1047,6 +1236,26 @@ impl App {
                 );
             }
         }
+        if self.on_subtab(INFO.id, "epinglees") {
+            return column![
+                self.section("Applications épinglées"),
+                text("Toujours dans le lanceur ; un clic les lance si elles ne sont pas ouvertes.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+                pins,
+                iced::widget::text_input(
+                    crate::i18n::tr("Épingler une application (firefox, terminal…)"),
+                    &filter
+                )
+                .font(self.font)
+                .on_input(|v| wrap(Msg::PinFilter(v)))
+                .padding(8),
+                found,
+            ]
+            .spacing(14)
+            .into();
+        }
         column![
             self.section("Apparence"),
             self.field(
@@ -1055,8 +1264,8 @@ impl App {
                 row![
                     position("En bas", LauncherPosition::Bottom),
                     position("En haut", LauncherPosition::Top),
-                    position("À gauche", LauncherPosition::Left),
-                    position("À droite", LauncherPosition::Right),
+                    position(crate::i18n::tr("À gauche"), LauncherPosition::Left),
+                    position(crate::i18n::tr("À droite"), LauncherPosition::Right),
                 ]
                 .spacing(16),
             ),
@@ -1076,25 +1285,14 @@ impl App {
                 "",
                 column![
                     iced::widget::toggler(l.show_assistant)
-                        .label("Assistant IA (LYRA)")
+                        .label(crate::i18n::tr("Assistant IA (LYRA)"))
                         .on_toggle(|v| wrap(Msg::ShowAssistant(v))),
                     iced::widget::toggler(l.show_settings)
-                        .label("Réglages")
+                        .label(crate::i18n::tr("Réglages"))
                         .on_toggle(|v| wrap(Msg::ShowSettings(v))),
                 ]
                 .spacing(8),
             ),
-            self.section("Applications épinglées"),
-            text("Toujours dans le lanceur ; un clic les lance si elles ne sont pas ouvertes.")
-                .font(self.font)
-                .size(12)
-                .color(dim),
-            pins,
-            iced::widget::text_input("Épingler une application (firefox, terminal…)", &filter)
-                .font(self.font)
-                .on_input(|v| wrap(Msg::PinFilter(v)))
-                .padding(8),
-            found,
         ]
         .spacing(14)
         .into()

@@ -18,7 +18,12 @@ pub async fn run_command(cmd: &str, timeout: Duration) -> Value {
             let text: Vec<&str> = out.trim_end().lines().take(20).collect();
             if !o.status.success() && text.is_empty() {
                 let err = String::from_utf8_lossy(&o.stderr);
-                Value::Error(err.lines().next().unwrap_or("échec").to_string())
+                Value::Error(
+                    err.lines()
+                        .next()
+                        .unwrap_or(crate::i18n::tr("échec"))
+                        .to_string(),
+                )
             } else {
                 Value::Text(text.join("\n"))
             }

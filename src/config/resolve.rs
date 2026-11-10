@@ -86,6 +86,8 @@ mod tests {
             sel: s,
             source: WallSource::Path(PathBuf::from(p)),
             fit: Fit::Cover,
+            span: false,
+            span_lock: false,
         }
     }
 

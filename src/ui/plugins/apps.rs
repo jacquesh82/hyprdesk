@@ -7,7 +7,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use iced::widget::{button, column, pick_list, row, text, text_input};
+use crate::i18n::text;
+use iced::widget::{button, column, pick_list, row, text_input};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -99,6 +100,8 @@ impl App {
                 .into_iter()
                 .map(|(value, label)| Choice { value, label })
                 .collect();
+            // Choix en place hors de la liste : une commande, ou une
+            // application désinstallée depuis (signalée, pas proposée ailleurs).
             if let Some(v) = &current
                 && !choices.iter().any(|c| &c.value == v)
             {
@@ -106,7 +109,11 @@ impl App {
                     0,
                     Choice {
                         value: v.clone(),
-                        label: format!("{v} (commande)"),
+                        label: if apps::installed(v, &self.apps) {
+                            crate::tr!("{v} (commande)", v = v)
+                        } else {
+                            crate::tr!("{v} (non installée)", v = v)
+                        },
                     },
                 );
             }
@@ -114,10 +121,17 @@ impl App {
                 .as_ref()
                 .and_then(|v| choices.iter().find(|c| &c.value == v).cloned());
             let system = p.apps.system.get(r.id).cloned().flatten();
+            let missing = |s: &str| {
+                if apps::installed(s, &self.apps) {
+                    ""
+                } else {
+                    crate::i18n::tr(" (non installée)")
+                }
+            };
             let status = match (&current, &system) {
-                (Some(_), Some(s)) => format!("système : {s}"),
-                (None, Some(s)) => format!("celle du système : {s}"),
-                (_, None) => "aucune au système".into(),
+                (Some(_), Some(s)) => crate::tr!("système : {s}{m}", s = s, m = missing(s)),
+                (None, Some(s)) => crate::tr!("celle du système : {s}{m}", s = s, m = missing(s)),
+                (_, None) => crate::i18n::tr("aucune au système").into(),
             };
             let role = r.id.to_string();
             let role_custom = role.clone();
@@ -126,11 +140,11 @@ impl App {
                 pick_list(choices, selected, move |c: Choice| {
                     wrap(Msg::Pick(role.clone(), c.value))
                 })
-                .placeholder("Celle du système")
+                .placeholder(crate::i18n::tr("Celle du système"))
                 .font(self.font)
                 .width(240),
                 text_input(
-                    "ou une commande",
+                    crate::i18n::tr("ou une commande"),
                     p.apps.custom.get(r.id).map(String::as_str).unwrap_or("")
                 )
                 .font(self.font)
@@ -207,7 +221,7 @@ impl App {
                     },
                     |res| {
                         if let Err(e) = res {
-                            tracing::warn!("application par défaut : {e}");
+                            tracing::warn!("{}", crate::tr!("application par défaut : {e}", e = e));
                             crate::hypr::notify(3, 5000, &format!("hyprdesk : {e}"));
                         }
                         UiMsg::Noop

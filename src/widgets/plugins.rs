@@ -140,29 +140,33 @@ pub fn install(source: &str, dest: &Path) -> Result<String, String> {
             .trim_start_matches("hyprdesk-")
             .to_lowercase();
         if !valid_id(&name) {
-            return Err(format!(
-                "nom de plugin « {name} » invalide (minuscules, chiffres, - et _)"
+            return Err(crate::tr!(
+                "nom de plugin « {name} » invalide (minuscules, chiffres, - et _)",
+                name = name
             ));
         }
         let target = dest.join(&name);
         if target.exists() {
-            return Err(format!("« {name} » est déjà installé"));
+            return Err(crate::tr!("« {name} » est déjà installé", name = name));
         }
         let st = std::process::Command::new("git")
             .args(["clone", "--depth", "1", "--quiet", source])
             .arg(&target)
             .status()
-            .map_err(|e| format!("git : {e}"))?;
+            .map_err(|e| crate::tr!("git : {e}", e = e))?;
         if !st.success() || !target.join("init.lua").is_file() {
             let _ = std::fs::remove_dir_all(&target);
-            return Err("dépôt sans init.lua à sa racine : ce n'est pas un plugin hyprdesk".into());
+            return Err(crate::i18n::tr(
+                "dépôt sans init.lua à sa racine : ce n'est pas un plugin hyprdesk",
+            )
+            .into());
         }
         return Ok(name);
     }
     let src = crate::config::lua::expand_path(source, Path::new("/"));
     let (name, is_dir) = if src.is_dir() {
         if !src.join("init.lua").is_file() {
-            return Err(format!("{} : pas de init.lua", src.display()));
+            return Err(crate::tr!("{p0} : pas de init.lua", p0 = src.display()));
         }
         (
             src.file_name()
@@ -180,22 +184,24 @@ pub fn install(source: &str, dest: &Path) -> Result<String, String> {
             false,
         )
     } else {
-        return Err(format!(
-            "« {source} » : ni un fichier .lua, ni un dossier de plugin, ni un dépôt git"
+        return Err(crate::tr!(
+            "« {source} » : ni un fichier .lua, ni un dossier de plugin, ni un dépôt git",
+            source = source
         ));
     };
     if !valid_id(&name) {
-        return Err(format!(
-            "nom de plugin « {name} » invalide (minuscules, chiffres, - et _)"
+        return Err(crate::tr!(
+            "nom de plugin « {name} » invalide (minuscules, chiffres, - et _)",
+            name = name
         ));
     }
     let target = if is_dir {
         dest.join(&name)
     } else {
-        dest.join(format!("{name}.lua"))
+        dest.join(format!("{name}.lua", name = name))
     };
     if target.exists() {
-        return Err(format!("« {name} » est déjà installé"));
+        return Err(crate::tr!("« {name} » est déjà installé", name = name));
     }
     if is_dir {
         let st = std::process::Command::new("cp")
@@ -205,7 +211,7 @@ pub fn install(source: &str, dest: &Path) -> Result<String, String> {
             .status()
             .map_err(|e| e.to_string())?;
         if !st.success() {
-            return Err(format!("copie de {} impossible", src.display()));
+            return Err(crate::tr!("copie de {p0} impossible", p0 = src.display()));
         }
     } else {
         std::fs::copy(&src, &target).map_err(|e| e.to_string())?;
@@ -223,7 +229,9 @@ pub fn retire(file: &Path, user_dir: &Path) -> Result<PathBuf, String> {
         file.to_path_buf()
     };
     if item.parent() != Some(user_dir) {
-        return Err("seuls les plugins installés par l'utilisateur se retirent".into());
+        return Err(
+            crate::i18n::tr("seuls les plugins installés par l'utilisateur se retirent").into(),
+        );
     }
     let bin = user_dir.join(".retired");
     std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;

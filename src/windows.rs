@@ -23,7 +23,7 @@ impl WindowManager {
             let mut stash = match hypr::load_stash() {
                 Ok(stash) => stash,
                 Err(e) => {
-                    tracing::error!("journal des fenêtres conservé, gestionnaire suspendu : {e}");
+                    tracing::error!("{}", crate::tr!("journal des fenêtres conservé, gestionnaire suspendu : {e}", e = e));
                     return;
                 }
             };
@@ -57,7 +57,7 @@ impl WindowManager {
                         keep.extend(pending);
                         stash = keep;
                         let result = hypr::save_stash(&stash).map_err(|e| e.to_string()).and_then(|()| {
-                            if unresolved == 0 { Ok(()) } else { Err(format!("fenêtre {address} en attente de restitution")) }
+                            if unresolved == 0 { Ok(()) } else { Err(crate::tr!("fenêtre {address} en attente de restitution", address = address)) }
                         });
                         let _ = reply.send(result);
                     }
@@ -68,7 +68,7 @@ impl WindowManager {
                         keep.extend(pending);
                         stash = keep;
                         let result = hypr::save_stash(&stash).map_err(|e| e.to_string()).and_then(|()| {
-                            if unresolved == 0 { Ok(()) } else { Err(format!("{unresolved} fenêtre(s) en attente de restitution ; journal conservé")) }
+                            if unresolved == 0 { Ok(()) } else { Err(crate::tr!("{unresolved} fenêtre(s) en attente de restitution ; journal conservé", unresolved = unresolved)) }
                         });
                         let _ = reply.send(result);
                     }
@@ -91,7 +91,10 @@ impl WindowManager {
                 | Request::Restore(_, reply)
                 | Request::RestoreOne(_, reply)
                 | Request::Submap(_, reply) => {
-                    let _ = reply.send(Err("gestionnaire de fenêtres occupé ou arrêté".into()));
+                    let _ = reply.send(Err(crate::i18n::tr(
+                        "gestionnaire de fenêtres occupé ou arrêté",
+                    )
+                    .into()));
                 }
             }
         }

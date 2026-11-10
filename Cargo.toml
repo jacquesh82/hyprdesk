@@ -35,3 +35,10 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.9"
+
+# Glisser-déposer vers le bureau : layershellev 0.19.1 ne gère pas le
+# « data device » de Wayland. Copies locales complétées (vendor/*/HYPRDESK.md) ;
+# à reporter lors d'une mise à jour d'iced_layershell.
+[patch.crates-io]
+layershellev = { path = "vendor/layershellev" }
+iced_layershell = { path = "vendor/iced_layershell" }

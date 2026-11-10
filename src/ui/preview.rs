@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 23] = [
+const SCENES: [&str; 33] = [
     "desktop",
     "typography",
     "icons",
@@ -47,9 +47,25 @@ const SCENES: [&str; 23] = [
     "launcher-right",
     "launcher-popup",
     "chat",
+    "theme",
+    "bureau",
+    "launcher-opening",
+    "launcher-menu-opening",
+    "launcher-launching",
+    "launcher-bright",
+    "launcher-dark",
+    "launcher-menu-long",
+    "layouts",
+    "tour",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
+    let scale = std::env::var("HYPRDESK_PREVIEW_SCALE")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .filter(|v| v.is_finite())
+        .unwrap_or(1.0)
+        .clamp(1.0, 3.0);
     let width = std::env::var("HYPRDESK_PREVIEW_WIDTH")
         .ok()
         .and_then(|v| v.parse::<f32>().ok())
@@ -70,11 +86,14 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
         default_font: crate::fonts::DEFAULT,
         ..Default::default()
     })
-    .title("hyprdesk · aperçu isolé")
+    .title(crate::i18n::tr("hyprdesk · aperçu isolé"))
     .window_size(Size::new(width, height))
+    .scale_factor(move |_: &Preview| scale)
     .theme(|p: &Preview| p.app.theme.clone())
     .subscription(|p: &Preview| {
-        let frames = if p.app.animating() {
+        let frames = if p.app.launcher_animating() {
+            iced::window::frames().map(|_| PreviewMsg::Ui(Box::new(Msg::Frame)))
+        } else if p.app.animating() {
             iced::time::every(Duration::from_millis(16))
                 .map(|_| PreviewMsg::Ui(Box::new(Msg::Frame)))
         } else {
@@ -115,7 +134,7 @@ impl Preview {
         let (desktop, bar) = (Id::unique(), Id::unique());
         app.font = crate::fonts::DEFAULT;
         app.monitors = vec![Monitor {
-            name: "APERÇU".into(),
+            name: crate::i18n::tr("APERÇU").into(),
             width: size.width as u32,
             height: size.height as u32,
             workspace: "1".into(),
@@ -123,8 +142,10 @@ impl Preview {
             reserved: (0.0, 44.0, 0.0, 0.0),
             x: 0.0,
             y: 0.0,
+            scale: 1.0,
         }];
-        app.surfaces.insert(desktop, "APERÇU".into());
+        app.surfaces
+            .insert(desktop, crate::i18n::tr("APERÇU").into());
         app.sizes.insert(desktop, size);
         app.raised.insert(desktop);
         app.visible = true;
@@ -153,7 +174,7 @@ impl Preview {
             { "name": "DP-1", "description": "PX7 Prime", "width": 2560, "height": 1440,
               "refreshRate": 59.951, "x": 2560, "y": -560, "scale": 1.0, "transform": 1,
               "availableModes": ["2560x1440@59.95Hz", "2560x1440@165.00Hz"] },
-            { "name": "HDMI-A-1", "description": "Vidéoprojecteur", "width": 1920, "height": 1080,
+            { "name": "HDMI-A-1", "description": crate::i18n::tr("Vidéoprojecteur"), "width": 1920, "height": 1080,
               "refreshRate": 60.0, "x": 0, "y": 0, "scale": 1.0, "transform": 0, "disabled": true }
         ]));
         app.settings.primary = Some("HDMI-A-2".into());
@@ -162,11 +183,14 @@ impl Preview {
             .set_assign(config::AppMatch::App("firefox".into()), "2", false);
         app.settings
             .set_assign(config::AppMatch::Class("^(discord)$".into()), "6", true);
-        app.active_window = Some(("hyprdesk".into(), "Un espace à vous".into()));
+        app.active_window = Some((
+            "hyprdesk".into(),
+            crate::i18n::tr("Un espace à vous").into(),
+        ));
         app.bar_surfaces.insert(
             bar,
             bar::BarSurface {
-                monitor: "APERÇU".into(),
+                monitor: crate::i18n::tr("APERÇU").into(),
                 position: BarPosition::Top,
                 height: 44,
             },
@@ -178,7 +202,7 @@ impl Preview {
             ("Navigateur", "firefox"),
             ("Fichiers", "org.gnome.Nautilus"),
             ("Terminal", "kitty"),
-            ("Éditeur", "code"),
+            (crate::i18n::tr("Éditeur"), "code"),
         ]
         .iter()
         .enumerate()
@@ -259,12 +283,12 @@ impl Preview {
             "system".into(),
             widgets::Value::Sys(vec![
                 widgets::SysLine {
-                    label: "CPU".into(),
+                    label: crate::i18n::tr("CPU").into(),
                     value: "12 %".into(),
                     ratio: Some(0.12),
                 },
                 widgets::SysLine {
-                    label: "RAM".into(),
+                    label: crate::i18n::tr("RAM").into(),
                     value: "4,2 / 16 Gio".into(),
                     ratio: Some(0.26),
                 },
@@ -274,7 +298,7 @@ impl Preview {
             .map(|id| hypr::Workspace {
                 id,
                 name: id.to_string(),
-                monitor: "APERÇU".into(),
+                monitor: crate::i18n::tr("APERÇU").into(),
                 windows: if id == 1 { 2 } else { 0 },
             })
             .collect();
@@ -326,6 +350,8 @@ impl Preview {
         self.app.chat = None;
         self.app.popover = None;
         self.app.launcher_popup = None;
+        self.app.launcher_runtime.docks.clear();
+        self.app.launcher_runtime.launches.clear();
         if self.scene >= 16 {
             use crate::config::{LauncherGroup, LauncherPosition};
             let cfg = Arc::make_mut(&mut self.app.cfg);
@@ -337,6 +363,22 @@ impl Preview {
             };
             cfg.general.launcher.pinned = vec!["kitty".into(), "firefox".into()];
             cfg.general.launcher_group = LauncherGroup::App;
+            if self.scene == 27 {
+                cfg.general.launcher.pinned.push("preview-launch".into());
+            }
+            if matches!(self.scene, 28 | 29) {
+                cfg.general.background = if self.scene == 28 {
+                    config::Rgba(255, 255, 255, 255)
+                } else {
+                    config::Rgba(0, 0, 0, 255)
+                };
+                let mut effect = cfg.general.theme.effect(config::Place::Launcher);
+                effect.opacity = 0.25;
+                cfg.general
+                    .theme
+                    .effects
+                    .insert(config::Place::Launcher, effect);
+            }
             let thickness = plugins::launcher::thickness(cfg.general.launcher.size) as f32;
             self.app.monitors[0].reserved = match cfg.general.launcher.position {
                 LauncherPosition::Bottom => (0.0, 44.0, 0.0, thickness),
@@ -354,25 +396,59 @@ impl Preview {
                 self.app.clients.push(Client {
                     address: "preview-browser-2".into(),
                     class: "firefox".into(),
-                    title: "Mindlog · Notes du jour".into(),
+                    title: crate::i18n::tr("Mindlog · Notes du jour").into(),
                     workspace: "2".into(),
                 });
             }
             self.app.hover_fades.clear();
             if self.scene == 17 {
-                let _ = self.app.launcher_pointer("APERÇU", Some(1.15));
+                let _ = self
+                    .app
+                    .launcher_pointer(crate::i18n::tr("APERÇU"), Some(1.15));
             }
-            if self.scene == 21 {
+            if matches!(self.scene, 21 | 26 | 30) {
                 self.app.launcher_popup = Some(plugins::launcher::Popup {
                     id: Id::unique(),
-                    monitor: "APERÇU".into(),
+                    monitor: crate::i18n::tr("APERÇU").into(),
                     key: "dock-pin:firefox".into(),
                     content: plugins::launcher::PopupContent::Windows("firefox".into()),
+                    fade: self.app.launcher_transition(
+                        if self.scene == 26 { 0.5 } else { 1.0 },
+                        if self.scene == 26 { 0.5 } else { 1.0 },
+                        0,
+                    ),
+                    max_height: self.size.height - 160.0,
+                    placement: plugins::launcher::Placement {
+                        bounds: iced::Rectangle::new(
+                            Point::new((self.size.width - 416.0) / 2.0, self.size.height - 204.0),
+                            Size::new(416.0, 102.0),
+                        ),
+                        pivot: Point::new(0.5, 1.0),
+                    },
                 });
+            }
+            if self.scene == 25 {
+                self.app.launcher_runtime.docks.insert(
+                    crate::i18n::tr("APERÇU").into(),
+                    self.app.launcher_transition(0.5, 0.5, 0),
+                );
+            }
+            if self.scene == 27 {
+                let _ = self.app.launcher_launch_started("preview-launch".into());
+            }
+            if self.scene == 30 {
+                for index in 0..40 {
+                    self.app.clients.push(Client {
+                        address: format!("preview-many-{index}"),
+                        class: "firefox".into(),
+                        title: format!("Document {} — Notes de travail", index + 1),
+                        workspace: "2".into(),
+                    });
+                }
             }
         }
         let tab = match self.scene {
-            1 => Some("desktop"),
+            1 => Some("theme"),
             2 => Some("icons"),
             3 => Some("wallpaper"),
             4 => Some("widgets"),
@@ -385,8 +461,33 @@ impl Preview {
             13 => Some("assistant"),
             14 => Some("plugins"),
             15 => Some("share"),
+            23 => Some("theme"),
+            24 => Some("desktop"),
+            31 => Some("layouts"),
+            32 => Some("wallpaper"),
             _ => None,
         };
+        // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
+        // et HYPRDESK_PREVIEW_SUBTAB (ex. `bar=modules,theme=effets`) pour les essais.
+        self.app.subtabs.clear();
+        // Configuration avancée par défaut (toutes les vues) ; HYPRDESK_PREVIEW_BASIC : l'essentiel.
+        Arc::make_mut(&mut self.app.cfg).general.advanced_settings =
+            std::env::var_os("HYPRDESK_PREVIEW_BASIC").is_none();
+        // Visite guidée : proposée seulement dans sa scène.
+        Arc::make_mut(&mut self.app.cfg).general.tour_seen = SCENES[self.scene] != "tour";
+        if self.scene == 1 {
+            self.app.subtabs.insert("theme", "texte");
+        }
+        if let Ok(spec) = std::env::var("HYPRDESK_PREVIEW_SUBTAB") {
+            for pair in spec.split(',') {
+                if let Some((pkg, sub)) = pair.split_once('=')
+                    && let Some(info) = plugins::find(pkg.trim())
+                    && let Some(sub) = plugins::find_tab(info.id, sub)
+                {
+                    self.app.subtabs.insert(info.id, sub);
+                }
+            }
+        }
         if let Some(tab) = tab {
             self.app.panel = Some(Panel::new(self.desktop));
             let _ = self.app.panel_update(PanelMsg::Tab(tab));
@@ -400,6 +501,26 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+        }
+        if SCENES[self.scene] == "tour"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.tour = Some(2);
+        }
+        // Layouts : raccourcis d'un hyprland.lua d'exemple (l'aperçu ne lit aucun fichier).
+        if SCENES[self.scene] == "layouts"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.layouts.binds = crate::tiling::parse_binds(
+                "local mainMod = \"SUPER\"\n\
+                 hl.bind(mainMod .. \" + h\", hl.dsp.focus({ direction = \"left\" }))\n\
+                 hl.bind(mainMod .. \" + l\", hl.dsp.focus({ direction = \"right\" }))\n\
+                 hl.bind(mainMod .. \" + SHIFT + left\", hl.dsp.window.move({ direction = \"left\" }))\n\
+                 hl.bind(mainMod .. \" + SHIFT + right\", hl.dsp.window.move({ direction = \"right\" }))\n\
+                 hl.bind(mainMod .. \" + F\", hl.dsp.window.fullscreen())\n\
+                 hl.bind(mainMod .. \" + S\", hl.dsp.layout(\"togglesplit\"))\n\
+                 hl.bind(\"SUPER + ALT + F\", hl.dsp.exec_cmd(\"firefox\"))\n",
+            );
         }
         if SCENES[self.scene] == "chat" {
             self.app.chat_demo(self.desktop);
@@ -506,10 +627,34 @@ impl Preview {
                 let _ = self.app.launcher_pointer(&monitor, position);
                 Task::none()
             }
-            Msg::LauncherHover(Some((monitor, _, _, index))) => {
-                let _ = self.app.launcher_pointer(&monitor, Some(index as f32));
-                Task::none()
+            Msg::LauncherAnchor(monitor, key, bounds) => {
+                let m = &self.app.monitors[0];
+                let l = &self.app.cfg.general.launcher;
+                let origin = plugins::launcher::screen_anchor(
+                    m,
+                    l.position,
+                    l.size,
+                    iced::Rectangle::default(),
+                )
+                .position();
+                self.app
+                    .launcher_anchor(monitor, key, bounds - iced::Vector::new(origin.x, origin.y))
+                    .map(|m| PreviewMsg::Ui(Box::new(m)))
             }
+            m @ (Msg::LauncherHover(_)
+            | Msg::LauncherPopupOpen(_)
+            | Msg::LauncherPopupClose(_)
+            | Msg::LauncherPopupHover(_)
+            | Msg::LauncherPopupMeasured(..)
+            | Msg::LauncherShown(_)
+            | Msg::LauncherLaunchExpired(..)) => self
+                .app
+                .update_inner(m)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::LauncherLaunch(id) => self
+                .app
+                .launcher_launch_started(id)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
             Msg::PopoverMeasured(win, height) => self
                 .app
                 .fit_popover(win, height)
@@ -590,13 +735,13 @@ impl Preview {
                 .into(),
             );
         }
-        if self.app.launcher_popup.is_some() {
+        if let Some(p) = &self.app.launcher_popup {
             layers.push(
                 pin(container(self.app.view_launcher_popup())
-                    .width(400)
-                    .height(96))
-                .x((self.size.width - 400.0) / 2.0)
-                .y(self.size.height - 200.0)
+                    .width(p.placement.bounds.width)
+                    .height(p.placement.bounds.height))
+                .x(p.placement.bounds.x)
+                .y(p.placement.bounds.y)
                 .into(),
             );
         }

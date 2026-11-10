@@ -10,8 +10,8 @@ use std::path::Path;
 
 use crate::config::lua::{load_file, load_settings_only};
 use crate::config::{
-    AppMatch, BarPosition, Config, Fit, LauncherGroup, MAX_WORKSPACES, Mode, Rgba, RunningApps,
-    Selector, ShowOn, Transition, WallSource,
+    AppMatch, BarPosition, Config, Fit, LauncherGroup, MAX_WORKSPACES, Mode, Place, Rgba,
+    RunningApps, Selector, ShowOn, Transition, WallSource,
 };
 use crate::settings::{BarSettings, Settings, hex};
 
@@ -35,7 +35,7 @@ pub fn parse_bool(v: &str) -> Result<bool, String> {
     match v.to_lowercase().as_str() {
         "on" | "true" | "yes" | "oui" | "1" => Ok(true),
         "off" | "false" | "no" | "non" | "0" => Ok(false),
-        _ => Err(format!("« {v} » : on ou off attendu")),
+        _ => Err(crate::tr!("« {v} » : on ou off attendu", v = v)),
     }
 }
 
@@ -44,15 +44,28 @@ fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
     min: T,
     max: T,
 ) -> Result<T, String> {
-    let n: T = v.parse().map_err(|_| format!("« {v} » : nombre attendu"))?;
+    let n: T = v
+        .parse()
+        .map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?;
     if n < min || n > max {
-        return Err(format!("« {v} » : entre {min} et {max}"));
+        return Err(crate::tr!(
+            "« {v} » : entre {min} et {max}",
+            v = v,
+            min = min,
+            max = max
+        ));
     }
     Ok(n)
 }
 
 fn choice<T>(v: &str, parse: impl Fn(&str) -> Option<T>, allowed: &str) -> Result<T, String> {
-    parse(v).ok_or_else(|| format!("« {v} » : valeurs admises {allowed}"))
+    parse(v).ok_or_else(|| {
+        crate::tr!(
+            "« {v} » : valeurs admises {allowed}",
+            v = v,
+            allowed = allowed
+        )
+    })
 }
 
 fn combo(v: &str) -> Result<String, String> {
@@ -61,7 +74,12 @@ fn combo(v: &str) -> Result<String, String> {
     }
     crate::hypr::parse_combo(v)
         .map(|_| v.to_string())
-        .ok_or_else(|| format!("« {v} » : raccourci illisible (ex. \"SUPER + SHIFT + D\")"))
+        .ok_or_else(|| {
+            crate::tr!(
+                "« {v} » : raccourci illisible (ex. \"SUPER + SHIFT + D\")",
+                v = v
+            )
+        })
 }
 
 fn show_on(s: &str) -> Option<ShowOn> {
@@ -113,7 +131,11 @@ fn wall_all(c: &Config) -> String {
             WallSource::Path(p) => p.display().to_string(),
             WallSource::Color(c) => hex(*c),
             WallSource::Rotate { dir, interval, .. } => {
-                format!("diaporama {} ({} s)", dir.display(), interval.as_secs())
+                crate::tr!(
+                    "diaporama {p0} ({p1} s)",
+                    p0 = dir.display(),
+                    p1 = interval.as_secs()
+                )
             }
         })
         .unwrap_or_default()
@@ -147,6 +169,26 @@ pub static KEYS: &[Key] = keys![
         |c| format!("{}", c.general.glass_opacity),
         |s, v, c| { s.glass_opacity = Some(number(v, 0.0f32, 1.0)?); Ok(()) },
         |s| s.glass_opacity = None;
+    "app_themes", "apptheme", "kitty,… | none — applications qui prennent le thème de hyprdesk",
+        |c| c.general.app_themes.iter().cloned().collect::<Vec<_>>().join(","),
+        |s, v, c| {
+            let mut set = std::collections::BTreeSet::new();
+            if v.trim() != "none" {
+                for id in v.split(',').map(str::trim).filter(|x| !x.is_empty()) {
+                    if crate::apptheme::target(id).is_none() {
+                        return Err(crate::tr!("« {v} » : application inconnue", v = id));
+                    }
+                    set.insert(id.to_string());
+                }
+            }
+            s.app_themes = Some(set);
+            Ok(())
+        },
+        |s| s.app_themes = None;
+    "advanced_settings", "desktop", "on | off — écran Réglages : tous les détails (off : l'essentiel)",
+        |c| on_off(c.general.advanced_settings),
+        |s, v, c| { s.advanced_settings = Some(parse_bool(v)?); Ok(()) },
+        |s| s.advanced_settings = None;
     "close_on_launch", "desktop", "on | off — masquer le bureau après un lancement",
         |c| on_off(c.general.close_on_launch),
         |s, v, c| { s.close_on_launch = Some(parse_bool(v)?); Ok(()) },
@@ -163,6 +205,37 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.font.clone().unwrap_or_default(),
         |s, v, c| { s.font = Some(v.to_string()); Ok(()) },
         |s| s.font = None;
+    "language", "desktop", "auto | fr | en — langue de l'interface (auto : celle du système)",
+        |c| c.general.language.clone(),
+        |s, v, c| {
+            let l = v.trim().to_lowercase();
+            if !["auto", "fr", "en"].contains(&l.as_str()) {
+                return Err(crate::tr!("« {v} » : auto, fr ou en", v = v));
+            }
+            s.language = Some(l);
+            Ok(())
+        },
+        |s| s.language = None;
+    "layout", "layouts", "dwindle | master | scrolling | monocle | grid | columns | rows | centered | lua:<nom> | none — layout par défaut",
+        |c| c.general.tiling.layout.clone().unwrap_or_default(),
+        |s, v, c| {
+            let v = v.trim();
+            let mut t = s.tiling.clone().unwrap_or_else(|| c.general.tiling.clone());
+            if v == "none" {
+                t.layout = None;
+            } else if crate::tiling::valid_name(v) {
+                t.layout = Some(v.to_string());
+            } else {
+                return Err(crate::tr!("« {v} » : layout inconnu", v = v));
+            }
+            s.tiling = Some(t);
+            Ok(())
+        },
+        |s| {
+            if let Some(t) = s.tiling.as_mut() {
+                t.layout = None;
+            }
+        };
     "font_size", "desktop", "6..96 — taille du texte",
         |c| format!("{}", c.general.font_size),
         |s, v, c| { s.font_size = Some(number(v, 6.0f32, 96.0)?); Ok(()) },
@@ -183,6 +256,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;
+    "keys.lock", "desktop", "raccourci | none — verrouiller la session ; none : celui de hyprland.lua (SUPER + L), réglé : hyprdesk le remplace",
+        |c| c.general.keys.lock.clone(),
+        |s, v, c| { s.key_lock = Some(combo(v)?); Ok(()) },
+        |s| s.key_lock = None;
     "keys.leave", "desktop", "raccourci | none — sortie de secours",
         |c| c.general.keys.leave.clone(),
         |s, v, c| { s.key_leave = Some(combo(v)?); Ok(()) },
@@ -245,7 +322,7 @@ pub static KEYS: &[Key] = keys![
         |s, v, c| {
             s.lock_image = if v == "none" { None } else {
                 let p = crate::config::lua::expand_path(v, Path::new("/"));
-                if !p.is_file() { return Err(format!("« {v} » : image introuvable")); }
+                if !p.is_file() { return Err(crate::tr!("« {v} » : image introuvable", v = v)); }
                 Some(p)
             };
             Ok(())
@@ -275,7 +352,7 @@ pub static KEYS: &[Key] = keys![
                 None => {
                     let p = crate::config::lua::expand_path(v, Path::new("/"));
                     if !p.is_file() {
-                        return Err(format!("« {v} » : ni une image existante, ni une couleur"));
+                        return Err(crate::tr!("« {v} » : ni une image existante, ni une couleur", v = v));
                     }
                     WallSource::Path(p)
                 }
@@ -291,7 +368,7 @@ pub static KEYS: &[Key] = keys![
         |s, v, c| {
             let f = choice(v, fit, "cover, contain, fill, center")?;
             let Some(w) = s.wallpaper(&Selector::default()).cloned() else {
-                return Err("aucun fond réglé pour tous les bureaux (hyprdesk config set wallpaper …)".into());
+                return Err(crate::i18n::tr("aucun fond réglé pour tous les bureaux (hyprdesk config set wallpaper …)").into());
             };
             s.set_wallpaper(w.sel, w.source, f);
             Ok(())
@@ -301,6 +378,30 @@ pub static KEYS: &[Key] = keys![
                 s.set_wallpaper(w.sel, w.source, Fit::default());
             }
         };
+    "wallpaper.span", "wallpaper", "on | lock | desktop | off — étaler l'image sur tous les écrans (lock : au verrouillage seulement)",
+        |c| c.wallpapers.iter().find(|w| w.sel == Selector::default())
+            .map(|w| match (w.span, w.span_lock) {
+                (true, true) => "on".to_string(),
+                (false, true) => "lock".to_string(),
+                (true, false) => "desktop".to_string(),
+                (false, false) => "off".to_string(),
+            }).unwrap_or_default(),
+        |s, v, c| {
+            let (span, span_lock) = match v.trim() {
+                "lock" => (false, true),
+                "desktop" => (true, false),
+                other => { let on = parse_bool(other)?; (on, on) }
+            };
+            match s.wallpaper(&Selector::default()) {
+                None => return Err(crate::i18n::tr("aucun fond réglé pour tous les bureaux (hyprdesk config set wallpaper …)").into()),
+                Some(w) if (span || span_lock) && matches!(w.source, WallSource::Color(_)) => {
+                    return Err(crate::i18n::tr("une couleur ne s'étale pas : choisir une image ou un diaporama").into());
+                }
+                Some(_) => s.set_wallpaper_span(&Selector::default(), span, span_lock),
+            }
+            Ok(())
+        },
+        |s| s.set_wallpaper_span(&Selector::default(), false, false);
     "bar", "bar", "on | off — barre native",
         |c| on_off(c.bar.is_some()),
         |s, v, c| { bar(s, c).enabled = parse_bool(v)?; Ok(()) },
@@ -308,7 +409,7 @@ pub static KEYS: &[Key] = keys![
     "bar.position", "bar", "top | bottom — bord de la barre",
         |c| c.bar.as_ref().map(|b| if b.position == BarPosition::Top { "top" } else { "bottom" }.to_string()).unwrap_or_default(),
         |s, v, c| {
-            bar(s, c).position = match v { "top" => BarPosition::Top, "bottom" => BarPosition::Bottom, _ => return Err(format!("« {v} » : top ou bottom")) };
+            bar(s, c).position = match v { "top" => BarPosition::Top, "bottom" => BarPosition::Bottom, _ => return Err(crate::tr!("« {v} » : top ou bottom", v = v)) };
             Ok(())
         },
         |s| { if let Some(b) = s.bar.as_mut() { b.position = BarPosition::Top; } };
@@ -359,14 +460,83 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.crossfade_ms.to_string(),
         |s, v, c| { s.crossfade_ms = Some(number(v, 0u64, 10000)?); Ok(()) },
         |s| s.crossfade_ms = None;
-    "theme.accent", "effects", "#rrggbb — couleur d'accent",
+    "theme.preset", "theme", "nom d'un thème livré — applique ses couleurs et ses effets",
+        |c| c.general.theme.name.clone(),
+        |s, v, c| {
+            let p = crate::theme::PRESETS.iter().find(|p| p.name.eq_ignore_ascii_case(v)).ok_or_else(|| {
+                let all: Vec<&str> = crate::theme::PRESETS.iter().map(|p| p.name).collect();
+                crate::tr!("« {v} » : thèmes livrés {p0}", v = v, p0 = all.join(", "))
+            })?;
+            s.apply_preset(p);
+            Ok(())
+        },
+        |s| { s.theme_name = None; s.fg = None; s.bg = None; s.accent = None; s.effects.clear(); };
+    "theme.name", "theme", "texte — nom du thème",
+        |c| c.general.theme.name.clone(),
+        |s, v, c| { s.theme_name = Some(v.to_string()); Ok(()) },
+        |s| s.theme_name = None;
+    "theme.fg", "theme", "#rrggbb — couleur du texte",
+        |c| hex(c.general.theme.fg),
+        |s, v, c| { s.fg = Some(color_value(v)?); Ok(()) },
+        |s| s.fg = None;
+    "theme.bg", "theme", "#rrggbb — couleur des surfaces",
+        |c| hex(c.general.theme.bg),
+        |s, v, c| { s.bg = Some(color_value(v)?); Ok(()) },
+        |s| s.bg = None;
+    "theme.accent", "theme", "#rrggbb — couleur d'accent",
         |c| hex(c.general.theme.accent),
-        |s, v, c| { s.accent = Some(Rgba::parse(v).ok_or_else(|| format!("« {v} » : couleur illisible (#rrggbb)"))?); Ok(()) },
+        |s, v, c| { s.accent = Some(color_value(v)?); Ok(()) },
         |s| s.accent = None;
+    "background", "theme", "#rrggbb — fond quand aucune image ne s'applique",
+        |c| hex(c.general.background),
+        |s, v, c| { s.background = Some(color_value(v)?); Ok(()) },
+        |s| s.background = None;
 ];
 
-/// Clés dynamiques : `apps.<rôle>`, `assign.<app>` (workspaces) et `widget.<type>` (widgets).
+fn color_value(v: &str) -> Result<Rgba, String> {
+    Rgba::parse(v).ok_or_else(|| crate::tr!("« {v} » : couleur illisible (#rrggbb)", v = v))
+}
+
+/// Effet d'une clé `theme.effects.<endroit>.<opacity|blur>`.
+fn effect_key(key: &str) -> Option<(Place, &str)> {
+    let rest = key.strip_prefix("theme.effects.")?;
+    let (place, field) = rest.split_once('.')?;
+    let place = Place::parse(place)?;
+    matches!(field, "opacity" | "blur").then_some((place, field))
+}
+
+/// Clés dynamiques : `apps.<rôle>`, `assign.<app>` (workspaces), `widget.<type>`
+/// (widgets) et `theme.effects.<endroit>.<opacity|blur>` (thème).
 fn dynamic_get(key: &str, c: &Config) -> Option<String> {
+    if let Some((place, field)) = effect_key(key) {
+        let e = c.general.theme.effect(place);
+        return Some(if field == "blur" {
+            on_off(e.blur)
+        } else {
+            format!("{}", (e.opacity * 100.0).round() / 100.0)
+        });
+    }
+    // Layouts : `layout.<workspace>`, `<dwindle|master|scrolling>.<option>`.
+    if let Some(ws) = key.strip_prefix("layout.") {
+        return Some(
+            c.general
+                .tiling
+                .workspaces
+                .get(ws)
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(o) = crate::tiling::opt(key) {
+        return Some(
+            c.general
+                .tiling
+                .options
+                .get(&o.path())
+                .map(crate::tiling::OptValue::display)
+                .unwrap_or_default(),
+        );
+    }
     if let Some(ws) = key.strip_prefix("workspace.") {
         return Some(
             c.general
@@ -384,7 +554,7 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
         let role = crate::apps::role(r)?;
         return Some(c.general.apps.get(r).cloned().unwrap_or_else(|| {
             crate::apps::system_default(role)
-                .map(|v| format!("{v} (système)"))
+                .map(|v| crate::tr!("{v} (système)", v = v))
                 .unwrap_or_default()
         }));
     }
@@ -412,6 +582,65 @@ fn dynamic_set(
     s: &mut Settings,
     c: &Config,
 ) -> Option<Result<(), String>> {
+    if let Some((place, field)) = effect_key(key) {
+        let Some(v) = v else {
+            s.effects.remove(&place);
+            return Some(Ok(()));
+        };
+        let mut e = s
+            .effects
+            .get(&place)
+            .copied()
+            .unwrap_or_else(|| c.general.theme.effect(place));
+        match field {
+            "blur" if !place.blurrable() => {
+                return Some(Err(crate::tr!(
+                    "{p0} : pas de flou propre (dessinés sur le fond d'écran)",
+                    p0 = place.label()
+                )));
+            }
+            "blur" => match parse_bool(v) {
+                Ok(b) => e.blur = b,
+                Err(err) => return Some(Err(err)),
+            },
+            _ => match number(v, 0.0f32, 1.0) {
+                Ok(n) => e.opacity = n,
+                Err(err) => return Some(Err(err)),
+            },
+        }
+        s.effects.insert(place, e);
+        return Some(Ok(()));
+    }
+    if let Some(ws) = key.strip_prefix("layout.") {
+        let mut t = s.tiling.clone().unwrap_or_else(|| c.general.tiling.clone());
+        match v.map(str::trim) {
+            None | Some("none") | Some("") => {
+                t.workspaces.remove(ws);
+            }
+            Some(l) if crate::tiling::valid_name(l) => {
+                t.workspaces.insert(ws.to_string(), l.to_string());
+            }
+            Some(l) => return Some(Err(crate::tr!("« {v} » : layout inconnu", v = l))),
+        }
+        s.tiling = Some(t);
+        return Some(Ok(()));
+    }
+    if let Some(o) = crate::tiling::opt(key) {
+        let mut t = s.tiling.clone().unwrap_or_else(|| c.general.tiling.clone());
+        match v.map(str::trim) {
+            None | Some("none") | Some("") => {
+                t.options.remove(&o.path());
+            }
+            Some(raw) => match o.parse(raw) {
+                Ok(val) => {
+                    t.options.insert(o.path(), val);
+                }
+                Err(e) => return Some(Err(e)),
+            },
+        }
+        s.tiling = Some(t);
+        return Some(Ok(()));
+    }
     if let Some(ws) = key.strip_prefix("workspace.") {
         let mut map = s
             .workspace_monitors
@@ -434,13 +663,15 @@ fn dynamic_set(
     }
     if let Some(id) = key.strip_prefix("plugin.") {
         if crate::ui::plugins::find(id).is_none() {
-            return Some(Err(format!(
-                "paquet « {id} » inconnu (hyprdesk config list)"
+            return Some(Err(crate::tr!(
+                "paquet « {id} » inconnu (hyprdesk config list)",
+                id = id
             )));
         }
         if crate::config::CORE_PLUGINS.contains(&id) {
-            return Some(Err(format!(
-                "« {id} » fait partie du cœur : toujours actif"
+            return Some(Err(crate::tr!(
+                "« {id} » fait partie du cœur : toujours actif",
+                id = id
             )));
         }
         let on = match v.map(parse_bool) {
@@ -463,7 +694,11 @@ fn dynamic_set(
     if let Some(r) = key.strip_prefix("apps.") {
         let Some(role) = crate::apps::role(r) else {
             let all: Vec<&str> = crate::apps::ROLES.iter().map(|r| r.id).collect();
-            return Some(Err(format!("rôle « {r} » inconnu ({})", all.join(", "))));
+            return Some(Err(crate::tr!(
+                "rôle « {r} » inconnu ({p0})",
+                r = r,
+                p0 = all.join(", ")
+            )));
         };
         return Some(match v.map(str::trim) {
             None | Some("none") | Some("") => {
@@ -497,9 +732,10 @@ fn dynamic_set(
     if let Some(t) = key.strip_prefix("widget.") {
         let Some(ty) = c.catalog.iter().find(|w| w.id == t) else {
             let known: Vec<&str> = c.catalog.iter().map(|w| w.id.as_str()).collect();
-            return Some(Err(format!(
-                "widget « {t} » inconnu ({})",
-                known.join(", ")
+            return Some(Err(crate::tr!(
+                "widget « {t} » inconnu ({p0})",
+                t = t,
+                p0 = known.join(", ")
             )));
         };
         let on = match v {
@@ -524,7 +760,12 @@ fn dynamic_set(
 
 /// Clé surchargée par hyprdesk.lua (sans effet depuis les réglages).
 fn overridden(key: &str, c: &Config) -> bool {
-    c.keys_user.contains(key)
+    match effect_key(key) {
+        Some((place, _)) => c
+            .keys_user
+            .contains(&format!("theme.effects.{p0}", p0 = place.as_str())),
+        None => c.keys_user.contains(key),
+    }
 }
 
 /// Libellé d'un paquet de réglages, depuis le registre de l'interface.
@@ -532,7 +773,11 @@ fn plugin_label(id: &str) -> &'static str {
     crate::ui::plugins::BUILTIN
         .iter()
         .find(|p| p.id == id)
-        .map_or("", |p| p.label)
+        .map_or("", |p| crate::i18n::tr(p.label))
+}
+
+fn usage() -> String {
+    crate::i18n::tr_lines(USAGE)
 }
 
 const USAGE: &str =
@@ -558,42 +803,54 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                         .workspace_monitors
                         .values()
                         .flatten()
-                        .map(|w| format!("workspace.{w}"))
+                        .map(|w| format!("workspace.{w}", w = w))
                         .chain(c.assigns.iter().filter_map(|a| match &a.app {
-                            AppMatch::App(id) => Some(format!("assign.{id}")),
+                            AppMatch::App(id) => Some(format!("assign.{id}", id = id)),
                             AppMatch::Class(_) => None,
                         }))
                         .collect::<Vec<_>>(),
                     "widgets" => c
                         .catalog
                         .iter()
-                        .map(|w| format!("widget.{}", w.id))
+                        .map(|w| format!("widget.{p0}", p0 = w.id))
                         .collect(),
 
+                    "layouts" => (1..=c.general.workspaces.unwrap_or(10).max(1))
+                        .map(|w| format!("layout.{w}"))
+                        .chain(crate::tiling::OPTIONS.iter().map(|o| o.path()))
+                        .collect(),
                     "plugins" => crate::ui::plugins::BUILTIN
                         .iter()
                         .filter(|p| !crate::config::CORE_PLUGINS.contains(&p.id))
-                        .map(|p| format!("plugin.{}", p.id))
+                        .map(|p| format!("plugin.{p0}", p0 = p.id))
                         .collect(),
                     "apps" => crate::apps::ROLES
                         .iter()
-                        .map(|r| format!("apps.{}", r.id))
+                        .map(|r| format!("apps.{p0}", p0 = r.id))
+                        .collect(),
+                    "theme" => Place::ALL
+                        .iter()
+                        .flat_map(|p| {
+                            let o = format!("theme.effects.{p0}.opacity", p0 = p.as_str());
+                            let b = format!("theme.effects.{p0}.blur", p0 = p.as_str());
+                            if p.blurrable() { vec![o, b] } else { vec![o] }
+                        })
                         .collect(),
                     _ => Vec::new(),
                 };
                 if keys.is_empty() && extra.is_empty() {
                     continue;
                 }
-                out += &format!("[{}] {}\n", p.id, p.label);
+                out += &format!("[{}] {}\n", p.id, crate::i18n::tr(p.label));
                 for k in keys {
                     let v = (k.get)(&c);
                     out += &format!(
                         "  {:<18} = {:<26} {}{}\n",
                         k.name,
                         if v.is_empty() { "—".into() } else { v },
-                        k.help,
+                        crate::i18n::tr(k.help),
                         if overridden(k.name, &c) {
-                            "  (fixé dans hyprdesk.lua)"
+                            crate::i18n::tr("  (fixé dans hyprdesk.lua)")
                         } else {
                             ""
                         }
@@ -605,38 +862,41 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                 }
             }
             if out.is_empty() {
-                return Err(format!(
-                    "paquet « {} » sans clés réglables",
-                    only.unwrap_or("")
+                return Err(crate::tr!(
+                    "paquet « {p0} » sans clés réglables",
+                    p0 = only.unwrap_or("")
                 ));
             }
             Ok(out.trim_end().to_string())
         }
         "get" => {
-            let key = args.get(1).ok_or(USAGE)?;
+            let key = args.get(1).ok_or_else(usage)?;
             let c = full()?;
             KEYS.iter()
                 .find(|k| k.name == key)
                 .map(|k| (k.get)(&c))
                 .or_else(|| dynamic_get(key, &c))
-                .ok_or_else(|| format!("clé « {key} » inconnue (hyprdesk config list)"))
+                .ok_or_else(|| {
+                    crate::tr!("clé « {key} » inconnue (hyprdesk config list)", key = key)
+                })
         }
         cmd @ ("set" | "unset") => {
-            let key = args.get(1).ok_or(USAGE)?;
+            let key = args.get(1).ok_or_else(usage)?;
             let value = (cmd == "set").then(|| args[2..].join(" "));
             if cmd == "set" && args.len() < 3 {
-                return Err(USAGE.into());
+                return Err(usage());
             }
             let c = full()?;
             let mut s = Settings::from_config(&load_settings_only(config_path)?);
             match (KEYS.iter().find(|k| k.name == key), value.as_deref()) {
                 (Some(k), Some(v)) => (k.set)(&mut s, v.trim(), &c)?,
                 (Some(k), None) => (k.unset)(&mut s),
-                (None, v) => dynamic_set(key, v, &mut s, &c)
-                    .ok_or_else(|| format!("clé « {key} » inconnue (hyprdesk config list)"))??,
+                (None, v) => dynamic_set(key, v, &mut s, &c).ok_or_else(|| {
+                    crate::tr!("clé « {key} » inconnue (hyprdesk config list)", key = key)
+                })??,
             }
             s.save_versioned(config_path, crate::storage::revision())
-                .map_err(|e| format!("settings.lua : {e}"))?;
+                .map_err(|e| crate::tr!("settings.lua : {e}", e = e))?;
             let after = full()?;
             let now = KEYS
                 .iter()
@@ -646,21 +906,33 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                 .unwrap_or_default();
             let mut msg = format!("{key} = {}", if now.is_empty() { "—" } else { &now });
             if overridden(key, &after) {
-                msg += "  (fixé dans hyprdesk.lua : sans effet tant qu'il y est)";
+                msg += crate::i18n::tr("  (fixé dans hyprdesk.lua : sans effet tant qu'il y est)");
             }
             if let Some(p) = KEYS.iter().find(|k| k.name == key) {
                 msg += &format!("\n[{}] {}", p.plugin, plugin_label(p.plugin));
             }
             Ok(msg)
         }
-        "-h" | "--help" | "help" => Ok(USAGE.into()),
-        other => Err(format!("« {other} » : {USAGE}")),
+        "-h" | "--help" | "help" => Ok(usage()),
+        other => Err(crate::tr!(
+            "« {other} » : {p0}",
+            other = other,
+            p0 = usage()
+        )),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Aide de `hyprdesk config` : usage et description de chaque clé traduits.
+    #[test]
+    fn aide_config_traduite() {
+        let items = USAGE.lines().chain(KEYS.iter().map(|k| k.help));
+        let missing = crate::i18n::untranslated("config", items);
+        assert!(missing.is_empty(), "sans traduction : {missing:#?}");
+    }
 
     fn tmp() -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!(

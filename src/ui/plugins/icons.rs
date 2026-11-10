@@ -2,7 +2,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{button, column, pick_list, row, slider, text, text_input, toggler};
+use crate::i18n::text;
+use iced::widget::{button, column, pick_list, row, slider, text_input, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
@@ -72,8 +73,8 @@ impl App {
                 crate::config::IconKind::Exec { cmd, .. } => cmd.clone(),
             };
             let scope = match &ic.sel.workspaces {
-                None => "tous les bureaux".to_string(),
-                Some(w) => format!("workspace {}", w.join(", ")),
+                None => crate::i18n::tr("tous les bureaux").to_string(),
+                Some(w) => crate::tr!("workspace {list}", list = w.join(", ")),
             };
             shortcuts = shortcuts.push(
                 row![
@@ -140,8 +141,9 @@ impl App {
         column![
             self.section("Raccourcis"),
             shortcuts,
-            text(format!(
-                "+ {user_icons} icône(s) déclarée(s) dans hyprdesk.lua"
+            text(crate::tr!(
+                "+ {user_icons} icône(s) déclarée(s) dans hyprdesk.lua",
+                user_icons = user_icons
             ))
             .font(self.font)
             .size(12)
@@ -150,12 +152,15 @@ impl App {
                 "Ajouter une application",
                 "",
                 column![
-                    text_input("Rechercher (firefox, terminal…)", &p.icons.app_filter)
-                        .font(self.font)
-                        .on_input(|s| wrap(Msg::AppFilter(s)))
-                        .padding(8),
+                    text_input(
+                        crate::i18n::tr("Rechercher (firefox, terminal…)"),
+                        &p.icons.app_filter
+                    )
+                    .font(self.font)
+                    .on_input(|s| wrap(Msg::AppFilter(s)))
+                    .padding(8),
                     toggler(p.icons.add_to_workspace)
-                        .label("Seulement sur ce workspace")
+                        .label(crate::i18n::tr("Seulement sur ce workspace"))
                         .on_toggle(|v| wrap(Msg::AddToWorkspace(v))),
                     picker,
                 ]
@@ -191,7 +196,7 @@ impl App {
                 "icon_theme",
                 pick_list(themes, g.icon_theme.clone(), |t| wrap(Msg::Theme(t)))
                     .font(self.font)
-                    .placeholder("Thème du système")
+                    .placeholder(crate::i18n::tr("Thème du système"))
                     .width(300),
             ),
             self.field(

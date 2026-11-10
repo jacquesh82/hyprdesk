@@ -4,7 +4,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{button, column, container, radio, row, scrollable, text};
+use crate::i18n::text;
+use iced::widget::{button, column, container, radio, row, scrollable};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -69,8 +70,8 @@ impl App {
     /// Ouvre l'assistant : LYRA si elle est là, sinon l'outil IA choisi, dans
     /// le terminal. Comme le lanceur, ne change pas le mode du bureau.
     pub(in crate::ui) fn open_assistant(&mut self) -> Task<UiMsg> {
-        // Tiroir déjà ouvert : le même geste le referme.
-        if self.chat.is_some() {
+        // Tiroir affiché : le même geste le cache (la session continue).
+        if self.chat_shown() {
             return self.close_chat();
         }
         // LYRA sait se faire dessiner par hyprdesk : son tiroir, au format des Réglages.
@@ -106,7 +107,9 @@ impl App {
                 crate::hypr::notify(
                     3,
                     5000,
-                    "hyprdesk : aucun assistant IA (Réglages → Applications → Assistant IA)",
+                    crate::i18n::tr(
+                        "hyprdesk : aucun assistant IA (Réglages → Applications → Assistant IA)",
+                    ),
                 );
                 Task::none()
             }
@@ -145,7 +148,7 @@ impl App {
             async move {
                 let _ = tokio::task::spawn_blocking(move || {
                     if let Err(e) = hyprpanel_core::ipc::eval(&lua) {
-                        tracing::warn!("règle de LYRA : {e}");
+                        tracing::warn!("{}", crate::tr!("règle de LYRA : {e}", e = e));
                     }
                 })
                 .await;
@@ -177,13 +180,15 @@ impl App {
         let mut status = column![
             line(
                 st.installed,
-                "LYRA installée (hyprpanel-chat)",
+                crate::i18n::tr("LYRA installée (hyprpanel-chat)"),
                 "LYRA absente : github.com/jacquesh82/mindlog.hyprland_tools, ./scripts/install.sh"
             ),
             line(
                 st.service,
-                "Service d'intégration Hyprland actif (hyprpanel.service)",
-                "Service hyprpanel.service arrêté : LYRA ne pourra pas agir sur Hyprland"
+                crate::i18n::tr("Service d'intégration Hyprland actif (hyprpanel.service)"),
+                crate::i18n::tr(
+                    "Service hyprpanel.service arrêté : LYRA ne pourra pas agir sur Hyprland"
+                )
             ),
         ]
         .spacing(6);
@@ -191,13 +196,17 @@ impl App {
             status = status
                 .push(line(
                     st.provider_flag,
-                    "Le fournisseur choisi ici est transmis à LYRA",
-                    "LYRA ne gère pas encore --provider : elle garde son propre choix",
+                    crate::i18n::tr("Le fournisseur choisi ici est transmis à LYRA"),
+                    crate::i18n::tr(
+                        "LYRA ne gère pas encore --provider : elle garde son propre choix",
+                    ),
                 ))
                 .push(line(
                     st.context_dir,
-                    "LYRA lit le contexte de hyprdesk",
-                    "LYRA ne lit pas encore context.d : contexte écrit, en attente",
+                    crate::i18n::tr("LYRA lit le contexte de hyprdesk"),
+                    crate::i18n::tr(
+                        "LYRA ne lit pas encore context.d : contexte écrit, en attente",
+                    ),
                 ));
         }
         let ai = g.apps.get("ai").cloned().unwrap_or_default();
@@ -211,7 +220,10 @@ impl App {
             .font(self.font)
         };
         let mode = |label: &'static str, v: AssistantMode| {
-            radio(label, v, Some(g.assistant_mode), |v| wrap(Msg::Mode(v))).font(self.font)
+            radio(crate::i18n::tr(label), v, Some(g.assistant_mode), |v| {
+                wrap(Msg::Mode(v))
+            })
+            .font(self.font)
         };
         let mut col = column![
             self.section("LYRA"),
@@ -234,24 +246,24 @@ impl App {
                 ]
                 .spacing(8),
             ),
-            self.field(
+            self.adv(self.field(
                 "Ouvrir l'assistant",
                 "assistant_mode",
                 column![
-                    mode("Dans sa fenêtre", AssistantMode::Window),
-                    mode("Dans le terminal (hyprpanel-chat cli)", AssistantMode::Terminal),
+                    mode(crate::i18n::tr("Dans sa fenêtre"), AssistantMode::Window),
+                    mode(crate::i18n::tr("Dans le terminal (hyprpanel-chat cli)"), AssistantMode::Terminal),
                 ]
                 .spacing(8),
-            ),
+            )),
             row![
                 button(text("Ouvrir l'assistant").font(self.font).size(13))
                     .padding([6, 14])
                     .on_press(wrap(Msg::Open)),
                 button(
                     text(if p.assistant.show_context {
-                        "Masquer le contexte"
+                        crate::i18n::tr("Masquer le contexte")
                     } else {
-                        "Voir le contexte transmis"
+                        crate::i18n::tr("Voir le contexte transmis")
                     })
                     .font(self.font)
                     .size(13)

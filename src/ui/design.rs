@@ -6,8 +6,10 @@ pub const RADIUS: f32 = 20.0;
 pub const SMALL_RADIUS: f32 = 10.0;
 
 /// Verre du lanceur : la teinte reste issue du thème, le flou est fourni
-/// par Hyprland sur les surfaces dédiées. Toutes les couches suivent le fondu.
-pub fn launcher_surface(theme: &Theme, opacity: f32, popup: bool) -> container::Style {
+/// par Hyprland sur les surfaces dédiées. Toutes les couches suivent le fondu
+/// (`opacity`) ; `base` est l'opacité du fond réglée par le thème (0.88 livrée),
+/// la bulle (`popup`) restant un peu plus couvrante.
+pub fn launcher_surface(theme: &Theme, opacity: f32, popup: bool, base: f32) -> container::Style {
     let palette = theme.palette();
     let tint = palette.background;
     let light = |amount: f32, alpha: f32| Color {
@@ -16,10 +18,11 @@ pub fn launcher_surface(theme: &Theme, opacity: f32, popup: bool) -> container::
         b: tint.b + (palette.text.b - tint.b) * amount,
         a: alpha * opacity,
     };
+    let scale = |a: f32| (a * base / 0.88).clamp(0.0, 1.0);
     let gradient = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
-        .add_stop(0.0, light(0.065, if popup { 0.96 } else { 0.88 }))
-        .add_stop(0.45, light(0.025, if popup { 0.95 } else { 0.84 }))
-        .add_stop(1.0, light(0.0, if popup { 0.96 } else { 0.88 }));
+        .add_stop(0.0, light(0.065, scale(if popup { 0.96 } else { 0.88 })))
+        .add_stop(0.45, light(0.025, scale(if popup { 0.95 } else { 0.84 })))
+        .add_stop(1.0, light(0.0, scale(if popup { 0.96 } else { 0.88 })));
     container::Style {
         background: Some(iced::Background::Gradient(gradient.into())),
         border: Border::default()
@@ -54,6 +57,19 @@ pub enum Surface {
     Floating,
     Panel,
     Inset,
+}
+
+/// Tiroir des réglages : `Surface::Panel` à l'opacité réglée par le thème.
+pub fn panel_surface(theme: &Theme, opacity: f32) -> container::Style {
+    let mut s = surface(theme, Surface::Panel);
+    s.background = Some(
+        Color {
+            a: opacity,
+            ..theme.palette().background
+        }
+        .into(),
+    );
+    s
 }
 
 pub fn surface(theme: &Theme, level: Surface) -> container::Style {

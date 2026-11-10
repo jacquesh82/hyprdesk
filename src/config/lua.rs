@@ -42,9 +42,11 @@ fn opt_fn(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Function>> {
     match t.get::<Value>(key)? {
         Value::Nil => Ok(None),
         Value::Function(f) => Ok(Some(f)),
-        v => Err(err(format!(
-            "{ctx} : « {key} » doit être une fonction, pas {}",
-            v.type_name()
+        v => Err(err(crate::tr!(
+            "{ctx} : « {key} » doit être une fonction, pas {p0}",
+            ctx = ctx,
+            key = key,
+            p0 = v.type_name()
         ))),
     }
 }
@@ -61,7 +63,7 @@ struct PlacePatch {
 
 fn parse_anchor(s: &str, ctx: &str) -> mlua::Result<Anchor> {
     Anchor::parse(s).ok_or_else(|| {
-        err(format!("{ctx} : anchor « {s} » inconnu (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right)"))
+        err(crate::tr!("{ctx} : anchor « {s} » inconnu (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right)", ctx = ctx, s = s))
     })
 }
 
@@ -91,9 +93,9 @@ fn load_plugin(
         .eval()
         .map_err(|e| short_lua_error(&e))?;
     let Value::Table(t) = v else {
-        return Err("le fichier doit rendre une table (return { … })".into());
+        return Err(crate::i18n::tr("le fichier doit rendre une table (return { … })").into());
     };
-    let ctx = format!("plugin « {id} »");
+    let ctx = crate::tr!("plugin « {id} »", id = id);
     let run = || -> mlua::Result<(Plugin, WidgetType)> {
         check_keys(
             &t,
@@ -114,7 +116,10 @@ fn load_plugin(
             opt_fn(&t, k, &ctx)?;
         }
         if !matches!(t.get::<Value>("render")?, Value::Function(_)) {
-            return Err(err(format!("{ctx} : « render » doit être une fonction")));
+            return Err(err(crate::tr!(
+                "{ctx} : « render » doit être une fonction",
+                ctx = ctx
+            )));
         }
         let anchor = match opt_string(&t, "anchor", &ctx)? {
             Some(a) => parse_anchor(&a, &ctx)?,
@@ -125,7 +130,11 @@ fn load_plugin(
             for pair in o.pairs::<String, Value>() {
                 let k = pair?.0;
                 if crate::widgets::COMMON_OPTIONS.contains(&k.as_str()) {
-                    return Err(err(format!("{ctx} : l'option « {k} » est réservée")));
+                    return Err(err(crate::tr!(
+                        "{ctx} : l'option « {k} » est réservée",
+                        ctx = ctx,
+                        k = k
+                    )));
                 }
                 options.push(k);
             }
@@ -162,7 +171,16 @@ fn present_keys(t: &Table) -> mlua::Result<Vec<String>> {
         match v {
             Value::Table(sub) if k == "grid" || k == "theme" || k == "keys" || k == "apps" => {
                 for p in sub.pairs::<String, Value>() {
-                    out.push(format!("{k}.{}", p?.0));
+                    let (sk, sv) = p?;
+                    // Effets du thème : un endroit à la fois (`theme.effects.bar`).
+                    match sv {
+                        Value::Table(eff) if k == "theme" && sk == "effects" => {
+                            for e in eff.pairs::<String, Value>() {
+                                out.push(format!("theme.effects.{}", e?.0));
+                            }
+                        }
+                        _ => out.push(format!("{k}.{sk}")),
+                    }
                 }
             }
             _ => out.push(k),
@@ -176,17 +194,106 @@ fn err(msg: impl Into<String>) -> mlua::Error {
 }
 
 /// Refuse les champs inconnus : une faute de frappe doit se voir, comme dans Hyprland.
+/// Layouts : `layout`, `layout_workspaces`, et les options de `dwindle`,
+/// `master`, `scrolling` (vérifiées d'après `tiling::OPTIONS`).
+fn parse_tiling(t: &Table, tiling: &mut crate::tiling::Tiling) -> mlua::Result<()> {
+    const C: &str = "hd.config";
+    let check = |name: &str| -> mlua::Result<()> {
+        if crate::tiling::valid_name(name) {
+            Ok(())
+        } else {
+            Err(err(crate::tr!(
+                "{C} : layout « {name} » inconnu (dwindle, master, scrolling, monocle, grid, columns, rows, centered, lua:<nom>)",
+                C = C,
+                name = name
+            )))
+        }
+    };
+    if let Some(s) = opt_string(t, "layout", C)? {
+        check(&s)?;
+        tiling.layout = Some(s);
+    }
+    if let Some(map) = t.get::<Option<Table>>("layout_workspaces")? {
+        tiling.workspaces.clear();
+        for pair in map.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            let ws = match k {
+                Value::Integer(i) => i.to_string(),
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => {
+                    return Err(err(crate::tr!(
+                        "{C} : layout_workspaces attend des workspaces (\"3\", 3, \"name:web\")",
+                        C = C
+                    )));
+                }
+            };
+            let Value::String(name) = v else {
+                return Err(err(crate::tr!(
+                    "{C} : layout du workspace {ws} : un nom de layout est attendu",
+                    C = C,
+                    ws = ws
+                )));
+            };
+            let name = name.to_str()?.to_string();
+            check(&name)?;
+            tiling.workspaces.insert(ws, name);
+        }
+    }
+    for section in crate::tiling::SECTIONS {
+        let Some(opts) = t.get::<Option<Table>>(*section)? else {
+            continue;
+        };
+        tiling
+            .options
+            .retain(|k, _| !k.starts_with(&format!("{section}.")));
+        for pair in opts.pairs::<String, Value>() {
+            let (k, v) = pair?;
+            let path = format!("{section}.{k}");
+            let Some(o) = crate::tiling::opt(&path) else {
+                let known: Vec<&str> = crate::tiling::OPTIONS
+                    .iter()
+                    .filter(|o| o.section == *section)
+                    .map(|o| o.key)
+                    .collect();
+                return Err(err(crate::tr!(
+                    "{C} : option « {path} » inconnue (connues : {known})",
+                    C = C,
+                    path = path,
+                    known = known.join(", ")
+                )));
+            };
+            let raw = match v {
+                Value::Boolean(b) => if b { "on" } else { "off" }.to_string(),
+                Value::Integer(i) => i.to_string(),
+                Value::Number(n) => n.to_string(),
+                Value::String(s) => s.to_str()?.to_string(),
+                other => other.type_name().to_string(),
+            };
+            let value = o
+                .parse(&raw)
+                .map_err(|e| err(format!("{C} : {path} — {e}")))?;
+            tiling.options.insert(path, value);
+        }
+    }
+    Ok(())
+}
+
 fn check_keys(t: &Table, allowed: &[&str], ctx: &str) -> mlua::Result<()> {
     for pair in t.pairs::<Value, Value>() {
         let (k, _) = pair?;
         let Value::String(k) = k else {
-            return Err(err(format!("{ctx} : les clés doivent être des chaînes")));
+            return Err(err(crate::tr!(
+                "{ctx} : les clés doivent être des chaînes",
+                ctx = ctx
+            )));
         };
         let k = k.to_str()?.to_string();
         if !allowed.contains(&k.as_str()) {
-            return Err(err(format!(
-                "{ctx} : champ inconnu « {k} » (attendus : {})",
-                allowed.join(", ")
+            return Err(err(crate::tr!(
+                "{ctx} : champ inconnu « {k} » (attendus : {p0})",
+                ctx = ctx,
+                k = k,
+                p0 = allowed.join(", ")
             )));
         }
     }
@@ -199,9 +306,11 @@ fn opt_string(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<String>> {
         Value::String(s) => Ok(Some(s.to_str()?.to_string())),
         Value::Integer(i) => Ok(Some(i.to_string())),
         Value::Number(n) => Ok(Some(n.to_string())),
-        v => Err(err(format!(
-            "{ctx} : « {key} » doit être une chaîne, pas {}",
-            v.type_name()
+        v => Err(err(crate::tr!(
+            "{ctx} : « {key} » doit être une chaîne, pas {p0}",
+            ctx = ctx,
+            key = key,
+            p0 = v.type_name()
         ))),
     }
 }
@@ -210,9 +319,11 @@ fn opt_bool(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<bool>> {
     match t.get::<Value>(key)? {
         Value::Nil => Ok(None),
         Value::Boolean(b) => Ok(Some(b)),
-        v => Err(err(format!(
-            "{ctx} : « {key} » doit être un booléen, pas {}",
-            v.type_name()
+        v => Err(err(crate::tr!(
+            "{ctx} : « {key} » doit être un booléen, pas {p0}",
+            ctx = ctx,
+            key = key,
+            p0 = v.type_name()
         ))),
     }
 }
@@ -222,10 +333,16 @@ fn opt_num(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<f64>> {
         Value::Nil => Ok(None),
         Value::Integer(i) => Ok(Some(i as f64)),
         Value::Number(n) if n.is_finite() => Ok(Some(n)),
-        Value::Number(_) => Err(err(format!("{ctx} : « {key} » doit être un nombre fini"))),
-        v => Err(err(format!(
-            "{ctx} : « {key} » doit être un nombre, pas {}",
-            v.type_name()
+        Value::Number(_) => Err(err(crate::tr!(
+            "{ctx} : « {key} » doit être un nombre fini",
+            ctx = ctx,
+            key = key
+        ))),
+        v => Err(err(crate::tr!(
+            "{ctx} : « {key} » doit être un nombre, pas {p0}",
+            ctx = ctx,
+            key = key,
+            p0 = v.type_name()
         ))),
     }
 }
@@ -234,8 +351,10 @@ fn opt_color(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Rgba>> {
     match opt_string(t, key, ctx)? {
         None => Ok(None),
         Some(s) => Rgba::parse(&s).map(Some).ok_or_else(|| {
-            err(format!(
-                "{ctx} : couleur « {s} » illisible (#rrggbb, #rrggbbaa, rgb(…), rgba(…))"
+            err(crate::tr!(
+                "{ctx} : couleur « {s} » illisible (#rrggbb, #rrggbbaa, rgb(…), rgba(…))",
+                ctx = ctx,
+                s = s
             ))
         }),
     }
@@ -248,9 +367,11 @@ fn string_list(v: Value, key: &str, ctx: &str) -> mlua::Result<Option<Vec<String
             Value::String(s) => Ok(s.to_str()?.to_string()),
             Value::Integer(i) => Ok(i.to_string()),
             Value::Number(n) if n.fract() == 0.0 => Ok((n as i64).to_string()),
-            v => Err(err(format!(
-                "{ctx} : « {key} » attend une chaîne, un nombre ou une liste, pas {}",
-                v.type_name()
+            v => Err(err(crate::tr!(
+                "{ctx} : « {key} » attend une chaîne, un nombre ou une liste, pas {p0}",
+                ctx = ctx,
+                key = key,
+                p0 = v.type_name()
             ))),
         }
     };
@@ -266,7 +387,11 @@ fn string_list(v: Value, key: &str, ctx: &str) -> mlua::Result<Option<Vec<String
         return Ok(None);
     }
     if list.is_empty() {
-        return Err(err(format!("{ctx} : « {key} » est une liste vide")));
+        return Err(err(crate::tr!(
+            "{ctx} : « {key} » est une liste vide",
+            ctx = ctx,
+            key = key
+        )));
     }
     Ok(Some(list))
 }
@@ -300,7 +425,11 @@ fn parse_mode(s: &str, ctx: &str) -> mlua::Result<Mode> {
     match s {
         "opaque" => Ok(Mode::Opaque),
         "glass" => Ok(Mode::Glass),
-        _ => Err(err(format!("{ctx} : mode « {s} » inconnu (opaque, glass)"))),
+        _ => Err(err(crate::tr!(
+            "{ctx} : mode « {s} » inconnu (opaque, glass)",
+            ctx = ctx,
+            s = s
+        ))),
     }
 }
 
@@ -331,6 +460,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "lock_show_media",
             "show_on",
             "close_on_launch",
+            "advanced_settings",
+            "tour_seen",
+            "app_themes",
             "icon_theme",
             "font",
             "font_size",
@@ -346,6 +478,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "apps",
             "disabled_plugins",
             "assistant_mode",
+            "language",
+            "layout",
+            "layout_workspaces",
+            "dwindle",
+            "master",
+            "scrolling",
         ],
         CTX,
     )?;
@@ -363,12 +501,17 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(k) = t.get::<Option<Table>>("keys")? {
         const C: &str = "hd.config.keys";
-        check_keys(&k, &["toggle", "launcher", "hide", "settings", "leave"], C)?;
+        check_keys(
+            &k,
+            &["toggle", "launcher", "hide", "settings", "lock", "leave"],
+            C,
+        )?;
         for (name, slot) in [
             ("toggle", &mut g.keys.toggle),
             ("launcher", &mut g.keys.launcher),
             ("hide", &mut g.keys.hide),
             ("settings", &mut g.keys.settings),
+            ("lock", &mut g.keys.lock),
             ("leave", &mut g.keys.leave),
         ] {
             match k.get::<Value>(name)? {
@@ -377,16 +520,20 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 Value::String(s) => {
                     let s = s.to_str()?.trim().to_string();
                     if !s.is_empty() && crate::hypr::parse_combo(&s).is_none() {
-                        return Err(err(format!(
-                            "{C} : raccourci « {s} » illisible (ex. \"SUPER + SHIFT + D\")"
+                        return Err(err(crate::tr!(
+                            "{C} : raccourci « {s} » illisible (ex. \"SUPER + SHIFT + D\")",
+                            C = C,
+                            s = s
                         )));
                     }
                     *slot = s;
                 }
                 v => {
-                    return Err(err(format!(
-                        "{C} : « {name} » attend une chaîne ou false, pas {}",
-                        v.type_name()
+                    return Err(err(crate::tr!(
+                        "{C} : « {name} » attend une chaîne ou false, pas {p0}",
+                        C = C,
+                        name = name,
+                        p0 = v.type_name()
                     )));
                 }
             }
@@ -394,8 +541,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(s) = opt_string(t, "transition", CTX)? {
         g.transition = Transition::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : transition « {s} » inconnue (fade, slide, none)"
+            err(crate::tr!(
+                "{CTX} : transition « {s} » inconnue (fade, slide, none)",
+                CTX = CTX,
+                s = s
             ))
         })?;
     }
@@ -404,15 +553,19 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(s) = opt_string(t, "running_apps", CTX)? {
         g.running_apps = RunningApps::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : running_apps « {s} » inconnu (off, workspace, all)"
+            err(crate::tr!(
+                "{CTX} : running_apps « {s} » inconnu (off, workspace, all)",
+                CTX = CTX,
+                s = s
             ))
         })?;
     }
     if let Some(s) = opt_string(t, "launcher_position", CTX)? {
         g.launcher.position = LauncherPosition::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : launcher_position « {s} » inconnu (bottom, top, left, right)"
+            err(crate::tr!(
+                "{CTX} : launcher_position « {s} » inconnu (bottom, top, left, right)",
+                CTX = CTX,
+                s = s
             ))
         })?;
     }
@@ -451,8 +604,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(s) = opt_string(t, "launcher_group", CTX)? {
         g.launcher_group = LauncherGroup::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : launcher_group « {s} » inconnu (none, app, workspace)"
+            err(crate::tr!(
+                "{CTX} : launcher_group « {s} » inconnu (none, app, workspace)",
+                CTX = CTX,
+                s = s
             ))
         })?;
     }
@@ -468,14 +623,36 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "focused" => ShowOn::Focused,
             "primary" => ShowOn::Primary,
             _ => {
-                return Err(err(format!(
-                    "{CTX} : show_on « {s} » inconnu (all, focused, primary)"
+                return Err(err(crate::tr!(
+                    "{CTX} : show_on « {s} » inconnu (all, focused, primary)",
+                    CTX = CTX,
+                    s = s
                 )));
             }
         };
     }
     if let Some(v) = opt_bool(t, "close_on_launch", CTX)? {
         g.close_on_launch = v;
+    }
+    if let Some(v) = opt_bool(t, "advanced_settings", CTX)? {
+        g.advanced_settings = v;
+    }
+    if let Some(v) = opt_bool(t, "tour_seen", CTX)? {
+        g.tour_seen = v;
+    }
+    if let Some(list) = string_list(t.get("app_themes")?, "app_themes", CTX)? {
+        for id in &list {
+            if crate::apptheme::target(id).is_none() {
+                let known: Vec<&str> = crate::apptheme::TARGETS.iter().map(|t| t.id).collect();
+                return Err(err(crate::tr!(
+                    "{CTX} : app_themes « {id} » inconnue (connues : {known})",
+                    CTX = CTX,
+                    id = id,
+                    known = known.join(", ")
+                )));
+            }
+        }
+        g.app_themes = list.into_iter().collect();
     }
     if let Some(v) = opt_string(t, "icon_theme", CTX)? {
         g.icon_theme = Some(v);
@@ -495,10 +672,24 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(c) = opt_color(t, "background", CTX)? {
         g.background = c;
     }
+    if let Some(s) = opt_string(t, "language", CTX)? {
+        let l = s.trim().to_lowercase();
+        if !["auto", "fr", "en"].contains(&l.as_str()) {
+            return Err(err(crate::tr!(
+                "{CTX} : language « {s} » inconnue (auto, fr, en)",
+                CTX = CTX,
+                s = s
+            )));
+        }
+        g.language = l;
+    }
+    parse_tiling(t, &mut g.tiling)?;
     if let Some(s) = opt_string(t, "assistant_mode", CTX)? {
         g.assistant_mode = crate::assistant::AssistantMode::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : assistant_mode « {s} » inconnu (window, terminal)"
+            err(crate::tr!(
+                "{CTX} : assistant_mode « {s} » inconnu (window, terminal)",
+                CTX = CTX,
+                s = s
             ))
         })?;
     }
@@ -530,9 +721,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             g.primary = Some(s.to_str()?.trim().to_string());
         }
         v => {
-            return Err(err(format!(
-                "{CTX} : « primary » attend un nom d'écran (\"DP-1\") ou false, pas {}",
-                v.type_name()
+            return Err(err(crate::tr!(
+                "{CTX} : « primary » attend un nom d'écran (\"DP-1\") ou false, pas {p0}",
+                CTX = CTX,
+                p0 = v.type_name()
             )));
         }
     }
@@ -545,8 +737,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         for pair in map.pairs::<Value, Value>() {
             let (k, v) = pair?;
             let Value::String(mon) = k else {
-                return Err(err(format!(
-                    "{C} : les clés sont des écrans (\"DP-1\", \"primary\")"
+                return Err(err(crate::tr!(
+                    "{C} : les clés sont des écrans (\"DP-1\", \"primary\")",
+                    C = C
                 )));
             };
             let mon = mon.to_str()?.to_string();
@@ -564,8 +757,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 _ => f64::NAN,
             };
             if !(1.0..=MAX_WORKSPACES as f64).contains(&n) || n.fract() != 0.0 {
-                return Err(err(format!(
-                    "{CTX} : « workspaces » attend un entier de 1 à {MAX_WORKSPACES}, ou false"
+                return Err(err(crate::tr!(
+                    "{CTX} : « workspaces » attend un entier de 1 à {MAX_WORKSPACES}, ou false",
+                    CTX = CTX,
+                    MAX_WORKSPACES = MAX_WORKSPACES
                 )));
             }
             g.workspaces = Some(n as u8);
@@ -592,7 +787,30 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(th) = t.get::<Option<Table>>("theme")? {
         const C: &str = "hd.config.theme";
-        check_keys(&th, &["fg", "bg", "accent"], C)?;
+        check_keys(&th, &["name", "fg", "bg", "accent", "effects"], C)?;
+        if let Some(v) = opt_string(&th, "name", C)? {
+            g.theme.name = v;
+        }
+        if let Some(fx) = th.get::<Option<Table>>("effects")? {
+            const E: &str = "hd.config.theme.effects";
+            let places: Vec<&str> = Place::ALL.iter().map(|p| p.as_str()).collect();
+            check_keys(&fx, &places, E)?;
+            for place in Place::ALL {
+                let Some(e) = fx.get::<Option<Table>>(place.as_str())? else {
+                    continue;
+                };
+                let ctx = format!("{E}.{}", place.as_str());
+                check_keys(&e, &["opacity", "blur"], &ctx)?;
+                let mut cur = g.theme.effect(place);
+                if let Some(v) = opt_num(&e, "opacity", &ctx)? {
+                    cur.opacity = v.clamp(0.0, 1.0) as f32;
+                }
+                if let Some(v) = opt_bool(&e, "blur", &ctx)? {
+                    cur.blur = v;
+                }
+                g.theme.effects.insert(place, cur);
+            }
+        }
         if let Some(c) = opt_color(&th, "fg", C)? {
             g.theme.fg = c;
         }
@@ -610,7 +828,15 @@ fn hd_wallpaper(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     const CTX: &str = "hd.wallpaper";
     check_keys(
         t,
-        &["workspace", "monitor", "path", "rotate", "color", "fit"],
+        &[
+            "workspace",
+            "monitor",
+            "path",
+            "rotate",
+            "color",
+            "fit",
+            "span",
+        ],
         CTX,
     )?;
     let sel = selector(t, CTX)?;
@@ -620,8 +846,10 @@ fn hd_wallpaper(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         Some("fill") => Fit::Fill,
         Some("center") => Fit::Center,
         Some(s) => {
-            return Err(err(format!(
-                "{CTX} : fit « {s} » inconnu (cover, contain, fill, center)"
+            return Err(err(crate::tr!(
+                "{CTX} : fit « {s} » inconnu (cover, contain, fill, center)",
+                CTX = CTX,
+                s = s
             )));
         }
     };
@@ -634,11 +862,12 @@ fn hd_wallpaper(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             const C: &str = "hd.wallpaper.rotate";
             check_keys(&r, &["dir", "interval", "shuffle"], C)?;
             let dir = opt_string(&r, "dir", C)?
-                .ok_or_else(|| err(format!("{C} : « dir » est requis")))?;
+                .ok_or_else(|| err(crate::tr!("{C} : « dir » est requis", C = C)))?;
             let secs = opt_num(&r, "interval", C)?.unwrap_or(600.0);
             if !(1.0..=31_536_000.0).contains(&secs) {
-                return Err(err(format!(
-                    "{C} : « interval » doit valoir au moins 1 seconde"
+                return Err(err(crate::tr!(
+                    "{C} : « interval » doit valoir au moins 1 seconde",
+                    C = C
                 )));
             }
             WallSource::Rotate {
@@ -649,16 +878,49 @@ fn hd_wallpaper(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         }
         (None, None, Some(c)) => WallSource::Color(c),
         _ => {
-            return Err(err(format!(
-                "{CTX} : indiquer exactement un de « path », « rotate » ou « color »"
+            return Err(err(crate::tr!(
+                "{CTX} : indiquer exactement un de « path », « rotate » ou « color »",
+                CTX = CTX
             )));
         }
     };
+    // span = true : bureau et verrouillage ; "lock" : verrouillage seulement ;
+    // "desktop" : bureau seulement.
+    let (span, span_lock) = match t.get::<Value>("span")? {
+        Value::Nil | Value::Boolean(false) => (false, false),
+        Value::Boolean(true) => (true, true),
+        Value::String(s) => match s.to_str()?.as_ref() {
+            "lock" => (false, true),
+            "desktop" => (true, false),
+            other => {
+                return Err(err(crate::tr!(
+                    "{CTX} : span « {other} » inconnu (true, false, \"lock\", \"desktop\")",
+                    CTX = CTX,
+                    other = other
+                )));
+            }
+        },
+        other => {
+            return Err(err(crate::tr!(
+                "{CTX} : « span » attend true, false, \"lock\" ou \"desktop\", pas {p0}",
+                CTX = CTX,
+                p0 = other.type_name()
+            )));
+        }
+    };
+    if (span || span_lock) && matches!(source, WallSource::Color(_)) {
+        return Err(err(crate::tr!(
+            "{CTX} : « span » s'applique à une image ou un diaporama, pas à une couleur",
+            CTX = CTX
+        )));
+    }
     b.config.wallpapers.push(WallpaperRule {
         origin: b.origin,
         sel,
         source,
         fit,
+        span,
+        span_lock,
     });
     Ok(())
 }
@@ -689,15 +951,16 @@ fn hd_assign(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         }
         (None, Some(c)) if !c.trim().is_empty() => AppMatch::Class(c.trim().to_string()),
         _ => {
-            return Err(err(format!(
-                "{CTX} : indiquer exactement un de « app » (id .desktop) ou « class » (expression régulière)"
+            return Err(err(crate::tr!(
+                "{CTX} : indiquer exactement un de « app » (id .desktop) ou « class » (expression régulière)",
+                CTX = CTX
             )));
         }
     };
     let workspace = opt_string(t, "workspace", CTX)?
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
-        .ok_or_else(|| err(format!("{CTX} : « workspace » est requis")))?;
+        .ok_or_else(|| err(crate::tr!("{CTX} : « workspace » est requis", CTX = CTX)))?;
     let silent = opt_bool(t, "silent", CTX)?.unwrap_or(false);
     // Une seule affectation par application : la dernière déclarée l'emporte.
     b.config.assigns.retain(|a| a.app != app);
@@ -748,8 +1011,9 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             (IconKind::Exec { cmd: c, terminal }, id)
         }
         _ => {
-            return Err(err(format!(
-                "{CTX} : indiquer exactement un de « app », « path » ou « exec »"
+            return Err(err(crate::tr!(
+                "{CTX} : indiquer exactement un de « app », « path » ou « exec »",
+                CTX = CTX
             )));
         }
     };
@@ -759,8 +1023,9 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             let col: f64 = p.get(1)?;
             let row: f64 = p.get(2)?;
             if col < 0.0 || row < 0.0 {
-                return Err(err(format!(
-                    "{CTX} : « pos » attend {{colonne, ligne}} positifs, à partir de 0"
+                return Err(err(crate::tr!(
+                    "{CTX} : « pos » attend {colonne, ligne} positifs, à partir de 0",
+                    CTX = CTX
                 )));
             }
             Some((col as u16, row as u16))
@@ -768,8 +1033,10 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     };
     let id = opt_string(t, "id", CTX)?.unwrap_or(default_id);
     if b.config.icons.iter().any(|i| i.id == id && i.sel == sel) {
-        return Err(err(format!(
-            "{CTX} : icône « {id} » déclarée deux fois pour le même bureau (préciser « id »)"
+        return Err(err(crate::tr!(
+            "{CTX} : icône « {id} » déclarée deux fois pour le même bureau (préciser « id »)",
+            CTX = CTX,
+            id = id
         )));
     }
     b.config.icons.push(IconDef {
@@ -791,7 +1058,10 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
         && b.origin == Origin::Settings
         && opt_string(t, "id", "hd.widget")?.is_some_and(|id| id.starts_with("bar:"))
     {
-        tracing::warn!("ancienne copie d'un module de barre ignorée dans settings.lua");
+        tracing::warn!(
+            "{}",
+            crate::tr!("ancienne copie d'un module de barre ignorée dans settings.lua")
+        );
         return Ok(());
     }
     let ctx = format!("hd.widget(\"{kind}\")");
@@ -814,7 +1084,7 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                         .map(|s| {
                             let s = s?;
                             SysItem::parse(&s)
-                                .ok_or_else(|| err(format!("{ctx} : élément « {s} » inconnu (cpu, ram, load, uptime, disk:<point de montage>)")))
+                                .ok_or_else(|| err(crate::tr!("{ctx} : élément « {s} » inconnu (cpu, ram, load, uptime, disk:<point de montage>)", ctx = ctx, s = s)))
                         })
                         .collect::<mlua::Result<Vec<_>>>()?,
                 };
@@ -825,7 +1095,7 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
             },
             "command" => {
                 let exec = opt_string(t, "exec", ctx)?
-                    .ok_or_else(|| err(format!("{ctx} : « exec » est requis")))?;
+                    .ok_or_else(|| err(crate::tr!("{ctx} : « exec » est requis", ctx = ctx)))?;
                 let timeout = Duration::from_secs_f64(
                     opt_num(t, "timeout", ctx)?
                         .unwrap_or(10.0)
@@ -836,7 +1106,12 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
             "lua" => {
                 let f: Function = match t.get::<Value>("render")? {
                     Value::Function(f) => f,
-                    _ => return Err(err(format!("{ctx} : « render » doit être une fonction"))),
+                    _ => {
+                        return Err(err(crate::tr!(
+                            "{ctx} : « render » doit être une fonction",
+                            ctx = ctx
+                        )));
+                    }
                 };
                 let mut reg = |f: Function| -> mlua::Result<usize> {
                     b.funcs.push(lua.create_registry_value(f)?);
@@ -854,8 +1129,10 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                 }
             }
             other => {
-                return Err(err(format!(
-                    "{ctx} : widget intégré « {other} » sans configuration"
+                return Err(err(crate::tr!(
+                    "{ctx} : widget intégré « {other} » sans configuration",
+                    ctx = ctx,
+                    other = other
                 )));
             }
         };
@@ -917,10 +1194,11 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
         let mut plugins: Vec<String> = b.plugins.keys().cloned().collect();
         plugins.sort();
         known.extend(plugins);
-        return Err(err(format!(
-            "hd.widget : type « {kind} » inconnu (disponibles : {} ; plugins dans {})",
-            known.join(", "),
-            b.base_dir.join("hyprdesk/widgets").display()
+        return Err(err(crate::tr!(
+            "hd.widget : type « {kind} » inconnu (disponibles : {p0} ; plugins dans {p1})",
+            kind = kind,
+            p0 = known.join(", "),
+            p1 = b.base_dir.join("hyprdesk/widgets").display()
         )));
     };
     let anchor = match opt_string(t, "anchor", ctx)? {
@@ -929,8 +1207,9 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
     };
     let interval = opt_num(t, "interval", ctx)?.unwrap_or(default_interval);
     if !(0.1..=31_536_000.0).contains(&interval) {
-        return Err(err(format!(
-            "{ctx} : « interval » doit valoir au moins 0.1 seconde"
+        return Err(err(crate::tr!(
+            "{ctx} : « interval » doit valoir au moins 0.1 seconde",
+            ctx = ctx
         )));
     }
     // Identifiant par défaut stable : compté par type ET par origine, pour que
@@ -947,8 +1226,10 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
     };
     let id = opt_string(t, "id", ctx)?.unwrap_or(default_id);
     if b.config.widgets.iter().any(|w| w.id == id) {
-        return Err(err(format!(
-            "{ctx} : un widget « {id} » existe déjà (préciser un autre « id »)"
+        return Err(err(crate::tr!(
+            "{ctx} : un widget « {id} » existe déjà (préciser un autre « id »)",
+            ctx = ctx,
+            id = id
         )));
     }
     b.config.widgets.push(WidgetDef {
@@ -991,8 +1272,9 @@ fn bar_zones(
                 Value::String(s) => (s.to_str()?.to_string(), lua.create_table()?),
                 Value::Table(e) => {
                     let kind: String = e.get(1).map_err(|_| {
-                        err(format!(
-                            "{ctx} : le premier élément doit être le nom du module"
+                        err(crate::tr!(
+                            "{ctx} : le premier élément doit être le nom du module",
+                            ctx = ctx
                         ))
                     })?;
                     // Options du widget : toutes les clés nommées.
@@ -1006,9 +1288,10 @@ fn bar_zones(
                     (kind, opts)
                 }
                 v => {
-                    return Err(err(format!(
-                        "{ctx} : attend un nom de module ou une table, pas {}",
-                        v.type_name()
+                    return Err(err(crate::tr!(
+                        "{ctx} : attend un nom de module ou une table, pas {p0}",
+                        ctx = ctx,
+                        p0 = v.type_name()
                     )));
                 }
             };
@@ -1040,9 +1323,10 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         }
         Value::Table(t) => t,
         v => {
-            return Err(err(format!(
-                "{CTX} : attend une table ou false, pas {}",
-                v.type_name()
+            return Err(err(crate::tr!(
+                "{CTX} : attend une table ou false, pas {p0}",
+                CTX = CTX,
+                p0 = v.type_name()
             )));
         }
     };
@@ -1057,8 +1341,10 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         None | Some("top") => BarPosition::Top,
         Some("bottom") => BarPosition::Bottom,
         Some(s) => {
-            return Err(err(format!(
-                "{CTX} : position « {s} » inconnue (top, bottom)"
+            return Err(err(crate::tr!(
+                "{CTX} : position « {s} » inconnue (top, bottom)",
+                CTX = CTX,
+                s = s
             )));
         }
     };
@@ -1068,8 +1354,10 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
     let compact = match opt_string(&t, "compact", CTX)? {
         None => BarCompact::Auto,
         Some(s) => BarCompact::parse(&s).ok_or_else(|| {
-            err(format!(
-                "{CTX} : compact « {s} » inconnu (auto, always, never)"
+            err(crate::tr!(
+                "{CTX} : compact « {s} » inconnu (auto, always, never)",
+                CTX = CTX,
+                s = s
             ))
         })?,
     };
@@ -1098,10 +1386,10 @@ fn hd_component(b: &mut Builder, name: &str, t: &Table) -> mlua::Result<()> {
     let ctx = format!("hd.component(\"{name}\")");
     let ctx = ctx.as_str();
     check_keys(t, &["exec", "restart"], ctx)?;
-    let exec =
-        opt_string(t, "exec", ctx)?.ok_or_else(|| err(format!("{ctx} : « exec » est requis")))?;
+    let exec = opt_string(t, "exec", ctx)?
+        .ok_or_else(|| err(crate::tr!("{ctx} : « exec » est requis", ctx = ctx)))?;
     if b.config.components.iter().any(|c| c.name == name) {
-        return Err(err(format!("{ctx} : composant déjà déclaré")));
+        return Err(err(crate::tr!("{ctx} : composant déjà déclaré", ctx = ctx)));
     }
     b.config.components.push(ComponentDef {
         name: name.to_string(),
@@ -1146,7 +1434,10 @@ fn apply_places(b: &mut Builder) {
                     },
                 );
             } else {
-                tracing::warn!("hd.place : aucun widget « {id} »");
+                tracing::warn!(
+                    "{}",
+                    crate::tr!("hd.place : aucun widget « {id} »", id = id)
+                );
             }
             continue;
         };
@@ -1183,7 +1474,7 @@ fn set_budget(lua: &Lua, budget: Duration) -> mlua::Result<()> {
         mlua::HookTriggers::new().every_nth_instruction(10_000),
         move |_, _| {
             if std::time::Instant::now() >= deadline {
-                Err(err("budget d'exécution Lua dépassé (5 s)"))
+                Err(err(crate::i18n::tr("budget d'exécution Lua dépassé (5 s)")))
             } else {
                 Ok(mlua::VmState::Continue)
             }
@@ -1259,8 +1550,9 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         "_on",
         lua.create_function(|lua, (event, f): (String, Function)| {
             let ev = HookEvent::parse(&event).ok_or_else(|| {
-                err(format!(
-                    "hd.on : événement « {event} » inconnu (show, hide, workspace)"
+                err(crate::tr!(
+                    "hd.on : événement « {event} » inconnu (show, hide, workspace)",
+                    event = event
                 ))
             })?;
             let key = lua.create_registry_value(f)?;
@@ -1313,6 +1605,16 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Traduction : le texte français dans la langue de l'interface (catalogue
+    // de hyprdesk, sinon tel quel) ; `hd.lang()` pour les plugins qui ont les leurs.
+    hd.set(
+        "t",
+        lua.create_function(|_, s: String| Ok(crate::i18n::tr(&s).to_string()))?,
+    )?;
+    hd.set(
+        "lang",
+        lua.create_function(|_, ()| Ok(crate::i18n::code()))?,
+    )?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
     lua.globals().set("hd", hd)?;
     // Les fonctions Rust ne connaissent pas la ligne appelante : chaque `hd.x`
@@ -1348,13 +1650,12 @@ pub struct Loaded {
 
 impl Loaded {
     fn func(&self, idx: usize) -> mlua::Result<Function> {
-        let key = self
-            .funcs
-            .get(
-                idx.checked_sub(self.func_base)
-                    .ok_or_else(|| err("fonction Lua périmée après rechargement"))?,
-            )
-            .ok_or_else(|| err(format!("fonction Lua #{idx} introuvable")))?;
+        let key =
+            self.funcs
+                .get(idx.checked_sub(self.func_base).ok_or_else(|| {
+                    err(crate::i18n::tr("fonction Lua périmée après rechargement"))
+                })?)
+                .ok_or_else(|| err(crate::tr!("fonction Lua #{idx} introuvable", idx = idx)))?;
         self.lua.registry_value(key)
     }
 
@@ -1371,7 +1672,7 @@ impl Loaded {
                 };
                 let state = match s("state")? {
                     None => RenderState::Normal,
-                    Some(x) => RenderState::parse(&x).ok_or_else(|| format!("render : state « {x} » inconnu (normal, active, warning, critical, hidden)"))?,
+                    Some(x) => RenderState::parse(&x).ok_or_else(|| crate::tr!("render : state « {x} » inconnu (normal, active, warning, critical, hidden)", x = x))?,
                 };
                 Ok(Rendered {
                     text: s("text")?.unwrap_or_default(),
@@ -1381,8 +1682,9 @@ impl Loaded {
                 })
             }
             other => Ok(Rendered {
-                text: scalar_text(&other)
-                    .map_err(|t| format!("render doit rendre une chaîne ou une table, pas {t}"))?,
+                text: scalar_text(&other).map_err(|t| {
+                    crate::tr!("render doit rendre une chaîne ou une table, pas {t}", t = t)
+                })?,
                 ..Default::default()
             }),
         }
@@ -1407,7 +1709,12 @@ impl Loaded {
         let t: Table = match f.call::<Value>(()).map_err(|e| short_lua_error(&e))? {
             Value::Table(t) => t,
             Value::Nil => return Ok(Vec::new()),
-            v => return Err(format!("menu doit rendre une liste, pas {}", v.type_name())),
+            v => {
+                return Err(crate::tr!(
+                    "menu doit rendre une liste, pas {p0}",
+                    p0 = v.type_name()
+                ));
+            }
         };
         actions.clear();
         let mut out = Vec::new();
@@ -1438,7 +1745,12 @@ impl Loaded {
                         confirm: gs("confirm")?,
                     });
                 }
-                other => return Err(format!("menu : entrée inattendue ({})", other.type_name())),
+                other => {
+                    return Err(crate::tr!(
+                        "menu : entrée inattendue ({p0})",
+                        p0 = other.type_name()
+                    ));
+                }
             }
         }
         Ok(out)
@@ -2047,6 +2359,53 @@ mod tests {
         assert_eq!(c.widgets.iter().filter(|w| w.in_bar).count(), 2);
         assert!(load(r#"hd.bar({ compact = "parfois" })"#).is_err());
         assert!(load(r#"hd.bar({ portrait = { haut = {} } })"#).is_err());
+    }
+
+    #[test]
+    fn etalement_au_verrouillage() {
+        let span = |src: &str| {
+            let c = load(src).unwrap().config;
+            (c.wallpapers[0].span, c.wallpapers[0].span_lock)
+        };
+        assert_eq!(
+            span(r#"hd.wallpaper({ path = "/a.png", span = true })"#),
+            (true, true)
+        );
+        assert_eq!(
+            span(r#"hd.wallpaper({ path = "/a.png", span = "lock" })"#),
+            (false, true)
+        );
+        assert_eq!(
+            span(r#"hd.wallpaper({ path = "/a.png", span = "desktop" })"#),
+            (true, false)
+        );
+        assert_eq!(span(r#"hd.wallpaper({ path = "/a.png" })"#), (false, false));
+        assert!(load(r#"hd.wallpaper({ path = "/a.png", span = "ailleurs" })"#).is_err());
+        assert!(load(r##"hd.wallpaper({ color = "#000000", span = "lock" })"##).is_err());
+    }
+
+    #[test]
+    fn layouts() {
+        let c = load(
+            r#"hd.config({ layout = "master", layout_workspaces = { [3] = "monocle", ["name:web"] = "grid" },
+                           master = { mfact = 0.6, orientation = "center" }, dwindle = { force_split = 2 } })"#,
+        )
+        .unwrap()
+        .config;
+        let t = &c.general.tiling;
+        assert_eq!(t.layout.as_deref(), Some("master"));
+        assert_eq!(t.workspaces["3"], "monocle");
+        assert_eq!(t.workspaces["name:web"], "grid");
+        assert_eq!(t.options.len(), 3);
+        // Nom, option et valeur vérifiés.
+        for bad in [
+            r#"hd.config({ layout = "spirale" })"#,
+            r#"hd.config({ master = { inconnue = 1 } })"#,
+            r#"hd.config({ master = { mfact = 3 } })"#,
+            r#"hd.config({ scrolling = { direction = "ailleurs" } })"#,
+        ] {
+            assert!(load(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

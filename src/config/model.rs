@@ -255,20 +255,131 @@ pub enum Fit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
+    /// Nom du thème (prédéfini, importé, ou choisi par l'utilisateur).
+    pub name: String,
     pub fg: Rgba,
     pub bg: Rgba,
     pub accent: Rgba,
+    /// Effet de surface de chaque endroit de l'interface.
+    pub effects: std::collections::BTreeMap<Place, Effect>,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         // Palette ardoise et iris, partagée par les surfaces de l’interface.
         Theme {
+            name: "Ardoise".into(),
             fg: Rgba(0xf2, 0xf4, 0xfc, 0xff),
             bg: Rgba(0x17, 0x1b, 0x27, 0xff),
             accent: Rgba(0xa6, 0x9c, 0xff, 0xff),
+            effects: Place::ALL
+                .iter()
+                .map(|p| (*p, p.default_effect()))
+                .collect(),
         }
     }
+}
+
+impl Theme {
+    /// Effet d'un endroit (celui par défaut s'il n'est pas réglé).
+    pub fn effect(&self, p: Place) -> Effect {
+        self.effects
+            .get(&p)
+            .copied()
+            .unwrap_or_else(|| p.default_effect())
+    }
+
+    /// Espaces de noms des couches que Hyprland floute.
+    pub fn blurred_namespaces(&self) -> Vec<&'static str> {
+        Place::ALL
+            .iter()
+            .filter(|p| p.blurrable() && self.effect(**p).blur)
+            .flat_map(|p| p.namespaces().iter().copied())
+            .collect()
+    }
+}
+
+/// Endroit de l'interface qui porte un effet de surface (opacité, flou).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Place {
+    Bar,
+    Menus,
+    Launcher,
+    Settings,
+    Widgets,
+}
+
+impl Place {
+    pub const ALL: [Place; 5] = [
+        Place::Bar,
+        Place::Menus,
+        Place::Launcher,
+        Place::Settings,
+        Place::Widgets,
+    ];
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Place::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Place::Bar => "bar",
+            Place::Menus => "menus",
+            Place::Launcher => "launcher",
+            Place::Settings => "settings",
+            Place::Widgets => "widgets",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Place::Bar => "Barre",
+            Place::Menus => crate::i18n::tr("Menus déroulants"),
+            Place::Launcher => "Lanceur",
+            Place::Settings => crate::i18n::tr("Réglages"),
+            Place::Widgets => crate::i18n::tr("Widgets du bureau"),
+        }
+    }
+
+    /// Effet livré : l'apparence d'origine de hyprdesk.
+    pub fn default_effect(self) -> Effect {
+        let opacity = match self {
+            Place::Bar => 0.72,
+            Place::Menus => 0.90,
+            Place::Launcher => 0.88,
+            Place::Settings => 0.97,
+            Place::Widgets => 0.84,
+        };
+        Effect {
+            opacity,
+            blur: self.blurrable(),
+        }
+    }
+
+    /// Les widgets sont dessinés sur la couche du bureau, avec le fond
+    /// d'écran : pas de flou propre.
+    pub fn blurrable(self) -> bool {
+        !matches!(self, Place::Widgets)
+    }
+
+    /// Couches Hyprland de cet endroit.
+    pub fn namespaces(self) -> &'static [&'static str] {
+        match self {
+            Place::Bar => &["hyprdesk-bar"],
+            Place::Menus => &["hyprdesk-popover"],
+            Place::Launcher => &["hyprdesk-launcher", "hyprdesk-launcher-popup"],
+            Place::Settings => &["hyprdesk-settings"],
+            Place::Widgets => &[],
+        }
+    }
+}
+
+/// Effet de surface : opacité du fond (0..1) et flou de ce qu'il y a derrière.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Effect {
+    pub opacity: f32,
+    pub blur: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -456,6 +567,8 @@ pub struct Keys {
     pub hide: String,
     /// Ouvrir les réglages.
     pub settings: String,
+    /// Verrouiller la session (`hyprdesk lock`), bureau affiché compris.
+    pub lock: String,
     /// Sortie de secours : masque le bureau et rend tous les raccourcis.
     pub leave: String,
 }
@@ -467,6 +580,9 @@ impl Default for Keys {
             launcher: "SUPER + ALT + D".into(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
+            // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par
+            // scripts/install.sh). Réglé, hyprdesk le remplace.
+            lock: String::new(),
             leave: "SUPER + Escape".into(),
         }
     }
@@ -495,6 +611,12 @@ pub struct General {
     pub lock: LockCfg,
     pub show_on: ShowOn,
     pub close_on_launch: bool,
+    /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
+    pub advanced_settings: bool,
+    /// Visite guidée faite ou écartée : plus proposée à l'ouverture des Réglages.
+    pub tour_seen: bool,
+    /// Applications qui prennent le thème de hyprdesk (`kitty`…).
+    pub app_themes: std::collections::BTreeSet<String>,
     pub icon_theme: Option<String>,
     pub font: Option<String>,
     pub font_size: f32,
@@ -518,6 +640,10 @@ pub struct General {
     pub workspace_dedicated: std::collections::BTreeSet<String>,
     /// Ouverture de l'assistant IA (LYRA) : fenêtre ou terminal.
     pub assistant_mode: crate::assistant::AssistantMode,
+    /// Langue de l'interface : `auto` (celle du système), `fr` ou `en`.
+    pub language: String,
+    /// Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
+    pub tiling: crate::tiling::Tiling,
     /// Paquets intégrés désactivés (`hd.config({ disabled_plugins = { "bar" } })`) :
     /// retirés des réglages, et leur fonction est coupée.
     pub disabled_plugins: std::collections::BTreeSet<String>,
@@ -546,6 +672,9 @@ impl Default for General {
             lock: LockCfg::default(),
             show_on: ShowOn::All,
             close_on_launch: true,
+            advanced_settings: false,
+            tour_seen: false,
+            app_themes: Default::default(),
             icon_theme: None,
             font: None,
             font_size: 14.0,
@@ -562,6 +691,8 @@ impl Default for General {
             apps: Default::default(),
             disabled_plugins: Default::default(),
             assistant_mode: Default::default(),
+            language: "auto".into(),
+            tiling: Default::default(),
         }
     }
 }
@@ -612,6 +743,13 @@ pub struct WallpaperRule {
     pub sel: Selector,
     pub source: WallSource,
     pub fit: Fit,
+    /// Scène étalée sur tous les écrans : l'image couvre la disposition entière
+    /// (positions et tailles logiques de Hyprland) et chaque écran en montre sa
+    /// part, découpée automatiquement. `fit` ne s'applique pas.
+    pub span: bool,
+    /// Scène étalée sur l'écran de verrouillage (avec `span` : partout ;
+    /// seule : au verrouillage seulement, le bureau gardant `fit`).
+    pub span_lock: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -855,7 +993,7 @@ impl HookEvent {
 
 /// Configuration complète, sans référence à l'état Lua (sauf indices de fonctions).
 /// Paquets du cœur : toujours actifs.
-pub const CORE_PLUGINS: &[&str] = &["desktop", "plugins", "effects"];
+pub const CORE_PLUGINS: &[&str] = &["desktop", "plugins", "effects", "theme"];
 
 impl General {
     /// Placement effectif : celui déclaré ; si des écrans sont dédiés, tous les

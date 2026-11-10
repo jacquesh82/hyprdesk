@@ -41,6 +41,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>"#
         }
         // Partage : une boîte, une flèche qui sort.
+        // Thème : une palette à moitié remplie.
+        "preferences-desktop-theme" => {
+            r#"<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>"#
+        }
         "document-send" => {
             r#"<path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M12 3v12M7 8l5-5 5 5"/>"#
         }

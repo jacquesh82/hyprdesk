@@ -1,20 +1,22 @@
-//! Paquet intégré « Effets » : Transitions, fondu entre fonds, couleur d'accent.
+//! Paquet intégré « Effets » : transitions du bureau, fondu entre fonds.
+//! Couleurs et effets de surface : paquet « Thème ».
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{Space, button, column, radio, row, slider, text};
-use iced::{Border, Color, Element, Task};
+use crate::i18n::text;
+use iced::widget::{column, radio, row, slider};
+use iced::{Color, Element, Task};
 
-use super::super::panel::{PanelMsg, SWATCHES};
+use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
-use crate::config::{Rgba, Transition};
+use crate::config::Transition;
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "effects",
     label: "Effets",
     icon: "preferences-system",
-    summary: "Transitions, fondu entre fonds, couleur d'accent.",
+    summary: "Transitions du bureau et fondu entre fonds d'écran.",
     builtin: true,
 };
 
@@ -28,7 +30,6 @@ pub enum Msg {
     Transition(Transition),
     FadeMs(u64),
     CrossfadeMs(u64),
-    Accent(Rgba),
     /// Idem, puis rejoue l'apparition du bureau (aperçu de la durée).
     CommitFade,
     /// Idem, puis rejoue un fondu enchaîné de fond (aperçu).
@@ -39,40 +40,32 @@ impl App {
     pub(in crate::ui) fn tab_effects(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let swatches = row(SWATCHES[..6].iter().map(|c| {
-            let col = color(*c, 1.0);
-            let selected = g.theme.accent == *c;
-            button(Space::new().width(32).height(32))
-                .padding(0)
-                .on_press(wrap(Msg::Accent(*c)))
-                .style(move |_, _| button::Style {
-                    background: Some(col.into()),
-                    border: Border::default()
-                        .rounded(16)
-                        .width(if selected { 3 } else { 1 })
-                        .color(if selected { fg } else { Color { a: 0.3, ..fg } }),
-                    ..Default::default()
-                })
-                .into()
-        }))
-        .spacing(10);
         column![
             self.section("Apparition du bureau"),
             self.field(
                 "Transition",
                 "transition",
                 row![
-                    radio("Fondu", Transition::Fade, Some(g.transition), |v| {
-                        wrap(Msg::Transition(v))
-                    })
+                    radio(
+                        crate::i18n::tr("Fondu"),
+                        Transition::Fade,
+                        Some(g.transition),
+                        |v| { wrap(Msg::Transition(v)) }
+                    )
                     .font(self.font),
-                    radio("Glissement", Transition::Slide, Some(g.transition), |v| {
-                        wrap(Msg::Transition(v))
-                    })
+                    radio(
+                        crate::i18n::tr("Glissement"),
+                        Transition::Slide,
+                        Some(g.transition),
+                        |v| { wrap(Msg::Transition(v)) }
+                    )
                     .font(self.font),
-                    radio("Aucune", Transition::None, Some(g.transition), |v| {
-                        wrap(Msg::Transition(v))
-                    })
+                    radio(
+                        crate::i18n::tr("Aucune"),
+                        Transition::None,
+                        Some(g.transition),
+                        |v| { wrap(Msg::Transition(v)) }
+                    )
                     .font(self.font),
                 ]
                 .spacing(16),
@@ -108,8 +101,10 @@ impl App {
                 ]
                 .spacing(12),
             ),
-            self.section("Couleurs"),
-            self.field("Couleur d'accent", "theme.accent", swatches),
+            text("Couleurs, opacité et flou de chaque endroit : paquet Thème.")
+                .font(self.font)
+                .size(12)
+                .color(Color { a: 0.6, ..fg }),
         ]
         .spacing(14)
         .into()
@@ -130,10 +125,6 @@ impl App {
             Msg::CrossfadeMs(v) => {
                 self.settings.crossfade_ms = Some(v);
                 self.apply()
-            }
-            Msg::Accent(c) => {
-                self.settings.accent = Some(c);
-                self.commit()
             }
             Msg::CommitFade => {
                 let c = self.commit();

@@ -87,7 +87,14 @@ impl Layout {
         let p = path();
         match std::fs::read_to_string(&p) {
             Ok(s) => toml::from_str(&s).unwrap_or_else(|e| {
-                tracing::warn!("{} illisible, disposition ignorée : {e}", p.display());
+                tracing::warn!(
+                    "{}",
+                    crate::tr!(
+                        "{p0} illisible, disposition ignorée : {e}",
+                        p0 = p.display(),
+                        e = e
+                    )
+                );
                 Layout::default()
             }),
             Err(_) => Layout::default(),
@@ -108,7 +115,10 @@ impl Layout {
             Ok(())
         };
         if let Err(e) = write() {
-            tracing::warn!("enregistrement de {} : {e}", p.display());
+            tracing::warn!(
+                "{}",
+                crate::tr!("enregistrement de {p0} : {e}", p0 = p.display(), e = e)
+            );
         }
     }
 

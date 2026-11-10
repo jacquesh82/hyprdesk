@@ -1,4 +1,5 @@
 # Conception — paquets, widgets et lanceur
+*[English version](PLUGINS.en.md)*
 
 hyprdesk est découpé en **paquets** : chaque fonction réglable (bureau,
 icônes, lanceur, fond d'écran, widgets, barre, écrans, workspaces, effets) est
@@ -103,15 +104,18 @@ Clés par paquet :
 
 | Paquet | Clés |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `close_on_launch`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.leave` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `close_on_launch`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
-| `wallpaper` | `wallpaper` (image ou `#couleur`, tous les bureaux), `wallpaper.fit` |
+| `wallpaper` | `wallpaper` (image ou `#couleur`, tous les bureaux), `wallpaper.fit`, `wallpaper.span` (`on` : étalée sur tous les écrans) |
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, ou des écrans séparés par des virgules) |
 | `screens` | `primary` |
 | `workspaces` | `workspaces`, `workspace.<n>` (écran : connecteur, `primary`, `auto`), `assign.<app>` |
-| `effects` | `transition`, `fade_ms`, `crossfade_ms`, `theme.accent` |
+| `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
+| `apptheme` | `app_themes` (`kitty`, `none`) |
+| `effects` | `transition`, `fade_ms`, `crossfade_ms` |
+| `theme` | `theme.preset` (thème livré), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (endroits : `bar`, `menus`, `launcher`, `settings`, `widgets` — sans flou) |
 | `launcher` (apparence) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<rôle>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
 | `assistant` | `assistant_mode` (`window`, `terminal`) |
@@ -122,6 +126,33 @@ Réglages. Chaque changement y est appliqué à chaud, puis doit être confirmé
 avant d'être écrit dans `monitors.lua`. Une écriture aveugle depuis la ligne
 de commande n'aurait pas ce filet de sécurité.
 
+### Navigation et configuration avancée
+
+La navigation des Réglages range les paquets par groupes (`plugins::GROUPS`) :
+Bureau, Apparence, Barre et lanceur, Fenêtres et écrans, Applications, Système.
+Un nouveau paquet s'ajoute à un groupe (un test vérifie que chaque paquet est
+dans un seul). Tiroir large : les onglets du paquet choisi s'affichent sous lui,
+en sous-entrées ; tiroir étroit : en pastilles au-dessus de la page.
+
+« Configuration avancée » (en-tête du tiroir, clé `advanced_settings`) : cochée,
+tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
+`ADVANCED_ONLY`, les onglets de `ADVANCED_TABS`, et les champs qu'une vue
+entoure de `self.adv(…)`. Rien ne disparaît de la configuration : seul
+l'affichage change.
+
+### Onglets des paquets chargés
+
+| Paquet | Onglets |
+|---|---|
+| Bureau | Affichage · Raccourcis · Session |
+| Thème | Thèmes · Couleurs · Texte (police, taille) · Effets |
+| Lanceur | Contenu · Apparence · Épinglées |
+| Barre | Général · Modules |
+| Écrans | Disposition · Écran (un clic sur le plan y mène) |
+| Workspaces | Nombre et écrans · Applications |
+| Layouts | Général · Dwindle · Master · Scrolling · Personnalisés |
+| Widgets | Sur ce bureau (un widget choisi sur le bureau y mène) · Disponibles |
+
 ### Ajouter un paquet
 
 1. Créer `src/ui/plugins/<id>.rs` avec `INFO`, `Msg`, `wrap`, l'état si besoin,
@@ -130,6 +161,11 @@ de commande n'aurait pas ce filet de sécurité.
    variante dans `PluginMsg`, un bras dans `update`, `view` et, si besoin,
    `on_show`.
 3. Si le paquet a un état d'écran, ajouter son champ à `Panel` (`panel.rs`).
+   S'il a beaucoup de réglages, les répartir en onglets : une constante
+   `TABS` (`(identifiant, libellé)`), un bras dans `plugins::tabs`, et la vue
+   n'affiche que l'onglet de `self.subtab(INFO.id)`. Le tiroir dessine les
+   pastilles et retient le choix ; `hyprdesk settings <paquet>/<onglet>`
+   l'ouvre directement.
 4. Persister dans `Settings` (`src/settings.rs`) : le champ, `from_config`,
    `apply_to` et `to_lua`. Côté Lua, la clé doit être reconnue dans
    `config/lua.rs` et documentée dans `assets/hyprdesk.meta.lua`.
@@ -148,15 +184,18 @@ chaque clé CLI pointe vers un paquet existant.
 | `desktop` | Bureau | écrans où le bureau s'affiche, mode, police, raccourcis des trois modes, session | `config::General` |
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
 | `launcher` | Lanceur | fenêtres affichées, regroupement | — (widget, § 3) |
+| `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
+| `apptheme` | Thème des applications | le thème appliqué à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) | `apptheme.rs` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
 | `bar` | Barre | position, hauteur, écrans, modules | `ui/bar.rs` |
 | `screens` | Écrans | détection, disposition, orientation, mode, écran principal | `screens.rs` → `monitors.lua` |
 | `workspaces` | Workspaces | workspaces permanents, affectation des applications | `hypr.rs` (règles Hyprland) |
-| `effects` | Effets | transitions, fondu entre fonds, accent | `config::General` |
-| `apps` | Applications | applications par défaut (navigateur, terminal, fichiers, éditeur, images, vidéo, audio, PDF, mail, IA), appliquées au système (`xdg-mime`) | `apps.rs` |
+| `layouts` | Layouts | layout par défaut et par workspace, options de Dwindle, Master, Scrolling, layouts personnalisés (`lua:<nom>`), raccourcis de chaque layout | `tiling.rs` |
+| `effects` | Effets | transitions, fondu entre fonds | `config::General` |
+| `apps` | Applications | applications par défaut (navigateur, terminal, fichiers, éditeur, images, vidéo, audio, PDF, mail, IA), appliquées au système (`xdg-mime`) ; seules les applications installées sont proposées (programme de `TryExec` / `Exec` présent), reconnues au type de fichier du rôle ou à leur catégorie freedesktop (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`), un choix devenu absent est signalé « non installée » | `apps.rs` |
 | `assistant` | Assistant IA | LYRA (mindlog.hyprland_tools) avec Claude Code, Codex ou Zcode, et le contexte de hyprdesk | `assistant.rs` |
-| `share` | Partage | export / import d'un setup (archive) | `share.rs` |
+| `share` | Partage | export / import d'un setup ou du thème seul (archive) | `share.rs` |
 | `plugins` | Plugins | état et activation des paquets, plugins Lua : actifs, tiers, ajout, retrait | `widgets/plugins.rs` |
 
 Le **domaine** (modèle, Lua, règles Hyprland, `monitors.lua`) ne dépend pas de
@@ -297,8 +336,8 @@ Le paquet **Plugins** montre tout ce qui est installé :
   la navigation **et** coupe sa fonction : pas de barre, pas de lanceur, pas
   de règles de workspaces, pas d'icônes ni de widgets sur le bureau, fond uni,
   pas d'avis de nouvel écran. `Config::plugin_on(id)` est le seul test, posé
-  au point où chaque fonction agit. Bureau, Effets et Plugins forment le
-  cœur et restent toujours actifs (`CORE_PLUGINS`).
+  au point où chaque fonction agit. Bureau, Effets, Thème et Plugins forment
+  le cœur et restent toujours actifs (`CORE_PLUGINS`).
 - **Plugins Lua.** Chacun indique s'il est actif et d'où il vient : intégré,
   livré, ou tiers (avec son chemin). Un plugin tiers s'installe depuis un
   fichier `.lua`, un dossier `init.lua` ou un dépôt git, dans
@@ -375,8 +414,9 @@ confirmation si le message parle de « gaps », un choix s'il parle de « couleu
 
 ## 8. Partager un setup
 
-`hyprdesk export [fichier] [--screens]` et `hyprdesk import <archive>
-[--dry-run] [--screens]`, ou le paquet **Partage** :
+`hyprdesk export [fichier] [--theme] [--screens]` et `hyprdesk import
+<archive> [--theme] [--dry-run] [--screens]`, ou le paquet **Partage**, qui
+propose deux portées : **tout le setup**, ou **le thème seul**.
 
 - **L'archive** contient `hyprdesk.lua`, `settings.lua`, les plugins tiers,
   les **images** des fonds d'écran, un `manifest.json`, et `monitors.lua`
@@ -387,3 +427,83 @@ confirmation si le message parle de « gaps », un choix s'il parle de « couleu
   - les fonds sont copiés dans `~/.local/share/hyprdesk/wallpapers/<archive>/`,
     et leurs chemins réécrits ;
   - les plugins déjà présents sont gardés.
+
+### Le thème seul
+
+Un **thème** (`theme.rs`) réunit ce qui se voit : nom, couleurs (texte,
+surfaces, accent, fond sans image), fonds d'écran, effet de chaque endroit
+(opacité du fond et flou Hyprland de la barre, des menus, du lanceur, des
+réglages ; opacité des widgets), mode du bureau et voile du verre, voile et
+flou du verrouillage, transitions.
+
+- **Export** (`--theme`, ou « Thème seul ») : le thème **effectif** (réglages
+  et `hyprdesk.lua` confondus), écrit dans un `settings.lua` qui ne contient
+  que lui, avec les images de ses fonds ; `manifest.json` porte
+  `kind = "theme"` et un résumé (`theme` : nom, couleurs).
+- **Import** : seul le thème change ; barre, raccourcis, widgets, plugins et
+  écrans restent en place. Une archive de thème s'importe toujours ainsi ;
+  le thème d'une archive complète aussi, sur demande (`--theme`). Un fond
+  qui n'est ni dans l'archive ni présent sur la machine est écarté.
+- **Mes thèmes** : des archives de thème rangées dans `hyprdesk/themes/`
+  (paquet Thème : « Enregistrer dans Mes thèmes », un clic pour appliquer).
+  Les thèmes livrés (`theme::PRESETS`) changent couleurs et effets, pas les
+  fonds.
+
+### Scènes multi-écrans
+
+Une **scène** est une image pensée pour toute la disposition des écrans.
+
+- **Découpe automatique** (`span.rs`) : `hd.wallpaper({ path = …, span = true })`
+  (ou « Étaler sur tous les écrans », ou `wallpaper.span on`). Le canevas
+  englobe les écrans tels que Hyprland les place (positions et tailles
+  logiques) ; l'image le couvre, centrée, et chaque écran en montre sa part.
+  Une disposition en L, empilée ou décalée reste continue ; les zones du
+  canevas sans écran ne se voient pas. Un diaporama s'étale de même.
+- **Résolution** : choisir une image trop petite pour les écrans visés (ou
+  pour tout le canevas si elle est étalée) affiche un avertissement, non
+  bloquant : facteur d'agrandissement et taille conseillée, en pixels
+  physiques (échelle de Hyprland comprise).
+- **Thème tiré d'une scène** (`theme::create`, `hyprdesk theme new`, ou
+  « Créer depuis une image » dans le paquet Thème) : couleurs extraites de
+  l'image (surfaces dans la teinte des ombres, accent dans la teinte vive
+  dominante), scène étalée, surfaces translucides et floutées ; rangé dans
+  Mes thèmes. La source peut être une image, ou un **pack** (dossier ou
+  `.zip`) dont le `manifest.json` désigne la scène maîtresse (`master`) et
+  son nom (`theme`) : les découpes figées du pack sont ignorées, la découpe
+  se fait selon les écrans réels.
+- **Verrouillage** : il montre la scène entière (même image que le bureau),
+  sauf image propre (`lock_image`). La découpe par écran au verrouillage
+  viendra quand l'écran de verrouillage saura quelle sortie porte chaque
+  surface.
+- `hyprdesk wallpaper split <image> [dossier] [--scale N]` écrit la part de
+  chaque écran (`<écran>.png`), pour un autre outil ou pour vérifier.
+
+## 9. Langue de l'interface (i18n)
+
+hyprdesk parle français (langue source) ou anglais :
+`hd.config({ language = "auto" | "fr" | "en" })`, Réglages → Bureau → Langue, ou
+`hyprdesk config set language en`. `auto` suit `LC_ALL`, `LC_MESSAGES` puis `LANG`
+(français si la langue est le français, anglais sinon). Une langue choisie vaut
+aussi pour les dates ; `auto` laisse les dates suivre `LC_TIME`.
+
+**Le texte français est la clé** (à la manière de gettext) : le catalogue
+`locales/en.toml`, intégré au binaire, associe chaque texte français à sa
+traduction. Un texte absent s'affiche en français : rien ne casse.
+
+- **Vues (Rust)** : `text` vient de `crate::i18n` (et non d'iced) dans les vues ;
+  il traduit tout texte présent au catalogue, littéral ou calculé. Les autres
+  libellés passent par `crate::i18n::tr("…")` (`radio`, `.label`, `text_input`,
+  `placeholder`, champs `label: …`) ; un texte à trous s'écrit
+  `crate::tr!("Écran {mon}", mon = m)`. Les constantes (`INFO`, `TABS`, widgets
+  intégrés) sont traduites à l'affichage.
+- **Ligne de commande** : messages en `tr!`, aides traduites ligne à ligne
+  (`i18n::tr_lines`, colonnes comprises).
+- **Plugins Lua** : `hd.t("texte")` traduit, `hd.lang()` rend `"fr"` ou `"en"`
+  pour un plugin qui a ses propres textes.
+- **Restent en français** : journaux, fichiers générés (`settings.lua`,
+  `monitors.lua`), contexte transmis à LYRA.
+- **Vérification** : `i18n::tests::catalogue_complet` (textes marqués dans
+  `src/` et `assets/`), `registres_traduits` (paquets, onglets, widgets),
+  `aide_traduite` et `aide_config_traduite`. Pour compléter le catalogue :
+  `HYPRDESK_I18N_TODO=manque.toml HYPRDESK_I18N_TODO_DIR=dossier cargo test i18n`
+  écrit les entrées manquantes, à traduire puis ajouter à `locales/en.toml`.

@@ -5,7 +5,10 @@
 #   3. config d'exemple ~/.config/hypr/hyprdesk.lua si absente — jamais écrasée
 #   4. définitions LuaLS à côté (autocomplétion)
 #   5. unit systemd user (WAYLAND_DISPLAY détecté) + activation et redémarrage
-# Ne touche PAS à hyprland.lua : les lignes à ajouter sont affichées à la fin.
+#   6. raccourci de verrouillage SUPER + L -> hyprdesk lock dans hyprland.lua :
+#      seule modification de hyprland.lua (copie de sauvegarde avant) ; le
+#      raccourci hyprlock y est remplacé, tout autre raccourci SUPER + L laissé.
+# Le reste de hyprland.lua n'est pas touché : les lignes à ajouter sont affichées à la fin.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -46,6 +49,29 @@ systemctl --user enable hyprdesk.service
 systemctl --user restart hyprdesk.service
 sleep 1
 systemctl --user --no-pager --lines=0 status hyprdesk.service || true
+
+echo "== raccourci de verrouillage (SUPER + L)"
+HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"
+LOCK_CMD="$BIN_DIR/hyprdesk lock"
+# Raccourci SUPER + L : « mainMod .. " + L" » ou « "SUPER + L" ».
+LOCK_KEY_RE='hl\.bind\((mainMod[[:space:]]*\.\.[[:space:]]*"[[:space:]]*\+[[:space:]]*L"|"SUPER[[:space:]]*\+[[:space:]]*L")'
+if [[ ! -f "$HYPR_CONF" ]]; then
+    echo "   $HYPR_CONF absent : ajoutez hl.bind(\"SUPER + L\", hl.dsp.exec_cmd(\"$LOCK_CMD\"))"
+elif grep -Eq "$LOCK_KEY_RE.*hyprdesk lock" "$HYPR_CONF"; then
+    echo "   déjà en place"
+elif grep -Eq "$LOCK_KEY_RE.*exec_cmd\(\"hyprlock\"\)" "$HYPR_CONF"; then
+    cp -p "$HYPR_CONF" "$HYPR_CONF.avant-hyprdesk-lock.bak"
+    sed -E -i "/$LOCK_KEY_RE/ s#exec_cmd\(\"hyprlock\"\)#exec_cmd(\"$LOCK_CMD\")#" "$HYPR_CONF"
+    echo "   hyprlock remplacé par hyprdesk lock (sauvegarde : $HYPR_CONF.avant-hyprdesk-lock.bak)"
+elif grep -Eq "$LOCK_KEY_RE" "$HYPR_CONF"; then
+    echo "   SUPER + L sert déjà à autre chose : laissé tel quel."
+    grep -En "$LOCK_KEY_RE" "$HYPR_CONF" | sed 's/^/   /'
+else
+    cp -p "$HYPR_CONF" "$HYPR_CONF.avant-hyprdesk-lock.bak"
+    printf '\n-- hyprdesk : verrouillage (écrit par scripts/install.sh)\nhl.bind("SUPER + L", hl.dsp.exec_cmd("%s"), { description = "hyprdesk : verrouiller" })\n' \
+        "$LOCK_CMD" >> "$HYPR_CONF"
+    echo "   ajouté à la fin de $HYPR_CONF"
+fi
 
 echo
 echo "=================================================================="

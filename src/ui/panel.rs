@@ -7,8 +7,9 @@
 
 use std::sync::Arc;
 
+use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, mouse_area, row, rule, scrollable, text, tooltip,
+    Space, button, column, container, mouse_area, row, rule, scrollable, toggler, tooltip,
 };
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Task};
@@ -26,6 +27,12 @@ pub type Tab = &'static str;
 pub enum PanelMsg {
     /// Affiche le paquet d'identifiant donné.
     Tab(Tab),
+    /// Affiche un onglet du paquet (paquet, onglet) ; retenu pour la suite.
+    SubTab(Tab, &'static str),
+    /// Configuration avancée (tous les détails) ou de base (l'essentiel).
+    Advanced(bool),
+    /// Visite guidée.
+    Tour(super::tour::TourMsg),
     Close,
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
@@ -46,12 +53,17 @@ pub struct Panel {
     pub widgets: plugins::widgets::State,
     pub screens: plugins::screens::State,
     pub workspaces: plugins::workspaces::State,
+    /// Étape de la visite guidée en cours.
+    pub tour: Option<usize>,
+    pub layouts: plugins::layouts::State,
     pub apps: plugins::apps::State,
     pub plugins: plugins::plugins::State,
     pub assistant: plugins::assistant::State,
     pub launcher: plugins::launcher::State,
     pub share: plugins::share::State,
     pub bar: plugins::bar::State,
+    pub theme: plugins::theme::State,
+    pub apptheme: plugins::apptheme::State,
 }
 
 /// Couleurs proposées (palette Dracula PRO), partagées par les paquets.
@@ -85,12 +97,16 @@ impl Panel {
             widgets: Default::default(),
             screens: Default::default(),
             workspaces: Default::default(),
+            tour: None,
+            layouts: Default::default(),
             apps: Default::default(),
             plugins: Default::default(),
             assistant: Default::default(),
             launcher: Default::default(),
             share: Default::default(),
             bar: Default::default(),
+            theme: Default::default(),
+            apptheme: Default::default(),
         }
     }
 
@@ -172,6 +188,7 @@ impl App {
             k.leave.clone(),
             k.launcher.clone(),
             k.hide.clone(),
+            k.lock.clone(),
         ];
         self.panel = Some(p);
         let from = self
@@ -245,11 +262,11 @@ impl App {
             |r| match r {
                 Ok(_) => Msg::Noop,
                 Err(e) => {
-                    tracing::error!("enregistrement des réglages : {e}");
+                    tracing::error!("{}", crate::tr!("enregistrement des réglages : {e}", e = e));
                     crate::hypr::notify(
                         4,
                         6000,
-                        &format!("hyprdesk : réglages non enregistrés — {e}"),
+                        &crate::tr!("hyprdesk : réglages non enregistrés — {e}", e = e),
                     );
                     Msg::Noop
                 }
@@ -272,6 +289,22 @@ impl App {
                 panel.tab = t;
                 plugins::on_show(self, t)
             }
+            PanelMsg::SubTab(pkg, tab) => {
+                self.subtabs.insert(pkg, tab);
+                Task::none()
+            }
+            PanelMsg::Tour(m) => self.tour_update(m),
+            PanelMsg::Advanced(v) => {
+                self.settings.advanced_settings = Some(v);
+                // Paquet affiché devenu avancé : retour au Bureau.
+                if !v
+                    && let Some(p) = self.panel.as_mut()
+                    && !plugins::visible(p.tab, false)
+                {
+                    p.tab = plugins::desktop::INFO.id;
+                }
+                self.commit()
+            }
             PanelMsg::Close => self.close_panel(),
             PanelMsg::Commit => self.commit(),
             PanelMsg::Plugin(m) => plugins::update(self, m),
@@ -290,6 +323,58 @@ impl App {
             .unwrap_or(DRAWER_W)
     }
 
+    /// Onglets du paquet affiché, en pastilles (rien s'il n'en a pas).
+    fn subtab_bar(&self, pkg: Tab) -> Element<'_, Msg> {
+        // Tiroir large : les onglets sont dans la navigation, sous le paquet.
+        if self.panel_width() >= 640.0 {
+            return Space::new().into();
+        }
+        let tabs = plugins::visible_tabs(pkg, self.advanced());
+        if tabs.is_empty() {
+            return Space::new().into();
+        }
+        let th = &self.cfg.general.theme;
+        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        let on = self.subtab(pkg);
+        row(tabs.into_iter().map(|(id, label)| {
+            let active = id == on;
+            button(
+                text(label)
+                    .font(if active { self.title_font() } else { self.font })
+                    .size(13)
+                    .color(if active { fg } else { Color { a: 0.72, ..fg } }),
+            )
+            .padding([6, 14])
+            .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
+            .style(move |_, status| {
+                let hover = matches!(status, button::Status::Hovered);
+                button::Style {
+                    background: Some(
+                        if active {
+                            Color { a: 0.28, ..accent }
+                        } else if hover {
+                            Color { a: 0.08, ..fg }
+                        } else {
+                            Color::TRANSPARENT
+                        }
+                        .into(),
+                    ),
+                    text_color: fg,
+                    border: Border::default().rounded(999).width(1).color(if active {
+                        Color { a: 0.7, ..accent }
+                    } else {
+                        Color { a: 0.14, ..fg }
+                    }),
+                    ..Default::default()
+                }
+            })
+            .into()
+        }))
+        .spacing(8)
+        .wrap()
+        .into()
+    }
+
     pub(super) fn view_panel(&self) -> Element<'_, Msg> {
         let Some(p) = &self.panel else {
             return Space::new().into();
@@ -297,12 +382,10 @@ impl App {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let wide = self.panel_width() >= 640.0;
-        // Paquets coupés : absents de la navigation (rallumables dans Plugins).
-        let entries = plugins::BUILTIN
-            .iter()
-            .filter(|i| self.cfg.plugin_on(i.id))
-            .map(|i| (i.label, i.icon, i.id));
-        let nav = column(entries.map(|(label, icon, tab)| {
+        let adv = self.advanced();
+        let dim = Color { a: 0.5, ..fg };
+        // Entrée d'un paquet.
+        let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
             let glyph: Element<'_, Msg> = super::icons::get(icon)
                 .map(|handle| {
@@ -326,7 +409,7 @@ impl App {
             }
             button(content)
                 .width(Length::Fill)
-                .padding([12, 12])
+                .padding([9, 12])
                 .on_press(Msg::Panel(PanelMsg::Tab(tab)))
                 .style(move |_, status| button::Style {
                     background: if active {
@@ -341,9 +424,91 @@ impl App {
                     ..Default::default()
                 })
                 .into()
-        }))
-        .spacing(4)
-        .width(if wide { 156 } else { 46 });
+        };
+        // Navigation par groupes ; le paquet choisi déploie ses onglets en
+        // sous-entrées (tiroir large). Paquets coupés : absents (rallumables
+        // dans Plugins) ; paquets avancés : seulement en configuration avancée.
+        let mut nav = column![].spacing(2);
+        let mut first = true;
+        for g in plugins::GROUPS {
+            let items: Vec<&'static plugins::PluginInfo> = g
+                .ids
+                .iter()
+                .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
+                .filter(|i| self.cfg.plugin_on(i.id) && plugins::visible(i.id, adv))
+                .collect();
+            if items.is_empty() {
+                continue;
+            }
+            if wide {
+                nav = nav.push(
+                    container(
+                        text(crate::i18n::tr(g.label).to_uppercase())
+                            .font(self.title_font())
+                            .size(10)
+                            .color(dim),
+                    )
+                    .padding(iced::Padding {
+                        top: if first { 0.0 } else { 12.0 },
+                        bottom: 4.0,
+                        left: 12.0,
+                        right: 0.0,
+                    }),
+                );
+            } else if !first {
+                nav = nav.push(container(rule::horizontal(1)).padding([6, 8]));
+            }
+            first = false;
+            for i in items {
+                nav = nav.push(entry(i.label, i.icon, i.id));
+                if wide && p.tab == i.id {
+                    let on = self.subtab(i.id);
+                    for (t, l) in plugins::visible_tabs(i.id, adv) {
+                        let active = t == on;
+                        nav = nav.push(
+                            button(
+                                text(crate::i18n::tr(l))
+                                    .font(if active { self.title_font() } else { self.font })
+                                    .size(12),
+                            )
+                            .width(Length::Fill)
+                            .padding(iced::Padding {
+                                top: 5.0,
+                                bottom: 5.0,
+                                left: 40.0,
+                                right: 8.0,
+                            })
+                            .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
+                            .style(move |_, status| button::Style {
+                                background: if matches!(
+                                    status,
+                                    button::Status::Hovered | button::Status::Pressed
+                                ) {
+                                    Some(Color { a: 0.06, ..fg }.into())
+                                } else {
+                                    None
+                                },
+                                text_color: if active {
+                                    accent
+                                } else {
+                                    Color { a: 0.75, ..fg }
+                                },
+                                border: Border::default().rounded(8),
+                                ..Default::default()
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+        let nav = scrollable(nav)
+            .height(Length::Fill)
+            .width(if wide { 166 } else { 46 })
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4),
+            ));
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let close_icon = super::icons::get("window-close").unwrap();
         let close = tooltip(
@@ -371,15 +536,29 @@ impl App {
                     .size(27)
                     .font(self.title_font())
                     .color(fg),
-                text(format!("{mon}  ·  Bureau {ws}"))
+                text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
                     .font(self.font)
                     .size(12)
                     .color(Color { a: 0.65, ..fg }),
             ]
             .spacing(5)
             .width(Length::Fill),
+            button(
+                text(crate::i18n::tr("Visite guidée"))
+                    .font(self.font)
+                    .size(12)
+            )
+            .padding([4, 10])
+            .style(button::text)
+            .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start))),
+            toggler(adv)
+                .label(crate::i18n::tr("Configuration avancée"))
+                .text_size(12)
+                .font(self.font)
+                .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
             close,
         ]
+        .spacing(12)
         .align_y(Alignment::Center);
         let content = plugins::view(self, p, p.tab);
         let detail = column![
@@ -396,6 +575,8 @@ impl App {
             ]
             .spacing(7)
             .align_y(Alignment::Center),
+            self.tour_card(),
+            self.subtab_bar(p.tab),
             scrollable(container(content).padding(iced::Padding {
                 right: 14.0,
                 ..iced::Padding::ZERO
@@ -415,7 +596,15 @@ impl App {
         .padding(24)
         .width(self.panel_width() - 2.0 * DRAWER_GAP)
         .height(Length::Fill)
-        .style(|theme| super::design::surface(theme, super::design::Surface::Panel));
+        .style({
+            let opacity = self
+                .cfg
+                .general
+                .theme
+                .effect(crate::config::Place::Settings)
+                .opacity;
+            move |theme| super::design::panel_surface(theme, opacity)
+        });
         let progress = self
             .panel_fade
             .map(|f| f.value(std::time::Instant::now()))

@@ -19,7 +19,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use iced::widget::{Space, button, column, container, image, row, stack, text, text_input};
+use crate::i18n::text;
+use iced::widget::{Space, button, column, container, image, row, stack, text_input};
 use iced::{Alignment, Border, Color, Element, Font, Length, Padding, Subscription, Task};
 use iced_sessionlock::to_session_message;
 
@@ -36,6 +37,10 @@ enum Msg {
     Submit,
     Auth(pam::Outcome),
     Background(Option<image::Handle>),
+    /// Scène étalée : la part de chaque écran (nom, image).
+    Parts(Vec<(String, Option<image::Handle>)>),
+    /// Taille d'une surface (associe la surface à son écran).
+    Resized(iced::window::Id, iced::Size),
     Avatar(Option<image::Handle>),
     Media(Option<crate::widgets::MediaInfo>),
     PlayPause,
@@ -57,6 +62,13 @@ struct Lock {
     started: Instant,
     last_input: Instant,
     background: Option<image::Handle>,
+    /// Scène étalée : part de chaque écran, par nom.
+    parts: std::collections::HashMap<String, image::Handle>,
+    /// Surfaces dans leur ordre d'apparition (celui des sorties Wayland, donc
+    /// des écrans de Hyprland) ; corrigé par la taille quand elle désigne un
+    /// seul écran. Le protocole de verrouillage ne donne pas le nom de la sortie.
+    seen: std::cell::RefCell<Vec<iced::window::Id>>,
+    by_size: std::collections::HashMap<iced::window::Id, String>,
     avatar: Option<image::Handle>,
     battery: Option<(u8, bool)>,
     media: Option<crate::widgets::MediaInfo>,
@@ -164,11 +176,7 @@ const INPUT_ID: &str = "hyprdesk-lock-password";
 
 /// Langue des dates (comme le bureau : `LC_TIME`, sinon `LANG`).
 fn locale() -> chrono::Locale {
-    let lang = std::env::var("LC_TIME")
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
-    let base = lang.split('.').next().unwrap_or("");
-    chrono::Locale::try_from(base).unwrap_or(chrono::Locale::POSIX)
+    crate::i18n::chrono_locale()
 }
 
 impl Lock {
@@ -196,6 +204,9 @@ impl Lock {
             started: now,
             last_input: now,
             background: None,
+            parts: Default::default(),
+            seen: Default::default(),
+            by_size: Default::default(),
             avatar: None,
             battery: battery(),
             media: None,
@@ -205,6 +216,29 @@ impl Lock {
         };
         // Verrouillé tout de suite sur la couleur de fond ; l'image suit.
         let mut tasks = vec![iced::widget::operation::focus(INPUT_ID)];
+        // Scène étalée : la part de chaque écran ; sinon une seule image.
+        if !lock.st.outputs.is_empty() {
+            let blur = lock.st.blur;
+            let parts: Vec<(String, PathBuf)> = lock
+                .st
+                .outputs
+                .iter()
+                .filter_map(|o| Some((o.name.clone(), o.image.clone()?)))
+                .collect();
+            tasks.push(Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        parts
+                            .into_iter()
+                            .map(|(n, p)| (n, load_background(p, blur)))
+                            .collect::<Vec<_>>()
+                    })
+                    .await
+                    .unwrap_or_default()
+                },
+                Msg::Parts,
+            ));
+        }
         if let Some(p) = lock.st.image.clone() {
             let blur = lock.st.blur;
             tasks.push(Task::perform(
@@ -286,7 +320,7 @@ impl Lock {
                         .await
                         .unwrap_or_else(|_| pam::Outcome {
                             ok: false,
-                            error: Some("vérification interrompue".into()),
+                            error: Some(crate::i18n::tr("vérification interrompue").into()),
                             messages: Vec::new(),
                         })
                     },
@@ -305,6 +339,25 @@ impl Lock {
             }
             Msg::Background(h) => {
                 self.background = h;
+                Task::none()
+            }
+            Msg::Parts(list) => {
+                self.parts = list
+                    .into_iter()
+                    .filter_map(|(n, h)| Some((n, h?)))
+                    .collect();
+                Task::none()
+            }
+            Msg::Resized(id, size) => {
+                let (w, h) = (size.width.round() as u32, size.height.round() as u32);
+                let mut same = self
+                    .st
+                    .outputs
+                    .iter()
+                    .filter(|o| o.width == w && o.height == h);
+                if let (Some(o), None) = (same.next(), same.next()) {
+                    self.by_size.insert(id, o.name.clone());
+                }
                 Task::none()
             }
             Msg::Avatar(h) => {
@@ -333,7 +386,24 @@ impl Lock {
         }
     }
 
-    fn view(&self, _id: iced::window::Id) -> Element<'_, Msg> {
+    /// Écran d'une surface : d'après sa taille si elle le désigne, sinon
+    /// d'après son ordre d'apparition.
+    fn output_of(&self, id: iced::window::Id) -> Option<&str> {
+        if self.st.outputs.is_empty() {
+            return None;
+        }
+        if let Some(n) = self.by_size.get(&id) {
+            return Some(n.as_str());
+        }
+        let mut seen = self.seen.borrow_mut();
+        if !seen.contains(&id) {
+            seen.push(id);
+        }
+        let i = seen.iter().position(|x| *x == id)?;
+        self.st.outputs.get(i).map(|o| o.name.as_str())
+    }
+
+    fn view(&self, id: iced::window::Id) -> Element<'_, Msg> {
         let st = &self.st;
         let idle = self.last_input.elapsed() >= IDLE_DIM;
         // Anti-marquage : contenu estompé au repos, et lente dérive.
@@ -389,7 +459,7 @@ impl Lock {
         let bg = rgba(st.background, 0.55);
         let input = text_input(
             if self.checking {
-                "Vérification…"
+                crate::i18n::tr("Vérification…")
             } else {
                 "Mot de passe"
             },
@@ -426,7 +496,7 @@ impl Lock {
         if let Some((layout, caps)) = &self.keyboard {
             let mut l = layout.clone();
             if *caps {
-                l = format!("Majuscules verrouillées · {l}");
+                l = crate::tr!("Majuscules verrouillées · {l}", l = l);
             }
             if !l.is_empty() {
                 notes = notes.push(text(l).font(self.font).size(13).color(dim));
@@ -434,12 +504,11 @@ impl Lock {
         }
         if let Some(e) = &self.error {
             notes = notes.push(
-                text(format!(
-                    "{} ({} échec{})",
-                    e,
-                    self.failures,
-                    if self.failures > 1 { "s" } else { "" }
-                ))
+                text(if self.failures > 1 {
+                    crate::tr!("{e} ({n} échecs)", e = e, n = self.failures)
+                } else {
+                    crate::tr!("{e} ({n} échec)", e = e, n = self.failures)
+                })
                 .font(self.font)
                 .size(14)
                 .color(Color::from_rgb8(0xff, 0x95, 0x80)),
@@ -515,7 +584,9 @@ impl Lock {
                 })
                 .into(),
         ];
-        if let Some(h) = &self.background {
+        // Scène étalée : la part de cet écran ; sinon l'image entière.
+        let part = self.output_of(id).and_then(|n| self.parts.get(n));
+        if let Some(h) = part.or(self.background.as_ref()) {
             layers.push(
                 image(h.clone())
                     .width(Length::Fill)
@@ -550,6 +621,12 @@ impl Lock {
             iced::event::listen_with(|e, _, _| match e {
                 iced::Event::Keyboard(_)
                 | iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => Some(Msg::Activity),
+                _ => None,
+            }),
+            iced::event::listen_with(|e, _, id| match e {
+                iced::Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Msg::Resized(id, size))
+                }
                 _ => None,
             }),
         ])
@@ -590,7 +667,7 @@ pub fn run() -> ExitCode {
     match app.run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("hyprdesk lock : {e}");
+            eprintln!("{}", crate::tr!("hyprdesk lock : {e}", e = e));
             ExitCode::FAILURE
         }
     }

@@ -7,7 +7,7 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, settings?: string|false, leave?: string|false }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field mode? "opaque"|"glass"
@@ -22,13 +22,32 @@
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" par défaut (embarquée), ou une famille installée
 ---@field font_size? number
+---@field advanced_settings? boolean Écran Réglages : tous les détails (sinon l'essentiel)
+---@field tour_seen? boolean Visite guidée faite ou écartée (plus proposée)
+---@field language? "auto"|"fr"|"en" Langue de l'interface (auto : celle du système)
+---@field layout? string Layout par défaut : "dwindle", "master", "scrolling", "monocle", "grid", "columns", "rows", "centered" ou "lua:<nom>"
+---@field layout_workspaces? table<string|integer, string> Layout de certains workspaces ({ [3] = "monocle" })
+---@field dwindle? table<string, boolean|number> Options de Dwindle (preserve_split, smart_split, force_split, default_split_ratio…)
+---@field master? table<string, boolean|number|string> Options de Master (orientation, mfact, new_status, new_on_top…)
+---@field scrolling? table<string, boolean|number|string> Options de Scrolling (direction, column_width, follow_focus…)
 ---@field terminal? string # "kitty" → "kitty -e <cmd>" ; ou gabarit "foot {cmd}"
 ---@field glass_opacity? number # 0..1
 ---@field background? HD.Color
 ---@field workspace_monitors? table<string, (string|integer)[]> # écran (ou "primary") → workspaces ; le premier est affiché par défaut
 ---@field workspaces? integer|false # workspaces 1..N permanents (1 à 30) ; false : laissés à Hyprland
 ---@field grid? { cell?: integer, gap?: integer, margin?: integer, icon_size?: integer }
----@field theme? { fg?: HD.Color, bg?: HD.Color, accent?: HD.Color }
+---@field theme? HD.Theme
+
+---@class HD.Effect
+---@field opacity? number # 0..1 : opacité du fond
+---@field blur? boolean # flou de ce qu'il y a derrière (pas pour les widgets)
+
+---@class HD.Theme
+---@field name? string
+---@field fg? HD.Color # texte
+---@field bg? HD.Color # surfaces
+---@field accent? HD.Color
+---@field effects? { bar?: HD.Effect, menus?: HD.Effect, launcher?: HD.Effect, settings?: HD.Effect, widgets?: HD.Effect }
 
 ---@class HD.RuleSpec
 ---@field workspace? HD.Selector # "*" = tous
@@ -39,6 +58,7 @@
 ---@field rotate? { dir: string, interval?: number, shuffle?: boolean }
 ---@field color? HD.Color
 ---@field fit? "cover"|"contain"|"fill"|"center"
+---@field span? boolean|"lock"|"desktop" # une scène sur tous les écrans, découpée selon leur disposition ; "lock" : au verrouillage seulement (pas avec color)
 
 ---@class HD.DesktopSpec: HD.RuleSpec
 ---@field mode? "opaque"|"glass"
@@ -196,3 +216,13 @@ function hd.exec(cmd) end
 --- Lance une commande par Hyprland, sans attendre sa sortie.
 ---@param cmd string
 function hd.spawn(cmd) end
+
+--- Texte dans la langue de l'interface : le français sert de clé dans le
+--- catalogue de hyprdesk (locales/en.toml) ; absent, il est rendu tel quel.
+---@param text string
+---@return string
+function hd.t(text) end
+
+--- Langue de l'interface : "fr" ou "en" (pour les plugins qui ont leurs textes).
+---@return "fr"|"en"
+function hd.lang() end

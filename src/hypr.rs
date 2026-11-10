@@ -27,6 +27,8 @@ pub struct Monitor {
     /// Position de l'écran dans l'espace global (coordonnées logiques).
     pub x: f32,
     pub y: f32,
+    /// Échelle de Hyprland : pixels physiques = taille logique × échelle.
+    pub scale: f32,
 }
 
 /// Position globale du curseur, demandée à Hyprland au moment du clic (pas de
@@ -104,7 +106,10 @@ pub fn focus_workspace(target: &str) -> Result<(), ipc::IpcError> {
     };
     let r = ipc::dispatch(&format!("hl.dsp.focus({{ workspace = {arg} }})"))?;
     if r.trim() != "ok" {
-        tracing::warn!("workspace {target} : {r}");
+        tracing::warn!(
+            "{}",
+            crate::tr!("workspace {target} : {r}", target = target, r = r)
+        );
     }
     Ok(())
 }
@@ -153,7 +158,7 @@ pub async fn clients_async() -> Vec<Client> {
     match tokio::task::spawn_blocking(|| ipc::query_json("clients")).await {
         Ok(Ok(v)) => parse_clients(&v),
         Ok(Err(e)) => {
-            tracing::warn!("lecture des fenêtres : {e}");
+            tracing::warn!("{}", crate::tr!("lecture des fenêtres : {e}", e = e));
             Vec::new()
         }
         Err(_) => Vec::new(),
@@ -167,7 +172,10 @@ pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
         ipc::lua_escape(address)
     ))?;
     if r.trim() != "ok" {
-        tracing::warn!("focus {address} : {r}");
+        tracing::warn!(
+            "{}",
+            crate::tr!("focus {address} : {r}", address = address, r = r)
+        );
     }
     Ok(())
 }
@@ -227,6 +235,7 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
                 reserved: (r(0), r(1), r(2), r(3)),
                 x: m["x"].as_f64().unwrap_or(0.0) as f32,
                 y: m["y"].as_f64().unwrap_or(0.0) as f32,
+                scale: scale as f32,
             })
         })
         .collect()
@@ -240,7 +249,7 @@ pub async fn monitors_async() -> Vec<Monitor> {
     match tokio::task::spawn_blocking(monitors).await {
         Ok(Ok(m)) => m,
         Ok(Err(e)) => {
-            tracing::warn!("lecture des écrans : {e}");
+            tracing::warn!("{}", crate::tr!("lecture des écrans : {e}", e = e));
             Vec::new()
         }
         Err(_) => Vec::new(),
@@ -285,7 +294,7 @@ pub fn stream() -> impl Stream<Item = Update> {
                 let path = match ipc::event_socket_path() {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("socket d'événements : {e}");
+                        tracing::warn!("{}", crate::tr!("socket d'événements : {e}", e = e));
                         tokio::time::sleep(Duration::from_secs(2)).await;
                         continue;
                     }
@@ -316,9 +325,12 @@ pub fn stream() -> impl Stream<Item = Update> {
                                     out.send(Update::ActiveWindow(parse_active_window(p))).await;
                             }
                         }
-                        tracing::info!("socket d'événements fermée, reconnexion");
+                        tracing::info!("{}", crate::tr!("socket d'événements fermée, reconnexion"));
                     }
-                    Err(e) => tracing::warn!("connexion à {} : {e}", path.display()),
+                    Err(e) => tracing::warn!(
+                        "{}",
+                        crate::tr!("connexion à {p0} : {e}", p0 = path.display(), e = e)
+                    ),
                 }
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
@@ -428,7 +440,15 @@ pub fn universal_binds(binds: &Value) -> Vec<String> {
 /// Lua qui (ré)installe les raccourcis de hyprdesk dans Hyprland. Ceux de la
 /// submap rendent les raccourcis AVANT d'appeler hyprdesk : même démon
 /// arrêté, on ne reste jamais bloqué dans la submap.
-pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) -> String {
+/// Raccourci de verrouillage que `scripts/install.sh` pose dans hyprland.lua.
+pub const LOCK_KEY_DEFAULT: &str = "SUPER + L";
+
+pub fn build_keys_lua(
+    keys: &crate::config::Keys,
+    blurred: &[&str],
+    exe: &str,
+    skip: &[String],
+) -> String {
     let q = |s: &str| format!("\"{}\"", ipc::lua_escape(s));
     let cmd = |arg: &str| format!("{} {arg}", crate::launch::sh_quote(exe));
     let mut lua = String::from(
@@ -438,6 +458,23 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
          local function leave(c) return function() hl.dispatch(hl.dsp.submap(\"reset\")) hl.dispatch(hl.dsp.exec_cmd(c)) end end\n",
     );
     let usable = |k: &String| !k.is_empty() && !skip.contains(k);
+    // Verrouillage : par défaut celui de hyprland.lua. Réglé dans hyprdesk, il
+    // le remplace (la combinaison est libérée) ; retiré ou changé, Hyprland
+    // relit sa config pour rendre le raccourci d'origine, puis hyprdesk se réinstalle.
+    let lock = if keys.lock.is_empty() {
+        "nil".to_string()
+    } else {
+        q(&keys.lock)
+    };
+    lua += &format!(
+        "local lock_key = {lock}
+         if __hyprdesk_lock_key and __hyprdesk_lock_key ~= lock_key then
+             __hyprdesk_lock_key = nil
+             hl.dispatch(hl.dsp.exec_cmd(\"hyprctl reload\"))
+         end
+         if lock_key then pcall(function() hl.unbind(lock_key) end) __hyprdesk_lock_key = lock_key end
+"
+    );
     // Un raccourci par mode ; celui du mode en cours rend no-desktop.
     for (k, arg, desc) in [
         (&keys.toggle, "toggle", "full-desktop"),
@@ -452,13 +489,21 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
             );
         }
     }
-    if usable(&keys.settings) {
-        lua += &format!(
-            "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : réglages\" }}))\n",
-            q(&keys.settings),
-            q(&cmd("settings"))
-        );
+    for (k, arg, desc) in [
+        (&keys.settings, "settings", "réglages"),
+        (&keys.lock, "lock", "verrouiller"),
+    ] {
+        if usable(k) {
+            lua += &format!(
+                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
+        }
     }
+    // Dans la submap, les raccourcis de Hyprland sont suspendus : un raccourci
+    // déjà pris hors de la submap n'y est pas en conflit, il s'installe.
+    let usable = |k: &String| !k.is_empty();
     lua += &format!("hl.define_submap({}, function()\n", q(SUBMAP));
     // Dans la submap (full-desktop, raccourcis suspendus) : chaque raccourci
     // rend d'abord la main, puis change de mode.
@@ -476,20 +521,42 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
             );
         }
     }
-    // Les réglages ne changent pas de mode : la submap reste active.
-    if usable(&keys.settings) {
-        lua += &format!(
-            "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : réglages\" }}))\n",
-            q(&keys.settings),
-            q(&cmd("settings"))
-        );
+    // Réglages et verrouillage ne changent pas de mode : la submap reste active.
+    // Verrouillage non réglé : la combinaison de hyprland.lua (posée par
+    // l'installation), suspendue avec les autres dans la submap.
+    let submap_lock = if keys.lock.is_empty() {
+        LOCK_KEY_DEFAULT.to_string()
+    } else {
+        keys.lock.clone()
+    };
+    for (k, arg, desc) in [
+        (&keys.settings, "settings", "réglages"),
+        (&submap_lock, "lock", "verrouiller"),
+    ] {
+        if usable(k) {
+            lua += &format!(
+                "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
+        }
     }
     lua += "end)\n";
-    // Barre et menus : flou derrière leur fond translucide, apparition en douceur.
+    // Surfaces floutées selon le thème (barre, menus, lanceur, réglages),
+    // menus sans animation d'apparition.
     lua += "if __hyprdesk_rules then for _, r in ipairs(__hyprdesk_rules) do pcall(function() r:set_enabled(false) end) end end\n\
-            __hyprdesk_rules = {}\n\
-            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-(bar|popover|settings|launcher|launcher-popup)$\" }, blur = true, ignore_alpha = 0.2, xray = false })) end)\n\
-            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-popover$\" }, animation = \"none\" })) end)\n";
+            __hyprdesk_rules = {}\n";
+    if !blurred.is_empty() {
+        let names: Vec<&str> = blurred
+            .iter()
+            .map(|n| n.trim_start_matches("hyprdesk-"))
+            .collect();
+        lua += &format!(
+            "pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({{ match = {{ namespace = \"^hyprdesk-({})$\" }}, blur = true, ignore_alpha = 0.2, xray = false }})) end)\n",
+            names.join("|")
+        );
+    }
+    lua += "pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-(popover|launcher|launcher-popup)$\" }, animation = \"none\" })) end)\n";
     lua
 }
 
@@ -497,9 +564,14 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
 /// et les raccourcis universels de Hyprland.
 pub type KeyReport = (Vec<(String, String)>, Vec<String>);
 
-pub fn install_keys(keys: &crate::config::Keys) -> Result<KeyReport, ipc::IpcError> {
+pub fn install_keys(
+    keys: &crate::config::Keys,
+    blurred: &[&str],
+) -> Result<KeyReport, ipc::IpcError> {
     let binds = ipc::query_json("binds")?;
     let mut conflicts = Vec::new();
+    // Le raccourci de verrouillage réglé dans hyprdesk remplace celui de
+    // hyprland.lua (build_keys_lua) : jamais en conflit.
     for k in [
         &keys.toggle,
         &keys.launcher,
@@ -518,9 +590,9 @@ pub fn install_keys(keys: &crate::config::Keys) -> Result<KeyReport, ipc::IpcErr
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
-    let r = ipc::eval(&build_keys_lua(keys, &exe, &skip))?;
+    let r = ipc::eval(&build_keys_lua(keys, blurred, &exe, &skip))?;
     if r.trim() != "ok" {
-        tracing::warn!("installation des raccourcis : {r}");
+        tracing::warn!("{}", crate::tr!("installation des raccourcis : {r}", r = r));
     }
     let after = ipc::query_json("binds").unwrap_or(binds);
     Ok((conflicts, universal_binds(&after)))
@@ -530,7 +602,7 @@ pub fn install_keys(keys: &crate::config::Keys) -> Result<KeyReport, ipc::IpcErr
 pub fn remove_keys() {
     let lua = "if __hyprdesk_binds then for _, b in ipairs(__hyprdesk_binds) do pcall(function() b:remove() end) end end __hyprdesk_binds = nil";
     if let Err(e) = ipc::eval(lua) {
-        tracing::warn!("retrait des raccourcis : {e}");
+        tracing::warn!("{}", crate::tr!("retrait des raccourcis : {e}", e = e));
     }
 }
 
@@ -661,11 +733,14 @@ pub fn install_rules(
         .collect();
     let r = ipc::eval(&build_rules_lua(workspaces, placement, &assigns))?;
     if r.trim() != "ok" {
-        tracing::warn!("règles de workspace : {r}");
+        tracing::warn!("{}", crate::tr!("règles de workspace : {r}", r = r));
         notify(
             3,
             6000,
-            &format!("hyprdesk : règles de workspace refusées — {}", r.trim()),
+            &crate::tr!(
+                "hyprdesk : règles de workspace refusées — {p0}",
+                p0 = r.trim()
+            ),
         );
     }
     Ok(())
@@ -720,15 +795,18 @@ pub fn set_desktop_gaps(margins: &[(String, [i32; 4])]) {
     };
     match ipc::eval(&build_gaps_lua(margins, base)) {
         Ok(r) if r.trim() == "ok" => {}
-        Ok(r) => tracing::warn!("marges du bureau : {}", r.trim()),
-        Err(e) => tracing::warn!("marges du bureau : {e}"),
+        Ok(r) => tracing::warn!("{}", crate::tr!("marges du bureau : {p0}", p0 = r.trim())),
+        Err(e) => tracing::warn!("{}", crate::tr!("marges du bureau : {e}", e = e)),
     }
 }
 
 /// Désactive les règles de workspace de hyprdesk (arrêt du démon).
 pub fn remove_rules() {
     if let Err(e) = ipc::eval(&build_rules_lua(None, &[], &[])) {
-        tracing::warn!("retrait des règles de workspace : {e}");
+        tracing::warn!(
+            "{}",
+            crate::tr!("retrait des règles de workspace : {e}", e = e)
+        );
     }
 }
 
@@ -739,7 +817,7 @@ pub fn set_submap(name: Option<&str>) {
         ipc::lua_escape(name.unwrap_or("reset"))
     );
     if let Err(e) = ipc::dispatch(&target) {
-        tracing::warn!("submap : {e}");
+        tracing::warn!("{}", crate::tr!("submap : {e}", e = e));
     }
 }
 
@@ -775,8 +853,11 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
         ipc::lua_escape(address)
     ))?;
     if r.trim() != "ok" {
-        return Err(ipc::IpcError::Io(std::io::Error::other(format!(
-            "déplacement de {address} vers {workspace} : {r}"
+        return Err(ipc::IpcError::Io(std::io::Error::other(crate::tr!(
+            "déplacement de {address} vers {workspace} : {r}",
+            address = address,
+            workspace = workspace,
+            r = r
         ))));
     }
     Ok(())
@@ -810,7 +891,13 @@ pub fn close_stash_view() {
         for mon in &stuck {
             let target = regular_workspace(&v, &workspaces, mon);
             tracing::warn!(
-                "{mon} affichait {STASH} comme workspace ordinaire : retour sur {target}"
+                "{}",
+                crate::tr!(
+                    "{mon} affichait {stash} comme workspace ordinaire : retour sur {target}",
+                    mon = mon,
+                    stash = STASH,
+                    target = target
+                )
             );
             let _ = ipc::dispatch(&format!(
                 "hl.dsp.focus({{ monitor = \"{}\" }})",
@@ -848,7 +935,10 @@ pub fn close_stash_view() {
             "hl.dsp.workspace.toggle_special(\"{}\")",
             ipc::lua_escape(name)
         )) {
-            tracing::warn!("fermeture de {STASH} : {e}");
+            tracing::warn!(
+                "{}",
+                crate::tr!("fermeture de {stash} : {e}", stash = STASH, e = e)
+            );
         }
     }
     if let Some(f) = focused
@@ -968,7 +1058,13 @@ fn restore_using(
     let clients = match query() {
         Ok(Value::Array(a)) => a,
         other => {
-            tracing::warn!("restitution reportée : réponse clients invalide ({other:?})");
+            tracing::warn!(
+                "{}",
+                crate::tr!(
+                    "restitution reportée : réponse clients invalide ({other})",
+                    other = format!("{other:?}")
+                )
+            );
             return list.to_vec();
         }
     };
@@ -984,7 +1080,10 @@ fn restore_using(
     }
     for s in &targets {
         if let Err(e) = move_back(s) {
-            tracing::warn!("restitution de {} : {e}", s.address);
+            tracing::warn!(
+                "{}",
+                crate::tr!("restitution de {p0} : {e}", p0 = s.address, e = e)
+            );
         }
     }
     match query() {
@@ -1002,19 +1101,22 @@ pub fn restore_leftover_stash() {
     let list = match load_stash() {
         Ok(list) => list,
         Err(e) => {
-            tracing::warn!("journal conservé : {e}");
+            tracing::warn!("{}", crate::tr!("journal conservé : {e}", e = e));
             return;
         }
     };
     if !list.is_empty() {
         let pending = restore(&list);
         tracing::info!(
-            "{} fenêtre(s) restituée(s), {} en attente",
-            list.len() - pending.len(),
-            pending.len()
+            "{}",
+            crate::tr!(
+                "{p0} fenêtre(s) restituée(s), {p1} en attente",
+                p0 = list.len() - pending.len(),
+                p1 = pending.len()
+            )
         );
         if let Err(e) = save_stash(&pending) {
-            tracing::warn!("journal : {e}");
+            tracing::warn!("{}", crate::tr!("journal : {e}", e = e));
         }
     }
 }
@@ -1024,7 +1126,14 @@ pub fn restore_leftover_stash() {
 pub fn exec(cmd: &str) -> Result<(), ipc::IpcError> {
     let r = ipc::dispatch(&format!("hl.dsp.exec_cmd(\"{}\")", ipc::lua_escape(cmd)))?;
     if r.trim() != "ok" {
-        tracing::warn!("exec « {cmd} » : réponse inattendue de Hyprland : {r}");
+        tracing::warn!(
+            "{}",
+            crate::tr!(
+                "exec « {cmd} » : réponse inattendue de Hyprland : {r}",
+                cmd = cmd,
+                r = r
+            )
+        );
     }
     Ok(())
 }
@@ -1037,7 +1146,14 @@ pub fn exec_floating(cmd: &str, w: u32, h: u32) -> Result<(), ipc::IpcError> {
         ipc::lua_escape(cmd)
     ))?;
     if r.trim() != "ok" {
-        tracing::warn!("exec « {cmd} » : réponse inattendue de Hyprland : {r}");
+        tracing::warn!(
+            "{}",
+            crate::tr!(
+                "exec « {cmd} » : réponse inattendue de Hyprland : {r}",
+                cmd = cmd,
+                r = r
+            )
+        );
     }
     Ok(())
 }
@@ -1053,7 +1169,7 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
                 .spawn(move || {
                     while let Ok((icon, ms, msg)) = rx.recv() {
                         if let Err(e) = ipc::notify(icon, ms, "0", &msg) {
-                            tracing::warn!("notification Hyprland : {e}");
+                            tracing::warn!("{}", crate::tr!("notification Hyprland : {e}", e = e));
                         }
                     }
                 })
@@ -1061,7 +1177,7 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
             tx
         });
     if let Err(e) = NOTICES.try_send((icon, ms, msg.to_string())) {
-        tracing::warn!("notification reportée : {e}");
+        tracing::warn!("{}", crate::tr!("notification reportée : {e}", e = e));
     }
 }
 
@@ -1275,16 +1391,44 @@ mod tests {
             launcher: "SUPER + ALT + D".into(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
+            lock: "SUPER + L".into(),
             leave: "SUPER + Escape".into(),
         };
-        let lua = build_keys_lua(&k, "/bin/hyprdesk", &["SUPER + SHIFT + D".to_string()]);
+        let lua = build_keys_lua(
+            &k,
+            &["hyprdesk-bar"],
+            "/bin/hyprdesk",
+            &["SUPER + SHIFT + D".to_string()],
+        );
         assert!(
             lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
             "{lua}"
         );
+        // En conflit hors de la submap : pas installé là, mais bien dans la
+        // submap, où les raccourcis de Hyprland sont suspendus.
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
         assert!(
-            !lua.contains("SHIFT"),
+            !main.contains("SHIFT"),
             "un raccourci en conflit n'est pas installé : {lua}"
+        );
+        assert!(
+            submap.contains(
+                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' settings")"#
+            ),
+            "{lua}"
+        );
+        // Verrouiller : hors de la submap et dans la submap (sans la quitter).
+        assert!(
+            main.contains(r#"keep(hl.bind("SUPER + L", hl.dsp.exec_cmd("'/bin/hyprdesk' lock")"#),
+            "{lua}"
+        );
+        assert!(
+            submap.contains(r#"keep(hl.bind("SUPER + L", hl.dsp.exec_cmd("'/bin/hyprdesk' lock")"#),
+            "{lua}"
+        );
+        assert!(
+            lua.contains(r#"namespace = "^hyprdesk-(bar)$" }, blur = true"#),
+            "seules les couches floutées par le thème : {lua}"
         );
         assert!(lua.contains(r#"hl.define_submap("hyprdesk", function()"#));
         assert!(
@@ -1302,8 +1446,28 @@ mod tests {
             lua.contains(r#"hl.bind("SUPER + ALT + D", leave("'/bin/hyprdesk' launcher-only")"#)
         );
         assert!(lua.contains(r#"hl.bind("SUPER + D", leave("'/bin/hyprdesk' hide")"#));
+        // Verrouillage réglé : la combinaison de hyprland.lua est libérée, puis liée.
+        assert!(
+            lua.contains(r#"local lock_key = "SUPER + L""#)
+                && lua.contains("hl.unbind(lock_key)")
+                && lua.contains(r#"hl.bind("SUPER + L", hl.dsp.exec_cmd("'/bin/hyprdesk' lock")"#),
+            "{lua}"
+        );
+        // Non réglé : rien de lié ; s'il l'était, Hyprland relit sa config.
+        let mut none = k.clone();
+        none.lock.clear();
+        let lua = build_keys_lua(&none, &[], "/bin/hyprdesk", &[]);
+        assert!(lua.contains("local lock_key = nil") && lua.contains("hyprctl reload"));
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        assert!(!main.contains("' lock\")"), "{lua}");
+        // … sauf dans la submap, où celui de hyprland.lua est suspendu.
+        assert!(
+            submap.contains(r#"hl.bind("SUPER + L", hl.dsp.exec_cmd("'/bin/hyprdesk' lock")"#),
+            "{lua}"
+        );
         // Réglages : hors submap et dans la submap, sans la quitter.
-        let lua = build_keys_lua(&k, "/bin/hyprdesk", &[]);
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[]);
+        assert!(!lua.contains("blur = true"), "aucun flou demandé : {lua}");
         assert_eq!(
             lua.matches(
                 r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' settings")"#

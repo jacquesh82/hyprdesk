@@ -46,7 +46,7 @@ pub async fn output(
     .unwrap_or_else(|_| {
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            "délai de commande dépassé",
+            crate::i18n::tr("délai de commande dépassé"),
         ))
     });
     if result.is_err() {

@@ -33,6 +33,8 @@ pub enum Command {
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
     Assistant,
+    /// Ouvre les réglages sur la visite guidée.
+    Tour,
 }
 
 impl Command {
@@ -48,6 +50,7 @@ impl Command {
             "status" => Command::Status,
             "quit" => Command::Quit,
             "assistant" => Command::Assistant,
+            "tour" => Command::Tour,
             "settings" => Command::Settings("desktop".into()),
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
@@ -77,6 +80,7 @@ impl Command {
             Command::Settings(_) => "settings",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
+            Command::Tour => "tour",
         }
     }
 }
@@ -99,8 +103,12 @@ pub fn send(cmd: Command) -> anyhow::Result<String> {
     let path = socket_path()?;
     let mut s = StdUnixStream::connect(&path).map_err(|e| {
         anyhow::anyhow!(
-            "démon hyprdesk injoignable ({}) : {e} — est-il lancé ?",
-            path.display()
+            "{}",
+            crate::tr!(
+                "démon hyprdesk injoignable ({path}) : {e} — est-il lancé ?",
+                path = path.display(),
+                e = e
+            )
         )
     })?;
     s.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -120,7 +128,7 @@ pub fn server_stream() -> impl Stream<Item = Command> {
             let path = match socket_path() {
                 Ok(p) => p,
                 Err(e) => {
-                    tracing::error!("socket de commande : {e}");
+                    tracing::error!("{}", crate::tr!("socket de commande : {e}", e = e));
                     return;
                 }
             };
@@ -129,11 +137,14 @@ pub fn server_stream() -> impl Stream<Item = Command> {
             let listener = match UnixListener::bind(&path) {
                 Ok(l) => l,
                 Err(e) => {
-                    tracing::error!("écoute sur {} : {e}", path.display());
+                    tracing::error!(
+                        "{}",
+                        crate::tr!("écoute sur {p0} : {e}", p0 = path.display(), e = e)
+                    );
                     return;
                 }
             };
-            tracing::info!("commandes sur {}", path.display());
+            tracing::info!("{}", crate::tr!("commandes sur {p0}", p0 = path.display()));
             let connections = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
             loop {
                 let Ok((stream, _)) = listener.accept().await else {
@@ -161,10 +172,10 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                         Some(c) => {
                             match tokio::time::timeout(Duration::from_secs(2), out.send(c)).await {
                                 Ok(Ok(())) => "ok".to_string(),
-                                _ => "démon occupé".to_string(),
+                                _ => crate::i18n::tr("démon occupé").to_string(),
                             }
                         }
-                        None => format!("commande inconnue : {}", line.trim()),
+                        None => crate::tr!("commande inconnue : {p0}", p0 = line.trim()),
                     };
                     let _ = tokio::time::timeout(
                         Duration::from_secs(2),
@@ -188,12 +199,15 @@ pub fn signal_stream() -> impl Stream<Item = Command> {
                 signal(SignalKind::terminate()),
                 signal(SignalKind::interrupt()),
             ) else {
-                tracing::warn!("signaux indisponibles : arrêt propre sur SIGTERM désactivé");
+                tracing::warn!(
+                    "{}",
+                    crate::tr!("signaux indisponibles : arrêt propre sur SIGTERM désactivé")
+                );
                 return;
             };
             tokio::select! {
-                _ = term.recv() => tracing::info!("SIGTERM : arrêt propre"),
-                _ = int.recv() => tracing::info!("SIGINT : arrêt propre"),
+                _ = term.recv() => tracing::info!("{}", crate::tr!("SIGTERM : arrêt propre")),
+                _ = int.recv() => tracing::info!("{}", crate::tr!("SIGINT : arrêt propre")),
             }
             let _ = out.send(Command::Quit).await;
             // Le démon quitte ; ne plus rien émettre.

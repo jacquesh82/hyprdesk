@@ -3,8 +3,9 @@
 //! + décalage). En mode réglages, un widget se sélectionne et se déplace à
 //!   la souris.
 
+use crate::i18n::text;
 use chrono::{Datelike, Local};
-use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row, text};
+use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, mouse};
 
 use super::{App, IconImg, Msg, chrono_locale, color, format_now};
@@ -163,7 +164,7 @@ impl App {
                 self.view_value(self.values.get(&w.id), size, fg, dim)
             }
         };
-        let card_bg = color(th.bg, 0.84 * t);
+        let card_bg = color(th.bg, th.effect(crate::config::Place::Widgets).opacity * t);
         let boxed: Element<'_, Msg> = if w.card {
             container(content)
                 .padding(16)
@@ -268,7 +269,7 @@ impl App {
                 .into()
             }
             Some(widgets::Value::Rich(_)) => Space::new().into(),
-            Some(widgets::Value::Error(e)) => text(format!("⚠ {e}"))
+            Some(widgets::Value::Error(e)) => text(crate::tr!("⚠ {e}", e = e))
                 .font(self.font)
                 .size(size)
                 .color(Color {

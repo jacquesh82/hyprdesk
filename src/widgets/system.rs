@@ -11,17 +11,23 @@ use crate::config::SysItem;
 static SYS: LazyLock<Option<Mutex<System>>> = LazyLock::new(|| System::new().ok().map(Mutex::new));
 
 fn human_bytes(b: u64) -> String {
-    const U: [&str; 5] = ["o", "Kio", "Mio", "Gio", "Tio"];
+    // Unités binaires : octets en français, bytes en anglais.
+    const FR: [&str; 5] = ["o", "Kio", "Mio", "Gio", "Tio"];
+    const EN: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let units = match crate::i18n::current() {
+        crate::i18n::Lang::Fr => FR,
+        crate::i18n::Lang::En => EN,
+    };
     let mut v = b as f64;
     let mut i = 0;
-    while v >= 1024.0 && i < U.len() - 1 {
+    while v >= 1024.0 && i < units.len() - 1 {
         v /= 1024.0;
         i += 1;
     }
     if i >= 3 {
-        format!("{v:.1} {}", U[i])
+        format!("{v:.1} {}", units[i])
     } else {
-        format!("{v:.0} {}", U[i])
+        format!("{v:.0} {}", units[i])
     }
 }
 
@@ -38,7 +44,7 @@ fn human_duration(secs: u64) -> String {
 pub fn sample_system(items: &[SysItem]) -> Vec<SysLine> {
     let Some(sys) = SYS.as_ref() else {
         return vec![SysLine {
-            label: "système".into(),
+            label: crate::i18n::tr("système").into(),
             value: "indisponible".into(),
             ratio: None,
         }];
@@ -74,13 +80,13 @@ pub fn sample_system(items: &[SysItem]) -> Vec<SysLine> {
                     .map(|l| format!("{:.2} {:.2} {:.2}", l.one, l.five, l.fifteen))
                     .unwrap_or_else(|_| "?".into());
                 SysLine {
-                    label: "Charge".into(),
+                    label: crate::i18n::tr("Charge").into(),
                     value,
                     ratio: None,
                 }
             }
             SysItem::Uptime => SysLine {
-                label: "Allumé".into(),
+                label: crate::i18n::tr("Allumé").into(),
                 value: System::uptime()
                     .map(human_duration)
                     .unwrap_or_else(|_| "?".into()),
@@ -103,7 +109,7 @@ pub fn sample_system(items: &[SysItem]) -> Vec<SysLine> {
                     }
                     None => SysLine {
                         label: mount.clone(),
-                        value: "non monté".into(),
+                        value: crate::i18n::tr("non monté").into(),
                         ratio: None,
                     },
                 }

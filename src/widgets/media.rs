@@ -117,6 +117,9 @@ pub async fn media_control(bus_name: String, method: &'static str) {
         Ok::<_, zbus::Error>(())
     };
     if let Err(e) = r.await {
-        tracing::warn!("MPRIS {method} : {e}");
+        tracing::warn!(
+            "{}",
+            crate::tr!("MPRIS {method} : {e}", method = method, e = e)
+        );
     }
 }

@@ -60,14 +60,17 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
         // `exec` : le shell laisse la place au programme, qu'on arrête directement.
         let child = tokio::process::Command::new("sh")
             .arg("-c")
-            .arg(format!("exec {}", def.exec))
+            .arg(format!("exec {p0}", p0 = def.exec))
             .kill_on_drop(true)
             .process_group(0)
             .spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("composant {} : {e}", def.name);
+                tracing::error!(
+                    "{}",
+                    crate::tr!("composant {p0} : {e}", p0 = def.name, e = e)
+                );
                 if let Ok(mut s) = status.lock() {
                     s.last_exit = Some(e.to_string());
                     s.given_up = true;
@@ -76,7 +79,14 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
             }
         };
         let pid = child.id();
-        tracing::info!("composant {} lancé (pid {})", def.name, pid.unwrap_or(0));
+        tracing::info!(
+            "{}",
+            crate::tr!(
+                "composant {p0} lancé (pid {p1})",
+                p0 = def.name,
+                p1 = pid.unwrap_or(0)
+            )
+        );
         if let Ok(mut s) = status.lock() {
             s.pid = pid;
         }
@@ -86,7 +96,7 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
                     Ok(st) => st.to_string(),
                     Err(e) => e.to_string(),
                 };
-                tracing::warn!("composant {} arrêté : {why}", def.name);
+                tracing::warn!("{}", crate::tr!("composant {p0} arrêté : {why}", p0 = def.name, why = why));
                 if let Ok(mut s) = status.lock() {
                     s.pid = None;
                     s.last_exit = Some(why);
@@ -103,7 +113,7 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
                     s.pid = None;
                 }
                 if let Some(p) = pid { signal_group(p,"-KILL"); }
-                tracing::info!("composant {} arrêté", def.name);
+                tracing::info!("{}", crate::tr!("composant {p0} arrêté", p0 = def.name));
                 return;
             }
         }
@@ -118,15 +128,18 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
         fails.push(now);
         if fails.len() > MAX_FAILS {
             tracing::error!(
-                "composant {} : trop de plantages, supervision abandonnée",
-                def.name
+                "{}",
+                crate::tr!(
+                    "composant {p0} : trop de plantages, supervision abandonnée",
+                    p0 = def.name
+                )
             );
             crate::hypr::notify(
                 4,
                 10000,
-                &format!(
-                    "hyprdesk : le composant « {} » plante en boucle, il n'est plus relancé",
-                    def.name
+                &crate::tr!(
+                    "hyprdesk : le composant « {p0} » plante en boucle, il n'est plus relancé",
+                    p0 = def.name
                 ),
             );
             if let Ok(mut s) = status.lock() {

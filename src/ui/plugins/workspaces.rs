@@ -2,7 +2,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{button, column, pick_list, row, text, text_input, toggler};
+use crate::i18n::text;
+use iced::widget::{button, column, pick_list, row, text_input, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
@@ -19,6 +20,12 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[
+    ("ecrans", "Nombre et écrans"),
+    ("applications", "Applications"),
+];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Workspaces(m)))
 }
@@ -81,11 +88,11 @@ impl App {
         let mut choices = vec![
             ScreenChoice {
                 value: None,
-                label: "Automatique".into(),
+                label: crate::i18n::tr("Automatique").into(),
             },
             ScreenChoice {
                 value: Some("primary".into()),
-                label: "Écran principal".into(),
+                label: crate::i18n::tr("Écran principal").into(),
             },
         ];
         for m in &self.monitors {
@@ -94,15 +101,18 @@ impl App {
                 label: m.name.clone(),
             });
         }
+        // Ce que l'utilisateur a déclaré, pas le placement calculé : avec un
+        // écran dédié, celui-ci range aussi 1 à 10 sur l'écran principal.
+        let declared = &g.workspace_monitors_declared;
         let upto = g.workspaces.unwrap_or(10).max(1) as usize;
         let mut names: Vec<String> = (1..=upto).map(|i| i.to_string()).collect();
-        for w in g.workspace_monitors.values().flatten() {
+        for w in declared.values().flatten() {
             if !names.contains(w) {
                 names.push(w.clone());
             }
         }
         let current = |ws: &str| {
-            g.workspace_monitors
+            declared
                 .iter()
                 .find(|(_, l)| l.iter().any(|w| w == ws))
                 .map(|(m, _)| m.clone())
@@ -113,7 +123,7 @@ impl App {
                 let selected = choices.iter().find(|c| c.value == now).cloned();
                 let w = ws.clone();
                 row![
-                    text(format!("Workspace {ws}"))
+                    text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
                         .size(14)
                         .width(110),
@@ -145,7 +155,7 @@ impl App {
                 "workspace_monitors",
                 column(rows).spacing(8)
             ),
-            self.field(
+            self.adv(self.field(
                 "Écrans dédiés : seulement leurs workspaces, les autres vont sur l'écran principal",
                 "workspace_dedicated",
                 column(self.monitors.iter().map(|m| {
@@ -156,7 +166,7 @@ impl App {
                         .into()
                 }))
                 .spacing(8),
-            ),
+            )),
         ]
         .spacing(14)
         .into()
@@ -175,7 +185,7 @@ impl App {
         let step = |n: u8| wrap(Msg::WsCount(Some(n)));
         let mut stepper = row![
             toggler(count.is_some())
-                .label("Nombre fixe")
+                .label(crate::i18n::tr("Nombre fixe"))
                 .on_toggle(move |on| wrap(Msg::WsCount(on.then_some(shown)))),
         ]
         .spacing(14)
@@ -200,13 +210,15 @@ impl App {
             );
         }
         let count_help = match g.workspaces {
-            Some(n) => format!(
+            Some(n) => crate::tr!(
                 "Les workspaces 1 à {n} existent toujours, même vides, et restent dans la barre. \
-                 Leur écran se règle ci-dessous."
+                 Leur écran se règle ci-dessous.",
+                n = n
             ),
-            None => {
-                "Hyprland crée les workspaces à la demande et retire ceux qui sont vides.".into()
-            }
+            None => crate::i18n::tr(
+                "Hyprland crée les workspaces à la demande et retire ceux qui sont vides.",
+            )
+            .into(),
         };
 
         // Workspaces proposés aux affectations.
@@ -224,7 +236,7 @@ impl App {
                 .find(|a| &a.id == id)
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| id.clone()),
-            AppMatch::Class(re) => format!("classe {re}"),
+            AppMatch::Class(re) => crate::tr!("classe {re}", re = re),
         };
 
         let mut rules = column![].spacing(8);
@@ -256,7 +268,7 @@ impl App {
                     .font(self.font)
                     .width(70),
                     toggler(a.silent)
-                        .label("Sans y aller")
+                        .label(crate::i18n::tr("Sans y aller"))
                         .on_toggle(move |v| wrap(Msg::AssignRuleSilent(i, v))),
                     button(text("Retirer").font(self.font).size(13))
                         .padding([4, 10])
@@ -274,9 +286,9 @@ impl App {
             .map(|a| format!("{} → {}", app_name(&a.app), a.workspace))
             .collect();
         if !user_rules.is_empty() {
-            rules = rules.push(small(format!(
-                "Dans hyprdesk.lua : {}",
-                user_rules.join(" · ")
+            rules = rules.push(small(crate::tr!(
+                "Dans hyprdesk.lua : {rules}",
+                rules = user_rules.join(" · ")
             )));
         }
 
@@ -319,17 +331,23 @@ impl App {
             }
             let raw = p.workspaces.assign_filter.trim().to_string();
             picker = picker.push(pick(
-                format!("Classe de fenêtre « {raw} »"),
-                "expression régulière".into(),
+                crate::tr!("Classe de fenêtre « {raw} »", raw = raw),
+                crate::i18n::tr("expression régulière").into(),
                 AppMatch::Class(raw),
             ));
         }
 
+        if self.on_subtab(INFO.id, "ecrans") {
+            return column![
+                self.section("Nombre de workspaces"),
+                self.field("Workspaces permanents", "workspaces", stepper),
+                small(count_help),
+                self.workspace_screens(),
+            ]
+            .spacing(14)
+            .into();
+        }
         column![
-            self.section("Nombre de workspaces"),
-            self.field("Workspaces permanents", "workspaces", stepper),
-            small(count_help),
-            self.workspace_screens(),
             self.section("Applications"),
             small(
                 "Les fenêtres d'une application s'ouvrent sur le workspace choisi. \
@@ -342,11 +360,14 @@ impl App {
                 "",
                 column![
                     row![
-                        text_input("Rechercher (firefox, code…)", &p.workspaces.assign_filter)
-                            .font(self.font)
-                            .on_input(|s| wrap(Msg::AssignFilter(s)))
-                            .padding(8)
-                            .width(Length::Fill),
+                        text_input(
+                            crate::i18n::tr("Rechercher (firefox, code…)"),
+                            &p.workspaces.assign_filter
+                        )
+                        .font(self.font)
+                        .on_input(|s| wrap(Msg::AssignFilter(s)))
+                        .padding(8)
+                        .width(Length::Fill),
                         small("vers".into()),
                         pick_list(
                             targets.clone(),
@@ -359,7 +380,7 @@ impl App {
                     .spacing(10)
                     .align_y(Alignment::Center),
                     toggler(p.workspaces.assign_silent)
-                        .label("Sans y aller")
+                        .label(crate::i18n::tr("Sans y aller"))
                         .on_toggle(|v| wrap(Msg::AssignSilent(v))),
                     picker,
                 ]

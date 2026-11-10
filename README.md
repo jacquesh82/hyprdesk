@@ -1,4 +1,5 @@
 # hyprdesk
+*[English version](README.en.md)*
 
 **Un bureau à la demande pour Hyprland.** En tuiles, les fenêtres couvrent
 l'écran et le bureau n'existe plus. hyprdesk le rend visible d'une touche,
@@ -183,12 +184,17 @@ Pour que hyprdesk soit la racine de la session :
   - `toggle`, `SUPER + D` par défaut, affiche ou masque le bureau ;
   - `settings`, `SUPER + SHIFT + D` par défaut, ouvre les réglages (bureau
     affiché compris, sans changer de mode) ;
+  - `lock` verrouille la session (`hyprdesk lock`). Non réglé par défaut :
+    c'est le `SUPER + L` de `hyprland.lua`, posé par `scripts/install.sh`.
+    Réglé dans hyprdesk, il le remplace (la combinaison est libérée) ;
   - `leave`, `SUPER + Escape` par défaut, est la sortie de secours.
 
   Ils sont réinstallés après chaque `hyprctl reload`.
 - **Pas de conflit avec Hyprland.** Avant d'installer un raccourci, hyprdesk
-  vérifie qu'il n'est pas déjà lié. S'il l'est, il ne l'installe pas et le
-  signale par une notification et dans les réglages.
+  vérifie qu'il n'est pas déjà lié. S'il l'est, il ne l'installe pas hors du
+  bureau (celui de `hyprland.lua` reste maître) et le signale par une
+  notification et dans les réglages ; bureau affiché, les raccourcis de
+  Hyprland étant suspendus, hyprdesk l'installe quand même.
 - **Bureau affiché, les raccourcis de Hyprland sont suspendus.** hyprdesk
   active la submap `hyprdesk` : SUPER + Q, SUPER + F, etc. ne visent plus
   les fenêtres. Dès qu'une fenêtre est ouverte depuis le bureau, ils sont
@@ -228,7 +234,9 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 | `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, ou no-desktop si on y est déjà (raccourcis SUPER + D, SUPER + ALT + D ; SUPER + CTRL + D : no-desktop) |
 | `hyprdesk cycle` | mode suivant : no-desktop → launcher-only → full-desktop → no-desktop (bouton Bureau de la barre ; clic droit : no-desktop) |
 | `hyprdesk settings [paquet]` | ouvre les réglages sans changer le mode du bureau (`desktop`, `launcher`, `screens`, `fond`…) |
-| `hyprdesk export [fichier] [--screens]` · `hyprdesk import <archive> [--dry-run] [--screens]` | partager son setup : configs, plugins, fonds d'écran (l'import sauvegarde l'actuel) |
+| `hyprdesk theme [list]` · `theme new <image\|pack.zip\|dossier> [--name NOM]` · `theme apply <nom>` | « Mes thèmes » ; un thème tiré d'une scène (couleurs de l'image, scène étalée sur tous les écrans, bureau et verrouillage) |
+| `hyprdesk wallpaper split <image> [dossier] [--scale N]` | découpe une scène selon la disposition des écrans : une image par écran |
+| `hyprdesk export [fichier] [--theme] [--screens]` · `hyprdesk import <archive> [--theme] [--dry-run] [--screens]` | partager son setup : configs, plugins, fonds d'écran — ou, avec `--theme`, le thème seul (couleurs, fonds, effets) ; l'import sauvegarde l'actuel |
 | `hyprdesk open <rôle>` · `hyprdesk context` | application par défaut d'un rôle (`browser`, `terminal`, `ai`…) ; contexte de l'environnement pour un assistant IA |
 | `hyprdesk config [list [paquet]] \| get \| set \| unset` | réglages en ligne de commande, par paquet, écrits dans `settings.lua` comme depuis l'écran (ex. `hyprdesk config set launcher_group app`) |
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
@@ -339,10 +347,25 @@ Mindlog 0.7 est la police par défaut sur le bureau, la barre, les menus et
 les réglages. Ses cinq graisses (Light, Regular, Medium, SemiBold et Bold) sont
 embarquées dans le binaire ; `scripts/install.sh` les installe aussi dans
 `${XDG_DATA_HOME:-~/.local/share}/fonts/hyprdesk/Mindlog`, avec leur licence OFL.
-Réglages → Bureau → Typographie propose Mindlog et les familles installées
+Réglages → Thème → Texte propose Mindlog et les familles installées
 sur la machine, un aperçu et la taille du texte. Le choix est enregistré dans
 `settings.lua` ; `hd.config({ font = "Mindlog", font_size = 14 })` reste
 prioritaire s’il est déclaré dans le fichier utilisateur.
+
+**Langue.** L'interface existe en français et en anglais : Réglages → Bureau →
+Langue, `hyprdesk config set language fr|en|auto`, ou
+`hd.config({ language = "en" })`. `auto` suit la langue du système (`LANG`) ;
+une langue choisie vaut aussi pour les dates. Les plugins Lua traduisent avec
+`hd.t("texte")` (détails : `docs/PLUGINS.md`, § 9).
+
+**Layouts.** Réglages → Layouts règle la disposition des fenêtres par Hyprland :
+layout par défaut et par workspace (Dwindle, Master, Scrolling, Monocle), leurs
+options, et quatre layouts personnalisés écrits en Lua (grille, colonnes,
+rangées, maître centré). Tout s'applique à chaud ; seuls les réglages faits
+dans hyprdesk remplacent ceux de `hyprland.lua`. En Lua :
+`hd.config({ layout = "master", layout_workspaces = { [3] = "monocle" }, master = { mfact = 0.6 } })` ;
+en ligne de commande : `hyprdesk config set layout grid`, `layout.3 monocle`,
+`master.orientation center`.
 
 Les cartes et le dock partagent un verre fumé, des contours discrets et un
 accent iris. Les icônes d’applications proviennent du thème système ; les

@@ -157,7 +157,7 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
         CString::new(password),
         CString::new(service()),
     ) else {
-        return fail("caractère nul dans la saisie");
+        return fail(crate::i18n::tr("caractère nul dans la saisie"));
     };
     let mut conv = Box::new(Conversation {
         user: cuser.clone(),
@@ -184,7 +184,7 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
             } else {
                 let e = pam_strerror(handle, r);
                 let msg = if e.is_null() {
-                    format!("échec (code {r})")
+                    crate::tr!("échec (code {r})", r = r)
                 } else {
                     CStr::from_ptr(e).to_string_lossy().into_owned()
                 };

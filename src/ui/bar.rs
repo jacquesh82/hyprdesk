@@ -8,7 +8,8 @@
 
 use std::time::Duration;
 
-use iced::widget::{Space, button, container, mouse_area, row, text, tooltip};
+use crate::i18n::text;
+use iced::widget::{Space, button, container, mouse_area, row, tooltip};
 use iced::window::Id;
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Task, mouse};
 use iced_layershell::reexport::{
@@ -348,7 +349,7 @@ impl App {
             return Space::new().into();
         };
         let th = &self.cfg.general.theme;
-        let bg = color(th.bg, 0.72);
+        let bg = color(th.bg, th.effect(crate::config::Place::Bar).opacity);
         let hair = color(th.fg, 0.07);
         // Écran vertical : ses propres zones, si la barre en déclare.
         let zones = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
@@ -634,12 +635,12 @@ impl App {
                     super::DesktopMode::LauncherOnly => DESKTOP_WINDOWS_ICON,
                     _ => "user-desktop-symbolic",
                 };
-                let tip = format!(
-                    "{} — clic : {}{}",
-                    mode.as_str(),
-                    mode.next().as_str(),
-                    if self.visible {
-                        " · clic droit : no-desktop"
+                let tip = crate::tr!(
+                    "{mode} — clic : {next}{right}",
+                    mode = mode.as_str(),
+                    next = mode.next().as_str(),
+                    right = if self.visible {
+                        crate::i18n::tr(" · clic droit : no-desktop")
                     } else {
                         ""
                     }
@@ -647,7 +648,7 @@ impl App {
                 self.module(
                     bar,
                     self.icon_named(icon, isz, fg)
-                        .unwrap_or_else(|| self.label("Bureau", size, fg)),
+                        .unwrap_or_else(|| self.label(crate::i18n::tr("Bureau"), size, fg)),
                     Some(Msg::Control(control::Command::Cycle)),
                     self.visible.then_some(Msg::Control(control::Command::Hide)),
                     None,
@@ -663,7 +664,7 @@ impl App {
                 };
                 let mut content = row![
                     self.icon_named(volume_icon(self.volume), isz, fg)
-                        .unwrap_or_else(|| self.label("Vol.", size, fg))
+                        .unwrap_or_else(|| self.label(crate::i18n::tr("Vol."), size, fg))
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center);
@@ -808,8 +809,9 @@ impl App {
                             self.module(
                                 bar,
                                 row![
-                                    self.icon_named(icon, isz * 0.85, fg)
-                                        .unwrap_or_else(|| self.label("▶", size, fg)),
+                                    self.icon_named(icon, isz * 0.85, fg).unwrap_or_else(
+                                        || self.label(crate::i18n::tr("▶"), size, fg)
+                                    ),
                                     self.label(
                                         if compact {
                                             String::new()

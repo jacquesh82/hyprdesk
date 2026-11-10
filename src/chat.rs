@@ -130,7 +130,7 @@ pub enum ServerMsg {
 /// Une ligne JSON → message du moteur ; une ligne illisible donne une erreur non fatale.
 pub fn parse(line: &str) -> ServerMsg {
     serde_json::from_str(line).unwrap_or_else(|e| ServerMsg::Error {
-        message: format!("ligne illisible du moteur : {e}"),
+        message: crate::tr!("ligne illisible du moteur : {e}", e = e),
         fatal: false,
     })
 }
@@ -185,8 +185,10 @@ pub fn mock() -> std::process::ExitCode {
                     send(&ServerMsg::ConfirmRequest {
                         id: "c1".into(),
                         command: "hyprctl keyword general:gaps_out 10".into(),
-                        reason: "Passer les marges extérieures à 10 px (aperçu, non enregistré)."
-                            .into(),
+                        reason: crate::i18n::tr(
+                            "Passer les marges extérieures à 10 px (aperçu, non enregistré).",
+                        )
+                        .into(),
                         risk: "low".into(),
                     });
                     continue;
@@ -207,11 +209,13 @@ pub fn mock() -> std::process::ExitCode {
                     });
                     continue;
                 }
-                let answer = format!(
+                let answer = crate::tr!(
                     "Voici une **réponse de démonstration** ({provider}).\n\n\
                      - le texte arrive *au fil de l'eau* ;\n\
                      - le Markdown est rendu (`code`, listes, liens).\n\n\
-                     Vous avez écrit : « {text} »."
+                     Vous avez écrit : « {text} ».",
+                    provider = provider,
+                    text = text
                 );
                 for chunk in answer.split_inclusive(' ') {
                     send(&ServerMsg::Delta {
@@ -223,9 +227,12 @@ pub fn mock() -> std::process::ExitCode {
             }
             ClientMsg::Confirm { request, accept } => {
                 let text = if accept {
-                    "C'est fait : `gaps_out` vaut maintenant 10.".to_string()
+                    crate::i18n::tr("C'est fait : `gaps_out` vaut maintenant 10.").to_string()
                 } else {
-                    format!("D'accord, je n'ai rien changé ({request} refusée).")
+                    crate::tr!(
+                        "D'accord, je n'ai rien changé ({request} refusée).",
+                        request = request
+                    )
                 };
                 send(&ServerMsg::Delta { text: text.clone() });
                 send(&ServerMsg::TurnEnd { id: request, text });

@@ -5,9 +5,8 @@
 //! et un « capteur » transparent plein écran juste dessous, qui ferme le menu
 //! au premier clic ailleurs.
 
-use iced::widget::{
-    Space, button, column, container, mouse_area, row, rule, slider, text, toggler,
-};
+use crate::i18n::text;
+use iced::widget::{Space, button, column, container, mouse_area, row, rule, slider, toggler};
 use iced::window::Id;
 use iced::{
     Alignment, Background, Border, Color, Element, Length, Padding, Shadow, Size, Task, Vector,
@@ -294,7 +293,7 @@ impl App {
                         Task::perform(
                             async move {
                                 if let Err(e) = lua.menu_action(action as usize).await {
-                                    tracing::warn!("menu : {e}");
+                                    tracing::warn!("{}", crate::tr!("menu : {e}", e = e));
                                 }
                                 widget
                             },
@@ -358,7 +357,7 @@ impl App {
             Kind::Calendar => self.pop_calendar(),
             Kind::Menu { entries, .. } => self.pop_menu(entries, p.confirm),
         };
-        let bg = color(th.bg, 0.90);
+        let bg = color(th.bg, th.effect(crate::config::Place::Menus).opacity);
         let edge = Color { a: 0.12, ..fg };
         let win = p.win;
         let measured = iced::widget::sensor(content)
@@ -514,7 +513,7 @@ impl App {
         if entries.is_empty() {
             col = col.push(self.pop_row(
                 Space::new().into(),
-                "Rien à afficher".into(),
+                crate::i18n::tr("Rien à afficher").into(),
                 None,
                 false,
                 false,
@@ -615,7 +614,7 @@ impl App {
 
     fn pop_volume(&self) -> Element<'_, Msg> {
         let a = &self.audio;
-        let mut col = column![self.pop_header("Sortie".into())];
+        let mut col = column![self.pop_header(crate::i18n::tr("Sortie").into())];
         col = col.push(self.audio_controls(
             self.volume,
             super::bar::volume_icon(self.volume),
@@ -624,7 +623,7 @@ impl App {
         ));
         col = col.push(self.device_list(&a.outputs));
         col = col.push(self.pop_separator());
-        col = col.push(self.pop_header("Micro".into()));
+        col = col.push(self.pop_header(crate::i18n::tr("Micro").into()));
         if a.mic.is_some() {
             col = col.push(self.audio_controls(
                 a.mic,
@@ -636,7 +635,7 @@ impl App {
         } else {
             col = col.push(self.pop_row(
                 Space::new().into(),
-                "Aucun micro".into(),
+                crate::i18n::tr("Aucun micro").into(),
                 None,
                 false,
                 false,
@@ -646,7 +645,7 @@ impl App {
         col.push(self.pop_separator())
             .push(self.pop_row(
                 Space::new().into(),
-                "Réglages audio…".into(),
+                crate::i18n::tr("Réglages audio…").into(),
                 None,
                 true,
                 true,

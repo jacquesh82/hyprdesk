@@ -32,11 +32,11 @@ local function icon(b)
     return "battery-level-" .. level .. suffix .. "-symbolic"
 end
 
-local statuses = { Charging = "en charge", Discharging = "sur batterie", Full = "chargée", ["Not charging"] = "branchée" }
+local statuses = { Charging = hd.t("en charge"), Discharging = hd.t("sur batterie"), Full = hd.t("chargée"), ["Not charging"] = hd.t("branchée") }
 
 return {
-    name        = "Batterie",
-    description = "Batterie de l'ordinateur et des périphériques ; masqué s'il n'y en a pas.",
+    name        = hd.t("Batterie"),
+    description = hd.t("Batterie de l'ordinateur et des périphériques ; masqué s'il n'y en a pas."),
     interval    = 30,
     anchor      = "top-right",
     options     = { peripheriques = true, texte = true },
@@ -57,7 +57,7 @@ return {
         }
     end,
     menu = function()
-        local m = { { header = "Batteries" } }
+        local m = { { header = hd.t("Batteries") } }
         for _, b in ipairs(batteries()) do
             m[#m + 1] = { label = b.name, detail = b.cap .. " % · " .. (statuses[b.status] or b.status), icon = icon(b) }
         end

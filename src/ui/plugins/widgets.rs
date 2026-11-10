@@ -2,7 +2,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{Space, button, column, row, slider, text, toggler};
+use crate::i18n::text;
+use iced::widget::{Space, button, column, row, slider, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
@@ -21,6 +22,9 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[("bureau", "Sur ce bureau"), ("disponibles", "Disponibles")];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Widgets(m)))
 }
@@ -29,6 +33,8 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub widget_sel: Option<String>,
+    /// Widget dont la suppression attend confirmation.
+    pub pending_delete: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +50,8 @@ pub enum Msg {
     WidgetSize(f32),
     WidgetCard(bool),
     WidgetReset,
+    /// Supprime un widget placé dans les réglages (premier appui : arme ; second : confirme).
+    DeleteWidget(String),
 }
 
 impl App {
@@ -77,8 +85,8 @@ impl App {
                 .count();
             let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
-                WidgetSource::Builtin => "intégré".to_string(),
-                WidgetSource::Bundled => "plugin livré".to_string(),
+                WidgetSource::Builtin => crate::i18n::tr("intégré").to_string(),
+                WidgetSource::Bundled => crate::i18n::tr("plugin livré").to_string(),
                 WidgetSource::Plugin(path) => format!(
                     "plugin · {}",
                     path.file_name()
@@ -106,16 +114,20 @@ impl App {
             }
             if in_user > 0 {
                 info = info.push(
-                    text(format!("déclaré {in_user} fois dans hyprdesk.lua"))
-                        .font(self.font)
-                        .size(11)
-                        .color(dim),
+                    text(crate::tr!(
+                        "déclaré {in_user} fois dans hyprdesk.lua",
+                        in_user = in_user
+                    ))
+                    .font(self.font)
+                    .size(11)
+                    .color(dim),
                 );
             }
             if disabled > 0 {
                 info = info.push(
-                    text(format!(
-                        "{disabled} instance(s) de hyprdesk.lua désactivée(s) ici"
+                    text(crate::tr!(
+                        "{disabled} instance(s) de hyprdesk.lua désactivée(s) ici",
+                        disabled = disabled
                     ))
                     .font(self.font)
                     .size(11)
@@ -123,7 +135,12 @@ impl App {
                 );
             }
             if let Some(e) = &t.error {
-                info = info.push(text(format!("⚠ {e}")).font(self.font).size(12).color(warn));
+                info = info.push(
+                    text(crate::tr!("⚠ {e}", e = e))
+                        .font(self.font)
+                        .size(12)
+                        .color(warn),
+                );
             }
             let control: Element<'_, UiMsg> = if t.error.is_some() {
                 Space::new().into()
@@ -168,38 +185,51 @@ impl App {
                 .map(|t| t.name.clone())
                 .unwrap_or_else(|| w.type_id.clone());
             let from = if w.origin == Origin::Settings {
-                "réglages"
+                crate::i18n::tr("réglages")
             } else {
                 "hyprdesk.lua"
             };
             let selected = p.widgets.widget_sel.as_deref() == Some(w.id.as_str());
             let accent = color(g.theme.accent, 1.0);
+            // Seuls les widgets placés dans les réglages se suppriment ici
+            // (ceux de hyprdesk.lua restent maîtres dans leur fichier).
+            let delete: Element<'_, UiMsg> = if w.origin == Origin::Settings {
+                let armed = p.widgets.pending_delete.as_deref() == Some(w.id.as_str());
+                self.delete_button(armed, wrap(Msg::DeleteWidget(w.id.clone())))
+            } else {
+                Space::new().width(0).height(0).into()
+            };
             active = active.push(
-                button(
-                    row![
-                        text(name).font(self.font).size(14).width(Length::Fill),
-                        text(format!("{} · {from}", w.id))
-                            .font(self.font)
-                            .size(11)
-                            .color(dim)
-                    ]
-                    .spacing(8),
-                )
-                .width(Length::Fill)
-                .padding([6, 10])
-                .on_press(wrap(Msg::SelectWidget(w.id.clone())))
-                .style(move |_, s| button::Style {
-                    background: if selected {
-                        Some(Background::Color(Color { a: 0.3, ..accent }))
-                    } else if matches!(s, button::Status::Hovered) {
-                        Some(Background::Color(Color { a: 0.08, ..fg }))
-                    } else {
-                        None
-                    },
-                    text_color: fg,
-                    border: Border::default().rounded(6),
-                    ..Default::default()
-                }),
+                row![
+                    button(
+                        row![
+                            text(name).font(self.font).size(14).width(Length::Fill),
+                            text(format!("{} · {from}", w.id))
+                                .font(self.font)
+                                .size(11)
+                                .color(dim)
+                        ]
+                        .spacing(8),
+                    )
+                    .width(Length::Fill)
+                    .padding([6, 10])
+                    .on_press(wrap(Msg::SelectWidget(w.id.clone())))
+                    .style(move |_, s| button::Style {
+                        background: if selected {
+                            Some(Background::Color(Color { a: 0.3, ..accent }))
+                        } else if matches!(s, button::Status::Hovered) {
+                            Some(Background::Color(Color { a: 0.08, ..fg }))
+                        } else {
+                            None
+                        },
+                        text_color: fg,
+                        border: Border::default().rounded(6),
+                        ..Default::default()
+                    }),
+                    delete,
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
             );
         }
 
@@ -256,7 +286,7 @@ impl App {
                     .iter()
                     .any(|w| w.id == id && w.origin == Origin::User);
                 let mut c = column![
-                    text(format!("Placement de « {id} »"))
+                    text(crate::tr!("Placement de « {id} »", id = id))
                         .font(self.font)
                         .size(14)
                         .color(fg),
@@ -326,14 +356,20 @@ impl App {
             }
         };
 
+        if self.on_subtab(INFO.id, "bureau") {
+            return column![
+                self.section("Sur ce bureau"),
+                text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+                active,
+                editor,
+            ]
+            .spacing(14)
+            .into();
+        }
         column![
-            self.section("Sur ce bureau"),
-            text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.")
-                .font(self.font)
-                .size(12)
-                .color(dim),
-            active,
-            editor,
             self.section("Widgets disponibles"),
             catalog,
             row![
@@ -353,9 +389,9 @@ impl App {
                 .on_press(wrap(Msg::OpenWidgetDir)),
             ]
             .spacing(8),
-            text(format!(
-                "Nouveaux widgets : déposer un fichier .lua dans {} — détecté automatiquement.",
-                plugin_dir.display()
+            text(crate::tr!(
+                "Nouveaux widgets : déposer un fichier .lua dans {dir} — détecté automatiquement.",
+                dir = plugin_dir.display()
             ))
             .font(self.font)
             .size(11)
@@ -448,6 +484,21 @@ impl App {
             Msg::WidgetCard(v) => {
                 let t = self.edit_placement(|p| p.card = v);
                 Task::batch([t, self.save()])
+            }
+            Msg::DeleteWidget(id) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                if p.widgets.pending_delete.as_deref() != Some(id.as_str()) {
+                    p.widgets.pending_delete = Some(id);
+                    return Task::none();
+                }
+                p.widgets.pending_delete = None;
+                if p.widgets.widget_sel.as_deref() == Some(id.as_str()) {
+                    p.widgets.widget_sel = None;
+                }
+                self.settings.remove_widget(&id);
+                self.commit()
             }
             Msg::WidgetReset => {
                 let Some(id) = panel.widgets.widget_sel.clone() else {

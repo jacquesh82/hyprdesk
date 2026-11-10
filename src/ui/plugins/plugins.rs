@@ -9,7 +9,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{button, column, container, row, text, text_input, toggler};
+use crate::i18n::text;
+use iced::widget::{button, column, container, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -105,7 +106,7 @@ impl App {
             let on = self.cfg.plugin_on(info.id);
             let id = info.id.to_string();
             let switch: Element<'_, UiMsg> = if core {
-                badge("cœur", true).into()
+                badge(crate::i18n::tr("cœur"), true).into()
             } else {
                 toggler(on)
                     .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
@@ -116,8 +117,15 @@ impl App {
                     column![
                         row![
                             text(info.label).font(self.title_font()).size(14),
-                            badge(if on { "actif" } else { "coupé" }, on),
-                            badge("intégré", false),
+                            badge(
+                                if on {
+                                    "actif"
+                                } else {
+                                    crate::i18n::tr("coupé")
+                                },
+                                on
+                            ),
+                            badge(crate::i18n::tr("intégré"), false),
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
@@ -138,8 +146,8 @@ impl App {
         for t in &self.cfg.catalog {
             let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id);
             let (origin, path) = match &t.source {
-                WidgetSource::Builtin => ("intégré", None),
-                WidgetSource::Bundled => ("livré", None),
+                WidgetSource::Builtin => (crate::i18n::tr("intégré"), None),
+                WidgetSource::Bundled => (crate::i18n::tr("livré"), None),
                 WidgetSource::Plugin(path) => ("tiers", Some(path.clone())),
             };
             let mut head = row![
@@ -180,12 +188,15 @@ impl App {
         // Ajouter un plugin tiers.
         let mut add = column![
             row![
-                text_input("fichier .lua, dossier, ou https://…git", &p.plugins.source)
-                    .font(self.font)
-                    .on_input(|v| wrap(Msg::Source(v)))
-                    .on_submit(wrap(Msg::Install))
-                    .padding(8)
-                    .width(Length::Fill),
+                text_input(
+                    crate::i18n::tr("fichier .lua, dossier, ou https://…git"),
+                    &p.plugins.source
+                )
+                .font(self.font)
+                .on_input(|v| wrap(Msg::Source(v)))
+                .on_submit(wrap(Msg::Install))
+                .padding(8)
+                .width(Length::Fill),
                 button(text("Installer").font(self.font).size(13))
                     .padding([6, 14])
                     .on_press_maybe(
@@ -247,11 +258,14 @@ impl App {
         };
         let tabs = row![
             tab_button(
-                format!("Paquets intégrés ({})", BUILTIN.len()),
+                crate::tr!("Paquets intégrés ({n})", n = BUILTIN.len()),
                 Tab::Packages
             ),
             tab_button(
-                format!("Plugins de widget de barre ({})", self.cfg.catalog.len()),
+                crate::tr!(
+                    "Plugins de widget de barre ({n})",
+                    n = self.cfg.catalog.len()
+                ),
                 Tab::Widgets
             ),
         ]
@@ -275,10 +289,10 @@ impl App {
                 self.section("Plugins de widget de barre"),
                 lua,
                 self.section("Ajouter un plugin tiers"),
-                text(format!(
+                text(crate::tr!(
                     "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
-                     dans {} ; il apparaît aussitôt ci-dessus et dans Widgets.",
-                    user.display()
+                     dans {p0} ; il apparaît aussitôt ci-dessus et dans Widgets.",
+                    p0 = user.display()
                 ))
                 .font(self.font)
                 .size(12)
@@ -344,7 +358,7 @@ impl App {
                     if ok {
                         p.plugins.source.clear();
                     }
-                    p.plugins.report = Some(r.map(|n| format!("« {n} » installé.")));
+                    p.plugins.report = Some(r.map(|n| crate::tr!("« {n} » installé.", n = n)));
                 }
                 // Relire la config : le nouveau plugin entre au catalogue.
                 if ok {
@@ -358,7 +372,7 @@ impl App {
                 let ok = r.is_ok();
                 if let Some(p) = self.panel.as_mut() {
                     p.plugins.report =
-                        Some(r.map(|t| format!("Retiré, gardé dans {}.", t.display())));
+                        Some(r.map(|t| crate::tr!("Retiré, gardé dans {dir}.", dir = t.display())));
                 }
                 if ok {
                     Task::done(UiMsg::ConfigChanged)

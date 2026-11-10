@@ -21,8 +21,17 @@ pub fn default_path() -> PathBuf {
     base.join("hypr").join("hyprdesk.lua")
 }
 
-/// Config d'exemple, écrite au premier lancement si aucune n'existe.
+/// Config d'exemple, écrite au premier lancement si aucune n'existe
+/// (commentaires dans la langue de l'interface).
 pub const EXAMPLE: &str = include_str!("../../assets/hyprdesk.lua");
+pub const EXAMPLE_EN: &str = include_str!("../../assets/hyprdesk.en.lua");
+
+pub fn example() -> &'static str {
+    match crate::i18n::current() {
+        crate::i18n::Lang::Fr => EXAMPLE,
+        crate::i18n::Lang::En => EXAMPLE_EN,
+    }
+}
 
 pub fn ensure_exists(path: &Path) -> std::io::Result<bool> {
     if path.exists() {
@@ -31,6 +40,6 @@ pub fn ensure_exists(path: &Path) -> std::io::Result<bool> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(path, EXAMPLE)?;
+    std::fs::write(path, example())?;
     Ok(true)
 }

@@ -18,6 +18,8 @@ pub struct DesktopEntry {
     pub name: String,
     pub icon: Option<String>,
     pub exec: String,
+    /// `TryExec` : programme dont la présence dit si l'application est installée.
+    pub try_exec: Option<String>,
     pub terminal: bool,
     /// `NoDisplay` ou `Hidden` : à ne pas proposer dans une liste d'applications.
     pub hidden: bool,
@@ -57,6 +59,7 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
             "Name" => e.name = v.to_string(),
             "Icon" => e.icon = Some(v.to_string()),
             "Exec" => e.exec = v.to_string(),
+            "TryExec" => e.try_exec = Some(v.to_string()),
             "Terminal" => e.terminal = v == "true",
             "NoDisplay" | "Hidden" => e.hidden |= v == "true",
             "StartupWMClass" => e.wm_class = Some(v.to_string()),
@@ -88,6 +91,63 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
         e.name = n;
     }
     (!e.exec.is_empty()).then_some(e)
+}
+
+/// Programme exécutable : chemin absolu exécutable, ou nom trouvé dans le PATH.
+pub fn executable(prog: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let runnable = |p: &std::path::Path| {
+        p.metadata()
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if prog.contains('/') {
+        return runnable(std::path::Path::new(prog));
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|d| runnable(&d.join(prog))))
+}
+
+/// Premier mot d'une ligne Exec (guillemets compris), après `env VAR=…`.
+fn exec_program(exec: &str) -> Option<String> {
+    let mut words = Vec::new();
+    let mut rest = exec.trim();
+    while !rest.is_empty() {
+        let (word, tail) = if let Some(q) = rest.strip_prefix('"') {
+            match q.find('"') {
+                Some(end) => (&q[..end], &q[end + 1..]),
+                None => (q, ""),
+            }
+        } else {
+            match rest.find(char::is_whitespace) {
+                Some(end) => (&rest[..end], &rest[end..]),
+                None => (rest, ""),
+            }
+        };
+        words.push(word.to_string());
+        rest = tail.trim_start();
+        let first = &words[0];
+        let skip = first == "env" || first.ends_with("/env");
+        // `env A=1 B=2 prog …` : le programme est le premier mot sans `=`.
+        if !(skip && (words.len() == 1 || words.last().is_some_and(|w| w.contains('=')))) {
+            break;
+        }
+    }
+    words.pop().filter(|w| !w.is_empty())
+}
+
+impl DesktopEntry {
+    /// Le programme de l'entrée est présent : `TryExec` s'il est donné, sinon
+    /// le premier mot de `Exec`. Une entrée restée après une désinstallation
+    /// (fréquent dans `~/.local/share/applications`) ne l'est pas.
+    pub fn available(&self) -> bool {
+        if let Some(t) = &self.try_exec
+            && let Some(p) = exec_program(t)
+            && !executable(&p)
+        {
+            return false;
+        }
+        exec_program(&self.exec).is_some_and(|p| executable(&p))
+    }
 }
 
 /// Retire les codes de champ (`%u`, `%F`…) d'une ligne Exec ; `%%` devient `%`.
@@ -156,6 +216,8 @@ pub struct AppInfo {
     /// Types de fichiers ouverts et catégories, pour les applications par défaut.
     pub mime_types: Vec<String>,
     pub categories: Vec<String>,
+    /// Programme présent sur la machine (`DesktopEntry::available`).
+    pub available: bool,
 }
 
 /// Applications visibles des dossiers XDG ; le dossier utilisateur masque le système.
@@ -188,7 +250,9 @@ pub fn installed_apps() -> Vec<AppInfo> {
             if e.hidden || !e.is_app {
                 continue;
             }
+            let available = e.available();
             out.push(AppInfo {
+                available,
                 id: id.to_string(),
                 name: e.name,
                 icon: e.icon,
@@ -441,5 +505,26 @@ mod tests {
         assert_eq!(in_terminal("kitty", "htop"), "kitty -e htop");
         assert_eq!(in_terminal("foot {cmd}", "htop"), "foot htop");
         assert_eq!(sh_quote("l'été"), r"'l'\''été'");
+    }
+
+    #[test]
+    fn programme_d_une_entree() {
+        assert_eq!(exec_program("firefox %u").as_deref(), Some("firefox"));
+        assert_eq!(
+            exec_program("\"/opt/My App/run\" --x").as_deref(),
+            Some("/opt/My App/run")
+        );
+        assert_eq!(
+            exec_program("env GDK_BACKEND=x11 A=1 slack %U").as_deref(),
+            Some("slack")
+        );
+        let e = |exec: &str, try_exec: Option<&str>| DesktopEntry {
+            exec: exec.into(),
+            try_exec: try_exec.map(String::from),
+            ..Default::default()
+        };
+        assert!(e("sh -c true", None).available());
+        assert!(!e("/usr/bin/hyprdesk-absent-xyz %u", None).available());
+        assert!(!e("sh", Some("hyprdesk-absent-xyz")).available());
     }
 }

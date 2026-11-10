@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, image, radio, row, slider, text, text_input, toggler,
+    Space, button, column, container, image, pick_list, radio, row, slider, text_input, toggler,
 };
 use iced::{Border, Color, Element, Task};
 
@@ -33,20 +34,27 @@ pub fn wrap(m: Msg) -> UiMsg {
 
 /// État propre à ce paquet, porté par le tiroir des réglages.
 pub struct State {
-    pub scope: Scope,
+    /// Portée réglée (`None` : le workspace où les réglages sont ouverts).
+    pub scope: Option<Scope>,
+    /// Règle dont la suppression attend confirmation.
+    pub pending_rule: Option<Scope>,
     pub folder: String,
     pub images: Vec<PathBuf>,
     pub thumbs: HashMap<PathBuf, image::Handle>,
+    /// Dimensions des images (pour signaler une résolution trop faible).
+    pub dims: HashMap<PathBuf, (u32, u32)>,
     pub hex: String,
 }
 
 impl Default for State {
     fn default() -> Self {
         State {
-            scope: Scope::Workspace,
+            scope: None,
+            pending_rule: None,
             folder: default_folder(),
             images: Vec::new(),
             thumbs: HashMap::new(),
+            dims: HashMap::new(),
             hex: String::new(),
         }
     }
@@ -55,10 +63,13 @@ impl Default for State {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Scope(Scope),
+    /// Supprime une règle (premier appui : arme ; second : confirme).
+    DeleteRule(Scope),
     Folder(String),
     FolderSubmit,
     Images(Vec<PathBuf>),
-    Thumb(PathBuf, Option<image::Handle>),
+    /// Vignette et dimensions d'origine.
+    Thumb(PathBuf, Option<(image::Handle, (u32, u32))>),
     PickImage(PathBuf),
     Kind(WallKind),
     RotInterval(u64),
@@ -67,15 +78,41 @@ pub enum Msg {
     Hex(String),
     HexSubmit,
     Fit(Fit),
+    /// Étaler l'image sur tous les écrans (découpe automatique).
+    /// Étalement : 0 non, 1 bureau et verrouillage, 2 verrouillage seulement.
+    Span(u8),
     RemoveWall,
 }
 
-/// Portée d'une règle de fond d'écran.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scope {
-    All,
-    Workspace,
-    Monitor,
+/// Portée d'une règle de fond d'écran : un écran et/ou un workspace
+/// (`None` : tous).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Scope {
+    pub monitor: Option<String>,
+    pub workspace: Option<String>,
+}
+
+/// Choix d'une liste de portée (`None` : tous).
+#[derive(Debug, Clone, PartialEq)]
+struct Pick {
+    value: Option<String>,
+    label: String,
+}
+
+impl std::fmt::Display for Pick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+/// Libellé d'une portée (« Écran DP-1 · Workspace 3 »).
+fn scope_label(s: &Scope) -> String {
+    match (&s.monitor, &s.workspace) {
+        (None, None) => crate::i18n::tr("Tous les bureaux").to_string(),
+        (Some(m), None) => crate::tr!("Écran {mon}", mon = m),
+        (None, Some(w)) => crate::tr!("Workspace {ws}", ws = w),
+        (Some(m), Some(w)) => crate::tr!("Écran {mon} · workspace {ws}", mon = m, ws = w),
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WallKind {
@@ -114,14 +151,12 @@ pub(in crate::ui) fn load_thumb(p: PathBuf) -> Task<UiMsg> {
             static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
             let _permit = DECODERS.acquire().await;
             let h = tokio::task::spawn_blocking(move || {
-                let img = ::image::open(&p2)
-                    .ok()?
-                    .thumbnail(THUMB.0 * 2, THUMB.1 * 2)
-                    .to_rgba8();
-                Some(image::Handle::from_rgba(
-                    img.width(),
-                    img.height(),
-                    img.into_raw(),
+                let full = ::image::open(&p2).ok()?;
+                let dims = (full.width(), full.height());
+                let img = full.thumbnail(THUMB.0 * 2, THUMB.1 * 2).to_rgba8();
+                Some((
+                    image::Handle::from_rgba(img.width(), img.height(), img.into_raw()),
+                    dims,
                 ))
             })
             .await
@@ -140,7 +175,8 @@ impl App {
         let dim = Color { a: 0.6, ..fg };
         let accent = color(g.theme.accent, 1.0);
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
-        let sel = self.scope_selector(p.wallpaper.scope);
+        let scope = self.wall_scope();
+        let sel = self.scope_selector(scope.clone());
         let rule = self.settings.wallpaper(&sel);
         let kind = rule.map(|r| match r.source {
             WallSource::Path(_) => WallKind::Image,
@@ -148,38 +184,21 @@ impl App {
             WallSource::Color(_) => WallKind::Color,
         });
         let effective = resolve(&self.cfg, &mon, &ws);
-        let mut col =
-            column![
+        let mut col = column![
             self.section("Portée"),
-            row![
-                radio("Tous les bureaux", Scope::All, Some(p.wallpaper.scope), |v| {
-                    wrap(Msg::Scope(v))
-                }).font(self.font),
-                radio(
-                    format!("Workspace {ws}"),
-                    Scope::Workspace,
-                    Some(p.wallpaper.scope),
-                    |v| wrap(Msg::Scope(v))
-                ).font(self.font),
-                radio(
-                    format!("Écran {mon}"),
-                    Scope::Monitor,
-                    Some(p.wallpaper.scope),
-                    |v| wrap(Msg::Scope(v))
-                ).font(self.font),
-            ]
-            .spacing(20),
+            self.wall_scope_picker(&scope),
             text(match rule {
-                Some(_) => "Une règle existe pour cette portée.".to_string(),
-                None =>
+                Some(_) => crate::i18n::tr("Une règle existe pour cette portée.").to_string(),
+                None => crate::i18n::tr(
                     "Pas de règle pour cette portée : le fond est hérité d'une règle plus générale."
-                        .to_string(),
+                )
+                .to_string(),
             })
             .font(self.font)
             .size(12)
             .color(dim),
         ]
-            .spacing(14);
+        .spacing(14);
         if effective
             .wallpaper
             .is_some_and(|w| w.origin == Origin::User)
@@ -195,16 +214,22 @@ impl App {
         col = col.push(
             row![
                 radio(
-                    "Image",
+                    crate::i18n::tr("Image"),
                     WallKind::Image,
                     kind.or(Some(WallKind::Image)),
                     |v| wrap(Msg::Kind(v))
                 )
                 .font(self.font),
-                radio("Diaporama", WallKind::Rotate, kind, |v| wrap(Msg::Kind(v))).font(self.font),
-                radio("Couleur unie", WallKind::Color, kind, |v| wrap(Msg::Kind(
-                    v
-                )))
+                radio(crate::i18n::tr("Diaporama"), WallKind::Rotate, kind, |v| {
+                    wrap(Msg::Kind(v))
+                })
+                .font(self.font),
+                radio(
+                    crate::i18n::tr("Couleur unie"),
+                    WallKind::Color,
+                    kind,
+                    |v| wrap(Msg::Kind(v))
+                )
                 .font(self.font),
             ]
             .spacing(20),
@@ -214,7 +239,7 @@ impl App {
                 "Dossier d'images",
                 "",
                 row![
-                    text_input("~/.wallpapers", &p.wallpaper.folder)
+                    text_input(crate::i18n::tr("~/.wallpapers"), &p.wallpaper.folder)
                         .font(self.font)
                         .on_input(|s| wrap(Msg::Folder(s)))
                         .on_submit(wrap(Msg::FolderSubmit))
@@ -237,7 +262,7 @@ impl App {
                 {
                     let secs = interval.as_secs();
                     col = col.push(
-                        text(format!("Diaporama de {}", dir.display()))
+                        text(crate::tr!("Diaporama de {dir}", dir = dir.display()))
                             .font(self.font)
                             .size(13)
                             .color(dim),
@@ -294,7 +319,7 @@ impl App {
                     self.field(
                         "Code",
                         "",
-                        text_input("#22212c", &p.wallpaper.hex)
+                        text_input(crate::i18n::tr("#22212c"), &p.wallpaper.hex)
                             .font(self.font)
                             .on_input(|s| wrap(Msg::Hex(s)))
                             .on_submit(wrap(Msg::HexSubmit))
@@ -367,7 +392,87 @@ impl App {
                 col = col.push(grid);
             }
         }
+        let span = rule.is_some_and(|r| r.span);
+        let span_mode: u8 = match rule.map(|r| (r.span, r.span_lock)) {
+            Some((true, _)) => 1,
+            Some((false, true)) => 2,
+            _ => 0,
+        };
         if rule.is_some() && kind != Some(WallKind::Color) {
+            col = col.push(
+                self.field(
+                    "Étaler sur tous les écrans",
+                    "",
+                    row![
+                        radio(crate::i18n::tr("Non"), 0u8, Some(span_mode), |v| wrap(
+                            Msg::Span(v)
+                        ))
+                        .font(self.font),
+                        radio(
+                            crate::i18n::tr("Bureau et verrouillage"),
+                            1u8,
+                            Some(span_mode),
+                            |v| wrap(Msg::Span(v))
+                        )
+                        .font(self.font),
+                        radio(
+                            crate::i18n::tr("Verrouillage seulement"),
+                            2u8,
+                            Some(span_mode),
+                            |v| wrap(Msg::Span(v))
+                        )
+                        .font(self.font),
+                    ]
+                    .spacing(16),
+                ),
+            );
+            col = col.push(
+                text(crate::tr!(
+                    "Une seule scène pour toute la disposition : l'image couvre l'ensemble des \
+                     écrans ({p0}) et chacun en montre sa part, découpée selon sa position et sa \
+                     taille dans Hyprland.",
+                    p0 = self
+                        .monitors
+                        .iter()
+                        .map(|m| format!("{} {}×{}", m.name, m.width, m.height))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
+        }
+        // Résolution trop faible pour les écrans visés : avertir, sans bloquer.
+        if let Some(WallSource::Path(img)) = rule.map(|r| &r.source)
+            && let Some(&(iw, ih)) = p.wallpaper.dims.get(img)
+        {
+            let screens: Vec<crate::span::Rect> = self
+                .monitors
+                .iter()
+                .filter(|m| span || scope.monitor.as_ref().is_none_or(|t| *t == m.name))
+                .map(|m| {
+                    crate::span::physical(
+                        crate::span::Rect {
+                            x: m.x,
+                            y: m.y,
+                            w: m.width as f32,
+                            h: m.height as f32,
+                        },
+                        m.scale,
+                    )
+                })
+                .collect();
+            if let Some(w) = crate::span::resolution_warning(iw, ih, &screens, span) {
+                col = col.push(
+                    text(crate::tr!("Attention : {w}", w = w))
+                        .font(self.font)
+                        .size(12)
+                        .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                );
+            }
+        }
+        if rule.is_some() && kind != Some(WallKind::Color) && !span {
             let fits = [Fit::Cover, Fit::Contain, Fit::Fill, Fit::Center];
             let current = rule.map(|r| r.fit).unwrap_or_default();
             col = col.push(
@@ -379,7 +484,7 @@ impl App {
                             match f {
                                 Fit::Cover => "Remplir",
                                 Fit::Contain => "Ajuster",
-                                Fit::Fill => "Étirer",
+                                Fit::Fill => crate::i18n::tr("Étirer"),
                                 Fit::Center => "Centrer",
                             },
                             *f,
@@ -406,20 +511,154 @@ impl App {
         }
         col.into()
     }
+    /// Portée : un écran (ou tous) × un workspace (ou tous), et les règles en place.
+    fn wall_scope_picker(&self, scope: &Scope) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let accent = color(g.theme.accent, 1.0);
+        let screens: Vec<Pick> = std::iter::once(Pick {
+            value: None,
+            label: crate::i18n::tr("Tous les écrans").to_string(),
+        })
+        .chain(self.monitors.iter().map(|m| Pick {
+            value: Some(m.name.clone()),
+            label: m.name.clone(),
+        }))
+        .collect();
+        // Workspaces : ceux qui existent toujours, ceux ouverts, ceux qui ont une règle.
+        let mut names: Vec<String> = (1..=g.workspaces.unwrap_or(10).max(1))
+            .map(|i| i.to_string())
+            .collect();
+        let extra = self
+            .workspaces
+            .iter()
+            .map(|w| w.name.clone())
+            .filter(|n| !n.starts_with("special"))
+            .chain(
+                self.settings
+                    .wallpapers
+                    .iter()
+                    .filter_map(|w| w.sel.workspaces.as_ref()?.first().cloned()),
+            );
+        for n in extra {
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+        let workspaces: Vec<Pick> = std::iter::once(Pick {
+            value: None,
+            label: crate::i18n::tr("Tous les workspaces").to_string(),
+        })
+        .chain(names.into_iter().map(|n| Pick {
+            label: crate::tr!("Workspace {ws}", ws = n),
+            value: Some(n),
+        }))
+        .collect();
+        let cur_screen = screens.iter().find(|p| p.value == scope.monitor).cloned();
+        let cur_ws = workspaces
+            .iter()
+            .find(|p| p.value == scope.workspace)
+            .cloned();
+        let (s1, s2) = (scope.clone(), scope.clone());
+        let pickers = row![
+            pick_list(screens, cur_screen, move |p: Pick| {
+                wrap(Msg::Scope(Scope {
+                    monitor: p.value,
+                    ..s1.clone()
+                }))
+            })
+            .font(self.font)
+            .width(200),
+            pick_list(workspaces, cur_ws, move |p: Pick| {
+                wrap(Msg::Scope(Scope {
+                    workspace: p.value,
+                    ..s2.clone()
+                }))
+            })
+            .font(self.font)
+            .width(200),
+        ]
+        .spacing(12);
+        // Règles réglées ici : un clic y revient.
+        let mut rules = row![].spacing(6);
+        for w in &self.settings.wallpapers {
+            let s = Scope {
+                monitor: w.sel.monitors.as_ref().and_then(|l| l.first().cloned()),
+                workspace: w.sel.workspaces.as_ref().and_then(|l| l.first().cloned()),
+            };
+            let active = &s == scope;
+            let armed = self
+                .panel
+                .as_ref()
+                .is_some_and(|p| p.wallpaper.pending_rule.as_ref() == Some(&s));
+            let delete = self.delete_button(armed, wrap(Msg::DeleteRule(s.clone())));
+            rules = rules.push(
+                row![
+                    button(text(scope_label(&s)).font(self.font).size(12))
+                        .padding([3, 10])
+                        .style(move |_, status| button::Style {
+                            background: Some(
+                                if active {
+                                    Color { a: 0.28, ..accent }
+                                } else if matches!(status, button::Status::Hovered) {
+                                    Color { a: 0.1, ..fg }
+                                } else {
+                                    Color { a: 0.05, ..fg }
+                                }
+                                .into(),
+                            ),
+                            text_color: fg,
+                            border: Border::default().rounded(999).width(1).color(Color {
+                                a: if active { 0.7 } else { 0.15 },
+                                ..if active { accent } else { fg }
+                            }),
+                            ..Default::default()
+                        })
+                        .on_press(wrap(Msg::Scope(s))),
+                    delete,
+                ]
+                .spacing(2)
+                .align_y(iced::Alignment::Center),
+            );
+        }
+        let mut col = column![pickers].spacing(10);
+        if !self.settings.wallpapers.is_empty() {
+            col = col.push(
+                column![
+                    text(crate::i18n::tr("Règles en place :"))
+                        .font(self.font)
+                        .size(12)
+                        .color(Color { a: 0.6, ..fg }),
+                    rules.wrap(),
+                ]
+                .spacing(6),
+            );
+        }
+        col.into()
+    }
+
+    /// Portée affichée : celle choisie, sinon le workspace où les réglages sont ouverts.
+    pub(in crate::ui) fn wall_scope(&self) -> Scope {
+        self.panel
+            .as_ref()
+            .map(|p| self.wall_scope_of(p))
+            .unwrap_or_default()
+    }
+
+    fn wall_scope_of(&self, p: &Panel) -> Scope {
+        p.wallpaper.scope.clone().unwrap_or_else(|| Scope {
+            monitor: None,
+            workspace: Some(self.panel_ctx().unwrap_or_default().1),
+        })
+    }
+
     pub(in crate::ui) fn scope_selector(&self, scope: Scope) -> Selector {
-        let (mon, ws) = self.panel_ctx().unwrap_or_default();
-        match scope {
-            Scope::All => Selector::default(),
-            Scope::Workspace => Selector {
-                workspaces: Some(vec![ws]),
-                monitors: None,
-            },
-            Scope::Monitor => Selector {
-                workspaces: None,
-                monitors: Some(vec![mon]),
-            },
+        Selector {
+            workspaces: scope.workspace.map(|w| vec![w]),
+            monitors: scope.monitor.map(|m| vec![m]),
         }
     }
+
     pub(in crate::ui) fn current_fit(&self, sel: &Selector) -> Fit {
         self.settings
             .wallpaper(sel)
@@ -431,7 +670,7 @@ impl App {
         let Some((scope, folder)) = self
             .panel
             .as_ref()
-            .map(|p| (p.wallpaper.scope, p.wallpaper.folder.clone()))
+            .map(|p| (self.wall_scope_of(p), p.wallpaper.folder.clone()))
         else {
             return Task::none();
         };
@@ -440,8 +679,18 @@ impl App {
         };
         match msg {
             Msg::Scope(s) => {
-                panel.wallpaper.scope = s;
+                panel.wallpaper.scope = Some(s);
                 Task::none()
+            }
+            Msg::DeleteRule(s) => {
+                if panel.wallpaper.pending_rule.as_ref() != Some(&s) {
+                    panel.wallpaper.pending_rule = Some(s);
+                    return Task::none();
+                }
+                panel.wallpaper.pending_rule = None;
+                let sel = self.scope_selector(s);
+                self.settings.remove_wallpaper(&sel);
+                self.commit()
             }
             Msg::Folder(f) => {
                 panel.wallpaper.folder = f;
@@ -461,12 +710,19 @@ impl App {
                 Task::batch(missing.into_iter().map(load_thumb))
             }
             Msg::Thumb(p, h) => {
-                if let Some(h) = h {
+                if let Some((h, dims)) = h {
+                    panel.wallpaper.dims.insert(p.clone(), dims);
                     panel.wallpaper.thumbs.insert(p, h);
                 }
                 Task::none()
             }
             Msg::PickImage(p) => {
+                // En-tête seulement : de quoi avertir d'une résolution trop faible.
+                if !panel.wallpaper.dims.contains_key(&p)
+                    && let Ok(d) = ::image::image_dimensions(&p)
+                {
+                    panel.wallpaper.dims.insert(p.clone(), d);
+                }
                 let sel = self.scope_selector(scope);
                 let fit = self.current_fit(&sel);
                 self.settings.set_wallpaper(sel, WallSource::Path(p), fit);
@@ -529,6 +785,11 @@ impl App {
                 if let Some(w) = self.settings.wallpapers.iter_mut().find(|w| w.sel == sel) {
                     w.fit = f;
                 }
+                self.commit()
+            }
+            Msg::Span(v) => {
+                let sel = self.scope_selector(scope);
+                self.settings.set_wallpaper_span(&sel, v == 1, v >= 1);
                 self.commit()
             }
             Msg::RemoveWall => {

@@ -103,6 +103,11 @@ pub fn supports_provider() -> bool {
     lyra_help().contains("--provider")
 }
 
+/// LYRA accepte `--language <fr|en>` (langue de la conversation).
+pub fn supports_language() -> bool {
+    lyra_help().contains("--language")
+}
+
 /// LYRA lit les contextes de `~/.config/hyprpanel/context.d/`.
 pub fn supports_context_dir() -> bool {
     lyra_help().contains("context.d")
@@ -163,10 +168,14 @@ pub fn command(cfg: &Config) -> Option<String> {
         return None;
     }
     let bin = crate::launch::sh_quote(&lyra()?.display().to_string());
-    let prov = provider(cfg.general.apps.get("ai").map(String::as_str))
+    let mut prov = provider(cfg.general.apps.get("ai").map(String::as_str))
         .filter(|_| supports_provider())
         .map(|p| format!(" --provider {p}"))
         .unwrap_or_default();
+    // LYRA parle la langue de l'utilisateur (celle de hyprdesk), si elle sait la recevoir.
+    if supports_language() {
+        prov += &format!(" --language {}", crate::i18n::code());
+    }
     Some(match cfg.general.assistant_mode {
         AssistantMode::Window => format!("{bin}{prov}"),
         AssistantMode::Terminal => {
@@ -178,26 +187,44 @@ pub fn command(cfg: &Config) -> Option<String> {
 /// Contexte de l'environnement hyprdesk, en Markdown, pour l'assistant.
 pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
     let g = &cfg.general;
-    let on_off = |b: bool| if b { "actif" } else { "coupé" };
+    let on_off = |b: bool| {
+        if b {
+            "actif"
+        } else {
+            crate::i18n::tr("coupé")
+        }
+    };
     let mut o = String::new();
-    o += "# hyprdesk — environnement du bureau\n\n";
-    o += &format!(
-        "hyprdesk {} gère le bureau de Hyprland : fond d'écran, icônes, widgets, lanceur (dock), \
+    o += crate::i18n::tr("# hyprdesk — environnement du bureau\n\n");
+    o += &crate::tr!(
+        "Langue de l'utilisateur : {lang} (celle de l'interface de hyprdesk).\n\n",
+        lang = match crate::i18n::current() {
+            crate::i18n::Lang::Fr => "français",
+            crate::i18n::Lang::En => "English",
+        }
+    );
+    o += &crate::tr!(
+        "hyprdesk {p0} gère le bureau de Hyprland : fond d'écran, icônes, widgets, lanceur (dock), \
          barre, écrans (monitors.lua), workspaces, applications par défaut.\n\n",
-        env!("CARGO_PKG_VERSION")
+        p0 = env!("CARGO_PKG_VERSION")
     );
-    o += "## Modes du bureau\n\n";
-    o += &format!(
-        "- `no-desktop` : fond seul ; `{}`\n- `launcher-only` : fenêtres en place, dock accessible ; `{}`\n\
-         - `full-desktop` : fenêtres mises de côté (workspace `special:hyprdesk`) ; `{}`\n\
+    o += crate::i18n::tr("## Modes du bureau\n\n");
+    o += &crate::tr!(
+        "- `no-desktop` : fond seul ; `{p0}`\n- `launcher-only` : fenêtres en place, dock accessible ; `{p1}`\n\
+         - `full-desktop` : fenêtres mises de côté (workspace `special:hyprdesk`) ; `{p2}`\n\
          - commandes : `hyprdesk show | launcher-only | hide | cycle`\n\n",
-        g.keys.hide, g.keys.launcher, g.keys.toggle
+        p0 = g.keys.hide,
+        p1 = g.keys.launcher,
+        p2 = g.keys.toggle
     );
-    o += &format!(
-        "Bureau affiché sur : {} ; écran principal : {} ; mode : {}.\n\n",
-        g.show_on.as_str(),
-        g.primary.as_deref().unwrap_or("non défini"),
-        if g.mode == crate::config::Mode::Glass {
+    o += &crate::tr!(
+        "Bureau affiché sur : {p0} ; écran principal : {p1} ; mode : {p2}.\n\n",
+        p0 = g.show_on.as_str(),
+        p1 = g
+            .primary
+            .as_deref()
+            .unwrap_or(crate::i18n::tr("non défini")),
+        p2 = if g.mode == crate::config::Mode::Glass {
             "glass"
         } else {
             "opaque"
@@ -213,23 +240,23 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
             p.summary
         );
     }
-    o += "\n## Applications par défaut\n\n";
+    o += crate::i18n::tr("\n## Applications par défaut\n\n");
     for r in crate::apps::ROLES {
         let v = g
             .apps
             .get(r.id)
             .map(String::as_str)
-            .unwrap_or("celle du système");
+            .unwrap_or(crate::i18n::tr("celle du système"));
         o += &format!("- {} (`{}`) : {}\n", r.label, r.id, v);
     }
-    o += &format!(
-        "\nLanceur : fenêtres `{}`, regroupement `{}`.\n",
-        match g.running_apps {
+    o += &crate::tr!(
+        "\nLanceur : fenêtres `{p0}`, regroupement `{p1}`.\n",
+        p0 = match g.running_apps {
             RunningApps::Off => "off",
             RunningApps::Workspace => "workspace",
             RunningApps::All => "all",
         },
-        match g.launcher_group {
+        p1 = match g.launcher_group {
             LauncherGroup::None => "none",
             LauncherGroup::App => "app",
             LauncherGroup::Workspace => "workspace",
@@ -238,10 +265,10 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
     o += "\n## Workspaces\n\n";
     o += &format!(
         "- permanents : {}\n",
-        g.workspaces
-            .map_or("non (Hyprland les crée à la demande)".into(), |n| format!(
-                "1 à {n}"
-            ))
+        g.workspaces.map_or(
+            crate::i18n::tr("non (Hyprland les crée à la demande)").into(),
+            |n| crate::tr!("1 à {n}", n = n)
+        )
     );
     for a in &cfg.assigns {
         let app = match &a.app {
@@ -251,15 +278,22 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
         o += &format!(
             "- {app} → workspace {}{}\n",
             a.workspace,
-            if a.silent { " (sans y aller)" } else { "" }
+            if a.silent {
+                crate::i18n::tr(" (sans y aller)")
+            } else {
+                ""
+            }
         );
     }
     if let Some(b) = &cfg.bar {
-        o += &format!(
-            "\n## Barre\n\n{:?}, hauteur {}, écrans : {}.\n",
-            b.position,
-            b.height,
-            b.monitors.as_ref().map_or("tous".into(), |l| l.join(", "))
+        o += &crate::tr!(
+            "\n## Barre\n\n{pos}, hauteur {h}, écrans : {mon}.\n",
+            pos = format!("{:?}", b.position),
+            h = b.height,
+            mon = b
+                .monitors
+                .as_ref()
+                .map_or(crate::i18n::tr("tous").to_string(), |l| l.join(", "))
         );
     }
     let active: Vec<&str> = cfg
@@ -268,35 +302,38 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
         .filter(|w| !w.in_bar)
         .map(|w| w.id.as_str())
         .collect();
-    o += &format!(
-        "\n## Widgets\n\nActifs sur le bureau : {}. Disponibles : {}.\n",
-        if active.is_empty() {
-            "aucun".into()
+    o += &crate::tr!(
+        "\n## Widgets\n\nActifs sur le bureau : {p0}. Disponibles : {p1}.\n",
+        p0 = if active.is_empty() {
+            crate::i18n::tr("aucun").into()
         } else {
             active.join(", ")
         },
-        cfg.catalog
+        p1 = cfg
+            .catalog
             .iter()
             .map(|t| t.id.as_str())
             .collect::<Vec<_>>()
             .join(", ")
     );
     let dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    o += &format!(
-        "\n## Fichiers\n\n- `{}` : configuration écrite à la main (garde le dernier mot)\n\
-         - `{}` : réglages générés par l'écran Réglages et `hyprdesk config` (ne pas éditer)\n\
-         - `{}` : écrans, généré par hyprdesk (ne pas éditer)\n\
-         - `{}` : plugins Lua de widgets\n",
-        config_path.display(),
-        crate::config::lua::settings_path(config_path).display(),
-        crate::screens::monitors_path(config_path).display(),
-        dir.join("hyprdesk/widgets").display()
+    o += &crate::tr!(
+        "\n## Fichiers\n\n- `{p0}` : configuration écrite à la main (garde le dernier mot)\n\
+         - `{p1}` : réglages générés par l'écran Réglages et `hyprdesk config` (ne pas éditer)\n\
+         - `{p2}` : écrans, généré par hyprdesk (ne pas éditer)\n\
+         - `{p3}` : plugins Lua de widgets\n",
+        p0 = config_path.display(),
+        p1 = crate::config::lua::settings_path(config_path).display(),
+        p2 = crate::screens::monitors_path(config_path).display(),
+        p3 = dir.join("hyprdesk/widgets").display()
     );
-    o += "\n## Agir sur hyprdesk\n\n\
+    o += crate::i18n::tr(
+        "\n## Agir sur hyprdesk\n\n\
           - `hyprdesk config` : toutes les clés réglables, par paquet ; `hyprdesk config set <clé> <valeur>`\n\
           - `hyprdesk settings <paquet>` : ouvre l'écran Réglages\n\
           - `hyprdesk open <rôle>` : lance l'application par défaut d'un rôle\n\
-          - `hyprdesk status`, `hyprdesk check` : état du démon, vérification de la config\n";
+          - `hyprdesk status`, `hyprdesk check` : état du démon, vérification de la config\n",
+    );
     o
 }
 
@@ -325,7 +362,7 @@ pub fn write_context(cfg: &Config, config_path: &std::path::Path) {
     if let Err(e) = std::fs::create_dir_all(&dir)
         .and_then(|()| crate::storage::write(&path, text.as_bytes(), crate::storage::revision()))
     {
-        tracing::warn!("contexte de l'assistant : {e}");
+        tracing::warn!("{}", crate::tr!("contexte de l'assistant : {e}", e = e));
     }
 }
 

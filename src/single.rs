@@ -39,7 +39,10 @@ pub fn acquire(path: &Path) -> Result<Guard, Option<u32>> {
         .truncate(false)
         .open(path)
         .map_err(|e| {
-            tracing::error!("verrou {} : {e}", path.display());
+            tracing::error!(
+                "{}",
+                crate::tr!("verrou {p0} : {e}", p0 = path.display(), e = e)
+            );
             None
         })?;
     match file.try_lock() {
@@ -53,7 +56,10 @@ pub fn acquire(path: &Path) -> Result<Guard, Option<u32>> {
         }
         Err(TryLockError::WouldBlock) => Err(holder_pid(path)),
         Err(TryLockError::Error(e)) => {
-            tracing::error!("verrou {} : {e}", path.display());
+            tracing::error!(
+                "{}",
+                crate::tr!("verrou {p0} : {e}", p0 = path.display(), e = e)
+            );
             Err(None)
         }
     }

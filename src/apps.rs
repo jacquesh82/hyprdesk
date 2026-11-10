@@ -19,8 +19,10 @@ pub struct Role {
     pub label: &'static str,
     /// Types de fichiers du rôle ; le premier sert à lire la valeur du système.
     pub mimes: &'static [&'static str],
-    /// Catégorie freedesktop qui désigne les candidats (terminal).
-    pub category: Option<&'static str>,
+    /// Catégories freedesktop qui désignent aussi les candidats (`WebBrowser`,
+    /// `TextEditor`…) : une application qui ne déclare pas le type de fichier
+    /// du rôle (ou dont l'entrée locale l'a perdu) reste proposée.
+    pub categories: &'static [&'static str],
     /// Une commande sans entrée `.desktop` s'ouvre dans le terminal.
     pub in_terminal: bool,
     /// Candidats connus en dehors des types de fichiers : (valeur, libellé).
@@ -36,7 +38,7 @@ pub const ROLES: &[Role] = &[
             "x-scheme-handler/http",
             "text/html",
         ],
-        category: None,
+        categories: &["WebBrowser"],
         in_terminal: false,
         known: &[],
     },
@@ -44,7 +46,7 @@ pub const ROLES: &[Role] = &[
         id: "terminal",
         label: "Terminal",
         mimes: &[],
-        category: Some("TerminalEmulator"),
+        categories: &["TerminalEmulator"],
         in_terminal: false,
         known: &[],
     },
@@ -52,7 +54,7 @@ pub const ROLES: &[Role] = &[
         id: "files",
         label: "Fichiers",
         mimes: &["inode/directory"],
-        category: None,
+        categories: &["FileManager"],
         in_terminal: false,
         known: &[],
     },
@@ -60,9 +62,14 @@ pub const ROLES: &[Role] = &[
         id: "editor",
         label: "Éditeur de texte",
         mimes: &["text/plain"],
-        category: None,
+        categories: &["TextEditor"],
         in_terminal: true,
-        known: &[],
+        // Éditeurs de code qui ne se déclarent pas `TextEditor`.
+        known: &[
+            ("antigravity", "Antigravity"),
+            ("cursor", "Cursor"),
+            ("dev.zed.Zed", "Zed"),
+        ],
     },
     Role {
         id: "image",
@@ -76,7 +83,7 @@ pub const ROLES: &[Role] = &[
             "image/tiff",
             "image/svg+xml",
         ],
-        category: None,
+        categories: &[],
         in_terminal: false,
         known: &[],
     },
@@ -91,7 +98,7 @@ pub const ROLES: &[Role] = &[
             "video/x-msvideo",
             "video/mpeg",
         ],
-        category: None,
+        categories: &[],
         in_terminal: false,
         known: &[],
     },
@@ -106,7 +113,7 @@ pub const ROLES: &[Role] = &[
             "audio/mp4",
             "audio/opus",
         ],
-        category: None,
+        categories: &[],
         in_terminal: false,
         known: &[],
     },
@@ -114,7 +121,7 @@ pub const ROLES: &[Role] = &[
         id: "pdf",
         label: "PDF",
         mimes: &["application/pdf"],
-        category: None,
+        categories: &[],
         in_terminal: false,
         known: &[],
     },
@@ -122,7 +129,7 @@ pub const ROLES: &[Role] = &[
         id: "mail",
         label: "Mail",
         mimes: &["x-scheme-handler/mailto"],
-        category: None,
+        categories: &["Email"],
         in_terminal: false,
         known: &[],
     },
@@ -130,7 +137,7 @@ pub const ROLES: &[Role] = &[
         id: "ai",
         label: "Assistant IA",
         mimes: &[],
-        category: None,
+        categories: &[],
         in_terminal: true,
         known: &[
             ("claude", "Claude Code"),
@@ -149,18 +156,23 @@ pub fn role(id: &str) -> Option<&'static Role> {
 
 /// Commande disponible dans le PATH.
 fn in_path(cmd: &str) -> bool {
-    let first = cmd.split_whitespace().next().unwrap_or(cmd);
-    std::env::var_os("PATH").is_some_and(|p| {
-        std::env::split_paths(&p).any(|d| {
-            let f = d.join(first);
-            f.is_file()
-        })
-    })
+    launch::executable(cmd.split_whitespace().next().unwrap_or(cmd))
 }
 
-/// Candidats d'un rôle : (valeur, libellé), sans doublon.
+/// Une valeur (application ou commande) est installée sur la machine.
+pub fn installed(value: &str, apps: &[AppInfo]) -> bool {
+    let id = value.trim_end_matches(".desktop");
+    match apps.iter().find(|a| a.id.eq_ignore_ascii_case(id)) {
+        Some(a) => a.available,
+        None => in_path(value),
+    }
+}
+
+/// Candidats d'un rôle : (valeur, libellé), sans doublon, installés seulement
+/// (une entrée `.desktop` dont le programme a disparu n'est pas proposée).
 pub fn candidates(r: &Role, apps: &[AppInfo]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    let apps: Vec<&AppInfo> = apps.iter().filter(|a| a.available).collect();
     for (value, label) in r.known {
         let desktop = apps.iter().find(|a| a.id.eq_ignore_ascii_case(value));
         if desktop.is_some() || in_path(value) {
@@ -175,8 +187,9 @@ pub fn candidates(r: &Role, apps: &[AppInfo]) -> Vec<(String, String)> {
             .mimes
             .first()
             .is_some_and(|m| a.mime_types.iter().any(|t| t == m))
-            || r.category
-                .is_some_and(|c| a.categories.iter().any(|x| x == c));
+            || a.categories
+                .iter()
+                .any(|x| r.categories.contains(&x.as_str()));
         if fits && !out.iter().any(|(v, _)| *v == a.id) {
             out.push((a.id.clone(), a.name.clone()));
         }
@@ -195,7 +208,7 @@ fn config_home() -> PathBuf {
 /// Valeur du système pour un rôle : application de `xdg-mime`, ou premier
 /// terminal de `xdg-terminals.list`.
 pub fn system_default(r: &Role) -> Option<String> {
-    if r.category == Some("TerminalEmulator") {
+    if r.id == "terminal" {
         let list = std::fs::read_to_string(config_home().join("xdg-terminals.list")).ok()?;
         return list
             .lines()
@@ -219,7 +232,7 @@ pub fn apply_system(r: &Role, value: &str) -> Result<bool, String> {
         return Ok(false);
     }
     let desktop = format!("{value}.desktop");
-    if r.category == Some("TerminalEmulator") {
+    if r.id == "terminal" {
         let p = config_home().join("xdg-terminals.list");
         let old = std::fs::read_to_string(&p).unwrap_or_default();
         let mut lines = vec![desktop.clone()];
@@ -241,7 +254,10 @@ pub fn apply_system(r: &Role, value: &str) -> Result<bool, String> {
         .status()
         .map_err(|e| format!("xdg-mime : {e}"))?;
     if !st.success() {
-        return Err(format!("xdg-mime default {desktop} : échec"));
+        return Err(crate::tr!(
+            "xdg-mime default {desktop} : échec",
+            desktop = desktop
+        ));
     }
     Ok(true)
 }
@@ -299,6 +315,7 @@ mod tests {
             wm_class: None,
             mime_types: mimes.iter().map(|s| s.to_string()).collect(),
             categories: cats.iter().map(|s| s.to_string()).collect(),
+            available: true,
         }
     }
 
@@ -331,6 +348,36 @@ mod tests {
         let mut seen: Vec<&str> = ROLES.iter().map(|r| r.id).collect();
         seen.dedup();
         assert_eq!(seen.len(), ROLES.len());
+        // Reconnus à leur catégorie, sans le type de fichier du rôle.
+        let apps = vec![
+            app("brave-browser", &[], &["Network", "WebBrowser"]),
+            app(
+                "com.microsoft.VSCode",
+                &["application/x-code-workspace"],
+                &["TextEditor", "IDE"],
+            ),
+            app("antigravity", &[], &["Development"]),
+            AppInfo {
+                available: false,
+                ..app(
+                    "microsoft-edge",
+                    &["x-scheme-handler/https"],
+                    &["WebBrowser"],
+                )
+            },
+        ];
+        let ids = |r: &str| -> Vec<String> {
+            candidates(role(r).unwrap(), &apps)
+                .into_iter()
+                .map(|c| c.0)
+                .collect()
+        };
+        assert_eq!(
+            ids("browser"),
+            ["brave-browser"],
+            "pas d'application désinstallée"
+        );
+        assert_eq!(ids("editor"), ["antigravity", "com.microsoft.VSCode"]);
     }
 
     #[test]

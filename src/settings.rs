@@ -13,9 +13,9 @@ use hyprpanel_core::ipc::lua_escape;
 use std::collections::BTreeMap;
 
 use crate::config::{
-    Anchor, AppMatch, AssignRule, BarItem, BarPosition, Config, DesktopRule, Fit, IconDef,
-    IconKind, Mode, Origin, Placement, Rgba, RunningApps, Selector, ShowOn, SysItem, Transition,
-    WallSource, WallpaperRule, WidgetDef, WidgetKind,
+    Anchor, AppMatch, AssignRule, BarItem, BarPosition, Config, DesktopRule, Effect, Fit, IconDef,
+    IconKind, Mode, Origin, Place, Placement, Rgba, RunningApps, Selector, ShowOn, SysItem,
+    Transition, WallSource, WallpaperRule, WidgetDef, WidgetKind,
 };
 
 /// Module de la barre tel qu'écrit dans settings.lua : son type et ses options.
@@ -89,6 +89,7 @@ pub struct Settings {
     pub key_launcher: Option<String>,
     pub key_hide: Option<String>,
     pub key_settings: Option<String>,
+    pub key_lock: Option<String>,
     pub key_leave: Option<String>,
     pub suspend_binds: Option<bool>,
     pub float_launched: Option<bool>,
@@ -96,6 +97,9 @@ pub struct Settings {
     pub mode: Option<Mode>,
     pub glass_opacity: Option<f32>,
     pub close_on_launch: Option<bool>,
+    pub advanced_settings: Option<bool>,
+    pub tour_seen: Option<bool>,
+    pub app_themes: Option<std::collections::BTreeSet<String>>,
     pub fade_ms: Option<u64>,
     pub transition: Option<Transition>,
     pub crossfade_ms: Option<u64>,
@@ -118,6 +122,13 @@ pub struct Settings {
     pub icon_size: Option<u16>,
     pub cell: Option<u16>,
     pub accent: Option<Rgba>,
+    /// Thème : nom, couleurs du texte et des surfaces, fond sans image.
+    pub theme_name: Option<String>,
+    pub fg: Option<Rgba>,
+    pub bg: Option<Rgba>,
+    pub background: Option<Rgba>,
+    /// Effets de surface réglés ici, par endroit.
+    pub effects: BTreeMap<Place, Effect>,
     /// Workspaces permanents (`hd.config({ workspaces = N })`).
     pub workspaces: Option<u8>,
     /// Workspaces de chaque écran.
@@ -127,6 +138,9 @@ pub struct Settings {
     /// Écran principal (`hd.config({ primary = "DP-1" })`).
     pub primary: Option<String>,
     pub assistant_mode: Option<crate::assistant::AssistantMode>,
+    pub language: Option<String>,
+    /// Layouts (`layout`, `layout_workspaces`, `dwindle`, `master`, `scrolling`).
+    pub tiling: Option<crate::tiling::Tiling>,
     /// Paquets intégrés désactivés.
     pub disabled_plugins: Option<std::collections::BTreeSet<String>>,
     /// Applications par défaut réglées ici, par rôle.
@@ -211,6 +225,7 @@ impl Settings {
             key_launcher: has("keys.launcher").then(|| g.keys.launcher.clone()),
             key_hide: has("keys.hide").then(|| g.keys.hide.clone()),
             key_settings: has("keys.settings").then(|| g.keys.settings.clone()),
+            key_lock: has("keys.lock").then(|| g.keys.lock.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             float_launched: has("float_launched").then_some(g.float_launched),
@@ -218,6 +233,9 @@ impl Settings {
             mode: has("mode").then_some(g.mode),
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
             close_on_launch: has("close_on_launch").then_some(g.close_on_launch),
+            advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
+            tour_seen: has("tour_seen").then_some(g.tour_seen),
+            app_themes: has("app_themes").then(|| g.app_themes.clone()),
             fade_ms: has("fade_ms").then_some(g.fade_ms),
             transition: has("transition").then_some(g.transition),
             crossfade_ms: has("crossfade_ms").then_some(g.crossfade_ms),
@@ -250,6 +268,15 @@ impl Settings {
             icon_size: has("grid.icon_size").then_some(g.grid.icon_size),
             cell: has("grid.cell").then_some(g.grid.cell),
             accent: has("theme.accent").then_some(g.theme.accent),
+            theme_name: has("theme.name").then(|| g.theme.name.clone()),
+            fg: has("theme.fg").then_some(g.theme.fg),
+            bg: has("theme.bg").then_some(g.theme.bg),
+            background: has("background").then_some(g.background),
+            effects: Place::ALL
+                .iter()
+                .filter(|p| has(&format!("theme.effects.{}", p.as_str())))
+                .map(|p| (*p, g.theme.effect(*p)))
+                .collect(),
             workspace_monitors: has("workspace_monitors")
                 .then(|| g.workspace_monitors_declared.clone()),
             workspace_dedicated: has("workspace_dedicated").then(|| g.workspace_dedicated.clone()),
@@ -259,6 +286,17 @@ impl Settings {
                 None
             },
             assistant_mode: has("assistant_mode").then_some(g.assistant_mode),
+            language: has("language").then(|| g.language.clone()),
+            tiling: [
+                "layout",
+                "layout_workspaces",
+                "dwindle",
+                "master",
+                "scrolling",
+            ]
+            .iter()
+            .any(|k| has(k))
+            .then(|| g.tiling.clone()),
             disabled_plugins: has("disabled_plugins").then(|| g.disabled_plugins.clone()),
             apps: g
                 .apps
@@ -374,7 +412,7 @@ impl Settings {
         id
     }
 
-    #[cfg(test)]
+    /// Retire un widget déclaré dans les réglages.
     pub fn remove_widget(&mut self, id: &str) {
         self.widgets.retain(|w| w.id != id);
     }
@@ -410,6 +448,7 @@ impl Settings {
         set!(key_launcher, "keys.launcher", g.keys.launcher);
         set!(key_hide, "keys.hide", g.keys.hide);
         set!(key_settings, "keys.settings", g.keys.settings);
+        set!(key_lock, "keys.lock", g.keys.lock);
         set!(key_leave, "keys.leave", g.keys.leave);
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(float_launched, "float_launched", g.float_launched);
@@ -417,6 +456,9 @@ impl Settings {
         set!(mode, "mode", g.mode);
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
         set!(close_on_launch, "close_on_launch", g.close_on_launch);
+        set!(advanced_settings, "advanced_settings", g.advanced_settings);
+        set!(tour_seen, "tour_seen", g.tour_seen);
+        set!(app_themes, "app_themes", g.app_themes);
         set!(fade_ms, "fade_ms", g.fade_ms);
         set!(transition, "transition", g.transition);
         set!(crossfade_ms, "crossfade_ms", g.crossfade_ms);
@@ -436,6 +478,27 @@ impl Settings {
             g.launcher.show_assistant
         );
         set!(assistant_mode, "assistant_mode", g.assistant_mode);
+        set!(language, "language", g.language);
+        if let Some(t) = &self.tiling {
+            if free("layout") {
+                g.tiling.layout = t.layout.clone();
+            }
+            if free("layout_workspaces") {
+                g.tiling.workspaces = t.workspaces.clone();
+            }
+            for section in crate::tiling::SECTIONS {
+                if free(section) {
+                    let prefix = format!("{section}.");
+                    g.tiling.options.retain(|k, _| !k.starts_with(&prefix));
+                    g.tiling.options.extend(
+                        t.options
+                            .iter()
+                            .filter(|(k, _)| k.starts_with(&prefix))
+                            .map(|(k, v)| (k.clone(), v.clone())),
+                    );
+                }
+            }
+        }
         set!(lock_blur, "lock_blur", g.lock.blur);
         set!(lock_dim, "lock_dim", g.lock.dim);
         set!(lock_show_user, "lock_show_user", g.lock.show_user);
@@ -447,6 +510,15 @@ impl Settings {
         set!(icon_size, "grid.icon_size", g.grid.icon_size);
         set!(cell, "grid.cell", g.grid.cell);
         set!(accent, "theme.accent", g.theme.accent);
+        set!(theme_name, "theme.name", g.theme.name);
+        set!(fg, "theme.fg", g.theme.fg);
+        set!(bg, "theme.bg", g.theme.bg);
+        set!(background, "background", g.background);
+        for (p, e) in &self.effects {
+            if free(&format!("theme.effects.{}", p.as_str())) {
+                g.theme.effects.insert(*p, *e);
+            }
+        }
         set!(font_size, "font_size", g.font_size);
         if let Some(font) = &self.font
             && free("font")
@@ -537,14 +609,32 @@ impl Settings {
         c
     }
 
+    /// Fond d'une portée. Une scène étalée le reste si la source est une image
+    /// ou un diaporama.
     pub fn set_wallpaper(&mut self, sel: Selector, source: WallSource, fit: Fit) {
+        let color = matches!(source, WallSource::Color(_));
+        let span = self.wallpaper(&sel).is_some_and(|w| w.span) && !color;
+        let span_lock = self.wallpaper(&sel).is_some_and(|w| w.span_lock) && !color;
         self.wallpapers.retain(|w| w.sel != sel);
         self.wallpapers.push(WallpaperRule {
             origin: Origin::Settings,
             sel,
             source,
             fit,
+            span,
+            span_lock,
         });
+    }
+
+    /// Étale (ou non) le fond d'une portée sur tous les écrans : au bureau
+    /// (`span`) et au verrouillage (`span_lock`).
+    pub fn set_wallpaper_span(&mut self, sel: &Selector, span: bool, span_lock: bool) {
+        if let Some(w) = self.wallpapers.iter_mut().find(|w| &w.sel == sel)
+            && !matches!(w.source, WallSource::Color(_))
+        {
+            w.span = span;
+            w.span_lock = span_lock;
+        }
     }
 
     pub fn remove_wallpaper(&mut self, sel: &Selector) {
@@ -624,6 +714,69 @@ impl Settings {
         });
     }
 
+    /// Icône d'un fichier ou d'un dossier déposé sur le bureau ; une
+    /// application (`.desktop` des dossiers d'applications) devient une icône
+    /// d'application. Rend son identifiant (pour la placer), ou `None` si elle
+    /// existe déjà.
+    pub fn add_dropped(&mut self, path: &std::path::Path) -> Option<String> {
+        let app = path
+            .extension()
+            .is_some_and(|e| e == "desktop")
+            .then(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
+            .flatten()
+            .filter(|_| {
+                path.parent().is_some_and(|d| {
+                    d.ends_with("applications") || d.to_string_lossy().contains("/applications")
+                })
+            });
+        let (id, kind, icon, label) = match app {
+            Some(a) => (format!("app:{a}"), IconKind::App(a), None, None),
+            None => {
+                let label = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+                let icon = if path.is_dir() {
+                    "folder"
+                } else {
+                    match path
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_lowercase())
+                        .as_deref()
+                    {
+                        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "svg") => "image-x-generic",
+                        Some("pdf") => "application-pdf",
+                        Some("mp4" | "mkv" | "webm" | "avi" | "mov") => "video-x-generic",
+                        Some("mp3" | "flac" | "ogg" | "wav" | "opus") => "audio-x-generic",
+                        Some("zip" | "tar" | "gz" | "xz" | "7z" | "rar") => "package-x-generic",
+                        Some("sh" | "py" | "rs" | "lua" | "js" | "ts") => "text-x-script",
+                        _ => "text-x-generic",
+                    }
+                };
+                (
+                    // Même règle que hd.icon : `path:` suivi du chemin tel qu'écrit.
+                    format!("path:{}", tilde(path)),
+                    IconKind::Path(path.to_path_buf()),
+                    Some(icon.to_string()),
+                    Some(label),
+                )
+            }
+        };
+        if self.icons.iter().any(|i| i.id == id) {
+            return None;
+        }
+        self.icons.push(IconDef {
+            origin: Origin::Settings,
+            sel: Selector::default(),
+            id: id.clone(),
+            label,
+            kind,
+            icon,
+            pos: None,
+        });
+        Some(id)
+    }
+
     pub fn remove_icon(&mut self, idx: usize) {
         if idx < self.icons.len() {
             self.icons.remove(idx);
@@ -650,6 +803,7 @@ impl Settings {
             ("launcher", &self.key_launcher),
             ("hide", &self.key_hide),
             ("settings", &self.key_settings),
+            ("lock", &self.key_lock),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {
@@ -681,6 +835,16 @@ impl Settings {
         if let Some(v) = self.close_on_launch {
             cfg.push(format!("close_on_launch = {v}"));
         }
+        if let Some(v) = self.advanced_settings {
+            cfg.push(format!("advanced_settings = {v}"));
+        }
+        if let Some(v) = self.tour_seen {
+            cfg.push(format!("tour_seen = {v}"));
+        }
+        if let Some(v) = &self.app_themes {
+            let l: Vec<String> = v.iter().map(|x| q(x)).collect();
+            cfg.push(format!("app_themes = {{ {} }}", l.join(", ")));
+        }
         if let Some(v) = self.transition {
             cfg.push(format!("transition = {}", q(v.as_str())));
         }
@@ -695,6 +859,35 @@ impl Settings {
         }
         if let Some(v) = self.assistant_mode {
             cfg.push(format!("assistant_mode = {}", q(v.as_str())));
+        }
+        if let Some(v) = &self.language {
+            cfg.push(format!("language = {}", q(v)));
+        }
+        if let Some(t) = &self.tiling {
+            if let Some(l) = &t.layout {
+                cfg.push(format!("layout = {}", q(l)));
+            }
+            if !t.workspaces.is_empty() {
+                let f: Vec<String> = t
+                    .workspaces
+                    .iter()
+                    .map(|(w, l)| format!("[{}] = {}", q(w), q(l)))
+                    .collect();
+                cfg.push(format!("layout_workspaces = {{ {} }}", f.join(", ")));
+            }
+            for section in crate::tiling::SECTIONS {
+                let prefix = format!("{section}.");
+                let f: Vec<String> = t
+                    .options
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        Some(format!("{} = {}", k.strip_prefix(&prefix)?, v.lua()))
+                    })
+                    .collect();
+                if !f.is_empty() {
+                    cfg.push(format!("{section} = {{ {} }}", f.join(", ")));
+                }
+            }
         }
         if let Some(v) = self.launcher_position {
             cfg.push(format!("launcher_position = {}", q(v.as_str())));
@@ -751,8 +944,35 @@ impl Settings {
         if !grid.is_empty() {
             cfg.push(format!("grid = {{ {} }}", grid.join(", ")));
         }
-        if let Some(c) = self.accent {
-            cfg.push(format!("theme = {{ accent = {} }}", q(&hex(c))));
+        let mut theme: Vec<String> = Vec::new();
+        if let Some(n) = &self.theme_name {
+            theme.push(format!("name = {}", q(n)));
+        }
+        for (k, c) in [("fg", self.fg), ("bg", self.bg), ("accent", self.accent)] {
+            if let Some(c) = c {
+                theme.push(format!("{k} = {}", q(&hex(c))));
+            }
+        }
+        if !self.effects.is_empty() {
+            let fx: Vec<String> = self
+                .effects
+                .iter()
+                .map(|(p, e)| {
+                    format!(
+                        "{} = {{ opacity = {}, blur = {} }}",
+                        p.as_str(),
+                        num(e.opacity),
+                        e.blur
+                    )
+                })
+                .collect();
+            theme.push(format!("effects = {{ {} }}", fx.join(", ")));
+        }
+        if !theme.is_empty() {
+            cfg.push(format!("theme = {{ {} }}", theme.join(", ")));
+        }
+        if let Some(c) = self.background {
+            cfg.push(format!("background = {}", q(&hex(c))));
         }
         if let Some(n) = self.workspaces {
             cfg.push(format!("workspaces = {n}"));
@@ -809,7 +1029,14 @@ impl Settings {
                     interval.as_secs()
                 )),
             }
-            if w.fit != Fit::Cover && !matches!(w.source, WallSource::Color(_)) {
+            match (w.span, w.span_lock) {
+                (true, true) => f.push("span = true".into()),
+                (false, true) => f.push("span = \"lock\"".into()),
+                (true, false) => f.push("span = \"desktop\"".into()),
+                (false, false) => {}
+            }
+            // Le bureau garde son ajustement s'il n'est pas étalé.
+            if !w.span && w.fit != Fit::Cover && !matches!(w.source, WallSource::Color(_)) {
                 f.push(format!("fit = {}", q(fit_str(w.fit))));
             }
             let _ = writeln!(o, "hd.wallpaper({{ {} }})", f.join(", "));
@@ -917,6 +1144,12 @@ impl Settings {
             }
             if let Some(l) = &i.label {
                 f.push(format!("label = {}", q(l)));
+            }
+            if let Some(ic) = &i.icon {
+                f.push(format!("icon = {}", q(ic)));
+            }
+            if let Some((c, r)) = i.pos {
+                f.push(format!("pos = {{ {c}, {r} }}"));
             }
             let _ = writeln!(o, "hd.icon({{ {} }})", f.join(", "));
         }
@@ -1176,6 +1409,9 @@ mod tests {
             mode: Some(Mode::Glass),
             glass_opacity: Some(0.5),
             close_on_launch: Some(false),
+            advanced_settings: Some(true),
+            tour_seen: Some(true),
+            app_themes: Some(["kitty".to_string()].into()),
             fade_ms: Some(300),
             transition: Some(Transition::Slide),
             crossfade_ms: Some(1200),
@@ -1230,6 +1466,27 @@ mod tests {
             ("primary".to_string(), vec!["6".into()]),
         ]));
         s.workspace_dedicated = Some(["HDMI-A-2".to_string()].into());
+        let mut t = crate::tiling::Tiling {
+            layout: Some("centered".into()),
+            ..Default::default()
+        };
+        t.workspaces.insert("3".into(), "monocle".into());
+        t.workspaces.insert("name:web".into(), "lua:mien".into());
+        t.options.insert(
+            "dwindle.preserve_split".into(),
+            crate::tiling::OptValue::Bool(true),
+        );
+        t.options.insert(
+            "master.orientation".into(),
+            crate::tiling::OptValue::Str("center".into()),
+        );
+        t.options
+            .insert("master.mfact".into(), crate::tiling::OptValue::Num(0.6));
+        t.options.insert(
+            "dwindle.force_split".into(),
+            crate::tiling::OptValue::Num(2.0),
+        );
+        s.tiling = Some(t);
         s.primary = Some("DP-1".into());
         s.apps.insert("ai".into(), "claude".into());
         s.apps.insert("browser".into(), "brave-browser".into());
@@ -1247,6 +1504,46 @@ mod tests {
         .unwrap_or_else(|e| panic!("{e}\n{lua}"))
         .config;
         assert_eq!(Settings::from_config(&cfg), s, "\n{lua}");
+    }
+
+    /// Fichier, dossier ou application déposés : l'icône qui convient, pas de doublon.
+    #[test]
+    fn icones_deposees() {
+        let mut s = Settings::default();
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            s.add_dropped(&dir).as_deref(),
+            Some(format!("path:{}", tilde(&dir)).as_str())
+        );
+        assert_eq!(s.icons[0].icon.as_deref(), Some("folder"));
+        assert_eq!(s.add_dropped(&dir), None, "pas de doublon");
+        let id = s
+            .add_dropped(std::path::Path::new("/home/moi/photo.JPG"))
+            .unwrap();
+        let i = s.icons.iter().find(|i| i.id == id).unwrap();
+        assert_eq!(i.icon.as_deref(), Some("image-x-generic"));
+        assert_eq!(i.label.as_deref(), Some("photo.JPG"));
+        let id = s
+            .add_dropped(std::path::Path::new(
+                "/usr/share/applications/firefox.desktop",
+            ))
+            .unwrap();
+        assert_eq!(id, "app:firefox");
+        assert!(matches!(&s.icons.last().unwrap().kind, IconKind::App(a) if a == "firefox"));
+        // Un .desktop hors des dossiers d'applications reste un fichier.
+        let id = s
+            .add_dropped(std::path::Path::new("/tmp/lanceur.desktop"))
+            .unwrap();
+        assert!(id.starts_with("path:"));
+        // Aller-retour par settings.lua.
+        let lua = s.to_lua();
+        let cfg = load_chunks(
+            &[(lua.clone(), "settings.lua".into(), Origin::Settings)],
+            Path::new("/cfg"),
+        )
+        .unwrap_or_else(|e| panic!("{e}\n{lua}"))
+        .config;
+        assert_eq!(Settings::from_config(&cfg).icons, s.icons, "\n{lua}");
     }
 
     #[test]

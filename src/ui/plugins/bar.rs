@@ -2,7 +2,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use iced::widget::{button, column, pick_list, radio, row, slider, text, toggler};
+use crate::i18n::text;
+use iced::widget::{button, column, pick_list, radio, row, slider, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -18,6 +19,9 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet.
+pub const TABS: &[super::SubTab] = &[("general", "Général"), ("modules", "Modules")];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Bar(m)))
 }
@@ -83,7 +87,7 @@ impl App {
             crate::config::BAR_ITEMS
                 .iter()
                 .find(|(id, _)| *id == type_id)
-                .map(|(_, l)| l.to_string())
+                .map(|(_, l)| crate::i18n::tr(l).to_string())
                 .or_else(|| {
                     self.cfg
                         .catalog
@@ -97,7 +101,7 @@ impl App {
             .iter()
             .map(|(id, l)| BarChoice {
                 type_id: id.to_string(),
-                label: l.to_string(),
+                label: crate::i18n::tr(l).to_string(),
             })
             .chain(
                 self.cfg
@@ -110,101 +114,143 @@ impl App {
                     }),
             )
             .collect();
-        let mut col = column![
-            self.section("Barre de hyprdesk"),
-            text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(12).color(dim),
-            self.field("Afficher la barre", "bar", toggler(b.enabled).on_toggle(|v| wrap(Msg::Enable(v)))),
-        ]
+        let general = self.on_subtab(INFO.id, "general");
+        let mut col = if general {
+            column![
+                self.section("Barre de hyprdesk"),
+                text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(12).color(dim),
+                self.field("Afficher la barre", "bar", toggler(b.enabled).on_toggle(|v| wrap(Msg::Enable(v)))),
+            ]
+        } else {
+            column![self.section("Modules de la barre")]
+        }
         .spacing(12);
         if self.cfg.keys_user.contains("bar") {
             col = col.push(text("hd.bar est aussi déclaré dans hyprdesk.lua, qui l'emporte : ces réglages sont sans effet.").font(self.font).size(12).color(warn));
         }
         if !b.enabled {
-            col = col.push(text("Pensez ensuite à masquer la barre de wayle (sa configuration) pour éviter deux barres.").font(self.font).size(12).color(dim));
+            col = col.push(
+                text(if general {
+                    crate::i18n::tr("Pensez ensuite à masquer la barre de wayle (sa configuration) pour éviter deux barres.")
+                } else {
+                    crate::i18n::tr("La barre est masquée : affichez-la dans l'onglet Général.")
+                })
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
             return col.into();
         }
-        col = col
-            .push(
-                self.field(
-                    "Position",
-                    "",
-                    row![
-                        radio("En haut", BarPosition::Top, Some(b.position), |v| {
-                            wrap(Msg::Pos(v))
-                        })
-                        .font(self.font),
-                        radio("En bas", BarPosition::Bottom, Some(b.position), |v| {
-                            wrap(Msg::Pos(v))
-                        })
-                        .font(self.font),
-                    ]
-                    .spacing(16),
-                ),
-            )
-            .push(
-                self.field(
-                    "Hauteur",
-                    "",
-                    row![
-                        slider(24..=64u16, b.height.clamp(24, 64), |v| wrap(Msg::Height(v)))
-                            .on_release(wrap(Msg::Commit))
-                            .width(260),
-                        text(format!("{} px", b.height)).font(self.font).size(13),
-                    ]
-                    .spacing(12),
-                ),
-            )
-            .push(self.field("Écrans", "", {
-                // 0 : tous ; 1 : l'écran principal ; 2 : cet écran.
-                let which = match &b.monitors {
-                    None => 0u8,
-                    Some(l) if l.len() == 1 && l[0] == super::super::bar::PRIMARY => 1,
-                    Some(_) => 2,
-                };
-                let pick = |v: u8| {
-                    wrap(match v {
-                        0 => Msg::AllMonitors(true),
-                        1 => Msg::Primary,
-                        _ => Msg::AllMonitors(false),
-                    })
-                };
-                row![
-                    radio("Tous", 0u8, Some(which), pick).font(self.font),
-                    radio("Écran principal", 1u8, Some(which), pick).font(self.font),
-                    radio(format!("Seulement {mon}"), 2u8, Some(which), pick).font(self.font),
-                ]
-                .spacing(16)
-            }));
         let small = |label: &'static str, msg: UiMsg| {
             button(text(label).font(self.font).size(12))
                 .padding([2, 8])
                 .on_press(msg)
         };
-        use crate::config::BarCompact;
-        let compact = |label: &'static str, v: BarCompact| {
-            radio(label, v, Some(b.compact), |v| wrap(Msg::Compact(v))).font(self.font)
-        };
-        col = col.push(
-            self.field(
-                "Barre compacte (titres courts, heure seule, icônes sans libellé)",
-                "",
-                row![
-                    compact("Auto : écrans étroits et verticaux", BarCompact::Auto),
-                    compact("Toujours", BarCompact::Always),
-                    compact("Jamais", BarCompact::Never),
-                ]
-                .spacing(16),
-            ),
-        );
+        if general {
+            col = col
+                .push(
+                    self.field(
+                        "Position",
+                        "",
+                        row![
+                            radio(
+                                crate::i18n::tr("En haut"),
+                                BarPosition::Top,
+                                Some(b.position),
+                                |v| { wrap(Msg::Pos(v)) }
+                            )
+                            .font(self.font),
+                            radio(
+                                crate::i18n::tr("En bas"),
+                                BarPosition::Bottom,
+                                Some(b.position),
+                                |v| { wrap(Msg::Pos(v)) }
+                            )
+                            .font(self.font),
+                        ]
+                        .spacing(16),
+                    ),
+                )
+                .push(
+                    self.field(
+                        "Hauteur",
+                        "",
+                        row![
+                            slider(24..=64u16, b.height.clamp(24, 64), |v| wrap(Msg::Height(v)))
+                                .on_release(wrap(Msg::Commit))
+                                .width(260),
+                            text(format!("{} px", b.height)).font(self.font).size(13),
+                        ]
+                        .spacing(12),
+                    ),
+                )
+                .push(self.field("Écrans", "", {
+                    // 0 : tous ; 1 : l'écran principal ; 2 : cet écran.
+                    let which = match &b.monitors {
+                        None => 0u8,
+                        Some(l) if l.len() == 1 && l[0] == super::super::bar::PRIMARY => 1,
+                        Some(_) => 2,
+                    };
+                    let pick = |v: u8| {
+                        wrap(match v {
+                            0 => Msg::AllMonitors(true),
+                            1 => Msg::Primary,
+                            _ => Msg::AllMonitors(false),
+                        })
+                    };
+                    row![
+                        radio(crate::i18n::tr("Tous"), 0u8, Some(which), pick).font(self.font),
+                        radio(crate::i18n::tr("Écran principal"), 1u8, Some(which), pick)
+                            .font(self.font),
+                        radio(
+                            crate::tr!("Seulement {mon}", mon = mon),
+                            2u8,
+                            Some(which),
+                            pick
+                        )
+                        .font(self.font),
+                    ]
+                    .spacing(16)
+                }));
+            use crate::config::BarCompact;
+            let compact = |label: &'static str, v: BarCompact| {
+                radio(crate::i18n::tr(label), v, Some(b.compact), |v| {
+                    wrap(Msg::Compact(v))
+                })
+                .font(self.font)
+            };
+            col = col.push(
+                self.field(
+                    "Barre compacte (titres courts, heure seule, icônes sans libellé)",
+                    "",
+                    row![
+                        compact(
+                            crate::i18n::tr("Auto : écrans étroits et verticaux"),
+                            BarCompact::Auto
+                        ),
+                        compact("Toujours", BarCompact::Always),
+                        compact("Jamais", BarCompact::Never),
+                    ]
+                    .spacing(16),
+                ),
+            );
+            return col.into();
+        }
         let portrait = self.panel.as_ref().is_some_and(|p| p.bar.portrait);
         let mut which = row![
-            radio("Écrans horizontaux", false, Some(portrait), |v| wrap(
-                Msg::EditPortrait(v)
-            ))
+            radio(
+                crate::i18n::tr("Écrans horizontaux"),
+                false,
+                Some(portrait),
+                |v| wrap(Msg::EditPortrait(v))
+            )
             .font(self.font),
-            radio("Écrans verticaux", true, Some(portrait), |v| wrap(
-                Msg::EditPortrait(v)
-            ))
+            radio(
+                crate::i18n::tr("Écrans verticaux"),
+                true,
+                Some(portrait),
+                |v| wrap(Msg::EditPortrait(v))
+            )
             .font(self.font),
         ]
         .spacing(16)
@@ -221,7 +267,7 @@ impl App {
                 .on_press(wrap(Msg::PortraitReset)),
             );
         }
-        col = col.push(self.field("Modules", "", which));
+        col = col.push(self.adv(self.field("Modules", "", which)));
         if portrait && b.portrait.is_none() {
             col = col.push(
                 text(
@@ -278,7 +324,7 @@ impl App {
                     wrap(Msg::Add(z, c))
                 })
                 .font(self.font)
-                .placeholder("Ajouter un module…")
+                .placeholder(crate::i18n::tr("Ajouter un module…"))
                 .width(260),
             );
         }

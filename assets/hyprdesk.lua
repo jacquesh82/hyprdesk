@@ -14,7 +14,7 @@
 -- Tout ce qui est décommenté ici prend le pas sur l'écran ⚙.
 hd.config({
     terminal = "kitty",
-    -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", leave = "SUPER + Escape" },
+    -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", lock = "SUPER + ALT + L", leave = "SUPER + Escape" },
     -- suspend_binds   = true,       -- bureau affiché : raccourcis de Hyprland suspendus
     -- float_launched  = true,       -- ouvert depuis le bureau affiché : flottant et centré
     -- mode            = "opaque",   -- "opaque" (fond d'écran) ou "glass" (fenêtres floutées)
@@ -28,13 +28,16 @@ hd.config({
     -- font            = "Mindlog",   -- police embarquée par défaut, ou une famille installée
     -- font_size       = 14,
     -- grid  = { cell = 96, gap = 16, margin = 32, icon_size = 48 },
-    -- theme = { fg = "#f2f4fc", bg = "#171b27", accent = "#a69cff" },
+    -- theme = { name = "Ardoise", fg = "#f2f4fc", bg = "#171b27", accent = "#a69cff",
+    --           effects = { bar = { opacity = 0.72, blur = true }, widgets = { opacity = 0.84 } } },
 })
 
 -- Fonds d'écran (ou onglet « Fond d'écran » de l'écran ⚙) ---------------------
 -- hd.wallpaper({ path = "~/.wallpapers/default.jpg", fit = "cover" })
 -- hd.wallpaper({ monitor = "DP-1", path = "~/.wallpapers/portrait.png" })
 -- hd.wallpaper({ workspace = 3, rotate = { dir = "~/.wallpapers", interval = 600, shuffle = true } })
+-- Une scène pour toute la disposition : chaque écran en montre sa part.
+-- hd.wallpaper({ path = "~/.wallpapers/panorama.jpg", span = true })
 
 -- Bureaux par workspace -----------------------------------------------------
 -- hd.desktop({ workspace = 4, mode = "glass" })

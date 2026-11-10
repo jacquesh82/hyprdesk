@@ -41,9 +41,9 @@ impl Watcher {
         #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         let key = if service.starts_with('/') {
-            let sender = header
-                .sender()
-                .ok_or_else(|| zbus::fdo::Error::InvalidArgs("expéditeur absent".into()))?;
+            let sender = header.sender().ok_or_else(|| {
+                zbus::fdo::Error::InvalidArgs(crate::i18n::tr("expéditeur absent").into())
+            })?;
             format!("{sender}{service}")
         } else {
             service
@@ -340,7 +340,14 @@ pub async fn activate(bus_name: String, path: String, secondary: bool, x: i32, y
         )
         .await
     {
-        tracing::debug!("zone de notification {method} : {e}");
+        tracing::debug!(
+            "{}",
+            crate::tr!(
+                "zone de notification {method} : {e}",
+                method = method,
+                e = e
+            )
+        );
     }
 }
 
@@ -459,7 +466,10 @@ pub async fn menu_event(bus_name: &str, menu_path: &str, id: i32) {
         )
         .await
     {
-        tracing::warn!("menu de la zone de notification : {e}");
+        tracing::warn!(
+            "{}",
+            crate::tr!("menu de la zone de notification : {e}", e = e)
+        );
     }
 }
 

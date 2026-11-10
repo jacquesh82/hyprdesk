@@ -55,8 +55,8 @@ end
 local function q(s) return "'" .. s:gsub("'", "'\\''") .. "'" end
 
 return {
-    name        = "Réseau",
-    description = "Connexion filaire et Wi-Fi, réseaux à proximité (NetworkManager).",
+    name        = hd.t("Réseau"),
+    description = hd.t("Connexion filaire et Wi-Fi, réseaux à proximité (NetworkManager)."),
     interval    = 5,
     anchor      = "top-right",
     options     = { texte = false },
@@ -64,23 +64,23 @@ return {
         local wifi, wired = connections()
         if wired then
             return { icon = "network-wired-symbolic", text = o.texte and wired or "",
-                     tooltip = "Filaire — " .. wired .. (wifi and ("\nWi-Fi — " .. wifi) or "") }
+                     tooltip = hd.t("Filaire — ") .. wired .. (wifi and (hd.t("\nWi-Fi — ") .. wifi) or "") }
         end
         if wifi then
             local s = 0
             for _, n in ipairs(networks()) do if n.used then s = n.signal end end
-            return { icon = wifi_icon(s), text = o.texte and wifi or "", tooltip = "Wi-Fi — " .. wifi .. " (" .. s .. " %)" }
+            return { icon = wifi_icon(s), text = o.texte and wifi or "", tooltip = hd.t("Wi-Fi — ") .. wifi .. " (" .. s .. " %)" }
         end
-        return { icon = "network-offline-symbolic", text = o.texte and "Hors ligne" or "", tooltip = "Aucune connexion", state = "warning" }
+        return { icon = "network-offline-symbolic", text = o.texte and hd.t("Hors ligne") or "", tooltip = hd.t("Aucune connexion"), state = "warning" }
     end,
     menu = function()
         local wifi, wired = connections()
         local radio = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
-        local m = { { header = "Réseau" } }
+        local m = { { header = hd.t("Réseau") } }
         if wired then
-            m[#m + 1] = { label = "Ethernet", detail = wired, icon = "network-wired-symbolic", checked = true }
+            m[#m + 1] = { label = hd.t("Ethernet"), detail = wired, icon = "network-wired-symbolic", checked = true }
         end
-        m[#m + 1] = { label = "Wi-Fi", checked = radio,
+        m[#m + 1] = { label = hd.t("Wi-Fi"), checked = radio,
                       action = function() hd.exec("LC_ALL=C nmcli radio wifi " .. (radio and "off" or "on")) end }
         if radio then
             local n = 0
@@ -89,7 +89,7 @@ return {
                 if n > 8 then break end
                 m[#m + 1] = {
                     label = net.ssid,
-                    detail = net.signal .. " %" .. (net.secure and " · sécurisé" or ""),
+                    detail = net.signal .. " %" .. (net.secure and hd.t(" · sécurisé") or ""),
                     icon = wifi_icon(net.signal),
                     checked = net.used or nil,
                     action = not net.used and function() hd.spawn("nmcli dev wifi connect " .. q(net.ssid)) end or nil,
@@ -97,7 +97,7 @@ return {
             end
         end
         m[#m + 1] = "-"
-        m[#m + 1] = { label = "Réglages réseau…", action = function() hd.spawn("nm-connection-editor") end }
+        m[#m + 1] = { label = hd.t("Réglages réseau…"), action = function() hd.spawn("nm-connection-editor") end }
         return m
     end,
 }

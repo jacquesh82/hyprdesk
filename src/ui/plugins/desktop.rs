@@ -2,8 +2,9 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
+use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, pick_list, radio, row, slider, text, text_input, toggler,
+    Space, button, column, container, pick_list, radio, row, slider, text_input, toggler,
 };
 use iced::{Alignment, Color, Element, Length, Task};
 
@@ -21,6 +22,13 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Message de ce paquet, enveloppé pour l'application.
+/// Onglets du paquet (police et taille : Thème → Texte).
+pub const TABS: &[super::SubTab] = &[
+    ("affichage", "Affichage"),
+    ("raccourcis", "Raccourcis"),
+    ("session", "Session"),
+];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Desktop(m)))
 }
@@ -29,12 +37,14 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub fonts: Vec<String>,
-    pub keys: [String; 5],
+    pub keys: [String; 6],
     pub key_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
+    /// Langue de l'interface : `auto`, `fr`, `en`.
+    Language(&'static str),
     ShowOn(ShowOn),
     Mode(Mode),
     GlassOpacity(f32),
@@ -67,29 +77,49 @@ impl App {
             Some(Mode::Opaque) => WsMode::Opaque,
             Some(Mode::Glass) => WsMode::Glass,
         };
+        if self.on_subtab(INFO.id, "raccourcis") {
+            return self.keys_section();
+        }
+        if self.on_subtab(INFO.id, "session") {
+            return self.session_section();
+        }
+        let lang: &'static str = match g.language.as_str() {
+            "fr" => "fr",
+            "en" => "en",
+            _ => "auto",
+        };
         column![
-            self.section("Typographie"),
-            self.field("Police de l’interface", "font", pick_list(
-                self.panel.as_ref().map(|p| p.desktop.fonts.clone()).unwrap_or_default(),
-                g.font.clone().or_else(|| Some(crate::fonts::FAMILY.into())),
-                |f| wrap(Msg::Font(f)),
-            ).font(self.font).width(Length::Fill)),
-            container(column![
-                text("Le bureau, à votre rythme.").font(self.font).size(24).font(self.title_font()),
-                text("Aa Bb Cc · 0123456789 · Éàçœ").font(self.font).size(g.font_size).font(self.font),
-            ].spacing(8)).padding(16).width(Length::Fill).style(|theme| super::super::design::surface(theme, super::super::design::Surface::Inset)),
-            self.field("Taille du texte", "font_size", row![
-                slider(11.0..=22.0, g.font_size, |v| wrap(Msg::FontSize(v))).step(0.5_f32).on_release(UiMsg::Panel(PanelMsg::Commit)).width(260),
-                text(format!("{} px", g.font_size)).font(self.font).size(13),
-            ].spacing(12)),
+            self.section("Langue"),
+            self.field(
+                "Langue de l'interface",
+                "language",
+                row![
+                    radio(
+                        crate::i18n::tr("Celle du système"),
+                        "auto",
+                        Some(lang),
+                        |v| wrap(Msg::Language(v))
+                    )
+                    .font(self.font),
+                    radio("Français", "fr", Some(lang), |v| wrap(
+                        Msg::Language(v)
+                    ))
+                    .font(self.font),
+                    radio("English", "en", Some(lang), |v| wrap(
+                        Msg::Language(v)
+                    ))
+                    .font(self.font),
+                ]
+                .spacing(16),
+            ),
             self.section("Affichage"),
             self.field(
                 "Afficher le bureau sur",
                 "show_on",
                 column![
-                    radio("Tous les écrans", ShowOn::All, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
-                    radio("L'écran actif seulement", ShowOn::Focused, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
-                    radio("L'écran principal seulement", ShowOn::Primary, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
+                    radio(crate::i18n::tr("Tous les écrans"), ShowOn::All, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
+                    radio(crate::i18n::tr("L'écran actif seulement"), ShowOn::Focused, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
+                    radio(crate::i18n::tr("L'écran principal seulement"), ShowOn::Primary, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
                 ]
                 .spacing(8),
             ),
@@ -109,8 +139,8 @@ impl App {
                 "Mode par défaut",
                 "mode",
                 column![
-                    radio("Opaque — le fond d'écran net", Mode::Opaque, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
-                    radio("Verre — fond d'écran flouté et teinté", Mode::Glass, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
+                    radio(crate::i18n::tr("Opaque — le fond d'écran net"), Mode::Opaque, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
+                    radio(crate::i18n::tr("Verre — fond d'écran flouté et teinté"), Mode::Glass, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
                 ]
                 .spacing(8),
             ),
@@ -118,13 +148,13 @@ impl App {
                 "Mode de ce workspace",
                 "",
                 row![
-                    radio("Par défaut", WsMode::Default, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
-                    radio("Opaque", WsMode::Opaque, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
-                    radio("Verre", WsMode::Glass, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
+                    radio(crate::i18n::tr("Par défaut"), WsMode::Default, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
+                    radio(crate::i18n::tr("Opaque"), WsMode::Opaque, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
+                    radio(crate::i18n::tr("Verre"), WsMode::Glass, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
                 ]
                 .spacing(16),
             ),
-            self.field(
+            self.adv(self.field(
                 "Opacité du voile (verre)",
                 "glass_opacity",
                 row![
@@ -135,12 +165,66 @@ impl App {
                     text(format!("{:.0} %", g.glass_opacity * 100.0)).font(self.font).size(14),
                 ]
                 .spacing(12),
-            ),
-            self.keys_section(),
+            )),
         ]
         .spacing(14)
         .into()
     }
+    /// Police et taille du texte de l'interface (affichées dans Thème → Texte).
+    pub(in crate::ui) fn typography(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        column![
+            self.section("Typographie"),
+            self.field(
+                "Police de l’interface",
+                "font",
+                pick_list(
+                    self.panel
+                        .as_ref()
+                        .map(|p| p.desktop.fonts.clone())
+                        .unwrap_or_default(),
+                    g.font.clone().or_else(|| Some(crate::fonts::FAMILY.into())),
+                    |f| wrap(Msg::Font(f)),
+                )
+                .font(self.font)
+                .width(Length::Fill)
+            ),
+            container(
+                column![
+                    text("Le bureau, à votre rythme.")
+                        .font(self.font)
+                        .size(24)
+                        .font(self.title_font()),
+                    text("Aa Bb Cc · 0123456789 · Éàçœ")
+                        .font(self.font)
+                        .size(g.font_size)
+                        .font(self.font),
+                ]
+                .spacing(8)
+            )
+            .padding(16)
+            .width(Length::Fill)
+            .style(|theme| super::super::design::surface(
+                theme,
+                super::super::design::Surface::Inset
+            )),
+            self.field(
+                "Taille du texte",
+                "font_size",
+                row![
+                    slider(11.0..=22.0, g.font_size, |v| wrap(Msg::FontSize(v)))
+                        .step(0.5_f32)
+                        .on_release(UiMsg::Panel(PanelMsg::Commit))
+                        .width(260),
+                    text(format!("{} px", g.font_size)).font(self.font).size(13),
+                ]
+                .spacing(12)
+            ),
+        ]
+        .spacing(14)
+        .into()
+    }
+
     pub(in crate::ui) fn keys_section(&self) -> Element<'_, UiMsg> {
         let Some(p) = &self.panel else {
             return Space::new().into();
@@ -153,7 +237,7 @@ impl App {
             self.field(
                 label,
                 cfg_key,
-                text_input("aucun", &p.desktop.keys[i])
+                text_input(crate::i18n::tr("aucun"), &p.desktop.keys[i])
                     .font(self.font)
                     .on_input(move |v| wrap(Msg::KeyInput(i, v)))
                     .on_submit(wrap(Msg::KeySubmit(i)))
@@ -163,17 +247,25 @@ impl App {
         };
         let mut col = column![
             self.section("Raccourcis"),
-            self.field(
+            self.adv(self.field(
                 "Bureau affiché : suspendre les raccourcis de Hyprland",
                 "suspend_binds",
                 toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v))),
-            ),
-            text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(12).color(dim),
+            )),
+            self.adv(text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(12).color(dim)),
             key_field(0, "full-desktop (bureau complet)", "keys.toggle"),
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
-            key_field(1, "Ouvrir les réglages", "keys.settings"),
-            key_field(2, "Sortie de secours (bureau affiché)", "keys.leave"),
+            key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
+            key_field(5, crate::i18n::tr("Verrouiller la session"), "keys.lock"),
+            text(
+                "Vide : celui de hyprland.lua (SUPER + L, posé à l'installation). \
+                 Réglé ici, hyprdesk le remplace."
+            )
+            .font(self.font)
+            .size(11)
+            .color(dim),
+            self.adv(key_field(2, crate::i18n::tr("Sortie de secours (bureau affiché)"), "keys.leave")),
             text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(11).color(dim),
         ]
         .spacing(10);
@@ -181,7 +273,7 @@ impl App {
             col = col.push(text(e.clone()).font(self.font).size(12).color(warn));
         }
         for (k, what) in &self.key_conflicts {
-            col = col.push(text(format!("⚠ {k} est déjà lié à « {what} » dans Hyprland : non installé, choisissez-en un autre.")).font(self.font).size(12).color(warn));
+            col = col.push(text(crate::tr!("{k} est déjà lié à « {what} » dans hyprland.lua : hyprdesk ne l'installe que bureau affiché (raccourcis de Hyprland suspendus). Pour qu'il agisse partout, retirez-le de hyprland.lua ou choisissez-en un autre.", k = k, what = what)).font(self.font).size(12).color(warn));
         }
         col = col.push(
             text("Raccourcis de Hyprland actifs sur le bureau")
@@ -199,7 +291,15 @@ impl App {
         for b in &self.universal_binds {
             col = col.push(text(b.clone()).font(self.font).size(12).color(dim));
         }
-        col = col.push(self.section("Session"));
+        col.into()
+    }
+
+    /// Composants de session supervisés par hyprdesk.
+    pub(in crate::ui) fn session_section(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let mut col = column![self.section("Session")].spacing(10);
         col = col.push(
             text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).").font(self.font)
                 .size(12)
@@ -211,12 +311,12 @@ impl App {
         }
         for (d, st) in comps {
             let state = match (st.pid, st.given_up) {
-                (Some(pid), _) => format!("actif (pid {pid})"),
-                (None, true) => "abandonné (plantages)".to_string(),
-                (None, false) => "arrêté".to_string(),
+                (Some(pid), _) => crate::tr!("actif (pid {pid})", pid = pid),
+                (None, true) => crate::i18n::tr("abandonné (plantages)").to_string(),
+                (None, false) => crate::i18n::tr("arrêté").to_string(),
             };
             let extra = if st.restarts > 0 {
-                format!(" · {} relance(s)", st.restarts)
+                crate::tr!(" · {n} relance(s)", n = st.restarts)
             } else {
                 String::new()
             };
@@ -262,6 +362,10 @@ impl App {
                 self.settings.close_on_launch = Some(v);
                 self.commit()
             }
+            Msg::Language(l) => {
+                self.settings.language = Some(l.to_string());
+                self.commit()
+            }
             Msg::WorkspaceMode(v) => {
                 let (_, ws) = self.panel_ctx().unwrap_or_default();
                 let mode = match v {
@@ -305,8 +409,9 @@ impl App {
                     .trim()
                     .to_string();
                 if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
-                    panel.desktop.key_error = Some(format!(
-                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)"
+                    panel.desktop.key_error = Some(crate::tr!(
+                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        v = v
                     ));
                     return Task::none();
                 }
@@ -315,6 +420,7 @@ impl App {
                     1 => self.settings.key_settings = Some(v),
                     3 => self.settings.key_launcher = Some(v),
                     4 => self.settings.key_hide = Some(v),
+                    5 => self.settings.key_lock = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()
