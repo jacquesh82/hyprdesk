@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
+mod bar;
 mod panel;
 mod widget_view;
 
@@ -38,14 +39,30 @@ use crate::{control, launch, widgets};
 const NAMESPACE: &str = "hyprdesk";
 const DRAG_THRESHOLD: f32 = 6.0;
 /// Icônes de l'interface, dans l'ordre de `App::ui_imgs` : commandes média, puis réglages.
-const UI_ICONS: [&str; 5] =
-    ["media-skip-backward", "media-playback-pause", "media-playback-start", "media-skip-forward", "preferences-system"];
+const UI_ICONS: [&str; 10] = [
+    "media-skip-backward",
+    "media-playback-pause",
+    "media-playback-start",
+    "media-skip-forward",
+    "preferences-system",
+    "user-desktop",
+    "audio-volume-muted",
+    "audio-volume-low",
+    "audio-volume-medium",
+    "audio-volume-high",
+];
 const ICON_SETTINGS: usize = 4;
 /// Décalage vertical du contenu au début d'une transition « glissement ».
 const SLIDE_PX: f32 = 48.0;
 
 /// Clé du cache d'images décodées : fichier, taille cible, ajustement.
-type WallKey = (PathBuf, u32, u32, Fit);
+/// Clé du cache d'images décodées : fichier, taille cible, ajustement, flou (mode verre).
+type WallKey = (PathBuf, u32, u32, Fit, bool);
+
+/// Mode verre : l'image est décodée à 1/BLUR_DOWNSCALE de sa taille puis
+/// légèrement floutée ; l'agrandissement par le GPU achève le flou, pour un
+/// coût négligeable.
+const BLUR_DOWNSCALE: u32 = 8;
 
 #[to_layer_message(multi)]
 #[derive(Debug, Clone)]
@@ -58,6 +75,13 @@ pub enum Msg {
     OpenPanel,
     Panel(PanelMsg),
     SettingsLoaded(DeskSettings),
+    /// Barre : aller au workspace (écran, nom).
+    BarWorkspace(String, String),
+    /// Barre : molette sur les workspaces (écran, ±1).
+    BarScroll(String, i32),
+    VolumeMute,
+    VolumeStep(i32),
+    VolumeValue(Option<(f32, bool)>),
     /// Raccourcis installés : conflits (raccourci, action déjà liée) et raccourcis universels.
     KeysInstalled(Result<(Vec<(String, String)>, Vec<String>), String>),
     ConfigChanged,
@@ -201,11 +225,15 @@ pub struct App {
     /// La submap « hyprdesk » est active (raccourcis de Hyprland suspendus).
     in_submap: bool,
     /// Surfaces passées au-dessus des fenêtres (mode verre seulement).
-    overlay: HashSet<Id>,
     /// Fenêtres mises de côté pendant que le bureau est affiché.
     stash: Vec<hypr::Stashed>,
     /// Fenêtres ouvertes pendant la session bureau : le bureau les contient.
     session_windows: HashSet<String>,
+    /// Surfaces de la barre native.
+    bar_surfaces: HashMap<Id, bar::BarSurface>,
+    workspaces: Vec<hypr::Workspace>,
+    active_window: Option<(String, String)>,
+    volume: Option<(f32, bool)>,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
@@ -266,8 +294,10 @@ fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
 
 /// Décode et met à l'échelle une image de fond (hors thread UI).
 fn decode_wall(key: &WallKey) -> Result<image::Handle, String> {
-    let (path, w, h, fit) = key;
+    let (path, w, h, fit, blur) = key;
     let img = ::image::open(path).map_err(|e| format!("{} : {e}", path.display()))?;
+    let img = if *blur { img.thumbnail((img.width() / BLUR_DOWNSCALE).max(1), (img.height() / BLUR_DOWNSCALE).max(1)) } else { img };
+    let (w, h) = if *blur { (&((*w / BLUR_DOWNSCALE).max(1)), &((*h / BLUR_DOWNSCALE).max(1))) } else { (w, h) };
     let (iw, ih) = (img.width() as f32, img.height() as f32);
     let (tw, th) = (*w as f32, *h as f32);
     use ::image::imageops::FilterType;
@@ -280,6 +310,7 @@ fn decode_wall(key: &WallKey) -> Result<image::Handle, String> {
             img.resize_exact(nw, nh, FilterType::Triangle)
         }
     };
+    let img = if *blur { img.fast_blur(2.5) } else { img };
     let rgba = img.to_rgba8();
     Ok(image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()))
 }
@@ -376,9 +407,12 @@ impl App {
             key_conflicts: Vec::new(),
             universal_binds: Vec::new(),
             in_submap: false,
-            overlay: HashSet::new(),
             stash: Vec::new(),
             session_windows: HashSet::new(),
+            bar_surfaces: HashMap::new(),
+            workspaces: Vec::new(),
+            active_window: None,
+            volume: None,
         };
         let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
         let t = Task::batch([app.load_config(), apps]);
@@ -466,6 +500,16 @@ impl App {
         if o.keys != n.keys || old.catalog.is_empty() {
             tasks.push(self.install_keys());
         }
+        if old.bar != self.cfg.bar {
+            tasks.push(self.sync_bars());
+            self.last_poll.retain(|k, _| !k.starts_with("bar:"));
+            tasks.push(Task::done(Msg::Poll));
+        }
+        if old.components != self.cfg.components || old.catalog.is_empty() {
+            // Composants de session : lancés, arrêtés ou relancés selon la config.
+            let defs = self.cfg.components.clone();
+            tasks.push(Task::perform(async move { crate::session::sync(&defs) }, |_| Msg::Noop));
+        }
         if o.suspend_binds != n.suspend_binds {
             tasks.push(self.sync_submap());
         }
@@ -528,23 +572,14 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Active le bureau sur une surface. Mode opaque : les fenêtres du
-    /// workspace sont mises de côté et la surface reste SOUS les fenêtres,
-    /// pour contenir celles qu'on ouvre depuis le bureau. Mode verre : la
-    /// surface passe au-dessus des fenêtres, en voile translucide.
+    /// Active le bureau sur une surface. Le bureau est la RACINE des fenêtres :
+    /// il reste toujours dessous. Les fenêtres du workspace sont mises de côté
+    /// et celles qu'on ouvre depuis le bureau s'ouvrent dessus. Le mode verre
+    /// n'est qu'un effet sur le fond (fond d'écran flouté et teinté).
     fn activate_surface(&mut self, id: Id, has_focus: bool) -> Vec<Task<Msg>> {
         let Some(m) = self.monitor(id).cloned() else { return Vec::new() };
-        let glass = resolve(&self.cfg, &m.name, &m.workspace).mode == Mode::Glass;
         self.raised.insert(id);
-        let mut tasks = Vec::new();
-        if glass {
-            self.overlay.insert(id);
-            tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
-        } else {
-            tasks.push(self.stash_workspace(&m));
-        }
-        // Zone exclusive 0 : le bureau respecte la barre.
-        tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
+        let mut tasks = vec![self.stash_workspace(&m)];
         let kb = if has_focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
         tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: kb }));
         self.fire(HookEvent::Show, "show", &m);
@@ -552,13 +587,15 @@ impl App {
     }
 
     /// Redescend une surface au repos (fond d'écran seul, plein écran).
-    fn lower_surface(&mut self, id: Id) -> Vec<Task<Msg>> {
-        let mut t = Vec::new();
-        if self.overlay.remove(&id) {
-            t.push(Task::done(Msg::LayerChange { id, layer: Layer::Background }));
-        }
-        t.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }));
-        t
+    /// La surface du bureau reste plein écran : seul son contenu suit la zone
+    /// réservée par les barres (pas de redimensionnement, pas de saut du fond).
+    fn lower_surface(&mut self, _id: Id) -> Vec<Task<Msg>> {
+        Vec::new()
+    }
+
+    /// Zone réservée par les barres sur l'écran d'une surface (gauche, haut, droite, bas).
+    fn reserved(&self, id: Id) -> (f32, f32, f32, f32) {
+        self.monitor(id).map(|m| m.reserved).unwrap_or_default()
     }
 
     /// Met de côté les fenêtres du workspace affiché sur cet écran (sauf
@@ -657,12 +694,16 @@ impl App {
         Some((m, resolve(&self.cfg, &m.name, &m.workspace)))
     }
 
+    /// Taille de la zone de contenu du bureau : la surface moins la zone réservée.
     fn size_of(&self, id: Id) -> Size {
-        self.sizes
+        let full = self
+            .sizes
             .get(&id)
             .copied()
             .or_else(|| self.monitor(id).map(|m| Size::new(m.width as f32, m.height as f32)))
-            .unwrap_or(Size::new(1920.0, 1080.0))
+            .unwrap_or(Size::new(1920.0, 1080.0));
+        let (l, t, r, b) = self.reserved(id);
+        Size::new((full.width - l - r).max(1.0), (full.height - t - b).max(1.0))
     }
 
     fn fade_value(&self) -> f32 {
@@ -725,6 +766,7 @@ impl App {
         }
         self.last_poll.clear();
         tasks.push(Task::done(Msg::Poll));
+        tasks.push(self.refresh_walls());
         // Les raccourcis de Hyprland ne doivent pas agir sur les fenêtres cachées.
         tasks.push(self.sync_submap());
         Task::batch(tasks)
@@ -760,6 +802,7 @@ impl App {
         }
         // Les fenêtres mises de côté reviennent, à côté de celles ouvertes depuis le bureau.
         tasks.push(self.restore_stash(None));
+        tasks.push(self.refresh_walls());
         self.session_windows.clear();
         tasks.push(self.sync_submap());
         tasks.push(self.finish_fade());
@@ -832,7 +875,7 @@ impl App {
             .iter()
             .filter(|m| {
                 old.iter().find(|o| o.name == m.name).is_some_and(|o| o.workspace != m.workspace)
-                    && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id) && !self.overlay.contains(id))
+                    && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id))
             })
             .cloned()
             .collect();
@@ -840,6 +883,7 @@ impl App {
             tasks.push(self.stash_workspace(&m));
         }
         tasks.push(self.refresh_walls());
+        tasks.push(self.sync_bars());
         if self.visible {
             tasks.push(Task::done(Msg::Poll));
         }
@@ -869,13 +913,17 @@ impl App {
         let monitors = self.monitors.clone();
         for m in &monitors {
             let d = resolve(&cfg, &m.name, &m.workspace);
+            // Mode verre, bureau affiché : le même fond, flouté.
+            let blur = self.visible
+                && d.mode == Mode::Glass
+                && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id));
             let want = match (d.wallpaper, d.wallpaper_idx) {
                 (None, _) | (_, None) => Wall::Color(cfg.general.background),
                 (Some(rule), Some(idx)) => match &rule.source {
                     WallSource::Color(c) => Wall::Color(*c),
-                    WallSource::Path(p) => Wall::Image((p.clone(), m.width, m.height, rule.fit)),
+                    WallSource::Path(p) => Wall::Image((p.clone(), m.width, m.height, rule.fit, blur)),
                     WallSource::Rotate { dir, interval, shuffle } => match self.rot_file(idx, dir, *interval, *shuffle) {
-                        Some(p) => Wall::Image((p, m.width, m.height, rule.fit)),
+                        Some(p) => Wall::Image((p, m.width, m.height, rule.fit, blur)),
                         None => Wall::Color(cfg.general.background),
                     },
                 },
@@ -924,10 +972,20 @@ impl App {
         let mut tasks = Vec::new();
         let raised: Vec<Id> = self.raised.iter().copied().collect();
         let cfg = self.cfg.clone();
+        // Widgets à relever : ceux des bureaux affichés, et ceux de la barre (toujours visible).
+        let mut todo: Vec<&config::WidgetDef> = Vec::new();
         for id in raised {
             let Some(m) = self.monitor(id) else { continue };
-            let d = resolve(&cfg, &m.name, &m.workspace);
-            for w in d.widgets {
+            todo.extend(resolve(&cfg, &m.name, &m.workspace).widgets);
+        }
+        let bar_ids = self.bar_widget_ids();
+        todo.extend(cfg.widgets.iter().filter(|w| bar_ids.contains(&w.id)));
+        if self.bar_has_volume() && self.last_poll.get("bar:volume").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
+            self.last_poll.insert("bar:volume".into(), now);
+            tasks.push(Task::perform(bar::read_volume(), Msg::VolumeValue));
+        }
+        {
+            for w in todo {
                 if !seen.insert(w.id.clone()) {
                     continue;
                 }
@@ -1084,7 +1142,9 @@ impl App {
         let g = self.cfg.general.grid.clone();
         let size = self.size_of(win);
         let (cols, rows) = layout::grid_dims(size.width, size.height, g.cell, g.gap, g.margin);
-        let Some(target) = layout::cell_at(p.x, p.y, g.cell, g.gap, g.margin, cols, rows) else { return };
+        // Le curseur est en coordonnées de surface ; la grille commence après la zone réservée.
+        let (rl, rt, _, _) = self.reserved(win);
+        let Some(target) = layout::cell_at(p.x - rl, p.y - rt, g.cell, g.gap, g.margin, cols, rows) else { return };
         let placed = self.placed(win);
         let Some(&(_, from)) = placed.iter().find(|(i, _)| *i == icon) else { return };
         let Some(m) = self.monitor(win).cloned() else { return };
@@ -1126,6 +1186,7 @@ impl App {
                     }
                     // Rien ne doit rester de côté après l'arrêt.
                     let _ = self.restore_stash(None);
+                    crate::session::stop_all();
                     hypr::remove_keys();
                     iced::exit()
                 }
@@ -1144,6 +1205,46 @@ impl App {
                 }
             },
             Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
+            Msg::Hypr(hypr::Update::Workspaces(list)) => {
+                self.workspaces = list;
+                Task::none()
+            }
+            Msg::Hypr(hypr::Update::ActiveWindow(w)) => {
+                self.active_window = w;
+                Task::none()
+            }
+            Msg::BarWorkspace(mon, ws) => Task::perform(
+                async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        hypr::focus_monitor(&mon);
+                        hypr::focus_workspace(&ws)
+                    })
+                    .await;
+                },
+                |_| Msg::Noop,
+            ),
+            Msg::BarScroll(mon, dir) => Task::perform(
+                async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        hypr::focus_monitor(&mon);
+                        hypr::focus_workspace(if dir > 0 { "+1" } else { "-1" })
+                    })
+                    .await;
+                },
+                |_| Msg::Noop,
+            ),
+            Msg::VolumeMute => self.volume_action(vec!["set-mute".into(), "@DEFAULT_AUDIO_SINK@".into(), "toggle".into()]),
+            Msg::VolumeStep(d) => self.volume_action(vec![
+                "set-volume".into(),
+                "-l".into(),
+                "1.5".into(),
+                "@DEFAULT_AUDIO_SINK@".into(),
+                format!("{}%{}", d.abs(), if d > 0 { "+" } else { "-" }),
+            ]),
+            Msg::VolumeValue(v) => {
+                self.volume = v;
+                Task::none()
+            }
             Msg::Hypr(hypr::Update::Reloaded) => {
                 // Une relecture de la config Hyprland efface nos raccourcis et notre submap.
                 let mut t = vec![self.install_keys()];
@@ -1319,6 +1420,7 @@ impl App {
                 Task::none()
             }
             Msg::Closed(id) => {
+                self.bar_surfaces.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
                 self.sizes.remove(&id);
@@ -1424,6 +1526,9 @@ impl App {
         if !self.raised.is_empty() {
             subs.push(iced::event::listen_with(listen));
             subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Msg::Poll));
+        } else if self.cfg.bar.is_some() {
+            // La barre reste visible : horloge et relevés continuent, à 1 Hz.
+            subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::Poll));
         }
         if self.animating() {
             subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Msg::Frame));
@@ -1437,18 +1542,21 @@ impl App {
     // -- Vue ---------------------------------------------------------------------
 
     fn view(&self, id: Id) -> Element<'_, Msg> {
+        if self.bar_surfaces.contains_key(&id) {
+            return self.view_bar(id);
+        }
         let Some((m, d)) = self.desktop_of(id) else {
             return Space::new().into();
         };
         let raised = self.raised.contains(&id);
         let t = if raised { self.fade_value() } else { 1.0 };
         let mut layers: Vec<Element<'_, Msg>> = Vec::new();
-        if self.overlay.contains(&id) {
+        // Le bureau est sous les fenêtres : le fond reste plein, seul le contenu apparaît en fondu.
+        layers.push(self.view_wall(&m.name, 1.0));
+        if raised && d.mode == Mode::Glass {
+            // Mode verre : un voile teinté sur le fond flouté.
             let veil = color(self.cfg.general.theme.bg, self.cfg.general.glass_opacity * t);
             layers.push(container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(veil)).into());
-        } else {
-            // Sous les fenêtres, le fond d'écran reste plein : seul le contenu apparaît en fondu.
-            layers.push(self.view_wall(&m.name, 1.0));
         }
         let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
         if raised {
@@ -1460,15 +1568,17 @@ impl App {
             let shift = if self.cfg.general.transition == Transition::Slide { (1.0 - t) * SLIDE_PX } else { 0.0 };
             // Le tiroir des réglages occupe la droite : le bureau reste visible
             // à côté et montre chaque réglage en direct.
-            let right = if panel_here { panel::DRAWER_W } else { 0.0 };
+            let (rl, rt, rr, rb) = self.reserved(id);
+            let right = rr + if panel_here { panel::DRAWER_W } else { 0.0 };
             layers.push(
                 container(Stack::with_children(content).width(Length::Fill).height(Length::Fill))
-                    .padding(Padding { top: shift, right, ..Padding::ZERO })
+                    .padding(Padding { top: rt + shift, right, bottom: rb, left: rl })
                     .into(),
             );
         }
         if panel_here {
-            layers.push(self.view_panel());
+            let (_, rt, _, rb) = self.reserved(id);
+            layers.push(container(self.view_panel()).padding(Padding { top: rt, bottom: rb, ..Padding::ZERO }).into());
         }
         Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
     }
@@ -1505,7 +1615,13 @@ impl App {
                         Fit::Fill => iced::ContentFit::Fill,
                         Fit::Center => iced::ContentFit::None,
                     };
-                    image(h.clone()).content_fit(fit).width(Length::Fill).height(Length::Fill).opacity(alpha).into()
+                    image(h.clone())
+                        .content_fit(if key.4 { iced::ContentFit::Cover } else { fit })
+                        .filter_method(image::FilterMethod::Linear)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .opacity(alpha)
+                        .into()
                 }
                 None => Space::new().into(),
             },
@@ -1575,7 +1691,8 @@ impl App {
         if let (Some(idx), Some(p)) = (dragging, self.cursor.get(&win)) {
             let half = g.cell as f32 / 2.0;
             let def = &self.cfg.icons[idx];
-            layers.push(pin(self.icon_cell(win, idx, def, t, false)).x(p.x - half).y(p.y - half).into());
+            let (rl, rt, _, _) = self.reserved(win);
+            layers.push(pin(self.icon_cell(win, idx, def, t, false)).x(p.x - rl - half).y(p.y - rt - half).into());
         }
         Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
     }

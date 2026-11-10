@@ -6,22 +6,24 @@ les fenêtres, avec un fond d'écran, des icônes et des widgets. Chaque workspa
 peut avoir son propre bureau. La configuration est en Lua, dans le style de
 `hyprland.lua` (Hyprland ≥ 0.57).
 
-- **Au repos**, hyprdesk dessine le fond d'écran du workspace affiché sur le
-  calque `background`. Il remplace hyprpaper, qui ne connaît qu'un fond par écran.
-- **Appelé** (SUPER + D), il agit comme « afficher le bureau » :
-  - les fenêtres du workspace sont mises de côté (workspace spécial
-    `special:hyprdesk`) ;
-  - le bureau, resté **sous** les fenêtres, apparaît avec ses icônes et ses
-    widgets ;
-  - ce qu'on ouvre depuis le bureau s'ouvre **dessus**, flottant et centré
-    (`float_launched`) : le bureau contient ces fenêtres ;
-  - masqué, il rend les fenêtres mises de côté, à côté de celles ouvertes
-    entre-temps.
-
-  La liste des fenêtres mises de côté est gardée sur disque : après un arrêt
-  brutal, hyprdesk les rend au démarrage suivant.
-- **Mode `glass`** : le bureau passe au-dessus des fenêtres, en voile
-  translucide, sans les déplacer. Les fenêtres restent floutées derrière.
+hyprdesk est la **racine** de la session graphique.
+- **Racine visuelle.** Le bureau est toujours *sous* toutes les fenêtres,
+  jamais par-dessus.
+  - Au repos, il dessine le fond d'écran du workspace affiché, et remplace
+    hyprpaper.
+  - Appelé (SUPER + D), il met de côté les fenêtres du workspace
+    (`special:hyprdesk`) et apparaît avec ses icônes et ses widgets. Ce
+    qu'on ouvre depuis lui s'ouvre **dessus**, flottant et centré.
+  - Masqué, il rend les fenêtres mises de côté.
+  - Le mode `glass` est un effet sur le fond : fond d'écran flouté et teinté.
+- **Racine de session.** hyprdesk lance et supervise les composants déclarés
+  avec `hd.component` (ex. `wayle shell`). Il les relance s'ils plantent et
+  les arrête avec lui.
+- **Barre native.** `hd.bar` affiche une barre au-dessus des fenêtres, avec
+  sa zone réservée. Les fenêtres et la grille du bureau se rangent à côté.
+  - Ses modules sont des widgets : workspaces, fenêtre active, volume,
+    bouton bureau, et tout widget ou plugin en version compacte.
+  - Elle se règle aussi dans Réglages → Barre.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
   (un clic donne le focus à la fenêtre), puis le bouton ⚙ des réglages.
 
@@ -32,9 +34,10 @@ un panneau par-dessus le bureau, sur l'écran actif. Il a quatre onglets :
 
 | Onglet | Réglages |
 |---|---|
-| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) |
+| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) ; session (composants, état, relance) |
 | Icônes | fenêtres ouvertes dans le dock (non, ce workspace, toutes) ; raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image choisie dans un dossier (vignettes), diaporama (intervalle, ordre aléatoire) ou couleur unie ; ajustement |
+| Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) : ajouter, ordonner, changer de zone, retirer |
 | Widgets | widgets disponibles (intégrés et plugins détectés), activation à l'unité ; placement des widgets du bureau : ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
 | Effets | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
 
@@ -100,8 +103,14 @@ Le script :
 - active le service systemd utilisateur.
 
 Il ne modifie pas `hyprland.lua`. Les lignes recommandées s'obtiennent avec
-`hyprdesk snippet` : la règle de flou du mode verre, et le marquage
-`submap_universal` des raccourcis à garder sur le bureau (voir ci-dessous).
+`hyprdesk snippet` : le marquage `submap_universal` des raccourcis à garder
+sur le bureau (voir ci-dessous), et le flou derrière la barre.
+
+Pour que hyprdesk soit la racine de la session :
+- retirez de l'autostart de Hyprland ce qu'il supervise désormais
+  (`hd.component`) ;
+- retirez `hyprpaper` ;
+- masquez la barre de wayle si vous activez celle de hyprdesk.
 
 ## Raccourcis
 

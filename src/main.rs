@@ -7,6 +7,7 @@ mod config;
 mod control;
 mod hypr;
 mod launch;
+mod session;
 mod settings;
 mod single;
 mod layout;
@@ -57,15 +58,8 @@ hl.exec_cmd("hyprdesk")
 hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }), { submap_universal = true })
 hl.bind(mainMod .. " + Right",     hl.dsp.focus({ workspace = "+1" }), { submap_universal = true })
 
--- Mode « glass » : flou des fenêtres derrière le bureau (xray = false pour
--- flouter les fenêtres et non le seul fond d'écran)
-hl.layer_rule({
-    name         = "hyprdesk-blur",
-    match        = { namespace = "^hyprdesk$" },
-    blur         = true,
-    ignore_alpha = 0.05,
-    xray         = false,
-})
+-- Barre de hyprdesk (hd.bar) : flou derrière elle, comme une barre classique.
+hl.layer_rule({ name = "hyprdesk-bar-blur", match = { namespace = "^hyprdesk-bar$" }, blur = true, ignore_alpha = 0.2 })
 "#;
 
 /// Plugins de widgets d'exemple, déposés s'ils n'existent pas encore.

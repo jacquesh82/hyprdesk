@@ -28,7 +28,21 @@ pub enum Tab {
     Icons,
     Wallpaper,
     Widgets,
+    Bar,
     Effects,
+}
+
+/// Choix « ajouter un module » de la barre.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarChoice {
+    pub type_id: String,
+    pub label: String,
+}
+
+impl std::fmt::Display for BarChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
 }
 
 /// Portée d'une règle de fond d'écran.
@@ -103,6 +117,20 @@ pub enum PanelMsg {
     WidgetCard(bool),
     WidgetReset,
     SuspendBinds(bool),
+    BarEnable(bool),
+    BarPos(crate::config::BarPosition),
+    BarHeight(u16),
+    BarAllMonitors(bool),
+    /// Ajoute un module à une zone (0 gauche, 1 centre, 2 droite).
+    BarAdd(usize, BarChoice),
+    /// Déplace un module dans sa zone (-1 avant, +1 après).
+    BarMove(usize, usize, i32),
+    /// Change un module de zone (-1 vers la gauche, +1 vers la droite).
+    BarZone(usize, usize, i32),
+    BarRemove(usize, usize),
+    /// Fin d'un glissé de curseur de la barre : enregistrer puis recharger.
+    BarCommit,
+    ComponentRestart(String),
     FloatLaunched(bool),
     /// Saisie d'un raccourci (0 afficher, 1 réglages, 2 secours).
     KeyInput(usize, String),
@@ -502,6 +530,56 @@ impl App {
                 self.settings.float_launched = Some(v);
                 self.commit()
             }
+            PanelMsg::BarEnable(on) => {
+                let b = self.settings.bar.get_or_insert_with(crate::settings::BarSettings::default);
+                b.enabled = on;
+                self.commit_reload()
+            }
+            PanelMsg::BarPos(p) => {
+                self.settings.bar.get_or_insert_with(Default::default).position = p;
+                self.commit_reload()
+            }
+            PanelMsg::BarHeight(h) => {
+                self.settings.bar.get_or_insert_with(Default::default).height = h;
+                Task::none()
+            }
+            PanelMsg::BarCommit => self.commit_reload(),
+            PanelMsg::BarAllMonitors(all) => {
+                let mon = self.panel_ctx().map(|c| c.0).unwrap_or_default();
+                self.settings.bar.get_or_insert_with(Default::default).monitors = if all { None } else { Some(vec![mon]) };
+                self.commit_reload()
+            }
+            PanelMsg::BarAdd(z, choice) => {
+                self.settings.bar.get_or_insert_with(Default::default).zones[z.min(2)].push(crate::settings::BarEntry::new(&choice.type_id));
+                self.commit_reload()
+            }
+            PanelMsg::BarMove(z, i, d) => {
+                let zone = &mut self.settings.bar.get_or_insert_with(Default::default).zones[z.min(2)];
+                let j = i as i32 + d;
+                if i < zone.len() && j >= 0 && (j as usize) < zone.len() {
+                    zone.swap(i, j as usize);
+                }
+                self.commit_reload()
+            }
+            PanelMsg::BarZone(z, i, d) => {
+                let b = self.settings.bar.get_or_insert_with(Default::default);
+                let to = z as i32 + d;
+                if z < 3 && i < b.zones[z].len() && (0..3).contains(&to) {
+                    let e = b.zones[z].remove(i);
+                    b.zones[to as usize].push(e);
+                }
+                self.commit_reload()
+            }
+            PanelMsg::BarRemove(z, i) => {
+                let zone = &mut self.settings.bar.get_or_insert_with(Default::default).zones[z.min(2)];
+                if i < zone.len() {
+                    zone.remove(i);
+                }
+                self.commit_reload()
+            }
+            PanelMsg::ComponentRestart(name) => {
+                Task::perform(async move { crate::session::restart(&name) }, |_| Msg::Noop)
+            }
             PanelMsg::SuspendBinds(v) => {
                 self.settings.suspend_binds = Some(v);
                 self.commit()
@@ -529,8 +607,13 @@ impl App {
             PanelMsg::WidgetToggle(type_id, on) => {
                 let anchor = self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.anchor).unwrap_or_default();
                 let taken: Vec<String> = self.cfg.widgets.iter().map(|w| w.id.clone()).collect();
-                let user_ids: Vec<String> =
-                    self.cfg.widgets.iter().filter(|w| w.type_id == type_id && w.origin == Origin::User).map(|w| w.id.clone()).collect();
+                let user_ids: Vec<String> = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .filter(|w| w.type_id == type_id && w.origin == Origin::User && !w.in_bar)
+                    .map(|w| w.id.clone())
+                    .collect();
                 if let Some(id) = self.settings.set_widget_type(&type_id, on, anchor, &user_ids, &taken)
                     && let Some(p) = self.panel.as_mut()
                 {
@@ -637,6 +720,7 @@ impl App {
             tab_btn("Icônes", Tab::Icons),
             tab_btn("Fond", Tab::Wallpaper),
             tab_btn("Widgets", Tab::Widgets),
+            tab_btn("Barre", Tab::Bar),
             tab_btn("Effets", Tab::Effects),
         ]
         .spacing(6);
@@ -645,6 +729,7 @@ impl App {
             Tab::Icons => self.tab_icons(p),
             Tab::Wallpaper => self.tab_wallpaper(p),
             Tab::Widgets => self.tab_widgets(p),
+            Tab::Bar => self.tab_bar(),
             Tab::Effects => self.tab_effects(),
         };
         let bg = color(th.bg, 0.94);
@@ -719,8 +804,8 @@ impl App {
                 "Mode par défaut",
                 "mode",
                 column![
-                    radio("Opaque — le fond d'écran couvre les fenêtres", Mode::Opaque, Some(g.mode), |v| Msg::Panel(PanelMsg::Mode(v))),
-                    radio("Verre — fenêtres floutées derrière", Mode::Glass, Some(g.mode), |v| Msg::Panel(PanelMsg::Mode(v))),
+                    radio("Opaque — le fond d'écran net", Mode::Opaque, Some(g.mode), |v| Msg::Panel(PanelMsg::Mode(v))),
+                    radio("Verre — fond d'écran flouté et teinté", Mode::Glass, Some(g.mode), |v| Msg::Panel(PanelMsg::Mode(v))),
                 ]
                 .spacing(8),
             ),
@@ -746,7 +831,6 @@ impl App {
                 ]
                 .spacing(12),
             ),
-            text("Le flou du mode verre demande la règle de calque de `hyprdesk snippet` dans hyprland.lua.").size(12),
             self.keys_section(),
         ]
         .spacing(14)
@@ -800,6 +884,131 @@ impl App {
         }
         for b in &self.universal_binds {
             col = col.push(text(b.clone()).size(12).color(dim));
+        }
+        col = col.push(self.section("Session"));
+        col = col.push(
+            text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).")
+                .size(12)
+                .color(dim),
+        );
+        let comps = crate::session::snapshot();
+        if comps.is_empty() {
+            col = col.push(text("Aucun composant.").size(12).color(dim));
+        }
+        for (d, st) in comps {
+            let state = match (st.pid, st.given_up) {
+                (Some(pid), _) => format!("actif (pid {pid})"),
+                (None, true) => "abandonné (plantages)".to_string(),
+                (None, false) => "arrêté".to_string(),
+            };
+            let extra = if st.restarts > 0 { format!(" · {} relance(s)", st.restarts) } else { String::new() };
+            col = col.push(
+                row![
+                    column![text(d.name.clone()).size(14).color(fg), text(format!("{} — {state}{extra}", d.exec)).size(11).color(dim)]
+                        .width(Length::Fill),
+                    button(text("Relancer").size(12)).padding([4, 10]).on_press(Msg::Panel(PanelMsg::ComponentRestart(d.name.clone()))),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        col.into()
+    }
+
+    fn tab_bar(&self) -> Element<'_, Msg> {
+        use crate::config::BarPosition;
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let (mon, _) = self.panel_ctx().unwrap_or_default();
+        let b = self.settings.bar.clone().unwrap_or(crate::settings::BarSettings { enabled: false, ..Default::default() });
+        let label_of = |type_id: &str| -> String {
+            crate::config::BAR_ITEMS
+                .iter()
+                .find(|(id, _)| *id == type_id)
+                .map(|(_, l)| l.to_string())
+                .or_else(|| self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.name.clone()))
+                .unwrap_or_else(|| type_id.to_string())
+        };
+        let choices: Vec<BarChoice> = crate::config::BAR_ITEMS
+            .iter()
+            .map(|(id, l)| BarChoice { type_id: id.to_string(), label: l.to_string() })
+            .chain(
+                self.cfg
+                    .catalog
+                    .iter()
+                    .filter(|t| t.toggleable && t.error.is_none())
+                    .map(|t| BarChoice { type_id: t.id.clone(), label: format!("{} (widget)", t.name) }),
+            )
+            .collect();
+        let mut col = column![
+            self.section("Barre de hyprdesk"),
+            text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").size(12).color(dim),
+            self.field("Afficher la barre", "bar", toggler(b.enabled).on_toggle(|v| Msg::Panel(PanelMsg::BarEnable(v)))),
+        ]
+        .spacing(12);
+        if self.cfg.keys_user.contains("bar") {
+            col = col.push(text("hd.bar est aussi déclaré dans hyprdesk.lua, qui l'emporte : ces réglages sont sans effet.").size(12).color(warn));
+        }
+        if !b.enabled {
+            col = col.push(text("Pensez ensuite à masquer la barre de wayle (sa configuration) pour éviter deux barres.").size(12).color(dim));
+            return col.into();
+        }
+        col = col
+            .push(self.field(
+                "Position",
+                "",
+                row![
+                    radio("En haut", BarPosition::Top, Some(b.position), |v| Msg::Panel(PanelMsg::BarPos(v))),
+                    radio("En bas", BarPosition::Bottom, Some(b.position), |v| Msg::Panel(PanelMsg::BarPos(v))),
+                ]
+                .spacing(16),
+            ))
+            .push(self.field(
+                "Hauteur",
+                "",
+                row![
+                    slider(24..=64u16, b.height.clamp(24, 64), |v| Msg::Panel(PanelMsg::BarHeight(v)))
+                        .on_release(Msg::Panel(PanelMsg::BarCommit))
+                        .width(260),
+                    text(format!("{} px", b.height)).size(13),
+                ]
+                .spacing(12),
+            ))
+            .push(self.field(
+                "Écrans",
+                "",
+                row![
+                    radio("Tous", true, Some(b.monitors.is_none()), |v| Msg::Panel(PanelMsg::BarAllMonitors(v))),
+                    radio(format!("Seulement {mon}"), false, Some(b.monitors.is_none()), |v| Msg::Panel(PanelMsg::BarAllMonitors(v))),
+                ]
+                .spacing(16),
+            ));
+        let small = |label: &'static str, msg: Msg| button(text(label).size(12)).padding([2, 8]).on_press(msg);
+        for (z, zname) in ["Gauche", "Centre", "Droite"].iter().enumerate() {
+            col = col.push(text(*zname).size(15).color(color(g.theme.accent, 1.0)));
+            if b.zones[z].is_empty() {
+                col = col.push(text("vide").size(12).color(dim));
+            }
+            for (i, e) in b.zones[z].iter().enumerate() {
+                let mut r = row![text(label_of(&e.type_id)).size(14).width(Length::Fill)].spacing(4).align_y(Alignment::Center);
+                if i > 0 {
+                    r = r.push(small("↑", Msg::Panel(PanelMsg::BarMove(z, i, -1))));
+                }
+                if i + 1 < b.zones[z].len() {
+                    r = r.push(small("↓", Msg::Panel(PanelMsg::BarMove(z, i, 1))));
+                }
+                if z > 0 {
+                    r = r.push(small("←", Msg::Panel(PanelMsg::BarZone(z, i, -1))));
+                }
+                if z < 2 {
+                    r = r.push(small("→", Msg::Panel(PanelMsg::BarZone(z, i, 1))));
+                }
+                r = r.push(small("×", Msg::Panel(PanelMsg::BarRemove(z, i))));
+                col = col.push(r);
+            }
+            col = col.push(pick_list(choices.clone(), None::<BarChoice>, move |c| Msg::Panel(PanelMsg::BarAdd(z, c))).placeholder("Ajouter un module…").width(260));
         }
         col.into()
     }
@@ -1093,8 +1302,8 @@ impl App {
         let mut catalog = column![].spacing(10);
         for t in &self.cfg.catalog {
             // Actif = présent sur le bureau, qu'il vienne des réglages ou de hyprdesk.lua.
-            let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id);
-            let in_user = self.cfg.widgets.iter().filter(|w| w.type_id == t.id && w.origin == Origin::User).count();
+            let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id && !w.in_bar);
+            let in_user = self.cfg.widgets.iter().filter(|w| w.type_id == t.id && w.origin == Origin::User && !w.in_bar).count();
             let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
                 WidgetSource::Builtin => "intégré".to_string(),

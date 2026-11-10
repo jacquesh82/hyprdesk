@@ -527,7 +527,81 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table) -> mlua::Result<
         size: opt_num(t, "size", ctx)?.map(|v| v.clamp(0.0, 400.0) as f32).unwrap_or(0.0),
         interval: Duration::from_secs_f64(interval),
         card: opt_bool(t, "card", ctx)?.unwrap_or(true),
+        in_bar: false,
     });
+    Ok(())
+}
+
+/// `hd.bar({ … })` ou `hd.bar(false)`. Un nouvel appel remplace la barre précédente.
+fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
+    const CTX: &str = "hd.bar";
+    b.config.widgets.retain(|w| !w.in_bar);
+    match b.origin {
+        Origin::Settings => b.config.keys_settings.insert("bar".into()),
+        Origin::User => b.config.keys_user.insert("bar".into()),
+    };
+    let t = match v {
+        Value::Boolean(false) | Value::Nil => {
+            b.config.bar = None;
+            return Ok(());
+        }
+        Value::Table(t) => t,
+        v => return Err(err(format!("{CTX} : attend une table ou false, pas {}", v.type_name()))),
+    };
+    check_keys(&t, &["monitor", "position", "height", "left", "center", "right"], CTX)?;
+    let position = match opt_string(&t, "position", CTX)?.as_deref() {
+        None | Some("top") => BarPosition::Top,
+        Some("bottom") => BarPosition::Bottom,
+        Some(s) => return Err(err(format!("{CTX} : position « {s} » inconnue (top, bottom)"))),
+    };
+    let height = opt_num(&t, "height", CTX)?.unwrap_or(36.0).clamp(16.0, 160.0) as u16;
+    let mut zones: [Vec<BarItem>; 3] = Default::default();
+    for (zi, zone) in ["left", "center", "right"].iter().enumerate() {
+        let Some(list) = t.get::<Option<Table>>(*zone)? else { continue };
+        for (i, entry) in list.sequence_values::<Value>().enumerate() {
+            let ctx = format!("{CTX}.{zone}[{}]", i + 1);
+            let (kind, opts) = match entry? {
+                Value::String(s) => (s.to_str()?.to_string(), lua.create_table()?),
+                Value::Table(e) => {
+                    let kind: String = e.get(1).map_err(|_| err(format!("{ctx} : le premier élément doit être le nom du module")))?;
+                    // Options du widget : toutes les clés nommées.
+                    let opts = lua.create_table()?;
+                    for pair in e.pairs::<Value, Value>() {
+                        let (k, v) = pair?;
+                        if let Value::String(_) = k {
+                            opts.set(k, v)?;
+                        }
+                    }
+                    (kind, opts)
+                }
+                v => return Err(err(format!("{ctx} : attend un nom de module ou une table, pas {}", v.type_name()))),
+            };
+            if let Some(item) = BarItem::builtin(&kind) {
+                zones[zi].push(item);
+                continue;
+            }
+            let id = format!("bar:{zone}:{}", i + 1);
+            opts.set("id", id.as_str())?;
+            hd_widget(lua, b, &kind, &opts).map_err(|e| err(format!("{ctx} : {}", short_lua_error(&e))))?;
+            if let Some(w) = b.config.widgets.last_mut() {
+                w.in_bar = true;
+            }
+            zones[zi].push(BarItem::Widget(id));
+        }
+    }
+    b.config.bar = Some(BarDef { monitors: string_list(t.get("monitor")?, "monitor", CTX)?, position, height, zones });
+    Ok(())
+}
+
+fn hd_component(b: &mut Builder, name: &str, t: &Table) -> mlua::Result<()> {
+    let ctx = format!("hd.component(\"{name}\")");
+    let ctx = ctx.as_str();
+    check_keys(t, &["exec", "restart"], ctx)?;
+    let exec = opt_string(t, "exec", ctx)?.ok_or_else(|| err(format!("{ctx} : « exec » est requis")))?;
+    if b.config.components.iter().any(|c| c.name == name) {
+        return Err(err(format!("{ctx} : composant déjà déclaré")));
+    }
+    b.config.components.push(ComponentDef { name: name.to_string(), exec, restart: opt_bool(t, "restart", ctx)?.unwrap_or(true) });
     Ok(())
 }
 
@@ -623,6 +697,11 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         "_place",
         lua.create_function(|lua, (id, t): (String, Table)| with_builder(lua, |b| hd_place(b, &id, &t)))?,
     )?;
+    hd.set("_bar", lua.create_function(|lua, v: Value| with_builder(lua, |b| hd_bar(lua, b, v)))?)?;
+    hd.set(
+        "_component",
+        lua.create_function(|lua, (name, t): (String, Table)| with_builder(lua, |b| hd_component(b, &name, &t)))?,
+    )?;
     hd.set(
         "_disable",
         lua.create_function(|lua, id: String| {
@@ -640,7 +719,7 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
     // l'appel dans la config, comme une erreur Lua ordinaire.
     lua.load(
         r#"
-        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "place", "disable", "on" }) do
+        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "place", "disable", "component", "bar", "on" }) do
             local f = hd["_" .. name]
             hd["_" .. name] = nil
             hd[name] = function(...)
@@ -1032,6 +1111,33 @@ mod tests {
         let e = load_chunks(&[(r#"hd.widget("meteo", { pays = "FR" })"#.into(), "x.lua".into(), Origin::User)], &dir).err().unwrap();
         assert!(e.contains("champ inconnu « pays »"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn barre() {
+        let l = load(
+            r#"hd.widget("clock")
+               hd.bar({ position = "bottom", height = 30, left = { "workspaces", "window" },
+                        center = { { "clock", format = "%H:%M:%S" } }, right = { "volume", "system", "desktop" } })"#,
+        )
+        .unwrap();
+        let c = &l.config;
+        let bar = c.bar.as_ref().unwrap();
+        assert_eq!((bar.position, bar.height), (BarPosition::Bottom, 30));
+        assert_eq!(bar.zones[0], vec![BarItem::Workspaces, BarItem::Window]);
+        assert_eq!(bar.zones[1], vec![BarItem::Widget("bar:center:1".into())]);
+        assert_eq!(bar.zones[2][1], BarItem::Widget("bar:right:2".into()));
+        let w = c.widgets.iter().find(|w| w.id == "bar:center:1").unwrap();
+        assert!(w.in_bar);
+        assert_eq!(w.kind, WidgetKind::Clock { format: "%H:%M:%S".into() });
+        // Les modules de barre ne sont pas sur le bureau.
+        let d = super::super::resolve::resolve(c, "M", "1");
+        assert_eq!(d.widgets.len(), 1);
+        assert!(c.keys_user.contains("bar"));
+        let e = load(r#"hd.bar({ left = { "meteo-inconnue" } })"#).err().unwrap();
+        assert!(e.contains("hd.bar.left[1]"), "{e}");
+        let off = load(r#"hd.bar({ left = { "clock" } }) hd.bar(false)"#).unwrap();
+        assert!(off.config.bar.is_none() && off.config.widgets.is_empty());
     }
 
     #[test]

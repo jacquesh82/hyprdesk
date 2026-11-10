@@ -22,6 +22,76 @@ pub struct Monitor {
     /// Workspace affiché : le spécial s'il est ouvert, sinon l'actif.
     pub workspace: String,
     pub focused: bool,
+    /// Zone réservée par les barres (gauche, haut, droite, bas), en pixels logiques.
+    pub reserved: (f32, f32, f32, f32),
+}
+
+/// Workspace, pour le module « workspaces » de la barre.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Workspace {
+    pub id: i64,
+    pub name: String,
+    pub monitor: String,
+    pub windows: u32,
+}
+
+pub fn parse_workspaces(v: &Value) -> Vec<Workspace> {
+    let mut l: Vec<Workspace> = v
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|w| {
+                    Some(Workspace {
+                        id: w["id"].as_i64()?,
+                        name: w["name"].as_str()?.to_string(),
+                        monitor: w["monitor"].as_str().unwrap_or("").to_string(),
+                        windows: w["windows"].as_u64().unwrap_or(0) as u32,
+                    })
+                })
+                .filter(|w| !w.name.starts_with("special:"))
+                .collect()
+        })
+        .unwrap_or_default();
+    l.sort_by_key(|w| w.id);
+    l
+}
+
+pub async fn workspaces_async() -> Vec<Workspace> {
+    tokio::task::spawn_blocking(|| ipc::query_json("workspaces").map(|v| parse_workspaces(&v)).unwrap_or_default()).await.unwrap_or_default()
+}
+
+/// Fenêtre active : (classe, titre), depuis `j/activewindow`.
+pub async fn active_window_async() -> Option<(String, String)> {
+    tokio::task::spawn_blocking(|| {
+        let v = ipc::query_json("activewindow").ok()?;
+        Some((v["class"].as_str()?.to_string(), v["title"].as_str().unwrap_or("").to_string()))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// `activewindow>>classe,titre` (le titre peut contenir des virgules).
+pub fn parse_active_window(payload: &str) -> Option<(String, String)> {
+    let (class, title) = payload.split_once(',')?;
+    (!class.is_empty()).then(|| (class.to_string(), title.to_string()))
+}
+
+/// Va au workspace indiqué (nom ou numéro) ; `"+1"` / `"-1"` : relatif.
+pub fn focus_workspace(target: &str) -> Result<(), ipc::IpcError> {
+    let arg = match target.parse::<i64>() {
+        Ok(n) if !target.starts_with('+') && !target.starts_with('-') => n.to_string(),
+        _ => format!("\"{}\"", ipc::lua_escape(target)),
+    };
+    let r = ipc::dispatch(&format!("hl.dsp.focus({{ workspace = {arg} }})"))?;
+    if r.trim() != "ok" {
+        tracing::warn!("workspace {target} : {r}");
+    }
+    Ok(())
+}
+
+pub fn focus_monitor(name: &str) {
+    let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(name)));
 }
 
 /// Fenêtre ouverte, pour le dock des applications ouvertes.
@@ -74,6 +144,8 @@ pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
 pub enum Update {
     Monitors(Vec<Monitor>),
     Clients(Vec<Client>),
+    Workspaces(Vec<Workspace>),
+    ActiveWindow(Option<(String, String)>),
     /// Hyprland a relu sa config : ses raccourcis d'exécution ont disparu.
     Reloaded,
 }
@@ -101,12 +173,14 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
             } else {
                 m["activeWorkspace"]["name"].as_str().unwrap_or("").to_string()
             };
+            let r = |i: usize| m["reserved"][i].as_f64().unwrap_or(0.0) as f32;
             Some(Monitor {
                 name,
                 width: (w / scale).round() as u32,
                 height: (h / scale).round() as u32,
                 workspace,
                 focused: m["focused"].as_bool().unwrap_or(false),
+                reserved: (r(0), r(1), r(2), r(3)),
             })
         })
         .collect()
@@ -156,6 +230,8 @@ pub fn stream() -> impl Stream<Item = Update> {
         loop {
             let _ = out.send(Update::Monitors(monitors_async().await)).await;
             let _ = out.send(Update::Clients(clients_async().await)).await;
+            let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
+            let _ = out.send(Update::ActiveWindow(active_window_async().await)).await;
             let path = match ipc::event_socket_path() {
                 Ok(p) => p,
                 Err(e) => {
@@ -176,6 +252,12 @@ pub fn stream() -> impl Stream<Item = Update> {
                         }
                         if is_window_event(&line) {
                             let _ = out.send(Update::Clients(clients_async().await)).await;
+                        }
+                        if is_window_event(&line) || is_relevant(&line) || line.starts_with("createworkspace") || line.starts_with("destroyworkspace") {
+                            let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
+                        }
+                        if let Some(p) = line.strip_prefix("activewindow>>") {
+                            let _ = out.send(Update::ActiveWindow(parse_active_window(p))).await;
                         }
                     }
                     tracing::info!("socket d'événements fermée, reconnexion");
@@ -513,6 +595,19 @@ mod tests {
         assert!(!lua.contains("SHIFT"), "un raccourci en conflit n'est pas installé : {lua}");
         assert!(lua.contains(r#"hl.define_submap("hyprdesk", function()"#));
         assert!(lua.contains(r#"keep(hl.bind("SUPER + Escape", leave("'/bin/hyprdesk' hide")"#), "{lua}");
+    }
+
+    #[test]
+    fn workspaces_et_fenetre_active() {
+        let v: Value = serde_json::from_str(
+            r#"[{"id":6,"name":"6","monitor":"DP-1","windows":3},{"id":1,"name":"1","monitor":"HDMI-A-2","windows":0},
+                {"id":-98,"name":"special:hyprdesk","monitor":"HDMI-A-2","windows":2}]"#,
+        )
+        .unwrap();
+        let w = parse_workspaces(&v);
+        assert_eq!(w.iter().map(|w| w.id).collect::<Vec<_>>(), vec![1, 6]);
+        assert_eq!(parse_active_window("kitty,vim a, b"), Some(("kitty".into(), "vim a, b".into())));
+        assert_eq!(parse_active_window(","), None);
     }
 
     #[test]

@@ -13,12 +13,55 @@ use hyprpanel_core::ipc::lua_escape;
 use std::collections::BTreeMap;
 
 use crate::config::{
-    Anchor, Config, DesktopRule, Fit, IconDef, IconKind, Mode, Origin, Placement, Rgba, RunningApps, Selector, ShowOn, SysItem,
+    Anchor, BarItem, BarPosition, Config, DesktopRule, Fit, IconDef, IconKind, Mode, Origin, Placement, Rgba, RunningApps, Selector, ShowOn, SysItem,
     Transition, WallSource, WallpaperRule, WidgetDef, WidgetKind,
 };
 
+/// Module de la barre tel qu'écrit dans settings.lua : son type et ses options.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarEntry {
+    pub type_id: String,
+    /// Options en Lua (`format = "%H:%M"`).
+    pub fields: Vec<String>,
+}
+
+impl BarEntry {
+    pub fn new(type_id: &str) -> Self {
+        BarEntry { type_id: type_id.to_string(), fields: Vec::new() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarSettings {
+    pub enabled: bool,
+    pub monitors: Option<Vec<String>>,
+    pub position: BarPosition,
+    pub height: u16,
+    /// Gauche, centre, droite.
+    pub zones: [Vec<BarEntry>; 3],
+}
+
+impl Default for BarSettings {
+    /// Barre proposée à la première activation.
+    fn default() -> Self {
+        BarSettings {
+            enabled: true,
+            monitors: None,
+            position: BarPosition::Top,
+            height: 36,
+            zones: [
+                vec![BarEntry::new("workspaces"), BarEntry::new("window")],
+                vec![BarEntry { type_id: "clock".into(), fields: vec![format!("format = {}", q("%a %d %b  %H:%M"))] }],
+                vec![BarEntry::new("media"), BarEntry::new("volume"), BarEntry::new("desktop")],
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
+    /// Barre native, si réglée depuis l'écran ⚙.
+    pub bar: Option<BarSettings>,
     pub key_toggle: Option<String>,
     pub key_settings: Option<String>,
     pub key_leave: Option<String>,
@@ -52,7 +95,32 @@ impl Settings {
     pub fn from_config(c: &Config) -> Self {
         let g = &c.general;
         let has = |k: &str| c.keys_settings.contains(k);
+        let bar = c.keys_settings.contains("bar").then(|| match &c.bar {
+            None => BarSettings { enabled: false, ..BarSettings::default() },
+            Some(b) => BarSettings {
+                enabled: true,
+                monitors: b.monitors.clone(),
+                position: b.position,
+                height: b.height,
+                zones: std::array::from_fn(|z| {
+                    b.zones[z]
+                        .iter()
+                        .map(|it| match it {
+                            BarItem::Workspaces => BarEntry::new("workspaces"),
+                            BarItem::Window => BarEntry::new("window"),
+                            BarItem::Desktop => BarEntry::new("desktop"),
+                            BarItem::Volume => BarEntry::new("volume"),
+                            BarItem::Widget(id) => match c.widgets.iter().find(|w| &w.id == id) {
+                                Some(w) => BarEntry { type_id: w.type_id.clone(), fields: widget_fields(&w.kind) },
+                                None => BarEntry::new("clock"),
+                            },
+                        })
+                        .collect()
+                }),
+            },
+        });
         Settings {
+            bar,
             key_toggle: has("keys.toggle").then(|| g.keys.toggle.clone()),
             key_settings: has("keys.settings").then(|| g.keys.settings.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -126,6 +194,7 @@ impl Settings {
             size: 0.0,
             interval: std::time::Duration::from_secs(60),
             card: true,
+            in_bar: false,
         });
         id
     }
@@ -351,17 +420,30 @@ impl Settings {
             }
             let _ = writeln!(o, "hd.desktop({{ {} }})", f.join(", "));
         }
+        if let Some(b) = &self.bar {
+            if b.enabled {
+                let mut f = Vec::new();
+                if let Some(m) = &b.monitors {
+                    f.push(format!("monitor = {}", list(m)));
+                }
+                f.push(format!("position = {}", q(if b.position == BarPosition::Top { "top" } else { "bottom" })));
+                f.push(format!("height = {}", b.height));
+                for (zi, name) in ["left", "center", "right"].iter().enumerate() {
+                    let items: Vec<String> = b.zones[zi]
+                        .iter()
+                        .map(|e| if e.fields.is_empty() { q(&e.type_id) } else { format!("{{ {}, {} }}", q(&e.type_id), e.fields.join(", ")) })
+                        .collect();
+                    f.push(format!("{name} = {{ {} }}", items.join(", ")));
+                }
+                let _ = writeln!(o, "hd.bar({{\n    {},\n}})\n", f.join(",\n    "));
+            } else {
+                let _ = writeln!(o, "hd.bar(false)\n");
+            }
+        }
         for w in &self.widgets {
             let mut f = selector_fields(&w.sel);
             f.insert(0, format!("id = {}", q(&w.id)));
-            match &w.kind {
-                WidgetKind::Clock { format } if format != "%H:%M" => f.push(format!("format = {}", q(format))),
-                WidgetKind::Media { player } if player != "*" => f.push(format!("player = {}", q(player))),
-                WidgetKind::System { show } if !is_default_show(show) => {
-                    f.push(format!("show = {{ {} }}", show.iter().map(|i| q(&sys_item_str(i))).collect::<Vec<_>>().join(", ")))
-                }
-                _ => {}
-            }
+            f.extend(widget_fields(&w.kind));
             f.extend(placement_fields(&w.placement()));
             let _ = writeln!(o, "hd.widget({}, {{ {} }})", q(&w.type_id), f.join(", "));
         }
@@ -402,6 +484,18 @@ impl Settings {
         std::fs::write(&tmp, self.to_lua())?;
         std::fs::rename(&tmp, &p)?;
         Ok(p)
+    }
+}
+
+/// Options propres d'un widget intégré, quand elles diffèrent des valeurs par défaut.
+fn widget_fields(k: &WidgetKind) -> Vec<String> {
+    match k {
+        WidgetKind::Clock { format } if format != "%H:%M" => vec![format!("format = {}", q(format))],
+        WidgetKind::Media { player } if player != "*" => vec![format!("player = {}", q(player))],
+        WidgetKind::System { show } if !is_default_show(show) => {
+            vec![format!("show = {{ {} }}", show.iter().map(|i| q(&sys_item_str(i))).collect::<Vec<_>>().join(", "))]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -587,6 +681,20 @@ mod tests {
         let back = load_chunks(&chunks(s2.to_lua()), Path::new("/cfg")).unwrap().config;
         assert_eq!(back.widgets.iter().filter(|w| w.type_id == "clock").count(), 1);
         assert!(back.disabled.is_empty());
+    }
+
+    #[test]
+    fn barre_aller_retour() {
+        let mut s = Settings { bar: Some(BarSettings::default()), ..Default::default() };
+        s.bar.as_mut().unwrap().position = BarPosition::Bottom;
+        s.bar.as_mut().unwrap().zones[2].push(BarEntry { type_id: "system".into(), fields: vec![r#"show = { "cpu" }"#.into()] });
+        let lua = s.to_lua();
+        let cfg = load_chunks(&[(lua.clone(), "settings.lua".into(), Origin::Settings)], Path::new("/cfg")).unwrap_or_else(|e| panic!("{e}\n{lua}")).config;
+        assert_eq!(Settings::from_config(&cfg).bar, s.bar, "\n{lua}");
+        let off = Settings { bar: Some(BarSettings { enabled: false, ..Default::default() }), ..Default::default() };
+        let cfg = load_chunks(&[(off.to_lua(), "s.lua".into(), Origin::Settings)], Path::new("/cfg")).unwrap().config;
+        assert!(cfg.bar.is_none());
+        assert_eq!(Settings::from_config(&cfg).bar.map(|b| b.enabled), Some(false));
     }
 
     #[test]

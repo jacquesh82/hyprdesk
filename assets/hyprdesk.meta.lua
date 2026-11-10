@@ -106,6 +106,25 @@ function hd.disable(id) end
 ---@param fn fun(e: HD.HookEvent)
 function hd.on(event, fn) end
 
+---@alias HD.BarModule "workspaces"|"window"|"volume"|"desktop"|string|table # ou widget : "clock", { "clock", format = "%H:%M" }
+
+---@class HD.BarSpec
+---@field monitor? HD.Selector
+---@field position? "top"|"bottom"
+---@field height? integer
+---@field left? HD.BarModule[]
+---@field center? HD.BarModule[]
+---@field right? HD.BarModule[]
+
+--- Barre native de hyprdesk ; `false` la retire.
+---@param spec HD.BarSpec|false
+function hd.bar(spec) end
+
+--- Composant de session lancé et supervisé par hyprdesk.
+---@param name string
+---@param spec { exec: string, restart?: boolean }
+function hd.component(name, spec) end
+
 --- Exécute une commande shell et rend sa sortie standard.
 ---@param cmd string
 ---@return string

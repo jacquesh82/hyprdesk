@@ -44,7 +44,7 @@ pub fn resolve<'a>(cfg: &'a Config, monitor: &str, workspace: &str) -> Desktop<'
         wallpaper: wall.map(|(_, w)| w),
         wallpaper_idx: wall.map(|(i, _)| i),
         icons: cfg.icons.iter().filter(|i| keep(&i.sel)).collect(),
-        widgets: cfg.widgets.iter().filter(|w| keep(&w.sel)).collect(),
+        widgets: cfg.widgets.iter().filter(|w| !w.in_bar && keep(&w.sel)).collect(),
     }
 }
 

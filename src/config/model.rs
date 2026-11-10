@@ -161,6 +161,63 @@ impl Default for Grid {
     }
 }
 
+/// Position de la barre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarPosition {
+    #[default]
+    Top,
+    Bottom,
+}
+
+/// Module de la barre : propre à la barre, ou widget (par son id).
+#[derive(Debug, Clone, PartialEq)]
+pub enum BarItem {
+    Workspaces,
+    /// Titre de la fenêtre active.
+    Window,
+    /// Bouton afficher / masquer le bureau.
+    Desktop,
+    /// Volume de la sortie audio (wpctl).
+    Volume,
+    /// Widget (intégré ou plugin) affiché en version compacte.
+    Widget(String),
+}
+
+/// Modules propres à la barre (les autres noms sont des types de widgets).
+pub const BAR_ITEMS: &[(&str, &str)] =
+    &[("workspaces", "Workspaces"), ("window", "Fenêtre active"), ("volume", "Volume"), ("desktop", "Bouton bureau")];
+
+impl BarItem {
+    pub fn builtin(name: &str) -> Option<Self> {
+        Some(match name {
+            "workspaces" => BarItem::Workspaces,
+            "window" => BarItem::Window,
+            "desktop" => BarItem::Desktop,
+            "volume" => BarItem::Volume,
+            _ => return None,
+        })
+    }
+}
+
+/// Barre native de hyprdesk (`hd.bar`) : au-dessus des fenêtres, zone réservée.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarDef {
+    pub monitors: Option<Vec<String>>,
+    pub position: BarPosition,
+    pub height: u16,
+    /// Gauche, centre, droite.
+    pub zones: [Vec<BarItem>; 3],
+}
+
+/// Composant de session lancé et supervisé par hyprdesk (`hd.component`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentDef {
+    pub name: String,
+    pub exec: String,
+    /// Relancer après un arrêt inattendu.
+    pub restart: bool,
+}
+
 /// Raccourcis de hyprdesk, installés dans Hyprland par hyprdesk lui-même.
 /// Chaîne vide = pas de raccourci.
 #[derive(Debug, Clone, PartialEq)]
@@ -389,6 +446,8 @@ pub struct WidgetDef {
     pub interval: Duration,
     /// Fond en carte (true) ou texte nu sur le fond d'écran (false).
     pub card: bool,
+    /// Module de la barre : jamais affiché sur le bureau.
+    pub in_bar: bool,
 }
 
 impl WidgetDef {
@@ -479,6 +538,10 @@ pub struct Config {
     pub catalog: Vec<WidgetType>,
     /// Positions imposées par l'écran Réglages (`hd.place`), par id de widget.
     pub placements: std::collections::BTreeMap<String, Placement>,
+    /// Barre native, si déclarée.
+    pub bar: Option<BarDef>,
+    /// Composants de session (`hd.component`).
+    pub components: Vec<ComponentDef>,
     /// Widgets désactivés depuis les réglages (`hd.disable`) : id → type.
     pub disabled: std::collections::BTreeMap<String, String>,
 }

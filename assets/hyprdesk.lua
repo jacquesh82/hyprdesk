@@ -53,5 +53,19 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 --     return "Bonjour " .. (os.getenv("USER") or "") .. " — " .. os.date("%A %d %B")
 -- end })
 
+-- Barre native (ou Réglages ⚙ → Barre) : au-dessus des fenêtres, zone réservée.
+-- Modules : "workspaces", "window", "volume", "desktop", ou tout widget/plugin.
+-- hd.bar({
+--     position = "top", height = 36,
+--     left   = { "workspaces", "window" },
+--     center = { { "clock", format = "%a %d %b  %H:%M" } },
+--     right  = { "media", "volume", "desktop" },
+-- })
+
+-- Session : composants lancés et supervisés par hyprdesk (relancés s'ils
+-- plantent, arrêtés avec lui). Retirez-les alors de l'autostart de Hyprland.
+-- hd.component("wayle", { exec = "wayle shell" })
+-- hd.component("presse-papiers", { exec = "wl-paste --type text --watch cliphist store" })
+
 -- Hooks ---------------------------------------------------------------------
 -- hd.on("show", function(e) print("bureau affiché sur " .. e.monitor .. ", workspace " .. e.workspace) end)
