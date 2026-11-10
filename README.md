@@ -240,9 +240,7 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
 
 Built with [iced](https://github.com/iced-rs/iced),
 [iced_layershell](https://github.com/waycrate/exwlshelleventloop) and
-[mlua](https://github.com/mlua-rs/mlua). The Hyprland IPC comes from
-`hyprpanel-core`
-([mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)).
+[mlua](https://github.com/mlua-rs/mlua).
 
 ## Development
 
@@ -255,5 +253,20 @@ bash scripts/verify.sh --visual     # adds screenshots at 1440, 900 and 640 px
 
 `Cargo.lock` pins `winit-core` to `0.31.0-beta.2`, because beta.4 breaks
 `iced_exdevtools`, a dependency of `iced_layershell` 0.19 — build with
-`--locked`. Code under the MIT license; the Mindlog font ships under
-[SIL OFL 1.1](assets/fonts/mindlog/OFL.txt).
+`--locked`.
+
+## Credits
+
+Some pieces come from other projects of the Mindlog family; they are
+referenced here rather than presented as hyprdesk's own:
+
+- **Mindlog** — the default typeface, bundled under
+  [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt);
+- **LYRA** — the AI assistant: the assistant drawer integrates LYRA
+  (`hyprpanel-chat`) from
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools);
+- **hyprpanel-core** — the Hyprland IPC, from the same
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)
+  repository.
+
+Code under the MIT license.

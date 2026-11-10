@@ -18,8 +18,7 @@ hyprdesk est la **racine** de la session graphique.
   - Masqué, il rend les fenêtres mises de côté.
   - Le mode `glass` est un effet sur le fond : fond d'écran flouté et teinté.
 - **Racine de session.** hyprdesk lance et supervise les composants déclarés
-  avec `hd.component` (ex. `wayle shell`). Il les relance s'ils plantent et
-  les arrête avec lui.
+  avec `hd.component`. Il les relance s'ils plantent et les arrête avec lui.
 - **Barre native.** `hd.bar` affiche une barre au-dessus des fenêtres, avec
   sa zone réservée. Les fenêtres et la grille du bureau se rangent à côté.
   - Ses modules sont des widgets : workspaces, fenêtre active, volume,
@@ -175,7 +174,7 @@ Pour que hyprdesk soit la racine de la session :
 - retirez de l'autostart de Hyprland ce qu'il supervise désormais
   (`hd.component`) ;
 - retirez `hyprpaper` ;
-- masquez la barre de wayle si vous activez celle de hyprdesk.
+- masquez la barre de votre shell si vous activez celle de hyprdesk.
 
 ## Raccourcis
 
@@ -336,22 +335,14 @@ cargo run --locked -- --config exemple.lua   # démon avec une config de test
 `iced_exdevtools`, une dépendance d'`iced_layershell` 0.19. Il faut donc
 compiler avec `--locked`.
 
-L'IPC Hyprland vient de `hyprpanel-core`
-([mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)),
-épinglé sur un commit.
-
-Code sous licence MIT ; police Mindlog sous [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt).
-
 ## Finition et typographie
 
-Mindlog 0.7 est la police par défaut sur le bureau, la barre, les menus et
-les réglages. Ses cinq graisses (Light, Regular, Medium, SemiBold et Bold) sont
-embarquées dans le binaire ; `scripts/install.sh` les installe aussi dans
-`${XDG_DATA_HOME:-~/.local/share}/fonts/hyprdesk/Mindlog`, avec leur licence OFL.
-Réglages → Thème → Texte propose Mindlog et les familles installées
-sur la machine, un aperçu et la taille du texte. Le choix est enregistré dans
-`settings.lua` ; `hd.config({ font = "Mindlog", font_size = 14 })` reste
-prioritaire s’il est déclaré dans le fichier utilisateur.
+La police par défaut du bureau, de la barre, des menus et des réglages est
+**Mindlog** — un élément d'un autre projet, référencé en fin de page
+(§ Crédits). Réglages → Thème → Texte propose Mindlog et les familles
+installées sur la machine, un aperçu et la taille du texte. Le choix est
+enregistré dans `settings.lua` ; `hd.config({ font = "…", font_size = 14 })`
+reste prioritaire s’il est déclaré dans le fichier utilisateur.
 
 **Langue.** L'interface existe en français et en anglais : Réglages → Bureau →
 Langue, `hyprdesk config set language fr|en|auto`, ou
@@ -432,3 +423,18 @@ La même option s’applique à `SHIFT + Print`, `ALT + Print` et à un raccourc
 personnalisé comme `SUPER + SHIFT + S`. Les modes région et écran capturent le
 bureau et les surfaces layer-shell. Le mode fenêtre de Hyprshot vise une
 fenêtre d’application ; le bureau et la barre ne sont pas des fenêtres XDG.
+
+## Crédits
+
+Certaines pièces viennent d'autres projets de la famille Mindlog ; elles sont
+référencées ici, sans être présentées comme des éléments de hyprdesk :
+
+- **Mindlog** — la police par défaut, embarquée sous
+  [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt) ;
+- **LYRA** — l'assistant IA : le tiroir de l'assistant intègre LYRA
+  (`hyprpanel-chat`), de
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) ;
+- **hyprpanel-core** — l'IPC Hyprland, du même dépôt
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
+
+Code sous licence MIT.
