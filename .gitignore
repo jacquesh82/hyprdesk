@@ -1,0 +1,6 @@
+target/
+CLAUDE.md
+CONTEXT.md
+.claude/
+.dual-graph/
+.env*

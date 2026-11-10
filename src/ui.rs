@@ -1,0 +1,1267 @@
+//! Interface : un démon iced_layershell, UNE surface par écran.
+//!
+//! Au repos, chaque surface vit sur le calque `background` et dessine le fond
+//! d'écran du workspace affiché (elle remplace hyprpaper). Appelée, elle passe
+//! sur le calque `top` (au-dessus des fenêtres, sous la barre), prend le
+//! clavier, et affiche icônes et widgets en fondu. Renvoyée, elle redescend.
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use chrono::{Datelike, Local};
+use iced::futures::{SinkExt, Stream};
+use iced::widget::{Space, Stack, button, column, container, image, mouse_area, pin, progress_bar, row, svg, text};
+use iced::window::Id;
+use iced::{Alignment, Background, Border, Color, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, keyboard, mouse};
+use iced_layershell::build_pattern::daemon;
+use iced_layershell::reexport::{Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption};
+use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
+use iced_layershell::to_layer_message;
+
+use crate::config::lua::LuaHandle;
+use crate::config::resolve::{Desktop, resolve};
+use crate::config::{self, Anchor, Config, Fit, HookEvent, IconDef, Mode, Rgba, ShowOn, WallSource, WidgetDef, WidgetKind};
+use crate::hypr::{self, Monitor};
+use crate::layout::{self, Cell, Layout};
+use crate::{control, launch, widgets};
+
+const NAMESPACE: &str = "hyprdesk";
+const CROSSFADE: Duration = Duration::from_millis(700);
+const DRAG_THRESHOLD: f32 = 6.0;
+/// Icônes des commandes média, dans l'ordre de `App::media_imgs`.
+const MEDIA_ICONS: [&str; 4] = ["media-skip-backward", "media-playback-pause", "media-playback-start", "media-skip-forward"];
+
+/// Clé du cache d'images décodées : fichier, taille cible, ajustement.
+type WallKey = (PathBuf, u32, u32, Fit);
+
+#[to_layer_message(multi)]
+#[derive(Debug, Clone)]
+pub enum Msg {
+    Control(control::Command),
+    Monitors(Vec<Monitor>),
+    ConfigChanged,
+    ConfigLoaded(Result<Arc<Config>, String>),
+    /// Génération, icônes du bureau, puis icônes des commandes média.
+    IconsResolved(u64, Vec<launch::Resolved>, Vec<Option<PathBuf>>),
+    WallLoaded(WallKey, Result<image::Handle, String>),
+    Rotate,
+    Frame,
+    Poll,
+    WidgetValue(String, widgets::Value),
+    Resized(Id, Size),
+    Closed(Id),
+    Cursor(Id, Point),
+    Released,
+    Key(Id, keyboard::Key),
+    IconPress(Id, usize),
+    IconHover(Option<(Id, usize)>),
+    Launch(usize),
+    Media(String, &'static str),
+    Noop,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Fade {
+    from: f32,
+    to: f32,
+    start: Instant,
+    dur: Duration,
+}
+
+impl Fade {
+    fn value(&self, now: Instant) -> f32 {
+        if self.dur.is_zero() {
+            return self.to;
+        }
+        let p = (now.saturating_duration_since(self.start).as_secs_f32() / self.dur.as_secs_f32()).clamp(0.0, 1.0);
+        // Ease-out cubique.
+        let e = 1.0 - (1.0 - p).powi(3);
+        self.from + (self.to - self.from) * e
+    }
+    fn done(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.start) >= self.dur
+    }
+}
+
+/// Ce qu'un écran affiche comme fond : une image décodée ou un aplat.
+#[derive(Debug, Clone, PartialEq)]
+enum Wall {
+    Image(WallKey),
+    Color(Rgba),
+}
+
+#[derive(Debug)]
+struct Shown {
+    current: Wall,
+    prev: Option<Wall>,
+    since: Instant,
+}
+
+#[derive(Debug)]
+struct Rot {
+    files: Vec<PathBuf>,
+    idx: usize,
+    next: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum IconImg {
+    None,
+    Raster(usize),
+    Vector(usize),
+}
+
+#[derive(Debug)]
+struct Drag {
+    win: Id,
+    icon: usize,
+    start: Point,
+    active: bool,
+}
+
+pub struct App {
+    lua: LuaHandle,
+    config_path: PathBuf,
+    cfg: Arc<Config>,
+    config_error: Option<String>,
+    font: Font,
+    monitors: Vec<Monitor>,
+    /// Surface → nom d'écran.
+    surfaces: HashMap<Id, String>,
+    sizes: HashMap<Id, Size>,
+    visible: bool,
+    /// Surfaces actuellement sur le calque `top`.
+    raised: HashSet<Id>,
+    fade: Option<Fade>,
+    walls: HashMap<WallKey, image::Handle>,
+    loading: HashSet<WallKey>,
+    shown: HashMap<String, Shown>,
+    rot: HashMap<usize, Rot>,
+    /// Icônes résolues, alignées sur `cfg.icons`.
+    icons: Vec<launch::Resolved>,
+    icon_imgs: Vec<IconImg>,
+    /// Précédent, pause, lecture, suivant (thème d'icônes).
+    media_imgs: Vec<IconImg>,
+    rasters: Vec<image::Handle>,
+    vectors: Vec<svg::Handle>,
+    icons_gen: u64,
+    values: HashMap<String, widgets::Value>,
+    last_poll: HashMap<String, Instant>,
+    layout: Layout,
+    selected: Option<(Id, usize)>,
+    hovered: Option<(Id, usize)>,
+    cursor: HashMap<Id, Point>,
+    drag: Option<Drag>,
+}
+
+pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
+    daemon(move || App::boot(config_path.clone()), || NAMESPACE.to_string(), App::update, App::view)
+        .subscription(App::subscription)
+        .style(|_, _| iced::theme::Style { background_color: Color::TRANSPARENT, text_color: Color::WHITE })
+        .settings(Settings {
+            layer_settings: LayerShellSettings { start_mode: StartMode::Background, ..Default::default() },
+            ..Default::default()
+        })
+        .run()
+}
+
+// ---------------------------------------------------------------------------
+// Petits utilitaires
+
+fn color(c: Rgba, alpha: f32) -> Color {
+    Color::from_rgba8(c.0, c.1, c.2, (c.3 as f32 / 255.0) * alpha.clamp(0.0, 1.0))
+}
+
+fn index_of<T>(slice: &[T], item: &T) -> usize {
+    (item as *const T as usize - slice.as_ptr() as usize) / std::mem::size_of::<T>().max(1)
+}
+
+fn chrono_locale() -> chrono::Locale {
+    let lang = std::env::var("LC_TIME").or_else(|_| std::env::var("LANG")).unwrap_or_default();
+    let base = lang.split('.').next().unwrap_or("");
+    chrono::Locale::try_from(base).unwrap_or(chrono::Locale::POSIX)
+}
+
+/// Date formatée sans paniquer sur un format invalide.
+fn format_now(fmt: &str) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    if write!(s, "{}", Local::now().format_localized(fmt, chrono_locale())).is_err() {
+        return format!("format invalide : {fmt}");
+    }
+    s
+}
+
+fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| matches!(e.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    files
+}
+
+/// Décode et met à l'échelle une image de fond (hors thread UI).
+fn decode_wall(key: &WallKey) -> Result<image::Handle, String> {
+    let (path, w, h, fit) = key;
+    let img = ::image::open(path).map_err(|e| format!("{} : {e}", path.display()))?;
+    let (iw, ih) = (img.width() as f32, img.height() as f32);
+    let (tw, th) = (*w as f32, *h as f32);
+    use ::image::imageops::FilterType;
+    let img = match fit {
+        Fit::Fill => img.resize_exact(*w, *h, FilterType::Triangle),
+        Fit::Center => img,
+        Fit::Cover | Fit::Contain => {
+            let s = if *fit == Fit::Cover { (tw / iw).max(th / ih) } else { (tw / iw).min(th / ih) };
+            let (nw, nh) = ((iw * s).round().max(1.0) as u32, (ih * s).round().max(1.0) as u32);
+            img.resize_exact(nw, nh, FilterType::Triangle)
+        }
+    };
+    let rgba = img.to_rgba8();
+    Ok(image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()))
+}
+
+fn watch_stream(path: &PathBuf) -> impl Stream<Item = ()> + use<> {
+    let path = path.clone();
+    iced::stream::channel(4, async move |mut out: iced::futures::channel::mpsc::Sender<()>| {
+        use notify::{RecursiveMode, Watcher};
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let dir = path.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let modules = dir.join("hyprdesk");
+        let (target, mods) = (path.clone(), modules.clone());
+        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(ev) = res
+                && !matches!(ev.kind, notify::EventKind::Access(_))
+                && ev.paths.iter().any(|p| p == &target || p.starts_with(&mods))
+            {
+                let _ = tx.send(());
+            }
+        });
+        let mut watcher = match watcher {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::error!("surveillance de la config : {e}");
+                return;
+            }
+        };
+        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            tracing::error!("surveillance de {} : {e}", dir.display());
+        }
+        if modules.is_dir() {
+            let _ = watcher.watch(&modules, RecursiveMode::Recursive);
+        }
+        while rx.recv().await.is_some() {
+            // Les éditeurs écrivent en plusieurs fois : on regroupe.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            while rx.try_recv().is_ok() {}
+            let _ = out.send(()).await;
+        }
+        drop(watcher);
+    })
+}
+
+fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
+    match event {
+        Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::Cursor(id, position)),
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::Released),
+        Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => Some(Msg::Key(id, key)),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+impl App {
+    fn boot(config_path: PathBuf) -> (Self, Task<Msg>) {
+        let app = App {
+            lua: LuaHandle::spawn(),
+            config_path,
+            cfg: Arc::new(Config::default()),
+            config_error: None,
+            font: Font::DEFAULT,
+            monitors: Vec::new(),
+            surfaces: HashMap::new(),
+            sizes: HashMap::new(),
+            visible: false,
+            raised: HashSet::new(),
+            fade: None,
+            walls: HashMap::new(),
+            loading: HashSet::new(),
+            shown: HashMap::new(),
+            rot: HashMap::new(),
+            icons: Vec::new(),
+            icon_imgs: Vec::new(),
+            media_imgs: Vec::new(),
+            rasters: Vec::new(),
+            vectors: Vec::new(),
+            icons_gen: 0,
+            values: HashMap::new(),
+            last_poll: HashMap::new(),
+            layout: Layout::load(),
+            selected: None,
+            hovered: None,
+            cursor: HashMap::new(),
+            drag: None,
+        };
+        let t = app.load_config();
+        (app, t)
+    }
+
+    fn load_config(&self) -> Task<Msg> {
+        let (lua, path) = (self.lua.clone(), self.config_path.clone());
+        Task::perform(async move { lua.load(path).await.map(Arc::new) }, Msg::ConfigLoaded)
+    }
+
+    fn monitor(&self, id: Id) -> Option<&Monitor> {
+        let name = self.surfaces.get(&id)?;
+        self.monitors.iter().find(|m| &m.name == name)
+    }
+
+    fn desktop_of(&self, id: Id) -> Option<(&Monitor, Desktop<'_>)> {
+        let m = self.monitor(id)?;
+        Some((m, resolve(&self.cfg, &m.name, &m.workspace)))
+    }
+
+    fn size_of(&self, id: Id) -> Size {
+        self.sizes
+            .get(&id)
+            .copied()
+            .or_else(|| self.monitor(id).map(|m| Size::new(m.width as f32, m.height as f32)))
+            .unwrap_or(Size::new(1920.0, 1080.0))
+    }
+
+    fn fade_value(&self) -> f32 {
+        match self.fade {
+            Some(f) => f.value(Instant::now()),
+            None if self.visible => 1.0,
+            None => 0.0,
+        }
+    }
+
+    fn animating(&self) -> bool {
+        self.fade.is_some() || self.shown.values().any(|s| s.prev.is_some())
+    }
+
+    fn hooks(&self, ev: HookEvent) -> Vec<usize> {
+        self.cfg.hooks.iter().filter(|(e, _)| *e == ev).map(|(_, f)| *f).collect()
+    }
+
+    fn fire(&self, ev: HookEvent, name: &str, monitor: &Monitor) {
+        self.lua.hook(self.hooks(ev), name, &monitor.name, &monitor.workspace);
+    }
+
+    fn publish_status(&self) {
+        let screens: Vec<String> = self.monitors.iter().map(|m| format!("{}:{}", m.name, m.workspace)).collect();
+        control::set_status(format!(
+            "{} — écrans {} — config {} ({})",
+            if self.visible { "affiché" } else { "caché" },
+            screens.join(" "),
+            match &self.config_error {
+                None => "ok".to_string(),
+                Some(e) => format!("en erreur : {e}"),
+            },
+            self.config_path.display()
+        ));
+    }
+
+    // -- Affichage / masquage ------------------------------------------------
+
+    fn show(&mut self) -> Task<Msg> {
+        if self.visible && self.fade.is_none_or(|f| f.to >= 1.0) {
+            return Task::none();
+        }
+        self.visible = true;
+        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
+        let targets: Vec<(Id, bool)> = self
+            .surfaces
+            .iter()
+            .filter(|(_, mon)| self.cfg.general.show_on == ShowOn::All || Some(*mon) == focused.as_ref())
+            .map(|(id, mon)| (*id, Some(mon) == focused.as_ref()))
+            .collect();
+        let from = self.fade_value();
+        self.fade = Some(Fade { from, to: 1.0, start: Instant::now(), dur: Duration::from_millis(self.cfg.general.fade_ms) });
+        self.selected = None;
+        let mut tasks = Vec::new();
+        for (id, has_focus) in targets {
+            self.raised.insert(id);
+            tasks.push(Task::done(Msg::LayerChange { id, layer: Layer::Top }));
+            tasks.push(Task::done(Msg::ExclusiveZoneChange { id, zone_size: 0 }));
+            let kb = if has_focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
+            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: kb }));
+            if let Some(m) = self.monitor(id) {
+                self.fire(HookEvent::Show, "show", m);
+            }
+        }
+        self.last_poll.clear();
+        tasks.push(Task::done(Msg::Poll));
+        Task::batch(tasks)
+    }
+
+    fn hide(&mut self) -> Task<Msg> {
+        if !self.visible {
+            return Task::none();
+        }
+        self.visible = false;
+        self.drag = None;
+        self.hovered = None;
+        let from = self.fade_value();
+        self.fade = Some(Fade { from, to: 0.0, start: Instant::now(), dur: Duration::from_millis(self.cfg.general.fade_ms) });
+        let mut tasks: Vec<Task<Msg>> = Vec::new();
+        for id in self.raised.iter().copied().collect::<Vec<_>>() {
+            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
+            if let Some(m) = self.monitor(id) {
+                self.fire(HookEvent::Hide, "hide", m);
+            }
+        }
+        tasks.push(self.finish_fade());
+        Task::batch(tasks)
+    }
+
+    /// En fin de fondu sortant, les surfaces redescendent sur `background`.
+    fn finish_fade(&mut self) -> Task<Msg> {
+        let now = Instant::now();
+        let Some(f) = self.fade else { return Task::none() };
+        if !f.done(now) {
+            return Task::none();
+        }
+        self.fade = None;
+        if self.visible {
+            return Task::none();
+        }
+        let ids: Vec<Id> = self.raised.drain().collect();
+        Task::batch(ids.into_iter().flat_map(|id| {
+            [
+                Task::done(Msg::LayerChange { id, layer: Layer::Background }),
+                Task::done(Msg::ExclusiveZoneChange { id, zone_size: -1 }),
+            ]
+        }))
+    }
+
+    // -- Écrans ----------------------------------------------------------------
+
+    fn set_monitors(&mut self, list: Vec<Monitor>) -> Task<Msg> {
+        if list.is_empty() {
+            return Task::none();
+        }
+        let old = std::mem::replace(&mut self.monitors, list);
+        let mut tasks = Vec::new();
+        for m in &self.monitors {
+            if !self.surfaces.values().any(|n| n == &m.name) {
+                let id = Id::unique();
+                self.surfaces.insert(id, m.name.clone());
+                tracing::info!("surface pour {} ({}x{})", m.name, m.width, m.height);
+                tasks.push(Task::done(Msg::NewLayerShell {
+                    settings: NewLayerShellSettings {
+                        size: Some((0, 0)),
+                        layer: Layer::Background,
+                        anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                        exclusive_zone: Some(-1),
+                        keyboard_interactivity: KeyboardInteractivity::None,
+                        output_option: OutputOption::OutputName(m.name.clone()),
+                        namespace: Some(NAMESPACE.into()),
+                        ..Default::default()
+                    },
+                    id,
+                }));
+            }
+        }
+        let gone: Vec<Id> =
+            self.surfaces.iter().filter(|(_, n)| !self.monitors.iter().any(|m| &m.name == *n)).map(|(id, _)| *id).collect();
+        for id in gone {
+            self.surfaces.remove(&id);
+            self.raised.remove(&id);
+            tasks.push(iced::window::close(id));
+        }
+        // Changement de workspace pendant que le bureau est affiché.
+        for m in &self.monitors {
+            let changed = old.iter().find(|o| o.name == m.name).is_some_and(|o| o.workspace != m.workspace);
+            let raised = self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id));
+            if changed && raised {
+                self.fire(HookEvent::Workspace, "workspace", m);
+                self.selected = None;
+            }
+        }
+        tasks.push(self.refresh_walls());
+        if self.visible {
+            tasks.push(Task::done(Msg::Poll));
+        }
+        Task::batch(tasks)
+    }
+
+    // -- Fonds d'écran ---------------------------------------------------------
+
+    fn rot_file(&mut self, idx: usize, dir: &std::path::Path, interval: Duration, shuffle: bool) -> Option<PathBuf> {
+        let r = self.rot.entry(idx).or_insert_with(|| {
+            let mut files = list_images(dir);
+            if shuffle {
+                use rand::seq::SliceRandom;
+                files.shuffle(&mut rand::rng());
+            }
+            if files.is_empty() {
+                tracing::warn!("rotation : aucune image dans {}", dir.display());
+            }
+            Rot { files, idx: 0, next: Instant::now() + interval }
+        });
+        r.files.get(r.idx % r.files.len().max(1)).cloned()
+    }
+
+    fn refresh_walls(&mut self) -> Task<Msg> {
+        let mut tasks = Vec::new();
+        let cfg = self.cfg.clone();
+        let monitors = self.monitors.clone();
+        for m in &monitors {
+            let d = resolve(&cfg, &m.name, &m.workspace);
+            let want = match (d.wallpaper, d.wallpaper_idx) {
+                (None, _) | (_, None) => Wall::Color(cfg.general.background),
+                (Some(rule), Some(idx)) => match &rule.source {
+                    WallSource::Color(c) => Wall::Color(*c),
+                    WallSource::Path(p) => Wall::Image((p.clone(), m.width, m.height, rule.fit)),
+                    WallSource::Rotate { dir, interval, shuffle } => match self.rot_file(idx, dir, *interval, *shuffle) {
+                        Some(p) => Wall::Image((p, m.width, m.height, rule.fit)),
+                        None => Wall::Color(cfg.general.background),
+                    },
+                },
+            };
+            if self.shown.get(&m.name).is_some_and(|s| s.current == want) {
+                continue;
+            }
+            if let Wall::Image(key) = &want
+                && !self.walls.contains_key(key)
+            {
+                // On garde l'ancien fond jusqu'à la fin du décodage.
+                if self.loading.insert(key.clone()) {
+                    let k = key.clone();
+                    tasks.push(Task::perform(
+                        async move {
+                            let k2 = k.clone();
+                            let r = tokio::task::spawn_blocking(move || decode_wall(&k2)).await.unwrap_or_else(|e| Err(e.to_string()));
+                            (k, r)
+                        },
+                        |(k, r)| Msg::WallLoaded(k, r),
+                    ));
+                }
+                continue;
+            }
+            let prev = self.shown.remove(&m.name).map(|s| s.current);
+            self.shown.insert(m.name.clone(), Shown { current: want, prev, since: Instant::now() });
+        }
+        // Le cache ne garde que les images affichées (courantes ou en fondu).
+        let used: HashSet<&WallKey> = self
+            .shown
+            .values()
+            .flat_map(|s| [Some(&s.current), s.prev.as_ref()])
+            .flatten()
+            .filter_map(|w| if let Wall::Image(k) = w { Some(k) } else { None })
+            .collect();
+        let keep: HashSet<WallKey> = used.into_iter().cloned().collect();
+        self.walls.retain(|k, _| keep.contains(k) || self.loading.contains(k));
+        Task::batch(tasks)
+    }
+
+    // -- Widgets ---------------------------------------------------------------
+
+    fn poll(&mut self) -> Task<Msg> {
+        let now = Instant::now();
+        let mut seen = HashSet::new();
+        let mut tasks = Vec::new();
+        let raised: Vec<Id> = self.raised.iter().copied().collect();
+        let cfg = self.cfg.clone();
+        for id in raised {
+            let Some(m) = self.monitor(id) else { continue };
+            let d = resolve(&cfg, &m.name, &m.workspace);
+            for w in d.widgets {
+                if !seen.insert(w.id.clone()) {
+                    continue;
+                }
+                if self.last_poll.get(&w.id).is_some_and(|t| now.duration_since(*t) < w.interval) {
+                    continue;
+                }
+                let wid = w.id.clone();
+                let task: Option<Task<Msg>> = match &w.kind {
+                    WidgetKind::Clock { .. } | WidgetKind::Calendar => None,
+                    WidgetKind::System { show } => {
+                        let show = show.clone();
+                        Some(Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || widgets::sample_system(&show))
+                                    .await
+                                    .map(widgets::Value::Sys)
+                                    .unwrap_or_else(|e| widgets::Value::Error(e.to_string()))
+                            },
+                            move |v| Msg::WidgetValue(wid.clone(), v),
+                        ))
+                    }
+                    WidgetKind::Media { player } => {
+                        let p = player.clone();
+                        Some(Task::perform(async move { widgets::media(&p).await }, move |v| Msg::WidgetValue(wid.clone(), v)))
+                    }
+                    WidgetKind::Command { exec, timeout } => {
+                        let (c, t) = (exec.clone(), *timeout);
+                        Some(Task::perform(async move { widgets::run_command(&c, t).await }, move |v| Msg::WidgetValue(wid.clone(), v)))
+                    }
+                    WidgetKind::Lua { func } => {
+                        let (lua, f) = (self.lua.clone(), *func);
+                        Some(Task::perform(
+                            async move {
+                                match lua.render(f).await {
+                                    Ok(s) => widgets::Value::Text(s),
+                                    Err(e) => widgets::Value::Error(e),
+                                }
+                            },
+                            move |v| Msg::WidgetValue(wid.clone(), v),
+                        ))
+                    }
+                };
+                if let Some(t) = task {
+                    self.last_poll.insert(w.id.clone(), now);
+                    tasks.push(t);
+                }
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    // -- Icônes ----------------------------------------------------------------
+
+    /// Icônes d'une surface avec leur cellule : (index dans cfg.icons, cellule).
+    fn placed(&self, id: Id) -> Vec<(usize, Cell)> {
+        let Some((m, d)) = self.desktop_of(id) else { return Vec::new() };
+        let g = &self.cfg.general.grid;
+        let size = self.size_of(id);
+        let (cols, rows) = layout::grid_dims(size.width, size.height, g.cell, g.gap, g.margin);
+        let wanted: Vec<Option<Cell>> =
+            d.icons.iter().map(|i| self.layout.get(&layout::key(&m.name, &m.workspace, &i.id)).or(i.pos)).collect();
+        let cells = layout::place(&wanted, cols, rows);
+        d.icons.iter().zip(cells).filter_map(|(i, c)| Some((index_of(&self.cfg.icons, *i), c?))).collect()
+    }
+
+    /// Handle iced pour une image d'icône (SVG ou matricielle), créé une fois.
+    fn handle_for(&mut self, p: Option<&std::path::Path>) -> IconImg {
+        match p {
+            Some(p) if p.extension().is_some_and(|e| e == "svg" || e == "svgz") => {
+                self.vectors.push(svg::Handle::from_path(p));
+                IconImg::Vector(self.vectors.len() - 1)
+            }
+            Some(p) => {
+                self.rasters.push(image::Handle::from_path(p));
+                IconImg::Raster(self.rasters.len() - 1)
+            }
+            None => IconImg::None,
+        }
+    }
+
+    fn img_element(&self, img: IconImg, size: f32, alpha: f32) -> Option<Element<'_, Msg>> {
+        match img {
+            IconImg::Raster(i) => Some(image(self.rasters[i].clone()).width(size).height(size).opacity(alpha).into()),
+            IconImg::Vector(i) => Some(svg(self.vectors[i].clone()).width(size).height(size).opacity(alpha).into()),
+            IconImg::None => None,
+        }
+    }
+
+    fn launch(&mut self, idx: usize) -> Task<Msg> {
+        let Some(r) = self.icons.get(idx) else { return Task::none() };
+        let cmd = r.command.clone();
+        tracing::info!("lancement : {cmd}");
+        let t = Task::perform(
+            async move {
+                match tokio::task::spawn_blocking(move || hypr::exec(&cmd)).await {
+                    Ok(Err(e)) => tracing::warn!("lancement : {e}"),
+                    Err(e) => tracing::warn!("lancement : {e}"),
+                    Ok(Ok(())) => {}
+                }
+            },
+            |_| Msg::Noop,
+        );
+        if self.cfg.general.close_on_launch { Task::batch([t, self.hide()]) } else { t }
+    }
+
+    fn navigate(&mut self, id: Id, key: &keyboard::Key) -> Task<Msg> {
+        use keyboard::key::Named;
+        let placed = self.placed(id);
+        if placed.is_empty() {
+            return Task::none();
+        }
+        let cur = self.selected.filter(|(w, _)| *w == id).and_then(|(_, i)| placed.iter().find(|(x, _)| *x == i).copied());
+        let pick = |pred: &dyn Fn(Cell) -> Option<u32>| placed.iter().filter_map(|(i, c)| pred(*c).map(|k| (k, *i))).min().map(|(_, i)| i);
+        let next = match (key, cur) {
+            (keyboard::Key::Named(Named::Enter), Some((i, _))) => return self.launch(i),
+            (keyboard::Key::Named(Named::Enter), None) => None,
+            (_, None) => placed.iter().min_by_key(|(_, c)| (c.0, c.1)).map(|(i, _)| *i),
+            (keyboard::Key::Named(n), Some((_, (c, r)))) => {
+                let dist = |a: u16, b: u16| (a as i32 - b as i32).unsigned_abs();
+                match n {
+                    Named::ArrowDown => pick(&|(cc, rr)| (cc == c && rr > r).then(|| dist(rr, r))),
+                    Named::ArrowUp => pick(&|(cc, rr)| (cc == c && rr < r).then(|| dist(rr, r))),
+                    Named::ArrowRight => pick(&|(cc, rr)| (cc > c).then(|| dist(cc, c) * 1000 + dist(rr, r))),
+                    Named::ArrowLeft => pick(&|(cc, rr)| (cc < c).then(|| dist(cc, c) * 1000 + dist(rr, r))),
+                    _ => return Task::none(),
+                }
+            }
+            _ => return Task::none(),
+        };
+        if let Some(i) = next {
+            self.selected = Some((id, i));
+        }
+        Task::none()
+    }
+
+    fn drop_icon(&mut self, win: Id, icon: usize) {
+        let Some(p) = self.cursor.get(&win).copied() else { return };
+        let g = self.cfg.general.grid.clone();
+        let size = self.size_of(win);
+        let (cols, rows) = layout::grid_dims(size.width, size.height, g.cell, g.gap, g.margin);
+        let Some(target) = layout::cell_at(p.x, p.y, g.cell, g.gap, g.margin, cols, rows) else { return };
+        let placed = self.placed(win);
+        let Some(&(_, from)) = placed.iter().find(|(i, _)| *i == icon) else { return };
+        let Some(m) = self.monitor(win).cloned() else { return };
+        let key_of = |i: usize| layout::key(&m.name, &m.workspace, &self.cfg.icons[i].id);
+        // Cellule occupée : les deux icônes échangent leur place.
+        if let Some(&(other, _)) = placed.iter().find(|(_, c)| *c == target) {
+            let k = key_of(other);
+            self.layout.set(k, from);
+        }
+        let k = key_of(icon);
+        self.layout.set(k, target);
+        self.layout.save();
+    }
+
+    // -- Mise à jour -------------------------------------------------------------
+
+    fn update(&mut self, msg: Msg) -> Task<Msg> {
+        let t = self.update_inner(msg);
+        self.publish_status();
+        t
+    }
+
+    fn update_inner(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
+            Msg::Control(c) => match c {
+                control::Command::Toggle => {
+                    if self.visible {
+                        self.hide()
+                    } else {
+                        self.show()
+                    }
+                }
+                control::Command::Show => self.show(),
+                control::Command::Hide => self.hide(),
+                control::Command::Reload => self.load_config(),
+                control::Command::Quit => iced::exit(),
+                control::Command::Status => Task::none(),
+            },
+            Msg::Monitors(list) => self.set_monitors(list),
+            Msg::ConfigChanged => self.load_config(),
+            Msg::ConfigLoaded(Ok(cfg)) => {
+                tracing::info!(
+                    "config chargée : {} fonds, {} icônes, {} widgets",
+                    cfg.wallpapers.len(),
+                    cfg.icons.len(),
+                    cfg.widgets.len()
+                );
+                if self.config_error.take().is_some() {
+                    hypr::notify(3, 2500, "hyprdesk : configuration rechargée");
+                }
+                self.font = match &cfg.general.font {
+                    // Les noms de police doivent vivre aussi longtemps que le programme.
+                    Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
+                    None => Font::DEFAULT,
+                };
+                self.cfg = cfg;
+                self.rot.clear();
+                self.values.clear();
+                self.last_poll.clear();
+                self.selected = None;
+                self.icons_gen += 1;
+                let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
+                let resolve_icons = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let g = &cfg.general;
+                            let icons = cfg
+                                .icons
+                                .iter()
+                                .map(|d| launch::resolve(d, g.icon_theme.as_deref(), g.grid.icon_size, &g.terminal))
+                                .collect::<Vec<_>>();
+                            let media = MEDIA_ICONS
+                                .iter()
+                                .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                                .collect::<Vec<_>>();
+                            (icons, media)
+                        })
+                        .await
+                        .unwrap_or_default()
+                    },
+                    move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
+                );
+                let mut t = vec![resolve_icons, self.refresh_walls()];
+                if self.visible {
+                    t.push(Task::done(Msg::Poll));
+                }
+                Task::batch(t)
+            }
+            Msg::ConfigLoaded(Err(e)) => {
+                tracing::error!("config : {e}");
+                hypr::notify(4, 10000, &format!("hyprdesk : {e}"));
+                self.config_error = Some(e);
+                Task::none()
+            }
+            Msg::IconsResolved(gen_, list, media) => {
+                if gen_ != self.icons_gen {
+                    return Task::none();
+                }
+                self.rasters.clear();
+                self.vectors.clear();
+                self.icon_imgs = list.iter().map(|r| self.handle_for(r.image.as_deref())).collect();
+                self.media_imgs = media.iter().map(|p| self.handle_for(p.as_deref())).collect();
+                self.icons = list;
+                Task::none()
+            }
+            Msg::WallLoaded(key, r) => {
+                self.loading.remove(&key);
+                match r {
+                    Ok(h) => {
+                        self.walls.insert(key, h);
+                    }
+                    Err(e) => {
+                        tracing::warn!("fond d'écran : {e}");
+                        hypr::notify(0, 5000, &format!("hyprdesk : fond d'écran illisible — {e}"));
+                        return Task::none();
+                    }
+                }
+                self.refresh_walls()
+            }
+            Msg::Rotate => {
+                let now = Instant::now();
+                let cfg = self.cfg.clone();
+                let mut changed = false;
+                for (idx, r) in self.rot.iter_mut() {
+                    if now >= r.next
+                        && let Some(WallSource::Rotate { interval, .. }) = cfg.wallpapers.get(*idx).map(|w| &w.source)
+                    {
+                        r.idx = (r.idx + 1) % r.files.len().max(1);
+                        r.next = now + *interval;
+                        changed = true;
+                    }
+                }
+                if changed { self.refresh_walls() } else { Task::none() }
+            }
+            Msg::Frame => {
+                let now = Instant::now();
+                for s in self.shown.values_mut() {
+                    if s.prev.is_some() && now.duration_since(s.since) >= CROSSFADE {
+                        s.prev = None;
+                    }
+                }
+                self.finish_fade()
+            }
+            Msg::Poll => self.poll(),
+            Msg::WidgetValue(id, v) => {
+                self.values.insert(id, v);
+                Task::none()
+            }
+            Msg::Resized(id, size) => {
+                self.sizes.insert(id, size);
+                Task::none()
+            }
+            Msg::Closed(id) => {
+                self.surfaces.remove(&id);
+                self.raised.remove(&id);
+                self.sizes.remove(&id);
+                Task::none()
+            }
+            Msg::Cursor(id, p) => {
+                self.cursor.insert(id, p);
+                if let Some(d) = self.drag.as_mut()
+                    && d.win == id
+                    && !d.active
+                    && p.distance(d.start) > DRAG_THRESHOLD
+                {
+                    d.active = true;
+                }
+                Task::none()
+            }
+            Msg::Released => match self.drag.take() {
+                Some(d) if d.active => {
+                    self.drop_icon(d.win, d.icon);
+                    Task::none()
+                }
+                Some(d) => self.launch(d.icon),
+                None => Task::none(),
+            },
+            Msg::Key(id, key) => {
+                if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    return self.hide();
+                }
+                self.navigate(id, &key)
+            }
+            Msg::IconPress(win, icon) => {
+                let start = self.cursor.get(&win).copied().unwrap_or(Point::ORIGIN);
+                self.selected = Some((win, icon));
+                self.drag = Some(Drag { win, icon, start, active: false });
+                Task::none()
+            }
+            Msg::IconHover(h) => {
+                self.hovered = h;
+                Task::none()
+            }
+            Msg::Launch(i) => self.launch(i),
+            Msg::Media(bus, method) => {
+                for w in &self.cfg.widgets {
+                    if matches!(w.kind, WidgetKind::Media { .. }) {
+                        self.last_poll.remove(&w.id);
+                    }
+                }
+                Task::perform(widgets::media_control(bus, method), |_| Msg::Noop)
+                    .chain(Task::perform(tokio::time::sleep(Duration::from_millis(150)), |_| Msg::Poll))
+            }
+            Msg::Noop => Task::none(),
+            // Messages layer-shell : traités par iced_layershell.
+            _ => Task::none(),
+        }
+    }
+
+    fn subscription(&self) -> Subscription<Msg> {
+        let mut subs = vec![
+            Subscription::run(control::server_stream).map(Msg::Control),
+            Subscription::run(hypr::monitor_stream).map(Msg::Monitors),
+            Subscription::run_with(self.config_path.clone(), watch_stream).map(|_| Msg::ConfigChanged),
+            iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
+            iced::window::close_events().map(Msg::Closed),
+        ];
+        if !self.raised.is_empty() {
+            subs.push(iced::event::listen_with(listen));
+            subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Msg::Poll));
+        }
+        if self.animating() {
+            subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Msg::Frame));
+        }
+        if !self.rot.is_empty() {
+            subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::Rotate));
+        }
+        Subscription::batch(subs)
+    }
+
+    // -- Vue ---------------------------------------------------------------------
+
+    fn view(&self, id: Id) -> Element<'_, Msg> {
+        let Some((m, d)) = self.desktop_of(id) else {
+            return Space::new().into();
+        };
+        let raised = self.raised.contains(&id);
+        let t = if raised { self.fade_value() } else { 1.0 };
+        let mut layers: Vec<Element<'_, Msg>> = Vec::new();
+        if raised && d.mode == Mode::Glass {
+            let veil = color(self.cfg.general.theme.bg, self.cfg.general.glass_opacity * t);
+            layers.push(container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(veil)).into());
+        } else {
+            layers.push(self.view_wall(&m.name, t));
+        }
+        if raised {
+            layers.push(self.view_icons(id, t));
+            for w in &d.widgets {
+                layers.push(self.view_widget(w, t));
+            }
+        }
+        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn view_wall(&self, monitor: &str, t: f32) -> Element<'_, Msg> {
+        let Some(s) = self.shown.get(monitor) else {
+            let c = color(self.cfg.general.background, t);
+            return container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(c)).into();
+        };
+        let base = color(self.cfg.general.background, t);
+        let p = (Instant::now().duration_since(s.since).as_secs_f32() / CROSSFADE.as_secs_f32()).clamp(0.0, 1.0);
+        let mut layers = vec![container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(base)).into()];
+        if let Some(prev) = &s.prev {
+            layers.push(self.wall_element(prev, t));
+            layers.push(self.wall_element(&s.current, t * p));
+        } else {
+            layers.push(self.wall_element(&s.current, t));
+        }
+        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn wall_element(&self, w: &Wall, alpha: f32) -> Element<'_, Msg> {
+        match w {
+            Wall::Color(c) => {
+                let c = color(*c, alpha);
+                container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(c)).into()
+            }
+            Wall::Image(key) => match self.walls.get(key) {
+                Some(h) => {
+                    let fit = match key.3 {
+                        Fit::Cover => iced::ContentFit::Cover,
+                        Fit::Contain => iced::ContentFit::Contain,
+                        Fit::Fill => iced::ContentFit::Fill,
+                        Fit::Center => iced::ContentFit::None,
+                    };
+                    image(h.clone()).content_fit(fit).width(Length::Fill).height(Length::Fill).opacity(alpha).into()
+                }
+                None => Space::new().into(),
+            },
+        }
+    }
+
+    fn icon_cell(&self, win: Id, idx: usize, def: &IconDef, t: f32, ghost: bool) -> Element<'_, Msg> {
+        let g = &self.cfg.general;
+        let th = &g.theme;
+        let size = g.grid.icon_size as f32;
+        let alpha = if ghost { t * 0.5 } else { t };
+        let img: Element<'_, Msg> = match self.img_element(self.icon_imgs.get(idx).copied().unwrap_or(IconImg::None), size, alpha) {
+            Some(e) => e,
+            None => {
+                let c = color(th.accent, alpha);
+                container(text(def.label.clone().unwrap_or_default().chars().next().unwrap_or('?').to_string()).size(size * 0.5))
+                    .center(size)
+                    .style(move |_| container::Style { background: Some(c.into()), border: Border::default().rounded(size / 4.0), ..Default::default() })
+                    .into()
+            }
+        };
+        let label = self.icons.get(idx).map(|r| r.label.clone()).unwrap_or_else(|| def.label.clone().unwrap_or_default());
+        let fg = color(th.fg, alpha);
+        let selected = self.selected == Some((win, idx));
+        let hovered = self.hovered == Some((win, idx));
+        let hl = if selected {
+            Some(color(th.accent, 0.45 * t))
+        } else if hovered {
+            Some(color(th.fg, 0.12 * t))
+        } else {
+            None
+        };
+        let cell = g.grid.cell as f32;
+        let body = container(
+            column![img, text(label).size(g.font_size).color(fg).font(self.font).align_x(Alignment::Center).width(Length::Fill)]
+                .spacing(6)
+                .align_x(Alignment::Center),
+        )
+        .width(cell)
+        .height(cell)
+        .padding(6)
+        .align_y(Alignment::Center)
+        .style(move |_| container::Style {
+            background: hl.map(Background::Color),
+            border: Border::default().rounded(10),
+            // Ombre de texte simulée par un fond léger quand rien n'est survolé.
+            ..Default::default()
+        });
+        mouse_area(body)
+            .on_press(Msg::IconPress(win, idx))
+            .on_enter(Msg::IconHover(Some((win, idx))))
+            .on_exit(Msg::IconHover(None))
+            .interaction(mouse::Interaction::Pointer)
+            .into()
+    }
+
+    fn view_icons(&self, win: Id, t: f32) -> Element<'_, Msg> {
+        let g = &self.cfg.general.grid;
+        let step = (g.cell + g.gap) as f32;
+        let dragging = self.drag.as_ref().filter(|d| d.active && d.win == win).map(|d| d.icon);
+        let mut layers: Vec<Element<'_, Msg>> = Vec::new();
+        for (idx, (c, r)) in self.placed(win) {
+            let def = &self.cfg.icons[idx];
+            let cell = self.icon_cell(win, idx, def, t, dragging == Some(idx));
+            layers.push(pin(cell).x(g.margin as f32 + c as f32 * step).y(g.margin as f32 + r as f32 * step).into());
+        }
+        if let (Some(idx), Some(p)) = (dragging, self.cursor.get(&win)) {
+            let half = g.cell as f32 / 2.0;
+            let def = &self.cfg.icons[idx];
+            layers.push(pin(self.icon_cell(win, idx, def, t, false)).x(p.x - half).y(p.y - half).into());
+        }
+        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn view_widget(&self, w: &WidgetDef, t: f32) -> Element<'_, Msg> {
+        let g = &self.cfg.general;
+        let th = &g.theme;
+        let fg = color(th.fg, t);
+        let dim = color(th.fg, 0.65 * t);
+        let accent = color(th.accent, t);
+        let font = self.font;
+        let base = g.font_size;
+        let content: Element<'_, Msg> = match &w.kind {
+            WidgetKind::Clock { format } => {
+                let size = if w.size > 0.0 { w.size } else { 56.0 };
+                text(format_now(format)).size(size).color(fg).font(font).into()
+            }
+            WidgetKind::Calendar => self.view_calendar(if w.size > 0.0 { w.size } else { base }, fg, dim, accent),
+            WidgetKind::System { .. } => {
+                let size = if w.size > 0.0 { w.size } else { base };
+                match self.values.get(&w.id) {
+                    Some(widgets::Value::Sys(lines)) => column(lines.iter().map(|l| {
+                        let mut c = column![row![
+                            text(l.label.clone()).size(size).color(dim).font(font).width(Length::Fixed(size * 5.0)),
+                            text(l.value.clone()).size(size).color(fg).font(font),
+                        ]];
+                        if let Some(r) = l.ratio {
+                            let (track, bar) = (color(th.fg, 0.15 * t), accent);
+                            c = c.push(progress_bar(0.0..=1.0, r).girth(4).length(Length::Fixed(size * 16.0)).style(move |_| {
+                                progress_bar::Style { background: track.into(), bar: bar.into(), border: Border::default().rounded(2) }
+                            }));
+                        }
+                        c.spacing(4).into()
+                    }))
+                    .spacing(10)
+                    .into(),
+                    other => self.view_value(other, size, fg, dim),
+                }
+            }
+            WidgetKind::Media { .. } => {
+                let size = if w.size > 0.0 { w.size } else { base };
+                match self.values.get(&w.id) {
+                    Some(widgets::Value::Media(Some(mi))) => {
+                        // Icône du thème si elle existe, sinon un repli en ASCII
+                        // (les glyphes ⏮ ⏯ ⏭ manquent à la plupart des polices).
+                        let ctl = |icon: usize, fallback: &'static str, method: &'static str| {
+                            let img = self.media_imgs.get(icon).copied().unwrap_or(IconImg::None);
+                            let label: Element<'_, Msg> = self
+                                .img_element(img, size * 1.3, t)
+                                .unwrap_or_else(|| text(fallback).size(size).color(fg).font(font).into());
+                            button(label)
+                                .on_press(Msg::Media(mi.bus.clone(), method))
+                                .padding([4, 10])
+                                .style(move |_, status| button::Style {
+                                    background: matches!(status, button::Status::Hovered).then(|| Background::Color(Color { a: 0.15 * t, ..fg })),
+                                    text_color: fg,
+                                    border: Border::default().rounded(8),
+                                    ..Default::default()
+                                })
+                        };
+                        column![
+                            text(if mi.title.is_empty() { "—".to_string() } else { mi.title.clone() }).size(size * 1.15).color(fg).font(font),
+                            text(mi.artist.clone()).size(size).color(dim).font(font),
+                            row![
+                                ctl(0, "|<", "Previous"),
+                                if mi.playing { ctl(1, "||", "PlayPause") } else { ctl(2, ">", "PlayPause") },
+                                ctl(3, ">|", "Next")
+                            ]
+                            .spacing(6),
+                        ]
+                        .spacing(4)
+                        .max_width(size * 26.0)
+                        .into()
+                    }
+                    Some(widgets::Value::Media(None)) => text("Aucun lecteur").size(size).color(dim).font(font).into(),
+                    other => self.view_value(other, size, fg, dim),
+                }
+            }
+            WidgetKind::Command { .. } | WidgetKind::Lua { .. } => {
+                let size = if w.size > 0.0 { w.size } else { base };
+                self.view_value(self.values.get(&w.id), size, fg, dim)
+            }
+        };
+        let card_bg = color(th.bg, 0.72 * t);
+        let boxed: Element<'_, Msg> = if w.card {
+            container(content)
+                .padding(16)
+                .style(move |_| container::Style { background: Some(card_bg.into()), border: Border::default().rounded(14), ..Default::default() })
+                .into()
+        } else {
+            content
+        };
+        let margin = 32.0;
+        let (ax, ay) = match w.anchor {
+            Anchor::TopLeft => (Alignment::Start, Alignment::Start),
+            Anchor::Top => (Alignment::Center, Alignment::Start),
+            Anchor::TopRight => (Alignment::End, Alignment::Start),
+            Anchor::Left => (Alignment::Start, Alignment::Center),
+            Anchor::Center => (Alignment::Center, Alignment::Center),
+            Anchor::Right => (Alignment::End, Alignment::Center),
+            Anchor::BottomLeft => (Alignment::Start, Alignment::End),
+            Anchor::Bottom => (Alignment::Center, Alignment::End),
+            Anchor::BottomRight => (Alignment::End, Alignment::End),
+        };
+        // x > 0 décale vers la droite, y > 0 vers le bas, quel que soit l'ancrage.
+        let axis = |a: Alignment, off: f32| -> (f32, f32) {
+            match a {
+                Alignment::Start => (margin + off, 0.0),
+                Alignment::End => (0.0, (margin - off).max(0.0)),
+                Alignment::Center => ((2.0 * off).max(0.0), (-2.0 * off).max(0.0)),
+            }
+        };
+        let (left, right) = axis(ax, w.x);
+        let (top, bottom) = axis(ay, w.y);
+        container(boxed)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(ax)
+            .align_y(ay)
+            .padding(Padding { top, right, bottom, left })
+            .into()
+    }
+
+    fn view_value(&self, v: Option<&widgets::Value>, size: f32, fg: Color, dim: Color) -> Element<'_, Msg> {
+        match v {
+            Some(widgets::Value::Text(s)) => text(s.clone()).size(size).color(fg).font(self.font).into(),
+            Some(widgets::Value::Error(e)) => text(format!("⚠ {e}")).size(size).color(Color { r: 1.0, g: 0.5, b: 0.5, a: dim.a }).font(self.font).into(),
+            _ => text("…").size(size).color(dim).font(self.font).into(),
+        }
+    }
+
+    fn view_calendar(&self, size: f32, fg: Color, dim: Color, accent: Color) -> Element<'_, Msg> {
+        let today = Local::now().date_naive();
+        let first = today.with_day(1).unwrap_or(today);
+        let next_month = if first.month() == 12 {
+            chrono::NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+        } else {
+            chrono::NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+        };
+        let days = next_month.map(|n| (n - first).num_days() as u32).unwrap_or(30);
+        let offset = first.weekday().num_days_from_monday();
+        let w = size * 2.2;
+        let title = format!("{}", first.format_localized("%B %Y", chrono_locale()));
+        let mut grid = column![text(title).size(size * 1.1).color(fg).font(self.font)].spacing(6);
+        // Initiales des jours, lundi d'abord, dans la langue de l'utilisateur.
+        let monday = first - chrono::Duration::days(offset as i64);
+        let head = row((0..7).map(|i| {
+            let d = monday + chrono::Duration::days(i);
+            let s: String = format!("{}", d.format_localized("%a", chrono_locale())).chars().take(2).collect();
+            text(s).size(size * 0.85).color(dim).font(self.font).width(w).align_x(Alignment::Center).into()
+        }));
+        grid = grid.push(head);
+        let mut day = 1u32;
+        let cells = (offset + days).div_ceil(7);
+        for week in 0..cells {
+            let r = row((0..7u32).map(|wd| {
+                let slot = week * 7 + wd;
+                if slot < offset || day > days {
+                    return Space::new().width(w).into();
+                }
+                let d = day;
+                day += 1;
+                let is_today = d == today.day();
+                let label = text(d.to_string()).size(size).font(self.font).color(if is_today { Color::WHITE } else { fg });
+                container(label)
+                    .width(w)
+                    .align_x(Alignment::Center)
+                    .style(move |_| container::Style {
+                        background: is_today.then(|| Background::Color(accent)),
+                        border: Border::default().rounded(6),
+                        ..Default::default()
+                    })
+                    .into()
+            }));
+            grid = grid.push(r);
+        }
+        grid.into()
+    }
+}
+
+fn bg(c: Color) -> container::Style {
+    container::Style { background: Some(c.into()), ..Default::default() }
+}
+
+/// Vérifie la config sans lancer le démon (`hyprdesk check`).
+pub fn check(path: &std::path::Path) -> Result<Config, String> {
+    config::lua::load_file(path).map(|l| l.config)
+}

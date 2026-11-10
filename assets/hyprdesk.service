@@ -1,0 +1,20 @@
+# Unit systemd user pour hyprdesk — déposée par scripts/install.sh
+# (qui précise WAYLAND_DISPLAY détecté).
+[Unit]
+Description=hyprdesk - bureau à la demande pour Hyprland
+PartOf=graphical-session.target
+After=graphical-session.target
+# Hyprland n'est pas encore là dans les premières secondes de session :
+# environ une minute de tentatives avant d'abandonner.
+StartLimitIntervalSec=120
+StartLimitBurst=20
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hyprdesk daemon
+Restart=on-failure
+RestartSec=3
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target
