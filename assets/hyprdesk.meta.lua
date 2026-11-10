@@ -7,7 +7,7 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field idle_manage? boolean # hyprdesk gère la veille : écrit la config de hypridle et le lance

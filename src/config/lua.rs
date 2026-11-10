@@ -508,9 +508,14 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         const C: &str = "hd.config.keys";
         check_keys(
             &k,
-            &["toggle", "launcher", "hide", "settings", "lock", "leave"],
+            &[
+                "toggle", "launcher", "hide", "settings", "lock", "leave", "media",
+            ],
             C,
         )?;
+        if let Some(v) = opt_bool(&k, "media", C)? {
+            g.keys.media = v;
+        }
         for (name, slot) in [
             ("toggle", &mut g.keys.toggle),
             ("launcher", &mut g.keys.launcher),

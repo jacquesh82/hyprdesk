@@ -6,6 +6,7 @@
 mod apps;
 mod apptheme;
 mod assistant;
+mod brightness;
 mod chat;
 mod cli_config;
 mod config;
@@ -18,6 +19,7 @@ mod idle;
 mod launch;
 mod layout;
 mod lock;
+mod osd;
 mod processes;
 mod screens;
 mod session;
@@ -79,6 +81,10 @@ Commandes :
   config            réglages en ligne de commande, par paquet :
                     config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
   menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
+  osd <volume|mic|brightness|kbd> <+N|-N|toggle>
+                    règle le son ou la luminosité (touches XF86, keys.media)
+  media <play-pause|next|previous>
+                    commande le lecteur en cours (MPRIS)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -282,6 +288,15 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Exécute une tâche asynchrone d'une commande cliente (hors démon).
+fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime tokio")
+        .block_on(f)
 }
 
 fn main() -> ExitCode {
@@ -685,6 +700,44 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        // Touches de volume et de luminosité : l'action se fait ici, sans démon.
+        "osd" => {
+            let (kind, step) = match osd::parse(&args[1..]) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(2);
+                }
+            };
+            match block_on(osd::apply(kind, step)) {
+                Ok(l) => {
+                    println!(
+                        "{} {:.0} %{}",
+                        kind.as_str(),
+                        l.value * 100.0,
+                        if l.muted { " (muet)" } else { "" }
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk osd : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "media" => {
+            let Some(method) = args.get(1).and_then(|a| osd::media_method(a)) else {
+                eprintln!("hyprdesk media <play-pause|next|previous>");
+                return ExitCode::from(2);
+            };
+            match block_on(osd::media(method)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         // Dépendances externes : présentes, absentes, et ce qui en dépend.
         "doctor" => {
             let list = doctor::check();

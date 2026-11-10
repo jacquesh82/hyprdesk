@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
-mod bar;
+pub(crate) mod bar;
 mod chat;
 mod design;
 mod icons;

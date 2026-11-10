@@ -443,6 +443,22 @@ pub fn universal_binds(binds: &Value) -> Vec<String> {
 /// Raccourci de verrouillage que `scripts/install.sh` pose dans hyprland.lua.
 pub const LOCK_KEY_DEFAULT: &str = "SUPER + L";
 
+/// Touches multimédia : (touche, commande hyprdesk, répétée tant qu'appuyée).
+pub const MEDIA_KEYS: &[(&str, &str, bool)] = &[
+    ("XF86AudioRaiseVolume", "osd volume +5", true),
+    ("XF86AudioLowerVolume", "osd volume -5", true),
+    ("XF86AudioMute", "osd volume toggle", false),
+    ("XF86AudioMicMute", "osd mic toggle", false),
+    ("XF86MonBrightnessUp", "osd brightness +5", true),
+    ("XF86MonBrightnessDown", "osd brightness -5", true),
+    ("XF86KbdBrightnessUp", "osd kbd +10", false),
+    ("XF86KbdBrightnessDown", "osd kbd -10", false),
+    ("XF86AudioPlay", "media play-pause", false),
+    ("XF86AudioPause", "media play-pause", false),
+    ("XF86AudioNext", "media next", false),
+    ("XF86AudioPrev", "media previous", false),
+];
+
 pub fn build_keys_lua(
     keys: &crate::config::Keys,
     blurred: &[&str],
@@ -501,6 +517,20 @@ pub fn build_keys_lua(
             );
         }
     }
+    // Touches multimédia : actives écran verrouillé (`locked`) ; hors submap,
+    // seulement celles que hyprland.lua ne lie pas déjà (`skip`).
+    let media = |lua: &mut String, indent: &str, skip: &[String]| {
+        for (k, arg, repeating) in MEDIA_KEYS {
+            if keys.media && !skip.iter().any(|s| s == k) {
+                *lua += &format!(
+                    "{indent}keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ locked = true, repeating = {repeating}, description = \"hyprdesk : touche multimédia\" }}))\n",
+                    q(k),
+                    q(&cmd(arg))
+                );
+            }
+        }
+    };
+    media(&mut lua, "", skip);
     // Dans la submap, les raccourcis de Hyprland sont suspendus : un raccourci
     // déjà pris hors de la submap n'y est pas en conflit, il s'installe.
     let usable = |k: &String| !k.is_empty();
@@ -541,6 +571,8 @@ pub fn build_keys_lua(
             );
         }
     }
+    // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les tient toutes.
+    media(&mut lua, "  ", &[]);
     lua += "end)\n";
     // Surfaces floutées selon le thème (barre, menus, lanceur, réglages),
     // menus sans animation d'apparition.
@@ -586,7 +618,15 @@ pub fn install_keys(
             conflicts.push((k.clone(), what));
         }
     }
-    let skip: Vec<String> = conflicts.iter().map(|(k, _)| k.clone()).collect();
+    let mut skip: Vec<String> = conflicts.iter().map(|(k, _)| k.clone()).collect();
+    // Touches multimédia déjà liées par hyprland.lua : laissées à leur
+    // commande hors du bureau, sans être signalées comme conflit.
+    skip.extend(
+        MEDIA_KEYS
+            .iter()
+            .filter(|(k, _, _)| conflicts_with(&binds, k).is_some())
+            .map(|(k, _, _)| k.to_string()),
+    );
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
@@ -1385,6 +1425,26 @@ mod tests {
     }
 
     #[test]
+    fn touches_multimedia() {
+        let k = crate::config::Keys::default();
+        let raise = r#"hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("'/bin/hyprdesk' osd volume +5"), { locked = true, repeating = true"#;
+        // Déjà liée par hyprland.lua : seulement dans la submap.
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &["XF86AudioRaiseVolume".into()]);
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        assert!(!main.contains(raise) && submap.contains(raise), "{lua}");
+        assert!(main.contains(
+            r#"hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("'/bin/hyprdesk' osd brightness +5")"#
+        ));
+        assert!(submap.contains(r#"hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("'/bin/hyprdesk' media play-pause"), { locked = true, repeating = false"#));
+        // Coupées : aucune.
+        let off = crate::config::Keys { media: false, ..k };
+        assert!(!build_keys_lua(&off, &[], "/bin/hyprdesk", &[]).contains("XF86"));
+        for (key, _, _) in MEDIA_KEYS {
+            assert!(parse_combo(key).is_some(), "{key}");
+        }
+    }
+
+    #[test]
     fn lua_des_raccourcis() {
         let k = crate::config::Keys {
             toggle: "SUPER + D".into(),
@@ -1393,6 +1453,7 @@ mod tests {
             settings: "SUPER + SHIFT + D".into(),
             lock: "SUPER + L".into(),
             leave: "SUPER + Escape".into(),
+            media: true,
         };
         let lua = build_keys_lua(
             &k,

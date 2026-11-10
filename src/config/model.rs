@@ -599,6 +599,9 @@ pub struct Keys {
     pub lock: String,
     /// Sortie de secours : masque le bureau et rend tous les raccourcis.
     pub leave: String,
+    /// Touches multimédia (volume, luminosité, lecture) par hyprdesk : là où
+    /// hyprland.lua ne les lie pas déjà, et toujours bureau affiché.
+    pub media: bool,
 }
 
 impl Default for Keys {
@@ -612,6 +615,7 @@ impl Default for Keys {
             // scripts/install.sh). Réglé, hyprdesk le remplace.
             lock: String::new(),
             leave: "SUPER + Escape".into(),
+            media: true,
         }
     }
 }

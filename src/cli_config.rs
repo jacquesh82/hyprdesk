@@ -264,6 +264,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.leave.clone(),
         |s, v, c| { s.key_leave = Some(combo(v)?); Ok(()) },
         |s| s.key_leave = None;
+    "keys.media", "desktop", "on | off — touches de volume, de luminosité et de lecture gérées par hyprdesk (avec affichage)",
+        |c| on_off(c.general.keys.media),
+        |s, v, c| { s.key_media = Some(parse_bool(v)?); Ok(()) },
+        |s| s.key_media = None;
     "grid.icon_size", "icons", "8..1024 — taille des icônes du bureau",
         |c| c.general.grid.icon_size.to_string(),
         |s, v, c| { s.icon_size = Some(number(v, 8u16, 1024)?); Ok(()) },

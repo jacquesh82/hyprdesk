@@ -91,6 +91,7 @@ pub struct Settings {
     pub key_settings: Option<String>,
     pub key_lock: Option<String>,
     pub key_leave: Option<String>,
+    pub key_media: Option<bool>,
     pub suspend_binds: Option<bool>,
     pub float_launched: Option<bool>,
     pub show_on: Option<ShowOn>,
@@ -232,6 +233,7 @@ impl Settings {
             key_settings: has("keys.settings").then(|| g.keys.settings.clone()),
             key_lock: has("keys.lock").then(|| g.keys.lock.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
+            key_media: has("keys.media").then_some(g.keys.media),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             float_launched: has("float_launched").then_some(g.float_launched),
             show_on: has("show_on").then_some(g.show_on),
@@ -460,6 +462,7 @@ impl Settings {
         set!(key_settings, "keys.settings", g.keys.settings);
         set!(key_lock, "keys.lock", g.keys.lock);
         set!(key_leave, "keys.leave", g.keys.leave);
+        set!(key_media, "keys.media", g.keys.media);
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(float_launched, "float_launched", g.float_launched);
         set!(show_on, "show_on", g.show_on);
@@ -828,6 +831,9 @@ impl Settings {
                     format!("{name} = {}", q(k))
                 });
             }
+        }
+        if let Some(v) = self.key_media {
+            keys.push(format!("media = {v}"));
         }
         if !keys.is_empty() {
             cfg.push(format!("keys = {{ {} }}", keys.join(", ")));
