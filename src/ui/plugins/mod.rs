@@ -108,6 +108,7 @@ pub const ADVANCED_ONLY: &[&str] = &["effects", "share", "plugins"];
 /// Onglets affichés seulement en configuration avancée : (paquet, onglet).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "session"),
+    ("desktop", "dependances"),
     ("theme", "effets"),
     ("layouts", "custom"),
 ];
@@ -428,7 +429,7 @@ mod tests {
         }
         assert!(!visible("plugins", false) && visible("plugins", true));
         assert_eq!(visible_tabs("desktop", false).len(), 2);
-        assert_eq!(visible_tabs("desktop", true).len(), 3);
+        assert_eq!(visible_tabs("desktop", true).len(), 4);
     }
 
     /// Onglets : identifiants uniques, désignables sans casse ni accents.

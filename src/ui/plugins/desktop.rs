@@ -27,6 +27,7 @@ pub const TABS: &[super::SubTab] = &[
     ("affichage", "Affichage"),
     ("raccourcis", "Raccourcis"),
     ("session", "Session"),
+    ("dependances", "Dépendances"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -82,6 +83,9 @@ impl App {
         }
         if self.on_subtab(INFO.id, "session") {
             return self.session_section();
+        }
+        if self.on_subtab(INFO.id, "dependances") {
+            return self.deps_section();
         }
         let lang: &'static str = match g.language.as_str() {
             "fr" => "fr",
@@ -335,6 +339,55 @@ impl App {
                         .on_press(wrap(Msg::ComponentRestart(d.name.clone()))),
                 ]
                 .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        col.into()
+    }
+
+    /// Dépendances externes (même relevé que `hyprdesk doctor`).
+    pub(in crate::ui) fn deps_section(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let list = crate::doctor::cached();
+        let present = list.iter().filter(|s| s.found.is_some()).count();
+        let mut col = column![self.section("Dépendances")].spacing(10);
+        col = col.push(
+            text("Outils auxquels hyprdesk confie ce qui ne se voit pas. Un outil absent rend seulement sa fonction inopérante ; hyprdesk doctor donne le même relevé.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
+        col = col.push(
+            text(crate::tr!("{n}/{m} présentes", n = present, m = list.len()))
+                .font(self.font)
+                .size(13)
+                .color(fg),
+        );
+        for s in list {
+            let (mark, mark_color) = match (&s.found, s.dep.essential) {
+                (Some(_), _) => ("✓", fg),
+                (None, true) => ("✗", color(g.theme.accent, 1.0)),
+                (None, false) => ("✗", dim),
+            };
+            let detail = match &s.found {
+                Some(found) => found.clone(),
+                None => crate::tr!("absent — paquet : {p}", p = s.dep.package),
+            };
+            col = col.push(
+                row![
+                    text(mark).font(self.font).size(14).color(mark_color),
+                    column![
+                        text(s.dep.name).font(self.font).size(14).color(fg),
+                        text(format!("{} · {detail}", crate::i18n::tr(s.dep.feature)))
+                            .font(self.font)
+                            .size(11)
+                            .color(dim),
+                    ]
+                    .width(Length::Fill),
+                ]
+                .spacing(10)
                 .align_y(Alignment::Center),
             );
         }

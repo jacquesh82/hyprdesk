@@ -39,6 +39,10 @@ echo "== configuration"
 "$BIN_DIR/hyprdesk" stubs
 "$BIN_DIR/hyprdesk" check
 
+echo "== dépendances externes"
+# Informatif : une dépendance absente rend seulement sa fonction inopérante.
+"$BIN_DIR/hyprdesk" doctor || true
+
 echo "== unit systemd user"
 WL_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 mkdir -p "$UNIT_DIR"

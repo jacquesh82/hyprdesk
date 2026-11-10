@@ -242,6 +242,7 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
 | `hyprdesk status` | état : affiché ou caché, workspaces, config en erreur ou non |
 | `hyprdesk check [fichier]` | vérifie une configuration sans toucher au démon |
+| `hyprdesk doctor` | dépendances externes (hypridle, wpctl, nmcli, portails…) : présentes ou absentes, et ce qui en dépend ; aussi dans Réglages → Bureau → Dépendances (configuration avancée) |
 | `hyprdesk init` · `stubs` · `snippet` | config d'exemple, définitions LuaLS, lignes pour `hyprland.lua` |
 
 Options et variables :

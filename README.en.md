@@ -242,6 +242,7 @@ Only one daemon runs per session: it holds an exclusive lock (`flock`) on
 | `hyprdesk reload` | rereads the configuration (it is also reread on every save) |
 | `hyprdesk status` | state: shown or hidden, workspaces, whether the config has errors |
 | `hyprdesk check [file]` | checks a configuration without touching the daemon |
+| `hyprdesk doctor` | external dependencies (hypridle, wpctl, nmcli, portals…): present or missing, and what relies on them; also in Settings → Desktop → Dependencies (advanced configuration) |
 | `hyprdesk init` · `stubs` · `snippet` | example config, LuaLS definitions, lines for `hyprland.lua` |
 
 Options and variables:

@@ -10,6 +10,7 @@ mod chat;
 mod cli_config;
 mod config;
 mod control;
+mod doctor;
 mod fonts;
 mod hypr;
 mod i18n;
@@ -83,6 +84,7 @@ Commandes :
   chat-mock         faux moteur d'assistant (protocole serve, pour essais)
   preview [dossier] aperçu isolé ; capture les vues si un dossier est fourni
   check [fichier]   exécute et vérifie la configuration sans modifier le démon
+  doctor            dépendances externes : présentes, absentes, et ce qui en dépend
   init              écrit la configuration d'exemple si aucune n'existe
   stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
   snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
@@ -682,6 +684,16 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        // Dépendances externes : présentes, absentes, et ce qui en dépend.
+        "doctor" => {
+            let list = doctor::check();
+            println!("{}", doctor::report(&list));
+            if doctor::essential_missing(&list) {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         "snippet" => {
             println!("{}", i18n::tr_lines(SNIPPET));
             ExitCode::SUCCESS
