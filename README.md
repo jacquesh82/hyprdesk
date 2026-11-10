@@ -13,6 +13,26 @@ peut avoir son propre bureau. La configuration est en Lua, dans le style de
   et widgets. Échap, la même touche ou un lancement le renvoient.
 - **Mode `glass`** : au lieu du fond d'écran, un voile translucide, avec les
   fenêtres floutées par Hyprland.
+- **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
+  (un clic donne le focus à la fenêtre), puis le bouton ⚙ des réglages.
+
+## Réglages (⚙)
+
+Le bouton ⚙ du dock, ou `hyprdesk settings [bureau|icones|fond|effets]`, ouvre
+un panneau par-dessus le bureau, sur l'écran actif. Il a quatre onglets :
+
+| Onglet | Réglages |
+|---|---|
+| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile |
+| Icônes | fenêtres ouvertes dans le dock (non, ce workspace, toutes) ; raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
+| Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image choisie dans un dossier (vignettes), diaporama (intervalle, ordre aléatoire) ou couleur unie ; ajustement |
+| Effets | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
+
+Les réglages sont enregistrés en Lua généré, dans
+`~/.config/hypr/hyprdesk/settings.lua`, comme le fait hyprdmc pour
+`monitors.lua`. Ce fichier est chargé **avant** `hyprdesk.lua` : tout ce que vous
+écrivez à la main garde le dernier mot. Votre fichier n'est jamais réécrit, et le
+panneau signale les réglages que `hyprdesk.lua` surcharge.
 
 ## Installation
 
@@ -47,6 +67,7 @@ Pensez aussi à retirer `hyprpaper` de l'autostart.
 |---|---|
 | `hyprdesk` / `hyprdesk daemon` | lance le démon |
 | `hyprdesk toggle` · `show` · `hide` | affiche / masque le bureau |
+| `hyprdesk settings [onglet]` | affiche le bureau et ouvre les réglages (`bureau`, `icones`, `fond`, `effets`) |
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
 | `hyprdesk status` | état : affiché ou caché, workspaces, config en erreur ou non |
 | `hyprdesk check [fichier]` | vérifie une configuration sans toucher au démon |
@@ -59,7 +80,8 @@ Options et variables :
 ## Configuration — `~/.config/hypr/hyprdesk.lua`
 
 ```lua
-hd.config({ mode = "opaque", fade_ms = 150, show_on = "all", icon_theme = "Papirus-Dark",
+hd.config({ mode = "opaque", show_on = "all", running_apps = "workspace", icon_theme = "Papirus-Dark",
+            transition = "slide", fade_ms = 150, crossfade_ms = 700,
             grid = { cell = 96, gap = 16, margin = 32, icon_size = 48 },
             theme = { fg = "#f8f8f2", bg = "#22212c", accent = "#9580ff" } })
 
@@ -102,7 +124,8 @@ sont surveillés eux aussi.
 la souris garde sa place, par écran et par workspace, dans
 `~/.local/state/hyprdesk/layout.toml`. Le Lua n'est jamais réécrit.
 
-**Clavier.** Les flèches sélectionnent, Entrée lance, Échap ferme. Les raccourcis
+**Clavier.** Les flèches sélectionnent, Entrée lance, Échap ferme le panneau
+de réglages, puis le bureau. Les raccourcis
 Hyprland restent actifs : changer de workspace bureau ouvert affiche le bureau de
 ce workspace.
 

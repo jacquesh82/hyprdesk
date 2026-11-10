@@ -9,6 +9,9 @@
 ---@class HD.ConfigSpec
 ---@field mode? "opaque"|"glass"
 ---@field fade_ms? integer
+---@field transition? "fade"|"slide"|"none"
+---@field crossfade_ms? integer
+---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"
 ---@field close_on_launch? boolean
 ---@field icon_theme? string

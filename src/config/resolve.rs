@@ -58,11 +58,11 @@ mod tests {
     }
 
     fn wall(s: Selector, p: &str) -> WallpaperRule {
-        WallpaperRule { sel: s, source: WallSource::Path(PathBuf::from(p)), fit: Fit::Cover }
+        WallpaperRule { origin: Origin::User, sel: s, source: WallSource::Path(PathBuf::from(p)), fit: Fit::Cover }
     }
 
     fn icon(s: Selector, id: &str) -> IconDef {
-        IconDef { sel: s, id: id.into(), label: None, kind: IconKind::App(id.into()), icon: None, pos: None }
+        IconDef { origin: Origin::User, sel: s, id: id.into(), label: None, kind: IconKind::App(id.into()), icon: None, pos: None }
     }
 
     fn path_of(d: &Desktop) -> String {
@@ -101,7 +101,7 @@ mod tests {
     fn icones_additives_et_inherit() {
         let cfg = Config {
             icons: vec![icon(sel(None, None), "global"), icon(sel(Some("2"), None), "ws2"), icon(sel(Some("4"), None), "ws4")],
-            desktops: vec![DesktopRule { sel: sel(Some("4"), None), mode: Some(Mode::Glass), inherit: false }],
+            desktops: vec![DesktopRule { origin: Origin::User, sel: sel(Some("4"), None), mode: Some(Mode::Glass), inherit: false }],
             ..Default::default()
         };
         let ids = |m: &str, w: &str| resolve(&cfg, m, w).icons.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
@@ -116,7 +116,7 @@ mod tests {
     fn mode_sans_surcharge_suit_general() {
         let mut cfg = Config::default();
         cfg.general.mode = Mode::Glass;
-        cfg.desktops.push(DesktopRule { sel: sel(Some("2"), None), mode: None, inherit: true });
+        cfg.desktops.push(DesktopRule { origin: Origin::User, sel: sel(Some("2"), None), mode: None, inherit: true });
         assert_eq!(resolve(&cfg, "M", "2").mode, Mode::Glass);
     }
 }

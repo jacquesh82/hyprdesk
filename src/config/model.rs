@@ -51,6 +51,72 @@ pub enum ShowOn {
     Focused,
 }
 
+/// Animation d'apparition du bureau.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Transition {
+    #[default]
+    Fade,
+    /// Fondu, et le contenu remonte de quelques pixels.
+    Slide,
+    /// Apparition immédiate.
+    None,
+}
+
+impl Transition {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "fade" => Transition::Fade,
+            "slide" => Transition::Slide,
+            "none" => Transition::None,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Transition::Fade => "fade",
+            Transition::Slide => "slide",
+            Transition::None => "none",
+        }
+    }
+}
+
+/// Applications ouvertes affichées dans le dock du bureau.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RunningApps {
+    #[default]
+    Off,
+    /// Les fenêtres du workspace affiché.
+    Workspace,
+    /// Toutes les fenêtres.
+    All,
+}
+
+impl RunningApps {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "off" => RunningApps::Off,
+            "workspace" => RunningApps::Workspace,
+            "all" => RunningApps::All,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunningApps::Off => "off",
+            RunningApps::Workspace => "workspace",
+            RunningApps::All => "all",
+        }
+    }
+}
+
+/// D'où vient une règle : l'écran Réglages (`hyprdesk/settings.lua`) ou le Lua de l'utilisateur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Origin {
+    Settings,
+    #[default]
+    User,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Fit {
     #[default]
@@ -99,6 +165,10 @@ impl Default for Grid {
 pub struct General {
     pub mode: Mode,
     pub fade_ms: u64,
+    pub transition: Transition,
+    /// Durée du fondu enchaîné entre deux fonds d'écran.
+    pub crossfade_ms: u64,
+    pub running_apps: RunningApps,
     pub show_on: ShowOn,
     pub close_on_launch: bool,
     pub icon_theme: Option<String>,
@@ -118,6 +188,9 @@ impl Default for General {
         General {
             mode: Mode::Opaque,
             fade_ms: 150,
+            transition: Transition::Fade,
+            crossfade_ms: 700,
+            running_apps: RunningApps::Off,
             show_on: ShowOn::All,
             close_on_launch: true,
             icon_theme: None,
@@ -167,6 +240,7 @@ pub enum WallSource {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WallpaperRule {
+    pub origin: Origin,
     pub sel: Selector,
     pub source: WallSource,
     pub fit: Fit,
@@ -174,6 +248,7 @@ pub struct WallpaperRule {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DesktopRule {
+    pub origin: Origin,
     pub sel: Selector,
     pub mode: Option<Mode>,
     /// `false` : les icônes et widgets déclarés pour tous les workspaces ne
@@ -193,6 +268,7 @@ pub enum IconKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IconDef {
+    pub origin: Origin,
     pub sel: Selector,
     /// Clé stable (pour la disposition mémorisée).
     pub id: String,
@@ -311,6 +387,10 @@ pub struct Config {
     pub icons: Vec<IconDef>,
     pub widgets: Vec<WidgetDef>,
     pub hooks: Vec<(HookEvent, usize)>,
+    /// Clés de `hd.config` posées par l'écran Réglages, puis par le Lua de
+    /// l'utilisateur (`show_on`, `grid.icon_size`, `theme.accent`…).
+    pub keys_settings: std::collections::BTreeSet<String>,
+    pub keys_user: std::collections::BTreeSet<String>,
 }
 
 #[cfg(test)]

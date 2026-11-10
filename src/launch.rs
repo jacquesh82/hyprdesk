@@ -19,6 +19,10 @@ pub struct DesktopEntry {
     pub icon: Option<String>,
     pub exec: String,
     pub terminal: bool,
+    /// `NoDisplay` ou `Hidden` : à ne pas proposer dans une liste d'applications.
+    pub hidden: bool,
+    pub wm_class: Option<String>,
+    pub is_app: bool,
 }
 
 /// Lit la section `[Desktop Entry]`, avec le nom localisé si la langue le permet.
@@ -46,6 +50,9 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
             "Icon" => e.icon = Some(v.to_string()),
             "Exec" => e.exec = v.to_string(),
             "Terminal" => e.terminal = v == "true",
+            "NoDisplay" | "Hidden" => e.hidden |= v == "true",
+            "StartupWMClass" => e.wm_class = Some(v.to_string()),
+            "Type" => e.is_app = v == "Application",
             _ if !lang_full.is_empty() && k == format!("Name[{lang_full}]") => name_full = Some(v.to_string()),
             _ if !lang_short.is_empty() && k == format!("Name[{lang_short}]") => name_short = Some(v.to_string()),
             _ => {}
@@ -102,6 +109,83 @@ pub fn find_desktop_file(id: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Application installée, pour la liste « ajouter un raccourci ».
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppInfo {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub wm_class: Option<String>,
+}
+
+/// Applications visibles des dossiers XDG ; le dossier utilisateur masque le système.
+pub fn installed_apps() -> Vec<AppInfo> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let lang = lang();
+    for dir in data_dirs().into_iter().map(|d| d.join("applications")) {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let Some(id) = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".desktop")) else { continue };
+            if !seen.insert(id.to_string()) {
+                continue;
+            }
+            let Some(e) = std::fs::read_to_string(&path).ok().and_then(|s| parse_desktop_entry(&s, &lang)) else { continue };
+            if e.hidden || !e.is_app {
+                continue;
+            }
+            out.push(AppInfo { id: id.to_string(), name: e.name, icon: e.icon, wm_class: e.wm_class });
+        }
+    }
+    out.sort_by_key(|a| a.name.to_lowercase());
+    out
+}
+
+/// Image d'icône d'une fenêtre d'après sa classe : entrée `.desktop` du même
+/// nom, ou dont `StartupWMClass` correspond, sinon le nom de classe lui-même.
+pub fn icon_for_class(class: &str, apps: &[AppInfo], theme: Option<&str>, size: u16) -> Option<PathBuf> {
+    let lc = class.to_lowercase();
+    let from_entry = find_desktop_file(class)
+        .or_else(|| find_desktop_file(&lc))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| parse_desktop_entry(&s, ""))
+        .and_then(|e| e.icon)
+        .or_else(|| {
+            apps.iter()
+                .find(|a| a.wm_class.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(class)) || a.id.to_lowercase() == lc)
+                .and_then(|a| a.icon.clone())
+        });
+    from_entry
+        .and_then(|i| lookup_icon(&i, theme, size))
+        .or_else(|| lookup_icon(&lc, theme, size))
+        .or_else(|| lookup_icon("application-x-executable", theme, size))
+}
+
+/// Thèmes d'icônes installés (hors thèmes de curseurs seuls).
+pub fn icon_themes() -> Vec<String> {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let mut dirs: Vec<PathBuf> = data_dirs().into_iter().map(|d| d.join("icons")).collect();
+    dirs.push(home.join(".icons"));
+    let mut out: Vec<String> = Vec::new();
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let idx = e.path().join("index.theme");
+            let Ok(s) = std::fs::read_to_string(&idx) else { continue };
+            if !s.lines().any(|l| l.trim_start().starts_with("Directories=")) {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out.sort_by_key(|s| s.to_lowercase());
+    out
 }
 
 fn lang() -> String {
@@ -201,6 +285,7 @@ mod tests {
         assert_eq!(e.exec, "/usr/lib/firefox/firefox %u");
         assert_eq!(e.icon.as_deref(), Some("firefox"));
         assert!(!e.terminal);
+        assert!(e.is_app && !e.hidden);
         // Les actions ne remplacent pas l'entrée principale.
         assert_eq!(parse_desktop_entry(FIREFOX, "en_US.UTF-8").unwrap().name, "Firefox");
     }

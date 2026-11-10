@@ -19,6 +19,25 @@ struct Builder {
     config: Config,
     funcs: Vec<RegistryKey>,
     base_dir: PathBuf,
+    /// Fichier en cours d'exécution : `settings.lua` (écran Réglages) ou celui de l'utilisateur.
+    origin: Origin,
+}
+
+/// Clés présentes dans une table `hd.config`, en notation pointée (`grid.icon_size`).
+fn present_keys(t: &Table) -> mlua::Result<Vec<String>> {
+    let mut out = Vec::new();
+    for pair in t.pairs::<String, Value>() {
+        let (k, v) = pair?;
+        match v {
+            Value::Table(sub) if k == "grid" || k == "theme" => {
+                for p in sub.pairs::<String, Value>() {
+                    out.push(format!("{k}.{}", p?.0));
+                }
+            }
+            _ => out.push(k),
+        }
+    }
+    Ok(out)
 }
 
 fn err(msg: impl Into<String>) -> mlua::Error {
@@ -136,12 +155,27 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     check_keys(
         t,
         &[
-            "mode", "fade_ms", "show_on", "close_on_launch", "icon_theme", "font", "font_size", "terminal", "grid",
-            "theme", "glass_opacity", "background",
+            "mode", "fade_ms", "transition", "crossfade_ms", "running_apps", "show_on", "close_on_launch", "icon_theme",
+            "font", "font_size", "terminal", "grid", "theme", "glass_opacity", "background",
         ],
         CTX,
     )?;
+    let keys = present_keys(t)?;
+    match b.origin {
+        Origin::Settings => b.config.keys_settings.extend(keys),
+        Origin::User => b.config.keys_user.extend(keys),
+    }
     let g = &mut b.config.general;
+    if let Some(s) = opt_string(t, "transition", CTX)? {
+        g.transition = Transition::parse(&s).ok_or_else(|| err(format!("{CTX} : transition « {s} » inconnue (fade, slide, none)")))?;
+    }
+    if let Some(v) = opt_num(t, "crossfade_ms", CTX)? {
+        g.crossfade_ms = v.clamp(0.0, 10000.0) as u64;
+    }
+    if let Some(s) = opt_string(t, "running_apps", CTX)? {
+        g.running_apps =
+            RunningApps::parse(&s).ok_or_else(|| err(format!("{CTX} : running_apps « {s} » inconnu (off, workspace, all)")))?;
+    }
     if let Some(m) = opt_string(t, "mode", CTX)? {
         g.mode = parse_mode(&m, CTX)?;
     }
@@ -242,7 +276,7 @@ fn hd_wallpaper(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         (None, None, Some(c)) => WallSource::Color(c),
         _ => return Err(err(format!("{CTX} : indiquer exactement un de « path », « rotate » ou « color »"))),
     };
-    b.config.wallpapers.push(WallpaperRule { sel, source, fit });
+    b.config.wallpapers.push(WallpaperRule { origin: b.origin, sel, source, fit });
     Ok(())
 }
 
@@ -252,7 +286,7 @@ fn hd_desktop(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     let sel = selector(t, CTX)?;
     let mode = opt_string(t, "mode", CTX)?.map(|m| parse_mode(&m, CTX)).transpose()?;
     let inherit = opt_bool(t, "inherit", CTX)?.unwrap_or(true);
-    b.config.desktops.push(DesktopRule { sel, mode, inherit });
+    b.config.desktops.push(DesktopRule { origin: b.origin, sel, mode, inherit });
     Ok(())
 }
 
@@ -289,7 +323,7 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if b.config.icons.iter().any(|i| i.id == id && i.sel == sel) {
         return Err(err(format!("{CTX} : icône « {id} » déclarée deux fois pour le même bureau (préciser « id »)")));
     }
-    b.config.icons.push(IconDef { sel, id, label, kind, icon: opt_string(t, "icon", CTX)?, pos });
+    b.config.icons.push(IconDef { origin: b.origin, sel, id, label, kind, icon: opt_string(t, "icon", CTX)?, pos });
     Ok(())
 }
 
@@ -482,7 +516,15 @@ pub fn short_lua_error(e: &mlua::Error) -> String {
 }
 
 /// Exécute une source de config. `base_dir` sert aux chemins relatifs et à `require`.
+/// Exécute une source de config. `base_dir` sert aux chemins relatifs et à `require`.
+#[cfg(test)]
 pub fn load_source(src: &str, chunk_name: &str, base_dir: &Path) -> Result<Loaded, String> {
+    load_chunks(&[(src.to_string(), chunk_name.to_string(), Origin::User)], base_dir)
+}
+
+/// Exécute plusieurs sources dans le MÊME état Lua, dans l'ordre : ce qui
+/// vient après l'emporte (dernière déclaration, dernière valeur de `hd.config`).
+pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Result<Loaded, String> {
     let lua = Lua::new();
     let setup = || -> mlua::Result<()> {
         install_api(&lua)?;
@@ -493,16 +535,47 @@ pub fn load_source(src: &str, chunk_name: &str, base_dir: &Path) -> Result<Loade
         Ok(())
     };
     setup().map_err(|e| format!("initialisation Lua : {e}"))?;
-    lua.set_app_data(RefCell::new(Builder { config: Config::default(), funcs: Vec::new(), base_dir: base_dir.to_path_buf() }));
-    lua.load(src).set_name(format!("@{chunk_name}")).exec().map_err(|e| short_lua_error(&e))?;
+    lua.set_app_data(RefCell::new(Builder {
+        config: Config::default(),
+        funcs: Vec::new(),
+        base_dir: base_dir.to_path_buf(),
+        origin: Origin::User,
+    }));
+    for (src, name, origin) in chunks {
+        if let Some(b) = lua.app_data_ref::<RefCell<Builder>>() {
+            b.borrow_mut().origin = *origin;
+        }
+        lua.load(src.as_str()).set_name(format!("@{name}")).exec().map_err(|e| short_lua_error(&e))?;
+    }
     let b = lua.remove_app_data::<RefCell<Builder>>().expect("builder posé plus haut").into_inner();
     Ok(Loaded { lua, config: b.config, funcs: b.funcs })
 }
 
+/// Module écrit par l'écran Réglages, à côté de la config de l'utilisateur.
+pub fn settings_path(config_path: &Path) -> PathBuf {
+    config_path.parent().unwrap_or(Path::new(".")).join("hyprdesk").join("settings.lua")
+}
+
+/// Charge `hyprdesk/settings.lua` (s'il existe) PUIS la config de l'utilisateur :
+/// le Lua écrit à la main passe après les réglages faits à la souris.
 pub fn load_file(path: &Path) -> Result<Loaded, String> {
-    let src = std::fs::read_to_string(path).map_err(|e| format!("lecture de {} : {e}", path.display()))?;
     let base = path.parent().unwrap_or(Path::new("."));
-    load_source(&src, &path.display().to_string(), base)
+    let mut chunks = Vec::new();
+    let sp = settings_path(path);
+    if let Ok(src) = std::fs::read_to_string(&sp) {
+        chunks.push((src, sp.display().to_string(), Origin::Settings));
+    }
+    let src = std::fs::read_to_string(path).map_err(|e| format!("lecture de {} : {e}", path.display()))?;
+    chunks.push((src, path.display().to_string(), Origin::User));
+    load_chunks(&chunks, base)
+}
+
+/// Charge SEULEMENT `settings.lua`, pour que l'écran Réglages relise ses propres valeurs.
+pub fn load_settings_only(config_path: &Path) -> Result<Config, String> {
+    let sp = settings_path(config_path);
+    let Ok(src) = std::fs::read_to_string(&sp) else { return Ok(Config::default()) };
+    let base = config_path.parent().unwrap_or(Path::new("."));
+    load_chunks(&[(src, sp.display().to_string(), Origin::Settings)], base).map(|l| l.config)
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +740,22 @@ mod tests {
         let l = load_source(r#"require("icones")"#, "t.lua", &dir).unwrap();
         assert_eq!(l.config.icons[0].kind, IconKind::App("kitty".into()));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reglages_puis_utilisateur() {
+        let chunks = vec![
+            (r##"hd.config({ show_on = "focused", grid = { icon_size = 64 } }) hd.wallpaper({ color = "#111111" }) hd.icon({ app = "a" })"##.to_string(), "settings.lua".to_string(), Origin::Settings),
+            (r##"hd.config({ grid = { icon_size = 32 } }) hd.wallpaper({ color = "#222222" })"##.to_string(), "user.lua".to_string(), Origin::User),
+        ];
+        let c = load_chunks(&chunks, Path::new("/cfg")).unwrap().config;
+        assert_eq!(c.general.show_on, ShowOn::Focused);
+        assert_eq!(c.general.grid.icon_size, 32);
+        assert!(c.keys_settings.contains("grid.icon_size") && c.keys_user.contains("grid.icon_size"));
+        assert!(!c.keys_user.contains("show_on"));
+        assert_eq!(c.wallpapers[0].origin, Origin::Settings);
+        assert_eq!(c.wallpapers[1].origin, Origin::User);
+        assert_eq!(c.icons[0].origin, Origin::Settings);
     }
 
     #[test]

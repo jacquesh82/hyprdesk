@@ -7,6 +7,7 @@ mod config;
 mod control;
 mod hypr;
 mod launch;
+mod settings;
 mod layout;
 mod ui;
 mod widgets;
@@ -23,6 +24,8 @@ Commandes :
   daemon            lance le démon (par défaut)
   toggle            affiche ou masque le bureau
   show | hide       affiche / masque le bureau
+  settings [onglet] affiche le bureau et ouvre l'écran Réglages
+                    (onglet : bureau, icones, fond, effets)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -163,7 +166,7 @@ fn main() -> ExitCode {
             print!("{SNIPPET}");
             ExitCode::SUCCESS
         }
-        other => match control::Command::parse(other) {
+        other => match control::Command::parse(&args.join(" ")) {
             Some(c) => match control::send(c) {
                 Ok(r) => {
                     if !r.is_empty() && r != "ok" {

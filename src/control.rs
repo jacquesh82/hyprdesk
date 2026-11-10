@@ -19,6 +19,9 @@ pub enum Command {
     Reload,
     Status,
     Quit,
+    /// Affiche le bureau et ouvre l'écran Réglages sur un onglet
+    /// (0 bureau, 1 icônes, 2 fond d'écran, 3 effets).
+    Settings(u8),
 }
 
 impl Command {
@@ -30,6 +33,10 @@ impl Command {
             "reload" => Command::Reload,
             "status" => Command::Status,
             "quit" => Command::Quit,
+            "settings" | "settings bureau" => Command::Settings(0),
+            "settings icones" | "settings icônes" => Command::Settings(1),
+            "settings fond" => Command::Settings(2),
+            "settings effets" => Command::Settings(3),
             _ => return None,
         })
     }
@@ -42,6 +49,10 @@ impl Command {
             Command::Reload => "reload",
             Command::Status => "status",
             Command::Quit => "quit",
+            Command::Settings(1) => "settings icones",
+            Command::Settings(2) => "settings fond",
+            Command::Settings(3) => "settings effets",
+            Command::Settings(_) => "settings",
         }
     }
 }
@@ -123,7 +134,7 @@ mod tests {
 
     #[test]
     fn aller_retour_des_commandes() {
-        for c in [Command::Toggle, Command::Show, Command::Hide, Command::Reload, Command::Status, Command::Quit] {
+        for c in [Command::Toggle, Command::Show, Command::Hide, Command::Reload, Command::Status, Command::Quit, Command::Settings(0), Command::Settings(2)] {
             assert_eq!(Command::parse(&format!("{}\n", c.as_str())), Some(c));
         }
         assert_eq!(Command::parse("nope"), None);

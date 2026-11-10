@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Local};
 use iced::futures::{SinkExt, Stream};
-use iced::widget::{Space, Stack, button, column, container, image, mouse_area, pin, progress_bar, row, svg, text};
+mod panel;
+
+use iced::widget::{Space, Stack, button, column, container, image, mouse_area, pin, progress_bar, row, svg, text, tooltip};
 use iced::window::Id;
 use iced::{Alignment, Background, Border, Color, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, keyboard, mouse};
 use iced_layershell::build_pattern::daemon;
@@ -22,16 +24,24 @@ use iced_layershell::to_layer_message;
 
 use crate::config::lua::LuaHandle;
 use crate::config::resolve::{Desktop, resolve};
-use crate::config::{self, Anchor, Config, Fit, HookEvent, IconDef, Mode, Rgba, ShowOn, WallSource, WidgetDef, WidgetKind};
-use crate::hypr::{self, Monitor};
+use crate::config::{
+    self, Anchor, Config, Fit, HookEvent, IconDef, Mode, Rgba, RunningApps, ShowOn, Transition, WallSource, WidgetDef, WidgetKind,
+};
+use crate::hypr::{self, Client, Monitor};
+use crate::launch::AppInfo;
+use crate::settings::Settings as DeskSettings;
+use panel::{Panel, PanelMsg};
 use crate::layout::{self, Cell, Layout};
 use crate::{control, launch, widgets};
 
 const NAMESPACE: &str = "hyprdesk";
-const CROSSFADE: Duration = Duration::from_millis(700);
 const DRAG_THRESHOLD: f32 = 6.0;
-/// Icônes des commandes média, dans l'ordre de `App::media_imgs`.
-const MEDIA_ICONS: [&str; 4] = ["media-skip-backward", "media-playback-pause", "media-playback-start", "media-skip-forward"];
+/// Icônes de l'interface, dans l'ordre de `App::ui_imgs` : commandes média, puis réglages.
+const UI_ICONS: [&str; 5] =
+    ["media-skip-backward", "media-playback-pause", "media-playback-start", "media-skip-forward", "preferences-system"];
+const ICON_SETTINGS: usize = 4;
+/// Décalage vertical du contenu au début d'une transition « glissement ».
+const SLIDE_PX: f32 = 48.0;
 
 /// Clé du cache d'images décodées : fichier, taille cible, ajustement.
 type WallKey = (PathBuf, u32, u32, Fit);
@@ -40,7 +50,13 @@ type WallKey = (PathBuf, u32, u32, Fit);
 #[derive(Debug, Clone)]
 pub enum Msg {
     Control(control::Command),
-    Monitors(Vec<Monitor>),
+    Hypr(hypr::Update),
+    Apps(Vec<AppInfo>),
+    ClassIcons(u64, Vec<(String, Option<PathBuf>)>),
+    FocusWindow(String),
+    OpenPanel,
+    Panel(PanelMsg),
+    SettingsLoaded(DeskSettings),
     ConfigChanged,
     ConfigLoaded(Result<Arc<Config>, String>),
     /// Génération, icônes du bureau, puis icônes des commandes média.
@@ -142,8 +158,8 @@ pub struct App {
     /// Icônes résolues, alignées sur `cfg.icons`.
     icons: Vec<launch::Resolved>,
     icon_imgs: Vec<IconImg>,
-    /// Précédent, pause, lecture, suivant (thème d'icônes).
-    media_imgs: Vec<IconImg>,
+    /// Voir `UI_ICONS`.
+    ui_imgs: Vec<IconImg>,
     rasters: Vec<image::Handle>,
     vectors: Vec<svg::Handle>,
     icons_gen: u64,
@@ -154,12 +170,23 @@ pub struct App {
     hovered: Option<(Id, usize)>,
     cursor: HashMap<Id, Point>,
     drag: Option<Drag>,
+    /// Réglages de l'écran ⚙ (relus depuis settings.lua seul).
+    settings: DeskSettings,
+    panel: Option<Panel>,
+    /// Applications installées (liste des raccourcis, icônes des fenêtres).
+    apps: Arc<Vec<AppInfo>>,
+    clients: Vec<Client>,
+    /// Icône par classe de fenêtre ; invalidées avec `icons_gen`.
+    class_imgs: HashMap<String, IconImg>,
+    class_pending: HashSet<String>,
+    theme: iced::Theme,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
     daemon(move || App::boot(config_path.clone()), || NAMESPACE.to_string(), App::update, App::view)
         .subscription(App::subscription)
         .style(|_, _| iced::theme::Style { background_color: Color::TRANSPARENT, text_color: Color::WHITE })
+        .theme(|app: &App, _| Some(app.theme.clone()))
         .settings(Settings {
             layer_settings: LayerShellSettings { start_mode: StartMode::Background, ..Default::default() },
             ..Default::default()
@@ -301,7 +328,7 @@ impl App {
             rot: HashMap::new(),
             icons: Vec::new(),
             icon_imgs: Vec::new(),
-            media_imgs: Vec::new(),
+            ui_imgs: Vec::new(),
             rasters: Vec::new(),
             vectors: Vec::new(),
             icons_gen: 0,
@@ -312,14 +339,67 @@ impl App {
             hovered: None,
             cursor: HashMap::new(),
             drag: None,
+            settings: DeskSettings::default(),
+            panel: None,
+            apps: Arc::new(Vec::new()),
+            clients: Vec::new(),
+            class_imgs: HashMap::new(),
+            class_pending: HashSet::new(),
+            theme: make_theme(&Config::default()),
         };
-        let t = app.load_config();
+        let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
+        let t = Task::batch([app.load_config(), apps]);
         (app, t)
     }
 
     fn load_config(&self) -> Task<Msg> {
         let (lua, path) = (self.lua.clone(), self.config_path.clone());
-        Task::perform(async move { lua.load(path).await.map(Arc::new) }, Msg::ConfigLoaded)
+        let p2 = path.clone();
+        let settings = Task::perform(
+            async move { tokio::task::spawn_blocking(move || config::lua::load_settings_only(&p2)).await },
+            |r| match r {
+                Ok(Ok(c)) => Msg::SettingsLoaded(DeskSettings::from_config(&c)),
+                Ok(Err(e)) => {
+                    tracing::warn!("settings.lua : {e}");
+                    Msg::Noop
+                }
+                Err(_) => Msg::Noop,
+            },
+        );
+        Task::batch([Task::perform(async move { lua.load(path).await.map(Arc::new) }, Msg::ConfigLoaded), settings])
+    }
+
+    /// Résout les icônes des classes de fenêtres pas encore connues.
+    fn resolve_class_icons(&mut self) -> Task<Msg> {
+        if self.cfg.general.running_apps == RunningApps::Off {
+            return Task::none();
+        }
+        let missing: Vec<String> = self
+            .clients
+            .iter()
+            .map(|c| c.class.clone())
+            .filter(|c| !self.class_imgs.contains_key(c) && !self.class_pending.contains(c))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if missing.is_empty() {
+            return Task::none();
+        }
+        self.class_pending.extend(missing.iter().cloned());
+        let (apps, theme, gen_) = (self.apps.clone(), self.cfg.general.icon_theme.clone(), self.icons_gen);
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    missing.into_iter().map(|c| {
+                        let p = launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
+                        (c, p)
+                    }).collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default()
+            },
+            move |l| Msg::ClassIcons(gen_, l),
+        )
     }
 
     fn monitor(&self, id: Id) -> Option<&Monitor> {
@@ -389,7 +469,7 @@ impl App {
             .map(|(id, mon)| (*id, Some(mon) == focused.as_ref()))
             .collect();
         let from = self.fade_value();
-        self.fade = Some(Fade { from, to: 1.0, start: Instant::now(), dur: Duration::from_millis(self.cfg.general.fade_ms) });
+        self.fade = Some(Fade { from, to: 1.0, start: Instant::now(), dur: self.fade_duration() });
         self.selected = None;
         let mut tasks = Vec::new();
         for (id, has_focus) in targets {
@@ -407,15 +487,27 @@ impl App {
         Task::batch(tasks)
     }
 
+    fn fade_duration(&self) -> Duration {
+        match self.cfg.general.transition {
+            Transition::None => Duration::ZERO,
+            _ => Duration::from_millis(self.cfg.general.fade_ms),
+        }
+    }
+
+    fn crossfade(&self) -> Duration {
+        Duration::from_millis(self.cfg.general.crossfade_ms)
+    }
+
     fn hide(&mut self) -> Task<Msg> {
         if !self.visible {
             return Task::none();
         }
         self.visible = false;
         self.drag = None;
+        self.panel = None;
         self.hovered = None;
         let from = self.fade_value();
-        self.fade = Some(Fade { from, to: 0.0, start: Instant::now(), dur: Duration::from_millis(self.cfg.general.fade_ms) });
+        self.fade = Some(Fade { from, to: 0.0, start: Instant::now(), dur: self.fade_duration() });
         let mut tasks: Vec<Task<Msg>> = Vec::new();
         for id in self.raised.iter().copied().collect::<Vec<_>>() {
             tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
@@ -758,8 +850,60 @@ impl App {
                 control::Command::Reload => self.load_config(),
                 control::Command::Quit => iced::exit(),
                 control::Command::Status => Task::none(),
+                control::Command::Settings(tab) => {
+                    let s = self.show();
+                    let o = self.open_panel();
+                    let tab = match tab {
+                        1 => panel::Tab::Icons,
+                        2 => panel::Tab::Wallpaper,
+                        3 => panel::Tab::Effects,
+                        _ => panel::Tab::Desktop,
+                    };
+                    Task::batch([s, o, Task::done(Msg::Panel(PanelMsg::Tab(tab)))])
+                }
             },
-            Msg::Monitors(list) => self.set_monitors(list),
+            Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
+            Msg::Hypr(hypr::Update::Clients(list)) => {
+                self.clients = list;
+                self.resolve_class_icons()
+            }
+            Msg::Apps(list) => {
+                self.apps = Arc::new(list);
+                // Meilleures correspondances classe → .desktop : on recommence.
+                self.class_imgs.clear();
+                self.class_pending.clear();
+                self.resolve_class_icons()
+            }
+            Msg::ClassIcons(gen_, list) => {
+                if gen_ == self.icons_gen {
+                    for (class, p) in list {
+                        self.class_pending.remove(&class);
+                        let img = self.handle_for(p.as_deref());
+                        self.class_imgs.insert(class, img);
+                    }
+                }
+                Task::none()
+            }
+            Msg::FocusWindow(addr) => {
+                let t = Task::perform(
+                    async move {
+                        if let Ok(Err(e)) = tokio::task::spawn_blocking(move || hypr::focus_window(&addr)).await {
+                            tracing::warn!("focus : {e}");
+                        }
+                    },
+                    |_| Msg::Noop,
+                );
+                Task::batch([t, self.hide()])
+            }
+            Msg::OpenPanel => {
+                let s = self.show();
+                Task::batch([s, self.open_panel()])
+            }
+            Msg::Panel(m) => self.panel_update(m),
+            Msg::SettingsLoaded(s) => {
+                self.settings = s;
+                Task::none()
+            }
             Msg::ConfigChanged => self.load_config(),
             Msg::ConfigLoaded(Ok(cfg)) => {
                 tracing::info!(
@@ -776,6 +920,7 @@ impl App {
                     Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
                     None => Font::DEFAULT,
                 };
+                self.theme = make_theme(&cfg);
                 self.cfg = cfg;
                 self.rot.clear();
                 self.values.clear();
@@ -792,7 +937,7 @@ impl App {
                                 .iter()
                                 .map(|d| launch::resolve(d, g.icon_theme.as_deref(), g.grid.icon_size, &g.terminal))
                                 .collect::<Vec<_>>();
-                            let media = MEDIA_ICONS
+                            let media = UI_ICONS
                                 .iter()
                                 .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
                                 .collect::<Vec<_>>();
@@ -822,9 +967,12 @@ impl App {
                 self.rasters.clear();
                 self.vectors.clear();
                 self.icon_imgs = list.iter().map(|r| self.handle_for(r.image.as_deref())).collect();
-                self.media_imgs = media.iter().map(|p| self.handle_for(p.as_deref())).collect();
+                self.ui_imgs = media.iter().map(|p| self.handle_for(p.as_deref())).collect();
                 self.icons = list;
-                Task::none()
+                // Les poignées des fenêtres vivaient dans les vecteurs vidés plus haut.
+                self.class_imgs.clear();
+                self.class_pending.clear();
+                self.resolve_class_icons()
             }
             Msg::WallLoaded(key, r) => {
                 self.loading.remove(&key);
@@ -857,8 +1005,9 @@ impl App {
             }
             Msg::Frame => {
                 let now = Instant::now();
+                let cf = self.crossfade();
                 for s in self.shown.values_mut() {
-                    if s.prev.is_some() && now.duration_since(s.since) >= CROSSFADE {
+                    if s.prev.is_some() && now.duration_since(s.since) >= cf {
                         s.prev = None;
                     }
                 }
@@ -900,7 +1049,15 @@ impl App {
             },
             Msg::Key(id, key) => {
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    if self.panel.is_some() {
+                        self.panel = None;
+                        return Task::none();
+                    }
                     return self.hide();
+                }
+                // Le panneau a ses propres champs de saisie : pas de navigation dessous.
+                if self.panel.is_some() {
+                    return Task::none();
                 }
                 self.navigate(id, &key)
             }
@@ -933,7 +1090,7 @@ impl App {
     fn subscription(&self) -> Subscription<Msg> {
         let mut subs = vec![
             Subscription::run(control::server_stream).map(Msg::Control),
-            Subscription::run(hypr::monitor_stream).map(Msg::Monitors),
+            Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), watch_stream).map(|_| Msg::ConfigChanged),
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
@@ -966,11 +1123,20 @@ impl App {
         } else {
             layers.push(self.view_wall(&m.name, t));
         }
-        if raised {
-            layers.push(self.view_icons(id, t));
+        if self.panel.as_ref().is_some_and(|p| p.win == id) {
+            layers.push(self.view_panel());
+        } else if raised {
+            let mut content: Vec<Element<'_, Msg>> = vec![self.view_icons(id, t)];
             for w in &d.widgets {
-                layers.push(self.view_widget(w, t));
+                content.push(self.view_widget(w, t));
             }
+            content.push(self.view_dock(m, t));
+            let shift = if self.cfg.general.transition == Transition::Slide { (1.0 - t) * SLIDE_PX } else { 0.0 };
+            layers.push(
+                container(Stack::with_children(content).width(Length::Fill).height(Length::Fill))
+                    .padding(Padding { top: shift, ..Padding::ZERO })
+                    .into(),
+            );
         }
         Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
     }
@@ -981,7 +1147,8 @@ impl App {
             return container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(c)).into();
         };
         let base = color(self.cfg.general.background, t);
-        let p = (Instant::now().duration_since(s.since).as_secs_f32() / CROSSFADE.as_secs_f32()).clamp(0.0, 1.0);
+        let cf = self.crossfade().as_secs_f32();
+        let p = if cf <= 0.0 { 1.0 } else { (Instant::now().duration_since(s.since).as_secs_f32() / cf).clamp(0.0, 1.0) };
         let mut layers = vec![container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(base)).into()];
         if let Some(prev) = &s.prev {
             layers.push(self.wall_element(prev, t));
@@ -1123,7 +1290,7 @@ impl App {
                         // Icône du thème si elle existe, sinon un repli en ASCII
                         // (les glyphes ⏮ ⏯ ⏭ manquent à la plupart des polices).
                         let ctl = |icon: usize, fallback: &'static str, method: &'static str| {
-                            let img = self.media_imgs.get(icon).copied().unwrap_or(IconImg::None);
+                            let img = self.ui_imgs.get(icon).copied().unwrap_or(IconImg::None);
                             let label: Element<'_, Msg> = self
                                 .img_element(img, size * 1.3, t)
                                 .unwrap_or_else(|| text(fallback).size(size).color(fg).font(font).into());
@@ -1255,6 +1422,92 @@ impl App {
         }
         grid.into()
     }
+}
+
+impl App {
+    /// Dock en bas au centre : fenêtres ouvertes (si activé), puis le bouton ⚙.
+    fn view_dock(&self, m: &Monitor, t: f32) -> Element<'_, Msg> {
+        let g = &self.cfg.general;
+        let wins: Vec<&Client> = match g.running_apps {
+            RunningApps::Off => Vec::new(),
+            RunningApps::Workspace => self.clients.iter().filter(|c| c.workspace == m.workspace).collect(),
+            RunningApps::All => self.clients.iter().collect(),
+        };
+        let fg = color(g.theme.fg, t);
+        let size = 40.0;
+        let hover = move |_: &iced::Theme, s: button::Status| button::Style {
+            background: matches!(s, button::Status::Hovered).then(|| Background::Color(Color { a: 0.15 * t, ..fg })),
+            border: Border::default().rounded(10),
+            ..Default::default()
+        };
+        let tip_box = move |label: String| {
+            container(text(label).size(13).color(fg)).padding([4, 8]).style(move |_| container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8 * t).into()),
+                border: Border::default().rounded(6),
+                ..Default::default()
+            })
+        };
+        let mut items: Vec<Element<'_, Msg>> = wins
+            .into_iter()
+            .take(24)
+            .map(|c| {
+                let img = self.class_imgs.get(&c.class).copied().unwrap_or(IconImg::None);
+                let face: Element<'_, Msg> = self.img_element(img, size, t).unwrap_or_else(|| {
+                    text(c.class.chars().next().unwrap_or('?').to_uppercase().to_string()).size(size * 0.5).color(fg).into()
+                });
+                tooltip(
+                    button(container(face).center(size)).padding(6).on_press(Msg::FocusWindow(c.address.clone())).style(hover),
+                    tip_box(if c.title.is_empty() { c.class.clone() } else { c.title.clone() }),
+                    tooltip::Position::Top,
+                )
+                .into()
+            })
+            .collect();
+        if !items.is_empty() {
+            let sep = Color { a: 0.25 * t, ..fg };
+            items.push(
+                container(Space::new().width(1).height(size))
+                    .style(move |_| container::Style { background: Some(sep.into()), ..Default::default() })
+                    .padding([0, 4])
+                    .into(),
+            );
+        }
+        let gear: Element<'_, Msg> = self
+            .img_element(self.ui_imgs.get(ICON_SETTINGS).copied().unwrap_or(IconImg::None), size * 0.6, t)
+            .unwrap_or_else(|| text("Réglages").size(13).color(fg).into());
+        items.push(
+            tooltip(button(container(gear).center(size)).padding(6).on_press(Msg::OpenPanel).style(hover), tip_box("Réglages".into()), tooltip::Position::Top)
+                .into(),
+        );
+        let card_bg = color(g.theme.bg, 0.72 * t);
+        container(
+            container(row(items).spacing(4).align_y(Alignment::Center))
+                .padding(8)
+                .style(move |_| container::Style { background: Some(card_bg.into()), border: Border::default().rounded(16), ..Default::default() }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::End)
+        .padding(Padding { bottom: 24.0, ..Padding::ZERO })
+        .into()
+    }
+}
+
+/// Thème iced des contrôles (panneau Réglages) tiré des couleurs de la config.
+fn make_theme(cfg: &Config) -> iced::Theme {
+    let th = &cfg.general.theme;
+    iced::Theme::custom(
+        "hyprdesk",
+        iced::theme::Palette {
+            background: color(th.bg, 1.0),
+            text: color(th.fg, 1.0),
+            primary: color(th.accent, 1.0),
+            success: Color::from_rgb8(0x8a, 0xff, 0x80),
+            warning: Color::from_rgb8(0xff, 0xff, 0x80),
+            danger: Color::from_rgb8(0xff, 0x95, 0x80),
+        },
+    )
 }
 
 fn bg(c: Color) -> container::Style {

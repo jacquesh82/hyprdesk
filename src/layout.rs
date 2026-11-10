@@ -102,6 +102,12 @@ impl Layout {
         self.positions.get(key).map(|[c, r]| (*c, *r))
     }
 
+    /// Oublie les positions mémorisées d'un bureau (écran + workspace).
+    pub fn clear_desktop(&mut self, monitor: &str, workspace: &str) {
+        let prefix = format!("{monitor}|{workspace}|");
+        self.positions.retain(|k, _| !k.starts_with(&prefix));
+    }
+
     pub fn set(&mut self, key: String, c: Cell) {
         self.positions.insert(key, [c.0, c.1]);
     }

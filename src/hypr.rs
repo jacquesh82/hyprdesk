@@ -24,6 +24,64 @@ pub struct Monitor {
     pub focused: bool,
 }
 
+/// Fenêtre ouverte, pour le dock des applications ouvertes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Client {
+    pub address: String,
+    pub class: String,
+    pub title: String,
+    pub workspace: String,
+}
+
+pub fn parse_clients(v: &Value) -> Vec<Client> {
+    let Some(list) = v.as_array() else { return Vec::new() };
+    list.iter()
+        .filter(|c| c["mapped"].as_bool().unwrap_or(true) && !c["hidden"].as_bool().unwrap_or(false))
+        .filter_map(|c| {
+            let class = c["class"].as_str().filter(|s| !s.is_empty()).or(c["initialClass"].as_str())?.to_string();
+            Some(Client {
+                address: c["address"].as_str()?.to_string(),
+                class,
+                title: c["title"].as_str().unwrap_or("").to_string(),
+                workspace: c["workspace"]["name"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect()
+}
+
+pub async fn clients_async() -> Vec<Client> {
+    match tokio::task::spawn_blocking(|| ipc::query_json("clients")).await {
+        Ok(Ok(v)) => parse_clients(&v),
+        Ok(Err(e)) => {
+            tracing::warn!("lecture des fenêtres : {e}");
+            Vec::new()
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Donne le focus à une fenêtre (et donc à son workspace).
+pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!("hl.dsp.focus({{ window = \"address:{}\" }})", ipc::lua_escape(address)))?;
+    if r.trim() != "ok" {
+        tracing::warn!("focus {address} : {r}");
+    }
+    Ok(())
+}
+
+/// Ce que le flux d'événements apporte à l'interface.
+#[derive(Debug, Clone)]
+pub enum Update {
+    Monitors(Vec<Monitor>),
+    Clients(Vec<Client>),
+}
+
+/// Événement qui change la liste des fenêtres.
+pub fn is_window_event(line: &str) -> bool {
+    let name = line.split(">>").next().unwrap_or("");
+    matches!(name, "openwindow" | "closewindow" | "movewindow" | "movewindowv2")
+}
+
 pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
     let Some(list) = v.as_array() else { return Vec::new() };
     list.iter()
@@ -89,12 +147,13 @@ pub fn is_relevant(line: &str) -> bool {
     )
 }
 
-/// Flux d'états d'écrans : un premier état, puis un à chaque changement pertinent.
+/// Flux d'états : écrans et fenêtres, d'abord en entier, puis à chaque changement pertinent.
 /// Se reconnecte seul si Hyprland redémarre la socket.
-pub fn monitor_stream() -> impl Stream<Item = Vec<Monitor>> {
-    iced::stream::channel(16, async move |mut out: iced::futures::channel::mpsc::Sender<Vec<Monitor>>| {
+pub fn stream() -> impl Stream<Item = Update> {
+    iced::stream::channel(16, async move |mut out: iced::futures::channel::mpsc::Sender<Update>| {
         loop {
-            let _ = out.send(monitors_async().await).await;
+            let _ = out.send(Update::Monitors(monitors_async().await)).await;
+            let _ = out.send(Update::Clients(clients_async().await)).await;
             let path = match ipc::event_socket_path() {
                 Ok(p) => p,
                 Err(e) => {
@@ -108,7 +167,10 @@ pub fn monitor_stream() -> impl Stream<Item = Vec<Monitor>> {
                     let mut lines = BufReader::new(stream).lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         if is_relevant(&line) {
-                            let _ = out.send(monitors_async().await).await;
+                            let _ = out.send(Update::Monitors(monitors_async().await)).await;
+                        }
+                        if is_window_event(&line) {
+                            let _ = out.send(Update::Clients(clients_async().await)).await;
                         }
                     }
                     tracing::info!("socket d'événements fermée, reconnexion");
@@ -158,6 +220,22 @@ mod tests {
         assert_eq!((m[0].width, m[0].height, m[0].workspace.as_str(), m[0].focused), (2560, 1440, "2", true));
         assert_eq!((m[1].width, m[1].height), (1152, 2048));
         assert_eq!(m[1].workspace, "special:magic");
+    }
+
+    #[test]
+    fn fenetres() {
+        let v: Value = serde_json::from_str(
+            r#"[{"address":"0x1","class":"kitty","title":"t","workspace":{"name":"2"},"mapped":true,"hidden":false},
+                {"address":"0x2","class":"","initialClass":"steam","title":"","workspace":{"name":"3"}},
+                {"address":"0x3","class":"x","workspace":{"name":"1"},"hidden":true}]"#,
+        )
+        .unwrap();
+        let c = parse_clients(&v);
+        assert_eq!(c.len(), 2);
+        assert_eq!((c[0].class.as_str(), c[0].workspace.as_str()), ("kitty", "2"));
+        assert_eq!(c[1].class, "steam");
+        assert!(is_window_event("closewindow>>0x1"));
+        assert!(!is_window_event("activewindow>>a,b"));
     }
 
     #[test]
