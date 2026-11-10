@@ -133,27 +133,40 @@ word, and your file is never rewritten.
 
 hyprdesk integrates an assistant drawer over the desktop: it chats about your
 session, proposes changes with a live preview, and shows every command for you
-to accept or decline before anything runs.
+to accept or decline before anything runs. What the integration contains:
+
+- **The conversation drawer** — `hyprdesk assistant`, without changing the
+  desktop mode: messages with pasted images, answers rendered as Markdown with
+  copyable code blocks and links, a New chat button, and an engine picker in
+  the header. The engine is a child process speaking the `serve` protocol; it
+  lives only while the drawer is open.
+- **Typed replies, not just text** — tool runs with their status and result;
+  **confirmation cards** showing the command, its reason and its risk before
+  you accept or decline it; **choice cards with a live preview** (a color, a
+  gap size…) applied only once accepted, never silently saved.
+- **Provider** — Claude Code, Codex or Zcode, picked in the drawer header or
+  in Settings and passed to the assistant; if it does not support the provider
+  option, it keeps its own choice.
+- **Context** — hyprdesk describes its whole environment as Markdown — modes,
+  settings packages, applications, screens, workspaces, widgets, files,
+  commands — written to the assistant's context directory
+  (`~/.config/hyprpanel/context.d/hyprdesk.md`) and printable with
+  `hyprdesk context`: the assistant knows your desktop before acting.
+- **Openings** — the drawer, the assistant's own window, or the terminal;
+  also the assistant button in the launcher and the `hyprdesk open ai`
+  shortcut.
+- **A settings page** — whether the assistant and its service are installed
+  and running, whether it supports the provider option and the context
+  directory, and what exactly gets sent — viewable with “View the context
+  sent”.
 
 <p align="center">
   <img src="assets/screenshots/assistant-chat.png" width="760" alt="Assistant drawer: a suggestion with live preview, and a hyprctl command to accept or decline">
 </p>
 
-- **The assistant is LYRA** (`hyprpanel-chat`), from
-  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
-  referenced here; it is not part of hyprdesk.
-- **Provider**: your Claude Code, Codex or Zcode subscription, chosen in
-  Settings → Applications → AI assistant and passed to the assistant; if it
-  does not support the provider option, it keeps its own choice.
-- **Context**: hyprdesk describes its whole environment — modes, settings
-  packages, applications, screens, workspaces, widgets, files, commands — as
-  Markdown (`hyprdesk context`), and writes it to the assistant's context
-  directory: the assistant knows your desktop before acting, and asks before
-  each command.
-- **Opening**: the drawer (`hyprdesk assistant`, without changing the desktop
-  mode), the assistant's own window, or the terminal — configured in the same
-  panel, along with the assistant button in the launcher and the
-  `hyprdesk open ai` shortcut.
+The assistant itself is **LYRA** (`hyprpanel-chat`), from
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
+referenced here; it is not part of hyprdesk.
 
 <p align="center">
   <img src="assets/screenshots/assistant-settings.png" width="480" alt="Settings drawer on the AI assistant tab: provider (Claude Code, Codex, Zcode), opening mode, context">

@@ -68,27 +68,41 @@ reste visible et utilisable à côté.
 
 hyprdesk intègre un tiroir d'assistant par-dessus le bureau : il discute de
 votre session, propose des changements avec aperçu en direct, et montre chaque
-commande à accepter ou refuser avant qu'elle s'exécute.
+commande à accepter ou refuser avant qu'elle s'exécute. Ce que contient
+l'intégration :
+
+- **Le tiroir de conversation** — `hyprdesk assistant`, sans changer le mode
+  du bureau : messages avec images collées, réponses rendues en Markdown avec
+  blocs de code copiables et liens, bouton Nouvelle conversation, sélecteur
+  de moteur dans l'en-tête. Le moteur est un processus enfant qui parle le
+  protocole `serve` ; il ne vit que tiroir ouvert.
+- **Des réponses typées, pas seulement du texte** — exécutions d'outils avec
+  leur état et leur résultat ; **cartes de confirmation** montrant la
+  commande, sa raison et son risque avant de l'accepter ou de la refuser ;
+  **cartes de choix avec aperçu en direct** (une couleur, une taille
+  d'écart…) appliqué seulement une fois accepté, jamais enregistré en silence.
+- **Fournisseur** — Claude Code, Codex ou Zcode, choisi dans l'en-tête du
+  tiroir ou dans les Réglages et transmis à l'assistant ; sans prise en charge
+  de l'option fournisseur, il garde son propre choix.
+- **Contexte** — hyprdesk décrit tout son environnement en Markdown — modes,
+  paquets de réglages, applications, écrans, workspaces, widgets, fichiers,
+  commandes — écrit dans le dossier de contexte de l'assistant
+  (`~/.config/hyprpanel/context.d/hyprdesk.md`) et imprimable avec
+  `hyprdesk context` : l'assistant connaît votre bureau avant d'agir.
+- **Ouvertures** — le tiroir, la fenêtre de l'assistant, ou le terminal ;
+  aussi le bouton de l'assistant dans le lanceur et le raccourci
+  `hyprdesk open ai`.
+- **Une page de réglages** — assistant et service installés et actifs ou non,
+  prise en charge de l'option fournisseur et du dossier de contexte, et ce
+  qui est exactement envoyé — consultable avec « Voir le contexte transmis ».
 
 <p align="center">
   <img src="assets/screenshots/assistant-chat.png" width="760" alt="Tiroir de l'assistant : suggestion avec aperçu en direct, et commande hyprctl à accepter ou refuser">
 </p>
 
-- **L'assistant est LYRA** (`hyprpanel-chat`), de
-  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
-  référencé ici ; il ne fait pas partie de hyprdesk.
-- **Fournisseur** : votre abonnement Claude Code, Codex ou Zcode, choisi dans
-  Réglages → Applications → Assistant IA et transmis à l'assistant ; sans
-  prise en charge de l'option fournisseur, il garde son propre choix.
-- **Contexte** : hyprdesk décrit tout son environnement — modes, paquets de
-  réglages, applications, écrans, workspaces, widgets, fichiers, commandes —
-  en Markdown (`hyprdesk context`), et l'écrit dans le dossier de contexte de
-  l'assistant : il connaît votre bureau avant d'agir, et demande avant chaque
-  commande.
-- **Ouverture** : le tiroir (`hyprdesk assistant`, sans changer le mode du
-  bureau), la fenêtre de l'assistant, ou le terminal — réglé dans le même
-  panneau, avec le bouton de l'assistant dans le lanceur et le raccourci
-  `hyprdesk open ai`.
+L'assistant lui-même est **LYRA** (`hyprpanel-chat`), de
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
+référencé ici ; il ne fait pas partie de hyprdesk.
 
 <p align="center">
   <img src="assets/screenshots/assistant-settings.png" width="480" alt="Tiroir des réglages sur l'onglet Assistant IA : fournisseur (Claude Code, Codex, Zcode), ouverture, contexte">
