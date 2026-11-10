@@ -4,3 +4,4 @@ CONTEXT.md
 .claude/
 .dual-graph/
 .env*
+dist/

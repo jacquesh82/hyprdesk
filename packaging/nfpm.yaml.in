@@ -1,0 +1,134 @@
+# Paquets de hyprdesk (deb, rpm, archlinux) — gabarit lu par scripts/package.sh,
+# qui en remplace les marqueurs (@…@) puis lance nfpm. Ne pas lancer nfpm sur ce fichier.
+name: hyprdesk
+arch: "@ARCH@"
+platform: linux
+version: "@VERSION@"
+release: "@RELEASE@"
+section: x11
+priority: optional
+maintainer: "@MAINTAINER@"
+description: |
+  Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par
+  workspace, barre, lanceur, verrouillage, configuré en Lua.
+vendor: LeLab
+homepage: https://github.com/jacquesh82/hyprdesk
+license: MIT
+
+contents:
+  - src: "@STAGE@/usr/bin/hyprdesk"
+    dst: /usr/bin/hyprdesk
+    file_info:
+      mode: 0755
+  # Unit systemd utilisateur : ExecStart sur /usr/bin (la version de
+  # scripts/install.sh vise ~/.local/bin).
+  - src: "@STAGE@/usr/lib/systemd/user/hyprdesk.service"
+    dst: /usr/lib/systemd/user/hyprdesk.service
+    file_info:
+      mode: 0644
+  # Police Mindlog (OFL), utilisée par l'interface.
+  - src: assets/fonts/mindlog/*.ttf
+    dst: /usr/share/fonts/hyprdesk/Mindlog/
+    file_info:
+      mode: 0644
+  - src: assets/fonts/mindlog/OFL.txt
+    dst: /usr/share/licenses/hyprdesk/OFL-Mindlog.txt
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/licenses/hyprdesk/LICENSE
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/hyprdesk/README.md
+    file_info:
+      mode: 0644
+  - src: README.fr.md
+    dst: /usr/share/doc/hyprdesk/README.fr.md
+    file_info:
+      mode: 0644
+  - src: docs/PLUGINS.md
+    dst: /usr/share/doc/hyprdesk/PLUGINS.md
+    file_info:
+      mode: 0644
+  - src: docs/PLUGINS.en.md
+    dst: /usr/share/doc/hyprdesk/PLUGINS.en.md
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: packaging/postinstall.sh
+
+# Liées : glibc, PAM (verrouillage), libgcc. Chargées à l'exécution : Wayland,
+# xkbcommon, Vulkan (rendu wgpu).
+overrides:
+  deb:
+    depends:
+      - "libc6 (>= @GLIBC@)"
+      - libgcc-s1
+      - libpam0g
+      - libwayland-client0
+      - libxkbcommon0
+      - libvulkan1
+    recommends:
+      - hyprland
+      - hypridle
+      - wireplumber
+      - fontconfig
+    suggests:
+      - network-manager
+      - bluez
+      - brightnessctl
+      - power-profiles-daemon
+      - xdg-desktop-portal-hyprland
+      - xdg-desktop-portal-gtk
+      - hyprshot
+      - wf-recorder
+      - wl-clipboard
+      - cliphist
+      - hyprsunset
+  rpm:
+    depends:
+      - "glibc >= @GLIBC@"
+      - libgcc
+      - pam
+      - libwayland-client
+      - libxkbcommon
+      - vulkan-loader
+    recommends:
+      - hyprland
+      - hypridle
+      - wireplumber
+      - fontconfig
+    suggests:
+      - NetworkManager
+      - bluez
+      - brightnessctl
+      - power-profiles-daemon
+      - xdg-desktop-portal-hyprland
+      - xdg-desktop-portal-gtk
+      - wl-clipboard
+  archlinux:
+    depends:
+      - "glibc>=@GLIBC@"
+      - gcc-libs
+      - pam
+      - wayland
+      - libxkbcommon
+      - vulkan-icd-loader
+      - hyprland
+    # optdepends : « paquet: raison ».
+    suggests:
+      - "hypridle: veille et verrouillage automatique"
+      - "wireplumber: son (wpctl)"
+      - "networkmanager: réseau (nmcli)"
+      - "bluez-utils: Bluetooth (bluetoothctl)"
+      - "brightnessctl: assombrir l'écran à l'inactivité"
+      - "power-profiles-daemon: profils d'énergie"
+      - "xdg-desktop-portal-hyprland: partage d'écran"
+      - "xdg-desktop-portal-gtk: sélecteur de fichiers"
+      - "hyprshot: captures d'écran"
+      - "wf-recorder: enregistrement de l'écran"
+      - "wl-clipboard: presse-papiers"
+      - "cliphist: historique du presse-papiers"
+      - "hyprsunset: éclairage nocturne"
