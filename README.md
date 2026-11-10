@@ -19,6 +19,17 @@ can have its own desktop. Configuration is written in Lua, in the style of
 *Screenshots come from hyprdesk's isolated preview (`cargo run --locked --
 preview`), rendered with demo data.*
 
+**One key, three desktop modes.** `SUPER + D` sets the workspace's windows
+aside and shows the desktop with its icons and widgets; `SUPER + ALT + D`
+keeps the tiled windows and shows only the dock; `SUPER + CTRL + D` hides the
+desktop, leaving the wallpaper to the windows.
+
+<table><tr>
+<td align="center" width="33%"><img src="assets/screenshots/desktop.png" width="440" alt="full-desktop mode: desktop with icons and widgets, windows set aside"><br><b>full-desktop</b></td>
+<td align="center" width="33%"><img src="assets/screenshots/mode-launcher.png" width="440" alt="launcher-only mode: tiled windows keep their place, the dock stays"><br><b>launcher-only</b></td>
+<td align="center" width="33%"><img src="assets/screenshots/mode-hidden.png" width="440" alt="no-desktop mode: desktop hidden, tiled windows over the wallpaper"><br><b>no-desktop</b></td>
+</tr></table>
+
 hyprdesk is the **root** of the graphical session:
 
 - **Visual root.** The desktop always sits *below* every window, never on top.
