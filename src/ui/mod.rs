@@ -849,6 +849,10 @@ impl App {
         if plugins::layouts::effective(&old) != plugins::layouts::effective(&self.cfg) {
             tasks.push(self.sync_tiling());
         }
+        // Animations et effets de Hyprland réglés dans hyprdesk (paquet « Animations »).
+        if plugins::animations::effective(&old) != plugins::animations::effective(&self.cfg) {
+            tasks.push(self.sync_fx());
+        }
         // État de l'écran de verrouillage (valeurs résolues : le verrou n'exécute pas de Lua).
         tasks.push(self.sync_lock_state());
         // Contexte de l'assistant IA (LYRA), tenu à jour hors du fil de l'interface.
@@ -2605,6 +2609,7 @@ impl App {
                     self.sync_window_gaps(),
                     self.sync_lyra_drawer(),
                     self.sync_tiling(),
+                    self.sync_fx(),
                 ];
                 if self.in_submap {
                     self.in_submap = false;

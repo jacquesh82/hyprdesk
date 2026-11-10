@@ -13,6 +13,7 @@ mod config;
 mod control;
 mod doctor;
 mod fonts;
+mod fx;
 mod hypr;
 mod i18n;
 mod idle;

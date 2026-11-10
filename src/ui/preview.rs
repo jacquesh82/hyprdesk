@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 35] = [
+const SCENES: [&str; 37] = [
     "desktop",
     "typography",
     "icons",
@@ -59,6 +59,8 @@ const SCENES: [&str; 35] = [
     "tour",
     "veille",
     "osd",
+    "animations",
+    "animations-effets",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -470,6 +472,11 @@ impl Preview {
             33 => Some("lock"),
             _ => None,
         };
+        // Scènes repérées par leur nom (et non leur rang).
+        let tab = tab.or(match SCENES[self.scene] {
+            "animations" | "animations-effets" => Some("animations"),
+            _ => None,
+        });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
         // et HYPRDESK_PREVIEW_SUBTAB (ex. `bar=modules,theme=effets`) pour les essais.
         self.app.subtabs.clear();
@@ -482,6 +489,43 @@ impl Preview {
             self.app.subtabs.insert("theme", "texte");
         }
         // Verrouillage → Veille, hyprdesk gérant la veille (délais par défaut).
+        // L'affichage à l'écran n'appartient qu'à sa scène.
+        if SCENES[self.scene] != "osd" {
+            self.app.osd = None;
+        }
+        if SCENES[self.scene] == "animations-effets" {
+            self.app.subtabs.insert("animations", "effets");
+        }
+        // Animations : quelques éléments personnalisés, pour voir les contrôles.
+        if SCENES[self.scene].starts_with("animations") {
+            let fx = &mut Arc::make_mut(&mut self.app.cfg).general.fx;
+            fx.anims.insert(
+                "windowsIn".into(),
+                crate::fx::Anim {
+                    enabled: true,
+                    speed: 4.0,
+                    curve: "spring".into(),
+                    style: Some("popin".into()),
+                },
+            );
+            fx.anims.insert(
+                "workspaces".into(),
+                crate::fx::Anim {
+                    enabled: true,
+                    speed: 6.0,
+                    curve: "ease-out".into(),
+                    style: Some("slidefade".into()),
+                },
+            );
+            fx.options.insert(
+                "decoration.blur.variant".into(),
+                crate::tiling::OptValue::Num(9.0),
+            );
+            fx.options.insert(
+                "decoration.rounding".into(),
+                crate::tiling::OptValue::Num(12.0),
+            );
+        }
         if SCENES[self.scene] == "veille" {
             self.app.subtabs.insert("lock", "veille");
             Arc::make_mut(&mut self.app.cfg).general.idle.manage = true;

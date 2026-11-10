@@ -56,6 +56,7 @@ pub struct Panel {
     /// Étape de la visite guidée en cours.
     pub tour: Option<usize>,
     pub layouts: plugins::layouts::State,
+    pub animations: plugins::animations::State,
     pub apps: plugins::apps::State,
     pub plugins: plugins::plugins::State,
     pub assistant: plugins::assistant::State,
@@ -99,6 +100,7 @@ impl Panel {
             workspaces: Default::default(),
             tour: None,
             layouts: Default::default(),
+            animations: Default::default(),
             apps: Default::default(),
             plugins: Default::default(),
             assistant: Default::default(),

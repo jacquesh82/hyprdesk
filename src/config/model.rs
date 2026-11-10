@@ -678,6 +678,8 @@ pub struct General {
     pub language: String,
     /// Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
     pub tiling: crate::tiling::Tiling,
+    /// Animations et effets de Hyprland réglés dans hyprdesk (paquet « Animations »).
+    pub fx: crate::fx::Fx,
     /// Paquets intégrés désactivés (`hd.config({ disabled_plugins = { "bar" } })`) :
     /// retirés des réglages, et leur fonction est coupée.
     pub disabled_plugins: std::collections::BTreeSet<String>,
@@ -728,6 +730,7 @@ impl Default for General {
             assistant_mode: Default::default(),
             language: "auto".into(),
             tiling: Default::default(),
+            fx: Default::default(),
         }
     }
 }

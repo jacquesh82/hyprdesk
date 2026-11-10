@@ -164,6 +164,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Animations : un disque en mouvement, sa traînée derrière lui.
+        "preferences-desktop-animation" => {
+            r#"<circle cx="15.5" cy="12" r="5.5"/><path d="M2 9h5M3 12h4M2 15h5"/>"#
+        }
         // Luminosité de l'écran : un soleil.
         "display-brightness" | "brightness-display" => {
             r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>"#

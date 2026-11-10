@@ -483,6 +483,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "apps",
             "disabled_plugins",
             "assistant_mode",
+            "fx",
             "language",
             "layout",
             "layout_workspaces",
@@ -708,6 +709,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         g.language = l;
     }
     parse_tiling(t, &mut g.tiling)?;
+    if let Some(fx) = t.get::<Option<Table>>("fx")? {
+        g.fx = crate::fx::parse(&fx).map_err(|e| err(format!("{CTX} : {e}")))?;
+    }
     if let Some(s) = opt_string(t, "assistant_mode", CTX)? {
         g.assistant_mode = crate::assistant::AssistantMode::parse(&s).ok_or_else(|| {
             err(crate::tr!(

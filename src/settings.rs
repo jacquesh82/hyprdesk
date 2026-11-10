@@ -147,6 +147,8 @@ pub struct Settings {
     pub language: Option<String>,
     /// Layouts (`layout`, `layout_workspaces`, `dwindle`, `master`, `scrolling`).
     pub tiling: Option<crate::tiling::Tiling>,
+    /// Animations et effets de Hyprland (paquet « Animations »).
+    pub fx: Option<crate::fx::Fx>,
     /// Paquets intégrés désactivés.
     pub disabled_plugins: Option<std::collections::BTreeSet<String>>,
     /// Applications par défaut réglées ici, par rôle.
@@ -310,6 +312,7 @@ impl Settings {
             .any(|k| has(k))
             .then(|| g.tiling.clone()),
             disabled_plugins: has("disabled_plugins").then(|| g.disabled_plugins.clone()),
+            fx: has("fx").then(|| g.fx.clone()),
             apps: g
                 .apps
                 .iter()
@@ -492,6 +495,7 @@ impl Settings {
         );
         set!(assistant_mode, "assistant_mode", g.assistant_mode);
         set!(language, "language", g.language);
+        set!(fx, "fx", g.fx);
         if let Some(t) = &self.tiling {
             if free("layout") {
                 g.tiling.layout = t.layout.clone();
@@ -883,6 +887,9 @@ impl Settings {
         }
         if let Some(v) = &self.language {
             cfg.push(format!("language = {}", q(v)));
+        }
+        if let Some(fx) = self.fx.as_ref().filter(|f| !f.is_empty()) {
+            cfg.push(format!("fx = {}", fx.to_lua()));
         }
         if let Some(t) = &self.tiling {
             if let Some(l) = &t.layout {

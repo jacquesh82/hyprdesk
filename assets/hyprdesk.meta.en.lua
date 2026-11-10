@@ -10,6 +10,7 @@
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field float_launched? boolean # opened from the shown desktop: floating, centered window
+---@field fx? table # Hyprland animations and effects: { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
 ---@field idle_manage? boolean # hyprdesk manages idle: writes the hypridle config and runs it
 ---@field idle_dim? integer # seconds of inactivity before dimming the screen (0: never)
 ---@field idle_lock? integer # seconds before locking (0: never)

@@ -13,6 +13,7 @@ use iced::{Element, Task};
 use super::panel::Panel;
 use super::{App, Msg};
 
+pub mod animations;
 pub mod apps;
 pub mod apptheme;
 pub mod assistant;
@@ -63,6 +64,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     workspaces::INFO,
     layouts::INFO,
     effects::INFO,
+    animations::INFO,
     lock::INFO,
     share::INFO,
     plugins::INFO,
@@ -82,7 +84,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Apparence",
-        ids: &["theme", "apptheme", "effects"],
+        ids: &["theme", "apptheme", "effects", "animations"],
     },
     Group {
         label: "Barre et lanceur",
@@ -141,6 +143,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "bar" => bar::TABS,
         "workspaces" => workspaces::TABS,
         "layouts" => layouts::TABS,
+        "animations" => animations::TABS,
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
         _ => &[],
@@ -258,6 +261,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "ecrans" | "écrans" => "screens",
         "lanceur" | "dock" => "launcher",
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
+        "fx" | "animation" | "anim" => "animations",
         "applications" | "defaults" => "apps",
         "extensions" | "paquets" => "plugins",
         "ia" | "ai" | "lyra" => "assistant",
@@ -285,6 +289,7 @@ pub enum PluginMsg {
     Screens(screens::Msg),
     Workspaces(workspaces::Msg),
     Layouts(layouts::Msg),
+    Animations(animations::Msg),
     Effects(effects::Msg),
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
@@ -306,6 +311,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Screens(m) => app.screens_update(m),
         PluginMsg::Workspaces(m) => app.workspaces_update(m),
         PluginMsg::Layouts(m) => app.layouts_update(m),
+        PluginMsg::Animations(m) => app.animations_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
@@ -327,6 +333,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "screens" => app.tab_screens(),
         "workspaces" => app.tab_workspaces(p),
         "layouts" => app.layouts_page(),
+        "animations" => app.animations_page(),
         "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
         "apptheme" => app.apptheme_page(),
@@ -346,6 +353,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             layouts::load_binds(app.config_path.clone()),
         ]),
         "apps" => apps::load_system(),
+        "animations" => animations::load_current(),
         "assistant" => assistant::load_status(),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées
