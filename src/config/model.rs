@@ -347,8 +347,11 @@ pub enum WidgetKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WidgetDef {
+    pub origin: Origin,
     pub sel: Selector,
     pub id: String,
+    /// Type au catalogue (`clock`, `system`, ou nom d'un plugin).
+    pub type_id: String,
     pub kind: WidgetKind,
     pub anchor: Anchor,
     pub x: f32,
@@ -358,6 +361,59 @@ pub struct WidgetDef {
     pub interval: Duration,
     /// Fond en carte (true) ou texte nu sur le fond d'écran (false).
     pub card: bool,
+}
+
+impl WidgetDef {
+    pub fn placement(&self) -> Placement {
+        Placement { anchor: self.anchor, x: self.x, y: self.y, size: self.size, card: self.card }
+    }
+
+    pub fn set_placement(&mut self, p: &Placement) {
+        self.anchor = p.anchor;
+        self.x = p.x;
+        self.y = p.y;
+        self.size = p.size;
+        self.card = p.card;
+    }
+
+    /// Même widget, en ignorant sa position : un déplacement ne doit pas
+    /// relancer ses relevés.
+    pub fn same_content(&self, o: &WidgetDef) -> bool {
+        self.id == o.id && self.type_id == o.type_id && self.kind == o.kind && self.interval == o.interval && self.sel == o.sel
+    }
+}
+
+/// Position d'un widget à l'écran (`hd.place`, ou glissé dans les réglages).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    pub anchor: Anchor,
+    pub x: f32,
+    pub y: f32,
+    /// 0 = taille par défaut du widget.
+    pub size: f32,
+    pub card: bool,
+}
+
+/// D'où vient un type de widget.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WidgetSource {
+    Builtin,
+    /// Fichier Lua détecté dans un dossier de plugins.
+    Plugin(PathBuf),
+}
+
+/// Entrée du catalogue des widgets disponibles.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WidgetType {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub source: WidgetSource,
+    pub anchor: Anchor,
+    /// Activable d'un clic (sans option obligatoire).
+    pub toggleable: bool,
+    /// Plugin illisible : le message d'erreur, affiché dans les réglages.
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -391,6 +447,10 @@ pub struct Config {
     /// l'utilisateur (`show_on`, `grid.icon_size`, `theme.accent`…).
     pub keys_settings: std::collections::BTreeSet<String>,
     pub keys_user: std::collections::BTreeSet<String>,
+    /// Types de widgets disponibles : intégrés, puis plugins détectés.
+    pub catalog: Vec<WidgetType>,
+    /// Positions imposées par l'écran Réglages (`hd.place`), par id de widget.
+    pub placements: std::collections::BTreeMap<String, Placement>,
 }
 
 #[cfg(test)]

@@ -21,6 +21,75 @@ struct Builder {
     base_dir: PathBuf,
     /// Fichier en cours d'exécution : `settings.lua` (écran Réglages) ou celui de l'utilisateur.
     origin: Origin,
+    /// Plugins de widgets chargés, par nom.
+    plugins: std::collections::HashMap<String, Plugin>,
+    /// `hd.place` dans l'ordre d'appel : les réglages, puis l'utilisateur.
+    places: Vec<(Origin, String, PlacePatch)>,
+}
+
+/// Plugin de widget chargé : sa table Lua et ses valeurs par défaut.
+struct Plugin {
+    table: RegistryKey,
+    interval: f64,
+    anchor: Anchor,
+    options: Vec<String>,
+}
+
+/// Placement partiel (`hd.place`) : les champs absents gardent leur valeur.
+#[derive(Default)]
+struct PlacePatch {
+    anchor: Option<Anchor>,
+    x: Option<f32>,
+    y: Option<f32>,
+    size: Option<f32>,
+    card: Option<bool>,
+}
+
+fn parse_anchor(s: &str, ctx: &str) -> mlua::Result<Anchor> {
+    Anchor::parse(s).ok_or_else(|| {
+        err(format!("{ctx} : anchor « {s} » inconnu (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right)"))
+    })
+}
+
+/// Charge un plugin de widget : un fichier Lua qui rend une table avec `render`.
+fn load_plugin(lua: &Lua, id: &str, path: &Path) -> Result<(Plugin, WidgetType), String> {
+    let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let v: Value = lua.load(src.as_str()).set_name(format!("@{}", path.display())).eval().map_err(|e| short_lua_error(&e))?;
+    let Value::Table(t) = v else { return Err("le fichier doit rendre une table (return { … })".into()) };
+    let ctx = format!("plugin « {id} »");
+    let run = || -> mlua::Result<(Plugin, WidgetType)> {
+        check_keys(&t, &["name", "description", "interval", "anchor", "options", "render"], &ctx)?;
+        if !matches!(t.get::<Value>("render")?, Value::Function(_)) {
+            return Err(err(format!("{ctx} : « render » doit être une fonction")));
+        }
+        let anchor = match opt_string(&t, "anchor", &ctx)? {
+            Some(a) => parse_anchor(&a, &ctx)?,
+            None => Anchor::TopRight,
+        };
+        let mut options = Vec::new();
+        if let Some(o) = t.get::<Option<Table>>("options")? {
+            for pair in o.pairs::<String, Value>() {
+                let k = pair?.0;
+                if crate::widgets::COMMON_OPTIONS.contains(&k.as_str()) {
+                    return Err(err(format!("{ctx} : l'option « {k} » est réservée")));
+                }
+                options.push(k);
+            }
+        }
+        options.sort();
+        let wt = WidgetType {
+            id: id.to_string(),
+            name: opt_string(&t, "name", &ctx)?.unwrap_or_else(|| id.to_string()),
+            description: opt_string(&t, "description", &ctx)?.unwrap_or_default(),
+            source: WidgetSource::Plugin(path.to_path_buf()),
+            anchor,
+            toggleable: true,
+            error: None,
+        };
+        let interval = opt_num(&t, "interval", &ctx)?.unwrap_or(60.0).max(0.1);
+        Ok((Plugin { table: lua.create_registry_value(t.clone())?, interval, anchor, options }, wt))
+    };
+    run().map_err(|e| short_lua_error(&e))
 }
 
 /// Clés présentes dans une table `hd.config`, en notation pointée (`grid.icon_size`).
@@ -330,74 +399,154 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
 fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table) -> mlua::Result<()> {
     let ctx = format!("hd.widget(\"{kind}\")");
     let ctx = ctx.as_str();
-    let common = ["workspace", "monitor", "id", "anchor", "x", "y", "size", "interval", "card"];
-    let extra: &[&str] = match kind {
-        "clock" => &["format"],
-        "calendar" => &[],
-        "system" => &["show"],
-        "media" => &["player"],
-        "command" => &["exec", "timeout"],
-        "lua" => &["render"],
-        _ => return Err(err(format!("hd.widget : type « {kind} » inconnu (clock, calendar, system, media, command, lua)"))),
-    };
-    let allowed: Vec<&str> = common.iter().chain(extra).copied().collect();
-    check_keys(t, &allowed, ctx)?;
-
-    let (default_interval, kind_v) = match kind {
-        "clock" => (1.0, WidgetKind::Clock { format: opt_string(t, "format", ctx)?.unwrap_or_else(|| "%H:%M".into()) }),
-        "calendar" => (60.0, WidgetKind::Calendar),
-        "system" => {
-            let show = match t.get::<Option<Table>>("show")? {
-                None => vec![SysItem::Cpu, SysItem::Ram, SysItem::Disk("/".into())],
-                Some(list) => list
-                    .sequence_values::<String>()
-                    .map(|s| {
-                        let s = s?;
-                        SysItem::parse(&s).ok_or_else(|| err(format!("{ctx} : élément « {s} » inconnu (cpu, ram, load, uptime, disk:<point de montage>)")))
-                    })
-                    .collect::<mlua::Result<Vec<_>>>()?,
-            };
-            (2.0, WidgetKind::System { show })
+    let common = crate::widgets::COMMON_OPTIONS;
+    let (default_interval, default_anchor, kind_v) = if let Some(bi) = crate::widgets::builtin(kind) {
+        let allowed: Vec<&str> = common.iter().chain(bi.options).copied().collect();
+        check_keys(t, &allowed, ctx)?;
+        let k = match kind {
+            "clock" => WidgetKind::Clock { format: opt_string(t, "format", ctx)?.unwrap_or_else(|| "%H:%M".into()) },
+            "calendar" => WidgetKind::Calendar,
+            "system" => {
+                let show = match t.get::<Option<Table>>("show")? {
+                    None => vec![SysItem::Cpu, SysItem::Ram, SysItem::Disk("/".into())],
+                    Some(list) => list
+                        .sequence_values::<String>()
+                        .map(|s| {
+                            let s = s?;
+                            SysItem::parse(&s)
+                                .ok_or_else(|| err(format!("{ctx} : élément « {s} » inconnu (cpu, ram, load, uptime, disk:<point de montage>)")))
+                        })
+                        .collect::<mlua::Result<Vec<_>>>()?,
+                };
+                WidgetKind::System { show }
+            }
+            "media" => WidgetKind::Media { player: opt_string(t, "player", ctx)?.unwrap_or_else(|| "*".into()) },
+            "command" => {
+                let exec = opt_string(t, "exec", ctx)?.ok_or_else(|| err(format!("{ctx} : « exec » est requis")))?;
+                let timeout = Duration::from_secs_f64(opt_num(t, "timeout", ctx)?.unwrap_or(10.0).clamp(0.1, 600.0));
+                WidgetKind::Command { exec, timeout }
+            }
+            "lua" => {
+                let f: Function = match t.get::<Value>("render")? {
+                    Value::Function(f) => f,
+                    _ => return Err(err(format!("{ctx} : « render » doit être une fonction"))),
+                };
+                b.funcs.push(lua.create_registry_value(f)?);
+                WidgetKind::Lua { func: b.funcs.len() - 1 }
+            }
+            other => return Err(err(format!("{ctx} : widget intégré « {other} » sans configuration"))),
+        };
+        (bi.interval, bi.anchor, k)
+    } else if let Some(p) = b.plugins.get(kind) {
+        // Plugin : ses options, avec ses valeurs par défaut, passées à render(opts).
+        let allowed: Vec<&str> = common.iter().copied().chain(p.options.iter().map(String::as_str)).collect();
+        check_keys(t, &allowed, ctx)?;
+        let table: Table = lua.registry_value(&p.table)?;
+        let opts = lua.create_table()?;
+        if let Some(defaults) = table.get::<Option<Table>>("options")? {
+            for pair in defaults.pairs::<Value, Value>() {
+                let (k, v) = pair?;
+                opts.set(k, v)?;
+            }
         }
-        "media" => (1.0, WidgetKind::Media { player: opt_string(t, "player", ctx)?.unwrap_or_else(|| "*".into()) }),
-        "command" => {
-            let exec = opt_string(t, "exec", ctx)?.ok_or_else(|| err(format!("{ctx} : « exec » est requis")))?;
-            let timeout = Duration::from_secs_f64(opt_num(t, "timeout", ctx)?.unwrap_or(10.0).clamp(0.1, 600.0));
-            (60.0, WidgetKind::Command { exec, timeout })
+        for k in &p.options {
+            let v: Value = t.get(k.as_str())?;
+            if !v.is_nil() {
+                opts.set(k.as_str(), v)?;
+            }
         }
-        "lua" => {
-            let f: Function = match t.get::<Value>("render")? {
-                Value::Function(f) => f,
-                _ => return Err(err(format!("{ctx} : « render » doit être une fonction"))),
-            };
-            b.funcs.push(lua.create_registry_value(f)?);
-            (5.0, WidgetKind::Lua { func: b.funcs.len() - 1 })
-        }
-        _ => unreachable!(),
+        let render: Function = table.get("render")?;
+        let wrapper: Function = lua.load("local f, o = ... return function() return f(o) end").set_name("=hyprdesk").call((render, opts))?;
+        b.funcs.push(lua.create_registry_value(wrapper)?);
+        (p.interval, p.anchor, WidgetKind::Lua { func: b.funcs.len() - 1 })
+    } else {
+        let mut known: Vec<String> = crate::widgets::BUILTINS.iter().map(|b| b.id.to_string()).collect();
+        let mut plugins: Vec<String> = b.plugins.keys().cloned().collect();
+        plugins.sort();
+        known.extend(plugins);
+        return Err(err(format!(
+            "hd.widget : type « {kind} » inconnu (disponibles : {} ; plugins dans {})",
+            known.join(", "),
+            b.base_dir.join("hyprdesk/widgets").display()
+        )));
     };
     let anchor = match opt_string(t, "anchor", ctx)? {
-        None => Anchor::TopRight,
-        Some(a) => Anchor::parse(&a).ok_or_else(|| {
-            err(format!("{ctx} : anchor « {a} » inconnu (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right)"))
-        })?,
+        None => default_anchor,
+        Some(a) => parse_anchor(&a, ctx)?,
     };
     let interval = opt_num(t, "interval", ctx)?.unwrap_or(default_interval);
     if interval < 0.1 {
         return Err(err(format!("{ctx} : « interval » doit valoir au moins 0.1 seconde")));
     }
-    let n = b.config.widgets.len();
+    // Identifiant par défaut stable : compté par type ET par origine, pour que
+    // les widgets ajoutés dans les réglages ne décalent pas ceux de hyprdesk.lua.
+    let n = b.config.widgets.iter().filter(|w| w.type_id == kind && w.origin == b.origin).count();
+    let default_id = match b.origin {
+        Origin::User => format!("{kind}#{n}"),
+        Origin::Settings => format!("reglages:{kind}#{n}"),
+    };
+    let id = opt_string(t, "id", ctx)?.unwrap_or(default_id);
+    if b.config.widgets.iter().any(|w| w.id == id) {
+        return Err(err(format!("{ctx} : un widget « {id} » existe déjà (préciser un autre « id »)")));
+    }
     b.config.widgets.push(WidgetDef {
+        origin: b.origin,
         sel: selector(t, ctx)?,
-        id: opt_string(t, "id", ctx)?.unwrap_or_else(|| format!("{kind}#{n}")),
+        id,
+        type_id: kind.to_string(),
         kind: kind_v,
         anchor,
         x: opt_num(t, "x", ctx)?.unwrap_or(0.0) as f32,
         y: opt_num(t, "y", ctx)?.unwrap_or(0.0) as f32,
-        size: opt_num(t, "size", ctx)?.map(|v| v.clamp(6.0, 400.0) as f32).unwrap_or(0.0),
+        size: opt_num(t, "size", ctx)?.map(|v| v.clamp(0.0, 400.0) as f32).unwrap_or(0.0),
         interval: Duration::from_secs_f64(interval),
         card: opt_bool(t, "card", ctx)?.unwrap_or(true),
     });
     Ok(())
+}
+
+fn hd_place(b: &mut Builder, id: &str, t: &Table) -> mlua::Result<()> {
+    let ctx = format!("hd.place(\"{id}\")");
+    let ctx = ctx.as_str();
+    check_keys(t, &["anchor", "x", "y", "size", "card"], ctx)?;
+    let patch = PlacePatch {
+        anchor: opt_string(t, "anchor", ctx)?.map(|a| parse_anchor(&a, ctx)).transpose()?,
+        x: opt_num(t, "x", ctx)?.map(|v| v as f32),
+        y: opt_num(t, "y", ctx)?.map(|v| v as f32),
+        size: opt_num(t, "size", ctx)?.map(|v| v.clamp(0.0, 400.0) as f32),
+        card: opt_bool(t, "card", ctx)?,
+    };
+    b.places.push((b.origin, id.to_string(), patch));
+    Ok(())
+}
+
+/// Applique les `hd.place` une fois tous les widgets déclarés (ceux de
+/// hyprdesk.lua compris) ; retient ceux des réglages pour l'écran ⚙.
+fn apply_places(b: &mut Builder) {
+    for (origin, id, p) in std::mem::take(&mut b.places) {
+        let Some(w) = b.config.widgets.iter_mut().find(|w| w.id == id) else {
+            tracing::warn!("hd.place : aucun widget « {id} »");
+            continue;
+        };
+        if let Some(v) = p.anchor {
+            w.anchor = v;
+        }
+        if let Some(v) = p.x {
+            w.x = v;
+        }
+        if let Some(v) = p.y {
+            w.y = v;
+        }
+        if let Some(v) = p.size {
+            w.size = v;
+        }
+        if let Some(v) = p.card {
+            w.card = v;
+        }
+        if origin == Origin::Settings {
+            b.config.placements.insert(id, w.placement());
+        }
+    }
 }
 
 /// Exécute une commande shell et rend sa sortie standard (aide `hd.exec`).
@@ -444,6 +593,10 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
             })
         })?,
     )?;
+    hd.set(
+        "_place",
+        lua.create_function(|lua, (id, t): (String, Table)| with_builder(lua, |b| hd_place(b, &id, &t)))?,
+    )?;
     hd.set("exec", lua.create_function(|_, cmd: String| Ok(shell_output(&cmd)))?)?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
     lua.globals().set("hd", hd)?;
@@ -452,7 +605,7 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
     // l'appel dans la config, comme une erreur Lua ordinaire.
     lua.load(
         r#"
-        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "on" }) do
+        for _, name in ipairs({ "config", "wallpaper", "desktop", "icon", "widget", "place", "on" }) do
             local f = hd["_" .. name]
             hd["_" .. name] = nil
             hd[name] = function(...)
@@ -535,11 +688,48 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         Ok(())
     };
     setup().map_err(|e| format!("initialisation Lua : {e}"))?;
+    // Plugins de widgets : chargés avant la config, chacun isolément ; un
+    // plugin cassé apparaît en erreur dans le catalogue sans bloquer le reste.
+    let mut catalog = crate::widgets::builtin_types();
+    let mut plugins = std::collections::HashMap::new();
+    for (id, path) in crate::widgets::plugins::discover(&crate::widgets::plugins::dirs(base_dir)) {
+        let broken = |error: String| WidgetType {
+            id: id.clone(),
+            name: id.clone(),
+            description: String::new(),
+            source: WidgetSource::Plugin(path.clone()),
+            anchor: Anchor::TopRight,
+            toggleable: false,
+            error: Some(error),
+        };
+        if !crate::widgets::plugins::valid_id(&id) {
+            catalog.push(broken("nom invalide : minuscules, chiffres, - et _ seulement".into()));
+            continue;
+        }
+        if crate::widgets::builtin(&id).is_some() {
+            catalog.push(broken(format!("« {id} » est le nom d'un widget intégré")));
+            continue;
+        }
+        match load_plugin(&lua, &id, &path) {
+            Ok((p, wt)) => {
+                plugins.insert(id.clone(), p);
+                catalog.push(wt);
+            }
+            Err(e) => {
+                tracing::warn!("plugin {} : {e}", path.display());
+                catalog.push(broken(e));
+            }
+        }
+    }
+    let mut config = Config::default();
+    config.catalog = catalog;
     lua.set_app_data(RefCell::new(Builder {
-        config: Config::default(),
+        config,
         funcs: Vec::new(),
         base_dir: base_dir.to_path_buf(),
         origin: Origin::User,
+        plugins,
+        places: Vec::new(),
     }));
     for (src, name, origin) in chunks {
         if let Some(b) = lua.app_data_ref::<RefCell<Builder>>() {
@@ -547,7 +737,8 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         }
         lua.load(src.as_str()).set_name(format!("@{name}")).exec().map_err(|e| short_lua_error(&e))?;
     }
-    let b = lua.remove_app_data::<RefCell<Builder>>().expect("builder posé plus haut").into_inner();
+    let mut b = lua.remove_app_data::<RefCell<Builder>>().expect("builder posé plus haut").into_inner();
+    apply_places(&mut b);
     Ok(Loaded { lua, config: b.config, funcs: b.funcs })
 }
 
@@ -756,6 +947,45 @@ mod tests {
         assert_eq!(c.wallpapers[0].origin, Origin::Settings);
         assert_eq!(c.wallpapers[1].origin, Origin::User);
         assert_eq!(c.icons[0].origin, Origin::Settings);
+    }
+
+    #[test]
+    fn plugin_de_widget_et_placement() {
+        let dir = std::env::temp_dir().join(format!("hyprdesk-plugin-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("hyprdesk/widgets")).unwrap();
+        std::fs::write(
+            dir.join("hyprdesk/widgets/meteo.lua"),
+            r#"return { name = "Météo", interval = 900, anchor = "top-left", options = { ville = "Paris" },
+                        render = function(o) return "il fait beau à " .. o.ville end }"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("hyprdesk/widgets/casse.lua"), "return 42").unwrap();
+        let chunks = vec![
+            (r#"hd.widget("meteo", { id = "m" }) hd.place("clock#0", { anchor = "center", y = 10 })"#.to_string(), "s.lua".to_string(), Origin::Settings),
+            (r#"hd.widget("meteo", { ville = "Lyon" }) hd.widget("clock")"#.to_string(), "u.lua".to_string(), Origin::User),
+        ];
+        let l = load_chunks(&chunks, &dir).unwrap();
+        let c = &l.config;
+        let ids: Vec<&str> = c.catalog.iter().map(|t| t.id.as_str()).collect();
+        assert!(ids.contains(&"clock") && ids.contains(&"meteo") && ids.contains(&"casse"));
+        assert!(c.catalog.iter().find(|t| t.id == "casse").unwrap().error.is_some());
+        assert_eq!(c.catalog.iter().find(|t| t.id == "meteo").unwrap().name, "Météo");
+        let render = |i: usize| match c.widgets[i].kind {
+            WidgetKind::Lua { func } => l.render(func).unwrap(),
+            _ => panic!(),
+        };
+        assert_eq!(render(0), "il fait beau à Paris");
+        assert_eq!(render(1), "il fait beau à Lyon");
+        assert_eq!(c.widgets[1].id, "meteo#0");
+        assert_eq!(c.widgets[1].anchor, Anchor::TopLeft);
+        assert_eq!(c.widgets[1].interval, Duration::from_secs(900));
+        // hd.place des réglages s'applique au widget de hyprdesk.lua.
+        assert_eq!(c.widgets[2].id, "clock#0");
+        assert_eq!((c.widgets[2].anchor, c.widgets[2].y), (Anchor::Center, 10.0));
+        assert_eq!(c.placements.get("clock#0").map(|p| p.anchor), Some(Anchor::Center));
+        let e = load_chunks(&[(r#"hd.widget("meteo", { pays = "FR" })"#.into(), "x.lua".into(), Origin::User)], &dir).err().unwrap();
+        assert!(e.contains("champ inconnu « pays »"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

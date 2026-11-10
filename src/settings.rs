@@ -10,9 +10,11 @@ use std::path::{Path, PathBuf};
 
 use hyprpanel_core::ipc::lua_escape;
 
+use std::collections::BTreeMap;
+
 use crate::config::{
-    Config, DesktopRule, Fit, IconDef, IconKind, Mode, Origin, Rgba, RunningApps, Selector, ShowOn, Transition, WallSource,
-    WallpaperRule,
+    Anchor, Config, DesktopRule, Fit, IconDef, IconKind, Mode, Origin, Placement, Rgba, RunningApps, Selector, ShowOn, SysItem,
+    Transition, WallSource, WallpaperRule, WidgetDef, WidgetKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -32,6 +34,10 @@ pub struct Settings {
     pub wallpapers: Vec<WallpaperRule>,
     pub desktops: Vec<DesktopRule>,
     pub icons: Vec<IconDef>,
+    /// Widgets activés depuis les réglages.
+    pub widgets: Vec<WidgetDef>,
+    /// Positions imposées aux widgets déclarés dans hyprdesk.lua (`hd.place`).
+    pub placements: BTreeMap<String, Placement>,
 }
 
 impl Settings {
@@ -55,6 +61,52 @@ impl Settings {
             wallpapers: c.wallpapers.iter().filter(|w| w.origin == Origin::Settings).cloned().collect(),
             desktops: c.desktops.iter().filter(|d| d.origin == Origin::Settings).cloned().collect(),
             icons: c.icons.iter().filter(|i| i.origin == Origin::Settings).cloned().collect(),
+            widgets: c.widgets.iter().filter(|w| w.origin == Origin::Settings).cloned().collect(),
+            placements: c
+                .placements
+                .iter()
+                .filter(|(id, _)| !c.widgets.iter().any(|w| &w.id == *id && w.origin == Origin::Settings))
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+        }
+    }
+
+    /// Active un type de widget (une instance, sur tous les bureaux). Rend son id.
+    pub fn add_widget(&mut self, type_id: &str, anchor: Anchor, taken: &[String]) -> String {
+        let mut id = type_id.to_string();
+        let mut n = 2;
+        while taken.contains(&id) || self.widgets.iter().any(|w| w.id == id) {
+            id = format!("{type_id}-{n}");
+            n += 1;
+        }
+        self.widgets.push(WidgetDef {
+            origin: Origin::Settings,
+            sel: Selector::default(),
+            id: id.clone(),
+            type_id: type_id.to_string(),
+            // Le contenu réel vient du rechargement : seul le type est écrit.
+            kind: WidgetKind::Calendar,
+            anchor,
+            x: 0.0,
+            y: 0.0,
+            size: 0.0,
+            interval: std::time::Duration::from_secs(60),
+            card: true,
+        });
+        id
+    }
+
+    pub fn remove_widget(&mut self, id: &str) {
+        self.widgets.retain(|w| w.id != id);
+    }
+
+    /// Nouveau placement d'un widget : dans sa déclaration s'il vient des
+    /// réglages, sinon en `hd.place` (le fichier de l'utilisateur n'est pas touché).
+    pub fn place_widget(&mut self, id: &str, p: Placement) {
+        if let Some(w) = self.widgets.iter_mut().find(|w| w.id == id) {
+            w.set_placement(&p);
+        } else {
+            self.placements.insert(id.to_string(), p);
         }
     }
 
@@ -95,6 +147,19 @@ impl Settings {
         c.wallpapers = self.wallpapers.iter().cloned().chain(cfg.wallpapers.iter().filter(|w| user(w.origin)).cloned()).collect();
         c.desktops = self.desktops.iter().cloned().chain(cfg.desktops.iter().filter(|d| user(d.origin)).cloned()).collect();
         c.icons = self.icons.iter().cloned().chain(cfg.icons.iter().filter(|i| user(i.origin)).cloned()).collect();
+        // Les widgets des réglages gardent leur contenu chargé (fonctions Lua des
+        // plugins) : seul le placement vient des réglages. Les activations et
+        // retraits passent par un rechargement.
+        for w in c.widgets.iter_mut() {
+            let p = match w.origin {
+                Origin::Settings => self.widgets.iter().find(|s| s.id == w.id).map(|s| s.placement()),
+                Origin::User => self.placements.get(&w.id).copied(),
+            };
+            if let Some(p) = p {
+                w.set_placement(&p);
+            }
+        }
+        c.placements = self.placements.clone();
         c
     }
 
@@ -229,6 +294,23 @@ impl Settings {
             }
             let _ = writeln!(o, "hd.desktop({{ {} }})", f.join(", "));
         }
+        for w in &self.widgets {
+            let mut f = selector_fields(&w.sel);
+            f.insert(0, format!("id = {}", q(&w.id)));
+            match &w.kind {
+                WidgetKind::Clock { format } if format != "%H:%M" => f.push(format!("format = {}", q(format))),
+                WidgetKind::Media { player } if player != "*" => f.push(format!("player = {}", q(player))),
+                WidgetKind::System { show } if !is_default_show(show) => {
+                    f.push(format!("show = {{ {} }}", show.iter().map(|i| q(&sys_item_str(i))).collect::<Vec<_>>().join(", ")))
+                }
+                _ => {}
+            }
+            f.extend(placement_fields(&w.placement()));
+            let _ = writeln!(o, "hd.widget({}, {{ {} }})", q(&w.type_id), f.join(", "));
+        }
+        for (id, p) in &self.placements {
+            let _ = writeln!(o, "hd.place({}, {{ {} }})", q(id), placement_fields(p).join(", "));
+        }
         for i in &self.icons {
             let mut f = selector_fields(&i.sel);
             match &i.kind {
@@ -261,6 +343,44 @@ impl Settings {
         std::fs::rename(&tmp, &p)?;
         Ok(p)
     }
+}
+
+fn placement_fields(p: &Placement) -> Vec<String> {
+    vec![
+        format!("anchor = {}", q(anchor_str(p.anchor))),
+        format!("x = {}", num(p.x)),
+        format!("y = {}", num(p.y)),
+        format!("size = {}", num(p.size)),
+        format!("card = {}", p.card),
+    ]
+}
+
+pub fn anchor_str(a: Anchor) -> &'static str {
+    match a {
+        Anchor::TopLeft => "top-left",
+        Anchor::Top => "top",
+        Anchor::TopRight => "top-right",
+        Anchor::Left => "left",
+        Anchor::Center => "center",
+        Anchor::Right => "right",
+        Anchor::BottomLeft => "bottom-left",
+        Anchor::Bottom => "bottom",
+        Anchor::BottomRight => "bottom-right",
+    }
+}
+
+fn sys_item_str(i: &SysItem) -> String {
+    match i {
+        SysItem::Cpu => "cpu".into(),
+        SysItem::Ram => "ram".into(),
+        SysItem::Load => "load".into(),
+        SysItem::Uptime => "uptime".into(),
+        SysItem::Disk(m) => format!("disk:{m}"),
+    }
+}
+
+fn is_default_show(s: &[SysItem]) -> bool {
+    s == [SysItem::Cpu, SysItem::Ram, SysItem::Disk("/".into())]
 }
 
 fn q(s: &str) -> String {
@@ -354,6 +474,34 @@ mod tests {
         let lua = s.to_lua();
         let cfg = load_chunks(&[(lua.clone(), "settings.lua".into(), Origin::Settings)], Path::new("/cfg")).unwrap_or_else(|e| panic!("{e}\n{lua}")).config;
         assert_eq!(Settings::from_config(&cfg), s, "\n{lua}");
+    }
+
+    #[test]
+    fn widgets_et_placements_aller_retour() {
+        let user = r#"hd.widget("clock", { format = "%H:%M:%S" })"#;
+        let mut s = Settings::default();
+        let id = s.add_widget("calendar", Anchor::Right, &[]);
+        assert_eq!(id, "calendar");
+        assert_eq!(s.add_widget("calendar", Anchor::Right, &[]), "calendar-2");
+        s.remove_widget("calendar-2");
+        s.place_widget("calendar", Placement { anchor: Anchor::Center, x: 12.0, y: -40.0, size: 18.0, card: false });
+        s.place_widget("clock#0", Placement { anchor: Anchor::Top, x: 0.0, y: 8.0, size: 0.0, card: true });
+        let lua = s.to_lua();
+        let chunks = |l: String| vec![(l, "settings.lua".to_string(), Origin::Settings), (user.to_string(), "u.lua".to_string(), Origin::User)];
+        let cfg = load_chunks(&chunks(lua.clone()), Path::new("/cfg")).unwrap_or_else(|e| panic!("{e}\n{lua}")).config;
+        let cal = cfg.widgets.iter().find(|w| w.id == "calendar").unwrap();
+        assert_eq!((cal.anchor, cal.x, cal.y, cal.card), (Anchor::Center, 12.0, -40.0, false));
+        let clock = cfg.widgets.iter().find(|w| w.id == "clock#0").unwrap();
+        assert_eq!((clock.anchor, clock.y), (Anchor::Top, 8.0));
+        let back = Settings::from_config(&cfg);
+        assert_eq!(back.widgets.len(), 1);
+        assert_eq!(back.placements, s.placements);
+        // Déplacement en direct, identique au rechargement.
+        let mut moved = back.clone();
+        moved.place_widget("clock#0", Placement { anchor: Anchor::BottomLeft, x: 4.0, y: 4.0, size: 30.0, card: false });
+        let live = moved.apply_to(&cfg);
+        let reloaded = load_chunks(&chunks(moved.to_lua()), Path::new("/cfg")).unwrap().config;
+        assert_eq!(live.widgets, reloaded.widgets);
     }
 
     #[test]

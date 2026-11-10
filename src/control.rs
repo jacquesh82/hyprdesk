@@ -20,7 +20,7 @@ pub enum Command {
     Status,
     Quit,
     /// Affiche le bureau et ouvre l'écran Réglages sur un onglet
-    /// (0 bureau, 1 icônes, 2 fond d'écran, 3 effets).
+    /// (0 bureau, 1 icônes, 2 fond d'écran, 3 effets, 4 widgets).
     Settings(u8),
 }
 
@@ -37,6 +37,7 @@ impl Command {
             "settings icones" | "settings icônes" => Command::Settings(1),
             "settings fond" => Command::Settings(2),
             "settings effets" => Command::Settings(3),
+            "settings widgets" => Command::Settings(4),
             _ => return None,
         })
     }
@@ -52,6 +53,7 @@ impl Command {
             Command::Settings(1) => "settings icones",
             Command::Settings(2) => "settings fond",
             Command::Settings(3) => "settings effets",
+            Command::Settings(4) => "settings widgets",
             Command::Settings(_) => "settings",
         }
     }

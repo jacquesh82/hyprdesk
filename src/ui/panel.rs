@@ -18,7 +18,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::{App, Msg, color, list_images};
 use crate::config::resolve::resolve;
-use crate::config::{Fit, Mode, Origin, Rgba, RunningApps, Selector, ShowOn, Transition, WallSource};
+use crate::config::{Anchor, Fit, Mode, Origin, Placement, Rgba, RunningApps, Selector, ShowOn, Transition, WallSource, WidgetSource};
 use crate::launch::{self, AppInfo};
 use crate::settings::hex;
 
@@ -27,6 +27,7 @@ pub enum Tab {
     Desktop,
     Icons,
     Wallpaper,
+    Widgets,
     Effects,
 }
 
@@ -90,6 +91,17 @@ pub enum PanelMsg {
     CrossfadeMs(u64),
     Accent(Rgba),
     Themes(Vec<String>),
+    /// Active ou retire un type de widget.
+    WidgetToggle(String, bool),
+    RescanWidgets,
+    OpenWidgetDir,
+    SelectWidget(String),
+    WidgetAnchor(Anchor),
+    WidgetX(f32),
+    WidgetY(f32),
+    WidgetSize(f32),
+    WidgetCard(bool),
+    WidgetReset,
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
     /// Idem, puis rejoue l'apparition du bureau (aperçu de la durée).
@@ -109,6 +121,8 @@ pub struct Panel {
     add_to_workspace: bool,
     hex: String,
     themes: Vec<String>,
+    /// Widget sélectionné (liste ou clic sur le bureau).
+    pub widget_sel: Option<String>,
 }
 
 /// Couleurs proposées (palette Dracula PRO).
@@ -150,7 +164,14 @@ impl Panel {
             add_to_workspace: false,
             hex: String::new(),
             themes: Vec::new(),
+            widget_sel: None,
         }
+    }
+
+    /// Sélectionne un widget et affiche son onglet.
+    pub fn select_widget(&mut self, id: &str) {
+        self.widget_sel = Some(id.to_string());
+        self.tab = Tab::Widgets;
     }
 }
 
@@ -212,6 +233,26 @@ impl App {
     fn commit(&mut self) -> Task<Msg> {
         let applied = self.apply();
         Task::batch([applied, self.save()])
+    }
+
+    /// Enregistre puis recharge : activer ou retirer un widget demande de
+    /// relancer sa configuration (fonctions Lua des plugins).
+    fn commit_reload(&self) -> Task<Msg> {
+        self.save().chain(Task::done(Msg::ConfigChanged))
+    }
+
+    fn selected_placement(&self) -> Option<(String, Placement)> {
+        let id = self.panel.as_ref()?.widget_sel.clone()?;
+        let w = self.cfg.widgets.iter().find(|w| w.id == id)?;
+        Some((id, w.placement()))
+    }
+
+    /// Modifie le placement du widget sélectionné et l'applique tout de suite.
+    fn edit_placement(&mut self, f: impl FnOnce(&mut Placement)) -> Task<Msg> {
+        let Some((id, mut p)) = self.selected_placement() else { return Task::none() };
+        f(&mut p);
+        self.settings.place_widget(&id, p);
+        self.apply()
     }
 
     fn save(&self) -> Task<Msg> {
@@ -444,6 +485,59 @@ impl App {
                 self.commit()
             }
             PanelMsg::Commit => self.commit(),
+            PanelMsg::WidgetToggle(type_id, on) => {
+                if on {
+                    let anchor = self.cfg.catalog.iter().find(|t| t.id == type_id).map(|t| t.anchor).unwrap_or_default();
+                    let taken: Vec<String> = self.cfg.widgets.iter().map(|w| w.id.clone()).collect();
+                    let id = self.settings.add_widget(&type_id, anchor, &taken);
+                    if let Some(p) = self.panel.as_mut() {
+                        p.widget_sel = Some(id);
+                    }
+                } else {
+                    let ids: Vec<String> = self.settings.widgets.iter().filter(|w| w.type_id == type_id).map(|w| w.id.clone()).collect();
+                    for id in ids {
+                        self.settings.remove_widget(&id);
+                    }
+                }
+                self.commit_reload()
+            }
+            PanelMsg::RescanWidgets => Task::done(Msg::ConfigChanged),
+            PanelMsg::OpenWidgetDir => {
+                let dir = crate::widgets::plugins::dirs(self.config_path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+                let _ = std::fs::create_dir_all(&dir);
+                let cmd = format!("xdg-open {}", launch::sh_quote(&dir.display().to_string()));
+                Task::perform(async move { tokio::task::spawn_blocking(move || crate::hypr::exec(&cmd)).await }, |_| Msg::Noop)
+            }
+            PanelMsg::SelectWidget(id) => {
+                panel.widget_sel = Some(id);
+                Task::none()
+            }
+            PanelMsg::WidgetAnchor(a) => {
+                let t = self.edit_placement(|p| {
+                    p.anchor = a;
+                    p.x = 0.0;
+                    p.y = 0.0;
+                });
+                Task::batch([t, self.save()])
+            }
+            PanelMsg::WidgetX(v) => self.edit_placement(|p| p.x = v),
+            PanelMsg::WidgetY(v) => self.edit_placement(|p| p.y = v),
+            PanelMsg::WidgetSize(v) => self.edit_placement(|p| p.size = v),
+            PanelMsg::WidgetCard(v) => {
+                let t = self.edit_placement(|p| p.card = v);
+                Task::batch([t, self.save()])
+            }
+            PanelMsg::WidgetReset => {
+                let Some(id) = panel.widget_sel.clone() else { return Task::none() };
+                if let Some(w) = self.settings.widgets.iter_mut().find(|w| w.id == id) {
+                    let anchor = self.cfg.catalog.iter().find(|t| t.id == w.type_id).map(|t| t.anchor).unwrap_or_default();
+                    w.set_placement(&Placement { anchor, x: 0.0, y: 0.0, size: 0.0, card: true });
+                } else {
+                    self.settings.placements.remove(&id);
+                }
+                // La position d'origine d'un widget de hyprdesk.lua n'existe que dans Lua.
+                self.commit_reload()
+            }
             PanelMsg::CommitFade => {
                 let c = self.commit();
                 self.replay_fade();
@@ -498,7 +592,8 @@ impl App {
         let tabs = row![
             tab_btn("Bureau", Tab::Desktop),
             tab_btn("Icônes", Tab::Icons),
-            tab_btn("Fond d'écran", Tab::Wallpaper),
+            tab_btn("Fond", Tab::Wallpaper),
+            tab_btn("Widgets", Tab::Widgets),
             tab_btn("Effets", Tab::Effects),
         ]
         .spacing(6);
@@ -506,6 +601,7 @@ impl App {
             Tab::Desktop => self.tab_desktop(&ws),
             Tab::Icons => self.tab_icons(p),
             Tab::Wallpaper => self.tab_wallpaper(p),
+            Tab::Widgets => self.tab_widgets(p),
             Tab::Effects => self.tab_effects(),
         };
         let bg = color(th.bg, 0.94);
@@ -882,6 +978,176 @@ impl App {
             col = col.push(button(text("Supprimer la règle de cette portée").size(14)).padding([6, 12]).on_press(Msg::Panel(PanelMsg::RemoveWall)));
         }
         col.into()
+    }
+
+    fn tab_widgets<'a>(&'a self, p: &'a Panel) -> Element<'a, Msg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let (mon, ws) = self.panel_ctx().unwrap_or_default();
+        let plugin_dir = crate::widgets::plugins::dirs(self.config_path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+
+        // -- Catalogue ---------------------------------------------------------
+        let mut catalog = column![].spacing(10);
+        for t in &self.cfg.catalog {
+            let in_settings = self.settings.widgets.iter().any(|w| w.type_id == t.id);
+            let in_user = self.cfg.widgets.iter().filter(|w| w.type_id == t.id && w.origin == Origin::User).count();
+            let source = match &t.source {
+                WidgetSource::Builtin => "intégré".to_string(),
+                WidgetSource::Plugin(path) => format!("plugin · {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            };
+            let mut info = column![
+                row![text(t.name.clone()).size(15).color(fg), text(source).size(11).color(dim)].spacing(8).align_y(Alignment::Center),
+            ]
+            .spacing(2)
+            .width(Length::Fill);
+            if !t.description.is_empty() {
+                info = info.push(text(t.description.clone()).size(12).color(dim));
+            }
+            if in_user > 0 {
+                info = info.push(text(format!("déjà déclaré {in_user} fois dans hyprdesk.lua")).size(11).color(dim));
+            }
+            if let Some(e) = &t.error {
+                info = info.push(text(format!("⚠ {e}")).size(12).color(warn));
+            }
+            let control: Element<'_, Msg> = if t.error.is_some() {
+                Space::new().into()
+            } else if t.toggleable {
+                let id = t.id.clone();
+                toggler(in_settings).on_toggle(move |on| Msg::Panel(PanelMsg::WidgetToggle(id.clone(), on))).into()
+            } else {
+                text("dans hyprdesk.lua").size(11).color(dim).into()
+            };
+            catalog = catalog.push(row![info, control].spacing(12).align_y(Alignment::Center));
+        }
+
+        // -- Widgets de ce bureau ---------------------------------------------
+        let desk = resolve(&self.cfg, &mon, &ws);
+        let mut active = column![].spacing(4);
+        if desk.widgets.is_empty() {
+            active = active.push(text("Aucun widget sur ce bureau.").size(13).color(dim));
+        }
+        for w in &desk.widgets {
+            let name = self.cfg.catalog.iter().find(|t| t.id == w.type_id).map(|t| t.name.clone()).unwrap_or_else(|| w.type_id.clone());
+            let from = if w.origin == Origin::Settings { "réglages" } else { "hyprdesk.lua" };
+            let selected = p.widget_sel.as_deref() == Some(w.id.as_str());
+            let accent = color(g.theme.accent, 1.0);
+            active = active.push(
+                button(row![text(name).size(14).width(Length::Fill), text(format!("{} · {from}", w.id)).size(11).color(dim)].spacing(8))
+                    .width(Length::Fill)
+                    .padding([6, 10])
+                    .on_press(Msg::Panel(PanelMsg::SelectWidget(w.id.clone())))
+                    .style(move |_, s| button::Style {
+                        background: if selected {
+                            Some(Background::Color(Color { a: 0.3, ..accent }))
+                        } else if matches!(s, button::Status::Hovered) {
+                            Some(Background::Color(Color { a: 0.08, ..fg }))
+                        } else {
+                            None
+                        },
+                        text_color: fg,
+                        border: Border::default().rounded(6),
+                        ..Default::default()
+                    }),
+            );
+        }
+
+        // -- Placement du widget sélectionné ----------------------------------
+        let editor: Element<'_, Msg> = match self.selected_placement() {
+            None => text("Sélectionnez un widget dans la liste ou cliquez-le sur le bureau.").size(12).color(dim).into(),
+            Some((id, pl)) => {
+                let accent = color(g.theme.accent, 1.0);
+                let cell = |a: Anchor| {
+                    let on = pl.anchor == a;
+                    button(Space::new().width(26).height(18))
+                        .padding(0)
+                        .on_press(Msg::Panel(PanelMsg::WidgetAnchor(a)))
+                        .style(move |_, s| button::Style {
+                            background: Some(Background::Color(if on {
+                                accent
+                            } else if matches!(s, button::Status::Hovered) {
+                                Color { a: 0.35, ..fg }
+                            } else {
+                                Color { a: 0.12, ..fg }
+                            })),
+                            border: Border::default().rounded(4),
+                            ..Default::default()
+                        })
+                };
+                let grid = column![
+                    row![cell(Anchor::TopLeft), cell(Anchor::Top), cell(Anchor::TopRight)].spacing(4),
+                    row![cell(Anchor::Left), cell(Anchor::Center), cell(Anchor::Right)].spacing(4),
+                    row![cell(Anchor::BottomLeft), cell(Anchor::Bottom), cell(Anchor::BottomRight)].spacing(4),
+                ]
+                .spacing(4);
+                let user_widget = self.cfg.widgets.iter().any(|w| w.id == id && w.origin == Origin::User);
+                let mut c = column![
+                    text(format!("Placement de « {id} »")).size(14).color(fg),
+                    self.field("Ancrage", "", grid),
+                    self.field(
+                        "Décalage horizontal",
+                        "",
+                        row![
+                            slider(-800.0..=800.0f32, pl.x.clamp(-800.0, 800.0), |v| Msg::Panel(PanelMsg::WidgetX(v)))
+                                .step(2.0f32)
+                                .on_release(Msg::Panel(PanelMsg::Commit))
+                                .width(300),
+                            text(format!("{:+.0} px", pl.x)).size(13),
+                        ]
+                        .spacing(12),
+                    ),
+                    self.field(
+                        "Décalage vertical",
+                        "",
+                        row![
+                            slider(-800.0..=800.0f32, pl.y.clamp(-800.0, 800.0), |v| Msg::Panel(PanelMsg::WidgetY(v)))
+                                .step(2.0f32)
+                                .on_release(Msg::Panel(PanelMsg::Commit))
+                                .width(300),
+                            text(format!("{:+.0} px", pl.y)).size(13),
+                        ]
+                        .spacing(12),
+                    ),
+                    self.field(
+                        "Taille du texte",
+                        "",
+                        row![
+                            slider(0.0..=160.0f32, pl.size.clamp(0.0, 160.0), |v| Msg::Panel(PanelMsg::WidgetSize(v)))
+                                .step(1.0f32)
+                                .on_release(Msg::Panel(PanelMsg::Commit))
+                                .width(300),
+                            text(if pl.size <= 0.0 { "auto".to_string() } else { format!("{:.0} px", pl.size) }).size(13),
+                        ]
+                        .spacing(12),
+                    ),
+                    self.field("Fond en carte", "", toggler(pl.card).on_toggle(|v| Msg::Panel(PanelMsg::WidgetCard(v)))),
+                    button(text("Réinitialiser la position").size(13)).padding([6, 12]).on_press(Msg::Panel(PanelMsg::WidgetReset)),
+                ]
+                .spacing(12);
+                if user_widget {
+                    c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").size(11).color(dim));
+                }
+                c.into()
+            }
+        };
+
+        column![
+            self.section("Sur ce bureau"),
+            text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.").size(12).color(dim),
+            active,
+            editor,
+            self.section("Widgets disponibles"),
+            catalog,
+            row![
+                button(text("Rechercher de nouveaux widgets").size(13)).padding([6, 12]).on_press(Msg::Panel(PanelMsg::RescanWidgets)),
+                button(text("Ouvrir le dossier des plugins").size(13)).padding([6, 12]).on_press(Msg::Panel(PanelMsg::OpenWidgetDir)),
+            ]
+            .spacing(8),
+            text(format!("Nouveaux widgets : déposer un fichier .lua dans {} — détecté automatiquement.", plugin_dir.display())).size(11).color(dim),
+        ]
+        .spacing(14)
+        .into()
     }
 
     fn tab_effects(&self) -> Element<'_, Msg> {

@@ -25,7 +25,7 @@ Commandes :
   toggle            affiche ou masque le bureau
   show | hide       affiche / masque le bureau
   settings [onglet] affiche le bureau et ouvre l'écran Réglages
-                    (onglet : bureau, icones, fond, effets)
+                    (onglet : bureau, icones, fond, widgets, effets)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -58,6 +58,23 @@ hl.layer_rule({
 })
 "#;
 
+/// Plugins de widgets d'exemple, déposés s'ils n'existent pas encore.
+const EXAMPLE_WIDGETS: &[(&str, &str)] =
+    &[("meteo.lua", include_str!("../assets/widgets/meteo.lua")), ("notes.lua", include_str!("../assets/widgets/notes.lua"))];
+
+fn install_example_widgets(config_path: &std::path::Path) {
+    let dir = widgets::plugins::dirs(config_path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    for (name, src) in EXAMPLE_WIDGETS {
+        let p = dir.join(name);
+        if !p.exists() && std::fs::write(&p, src).is_ok() {
+            println!("écrit : {}", p.display());
+        }
+    }
+}
+
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_env("HYPRDESK_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,naga=warn,iced_wgpu=warn"));
@@ -70,8 +87,15 @@ fn daemon(path: PathBuf) -> ExitCode {
         eprintln!("hyprdesk : un démon tourne déjà (hyprdesk status)");
         return ExitCode::FAILURE;
     }
+    // Le dossier des modules et des plugins doit exister dès le démarrage :
+    // c'est lui que la surveillance suit pour détecter les nouveaux widgets.
+    let widget_dir = widgets::plugins::dirs(path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+    if let Err(e) = std::fs::create_dir_all(&widget_dir) {
+        tracing::warn!("création de {} : {e}", widget_dir.display());
+    }
     match config::ensure_exists(&path) {
         Ok(true) => {
+            install_example_widgets(&path);
             tracing::info!("configuration d'exemple écrite dans {}", path.display());
             hypr::notify(1, 6000, &format!("hyprdesk : configuration d'exemple créée — {}", path.display()));
         }
@@ -134,6 +158,7 @@ fn main() -> ExitCode {
         "init" => match config::ensure_exists(&config_path) {
             Ok(true) => {
                 println!("écrit : {}", config_path.display());
+                install_example_widgets(&config_path);
                 ExitCode::SUCCESS
             }
             Ok(false) => {
