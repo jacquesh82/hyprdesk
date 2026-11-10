@@ -8,6 +8,10 @@ enum Request {
     /// Rend une seule fenêtre (par adresse), les autres restent de côté.
     RestoreOne(String, oneshot::Sender<Result<(), String>>),
     Submap(bool, oneshot::Sender<Result<(), String>>),
+    /// Bureau masqué : ses fenêtres flottantes partent avec lui.
+    Park(Vec<String>, oneshot::Sender<Result<(), String>>),
+    /// Bureau affiché ou arrêt : elles reviennent.
+    Unpark(oneshot::Sender<Result<(), String>>),
 }
 
 pub struct WindowManager(std::sync::mpsc::SyncSender<Request>);
@@ -29,6 +33,12 @@ impl WindowManager {
             };
             while let Ok(request) = rx.recv() {
                 match request {
+                    Request::Park(addresses, reply) => {
+                        let _ = reply.send(hypr::park_desk_windows(&addresses));
+                    }
+                    Request::Unpark(reply) => {
+                        let _ = reply.send(hypr::unpark_desk_windows());
+                    }
                     Request::Submap(active, reply) => {
                         hypr::set_submap(active.then_some(hypr::SUBMAP));
                         let _ = reply.send(Ok(()));
@@ -90,7 +100,9 @@ impl WindowManager {
                 Request::Stash(_, reply)
                 | Request::Restore(_, reply)
                 | Request::RestoreOne(_, reply)
-                | Request::Submap(_, reply) => {
+                | Request::Submap(_, reply)
+                | Request::Park(_, reply)
+                | Request::Unpark(reply) => {
                     let _ = reply.send(Err(crate::i18n::tr(
                         "gestionnaire de fenêtres occupé ou arrêté",
                     )
@@ -111,6 +123,14 @@ impl WindowManager {
 
     pub fn restore_window(&self, address: &str) -> oneshot::Receiver<Result<(), String>> {
         self.enqueue(|reply| Request::RestoreOne(address.to_owned(), reply))
+    }
+
+    pub fn park(&self, addresses: Vec<String>) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(|reply| Request::Park(addresses, reply))
+    }
+
+    pub fn unpark(&self) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(Request::Unpark)
     }
 
     pub fn submap(&self, active: bool) -> oneshot::Receiver<Result<(), String>> {

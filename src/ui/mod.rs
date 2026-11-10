@@ -321,6 +321,10 @@ pub struct App {
     windows: crate::windows::WindowManager,
     /// Fenêtres ouvertes pendant la session bureau : le bureau les contient.
     session_windows: HashSet<String>,
+    /// Parmi elles, celles OUVERTES sur le bureau (pas celles qu'on y a
+    /// ramenées) : flottantes, elles suivent le bureau quand il est masqué
+    /// (`hypr::DESK`) et reviennent avec lui.
+    desk_windows: HashSet<String>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -624,6 +628,7 @@ impl App {
                 crate::windows::WindowManager::spawn()
             },
             session_windows: HashSet::new(),
+            desk_windows: HashSet::new(),
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -1473,6 +1478,9 @@ impl App {
                 tasks.extend(self.activate_surface(id, has_focus));
             }
         }
+        // Les fenêtres du bureau, parties avec lui, reviennent (après la mise
+        // de côté des autres : l'acteur traite les demandes dans l'ordre).
+        tasks.extend(self.bring_back_desk_windows());
         self.last_poll.clear();
         tasks.push(Task::done(Msg::Poll));
         tasks.push(self.refresh_walls());
@@ -1546,7 +1554,13 @@ impl App {
                 self.fire(HookEvent::Hide, "hide", m);
             }
         }
-        // Les fenêtres mises de côté reviennent, à côté de celles ouvertes depuis le bureau.
+        // Les fenêtres flottantes ouvertes sur le bureau partent avec lui
+        // (avant le retour des fenêtres mises de côté, qui reprennent le focus).
+        let desk: Vec<String> = self.desk_windows.drain().collect();
+        if !desk.is_empty() {
+            tasks.push(Self::window_result(self.windows.park(desk)));
+        }
+        // Les fenêtres mises de côté reviennent.
         tasks.push(self.restore_stash(None));
         tasks.push(self.sync_window_gaps());
         tasks.push(self.refresh_walls());
@@ -1554,6 +1568,33 @@ impl App {
         tasks.push(self.sync_submap());
         tasks.push(self.finish_fade());
         Task::batch(tasks)
+    }
+
+    /// Fenêtres en attente dans `hypr::DESK` : elles reviennent sur le bureau
+    /// affiché et en refont partie (elles repartiront s'il est masqué).
+    fn bring_back_desk_windows(&mut self) -> Vec<Task<Msg>> {
+        let parked: Vec<String> = self
+            .clients
+            .iter()
+            .filter(|c| c.workspace == hypr::DESK)
+            .map(|c| c.address.clone())
+            .collect();
+        if parked.is_empty() {
+            return Vec::new();
+        }
+        for a in &parked {
+            self.session_windows.insert(a.clone());
+            self.desk_windows.insert(a.clone());
+        }
+        let mut tasks = vec![Self::window_result(self.windows.unpark())];
+        for id in self.raised.iter().copied().collect::<Vec<_>>() {
+            tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                id,
+                keyboard_interactivity: KeyboardInteractivity::OnDemand,
+            }));
+        }
+        tasks.push(self.sync_submap());
+        tasks
     }
 
     /// En fin de fondu sortant, les surfaces redescendent sur `background`.
@@ -2358,8 +2399,9 @@ impl App {
                     if self.in_submap {
                         drop(self.windows.submap(false));
                     }
-                    // Rien ne doit rester de côté après l'arrêt.
-                    self.restore_stash(None)
+                    // Rien ne doit rester de côté après l'arrêt, ni caché avec le bureau.
+                    Self::window_result(self.windows.unpark())
+                        .chain(self.restore_stash(None))
                         .chain(Task::perform(
                             async {
                                 crate::session::stop_all().await;
@@ -2598,7 +2640,7 @@ impl App {
                     let fresh: Vec<Client> = list
                         .iter()
                         .filter(|c| !self.clients.iter().any(|o| o.address == c.address))
-                        .filter(|c| c.workspace != hypr::STASH)
+                        .filter(|c| c.workspace != hypr::STASH && c.workspace != hypr::DESK)
                         .cloned()
                         .collect();
                     for c in fresh {
@@ -2618,6 +2660,7 @@ impl App {
                             continue;
                         }
                         self.session_windows.insert(c.address.clone());
+                        self.desk_windows.insert(c.address.clone());
                         for id in surfaces {
                             tasks.push(Task::done(Msg::KeyboardInteractivityChange {
                                 id,
@@ -2628,6 +2671,8 @@ impl App {
                     tasks.push(self.sync_submap());
                 }
                 self.session_windows
+                    .retain(|address| list.iter().any(|c| &c.address == address));
+                self.desk_windows
                     .retain(|address| list.iter().any(|c| &c.address == address));
                 tasks.push(self.sync_submap());
                 self.clients = list;
@@ -4040,6 +4085,26 @@ mod regression_tests {
         Arc::make_mut(&mut app.cfg).general.show_on = ShowOn::Focused;
         let _ = app.set_monitors(vec![monitor("A", false), monitor("B", true)]);
         assert_eq!(app.raised, HashSet::from([b]));
+    }
+
+    #[test]
+    fn desk_windows_follow_the_desktop() {
+        let mut app = app();
+        app.visible = true;
+        app.session_windows.insert("0x1".into());
+        app.desk_windows.insert("0x1".into());
+        let _ = app.hide();
+        assert!(app.desk_windows.is_empty() && app.session_windows.is_empty());
+        // Parties dans DESK : elles reviennent au prochain affichage, du bureau à nouveau.
+        app.clients = vec![hypr::Client {
+            address: "0x1".into(),
+            class: "kitty".into(),
+            title: String::new(),
+            workspace: hypr::DESK.into(),
+        }];
+        app.fade = None;
+        let _ = app.show();
+        assert!(app.desk_windows.contains("0x1") && app.session_windows.contains("0x1"));
     }
 
     #[test]

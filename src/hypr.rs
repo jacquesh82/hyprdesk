@@ -877,6 +877,84 @@ pub fn current_submap() -> String {
 /// Workspace spécial où attendent les fenêtres mises de côté.
 pub const STASH: &str = "special:hyprdesk";
 
+/// Workspace spécial du bureau : les fenêtres flottantes ouvertes sur le
+/// bureau y attendent quand il est masqué, et reviennent avec lui.
+pub const DESK: &str = "special:hyprdesk-bureau";
+
+/// Parmi ces adresses, les fenêtres flottantes (liste `clients` de Hyprland).
+pub fn floating_among(clients: &Value, addresses: &[String]) -> Vec<String> {
+    clients
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["floating"].as_bool() == Some(true))
+        .filter_map(|c| c["address"].as_str())
+        .filter(|a| addresses.iter().any(|x| x == a))
+        .map(String::from)
+        .collect()
+}
+
+/// Fenêtres d'un workspace (par nom).
+pub fn windows_on(clients: &Value, workspace: &str) -> Vec<String> {
+    clients
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["workspace"]["name"].as_str() == Some(workspace))
+        .filter_map(|c| c["address"].as_str().map(String::from))
+        .collect()
+}
+
+/// Workspace ordinaire de l'écran qui a le focus.
+pub fn focused_workspace() -> String {
+    let monitors = ipc::query_json("monitors").unwrap_or(Value::Null);
+    let workspaces = ipc::query_json("workspaces").unwrap_or(Value::Null);
+    let focused = monitors
+        .as_array()
+        .and_then(|l| l.iter().find(|m| m["focused"].as_bool() == Some(true)))
+        .and_then(|m| m["name"].as_str())
+        .unwrap_or("")
+        .to_string();
+    regular_workspace(&monitors, &workspaces, &focused)
+}
+
+/// Bureau masqué : ses fenêtres flottantes partent dans `DESK`.
+pub fn park_desk_windows(addresses: &[String]) -> Result<(), String> {
+    let clients = ipc::query_json("clients").map_err(|e| e.to_string())?;
+    let mut errors = Vec::new();
+    for a in floating_among(&clients, addresses) {
+        if let Err(e) = move_window(&a, DESK) {
+            errors.push(e.to_string());
+        }
+    }
+    close_special_view(DESK);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(" ; "))
+    }
+}
+
+/// Bureau affiché (ou hyprdesk qui s'arrête) : les fenêtres de `DESK`
+/// reviennent sur le workspace ordinaire de l'écran qui a le focus.
+pub fn unpark_desk_windows() -> Result<(), String> {
+    let clients = ipc::query_json("clients").map_err(|e| e.to_string())?;
+    let parked = windows_on(&clients, DESK);
+    if parked.is_empty() {
+        return Ok(());
+    }
+    let target = focused_workspace();
+    let errors: Vec<String> = parked
+        .iter()
+        .filter_map(|a| move_window(a, &target).err().map(|e| e.to_string()))
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(" ; "))
+    }
+}
+
 /// Fenêtre mise de côté : où la rendre.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Stashed {
@@ -907,6 +985,12 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
 /// quand la fenêtre qui avait le focus y part, Hyprland l'ouvre pour suivre
 /// le focus, et les fenêtres réapparaissent par-dessus le bureau.
 pub fn close_stash_view() {
+    close_special_view(STASH);
+}
+
+/// Referme un workspace spécial de hyprdesk (`special:…`) s'il s'est ouvert
+/// pour suivre le focus d'une fenêtre qu'on y a envoyée.
+pub fn close_special_view(special: &str) {
     let Ok(v) = ipc::query_json("monitors") else {
         return;
     };
@@ -921,8 +1005,8 @@ pub fn close_stash_view() {
     let stuck: Vec<String> = list
         .iter()
         .filter(|m| {
-            m["activeWorkspace"]["name"].as_str() == Some(STASH)
-                && m["specialWorkspace"]["name"].as_str() != Some(STASH)
+            m["activeWorkspace"]["name"].as_str() == Some(special)
+                && m["specialWorkspace"]["name"].as_str() != Some(special)
         })
         .filter_map(|m| m["name"].as_str().map(String::from))
         .collect();
@@ -935,7 +1019,7 @@ pub fn close_stash_view() {
                 crate::tr!(
                     "{mon} affichait {stash} comme workspace ordinaire : retour sur {target}",
                     mon = mon,
-                    stash = STASH,
+                    stash = special,
                     target = target
                 )
             );
@@ -956,13 +1040,13 @@ pub fn close_stash_view() {
     }
     let open: Vec<String> = list
         .iter()
-        .filter(|m| m["specialWorkspace"]["name"].as_str() == Some(STASH))
+        .filter(|m| m["specialWorkspace"]["name"].as_str() == Some(special))
         .filter_map(|m| m["name"].as_str().map(String::from))
         .collect();
     if open.is_empty() {
         return;
     }
-    let name = STASH.trim_start_matches("special:");
+    let name = special.trim_start_matches("special:");
     for mon in &open {
         // toggle_special agit sur l'écran qui a le focus.
         if Some(mon) != focused.as_ref() {
@@ -977,7 +1061,7 @@ pub fn close_stash_view() {
         )) {
             tracing::warn!(
                 "{}",
-                crate::tr!("fermeture de {stash} : {e}", stash = STASH, e = e)
+                crate::tr!("fermeture de {stash} : {e}", stash = special, e = e)
             );
         }
     }
@@ -1224,6 +1308,21 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fenetres_du_bureau() {
+        let clients = serde_json::json!([
+            { "address": "0x1", "floating": true, "workspace": { "name": "2" } },
+            { "address": "0x2", "floating": false, "workspace": { "name": "2" } },
+            { "address": "0x3", "floating": true, "workspace": { "name": DESK } },
+            { "address": "0x4", "floating": true, "workspace": { "name": "2" } },
+        ]);
+        // Seules les flottantes ouvertes sur le bureau partent avec lui.
+        let ours = vec!["0x1".to_string(), "0x2".to_string()];
+        assert_eq!(floating_among(&clients, &ours), vec!["0x1".to_string()]);
+        assert_eq!(windows_on(&clients, DESK), vec!["0x3".to_string()]);
+        assert!(DESK.starts_with("special:") && DESK != STASH);
+    }
 
     #[test]
     fn marges_du_bureau_avec_les_fenetres() {
