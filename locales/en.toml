@@ -1265,3 +1265,13 @@
 "polkit : {e}" = "polkit: {e}"
 "polkit-agent-helper-1 introuvable" = "polkit-agent-helper-1 not found"
 "  polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)" = "  polkit-agent      polkit authentication agent in the terminal (testing, or a session without the daemon)"
+
+# Fenêtre de l'agent polkit (MLG-5).
+"Authentification requise" = "Authentication required"
+"Authentification requise pour monter un disque" = "Authentication is required to mount a disk"
+"Authentifier" = "Authenticate"
+"Compte : {u} · {a}" = "Account: {u} · {a}"
+"agent polkit en place" = "polkit agent running"
+"agent polkit non enregistré ({e}) : un autre agent est sans doute en place" = "polkit agent not registered ({e}): another agent is probably running"
+"polkit : autorisé" = "polkit: authorized"
+"polkit : refusé ou annulé" = "polkit: denied or cancelled"

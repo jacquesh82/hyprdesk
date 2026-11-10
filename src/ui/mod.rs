@@ -19,6 +19,7 @@ mod icons;
 mod osd;
 mod panel;
 pub(crate) mod plugins;
+mod polkit;
 mod popover;
 pub mod preview;
 mod tour;
@@ -167,6 +168,8 @@ pub enum Msg {
     Rotate,
     /// L'affichage à l'écran (OSD) s'efface-t-il ?
     OsdTick,
+    /// Agent polkit : demande de mot de passe, saisie, réponse.
+    Polkit(polkit::PMsg),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -330,6 +333,8 @@ pub struct App {
     desk_windows: HashSet<String>,
     /// Affichage à l'écran des touches de volume et de luminosité.
     osd: Option<osd::Osd>,
+    /// Carte d'authentification polkit ouverte.
+    polkit: Option<polkit::Dialog>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -635,6 +640,7 @@ impl App {
             session_windows: HashSet::new(),
             desk_windows: HashSet::new(),
             osd: None,
+            polkit: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -2856,6 +2862,7 @@ impl App {
                 self.refresh_walls()
             }
             Msg::OsdTick => self.osd_tick(),
+            Msg::Polkit(m) => self.polkit_update(m),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3130,6 +3137,16 @@ impl App {
                     self.osd = None;
                     return Task::none();
                 }
+                // Carte polkit fermée par le compositeur : la saisie est annulée.
+                if self.polkit.as_ref().is_some_and(|d| d.win == id) {
+                    if let Some(mut d) = self.polkit.take() {
+                        if let Some(r) = d.reply.take() {
+                            r.send(None);
+                        }
+                        crate::lock::pam::wipe(&mut d.input);
+                    }
+                    return Task::none();
+                }
                 if self
                     .popover
                     .as_ref()
@@ -3304,6 +3321,8 @@ impl App {
     fn subscription(&self) -> Subscription<Msg> {
         let mut subs = vec![
             Subscription::run(control::server_stream).map(Msg::Control),
+            // Agent polkit (fenêtre de saisie) ; inactif si un autre agent est en place.
+            Subscription::run(polkit::stream).map(|e| Msg::Polkit(polkit::PMsg::Event(e))),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {
@@ -3423,6 +3442,9 @@ impl App {
         }
         if self.osd.as_ref().is_some_and(|o| o.win == id) {
             return self.view_osd();
+        }
+        if self.polkit.as_ref().is_some_and(|d| d.win == id) {
+            return self.view_polkit();
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3769,6 +3791,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Frame => "Frame",
         Msg::Rotate => "Rotate",
         Msg::OsdTick => "OsdTick",
+        Msg::Polkit(..) => "Polkit",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",

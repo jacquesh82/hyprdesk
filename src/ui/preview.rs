@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 37] = [
+const SCENES: [&str; 38] = [
     "desktop",
     "typography",
     "icons",
@@ -61,6 +61,7 @@ const SCENES: [&str; 37] = [
     "osd",
     "animations",
     "animations-effets",
+    "polkit",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -489,6 +490,28 @@ impl Preview {
             self.app.subtabs.insert("theme", "texte");
         }
         // Verrouillage → Veille, hyprdesk gérant la veille (délais par défaut).
+        // Agent polkit : la carte de saisie, une tentative refusée.
+        if SCENES[self.scene] == "polkit" {
+            self.app.polkit = Some(super::polkit::Dialog {
+                win: iced::window::Id::unique(),
+                req: crate::polkit::Request {
+                    action: "org.freedesktop.udisks2.filesystem-mount".into(),
+                    message: crate::i18n::tr("Authentification requise pour monter un disque")
+                        .into(),
+                    user: "jacques".into(),
+                    cookie: String::new(),
+                    attempt: 2,
+                },
+                text: "Mot de passe :".into(),
+                echo: false,
+                input: "secret".into(),
+                message: Some((
+                    crate::i18n::tr("Mot de passe refusé, réessayez.").into(),
+                    true,
+                )),
+                reply: Some(super::polkit::Responder::detached()),
+            });
+        }
         // L'affichage à l'écran n'appartient qu'à sa scène.
         if SCENES[self.scene] != "osd" {
             self.app.osd = None;
@@ -789,6 +812,16 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.polkit.is_some() {
+            layers.push(
+                container(self.app.view_polkit())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into(),
             );
         }
         if self.app.osd.is_some() {
