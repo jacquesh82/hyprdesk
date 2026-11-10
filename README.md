@@ -70,17 +70,30 @@ or all — grouped by application or workspace), then the ⚙ settings button.
 The ⚙ button, or `hyprdesk settings [desktop|icons|wallpaper|…]`, opens a
 drawer on the right; the desktop stays visible and usable beside it.
 
-| Tab | Settings |
-|---|---|
-| Desktop | desktop on all screens, the active screen or the primary screen; close after a launch; open windows floating; opaque or glass mode; veil opacity; shortcuts; session components |
-| Wallpaper | scope (all desktops, this workspace, this screen); image picked from a folder (thumbnails), slideshow or solid color; fit |
-| Widgets | available widgets (built-in and detected plugins); placement: 3×3 anchoring, offsets, size, card; drag and drop |
-| Theme | bundled themes (Ardoise, Glass, Encre, Forêt, Ambre, Clair), custom themes created from an image, colors, text |
-| Effects | transition (fade, slide, none) and duration; crossfade between wallpapers; accent color |
-| Screens | detected screens on a to-scale map; position, orientation, mirroring, resolution, refresh rate, scale, primary; each change applies live, then is kept (`monitors.lua`) or reverts after 12 s |
-| Workspaces | number of persistent workspaces; assigning an application to a workspace |
-| Layouts | Hyprland window layouts: Dwindle, Master, Scrolling, Monocle — default and per workspace, applied live |
-| Bar | show, position, height, screens; modules per zone (left, center, right) |
+| Group | Tab | Settings |
+|---|---|---|
+| Desktop | Desktop | screens shown on (all, the active one, the primary one); close after a launch; open windows floating; opaque or glass mode, default and per workspace; veil opacity; shortcuts and conflicts |
+| | Wallpaper | scope (all desktops, this workspace, this screen); image from a folder (thumbnails), slideshow or solid color; fit |
+| | Icons | application shortcuts, everywhere or on one workspace; icon and cell size; icon theme; reset positions |
+| | Widgets | on this desktop / available (built-in and detected plugins); 3×3 anchoring, offsets, size, card; drag and drop |
+| Appearance | Theme | bundled themes (Ardoise, Glass, Encre, Forêt, Ambre, Clair) and custom themes created from an image; colors; text; effects per place |
+| | App theming | the hyprdesk theme applied to other software (kitty to start with) |
+| | Effects * | transition (fade, slide, none) and duration; wallpaper crossfade; accent color |
+| Bar and launcher | Bar | show, position, height, screens; modules per zone (left, center, right); colors |
+| | Launcher | windows shown in the dock, grouping; appearance; pinned apps |
+| Windows and screens | Screens | detected screens on a to-scale map; position, orientation, mode, refresh rate, scale, primary; live apply, keep (`monitors.lua`) or revert after 12 s |
+| | Workspaces | number of persistent workspaces; screen assignment; assigning an application to a workspace |
+| | Layouts | Dwindle, Master, Scrolling, Monocle — default and per workspace, applied live; custom Lua layouts |
+| Applications | Applications | default application per role (browser, terminal, images, video, AI assistant…) |
+| | AI assistant | provider, opening mode, context — see [AI assistant](#ai-assistant) |
+| System | Lock | lock screen: wallpaper, displayed contents, lock now |
+| | Sharing * | export/import the whole setup, or the theme alone |
+| | Plugins * | built-in packages and Lua plugins: state, activation, adding a third-party plugin |
+
+\* Advanced configuration only — behind the **Advanced settings** toggle in
+the panel header, like the Session and Dependencies tabs of Desktop and the
+Effects tab of Theme. A **Guided tour** is available from the header, and
+every change is saved automatically.
 
 <p align="center">
   <img src="assets/screenshots/theme.png" width="400" alt="Settings drawer on the Theme tab: bundled themes Ardoise, Glass, Encre, Forêt, Ambre, Clair">
@@ -104,6 +117,36 @@ display comes back on its own.
 Settings are saved as generated Lua in `~/.config/hypr/hyprdesk/settings.lua`,
 loaded **before** `hyprdesk.lua`: anything you write by hand keeps the last
 word, and your file is never rewritten.
+
+## AI assistant
+
+hyprdesk integrates an assistant drawer over the desktop: it chats about your
+session, proposes changes with a live preview, and shows every command for you
+to accept or decline before anything runs.
+
+<p align="center">
+  <img src="assets/screenshots/assistant-chat.png" width="760" alt="Assistant drawer: a suggestion with live preview, and a hyprctl command to accept or decline">
+</p>
+
+- **The assistant is LYRA** (`hyprpanel-chat`), from
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
+  referenced here; it is not part of hyprdesk.
+- **Provider**: your Claude Code, Codex or Zcode subscription, chosen in
+  Settings → Applications → AI assistant and passed to the assistant; if it
+  does not support the provider option, it keeps its own choice.
+- **Context**: hyprdesk describes its whole environment — modes, settings
+  packages, applications, screens, workspaces, widgets, files, commands — as
+  Markdown (`hyprdesk context`), and writes it to the assistant's context
+  directory: the assistant knows your desktop before acting, and asks before
+  each command.
+- **Opening**: the drawer (`hyprdesk assistant`, without changing the desktop
+  mode), the assistant's own window, or the terminal — configured in the same
+  panel, along with the assistant button in the launcher and the
+  `hyprdesk open ai` shortcut.
+
+<p align="center">
+  <img src="assets/screenshots/assistant-settings.png" width="480" alt="Settings drawer on the AI assistant tab: provider (Claude Code, Codex, Zcode), opening mode, context">
+</p>
 
 ## Plug-n-play widgets
 
@@ -220,7 +263,9 @@ if you enable hyprdesk's.
 
 `hyprdesk menu <module>` opens a module menu from the keyboard;
 `hyprdesk open <role>` launches the default application for a role
-(`browser`, `terminal`, `ai`…).
+(`browser`, `terminal`, `ai`…). `hyprdesk assistant` opens or closes the
+assistant drawer without changing the desktop mode, and `hyprdesk context`
+prints the Markdown context hyprdesk hands to the assistant.
 
 ## In the Hyprland ecosystem
 

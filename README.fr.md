@@ -36,20 +36,63 @@ Chaque entrée des réglages est un **paquet intégré** (manifeste, messages,
 Le bouton ⚙ du dock, ou `hyprdesk settings [bureau|icones|fond|effets]`, ouvre
 un panneau par-dessus le bureau, sur l'écran actif. Il regroupe les réglages suivants :
 
-| Onglet | Réglages |
-|---|---|
-| Bureau | bureau sur tous les écrans, l'écran actif ou l'écran principal ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) ; session (composants, état, relance) |
-| Icônes | raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
-| Lanceur | dock du bureau : fenêtres affichées (aucune, ce workspace, toutes) ; regroupement (aucun, par application, par workspace) |
-| Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image choisie dans un dossier (vignettes), diaporama (intervalle, ordre aléatoire) ou couleur unie ; ajustement |
-| Barre | afficher, position, hauteur, écrans (tous, principal, un seul) ; modules par zone (gauche, centre, droite) : ajouter, ordonner, changer de zone, retirer |
-| Widgets | widgets disponibles (intégrés et plugins détectés), activation à l'unité ; placement des widgets du bureau : ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
-| Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position par rapport à un voisin et alignement ; orientation et miroir ; résolution et fréquence ; échelle ; activation ; écran principal ; disposition automatique — chaque changement s'applique à chaud, puis se garde (écrit dans `monitors.lua`) ou revient seul au bout de 12 s |
-| Workspaces | nombre de workspaces permanents (ou laissés à Hyprland) ; affectation d'une application à un workspace, avec ou sans y aller |
-| Effets | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
+| Groupe | Onglet | Réglages |
+|---|---|---|
+| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
+| | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
+| | Icônes | raccourcis vers des applications installées, partout ou sur ce workspace ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
+| | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
+| Apparence | Thème | thèmes livrés (Ardoise, Glass, Encre, Forêt, Ambre, Clair) et thèmes créés depuis une image ; couleurs ; texte ; effets par endroit |
+| | Thème des applications | le thème de hyprdesk appliqué à d'autres logiciels (kitty pour commencer) |
+| | Effets * | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
+| Barre et lanceur | Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) ; couleurs |
+| | Lanceur | fenêtres affichées dans le dock, regroupement ; apparence ; applications épinglées |
+| Fenêtres et écrans | Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position, orientation, mode, fréquence, échelle, écran principal ; application à chaud, puis garde (écrit dans `monitors.lua`) ou retour seul au bout de 12 s |
+| | Workspaces | workspaces permanents ; écran de chaque workspace ; affectation d'une application à un workspace, avec ou sans y aller |
+| | Layouts | Dwindle, Master, Scrolling, Monocle — par défaut et par workspace, appliqués à chaud ; layouts personnalisés en Lua |
+| Applications | Applications | application par défaut d'un rôle (navigateur, terminal, images, vidéo, assistant IA…) |
+| | Assistant IA | fournisseur, ouverture, contexte — voir [Assistant IA](#assistant-ia) |
+| Système | Verrouillage | écran de verrouillage : fond, contenus affichés, verrouiller maintenant |
+| | Partage * | exporter/importer tout son setup, ou le thème seul |
+| | Plugins * | paquets intégrés et plugins Lua : état, activation, ajout d'un plugin tiers |
+
+\* Configuration avancée uniquement — derrière la bascule « Configuration
+avancée » de l'en-tête du panneau, comme les onglets Session et Dépendances
+de Bureau, et l'onglet Effets de Thème. Une **visite guidée** est disponible
+depuis l'en-tête, et chaque changement est enregistré automatiquement.
 
 Tout s'applique **en direct**. Le panneau est un tiroir à droite, et le bureau
 reste visible et utilisable à côté.
+
+## Assistant IA
+
+hyprdesk intègre un tiroir d'assistant par-dessus le bureau : il discute de
+votre session, propose des changements avec aperçu en direct, et montre chaque
+commande à accepter ou refuser avant qu'elle s'exécute.
+
+<p align="center">
+  <img src="assets/screenshots/assistant-chat.png" width="760" alt="Tiroir de l'assistant : suggestion avec aperçu en direct, et commande hyprctl à accepter ou refuser">
+</p>
+
+- **L'assistant est LYRA** (`hyprpanel-chat`), de
+  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
+  référencé ici ; il ne fait pas partie de hyprdesk.
+- **Fournisseur** : votre abonnement Claude Code, Codex ou Zcode, choisi dans
+  Réglages → Applications → Assistant IA et transmis à l'assistant ; sans
+  prise en charge de l'option fournisseur, il garde son propre choix.
+- **Contexte** : hyprdesk décrit tout son environnement — modes, paquets de
+  réglages, applications, écrans, workspaces, widgets, fichiers, commandes —
+  en Markdown (`hyprdesk context`), et l'écrit dans le dossier de contexte de
+  l'assistant : il connaît votre bureau avant d'agir, et demande avant chaque
+  commande.
+- **Ouverture** : le tiroir (`hyprdesk assistant`, sans changer le mode du
+  bureau), la fenêtre de l'assistant, ou le terminal — réglé dans le même
+  panneau, avec le bouton de l'assistant dans le lanceur et le raccourci
+  `hyprdesk open ai`.
+
+<p align="center">
+  <img src="assets/screenshots/assistant-settings.png" width="480" alt="Tiroir des réglages sur l'onglet Assistant IA : fournisseur (Claude Code, Codex, Zcode), ouverture, contexte">
+</p>
 
 ## Widgets plug-n-play
 
@@ -236,7 +279,7 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 | `hyprdesk theme [list]` · `theme new <image\|pack.zip\|dossier> [--name NOM]` · `theme apply <nom>` | « Mes thèmes » ; un thème tiré d'une scène (couleurs de l'image, scène étalée sur tous les écrans, bureau et verrouillage) |
 | `hyprdesk wallpaper split <image> [dossier] [--scale N]` | découpe une scène selon la disposition des écrans : une image par écran |
 | `hyprdesk export [fichier] [--theme] [--screens]` · `hyprdesk import <archive> [--theme] [--dry-run] [--screens]` | partager son setup : configs, plugins, fonds d'écran — ou, avec `--theme`, le thème seul (couleurs, fonds, effets) ; l'import sauvegarde l'actuel |
-| `hyprdesk open <rôle>` · `hyprdesk context` | application par défaut d'un rôle (`browser`, `terminal`, `ai`…) ; contexte de l'environnement pour un assistant IA |
+| `hyprdesk open <rôle>` · `hyprdesk context` · `hyprdesk assistant` | application par défaut d'un rôle (`browser`, `terminal`, `ai`…) ; contexte Markdown de l'environnement pour l'assistant ; ouvre ou referme le tiroir de l'assistant, sans changer le mode du bureau |
 | `hyprdesk config [list [paquet]] \| get \| set \| unset` | réglages en ligne de commande, par paquet, écrits dans `settings.lua` comme depuis l'écran (ex. `hyprdesk config set launcher_group app`) |
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
 | `hyprdesk status` | état : affiché ou caché, workspaces, config en erreur ou non |
