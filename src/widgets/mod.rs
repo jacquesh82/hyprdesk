@@ -63,7 +63,17 @@ pub struct Builtin {
 }
 
 /// Options communes à tous les widgets, intégrés comme plugins.
-pub const COMMON_OPTIONS: &[&str] = &["workspace", "monitor", "id", "anchor", "x", "y", "size", "interval", "card"];
+pub const COMMON_OPTIONS: &[&str] = &[
+    "workspace",
+    "monitor",
+    "id",
+    "anchor",
+    "x",
+    "y",
+    "size",
+    "interval",
+    "card",
+];
 
 /// Registre des widgets intégrés.
 pub const BUILTINS: &[Builtin] = &[

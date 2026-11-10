@@ -12,7 +12,7 @@ StartLimitBurst=20
 [Service]
 Type=simple
 # --replace : le service reprend la main sur une instance lancée à la main
-# (une seule instance par session, verrou $XDG_RUNTIME_DIR/hyprdesk.lock).
+# (une seule instance par session, verrou $XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.lock).
 ExecStart=%h/.local/bin/hyprdesk daemon --replace
 Restart=on-failure
 RestartSec=3

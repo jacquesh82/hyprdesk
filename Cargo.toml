@@ -2,6 +2,7 @@
 name = "hyprdesk"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.99"
 license = "MIT"
 description = "Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par workspace, configuré en Lua"
 repository = "https://github.com/jacquesh82/mindlog.hyprland_desktop"
@@ -11,7 +12,11 @@ repository = "https://github.com/jacquesh82/mindlog.hyprland_desktop"
 # winit-core est épinglé en 0.31.0-beta.2 dans Cargo.lock : la beta.4 casse
 # iced_exdevtools (énumération NativeKeyCode devenue non exhaustive).
 iced_layershell = "0.19.1"
-iced = { version = "0.14", features = ["image", "svg", "tokio"] }
+# Écran de verrouillage (ext-session-lock-v1), même famille que iced_layershell.
+iced_sessionlock = "0.19.1"
+# Liaison PAM écrite à la main (src/lock/pam.rs).
+libc = "0.2"
+iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio", "markdown"] }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 # IPC Hyprland partagé avec mindlog.hyprland_tools (MIT), épinglé sur un commit poussé.
 hyprpanel-core = { git = "https://github.com/jacquesh82/mindlog.hyprland_tools", rev = "275671f" }

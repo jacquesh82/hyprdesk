@@ -1,9 +1,9 @@
 //! Interface : un démon iced_layershell, UNE surface par écran.
 //!
 //! Au repos, chaque surface vit sur le calque `background` et dessine le fond
-//! d'écran du workspace affiché (elle remplace hyprpaper). Appelée, elle passe
-//! sur le calque `top` (au-dessus des fenêtres, sous la barre), prend le
-//! clavier, et affiche icônes et widgets en fondu. Renvoyée, elle redescend.
+//! d'écran du workspace affiché (elle remplace hyprpaper). Appelée, elle reste
+//! sous les fenêtres, met de côté celles du workspace, prend le clavier et
+//! affiche icônes et widgets en fondu. Masquée, elle restitue les fenêtres.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -13,29 +13,40 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 mod bar;
+mod chat;
+mod design;
+mod icons;
 mod panel;
+pub(crate) mod plugins;
 mod popover;
+pub mod preview;
 mod widget_view;
 
-use iced::widget::{Space, Stack, button, column, container, image, mouse_area, pin, row, svg, text, tooltip};
+use iced::widget::{Space, Stack, column, container, image, mouse_area, pin, svg, text};
 use iced::window::Id;
-use iced::{Alignment, Background, Border, Color, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, keyboard, mouse};
+use iced::{
+    Alignment, Background, Border, Color, Element, Event, Font, Length, Padding, Point, Size,
+    Subscription, Task, keyboard, mouse,
+};
 use iced_layershell::build_pattern::daemon;
-use iced_layershell::reexport::{Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption};
+use iced_layershell::reexport::{
+    Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
+};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use iced_layershell::to_layer_message;
 
 use crate::config::lua::LuaHandle;
 use crate::config::resolve::{Desktop, resolve};
 use crate::config::{
-    self, Config, Fit, HookEvent, IconDef, Mode, Rgba, RunningApps, ShowOn, Transition, WallSource, WidgetKind,
+    self, Config, Fit, HookEvent, IconDef, Mode, Rgba, RunningApps, ShowOn, Transition, WallSource,
+    WidgetKind,
 };
 use crate::hypr::{self, Client, Monitor};
 use crate::launch::AppInfo;
-use crate::settings::Settings as DeskSettings;
-use panel::{Panel, PanelMsg};
 use crate::layout::{self, Cell, Layout};
+use crate::settings::Settings as DeskSettings;
 use crate::{control, launch, widgets};
+use panel::{Panel, PanelMsg};
 
 const NAMESPACE: &str = "hyprdesk";
 const DRAG_THRESHOLD: f32 = 6.0;
@@ -75,7 +86,9 @@ pub enum Msg {
     FocusWindow(String),
     OpenPanel,
     Panel(PanelMsg),
-    SettingsLoaded(DeskSettings),
+    /// Tiroir de l'assistant (LYRA, protocole serve).
+    Chat(chat::ChatMsg),
+    SettingsLoaded(u64, DeskSettings),
     /// Barre : aller au workspace (écran, nom).
     BarWorkspace(String, String),
     /// Barre : molette sur les workspaces (écran, ±1).
@@ -84,10 +97,37 @@ pub enum Msg {
     VolumeStep(i32),
     VolumeSet(f32),
     VolumeValue(Option<(f32, bool)>),
+    /// Micro coupé ou rétabli.
+    MicMute,
+    MicSet(f32),
+    /// Choisit la sortie ou l'entrée par défaut (id PipeWire).
+    AudioDefault(u32),
+    AudioValue(bar::Audio),
+    /// Ouvre l'assistant IA (LYRA), sans changer le mode du bureau.
+    OpenAssistant,
+    /// Lanceur : survol d'une entrée (écran, clé, contenu de la bulle), ou sortie.
+    LauncherHover(Option<(String, String, plugins::launcher::PopupContent, usize)>),
+    /// Position relative dans le dock (écran, rang continu), ou sortie du dock.
+    LauncherPointer(String, Option<f32>),
+    /// Fin du délai de fermeture de la bulle (jeton du survol).
+    LauncherPopupClose(u64),
+    LauncherPopupHover(bool),
+    /// Fenêtre choisie dans la bulle d'une application regroupée.
+    LauncherPick(String),
+    /// Lanceur : lance une application épinglée (id `.desktop`).
+    LauncherLaunch(String),
+    /// Lanceur : application regroupée (écran, classe), fenêtre suivante.
+    LauncherApp(String, String),
+    /// Écrans détectés (désactivés compris).
+    Screens(Vec<crate::screens::Screen>),
+    /// Seconde écoulée pendant qu'un changement d'écrans attend confirmation.
+    ScreensTick,
     /// Ouvre (ou referme) un menu sous un module de la barre : (barre, clé du module, contenu).
     OpenPopover(Id, String, popover::Request),
-    PopoverReady(Id, String, popover::Kind),
+    PopoverReady(u64, Id, String, popover::Kind),
+    PopoverPositioned(u64, Id, String, popover::Kind, Option<(f32, f32)>),
     ClosePopover,
+    PopoverMeasured(Id, f32),
     Popover(popover::PMsg),
     /// Appelle une fonction Lua d'un widget (on_click, on_scroll) puis le relève.
     LuaCall(String, usize, Option<i64>),
@@ -98,7 +138,7 @@ pub enum Msg {
     /// (barre, bus, chemin, secondaire)
     TrayActivate(Id, String, String, bool),
     /// Raccourcis installés : conflits (raccourci, action déjà liée) et raccourcis universels.
-    KeysInstalled(Result<(Vec<(String, String)>, Vec<String>), String>),
+    KeysInstalled(Result<hypr::KeyReport, String>),
     ConfigChanged,
     ConfigLoaded(Result<Arc<Config>, String>),
     /// Génération, icônes du bureau, puis icônes des commandes média.
@@ -107,7 +147,7 @@ pub enum Msg {
     Rotate,
     Frame,
     Poll,
-    WidgetValue(String, widgets::Value),
+    WidgetValue(u64, String, widgets::Value),
     Resized(Id, Size),
     Closed(Id),
     Cursor(Id, Point),
@@ -117,6 +157,7 @@ pub enum Msg {
     /// Clic sur un widget, réglages ouverts : sélection et début de glissé.
     WidgetPress(Id, String),
     IconHover(Option<(Id, usize)>),
+    Hover(String, bool),
     Launch(usize),
     Media(String, &'static str),
     Noop,
@@ -135,7 +176,8 @@ impl Fade {
         if self.dur.is_zero() {
             return self.to;
         }
-        let p = (now.saturating_duration_since(self.start).as_secs_f32() / self.dur.as_secs_f32()).clamp(0.0, 1.0);
+        let p = (now.saturating_duration_since(self.start).as_secs_f32() / self.dur.as_secs_f32())
+            .clamp(0.0, 1.0);
         // Ease-out cubique.
         let e = 1.0 - (1.0 - p).powi(3);
         self.from + (self.to - self.from) * e
@@ -202,9 +244,11 @@ pub struct App {
     surfaces: HashMap<Id, String>,
     sizes: HashMap<Id, Size>,
     visible: bool,
-    /// Surfaces actuellement sur le calque `top`.
+    /// Surfaces dont le contenu de bureau est actif.
     raised: HashSet<Id>,
     fade: Option<Fade>,
+    panel_fade: Option<Fade>,
+    hover_fades: HashMap<String, Fade>,
     walls: HashMap<WallKey, image::Handle>,
     loading: HashSet<WallKey>,
     shown: HashMap<String, Shown>,
@@ -219,6 +263,8 @@ pub struct App {
     icons_gen: u64,
     values: HashMap<String, widgets::Value>,
     last_poll: HashMap<String, Instant>,
+    pending_widgets: HashSet<String>,
+    widget_generation: u64,
     layout: Layout,
     selected: Option<(Id, usize)>,
     hovered: Option<(Id, usize)>,
@@ -227,7 +273,11 @@ pub struct App {
     wdrag: Option<WidgetDrag>,
     /// Réglages de l'écran ⚙ (relus depuis settings.lua seul).
     settings: DeskSettings,
+    settings_revision: Arc<std::sync::atomic::AtomicU64>,
     panel: Option<Panel>,
+    /// Tiroir de l'assistant ; `chat_session` relance le moteur à chaque ouverture.
+    chat: Option<chat::ChatPanel>,
+    chat_session: u64,
     /// Applications installées (liste des raccourcis, icônes des fenêtres).
     apps: Arc<Vec<AppInfo>>,
     clients: Vec<Client>,
@@ -241,7 +291,7 @@ pub struct App {
     in_submap: bool,
     /// Surfaces passées au-dessus des fenêtres (mode verre seulement).
     /// Fenêtres mises de côté pendant que le bureau est affiché.
-    stash: Vec<hypr::Stashed>,
+    windows: crate::windows::WindowManager,
     /// Fenêtres ouvertes pendant la session bureau : le bureau les contient.
     session_windows: HashSet<String>,
     /// Surfaces de la barre native.
@@ -249,27 +299,67 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Micro et périphériques audio (menu Son).
+    audio: bar::Audio,
+    /// Bureau affiché SOUS les fenêtres, laissées en place : icônes, widgets
+    /// et dock visibles entre elles (sans effet quand le bureau est masqué).
+    with_windows: bool,
+    /// Marges posées dans Hyprland pour dégager les contrôles du bureau, par
+    /// écran (haut, droite, bas, gauche) : vide hors du bureau avec les fenêtres.
+    window_gaps: Vec<(String, [i32; 4])>,
+    /// Règle Hyprland posée pour LYRA (rectangle du tiroir), si elle l'est.
+    lyra_rule: Option<(i32, i32, i32, i32)>,
+    /// Cartes d'identification des écrans (surface, « numéro\nnom\nmodèle »).
+    identify: Vec<(Id, String)>,
+    identify_gen: u64,
+    /// Surfaces du lanceur, une par écran où le bureau est affiché.
+    launcher_surfaces: HashMap<Id, plugins::launcher::LauncherSurface>,
+    /// Bulle du lanceur (nom d'une entrée, ou fenêtres d'une application).
+    launcher_popup: Option<plugins::launcher::Popup>,
+    launcher_popup_token: u64,
+    launcher_popup_hover: bool,
+    /// Lanceur regroupé par application : rang de la prochaine fenêtre, par classe.
+    launcher_cycle: HashMap<String, usize>,
+    /// Écrans tels que Hyprland les voit, pour l'onglet Écrans.
+    screens: Vec<crate::screens::Screen>,
+    /// Changement d'écrans appliqué mais pas confirmé : disposition d'avant
+    /// et échéance du retour automatique.
+    screens_pending: Option<(Vec<crate::screens::Screen>, Instant)>,
     popover: Option<popover::Popover>,
+    menu_request: u64,
     /// Icônes du thème par nom (symboliques teintées), résolues à la demande.
     named_icons: HashMap<String, IconImg>,
     named_pending: HashSet<String>,
     tray: Vec<crate::tray::TrayItem>,
     /// Images fournies par les applications de la zone de notification : clé → (empreinte, image).
     tray_imgs: HashMap<String, (u64, image::Handle)>,
-    /// Police de l'interface (barre, menus) : celle de la config, sinon Noto Sans.
+    /// Police de l'interface (barre, menus) : celle de la config, sinon Mindlog.
     ui_family: &'static str,
 }
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
-    daemon(move || App::boot(config_path.clone()), || NAMESPACE.to_string(), App::update, App::view)
-        .subscription(App::subscription)
-        .style(|_, _| iced::theme::Style { background_color: Color::TRANSPARENT, text_color: Color::WHITE })
-        .theme(|app: &App, _| Some(app.theme.clone()))
-        .settings(Settings {
-            layer_settings: LayerShellSettings { start_mode: StartMode::Background, ..Default::default() },
+    daemon(
+        move || App::boot(config_path.clone()),
+        || NAMESPACE.to_string(),
+        App::update,
+        App::view,
+    )
+    .subscription(App::subscription)
+    .style(|_, _| iced::theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: Color::WHITE,
+    })
+    .theme(|app: &App, _| Some(app.theme.clone()))
+    .settings(Settings {
+        fonts: crate::fonts::bundled(),
+        default_font: crate::fonts::DEFAULT,
+        layer_settings: LayerShellSettings {
+            start_mode: StartMode::Background,
             ..Default::default()
-        })
-        .run()
+        },
+        ..Default::default()
+    })
+    .run()
 }
 
 // ---------------------------------------------------------------------------
@@ -283,8 +373,19 @@ fn index_of<T>(slice: &[T], item: &T) -> usize {
     (item as *const T as usize - slice.as_ptr() as usize) / std::mem::size_of::<T>().max(1)
 }
 
+fn intern_font(name: &str) -> &'static str {
+    static FONTS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, &'static str>>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+    let mut fonts = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+    fonts
+        .entry(name.to_string())
+        .or_insert_with(|| Box::leak(name.to_string().into_boxed_str()))
+}
+
 fn chrono_locale() -> chrono::Locale {
-    let lang = std::env::var("LC_TIME").or_else(|_| std::env::var("LANG")).unwrap_or_default();
+    let lang = std::env::var("LC_TIME")
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default();
     let base = lang.split('.').next().unwrap_or("");
     chrono::Locale::try_from(base).unwrap_or(chrono::Locale::POSIX)
 }
@@ -305,9 +406,9 @@ fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
             rd.flatten()
                 .map(|e| e.path())
                 .filter(|p| {
-                    p.extension()
-                        .and_then(|e| e.to_str())
-                        .is_some_and(|e| matches!(e.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp"))
+                    p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                        matches!(e.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp")
+                    })
                 })
                 .collect()
         })
@@ -320,8 +421,22 @@ fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
 fn decode_wall(key: &WallKey) -> Result<image::Handle, String> {
     let (path, w, h, fit, blur) = key;
     let img = ::image::open(path).map_err(|e| format!("{} : {e}", path.display()))?;
-    let img = if *blur { img.thumbnail((img.width() / BLUR_DOWNSCALE).max(1), (img.height() / BLUR_DOWNSCALE).max(1)) } else { img };
-    let (w, h) = if *blur { (&((*w / BLUR_DOWNSCALE).max(1)), &((*h / BLUR_DOWNSCALE).max(1))) } else { (w, h) };
+    let img = if *blur {
+        img.thumbnail(
+            (img.width() / BLUR_DOWNSCALE).max(1),
+            (img.height() / BLUR_DOWNSCALE).max(1),
+        )
+    } else {
+        img
+    };
+    let (w, h) = if *blur {
+        (
+            &((*w / BLUR_DOWNSCALE).max(1)),
+            &((*h / BLUR_DOWNSCALE).max(1)),
+        )
+    } else {
+        (w, h)
+    };
     let (iw, ih) = (img.width() as f32, img.height() as f32);
     let (tw, th) = (*w as f32, *h as f32);
     use ::image::imageops::FilterType;
@@ -329,53 +444,73 @@ fn decode_wall(key: &WallKey) -> Result<image::Handle, String> {
         Fit::Fill => img.resize_exact(*w, *h, FilterType::Triangle),
         Fit::Center => img,
         Fit::Cover | Fit::Contain => {
-            let s = if *fit == Fit::Cover { (tw / iw).max(th / ih) } else { (tw / iw).min(th / ih) };
-            let (nw, nh) = ((iw * s).round().max(1.0) as u32, (ih * s).round().max(1.0) as u32);
+            let s = if *fit == Fit::Cover {
+                (tw / iw).max(th / ih)
+            } else {
+                (tw / iw).min(th / ih)
+            };
+            let (nw, nh) = (
+                (iw * s).round().max(1.0) as u32,
+                (ih * s).round().max(1.0) as u32,
+            );
             img.resize_exact(nw, nh, FilterType::Triangle)
         }
     };
     let img = if *blur { img.fast_blur(2.5) } else { img };
     let rgba = img.to_rgba8();
-    Ok(image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()))
+    Ok(image::Handle::from_rgba(
+        rgba.width(),
+        rgba.height(),
+        rgba.into_raw(),
+    ))
 }
 
-fn watch_stream(path: &PathBuf) -> impl Stream<Item = ()> + use<> {
-    let path = path.clone();
-    iced::stream::channel(4, async move |mut out: iced::futures::channel::mpsc::Sender<()>| {
-        use notify::{RecursiveMode, Watcher};
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let dir = path.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let modules = dir.join("hyprdesk");
-        let (target, mods) = (path.clone(), modules.clone());
-        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res
-                && !matches!(ev.kind, notify::EventKind::Access(_))
-                && ev.paths.iter().any(|p| p == &target || p.starts_with(&mods))
-            {
-                let _ = tx.send(());
+fn watch_stream(path: &std::path::Path) -> impl Stream<Item = ()> + use<> {
+    let path = path.to_path_buf();
+    iced::stream::channel(
+        4,
+        async move |mut out: iced::futures::channel::mpsc::Sender<()>| {
+            use notify::{RecursiveMode, Watcher};
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let dir = path
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let modules = dir.join("hyprdesk");
+            let (target, mods) = (path.clone(), modules.clone());
+            let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                if let Ok(ev) = res
+                    && !matches!(ev.kind, notify::EventKind::Access(_))
+                    && ev
+                        .paths
+                        .iter()
+                        .any(|p| p == &target || p.starts_with(&mods))
+                {
+                    let _ = tx.send(());
+                }
+            });
+            let mut watcher = match watcher {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("surveillance de la config : {e}");
+                    return;
+                }
+            };
+            if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+                tracing::error!("surveillance de {} : {e}", dir.display());
             }
-        });
-        let mut watcher = match watcher {
-            Ok(w) => w,
-            Err(e) => {
-                tracing::error!("surveillance de la config : {e}");
-                return;
+            if modules.is_dir() {
+                let _ = watcher.watch(&modules, RecursiveMode::Recursive);
             }
-        };
-        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
-            tracing::error!("surveillance de {} : {e}", dir.display());
-        }
-        if modules.is_dir() {
-            let _ = watcher.watch(&modules, RecursiveMode::Recursive);
-        }
-        while rx.recv().await.is_some() {
-            // Les éditeurs écrivent en plusieurs fois : on regroupe.
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            while rx.try_recv().is_ok() {}
-            let _ = out.send(()).await;
-        }
-        drop(watcher);
-    })
+            while rx.recv().await.is_some() {
+                // Les éditeurs écrivent en plusieurs fois : on regroupe.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                while rx.try_recv().is_ok() {}
+                let _ = out.send(()).await;
+            }
+            drop(watcher);
+        },
+    )
 }
 
 fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
@@ -391,18 +526,24 @@ fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
 
 impl App {
     fn boot(config_path: PathBuf) -> (Self, Task<Msg>) {
+        Self::boot_with(config_path, false)
+    }
+
+    fn boot_with(config_path: PathBuf, preview: bool) -> (Self, Task<Msg>) {
         let app = App {
             lua: LuaHandle::spawn(),
             config_path,
             cfg: Arc::new(Config::default()),
             config_error: None,
-            font: Font::DEFAULT,
+            font: crate::fonts::DEFAULT,
             monitors: Vec::new(),
             surfaces: HashMap::new(),
             sizes: HashMap::new(),
             visible: false,
             raised: HashSet::new(),
             fade: None,
+            panel_fade: None,
+            hover_fades: HashMap::new(),
             walls: HashMap::new(),
             loading: HashSet::new(),
             shown: HashMap::new(),
@@ -415,6 +556,8 @@ impl App {
             icons_gen: 0,
             values: HashMap::new(),
             last_poll: HashMap::new(),
+            pending_widgets: HashSet::new(),
+            widget_generation: 0,
             layout: Layout::load(),
             selected: None,
             hovered: None,
@@ -422,7 +565,10 @@ impl App {
             drag: None,
             wdrag: None,
             settings: DeskSettings::default(),
+            settings_revision: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             panel: None,
+            chat: None,
+            chat_session: 0,
             apps: Arc::new(Vec::new()),
             clients: Vec::new(),
             class_imgs: HashMap::new(),
@@ -431,20 +577,45 @@ impl App {
             key_conflicts: Vec::new(),
             universal_binds: Vec::new(),
             in_submap: false,
-            stash: Vec::new(),
+            windows: if preview {
+                crate::windows::WindowManager::disabled()
+            } else {
+                crate::windows::WindowManager::spawn()
+            },
             session_windows: HashSet::new(),
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
             volume: None,
+            audio: bar::Audio::default(),
+            with_windows: false,
+            window_gaps: Vec::new(),
+            launcher_cycle: HashMap::new(),
+            lyra_rule: None,
+            identify: Vec::new(),
+            identify_gen: 0,
+            launcher_surfaces: HashMap::new(),
+            launcher_popup: None,
+            launcher_popup_token: 0,
+            launcher_popup_hover: false,
+            screens: Vec::new(),
+            screens_pending: None,
             popover: None,
+            menu_request: 0,
             named_icons: HashMap::new(),
             named_pending: HashSet::new(),
             tray: Vec::new(),
             tray_imgs: HashMap::new(),
-            ui_family: "Noto Sans",
+            ui_family: crate::fonts::FAMILY,
         };
-        let apps = Task::perform(async { tokio::task::spawn_blocking(launch::installed_apps).await.unwrap_or_default() }, Msg::Apps);
+        let apps = Task::perform(
+            async {
+                tokio::task::spawn_blocking(launch::installed_apps)
+                    .await
+                    .unwrap_or_default()
+            },
+            Msg::Apps,
+        );
         let t = Task::batch([app.load_config(), apps]);
         (app, t)
     }
@@ -452,10 +623,15 @@ impl App {
     fn load_config(&self) -> Task<Msg> {
         let (lua, path) = (self.lua.clone(), self.config_path.clone());
         let p2 = path.clone();
+        let settings_revision = self
+            .settings_revision
+            .load(std::sync::atomic::Ordering::Acquire);
         let settings = Task::perform(
-            async move { tokio::task::spawn_blocking(move || config::lua::load_settings_only(&p2)).await },
-            |r| match r {
-                Ok(Ok(c)) => Msg::SettingsLoaded(DeskSettings::from_config(&c)),
+            async move {
+                tokio::task::spawn_blocking(move || config::lua::load_settings_only(&p2)).await
+            },
+            move |r| match r {
+                Ok(Ok(c)) => Msg::SettingsLoaded(settings_revision, DeskSettings::from_config(&c)),
                 Ok(Err(e)) => {
                     tracing::warn!("settings.lua : {e}");
                     Msg::Noop
@@ -463,7 +639,13 @@ impl App {
                 Err(_) => Msg::Noop,
             },
         );
-        Task::batch([Task::perform(async move { lua.load(path).await.map(Arc::new) }, Msg::ConfigLoaded), settings])
+        Task::batch([
+            Task::perform(
+                async move { lua.load(path).await.map(Arc::new) },
+                Msg::ConfigLoaded,
+            ),
+            settings,
+        ])
     }
 
     /// Remplace la config effective en ne refaisant que ce qui a changé : un
@@ -476,12 +658,12 @@ impl App {
         if o.font != n.font || self.icons_gen == 0 {
             self.font = match &n.font {
                 // Les noms de police doivent vivre aussi longtemps que le programme.
-                Some(f) => Font::with_name(Box::leak(f.clone().into_boxed_str())),
-                None => Font::DEFAULT,
+                Some(f) => Font::with_name(intern_font(f)),
+                None => crate::fonts::DEFAULT,
             };
             self.ui_family = match &n.font {
-                Some(f) => Box::leak(f.clone().into_boxed_str()),
-                None => "Noto Sans",
+                Some(f) => intern_font(f),
+                None => crate::fonts::FAMILY,
             };
         }
         if o.theme != n.theme {
@@ -492,7 +674,11 @@ impl App {
         }
         let mut tasks = Vec::new();
         let widgets_changed = old.widgets.len() != self.cfg.widgets.len()
-            || old.widgets.iter().zip(&self.cfg.widgets).any(|(a, b)| !a.same_content(b));
+            || old
+                .widgets
+                .iter()
+                .zip(&self.cfg.widgets)
+                .any(|(a, b)| !a.same_content(b));
         if widgets_changed {
             self.values.clear();
             self.last_poll.clear();
@@ -501,9 +687,13 @@ impl App {
             }
         }
         // La taille d'icône ne demande pas de nouvelle recherche : l'image est mise à l'échelle.
-        let icons_changed =
-            old.icons != self.cfg.icons || o.icon_theme != n.icon_theme || o.terminal != n.terminal || self.icons_gen == 0;
+        let icons_changed = old.icons != self.cfg.icons
+            || o.icon_theme != n.icon_theme
+            || o.terminal != n.terminal
+            || self.icons_gen == 0;
         if icons_changed {
+            self.icons.clear();
+            self.icon_imgs.clear();
             self.selected = None;
             self.icons_gen += 1;
             let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
@@ -514,9 +704,19 @@ impl App {
                         let icons = cfg
                             .icons
                             .iter()
-                            .map(|d| launch::resolve(d, g.icon_theme.as_deref(), g.grid.icon_size, &g.terminal))
+                            .map(|d| {
+                                launch::resolve(
+                                    d,
+                                    g.icon_theme.as_deref(),
+                                    g.grid.icon_size,
+                                    &g.terminal,
+                                )
+                            })
                             .collect::<Vec<_>>();
-                        let media = UI_ICONS.iter().map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24)).collect::<Vec<_>>();
+                        let media = UI_ICONS
+                            .iter()
+                            .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                            .collect::<Vec<_>>();
                         (icons, media)
                     })
                     .await
@@ -524,17 +724,29 @@ impl App {
                 },
                 move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
             ));
-        } else if o.running_apps != n.running_apps {
+        } else if o.running_apps != n.running_apps || o.launcher.pinned != n.launcher.pinned {
             tasks.push(self.resolve_class_icons());
         }
-        if o.show_on != n.show_on {
+        if o.show_on != n.show_on || o.primary != n.primary {
             tasks.push(self.sync_raised());
         }
         // Premier chargement (catalogue vide avant) ou raccourcis modifiés.
         if o.keys != n.keys || old.catalog.is_empty() {
             tasks.push(self.install_keys());
         }
-        if old.bar != self.cfg.bar {
+        if o.workspaces != n.workspaces
+            || o.workspace_monitors != n.workspace_monitors
+            || o.primary != n.primary
+            || old.assigns != self.cfg.assigns
+            || o.disabled_plugins != n.disabled_plugins
+            || old.catalog.is_empty()
+        {
+            tasks.push(self.install_rules());
+        }
+        if old.bar != self.cfg.bar
+            || o.primary != n.primary
+            || o.disabled_plugins != n.disabled_plugins
+        {
             tasks.push(self.sync_bars());
             self.last_poll.retain(|k, _| !k.starts_with("bar:"));
             tasks.push(Task::done(Msg::Poll));
@@ -542,11 +754,45 @@ impl App {
         if old.components != self.cfg.components || old.catalog.is_empty() {
             // Composants de session : lancés, arrêtés ou relancés selon la config.
             let defs = self.cfg.components.clone();
-            tasks.push(Task::perform(async move { crate::session::sync(&defs) }, |_| Msg::Noop));
+            tasks.push(Task::perform(
+                async move { crate::session::sync(&defs).await },
+                |_| Msg::Noop,
+            ));
         }
         if o.suspend_binds != n.suspend_binds {
             tasks.push(self.sync_submap());
         }
+        // LYRA en tiroir : règle Hyprland sur sa fenêtre.
+        tasks.push(self.sync_lyra_drawer());
+        // État de l'écran de verrouillage (valeurs résolues : le verrou n'exécute pas de Lua).
+        let primary = self.primary_monitor();
+        let ws = self
+            .monitors
+            .iter()
+            .find(|m| Some(&m.name) == primary.as_ref())
+            .map(|m| m.workspace.clone())
+            .unwrap_or_else(|| "1".into());
+        let lock =
+            crate::lock::state::from_config(&self.cfg, primary.as_deref().unwrap_or(""), &ws);
+        tasks.push(Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::lock::state::write(&lock)).await;
+            },
+            |_| Msg::Noop,
+        ));
+        // Contexte de l'assistant IA (LYRA), tenu à jour hors du fil de l'interface.
+        let (cfg, path) = (self.cfg.clone(), self.config_path.clone());
+        tasks.push(Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::assistant::write_context(&cfg, &path)
+                })
+                .await;
+            },
+            |_| Msg::Noop,
+        ));
+        // Icônes, widgets ou grille changés : la place des contrôles aussi.
+        tasks.push(self.sync_window_gaps());
         tasks.push(self.refresh_walls());
         Task::batch(tasks)
     }
@@ -556,12 +802,64 @@ impl App {
         let keys = self.cfg.general.keys.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || hypr::install_keys(&keys).map_err(|e| e.to_string()))
-                    .await
-                    .unwrap_or_else(|e| Err(e.to_string()))
+                tokio::task::spawn_blocking(move || {
+                    hypr::install_keys(&keys).map_err(|e| e.to_string())
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
             },
             Msg::KeysInstalled,
         )
+    }
+
+    /// (Ré)installe les workspaces permanents et l'affectation des applications.
+    fn install_rules(&self) -> Task<Msg> {
+        // Paquet « Workspaces » coupé : aucune règle (les anciennes sont retirées).
+        let (n, rules) = if self.cfg.plugin_on("workspaces") {
+            (self.cfg.general.workspaces, self.cfg.assigns.clone())
+        } else {
+            (None, Vec::new())
+        };
+        let placement = if self.cfg.plugin_on("workspaces") {
+            self.workspace_placement()
+        } else {
+            Vec::new()
+        };
+        Task::perform(
+            async move {
+                match tokio::task::spawn_blocking(move || {
+                    hypr::install_rules(n, &placement, &rules)
+                })
+                .await
+                {
+                    Ok(Err(e)) => tracing::warn!("règles de workspace : {e}"),
+                    Err(e) => tracing::warn!("règles de workspace : {e}"),
+                    Ok(Ok(())) => {}
+                }
+            },
+            |_| Msg::Noop,
+        )
+    }
+
+    /// Écran de chaque workspace, `primary` résolu ; le premier de chaque
+    /// écran est son workspace par défaut.
+    pub(super) fn workspace_placement(&self) -> Vec<hypr::Placement> {
+        let primary = self.primary_monitor();
+        let mut out = Vec::new();
+        for (mon, list) in &self.cfg.general.workspace_monitors {
+            let mon = if mon == "primary" {
+                match &primary {
+                    Some(p) => p.clone(),
+                    None => continue,
+                }
+            } else {
+                mon.clone()
+            };
+            for (i, ws) in list.iter().enumerate() {
+                out.push((ws.clone(), mon.clone(), i == 0));
+            }
+        }
+        out
     }
 
     /// Submap « hyprdesk » active si et seulement si le bureau est affiché
@@ -569,40 +867,122 @@ impl App {
     fn sync_submap(&mut self) -> Task<Msg> {
         // Dès qu'une fenêtre est ouverte depuis le bureau, ses raccourcis
         // habituels doivent pouvoir agir sur elle.
-        let want = self.visible && self.cfg.general.suspend_binds && self.session_windows.is_empty();
+        let want = self.visible
+            && !self.with_windows
+            && self.cfg.general.suspend_binds
+            && self.session_windows.is_empty();
         if want == self.in_submap {
             return Task::none();
         }
         self.in_submap = want;
+        Self::window_result(self.windows.submap(want))
+    }
+
+    /// Écran principal effectif : celui réglé s'il est branché, sinon celui
+    /// placé en 0×0, sinon le premier.
+    pub(super) fn primary_monitor(&self) -> Option<String> {
+        let p = self.cfg.general.primary.as_deref();
+        self.monitors
+            .iter()
+            .find(|m| Some(m.name.as_str()) == p)
+            .or_else(|| self.monitors.iter().find(|m| m.x == 0.0 && m.y == 0.0))
+            .or_else(|| self.monitors.first())
+            .map(|m| m.name.clone())
+    }
+
+    /// Les fenêtres en mosaïque laissent la place du lanceur (launcher-only)
+    /// et du tiroir des réglages ; sinon, les marges de Hyprland reviennent.
+    fn sync_window_gaps(&mut self) -> Task<Msg> {
+        // launcher-only : le dock en bas ; réglages ouverts, quel que soit le
+        // mode : le tiroir à droite.
+        let drawer_on = self
+            .panel
+            .as_ref()
+            .map(|p| p.win)
+            .or_else(|| self.chat.as_ref().map(|c| c.win));
+        let mut want: Vec<(String, [i32; 4])> = self
+            .surfaces
+            .iter()
+            .filter_map(|(id, mon)| {
+                // Le lanceur réserve lui-même sa place (zone exclusive de sa surface).
+                let mut m = [0; 4];
+                if drawer_on == Some(*id) {
+                    m[1] = m[1].max(self.panel_width().round() as i32);
+                }
+                (m != [0; 4]).then(|| (mon.clone(), m))
+            })
+            .collect();
+        want.sort();
+        let launchers = self.sync_launchers();
+        if want == self.window_gaps {
+            return launchers;
+        }
+        self.window_gaps = want.clone();
         Task::perform(
             async move {
-                let _ = tokio::task::spawn_blocking(move || hypr::set_submap(want.then_some(hypr::SUBMAP))).await;
+                let _ = tokio::task::spawn_blocking(move || hypr::set_desktop_gaps(&want)).await;
             },
             |_| Msg::Noop,
         )
     }
 
-    /// Bureau affiché : aligne les surfaces actives sur `show_on` (écran actif ou tous).
+    /// Mode du bureau, tel que l'utilisateur le nomme.
+    pub(super) fn mode(&self) -> DesktopMode {
+        match (self.visible, self.with_windows) {
+            (false, _) => DesktopMode::NoDesktop,
+            (true, true) => DesktopMode::LauncherOnly,
+            (true, false) => DesktopMode::FullDesktop,
+        }
+    }
+
+    /// Le bureau affiché apparaît-il sur cet écran (`show_on`) ?
+    fn shows_on(&self, monitor: &str) -> bool {
+        match self.cfg.general.show_on {
+            ShowOn::All => true,
+            ShowOn::Focused => self.monitors.iter().any(|m| m.focused && m.name == monitor),
+            ShowOn::Primary => self.primary_monitor().as_deref() == Some(monitor),
+        }
+    }
+
+    /// Bureau affiché : aligne les surfaces actives sur `show_on` (tous, actif, principal).
     fn sync_raised(&mut self) -> Task<Msg> {
         if !self.visible {
             return Task::none();
         }
-        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
-        let all = self.cfg.general.show_on == ShowOn::All;
-        let panel_win = self.panel.as_ref().map(|p| p.win);
+        let focused = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| m.name.clone());
         let mut tasks = Vec::new();
         for (id, mon) in self.surfaces.clone() {
-            let want = all || Some(&mon) == focused.as_ref() || Some(id) == panel_win;
+            let want = self.shows_on(&mon);
             let has = self.raised.contains(&id);
             if want && !has {
                 tasks.extend(self.activate_surface(id, Some(&mon) == focused.as_ref()));
+            } else if want && has {
+                let kb = if Some(&mon) != focused.as_ref() {
+                    KeyboardInteractivity::None
+                } else if self.session_windows.is_empty() && !self.with_windows {
+                    KeyboardInteractivity::Exclusive
+                } else {
+                    KeyboardInteractivity::OnDemand
+                };
+                tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                    id,
+                    keyboard_interactivity: kb,
+                }));
             } else if !want && has {
                 self.raised.remove(&id);
-                tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
+                tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                    id,
+                    keyboard_interactivity: KeyboardInteractivity::None,
+                }));
                 tasks.extend(self.lower_surface(id));
                 tasks.push(self.restore_stash(Some(&mon)));
             }
         }
+        tasks.push(self.sync_window_gaps());
         Task::batch(tasks)
     }
 
@@ -611,11 +991,23 @@ impl App {
     /// et celles qu'on ouvre depuis le bureau s'ouvrent dessus. Le mode verre
     /// n'est qu'un effet sur le fond (fond d'écran flouté et teinté).
     fn activate_surface(&mut self, id: Id, has_focus: bool) -> Vec<Task<Msg>> {
-        let Some(m) = self.monitor(id).cloned() else { return Vec::new() };
+        let Some(m) = self.monitor(id).cloned() else {
+            return Vec::new();
+        };
         self.raised.insert(id);
         let mut tasks = vec![self.stash_workspace(&m)];
-        let kb = if has_focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
-        tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: kb }));
+        // Avec les fenêtres, le bureau ne prend le clavier que si on clique dessus.
+        let kb = if has_focus && self.with_windows {
+            KeyboardInteractivity::OnDemand
+        } else if has_focus {
+            KeyboardInteractivity::Exclusive
+        } else {
+            KeyboardInteractivity::None
+        };
+        tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+            id,
+            keyboard_interactivity: kb,
+        }));
         self.fire(HookEvent::Show, "show", &m);
         tasks
     }
@@ -633,46 +1025,56 @@ impl App {
     }
 
     /// Met de côté les fenêtres du workspace affiché sur cet écran (sauf
-    /// celles ouvertes depuis le bureau). Fait de façon SYNCHRONE (quelques
-    /// requêtes IPC) : aucune sortie ne peut s'intercaler et perdre une fenêtre.
+    /// celles ouvertes depuis le bureau). L'acteur traite les demandes dans l'ordre,
+    /// sans bloquer l'interface et sans intercaler une restitution au milieu des déplacements.
     fn stash_workspace(&mut self, m: &Monitor) -> Task<Msg> {
-        let picked: Vec<hypr::Stashed> = self
+        // Bureau sous les fenêtres, workspace inconnu ou déjà celui de mise de
+        // côté : rien à mettre de côté.
+        if self.with_windows || m.workspace.is_empty() || m.workspace == hypr::STASH {
+            return Task::none();
+        }
+        let picked = self
             .clients
             .iter()
             .filter(|c| c.workspace == m.workspace && !self.session_windows.contains(&c.address))
-            .filter(|c| !self.stash.iter().any(|s| s.address == c.address))
-            .map(|c| hypr::Stashed { address: c.address.clone(), workspace: c.workspace.clone(), monitor: m.name.clone() })
+            .map(|c| hypr::Stashed {
+                address: c.address.clone(),
+                workspace: c.workspace.clone(),
+                monitor: m.name.clone(),
+            })
             .collect();
-        if picked.is_empty() {
-            return Task::none();
-        }
-        self.stash.extend(picked.iter().cloned());
-        // La liste est écrite AVANT de déplacer : un arrêt brutal ne perd rien.
-        hypr::save_stash(&self.stash);
-        for s in &picked {
-            if let Err(e) = hypr::move_window(&s.address, hypr::STASH) {
-                tracing::warn!("mise de côté de {} : {e}", s.address);
-            }
-        }
-        hypr::close_stash_view();
-        Task::none()
+        Self::window_result(self.windows.stash(picked))
     }
 
-    /// Rend les fenêtres mises de côté (d'un écran, ou toutes), de façon synchrone.
     fn restore_stash(&mut self, monitor: Option<&str>) -> Task<Msg> {
-        let (back, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.stash).into_iter().partition(|s| monitor.is_none_or(|m| s.monitor == m));
-        self.stash = keep;
-        if !back.is_empty() {
-            hypr::restore(&back);
-            hypr::save_stash(&self.stash);
-        }
-        Task::none()
+        Self::window_result(self.windows.restore(monitor))
+    }
+
+    fn window_result(reply: tokio::sync::oneshot::Receiver<Result<(), String>>) -> Task<Msg> {
+        Task::perform(
+            async move {
+                reply
+                    .await
+                    .unwrap_or_else(|_| Err("gestionnaire de fenêtres arrêté".into()))
+            },
+            |r| {
+                if let Err(e) = r {
+                    tracing::error!("fenêtres : {e}");
+                }
+                Msg::Noop
+            },
+        )
     }
 
     /// Rejoue l'apparition du bureau (aperçu d'une transition).
     fn replay_fade(&mut self) {
         if self.visible {
-            self.fade = Some(Fade { from: 0.0, to: 1.0, start: Instant::now(), dur: self.fade_duration() });
+            self.fade = Some(Fade {
+                from: 0.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: self.fade_duration(),
+            });
         }
     }
 
@@ -688,7 +1090,11 @@ impl App {
     /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
     /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
     fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
-        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
+        let focused = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| m.name.clone());
         let Some(bar_id) = self
             .bar_surfaces
             .iter()
@@ -698,18 +1104,46 @@ impl App {
         else {
             return Task::none();
         };
-        let items: Vec<config::BarItem> = self.cfg.bar.iter().flat_map(|b| b.zones.iter().flatten().cloned()).collect();
+        let items: Vec<config::BarItem> = self
+            .cfg
+            .bar
+            .iter()
+            .flat_map(|b| b.zones.iter().flatten().cloned())
+            .collect();
         for it in items {
             let req = match &it {
-                config::BarItem::Volume if kind == "volume" => Some(("volume".to_string(), popover::Request::Volume)),
+                config::BarItem::Volume if kind == "volume" => {
+                    Some(("volume".to_string(), popover::Request::Volume))
+                }
                 config::BarItem::Tray if kind == "tray" => self.tray.iter().find_map(|t| {
-                    t.menu.clone().map(|m| (format!("tray:{}", t.key), popover::Request::Tray { bus: t.bus.clone(), menu_path: m }))
+                    t.menu.clone().map(|m| {
+                        (
+                            format!("tray:{}", t.key),
+                            popover::Request::Tray {
+                                bus: t.bus.clone(),
+                                menu_path: m,
+                            },
+                        )
+                    })
                 }),
-                config::BarItem::Widget(id) => self.cfg.widgets.iter().find(|w| &w.id == id && w.type_id == kind).and_then(|w| match &w.kind {
-                    config::WidgetKind::Clock { .. } | config::WidgetKind::Calendar => Some((id.clone(), popover::Request::Calendar)),
-                    config::WidgetKind::Lua { menu: Some(f), .. } => Some((id.clone(), popover::Request::LuaMenu { widget: id.clone(), func: *f })),
-                    _ => None,
-                }),
+                config::BarItem::Widget(id) => self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| &w.id == id && w.type_id == kind)
+                    .and_then(|w| match &w.kind {
+                        config::WidgetKind::Clock { .. } | config::WidgetKind::Calendar => {
+                            Some((id.clone(), popover::Request::Calendar))
+                        }
+                        config::WidgetKind::Lua { menu: Some(f), .. } => Some((
+                            id.clone(),
+                            popover::Request::LuaMenu {
+                                widget: id.clone(),
+                                func: *f,
+                            },
+                        )),
+                        _ => None,
+                    }),
                 _ => None,
             };
             if let Some((key, req)) = req {
@@ -721,13 +1155,18 @@ impl App {
 
     /// Résout les icônes des classes de fenêtres pas encore connues.
     fn resolve_class_icons(&mut self) -> Task<Msg> {
-        if self.cfg.general.running_apps == RunningApps::Off {
+        let off = self.cfg.general.running_apps == RunningApps::Off;
+        let pinned = &self.cfg.general.launcher.pinned;
+        if off && pinned.is_empty() {
             return Task::none();
         }
+        // Fenêtres ouvertes, et applications épinglées au lanceur (même fermées).
         let missing: Vec<String> = self
             .clients
             .iter()
+            .filter(|_| !off)
             .map(|c| c.class.clone())
+            .chain(pinned.iter().cloned())
             .filter(|c| !self.class_imgs.contains_key(c) && !self.class_pending.contains(c))
             .collect::<HashSet<_>>()
             .into_iter()
@@ -736,14 +1175,21 @@ impl App {
             return Task::none();
         }
         self.class_pending.extend(missing.iter().cloned());
-        let (apps, theme, gen_) = (self.apps.clone(), self.cfg.general.icon_theme.clone(), self.icons_gen);
+        let (apps, theme, gen_) = (
+            self.apps.clone(),
+            self.cfg.general.icon_theme.clone(),
+            self.icons_gen,
+        );
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    missing.into_iter().map(|c| {
-                        let p = launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
-                        (c, p)
-                    }).collect::<Vec<_>>()
+                    missing
+                        .into_iter()
+                        .map(|c| {
+                            let p = launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
+                            (c, p)
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .await
                 .unwrap_or_default()
@@ -768,10 +1214,16 @@ impl App {
             .sizes
             .get(&id)
             .copied()
-            .or_else(|| self.monitor(id).map(|m| Size::new(m.width as f32, m.height as f32)))
+            .or_else(|| {
+                self.monitor(id)
+                    .map(|m| Size::new(m.width as f32, m.height as f32))
+            })
             .unwrap_or(Size::new(1920.0, 1080.0));
         let (l, t, r, b) = self.reserved(id);
-        Size::new((full.width - l - r).max(1.0), (full.height - t - b).max(1.0))
+        Size::new(
+            (full.width - l - r).max(1.0),
+            (full.height - t - b).max(1.0),
+        )
     }
 
     fn fade_value(&self) -> f32 {
@@ -783,22 +1235,69 @@ impl App {
     }
 
     fn animating(&self) -> bool {
-        self.fade.is_some() || self.shown.values().any(|s| s.prev.is_some())
+        self.fade.is_some()
+            || self.shown.values().any(|s| s.prev.is_some())
+            // Jusqu'à ce que Frame solde le fondu (fermeture comprise).
+            || self.panel_fade.is_some()
+            || self.hover_fades.values().any(|f| !f.done(Instant::now()))
+            || self
+                .popover
+                .as_ref()
+                .is_some_and(|p| p.started.elapsed() < self.motion_duration())
+    }
+
+    fn motion_duration(&self) -> Duration {
+        if self.cfg.general.transition == Transition::None {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(self.cfg.general.fade_ms.min(220))
+        }
+    }
+
+    fn hover_value(&self, key: &str) -> f32 {
+        self.hover_fades
+            .get(key)
+            .map(|f| f.value(Instant::now()))
+            .unwrap_or(0.0)
+    }
+
+    fn close_panel(&mut self) -> Task<Msg> {
+        let from = self
+            .panel_fade
+            .map(|f| f.value(Instant::now()))
+            .unwrap_or(1.0);
+        self.panel_fade = Some(Fade {
+            from,
+            to: 0.0,
+            start: Instant::now(),
+            dur: self.motion_duration(),
+        });
+        Task::done(Msg::Frame)
     }
 
     fn hooks(&self, ev: HookEvent) -> Vec<usize> {
-        self.cfg.hooks.iter().filter(|(e, _)| *e == ev).map(|(_, f)| *f).collect()
+        self.cfg
+            .hooks
+            .iter()
+            .filter(|(e, _)| *e == ev)
+            .map(|(_, f)| *f)
+            .collect()
     }
 
     fn fire(&self, ev: HookEvent, name: &str, monitor: &Monitor) {
-        self.lua.hook(self.hooks(ev), name, &monitor.name, &monitor.workspace);
+        self.lua
+            .hook(self.hooks(ev), name, &monitor.name, &monitor.workspace);
     }
 
     fn publish_status(&self) {
-        let screens: Vec<String> = self.monitors.iter().map(|m| format!("{}:{}", m.name, m.workspace)).collect();
+        let screens: Vec<String> = self
+            .monitors
+            .iter()
+            .map(|m| format!("{}:{}", m.name, m.workspace))
+            .collect();
         control::set_status(format!(
             "{} (pid {}) — écrans {} — config {} ({})",
-            if self.visible { "affiché" } else { "caché" },
+            self.mode().as_str(),
             std::process::id(),
             screens.join(" "),
             match &self.config_error {
@@ -812,19 +1311,45 @@ impl App {
     // -- Affichage / masquage ------------------------------------------------
 
     fn show(&mut self) -> Task<Msg> {
+        if self.visible && self.with_windows {
+            // Bureau déjà affiché avec les fenêtres : on les met de côté.
+            self.with_windows = false;
+            let mut tasks: Vec<Task<Msg>> = self
+                .surfaces
+                .iter()
+                .filter(|(id, _)| self.raised.contains(id))
+                .filter_map(|(id, _)| self.monitor(*id).cloned())
+                .collect::<Vec<_>>()
+                .iter()
+                .map(|m| self.stash_workspace(m))
+                .collect();
+            tasks.push(self.sync_raised());
+            tasks.push(self.sync_submap());
+            self.publish_status();
+            return Task::batch(tasks);
+        }
         if self.visible && self.fade.is_none_or(|f| f.to >= 1.0) {
             return Task::none();
         }
         self.visible = true;
-        let focused = self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone());
+        let focused = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| m.name.clone());
         let targets: Vec<(Id, bool)> = self
             .surfaces
             .iter()
-            .filter(|(_, mon)| self.cfg.general.show_on == ShowOn::All || Some(*mon) == focused.as_ref())
+            .filter(|(_, mon)| self.shows_on(mon))
             .map(|(id, mon)| (*id, Some(mon) == focused.as_ref()))
             .collect();
         let from = self.fade_value();
-        self.fade = Some(Fade { from, to: 1.0, start: Instant::now(), dur: self.fade_duration() });
+        self.fade = Some(Fade {
+            from,
+            to: 1.0,
+            start: Instant::now(),
+            dur: self.fade_duration(),
+        });
         self.selected = None;
         let mut tasks = Vec::new();
         for (id, has_focus) in targets {
@@ -837,6 +1362,8 @@ impl App {
         tasks.push(self.refresh_walls());
         // Les raccourcis de Hyprland ne doivent pas agir sur les fenêtres cachées.
         tasks.push(self.sync_submap());
+        // Bureau avec les fenêtres : elles laissent la place des contrôles.
+        tasks.push(self.sync_window_gaps());
         Task::batch(tasks)
     }
 
@@ -851,25 +1378,61 @@ impl App {
         Duration::from_millis(self.cfg.general.crossfade_ms)
     }
 
+    fn set_mode(&mut self, mode: DesktopMode) -> Task<Msg> {
+        match mode {
+            DesktopMode::NoDesktop => self.hide(),
+            DesktopMode::LauncherOnly => self.show_with_windows(),
+            DesktopMode::FullDesktop => self.show(),
+        }
+    }
+
+    /// Bureau affiché sous les fenêtres, qui restent (ou reviennent) en place.
+    fn show_with_windows(&mut self) -> Task<Msg> {
+        if self.visible && self.with_windows {
+            return Task::none();
+        }
+        self.with_windows = true;
+        if !self.visible {
+            return self.show();
+        }
+        // Depuis le bureau vide : les fenêtres reviennent, le bureau reste dessous.
+        let tasks = vec![
+            self.restore_stash(None),
+            self.sync_raised(),
+            self.sync_submap(),
+        ];
+        self.publish_status();
+        Task::batch(tasks)
+    }
+
     fn hide(&mut self) -> Task<Msg> {
         if !self.visible {
             return Task::none();
         }
         self.visible = false;
+        self.with_windows = false;
         self.drag = None;
-        self.panel = None;
         self.hovered = None;
         let from = self.fade_value();
-        self.fade = Some(Fade { from, to: 0.0, start: Instant::now(), dur: self.fade_duration() });
+        self.fade = Some(Fade {
+            from,
+            to: 0.0,
+            start: Instant::now(),
+            dur: self.fade_duration(),
+        });
         let mut tasks: Vec<Task<Msg>> = Vec::new();
         for id in self.raised.iter().copied().collect::<Vec<_>>() {
-            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::None }));
+            tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                id,
+                keyboard_interactivity: KeyboardInteractivity::None,
+            }));
             if let Some(m) = self.monitor(id) {
                 self.fire(HookEvent::Hide, "hide", m);
             }
         }
         // Les fenêtres mises de côté reviennent, à côté de celles ouvertes depuis le bureau.
         tasks.push(self.restore_stash(None));
+        tasks.push(self.sync_window_gaps());
         tasks.push(self.refresh_walls());
         self.session_windows.clear();
         tasks.push(self.sync_submap());
@@ -880,7 +1443,9 @@ impl App {
     /// En fin de fondu sortant, les surfaces redescendent sur `background`.
     fn finish_fade(&mut self) -> Task<Msg> {
         let now = Instant::now();
-        let Some(f) = self.fade else { return Task::none() };
+        let Some(f) = self.fade else {
+            return Task::none();
+        };
         if !f.done(now) {
             return Task::none();
         }
@@ -889,7 +1454,10 @@ impl App {
             return Task::none();
         }
         let ids: Vec<Id> = self.raised.drain().collect();
-        let tasks: Vec<Task<Msg>> = ids.into_iter().flat_map(|id| self.lower_surface(id)).collect();
+        let tasks: Vec<Task<Msg>> = ids
+            .into_iter()
+            .flat_map(|id| self.lower_surface(id))
+            .collect();
         Task::batch(tasks)
     }
 
@@ -901,6 +1469,33 @@ impl App {
         }
         let old = std::mem::replace(&mut self.monitors, list);
         let mut tasks = Vec::new();
+        // Écran branché pendant la session : le signaler, il se règle dans Réglages → Écrans.
+        if !old.is_empty() && self.cfg.plugin_on("screens") {
+            for m in self
+                .monitors
+                .iter()
+                .filter(|m| !old.iter().any(|o| o.name == m.name))
+            {
+                tracing::info!("nouvel écran : {}", m.name);
+                let name = m.name.clone();
+                tasks.push(Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || {
+                            hypr::notify(
+                                1,
+                                8000,
+                                &format!("hyprdesk : nouvel écran {name} — Réglages → Écrans pour le placer"),
+                            )
+                        })
+                        .await;
+                    },
+                    |_| Msg::Noop,
+                ));
+            }
+        }
+        if self.panel.is_some() {
+            tasks.push(Self::detect_screens());
+        }
         for m in &self.monitors {
             if !self.surfaces.values().any(|n| n == &m.name) {
                 let id = Id::unique();
@@ -921,8 +1516,12 @@ impl App {
                 }));
             }
         }
-        let gone: Vec<Id> =
-            self.surfaces.iter().filter(|(_, n)| !self.monitors.iter().any(|m| &m.name == *n)).map(|(id, _)| *id).collect();
+        let gone: Vec<Id> = self
+            .surfaces
+            .iter()
+            .filter(|(_, n)| !self.monitors.iter().any(|m| &m.name == *n))
+            .map(|(id, _)| *id)
+            .collect();
         for id in gone {
             self.surfaces.remove(&id);
             self.raised.remove(&id);
@@ -930,8 +1529,14 @@ impl App {
         }
         // Changement de workspace pendant que le bureau est affiché.
         for m in &self.monitors {
-            let changed = old.iter().find(|o| o.name == m.name).is_some_and(|o| o.workspace != m.workspace);
-            let raised = self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id));
+            let changed = old
+                .iter()
+                .find(|o| o.name == m.name)
+                .is_some_and(|o| o.workspace != m.workspace);
+            let raised = self
+                .surfaces
+                .iter()
+                .any(|(id, n)| n == &m.name && self.raised.contains(id));
             if changed && raised {
                 self.fire(HookEvent::Workspace, "workspace", m);
                 self.selected = None;
@@ -942,8 +1547,13 @@ impl App {
             .monitors
             .iter()
             .filter(|m| {
-                old.iter().find(|o| o.name == m.name).is_some_and(|o| o.workspace != m.workspace)
-                    && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id))
+                old.iter()
+                    .find(|o| o.name == m.name)
+                    .is_some_and(|o| o.workspace != m.workspace)
+                    && self
+                        .surfaces
+                        .iter()
+                        .any(|(id, n)| n == &m.name && self.raised.contains(id))
             })
             .cloned()
             .collect();
@@ -952,7 +1562,13 @@ impl App {
         }
         tasks.push(self.refresh_walls());
         tasks.push(self.sync_bars());
+        tasks.push(self.sync_lyra_drawer());
+        let names = |l: &[Monitor]| l.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
+        if names(&old) != names(&self.monitors) && !self.cfg.general.workspace_monitors.is_empty() {
+            tasks.push(self.install_rules());
+        }
         if self.visible {
+            tasks.push(self.sync_raised());
             tasks.push(Task::done(Msg::Poll));
         }
         Task::batch(tasks)
@@ -960,7 +1576,13 @@ impl App {
 
     // -- Fonds d'écran ---------------------------------------------------------
 
-    fn rot_file(&mut self, idx: usize, dir: &std::path::Path, interval: Duration, shuffle: bool) -> Option<PathBuf> {
+    fn rot_file(
+        &mut self,
+        idx: usize,
+        dir: &std::path::Path,
+        interval: Duration,
+        shuffle: bool,
+    ) -> Option<PathBuf> {
         let r = self.rot.entry(idx).or_insert_with(|| {
             let mut files = list_images(dir);
             if shuffle {
@@ -970,7 +1592,11 @@ impl App {
             if files.is_empty() {
                 tracing::warn!("rotation : aucune image dans {}", dir.display());
             }
-            Rot { files, idx: 0, next: Instant::now() + interval }
+            Rot {
+                files,
+                idx: 0,
+                next: Instant::now() + interval,
+            }
         });
         r.files.get(r.idx % r.files.len().max(1)).cloned()
     }
@@ -984,13 +1610,22 @@ impl App {
             // Mode verre, bureau affiché : le même fond, flouté.
             let blur = self.visible
                 && d.mode == Mode::Glass
-                && self.surfaces.iter().any(|(id, n)| n == &m.name && self.raised.contains(id));
+                && self
+                    .surfaces
+                    .iter()
+                    .any(|(id, n)| n == &m.name && self.raised.contains(id));
             let want = match (d.wallpaper, d.wallpaper_idx) {
                 (None, _) | (_, None) => Wall::Color(cfg.general.background),
                 (Some(rule), Some(idx)) => match &rule.source {
                     WallSource::Color(c) => Wall::Color(*c),
-                    WallSource::Path(p) => Wall::Image((p.clone(), m.width, m.height, rule.fit, blur)),
-                    WallSource::Rotate { dir, interval, shuffle } => match self.rot_file(idx, dir, *interval, *shuffle) {
+                    WallSource::Path(p) => {
+                        Wall::Image((p.clone(), m.width, m.height, rule.fit, blur))
+                    }
+                    WallSource::Rotate {
+                        dir,
+                        interval,
+                        shuffle,
+                    } => match self.rot_file(idx, dir, *interval, *shuffle) {
                         Some(p) => Wall::Image((p, m.width, m.height, rule.fit, blur)),
                         None => Wall::Color(cfg.general.background),
                     },
@@ -1008,7 +1643,9 @@ impl App {
                     tasks.push(Task::perform(
                         async move {
                             let k2 = k.clone();
-                            let r = tokio::task::spawn_blocking(move || decode_wall(&k2)).await.unwrap_or_else(|e| Err(e.to_string()));
+                            let r = tokio::task::spawn_blocking(move || decode_wall(&k2))
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()));
                             (k, r)
                         },
                         |(k, r)| Msg::WallLoaded(k, r),
@@ -1017,7 +1654,14 @@ impl App {
                 continue;
             }
             let prev = self.shown.remove(&m.name).map(|s| s.current);
-            self.shown.insert(m.name.clone(), Shown { current: want, prev, since: Instant::now() });
+            self.shown.insert(
+                m.name.clone(),
+                Shown {
+                    current: want,
+                    prev,
+                    since: Instant::now(),
+                },
+            );
         }
         // Le cache ne garde que les images affichées (courantes ou en fondu).
         let used: HashSet<&WallKey> = self
@@ -1025,10 +1669,17 @@ impl App {
             .values()
             .flat_map(|s| [Some(&s.current), s.prev.as_ref()])
             .flatten()
-            .filter_map(|w| if let Wall::Image(k) = w { Some(k) } else { None })
+            .filter_map(|w| {
+                if let Wall::Image(k) = w {
+                    Some(k)
+                } else {
+                    None
+                }
+            })
             .collect();
         let keep: HashSet<WallKey> = used.into_iter().cloned().collect();
-        self.walls.retain(|k, _| keep.contains(k) || self.loading.contains(k));
+        self.walls
+            .retain(|k, _| keep.contains(k) || self.loading.contains(k));
         Task::batch(tasks)
     }
 
@@ -1048,23 +1699,49 @@ impl App {
         }
         let bar_ids = self.bar_widget_ids();
         todo.extend(cfg.widgets.iter().filter(|w| bar_ids.contains(&w.id)));
-        if self.bar_has(&config::BarItem::Volume) && self.last_poll.get("bar:volume").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
+        if self.bar_has(&config::BarItem::Volume)
+            && !self.pending_widgets.contains("bar:volume")
+            && self
+                .last_poll
+                .get("bar:volume")
+                .is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2))
+        {
+            self.pending_widgets.insert("bar:volume".into());
             self.last_poll.insert("bar:volume".into(), now);
             tasks.push(Task::perform(bar::read_volume(), Msg::VolumeValue));
         }
-        if self.bar_has(&config::BarItem::Tray) && self.last_poll.get("bar:tray").is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2)) {
+        if self.bar_has(&config::BarItem::Tray)
+            && !self.pending_widgets.contains("bar:tray")
+            && self
+                .last_poll
+                .get("bar:tray")
+                .is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2))
+        {
+            self.pending_widgets.insert("bar:tray".into());
             self.last_poll.insert("bar:tray".into(), now);
-            tasks.push(Task::perform(crate::tray::items(), Msg::TrayItems));
+            tasks.push(Task::perform(
+                async {
+                    tokio::time::timeout(Duration::from_secs(4), crate::tray::items())
+                        .await
+                        .unwrap_or_default()
+                },
+                Msg::TrayItems,
+            ));
         }
         {
             for w in todo {
-                if !seen.insert(w.id.clone()) {
+                if self.pending_widgets.contains(&w.id) || !seen.insert(w.id.clone()) {
                     continue;
                 }
-                if self.last_poll.get(&w.id).is_some_and(|t| now.duration_since(*t) < w.interval) {
+                if self
+                    .last_poll
+                    .get(&w.id)
+                    .is_some_and(|t| now.duration_since(*t) < w.interval)
+                {
                     continue;
                 }
                 let wid = w.id.clone();
+                let generation = self.widget_generation;
                 let task: Option<Task<Msg>> = match &w.kind {
                     WidgetKind::Clock { .. } | WidgetKind::Calendar => None,
                     WidgetKind::System { show } => {
@@ -1076,16 +1753,28 @@ impl App {
                                     .map(widgets::Value::Sys)
                                     .unwrap_or_else(|e| widgets::Value::Error(e.to_string()))
                             },
-                            move |v| Msg::WidgetValue(wid.clone(), v),
+                            move |v| Msg::WidgetValue(generation, wid.clone(), v),
                         ))
                     }
                     WidgetKind::Media { player } => {
                         let p = player.clone();
-                        Some(Task::perform(async move { widgets::media(&p).await }, move |v| Msg::WidgetValue(wid.clone(), v)))
+                        Some(Task::perform(
+                            async move {
+                                tokio::time::timeout(Duration::from_secs(3), widgets::media(&p))
+                                    .await
+                                    .unwrap_or_else(|_| {
+                                        widgets::Value::Error("MPRIS : délai dépassé".into())
+                                    })
+                            },
+                            move |v| Msg::WidgetValue(generation, wid.clone(), v),
+                        ))
                     }
                     WidgetKind::Command { exec, timeout } => {
                         let (c, t) = (exec.clone(), *timeout);
-                        Some(Task::perform(async move { widgets::run_command(&c, t).await }, move |v| Msg::WidgetValue(wid.clone(), v)))
+                        Some(Task::perform(
+                            async move { widgets::run_command(&c, t).await },
+                            move |v| Msg::WidgetValue(generation, wid.clone(), v),
+                        ))
                     }
                     WidgetKind::Lua { func, .. } => {
                         let (lua, f) = (self.lua.clone(), *func);
@@ -1096,12 +1785,13 @@ impl App {
                                     Err(e) => widgets::Value::Error(e),
                                 }
                             },
-                            move |v| Msg::WidgetValue(wid.clone(), v),
+                            move |v| Msg::WidgetValue(generation, wid.clone(), v),
                         ))
                     }
                 };
                 if let Some(t) = task {
                     self.last_poll.insert(w.id.clone(), now);
+                    self.pending_widgets.insert(w.id.clone());
                     tasks.push(t);
                 }
             }
@@ -1113,14 +1803,37 @@ impl App {
 
     /// Icônes d'une surface avec leur cellule : (index dans cfg.icons, cellule).
     fn placed(&self, id: Id) -> Vec<(usize, Cell)> {
-        let Some((m, d)) = self.desktop_of(id) else { return Vec::new() };
+        let Some((m, d)) = self.desktop_of(id) else {
+            return Vec::new();
+        };
         let g = &self.cfg.general.grid;
         let size = self.size_of(id);
         let (cols, rows) = layout::grid_dims(size.width, size.height, g.cell, g.gap, g.margin);
-        let wanted: Vec<Option<Cell>> =
-            d.icons.iter().map(|i| self.layout.get(&layout::key(&m.name, &m.workspace, &i.id)).or(i.pos)).collect();
+        let wanted: Vec<Option<Cell>> = d
+            .icons
+            .iter()
+            .map(|i| {
+                self.layout
+                    .get(&layout::key(&m.name, &m.workspace, &i.id))
+                    .or(i.pos)
+            })
+            .collect();
         let cells = layout::place(&wanted, cols, rows);
-        d.icons.iter().zip(cells).filter_map(|(i, c)| Some((index_of(&self.cfg.icons, *i), c?))).collect()
+        d.icons
+            .iter()
+            .zip(cells)
+            .filter_map(|(i, c)| Some((index_of(&self.cfg.icons, *i), c?)))
+            .collect()
+    }
+
+    fn builtin_icon(&mut self, name: &str) -> IconImg {
+        match icons::get(name) {
+            Some(handle) => {
+                self.vectors.push(handle);
+                IconImg::Vector(self.vectors.len() - 1)
+            }
+            None => IconImg::None,
+        }
     }
 
     /// Handle iced pour une image d'icône (SVG ou matricielle), créé une fois.
@@ -1139,24 +1852,45 @@ impl App {
     }
 
     /// Police de l'interface, à la graisse voulue.
+    /// Graisse de la barre et des titres : la version grasse de la police.
+    pub(super) fn title_font(&self) -> Font {
+        self.ui_font(iced::font::Weight::Bold)
+    }
+
     pub(super) fn ui_font(&self, weight: iced::font::Weight) -> Font {
-        Font { family: iced::font::Family::Name(self.ui_family), weight, ..Font::DEFAULT }
+        Font {
+            family: iced::font::Family::Name(self.ui_family),
+            weight,
+            ..Font::DEFAULT
+        }
     }
 
     /// Icône du thème par nom ; les icônes symboliques sont teintées (`tint`).
-    pub(super) fn icon_named<'a>(&self, name: &str, size: f32, tint: Color) -> Option<Element<'a, Msg>> {
+    pub(super) fn icon_named<'a>(
+        &self,
+        name: &str,
+        size: f32,
+        tint: Color,
+    ) -> Option<Element<'a, Msg>> {
         match self.named_icons.get(name).copied()? {
             IconImg::Vector(i) => {
-                let symbolic = name.ends_with("-symbolic");
+                let symbolic = name.ends_with("-symbolic") || icons::get(name).is_some();
                 Some(
                     svg(self.vectors[i].clone())
                         .width(size)
                         .height(size)
-                        .style(move |_, _| svg::Style { color: symbolic.then_some(tint) })
+                        .style(move |_, _| svg::Style {
+                            color: symbolic.then_some(tint),
+                        })
                         .into(),
                 )
             }
-            IconImg::Raster(i) => Some(image(self.rasters[i].clone()).width(size).height(size).into()),
+            IconImg::Raster(i) => Some(
+                image(self.rasters[i].clone())
+                    .width(size)
+                    .height(size)
+                    .into(),
+            ),
             IconImg::None => None,
         }
     }
@@ -1166,14 +1900,21 @@ impl App {
         if self.named_icons.contains_key(name) || !self.named_pending.insert(name.to_string()) {
             return Task::none();
         }
-        let (n, theme, gen_) = (name.to_string(), self.cfg.general.icon_theme.clone(), self.icons_gen);
+        let (n, theme, gen_) = (
+            name.to_string(),
+            self.cfg.general.icon_theme.clone(),
+            self.icons_gen,
+        );
         Task::perform(
             async move {
                 let n2 = n.clone();
                 let p = tokio::task::spawn_blocking(move || {
                     launch::lookup_icon(&n2, theme.as_deref(), 32)
                         // Repli : la version non symbolique, puis le thème par défaut.
-                        .or_else(|| n2.strip_suffix("-symbolic").and_then(|b| launch::lookup_icon(b, theme.as_deref(), 32)))
+                        .or_else(|| {
+                            n2.strip_suffix("-symbolic")
+                                .and_then(|b| launch::lookup_icon(b, theme.as_deref(), 32))
+                        })
                         .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), 32))
                 })
                 .await
@@ -1187,18 +1928,36 @@ impl App {
 
     fn img_element(&self, img: IconImg, size: f32, alpha: f32) -> Option<Element<'_, Msg>> {
         match img {
-            IconImg::Raster(i) => Some(image(self.rasters[i].clone()).width(size).height(size).opacity(alpha).into()),
-            IconImg::Vector(i) => Some(svg(self.vectors[i].clone()).width(size).height(size).opacity(alpha).into()),
+            IconImg::Raster(i) => Some(
+                image(self.rasters[i].clone())
+                    .width(size)
+                    .height(size)
+                    .opacity(alpha)
+                    .into(),
+            ),
+            IconImg::Vector(i) => Some(
+                svg(self.vectors[i].clone())
+                    .width(size)
+                    .height(size)
+                    .opacity(alpha)
+                    .into(),
+            ),
             IconImg::None => None,
         }
     }
 
     fn launch(&mut self, idx: usize) -> Task<Msg> {
-        let Some(r) = self.icons.get(idx) else { return Task::none() };
+        let Some(r) = self.icons.get(idx) else {
+            return Task::none();
+        };
         let cmd = r.command.clone();
         let stays = !self.cfg.general.close_on_launch;
         let t = self.run_from_desktop(cmd, stays);
-        if stays { t } else { Task::batch([t, self.hide()]) }
+        if stays {
+            t
+        } else {
+            Task::batch([t, self.hide()])
+        }
     }
 
     /// Lance une commande depuis le bureau. S'il reste affiché, la fenêtre
@@ -1206,7 +1965,14 @@ impl App {
     /// la contient.
     pub(super) fn run_from_desktop(&self, cmd: String, stays: bool) -> Task<Msg> {
         let size = (stays && self.cfg.general.float_launched)
-            .then(|| self.monitors.iter().find(|m| m.focused).map(|m| ((m.width as f32 * 0.6) as u32, (m.height as f32 * 0.7) as u32)))
+            .then(|| {
+                self.monitors.iter().find(|m| m.focused).map(|m| {
+                    (
+                        (m.width as f32 * 0.6) as u32,
+                        (m.height as f32 * 0.7) as u32,
+                    )
+                })
+            })
             .flatten();
         tracing::info!("lancement : {cmd}");
         Task::perform(
@@ -1232,19 +1998,35 @@ impl App {
         if placed.is_empty() {
             return Task::none();
         }
-        let cur = self.selected.filter(|(w, _)| *w == id).and_then(|(_, i)| placed.iter().find(|(x, _)| *x == i).copied());
-        let pick = |pred: &dyn Fn(Cell) -> Option<u32>| placed.iter().filter_map(|(i, c)| pred(*c).map(|k| (k, *i))).min().map(|(_, i)| i);
+        let cur = self
+            .selected
+            .filter(|(w, _)| *w == id)
+            .and_then(|(_, i)| placed.iter().find(|(x, _)| *x == i).copied());
+        let pick = |pred: &dyn Fn(Cell) -> Option<u32>| {
+            placed
+                .iter()
+                .filter_map(|(i, c)| pred(*c).map(|k| (k, *i)))
+                .min()
+                .map(|(_, i)| i)
+        };
         let next = match (key, cur) {
             (keyboard::Key::Named(Named::Enter), Some((i, _))) => return self.launch(i),
             (keyboard::Key::Named(Named::Enter), None) => None,
-            (_, None) => placed.iter().min_by_key(|(_, c)| (c.0, c.1)).map(|(i, _)| *i),
+            (_, None) => placed
+                .iter()
+                .min_by_key(|(_, c)| (c.0, c.1))
+                .map(|(i, _)| *i),
             (keyboard::Key::Named(n), Some((_, (c, r)))) => {
                 let dist = |a: u16, b: u16| (a as i32 - b as i32).unsigned_abs();
                 match n {
                     Named::ArrowDown => pick(&|(cc, rr)| (cc == c && rr > r).then(|| dist(rr, r))),
                     Named::ArrowUp => pick(&|(cc, rr)| (cc == c && rr < r).then(|| dist(rr, r))),
-                    Named::ArrowRight => pick(&|(cc, rr)| (cc > c).then(|| dist(cc, c) * 1000 + dist(rr, r))),
-                    Named::ArrowLeft => pick(&|(cc, rr)| (cc < c).then(|| dist(cc, c) * 1000 + dist(rr, r))),
+                    Named::ArrowRight => {
+                        pick(&|(cc, rr)| (cc > c).then(|| dist(cc, c) * 1000 + dist(rr, r)))
+                    }
+                    Named::ArrowLeft => {
+                        pick(&|(cc, rr)| (cc < c).then(|| dist(cc, c) * 1000 + dist(rr, r)))
+                    }
                     _ => return Task::none(),
                 }
             }
@@ -1257,16 +2039,25 @@ impl App {
     }
 
     fn drop_icon(&mut self, win: Id, icon: usize) {
-        let Some(p) = self.cursor.get(&win).copied() else { return };
+        let Some(p) = self.cursor.get(&win).copied() else {
+            return;
+        };
         let g = self.cfg.general.grid.clone();
         let size = self.size_of(win);
         let (cols, rows) = layout::grid_dims(size.width, size.height, g.cell, g.gap, g.margin);
         // Le curseur est en coordonnées de surface ; la grille commence après la zone réservée.
         let (rl, rt, _, _) = self.reserved(win);
-        let Some(target) = layout::cell_at(p.x - rl, p.y - rt, g.cell, g.gap, g.margin, cols, rows) else { return };
+        let Some(target) = layout::cell_at(p.x - rl, p.y - rt, g.cell, g.gap, g.margin, cols, rows)
+        else {
+            return;
+        };
         let placed = self.placed(win);
-        let Some(&(_, from)) = placed.iter().find(|(i, _)| *i == icon) else { return };
-        let Some(m) = self.monitor(win).cloned() else { return };
+        let Some(&(_, from)) = placed.iter().find(|(i, _)| *i == icon) else {
+            return;
+        };
+        let Some(m) = self.monitor(win).cloned() else {
+            return;
+        };
         let key_of = |i: usize| layout::key(&m.name, &m.workspace, &self.cfg.icons[i].id);
         // Cellule occupée : les deux icônes échangent leur place.
         if let Some(&(other, _)) = placed.iter().find(|(_, c)| *c == target) {
@@ -1290,38 +2081,53 @@ impl App {
     fn update_inner(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::Control(c) => match c {
+                // Le raccourci d'un mode y mène, ou rend no-desktop s'il y est déjà.
                 control::Command::Toggle => {
-                    if self.visible {
+                    if self.mode() == DesktopMode::FullDesktop {
                         self.hide()
                     } else {
                         self.show()
                     }
                 }
+                control::Command::ToggleLauncher => {
+                    if self.mode() == DesktopMode::LauncherOnly {
+                        self.hide()
+                    } else {
+                        self.show_with_windows()
+                    }
+                }
                 control::Command::Show => self.show(),
                 control::Command::Hide => self.hide(),
+                control::Command::LauncherOnly => self.show_with_windows(),
+                control::Command::Cycle => self.set_mode(self.mode().next()),
                 control::Command::Reload => self.load_config(),
                 control::Command::Quit => {
                     if self.in_submap {
-                        hypr::set_submap(None);
+                        drop(self.windows.submap(false));
                     }
                     // Rien ne doit rester de côté après l'arrêt.
-                    let _ = self.restore_stash(None);
-                    crate::session::stop_all();
-                    hypr::remove_keys();
-                    iced::exit()
+                    self.restore_stash(None)
+                        .chain(Task::perform(
+                            async {
+                                crate::session::stop_all().await;
+                                let _ = tokio::task::spawn_blocking(hypr::remove_keys).await;
+                                let _ = tokio::task::spawn_blocking(hypr::remove_rules).await;
+                                let _ = tokio::task::spawn_blocking(|| hypr::set_desktop_gaps(&[]))
+                                    .await;
+                            },
+                            |_| Msg::Noop,
+                        ))
+                        .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
                 control::Command::Menu(kind) => self.open_menu_by_type(&kind),
+                control::Command::Assistant => self.open_assistant(),
+                // Les réglages s'ouvrent sans changer le mode du bureau.
                 control::Command::Settings(tab) => {
-                    let s = self.show();
+                    let s = Task::none();
                     let o = self.open_panel();
-                    let tab = match tab {
-                        1 => panel::Tab::Icons,
-                        2 => panel::Tab::Wallpaper,
-                        3 => panel::Tab::Effects,
-                        4 => panel::Tab::Widgets,
-                        _ => panel::Tab::Desktop,
-                    };
+                    // Paquet inconnu : l'onglet Bureau.
+                    let tab = plugins::find(&tab).map_or("desktop", |p| p.id);
                     Task::batch([s, o, Task::done(Msg::Panel(PanelMsg::Tab(tab)))])
                 }
             },
@@ -1354,7 +2160,11 @@ impl App {
                 },
                 |_| Msg::Noop,
             ),
-            Msg::VolumeMute => self.volume_action(vec!["set-mute".into(), "@DEFAULT_AUDIO_SINK@".into(), "toggle".into()]),
+            Msg::VolumeMute => self.volume_action(vec![
+                "set-mute".into(),
+                "@DEFAULT_AUDIO_SINK@".into(),
+                "toggle".into(),
+            ]),
             Msg::VolumeStep(d) => self.volume_action(vec![
                 "set-volume".into(),
                 "-l".into(),
@@ -1363,12 +2173,73 @@ impl App {
                 format!("{}%{}", d.abs(), if d > 0 { "+" } else { "-" }),
             ]),
             Msg::VolumeValue(v) => {
+                self.pending_widgets.remove("bar:volume");
                 self.volume = v;
                 Task::none()
             }
+            Msg::MicMute => self.mic_action(vec![
+                "set-mute".into(),
+                "@DEFAULT_AUDIO_SOURCE@".into(),
+                "toggle".into(),
+            ]),
+            Msg::MicSet(v) => {
+                if let Some(cur) = self.audio.mic.as_mut() {
+                    cur.0 = v;
+                }
+                self.mic_action(vec![
+                    "set-volume".into(),
+                    "@DEFAULT_AUDIO_SOURCE@".into(),
+                    format!("{v:.2}"),
+                ])
+            }
+            Msg::AudioDefault(id) => {
+                let is_output = self.audio.outputs.iter().any(|d| d.id == id);
+                let list = if is_output {
+                    &mut self.audio.outputs
+                } else {
+                    &mut self.audio.inputs
+                };
+                for d in list.iter_mut() {
+                    d.default = d.id == id;
+                }
+                // Le volume affiché suit le nouveau périphérique.
+                let after = self.volume_action(vec!["set-default".into(), id.to_string()]);
+                after.chain(Task::perform(bar::read_audio(), Msg::AudioValue))
+            }
+            Msg::LauncherApp(monitor, class) => self.launcher_focus_app(&monitor, &class),
+            Msg::OpenAssistant => self.open_assistant(),
+            Msg::LauncherHover(spec) => self.launcher_hover(spec),
+            Msg::LauncherPointer(monitor, position) => self.launcher_pointer(&monitor, position),
+            Msg::LauncherPopupClose(token) => self.launcher_popup_timeout(token),
+            Msg::LauncherPopupHover(on) => self.launcher_popup_hover(on),
+            Msg::LauncherPick(address) => {
+                let close = self.close_launcher_popup();
+                let focus = self.update_inner(Msg::FocusWindow(address));
+                Task::batch([close, focus])
+            }
+            Msg::LauncherLaunch(id) => self.launcher_launch(&id),
+            Msg::AudioValue(a) => {
+                self.audio = a;
+                Task::none()
+            }
+            Msg::Screens(list) => {
+                if !list.is_empty() {
+                    self.screens = list;
+                }
+                Task::none()
+            }
+            Msg::ScreensTick => self.screens_tick(),
             Msg::Hypr(hypr::Update::Reloaded) => {
-                // Une relecture de la config Hyprland efface nos raccourcis et notre submap.
-                let mut t = vec![self.install_keys()];
+                // Une relecture de la config Hyprland efface nos raccourcis, nos règles et notre submap.
+                // Les règles de marge ont disparu avec la relecture : les reposer.
+                self.window_gaps.clear();
+                self.lyra_rule = None;
+                let mut t = vec![
+                    self.install_keys(),
+                    self.install_rules(),
+                    self.sync_window_gaps(),
+                    self.sync_lyra_drawer(),
+                ];
                 if self.in_submap {
                     self.in_submap = false;
                     t.push(self.sync_submap());
@@ -1379,9 +2250,16 @@ impl App {
                 match r {
                     Ok((conflicts, universal)) => {
                         if !conflicts.is_empty() && conflicts != self.key_conflicts {
-                            let list: Vec<String> = conflicts.iter().map(|(k, w)| format!("{k} (déjà lié à {w})")).collect();
+                            let list: Vec<String> = conflicts
+                                .iter()
+                                .map(|(k, w)| format!("{k} (déjà lié à {w})"))
+                                .collect();
                             tracing::warn!("raccourcis non installés : {}", list.join(", "));
-                            hypr::notify(0, 8000, &format!("hyprdesk : raccourci non installé — {}", list.join(", ")));
+                            hypr::notify(
+                                0,
+                                8000,
+                                &format!("hyprdesk : raccourci non installé — {}", list.join(", ")),
+                            );
                         }
                         self.key_conflicts = conflicts;
                         self.universal_binds = universal;
@@ -1392,7 +2270,9 @@ impl App {
             }
             Msg::Hypr(hypr::Update::Clients(list)) => {
                 let mut tasks = Vec::new();
-                if self.visible {
+                // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
+                // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
+                if self.visible && !self.with_windows {
                     // Fenêtre ouverte sur un bureau affiché : le bureau la contient ;
                     // elle reçoit le clavier et ses raccourcis habituels.
                     let fresh: Vec<Client> = list
@@ -1405,7 +2285,13 @@ impl App {
                         let surfaces: Vec<Id> = self
                             .surfaces
                             .iter()
-                            .filter(|(id, n)| self.raised.contains(id) && self.monitors.iter().any(|m| &m.name == *n && m.workspace == c.workspace))
+                            .filter(|(id, n)| {
+                                self.raised.contains(id)
+                                    && self
+                                        .monitors
+                                        .iter()
+                                        .any(|m| &m.name == *n && m.workspace == c.workspace)
+                            })
                             .map(|(id, _)| *id)
                             .collect();
                         if surfaces.is_empty() {
@@ -1413,12 +2299,19 @@ impl App {
                         }
                         self.session_windows.insert(c.address.clone());
                         for id in surfaces {
-                            tasks.push(Task::done(Msg::KeyboardInteractivityChange { id, keyboard_interactivity: KeyboardInteractivity::OnDemand }));
+                            tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                                id,
+                                keyboard_interactivity: KeyboardInteractivity::OnDemand,
+                            }));
                         }
                     }
                     tasks.push(self.sync_submap());
                 }
+                self.session_windows
+                    .retain(|address| list.iter().any(|c| &c.address == address));
+                tasks.push(self.sync_submap());
                 self.clients = list;
+                tasks.push(self.sync_raised());
                 tasks.push(self.resolve_class_icons());
                 Task::batch(tasks)
             }
@@ -1439,28 +2332,57 @@ impl App {
                 }
                 Task::none()
             }
+            // Le lanceur ne change jamais de mode. En full-desktop, la fenêtre
+            // choisie revient seule de côté, par-dessus le bureau, comme une
+            // fenêtre ouverte depuis lui ; les autres restent de côté.
             Msg::FocusWindow(addr) => {
-                let t = Task::perform(
+                let back = if self.mode() == DesktopMode::FullDesktop {
+                    self.session_windows.insert(addr.clone());
+                    let mut t = vec![Self::window_result(self.windows.restore_window(&addr))];
+                    for id in self.raised.iter().copied().collect::<Vec<_>>() {
+                        t.push(Task::done(Msg::KeyboardInteractivityChange {
+                            id,
+                            keyboard_interactivity: KeyboardInteractivity::OnDemand,
+                        }));
+                    }
+                    t.push(self.sync_submap());
+                    Task::batch(t)
+                } else {
+                    Task::none()
+                };
+                let focus = Task::perform(
                     async move {
-                        if let Ok(Err(e)) = tokio::task::spawn_blocking(move || hypr::focus_window(&addr)).await {
+                        if let Ok(Err(e)) =
+                            tokio::task::spawn_blocking(move || hypr::focus_window(&addr)).await
+                        {
                             tracing::warn!("focus : {e}");
                         }
                     },
                     |_| Msg::Noop,
                 );
-                Task::batch([t, self.hide()])
+                back.chain(focus)
             }
-            Msg::OpenPanel => {
-                let s = self.show();
-                Task::batch([s, self.open_panel()])
-            }
+            // Les réglages s'ouvrent sans changer le mode du bureau.
+            Msg::OpenPanel => self.open_panel(),
             Msg::Panel(m) => self.panel_update(m),
-            Msg::SettingsLoaded(s) => {
-                self.settings = s;
+            Msg::Chat(m) => self.chat_update(m),
+            Msg::SettingsLoaded(revision, s) => {
+                if revision
+                    == self
+                        .settings_revision
+                        .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    self.settings = s;
+                }
                 Task::none()
             }
             Msg::ConfigChanged => self.load_config(),
             Msg::ConfigLoaded(Ok(cfg)) => {
+                self.widget_generation += 1;
+                self.values.clear();
+                self.last_poll.clear();
+                self.menu_request += 1;
+                let close = self.close_popover();
                 tracing::info!(
                     "config chargée : {} fonds, {} icônes, {} widgets",
                     cfg.wallpapers.len(),
@@ -1470,7 +2392,7 @@ impl App {
                 if self.config_error.take().is_some() {
                     hypr::notify(3, 2500, "hyprdesk : configuration rechargée");
                 }
-                self.install_config(cfg)
+                Task::batch([close, self.install_config(cfg)])
             }
             Msg::ConfigLoaded(Err(e)) => {
                 tracing::error!("config : {e}");
@@ -1484,19 +2406,38 @@ impl App {
                 }
                 self.rasters.clear();
                 self.vectors.clear();
-                self.icon_imgs = list.iter().map(|r| self.handle_for(r.image.as_deref())).collect();
-                self.ui_imgs = media.iter().map(|p| self.handle_for(p.as_deref())).collect();
+                self.icon_imgs = list
+                    .iter()
+                    .map(|r| self.handle_for(r.image.as_deref()))
+                    .collect();
+                self.ui_imgs = media
+                    .iter()
+                    .zip(UI_ICONS)
+                    .map(|(p, name)| match p {
+                        Some(p) => self.handle_for(Some(p)),
+                        None => self.builtin_icon(name),
+                    })
+                    .collect();
                 self.icons = list;
                 // Les poignées des fenêtres et des icônes nommées vivaient dans les vecteurs vidés plus haut.
                 self.class_imgs.clear();
                 self.class_pending.clear();
                 self.named_icons.clear();
                 self.named_pending.clear();
-                let mut again: Vec<Task<Msg>> = bar::STATIC_ICONS.iter().map(|n| self.want_icon(n)).collect();
+                let mut again: Vec<Task<Msg>> = bar::STATIC_ICONS
+                    .iter()
+                    .map(|n| self.want_icon(n))
+                    .collect();
                 let names: Vec<String> = self
                     .values
                     .values()
-                    .filter_map(|v| if let widgets::Value::Rich(r) = v { r.icon.clone() } else { None })
+                    .filter_map(|v| {
+                        if let widgets::Value::Rich(r) = v {
+                            r.icon.clone()
+                        } else {
+                            None
+                        }
+                    })
                     .chain(self.tray.iter().filter_map(|t| t.icon_name.clone()))
                     .collect();
                 for n in names {
@@ -1525,29 +2466,61 @@ impl App {
                 let mut changed = false;
                 for (idx, r) in self.rot.iter_mut() {
                     if now >= r.next
-                        && let Some(WallSource::Rotate { interval, .. }) = cfg.wallpapers.get(*idx).map(|w| &w.source)
+                        && let Some(WallSource::Rotate { interval, .. }) =
+                            cfg.wallpapers.get(*idx).map(|w| &w.source)
                     {
                         r.idx = (r.idx + 1) % r.files.len().max(1);
                         r.next = now + *interval;
                         changed = true;
                     }
                 }
-                if changed { self.refresh_walls() } else { Task::none() }
+                if changed {
+                    self.refresh_walls()
+                } else {
+                    Task::none()
+                }
             }
             Msg::Frame => {
                 let now = Instant::now();
+                let mut closed = Task::none();
+                if let Some(f) = self.panel_fade
+                    && f.done(now)
+                {
+                    self.panel_fade = None;
+                    if f.to == 0.0
+                        && let Some(p) = self.panel.take()
+                    {
+                        // Le tiroir fermé : sa surface disparaît, sa place revient aux fenêtres.
+                        closed = Task::batch([
+                            iced::window::close(p.surface),
+                            self.sync_raised(),
+                            self.sync_window_gaps(),
+                        ]);
+                    }
+                }
+                self.hover_fades.retain(|_, f| f.to > 0.0 || !f.done(now));
                 let cf = self.crossfade();
                 for s in self.shown.values_mut() {
                     if s.prev.is_some() && now.duration_since(s.since) >= cf {
                         s.prev = None;
                     }
                 }
-                self.finish_fade()
+                Task::batch([closed, self.finish_fade()])
             }
             Msg::Poll => self.poll(),
-            Msg::WidgetValue(id, v) => {
+            Msg::WidgetValue(generation, id, v) => {
+                self.pending_widgets.remove(&id);
+                if generation != self.widget_generation
+                    || !self.cfg.widgets.iter().any(|w| w.id == id)
+                {
+                    return Task::none();
+                }
                 let t = match &v {
-                    widgets::Value::Rich(r) => r.icon.clone().map(|i| self.want_icon(&i)).unwrap_or_else(Task::none),
+                    widgets::Value::Rich(r) => r
+                        .icon
+                        .clone()
+                        .map(|i| self.want_icon(&i))
+                        .unwrap_or_else(Task::none),
                     _ => Task::none(),
                 };
                 self.values.insert(id, v);
@@ -1556,55 +2529,128 @@ impl App {
             Msg::IconResolved(gen_, name, path) => {
                 if gen_ == self.icons_gen {
                     self.named_pending.remove(&name);
-                    let img = self.handle_for(path.as_deref());
+                    let img = match path {
+                        Some(p) => self.handle_for(Some(&p)),
+                        None => self.builtin_icon(&name),
+                    };
                     self.named_icons.insert(name, img);
                 }
                 Task::none()
             }
-            Msg::OpenPopover(bar_id, key, req) => match req {
-                popover::Request::Volume => self.open_popover(bar_id, key, popover::Kind::Volume),
-                popover::Request::Calendar => self.open_popover(bar_id, key, popover::Kind::Calendar),
-                popover::Request::LuaMenu { widget, func } => {
-                    if self.popover.as_ref().is_some_and(|p| p.key == key) {
-                        return self.close_popover();
-                    }
-                    let lua = self.lua.clone();
-                    Task::perform(async move { lua.menu(func).await }, move |r| match r {
-                        Ok(entries) => {
-                            Msg::PopoverReady(bar_id, key.clone(), popover::Kind::Menu { entries, source: popover::MenuSource::Lua { widget: widget.clone() } })
-                        }
-                        Err(e) => {
-                            tracing::warn!("menu de {widget} : {e}");
-                            hypr::notify(0, 5000, &format!("hyprdesk : menu de « {widget} » — {e}"));
-                            Msg::Noop
-                        }
-                    })
+            Msg::OpenPopover(bar_id, key, req) => {
+                let toggling = self.popover.as_ref().is_some_and(|p| p.key == key);
+                let close = self.close_popover();
+                self.menu_request += 1;
+                let request = self.menu_request;
+                if toggling {
+                    return close;
                 }
-                popover::Request::Tray { bus, menu_path } => {
-                    if self.popover.as_ref().is_some_and(|p| p.key == key) {
-                        return self.close_popover();
+                let task = match req {
+                    // Les périphériques d'abord : ils fixent la hauteur du menu.
+                    popover::Request::Volume => {
+                        Task::perform(bar::read_audio(), |a| a).then(move |a| {
+                            Task::batch([
+                                Task::done(Msg::AudioValue(a)),
+                                Task::done(Msg::PopoverReady(
+                                    request,
+                                    bar_id,
+                                    key.clone(),
+                                    popover::Kind::Volume,
+                                )),
+                            ])
+                        })
                     }
-                    Task::perform(
+                    popover::Request::Calendar => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Calendar,
+                    )),
+                    popover::Request::LuaMenu { widget, func } => {
+                        let lua = self.lua.clone();
+                        Task::perform(async move { lua.menu(func).await }, move |r| match r {
+                            Ok(entries) => Msg::PopoverReady(
+                                request,
+                                bar_id,
+                                key.clone(),
+                                popover::Kind::Menu {
+                                    entries,
+                                    source: popover::MenuSource::Lua {
+                                        widget: widget.clone(),
+                                    },
+                                },
+                            ),
+                            Err(e) => {
+                                tracing::warn!("menu de {widget} : {e}");
+                                hypr::notify(
+                                    0,
+                                    5000,
+                                    &format!("hyprdesk : menu de « {widget} » — {e}"),
+                                );
+                                Msg::Noop
+                            }
+                        })
+                    }
+                    popover::Request::Tray { bus, menu_path } => Task::perform(
                         {
                             let (b, m) = (bus.clone(), menu_path.clone());
                             async move { crate::tray::menu(&b, &m).await }
                         },
                         move |r| match r {
                             Ok(entries) => Msg::PopoverReady(
+                                request,
                                 bar_id,
                                 key.clone(),
-                                popover::Kind::Menu { entries, source: popover::MenuSource::Tray { bus: bus.clone(), menu_path: menu_path.clone() } },
+                                popover::Kind::Menu {
+                                    entries,
+                                    source: popover::MenuSource::Tray {
+                                        bus: bus.clone(),
+                                        menu_path: menu_path.clone(),
+                                    },
+                                },
                             ),
                             Err(e) => {
                                 tracing::warn!("menu de la zone de notification : {e}");
                                 Msg::Noop
                             }
                         },
-                    )
+                    ),
+                };
+                Task::batch([close, task])
+            }
+            Msg::PopoverReady(request, bar_id, key, kind) => {
+                if request != self.menu_request {
+                    return Task::none();
                 }
-            },
-            Msg::PopoverReady(bar_id, key, kind) => self.open_popover(bar_id, key, kind),
-            Msg::ClosePopover => self.close_popover(),
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(hypr::cursor_pos)
+                            .await
+                            .ok()
+                            .flatten()
+                    },
+                    move |point| {
+                        Msg::PopoverPositioned(request, bar_id, key.clone(), kind.clone(), point)
+                    },
+                )
+            }
+            Msg::PopoverPositioned(request, bar_id, key, kind, point) => {
+                if request != self.menu_request {
+                    return Task::none();
+                }
+                if let Some((x, y)) = point
+                    && let Some(bar) = self.bar_surfaces.get(&bar_id)
+                    && let Some(m) = self.monitors.iter().find(|m| m.name == bar.monitor)
+                {
+                    self.cursor.insert(bar_id, Point::new(x - m.x, y - m.y));
+                }
+                self.open_popover(bar_id, key, kind)
+            }
+            Msg::ClosePopover => {
+                self.menu_request += 1;
+                self.close_popover()
+            }
+            Msg::PopoverMeasured(win, height) => self.fit_popover(win, height),
             Msg::Popover(m) => self.popover_update(m),
             Msg::LuaCall(widget, func, arg) => {
                 let lua = self.lua.clone();
@@ -1626,9 +2672,16 @@ impl App {
                 if let Some(cur) = self.volume.as_mut() {
                     cur.0 = v;
                 }
-                self.volume_action(vec!["set-volume".into(), "@DEFAULT_AUDIO_SINK@".into(), format!("{v:.2}")])
+                self.volume_action(vec![
+                    "set-volume".into(),
+                    "@DEFAULT_AUDIO_SINK@".into(),
+                    format!("{v:.2}"),
+                ])
             }
             Msg::TrayItems(items) => {
+                self.pending_widgets.remove("bar:tray");
+                self.tray_imgs
+                    .retain(|key, _| items.iter().any(|item| &item.key == key));
                 let mut tasks = Vec::new();
                 for t in &items {
                     if let Some((w, h, data)) = &t.pixmap {
@@ -1637,7 +2690,10 @@ impl App {
                         data.hash(&mut hs);
                         let fp = hs.finish();
                         if self.tray_imgs.get(&t.key).is_none_or(|(f, _)| *f != fp) {
-                            self.tray_imgs.insert(t.key.clone(), (fp, image::Handle::from_rgba(*w, *h, data.clone())));
+                            self.tray_imgs.insert(
+                                t.key.clone(),
+                                (fp, image::Handle::from_rgba(*w, *h, data.clone())),
+                            );
                         }
                     } else if let Some(n) = &t.icon_name {
                         self.tray_imgs.remove(&t.key);
@@ -1647,20 +2703,44 @@ impl App {
                 self.tray = items;
                 Task::batch(tasks)
             }
-            Msg::TrayActivate(_bar, bus, path, secondary) => {
-                // Les applications attendent des coordonnées globales.
-                let (x, y) = hypr::cursor_pos().unwrap_or_default();
-                Task::perform(crate::tray::activate(bus, path, secondary, x as i32, y as i32), |_| Msg::Noop)
-            }
+            Msg::TrayActivate(_bar, bus, path, secondary) => Task::perform(
+                async move {
+                    let (x, y) = tokio::task::spawn_blocking(hypr::cursor_pos)
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    crate::tray::activate(bus, path, secondary, x as i32, y as i32).await;
+                },
+                |_| Msg::Noop,
+            ),
             Msg::Resized(id, size) => {
                 self.sizes.insert(id, size);
                 Task::none()
             }
             Msg::Closed(id) => {
-                if self.popover.as_ref().is_some_and(|p| p.win == id || p.catcher == id) {
+                if self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.win == id || p.catcher == id)
+                {
                     // Fermé par le compositeur : on referme l'autre surface aussi.
                     return self.close_popover();
                 }
+                if self.panel.as_ref().is_some_and(|p| p.surface == id) {
+                    self.panel = None;
+                    self.panel_fade = None;
+                    return self.sync_window_gaps();
+                }
+                if self.chat.as_ref().is_some_and(|c| c.surface == id) {
+                    self.chat = None;
+                    return self.sync_window_gaps();
+                }
+                if self.launcher_popup.as_ref().is_some_and(|p| p.id == id) {
+                    self.launcher_popup = None;
+                    return Task::none();
+                }
+                self.launcher_surfaces.remove(&id);
                 self.bar_surfaces.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
@@ -1696,7 +2776,11 @@ impl App {
             }
             Msg::Released if self.wdrag.is_some() => {
                 let moved = self.wdrag.take().is_some_and(|d| d.moved);
-                if moved { self.panel_update(PanelMsg::Commit) } else { Task::none() }
+                if moved {
+                    self.panel_update(PanelMsg::Commit)
+                } else {
+                    Task::none()
+                }
             }
             Msg::Released => match self.drag.take() {
                 Some(d) if d.active => {
@@ -1709,16 +2793,19 @@ impl App {
             Msg::Key(id, key) => {
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
                     if self.popover.is_some() {
+                        self.menu_request += 1;
                         return self.close_popover();
                     }
                     if self.panel.is_some() {
-                        self.panel = None;
-                        return Task::none();
+                        return self.close_panel();
+                    }
+                    if self.chat.is_some() {
+                        return self.close_chat();
                     }
                     return self.hide();
                 }
                 // Le panneau a ses propres champs de saisie : pas de navigation dessous.
-                if self.panel.is_some() {
+                if self.panel.is_some() || self.chat.is_some() {
                     return Task::none();
                 }
                 self.navigate(id, &key)
@@ -1726,20 +2813,58 @@ impl App {
             Msg::IconPress(win, icon) => {
                 let start = self.cursor.get(&win).copied().unwrap_or(Point::ORIGIN);
                 self.selected = Some((win, icon));
-                self.drag = Some(Drag { win, icon, start, active: false });
+                self.drag = Some(Drag {
+                    win,
+                    icon,
+                    start,
+                    active: false,
+                });
                 Task::none()
             }
             Msg::WidgetPress(win, wid) => {
-                let Some(from) = self.cfg.widgets.iter().find(|w| w.id == wid).map(|w| w.placement()) else { return Task::none() };
+                let Some(from) = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| w.id == wid)
+                    .map(|w| w.placement())
+                else {
+                    return Task::none();
+                };
                 let start = self.cursor.get(&win).copied().unwrap_or(Point::ORIGIN);
                 if let Some(p) = self.panel.as_mut() {
                     p.select_widget(&wid);
                 }
-                self.wdrag = Some(WidgetDrag { win, id: wid, start, from, moved: false });
+                self.wdrag = Some(WidgetDrag {
+                    win,
+                    id: wid,
+                    start,
+                    from,
+                    moved: false,
+                });
                 Task::none()
             }
             Msg::IconHover(h) => {
+                if let Some((id, index)) = self.hovered {
+                    let _ = self.update_inner(Msg::Hover(format!("desktop:{id:?}:{index}"), false));
+                }
                 self.hovered = h;
+                if let Some((id, index)) = h {
+                    return self.update_inner(Msg::Hover(format!("desktop:{id:?}:{index}"), true));
+                }
+                Task::none()
+            }
+            Msg::Hover(key, on) => {
+                let from = self.hover_value(&key);
+                self.hover_fades.insert(
+                    key,
+                    Fade {
+                        from,
+                        to: if on { 1.0 } else { 0.0 },
+                        start: Instant::now(),
+                        dur: self.motion_duration(),
+                    },
+                );
                 Task::none()
             }
             Msg::Launch(i) => self.launch(i),
@@ -1749,8 +2874,11 @@ impl App {
                         self.last_poll.remove(&w.id);
                     }
                 }
-                Task::perform(widgets::media_control(bus, method), |_| Msg::Noop)
-                    .chain(Task::perform(tokio::time::sleep(Duration::from_millis(150)), |_| Msg::Poll))
+                Task::perform(widgets::media_control(bus, method), |_| Msg::Noop).chain(
+                    Task::perform(tokio::time::sleep(Duration::from_millis(150)), |_| {
+                        Msg::Poll
+                    }),
+                )
             }
             Msg::Noop => Task::none(),
             // Messages layer-shell : traités par iced_layershell.
@@ -1763,12 +2891,19 @@ impl App {
             Subscription::run(control::server_stream).map(Msg::Control),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
-            Subscription::run_with(self.config_path.clone(), watch_stream).map(|_| Msg::ConfigChanged),
+            Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {
+                watch_stream(path.as_path())
+            })
+            .map(|_| Msg::ConfigChanged),
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
-        if !self.raised.is_empty() || self.popover.is_some() {
-            // Bureau affiché (glisser-déposer, clavier) ou menu ouvert (Échap).
+        if !self.raised.is_empty()
+            || self.popover.is_some()
+            || self.panel.is_some()
+            || self.chat.is_some()
+        {
+            // Bureau affiché (glisser-déposer, clavier), menu ou réglages ouverts (Échap).
             // Jamais pour la seule barre : chaque mouvement de souris coûterait
             // un rendu de toutes les surfaces.
             subs.push(iced::event::listen_with(listen));
@@ -1785,6 +2920,10 @@ impl App {
         if !self.rot.is_empty() {
             subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::Rotate));
         }
+        if self.screens_pending.is_some() {
+            subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::ScreensTick));
+        }
+        subs.push(self.chat_subscription());
         Subscription::batch(subs)
     }
 
@@ -1793,6 +2932,24 @@ impl App {
     fn view(&self, id: Id) -> Element<'_, Msg> {
         if self.bar_surfaces.contains_key(&id) {
             return self.view_bar(id);
+        }
+        if self.panel.as_ref().is_some_and(|p| p.surface == id) {
+            return self.view_panel();
+        }
+        if self.chat.as_ref().is_some_and(|c| c.surface == id) {
+            return self.view_chat();
+        }
+        if self.launcher_popup.as_ref().is_some_and(|p| p.id == id) {
+            return self.view_launcher_popup();
+        }
+        if let Some((_, label)) = self.identify.iter().find(|(i, _)| *i == id) {
+            return self.view_identify(label);
+        }
+        if let Some(s) = self.launcher_surfaces.get(&id) {
+            let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor) else {
+                return Space::new().into();
+            };
+            return self.view_launcher(m, self.fade_value());
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -1809,60 +2966,127 @@ impl App {
         let t = if raised { self.fade_value() } else { 1.0 };
         let mut layers: Vec<Element<'_, Msg>> = Vec::new();
         // Le bureau est sous les fenêtres : le fond reste plein, seul le contenu apparaît en fondu.
-        layers.push(self.view_wall(&m.name, 1.0));
+        // Paquet « Fond d'écran » coupé : la couleur de fond seule.
+        layers.push(if self.cfg.plugin_on("wallpaper") {
+            self.view_wall(&m.name, 1.0)
+        } else {
+            let c = color(self.cfg.general.background, 1.0);
+            container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| bg(c))
+                .into()
+        });
         if raised && d.mode == Mode::Glass {
             // Mode verre : un voile teinté sur le fond flouté.
-            let veil = color(self.cfg.general.theme.bg, self.cfg.general.glass_opacity * t);
-            layers.push(container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(veil)).into());
-        }
-        let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
-        if raised {
-            let mut content: Vec<Element<'_, Msg>> = vec![self.view_icons(id, t)];
-            for w in &d.widgets {
-                content.push(self.view_widget(id, w, t));
-            }
-            content.push(self.view_dock(m, t));
-            let shift = if self.cfg.general.transition == Transition::Slide { (1.0 - t) * SLIDE_PX } else { 0.0 };
-            // Le tiroir des réglages occupe la droite : le bureau reste visible
-            // à côté et montre chaque réglage en direct.
-            let (rl, rt, rr, rb) = self.reserved(id);
-            let right = rr + if panel_here { panel::DRAWER_W } else { 0.0 };
+            let veil = color(
+                self.cfg.general.theme.bg,
+                self.cfg.general.glass_opacity * t,
+            );
             layers.push(
-                container(Stack::with_children(content).width(Length::Fill).height(Length::Fill))
-                    .padding(Padding { top: rt + shift, right, bottom: rb, left: rl })
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| bg(veil))
                     .into(),
             );
         }
-        if panel_here {
-            let (_, rt, _, rb) = self.reserved(id);
-            layers.push(container(self.view_panel()).padding(Padding { top: rt, bottom: rb, ..Padding::ZERO }).into());
+        let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
+        if raised && (!panel_here || self.size_of(id).width - self.panel_width() >= 400.0) {
+            // Avec les fenêtres, seul le lanceur (dock) reste : ni icônes ni widgets.
+            let mut content: Vec<Element<'_, Msg>> = Vec::new();
+            if !self.with_windows {
+                if self.cfg.plugin_on("icons") {
+                    content.push(self.view_icons(id, t));
+                }
+                for w in d.widgets.iter().filter(|_| self.cfg.plugin_on("widgets")) {
+                    content.push(self.view_widget(id, w, t));
+                }
+            }
+            // Le lanceur a sa propre surface, au-dessus des fenêtres.
+            let shift = if self.cfg.general.transition == Transition::Slide {
+                (1.0 - t) * SLIDE_PX
+            } else {
+                0.0
+            };
+            // Le tiroir des réglages occupe la droite : le bureau reste visible
+            // à côté et montre chaque réglage en direct.
+            let (rl, rt, rr, rb) = self.reserved(id);
+            let right = rr + if panel_here { self.panel_width() } else { 0.0 };
+            layers.push(
+                container(
+                    Stack::with_children(content)
+                        .width(Length::Fill)
+                        .height(Length::Fill),
+                )
+                .padding(Padding {
+                    top: rt + shift,
+                    right,
+                    bottom: rb,
+                    left: rl,
+                })
+                .into(),
+            );
         }
-        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+        Stack::with_children(layers)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn view_wall(&self, monitor: &str, t: f32) -> Element<'_, Msg> {
+        if self.cfg.wallpapers.is_empty()
+            && self.cfg.general.background == config::General::default().background
+        {
+            return container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_| design::wallpaper())
+                .into();
+        }
         let Some(s) = self.shown.get(monitor) else {
             let c = color(self.cfg.general.background, t);
-            return container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(c)).into();
+            return container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| bg(c))
+                .into();
         };
         let base = color(self.cfg.general.background, t);
         let cf = self.crossfade().as_secs_f32();
-        let p = if cf <= 0.0 { 1.0 } else { (Instant::now().duration_since(s.since).as_secs_f32() / cf).clamp(0.0, 1.0) };
-        let mut layers = vec![container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(base)).into()];
+        let p = if cf <= 0.0 {
+            1.0
+        } else {
+            (Instant::now().duration_since(s.since).as_secs_f32() / cf).clamp(0.0, 1.0)
+        };
+        let mut layers = vec![
+            container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| bg(base))
+                .into(),
+        ];
         if let Some(prev) = &s.prev {
             layers.push(self.wall_element(prev, t));
             layers.push(self.wall_element(&s.current, t * p));
         } else {
             layers.push(self.wall_element(&s.current, t));
         }
-        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+        Stack::with_children(layers)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn wall_element(&self, w: &Wall, alpha: f32) -> Element<'_, Msg> {
         match w {
             Wall::Color(c) => {
                 let c = color(*c, alpha);
-                container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| bg(c)).into()
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| bg(c))
+                    .into()
             }
             Wall::Image(key) => match self.walls.get(key) {
                 Some(h) => {
@@ -1885,37 +3109,85 @@ impl App {
         }
     }
 
-    fn icon_cell(&self, win: Id, idx: usize, def: &IconDef, t: f32, ghost: bool) -> Element<'_, Msg> {
+    fn icon_cell(
+        &self,
+        win: Id,
+        idx: usize,
+        def: &IconDef,
+        t: f32,
+        ghost: bool,
+    ) -> Element<'_, Msg> {
         let g = &self.cfg.general;
         let th = &g.theme;
         let size = g.grid.icon_size as f32;
         let alpha = if ghost { t * 0.5 } else { t };
-        let img: Element<'_, Msg> = match self.img_element(self.icon_imgs.get(idx).copied().unwrap_or(IconImg::None), size, alpha) {
+        let img: Element<'_, Msg> = match self.img_element(
+            self.icon_imgs.get(idx).copied().unwrap_or(IconImg::None),
+            size,
+            alpha,
+        ) {
             Some(e) => e,
             None => {
                 let c = color(th.accent, alpha);
-                container(text(def.label.clone().unwrap_or_default().chars().next().unwrap_or('?').to_string()).size(size * 0.5))
-                    .center(size)
-                    .style(move |_| container::Style { background: Some(c.into()), border: Border::default().rounded(size / 4.0), ..Default::default() })
-                    .into()
+                container(
+                    text(
+                        def.label
+                            .clone()
+                            .unwrap_or_default()
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_string(),
+                    )
+                    .font(self.font)
+                    .size(size * 0.5),
+                )
+                .center(size)
+                .style(move |_| container::Style {
+                    background: Some(c.into()),
+                    border: Border::default().rounded(size / 4.0),
+                    ..Default::default()
+                })
+                .into()
             }
         };
-        let label = self.icons.get(idx).map(|r| r.label.clone()).unwrap_or_else(|| def.label.clone().unwrap_or_default());
+        let label = self
+            .icons
+            .get(idx)
+            .map(|r| r.label.clone())
+            .unwrap_or_else(|| def.label.clone().unwrap_or_default());
         let fg = color(th.fg, alpha);
         let selected = self.selected == Some((win, idx));
-        let hovered = self.hovered == Some((win, idx));
+        let hover = self.hover_value(&format!("desktop:{win:?}:{idx}"));
         let hl = if selected {
             Some(color(th.accent, 0.45 * t))
-        } else if hovered {
-            Some(color(th.fg, 0.12 * t))
+        } else if hover > 0.0 {
+            Some(color(th.fg, 0.09 * t * hover))
         } else {
             None
         };
         let cell = g.grid.cell as f32;
         let body = container(
-            column![img, text(label).size(g.font_size).color(fg).font(self.font).align_x(Alignment::Center).width(Length::Fill)]
-                .spacing(6)
-                .align_x(Alignment::Center),
+            column![
+                iced::widget::float(img).scale(1.0 + hover * 0.07),
+                container(
+                    text(label)
+                        .font(self.font)
+                        .size(g.font_size)
+                        .color(fg)
+                        .font(self.font)
+                        .align_x(Alignment::Center)
+                        .width(Length::Fill)
+                )
+                .padding([3, 7])
+                .style(move |_| container::Style {
+                    background: Some(Color::from_rgba(0.02, 0.03, 0.06, 0.40 * alpha).into()),
+                    border: Border::default().rounded(7),
+                    ..Default::default()
+                })
+            ]
+            .spacing(9)
+            .align_x(Alignment::Center),
         )
         .width(cell)
         .height(cell)
@@ -1923,7 +3195,10 @@ impl App {
         .align_y(Alignment::Center)
         .style(move |_| container::Style {
             background: hl.map(Background::Color),
-            border: Border::default().rounded(10),
+            border: Border::default()
+                .rounded(16)
+                .width(if selected { 1.0 } else { 0.0 })
+                .color(color(th.accent, 0.6 * t)),
             // Ombre de texte simulée par un fond léger quand rien n'est survolé.
             ..Default::default()
         });
@@ -1938,97 +3213,76 @@ impl App {
     fn view_icons(&self, win: Id, t: f32) -> Element<'_, Msg> {
         let g = &self.cfg.general.grid;
         let step = (g.cell + g.gap) as f32;
-        let dragging = self.drag.as_ref().filter(|d| d.active && d.win == win).map(|d| d.icon);
+        let dragging = self
+            .drag
+            .as_ref()
+            .filter(|d| d.active && d.win == win)
+            .map(|d| d.icon);
         let mut layers: Vec<Element<'_, Msg>> = Vec::new();
         for (idx, (c, r)) in self.placed(win) {
             let def = &self.cfg.icons[idx];
             let cell = self.icon_cell(win, idx, def, t, dragging == Some(idx));
-            layers.push(pin(cell).x(g.margin as f32 + c as f32 * step).y(g.margin as f32 + r as f32 * step).into());
+            layers.push(
+                pin(cell)
+                    .x(g.margin as f32 + c as f32 * step)
+                    .y(g.margin as f32 + r as f32 * step)
+                    .into(),
+            );
         }
         if let (Some(idx), Some(p)) = (dragging, self.cursor.get(&win)) {
             let half = g.cell as f32 / 2.0;
             let def = &self.cfg.icons[idx];
             let (rl, rt, _, _) = self.reserved(win);
-            layers.push(pin(self.icon_cell(win, idx, def, t, false)).x(p.x - rl - half).y(p.y - rt - half).into());
-        }
-        Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
-    }
-
-}
-
-impl App {
-    /// Dock en bas au centre : fenêtres ouvertes (si activé), puis le bouton ⚙.
-    fn view_dock(&self, m: &Monitor, t: f32) -> Element<'_, Msg> {
-        let g = &self.cfg.general;
-        let wins: Vec<&Client> = match g.running_apps {
-            RunningApps::Off => Vec::new(),
-            RunningApps::Workspace => self.clients.iter().filter(|c| c.workspace == m.workspace).collect(),
-            RunningApps::All => self.clients.iter().collect(),
-        };
-        let fg = color(g.theme.fg, t);
-        let size = 40.0;
-        let hover = move |_: &iced::Theme, s: button::Status| button::Style {
-            background: matches!(s, button::Status::Hovered).then(|| Background::Color(Color { a: 0.15 * t, ..fg })),
-            border: Border::default().rounded(10),
-            ..Default::default()
-        };
-        let tip_box = move |label: String| {
-            container(text(label).size(13).color(fg)).padding([4, 8]).style(move |_| container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8 * t).into()),
-                border: Border::default().rounded(6),
-                ..Default::default()
-            })
-        };
-        let mut items: Vec<Element<'_, Msg>> = wins
-            .into_iter()
-            .take(24)
-            .map(|c| {
-                let img = self.class_imgs.get(&c.class).copied().unwrap_or(IconImg::None);
-                let face: Element<'_, Msg> = self.img_element(img, size, t).unwrap_or_else(|| {
-                    text(c.class.chars().next().unwrap_or('?').to_uppercase().to_string()).size(size * 0.5).color(fg).into()
-                });
-                tooltip(
-                    button(container(face).center(size)).padding(6).on_press(Msg::FocusWindow(c.address.clone())).style(hover),
-                    tip_box(if c.title.is_empty() { c.class.clone() } else { c.title.clone() }),
-                    tooltip::Position::Top,
-                )
-                .into()
-            })
-            .collect();
-        if !items.is_empty() {
-            let sep = Color { a: 0.25 * t, ..fg };
-            items.push(
-                container(Space::new().width(1).height(size))
-                    .style(move |_| container::Style { background: Some(sep.into()), ..Default::default() })
-                    .padding([0, 4])
+            layers.push(
+                pin(self.icon_cell(win, idx, def, t, false))
+                    .x(p.x - rl - half)
+                    .y(p.y - rt - half)
                     .into(),
             );
         }
-        let gear: Element<'_, Msg> = self
-            .img_element(self.ui_imgs.get(ICON_SETTINGS).copied().unwrap_or(IconImg::None), size * 0.6, t)
-            .unwrap_or_else(|| text("Réglages").size(13).color(fg).into());
-        items.push(
-            tooltip(button(container(gear).center(size)).padding(6).on_press(Msg::OpenPanel).style(hover), tip_box("Réglages".into()), tooltip::Position::Top)
-                .into(),
-        );
-        let card_bg = color(g.theme.bg, 0.72 * t);
-        container(
-            container(row(items).spacing(4).align_y(Alignment::Center))
-                .padding(8)
-                .style(move |_| container::Style { background: Some(card_bg.into()), border: Border::default().rounded(16), ..Default::default() }),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::End)
-        .padding(Padding { bottom: 24.0, ..Padding::ZERO })
-        .into()
+        Stack::with_children(layers)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+}
+
+impl App {}
+
+/// Les trois modes du bureau, dans l'ordre du bouton Bureau de la barre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DesktopMode {
+    /// Fond d'écran seul, fenêtres comme d'habitude.
+    NoDesktop,
+    /// Fenêtres en place, le lanceur (dock) accessible en bas.
+    LauncherOnly,
+    /// Bureau complet : icônes, widgets, dock ; fenêtres mises de côté.
+    FullDesktop,
+}
+
+impl DesktopMode {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            DesktopMode::NoDesktop => "no-desktop",
+            DesktopMode::LauncherOnly => "launcher-only",
+            DesktopMode::FullDesktop => "full-desktop",
+        }
+    }
+
+    /// Mode suivant du bouton : no-desktop → launcher-only → full-desktop → no-desktop.
+    pub(super) fn next(self) -> Self {
+        match self {
+            DesktopMode::NoDesktop => DesktopMode::LauncherOnly,
+            DesktopMode::LauncherOnly => DesktopMode::FullDesktop,
+            DesktopMode::FullDesktop => DesktopMode::NoDesktop,
+        }
     }
 }
 
 /// Diagnostic : messages traités par type, relevé toutes les 5 s ; un trafic
 /// anormal (> 1500 messages, soit 300/s) est signalé dans le journal.
-static MSG_STATS: std::sync::Mutex<Option<(Instant, HashMap<&'static str, u32>)>> = std::sync::Mutex::new(None);
+static MSG_STATS: std::sync::Mutex<Option<(Instant, HashMap<&'static str, u32>)>> =
+    std::sync::Mutex::new(None);
 
 fn msg_name(m: &Msg) -> &'static str {
     match m {
@@ -2047,6 +3301,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::IconResolved(..) => "IconResolved",
         Msg::TrayItems(_) => "TrayItems",
         Msg::VolumeValue(_) => "VolumeValue",
+        Msg::AudioValue(_) => "AudioValue",
         Msg::WallLoaded(..) => "WallLoaded",
         Msg::Noop => "Noop",
         Msg::ConfigChanged | Msg::ConfigLoaded(_) => "Config",
@@ -2064,7 +3319,10 @@ impl App {
             if total > 1500 {
                 let mut v: Vec<_> = map.iter().map(|(k, n)| (*n, *k)).collect();
                 v.sort_by(|a, b| b.cmp(a));
-                tracing::warn!("trafic élevé : {total} messages en 5 s — {:?}", &v[..v.len().min(6)]);
+                tracing::warn!(
+                    "trafic élevé : {total} messages en 5 s — {:?}",
+                    &v[..v.len().min(6)]
+                );
             }
             *g = Some((Instant::now(), HashMap::new()));
         }
@@ -2088,10 +3346,281 @@ fn make_theme(cfg: &Config) -> iced::Theme {
 }
 
 fn bg(c: Color) -> container::Style {
-    container::Style { background: Some(c.into()), ..Default::default() }
+    container::Style {
+        background: Some(c.into()),
+        ..Default::default()
+    }
 }
 
 /// Vérifie la config sans lancer le démon (`hyprdesk check`).
 pub fn check(path: &std::path::Path) -> Result<Config, String> {
     config::lua::load_file(path).map(|l| l.config)
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    fn app() -> App {
+        App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
+    }
+    fn monitor(name: &str, focused: bool) -> Monitor {
+        Monitor {
+            name: name.into(),
+            width: 1440,
+            height: 900,
+            workspace: "1".into(),
+            focused,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    #[test]
+    fn an_old_result_cannot_repopulate_the_new_configuration() {
+        let mut app = app();
+        app.widget_generation = 2;
+        app.pending_widgets.insert("removed-widget".into());
+        let _ = app.update_inner(Msg::WidgetValue(
+            1,
+            "removed-widget".into(),
+            widgets::Value::Text("stale".into()),
+        ));
+        assert!(app.values.is_empty());
+        assert!(app.pending_widgets.is_empty());
+    }
+
+    #[test]
+    fn a_settings_reload_cannot_overwrite_a_newer_edit() {
+        let mut app = app();
+        app.settings.font = Some("Adwaita Sans".into());
+        app.settings_revision
+            .store(2, std::sync::atomic::Ordering::Release);
+        let _ = app.update_inner(Msg::SettingsLoaded(1, DeskSettings::default()));
+        assert_eq!(app.settings.font.as_deref(), Some("Adwaita Sans"));
+    }
+
+    #[test]
+    fn desktop_cycles_through_three_modes() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        let cycle = |app: &mut App| {
+            let _ = app.update_inner(Msg::Control(control::Command::Cycle));
+            app.mode()
+        };
+        // no-desktop → launcher-only → full-desktop → no-desktop.
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        assert_eq!(cycle(&mut app), DesktopMode::LauncherOnly);
+        assert!(app.raised.contains(&a), "le lanceur est affiché");
+        assert!(!app.in_submap, "les raccourcis de Hyprland restent actifs");
+        assert_eq!(cycle(&mut app), DesktopMode::FullDesktop);
+        assert!(app.in_submap);
+        assert_eq!(cycle(&mut app), DesktopMode::NoDesktop);
+        assert!(!app.in_submap);
+    }
+
+    #[test]
+    fn each_mode_key_goes_there_or_back_to_no_desktop() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        let key = |app: &mut App, c: control::Command| {
+            let _ = app.update_inner(Msg::Control(c));
+            app.mode()
+        };
+        use control::Command::{Hide, Toggle, ToggleLauncher};
+        assert_eq!(key(&mut app, ToggleLauncher), DesktopMode::LauncherOnly);
+        assert_eq!(key(&mut app, Toggle), DesktopMode::FullDesktop);
+        assert_eq!(key(&mut app, ToggleLauncher), DesktopMode::LauncherOnly);
+        assert_eq!(key(&mut app, ToggleLauncher), DesktopMode::NoDesktop);
+        assert_eq!(key(&mut app, Toggle), DesktopMode::FullDesktop);
+        assert_eq!(key(&mut app, Toggle), DesktopMode::NoDesktop);
+        assert_eq!(key(&mut app, Hide), DesktopMode::NoDesktop);
+    }
+
+    #[test]
+    fn settings_never_change_the_mode_and_always_close() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        Arc::make_mut(&mut app.cfg).general.transition = Transition::None;
+        // no-desktop : les réglages s'ouvrent dans leur surface, sans bureau.
+        let _ = app.update_inner(Msg::Control(control::Command::Settings("desktop".into())));
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        assert!(app.raised.is_empty(), "le bureau n'est pas affiché");
+        let surface = app.panel.as_ref().map(|p| p.surface).unwrap();
+        assert_ne!(surface, a, "le tiroir a sa propre surface");
+        assert!(
+            app.window_gaps[0].1[1] > 0,
+            "les fenêtres laissent la place du tiroir"
+        );
+        // Changer de mode ne ferme pas les réglages.
+        let _ = app.update_inner(Msg::Control(control::Command::Show));
+        let _ = app.update_inner(Msg::Control(control::Command::Hide));
+        assert!(app.panel.is_some());
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        // Fermeture : soldée au tick suivant, même si le fondu est déjà fini.
+        let _ = app.update_inner(Msg::Panel(panel::PanelMsg::Close));
+        let _ = app.update_inner(Msg::Frame);
+        assert!(app.panel.is_none() && app.panel_fade.is_none());
+        assert!(app.window_gaps.is_empty());
+        assert!(!app.animating(), "plus aucune animation en attente");
+    }
+
+    #[test]
+    fn the_launcher_never_changes_the_mode() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        // launcher-only : fenêtre choisie dans le dock, puis réglages.
+        let _ = app.update_inner(Msg::Control(control::Command::LauncherOnly));
+        let _ = app.update_inner(Msg::FocusWindow("0x1".into()));
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        let _ = app.update_inner(Msg::OpenPanel);
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        assert!(app.panel.is_some());
+        let [_, right, _, _] = app.window_gaps[0].1;
+        assert!(right > 0, "tiroir dégagé : {right}");
+        assert_eq!(app.launcher_surfaces.len(), 1, "lanceur dans sa surface");
+        // full-desktop : la fenêtre choisie revient seule, le mode reste.
+        let _ = app.update_inner(Msg::Control(control::Command::Hide));
+        let _ = app.update_inner(Msg::Control(control::Command::Show));
+        let _ = app.update_inner(Msg::FocusWindow("0x2".into()));
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        assert!(app.session_windows.contains("0x2"));
+        assert!(!app.in_submap, "la fenêtre rendue garde ses raccourcis");
+    }
+
+    #[test]
+    fn windows_keep_clear_of_the_controls() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            cfg.widgets.push(config::WidgetDef {
+                origin: config::Origin::User,
+                sel: config::Selector::default(),
+                id: "calendar".into(),
+                type_id: "calendar".into(),
+                kind: config::WidgetKind::Calendar,
+                anchor: config::Anchor::Right,
+                x: 0.0,
+                y: 0.0,
+                size: 0.0,
+                interval: Duration::from_secs(60),
+                card: true,
+                in_bar: false,
+            });
+        }
+        let _ = app.update_inner(Msg::Control(control::Command::LauncherOnly));
+        // Le lanceur a sa surface (zone réservée) : aucune règle de marge.
+        assert!(app.window_gaps.is_empty());
+        assert_eq!(app.launcher_surfaces.len(), 1);
+        assert_eq!(app.launcher_surfaces.values().next().unwrap().monitor, "A");
+        // Bureau vide, puis masqué : plus aucune marge.
+        let _ = app.update_inner(Msg::Control(control::Command::Show));
+        assert_eq!(
+            app.launcher_surfaces.len(),
+            1,
+            "full-desktop : lanceur aussi"
+        );
+        let _ = app.update_inner(Msg::Control(control::Command::Hide));
+        assert!(
+            app.launcher_surfaces.is_empty(),
+            "no-desktop : pas de lanceur"
+        );
+    }
+
+    #[test]
+    fn the_bar_adapts_to_narrow_and_vertical_screens() {
+        let mut app = app();
+        let tall = Monitor {
+            width: 1440,
+            height: 2560,
+            ..monitor("V", false)
+        };
+        let wide = Monitor {
+            width: 2560,
+            height: 1440,
+            ..monitor("H", true)
+        };
+        app.monitors = vec![tall, wide];
+        Arc::make_mut(&mut app.cfg).bar = Some(config::BarDef {
+            monitors: None,
+            position: config::BarPosition::Top,
+            height: 40,
+            zones: Default::default(),
+            portrait: None,
+            compact: config::BarCompact::Auto,
+        });
+        assert!(app.bar_vertical("V") && !app.bar_vertical("H"));
+        assert!(app.bar_compact("V") && !app.bar_compact("H"));
+        Arc::make_mut(&mut app.cfg).bar.as_mut().unwrap().compact = config::BarCompact::Never;
+        assert!(!app.bar_compact("V"));
+        Arc::make_mut(&mut app.cfg).bar.as_mut().unwrap().compact = config::BarCompact::Always;
+        assert!(app.bar_compact("H"));
+    }
+
+    #[test]
+    fn primary_desktop_ignores_focus() {
+        let mut app = app();
+        let (a, b) = (Id::unique(), Id::unique());
+        let at = |name: &str, focused: bool, x: f32| Monitor {
+            x,
+            ..monitor(name, focused)
+        };
+        app.surfaces.insert(a, "A".into());
+        app.surfaces.insert(b, "B".into());
+        app.visible = true;
+        {
+            let g = &mut Arc::make_mut(&mut app.cfg).general;
+            g.show_on = ShowOn::Primary;
+            g.primary = Some("B".into());
+        }
+        let _ = app.set_monitors(vec![at("A", true, 0.0), at("B", false, 1440.0)]);
+        assert_eq!(app.raised, HashSet::from([b]));
+        // Le focus change d'écran : le bureau reste sur le principal.
+        let _ = app.set_monitors(vec![at("A", false, 0.0), at("B", true, 1440.0)]);
+        let _ = app.set_monitors(vec![at("A", true, 0.0), at("B", false, 1440.0)]);
+        assert_eq!(app.raised, HashSet::from([b]));
+        // Principal débranché : repli sur l'écran en 0×0.
+        let _ = app.set_monitors(vec![at("A", true, 0.0)]);
+        assert_eq!(app.primary_monitor().as_deref(), Some("A"));
+        assert!(app.raised.contains(&a));
+    }
+
+    #[test]
+    fn focused_desktop_follows_monitor_focus() {
+        let mut app = app();
+        let (a, b) = (Id::unique(), Id::unique());
+        app.monitors = vec![monitor("A", true), monitor("B", false)];
+        app.surfaces.insert(a, "A".into());
+        app.surfaces.insert(b, "B".into());
+        app.raised.insert(a);
+        app.visible = true;
+        Arc::make_mut(&mut app.cfg).general.show_on = ShowOn::Focused;
+        let _ = app.set_monitors(vec![monitor("A", false), monitor("B", true)]);
+        assert_eq!(app.raised, HashSet::from([b]));
+    }
+
+    #[test]
+    fn closing_the_last_launched_window_restores_shortcut_suspension() {
+        let mut app = app();
+        app.visible = true;
+        app.session_windows.insert("0x1".into());
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new())));
+        assert!(app.session_windows.is_empty());
+        assert!(app.in_submap);
+    }
 }

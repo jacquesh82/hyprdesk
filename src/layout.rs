@@ -44,7 +44,15 @@ pub fn place(wanted: &[Option<Cell>], cols: u16, rows: u16) -> Vec<Option<Cell>>
 }
 
 /// Cellule sous un point (coordonnées de surface), si dans la grille.
-pub fn cell_at(x: f32, y: f32, cell: u16, gap: u16, margin: u16, cols: u16, rows: u16) -> Option<Cell> {
+pub fn cell_at(
+    x: f32,
+    y: f32,
+    cell: u16,
+    gap: u16,
+    margin: u16,
+    cols: u16,
+    rows: u16,
+) -> Option<Cell> {
     let step = (cell + gap) as f32;
     let (cx, cy) = ((x - margin as f32) / step, (y - margin as f32) / step);
     if cx < 0.0 || cy < 0.0 {
@@ -68,7 +76,9 @@ pub fn key(monitor: &str, workspace: &str, icon: &str) -> String {
 fn path() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
+        });
     base.join("hyprdesk").join("layout.toml")
 }
 
@@ -90,7 +100,11 @@ impl Layout {
             if let Some(d) = p.parent() {
                 std::fs::create_dir_all(d)?;
             }
-            crate::storage::write(&p, toml::to_string_pretty(self)?.as_bytes(), crate::storage::revision())?;
+            crate::storage::write(
+                &p,
+                toml::to_string_pretty(self)?.as_bytes(),
+                crate::storage::revision(),
+            )?;
             Ok(())
         };
         if let Err(e) = write() {
@@ -126,9 +140,22 @@ mod tests {
 
     #[test]
     fn placement_colonne_par_colonne_et_explicite() {
-        let p = place(&[None, Some((0, 0)), None, Some((5, 5)), Some((9, 9))], 3, 2);
+        let p = place(
+            &[None, Some((0, 0)), None, Some((5, 5)), Some((9, 9))],
+            3,
+            2,
+        );
         // (0,0) est réservée par la 2e icône ; la 1re prend (0,1), la 3e (1,0).
-        assert_eq!(p, vec![Some((0, 1)), Some((0, 0)), Some((1, 0)), Some((1, 1)), Some((2, 0))]);
+        assert_eq!(
+            p,
+            vec![
+                Some((0, 1)),
+                Some((0, 0)),
+                Some((1, 0)),
+                Some((1, 1)),
+                Some((2, 0))
+            ]
+        );
     }
 
     #[test]
@@ -140,7 +167,18 @@ mod tests {
     #[test]
     fn cellule_sous_le_curseur() {
         assert_eq!(cell_at(40.0, 40.0, 96, 16, 32, 5, 5), Some((0, 0)));
-        assert_eq!(cell_at(32.0 + 112.0 * 2.0 + 5.0, 32.0 + 112.0 + 5.0, 96, 16, 32, 5, 5), Some((2, 1)));
+        assert_eq!(
+            cell_at(
+                32.0 + 112.0 * 2.0 + 5.0,
+                32.0 + 112.0 + 5.0,
+                96,
+                16,
+                32,
+                5,
+                5
+            ),
+            Some((2, 1))
+        );
         assert_eq!(cell_at(10.0, 40.0, 96, 16, 32, 5, 5), None);
         assert_eq!(cell_at(5000.0, 40.0, 96, 16, 32, 5, 5), None);
     }

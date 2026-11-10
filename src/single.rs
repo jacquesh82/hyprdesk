@@ -1,5 +1,5 @@
 //! Une seule instance de hyprdesk par session : un verrou `flock` exclusif
-//! sur `$XDG_RUNTIME_DIR/hyprdesk.lock`, tenu toute la vie du processus.
+//! sur `$XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.lock`, tenu toute la vie du processus.
 //!
 //! Deux démons se disputeraient la socket de commande, les surfaces du bureau,
 //! la submap et les fenêtres mises de côté. Le verrou est posé par le noyau :
@@ -17,7 +17,10 @@ pub struct Guard {
 }
 
 pub fn lock_path() -> PathBuf {
-    hyprpanel_core::ipc::runtime_dir().unwrap_or_else(|_| std::env::temp_dir()).join("hyprdesk.lock")
+    hyprpanel_core::ipc::instance_dir()
+        .or_else(|_| hyprpanel_core::ipc::runtime_dir())
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("hyprdesk.lock")
 }
 
 /// PID inscrit dans le verrou par l'instance qui le tient.
@@ -29,10 +32,16 @@ pub fn holder_pid(path: &Path) -> Option<u32> {
 
 /// Prend le verrou ; `Err(Some(pid))` si une autre instance le tient.
 pub fn acquire(path: &Path) -> Result<Guard, Option<u32>> {
-    let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).map_err(|e| {
-        tracing::error!("verrou {} : {e}", path.display());
-        None
-    })?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|e| {
+            tracing::error!("verrou {} : {e}", path.display());
+            None
+        })?;
     match file.try_lock() {
         Ok(()) => {
             // Le PID sert aux messages (« déjà lancé, pid … ») et à `status`.
@@ -69,7 +78,7 @@ mod tests {
     #[test]
     fn une_seule_instance() {
         let p = std::env::temp_dir().join(format!("hyprdesk-lock-test-{}", std::process::id()));
-        let g = acquire(&p).ok().expect("premier verrou");
+        let g = acquire(&p).expect("premier verrou");
         assert_eq!(holder_pid(&p), Some(std::process::id()));
         // Une seconde prise (autre description de fichier) échoue et donne le PID du détenteur.
         assert_eq!(acquire(&p).err(), Some(Some(std::process::id())));

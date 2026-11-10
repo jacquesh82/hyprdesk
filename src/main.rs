@@ -3,18 +3,28 @@
 //! Le même binaire est le démon (`hyprdesk`, `hyprdesk daemon`) et son client
 //! (`hyprdesk toggle`, à lier à une touche dans `hyprland.lua`).
 
+mod apps;
+mod assistant;
+mod chat;
+mod cli_config;
 mod config;
 mod control;
+mod fonts;
 mod hypr;
 mod launch;
+mod layout;
+mod lock;
+mod processes;
+mod screens;
 mod session;
 mod settings;
+mod share;
 mod single;
 mod storage;
 mod tray;
-mod layout;
 mod ui;
 mod widgets;
+mod windows;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -27,15 +37,33 @@ Usage : hyprdesk [--config <fichier>] [commande]
 Commandes :
   daemon            lance le démon (par défaut) ; une seule instance par session
   daemon --replace  remplace proprement l'instance en place
-  toggle            affiche ou masque le bureau
-  show | hide       affiche / masque le bureau
-  settings [onglet] affiche le bureau et ouvre l'écran Réglages
-                    (onglet : bureau, icones, fond, widgets, effets)
+  toggle            full-desktop, ou no-desktop s'il y est déjà
+  toggle-launcher   launcher-only, ou no-desktop s'il y est déjà
+  show | hide       full-desktop (fenêtres mises de côté) / no-desktop
+  launcher-only     fenêtres en place, lanceur (dock) accessible en bas
+  cycle             mode suivant : no-desktop → launcher-only → full-desktop
+  settings [paquet] ouvre l'écran Réglages, sans changer le mode du bureau
+  assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
+                    (paquet : desktop, icons, launcher, wallpaper, widgets, bar,
+                    screens, workspaces, effects)
+  export [fichier] [--screens]
+                    archive du setup à partager (configs, plugins, fonds d'écran ;
+                    --screens : monitors.lua aussi)
+  import <archive> [--dry-run] [--screens]
+                    applique un setup partagé (sauvegarde l'actuel d'abord)
+  context           décrit l'environnement hyprdesk (Markdown), pour un assistant IA
+  lock              verrouille la session (écran de verrouillage de hyprdesk)
+  open <rôle>       lance l'application par défaut : browser, terminal, files, editor,
+                    image, video, audio, pdf, mail, ai
+  config            réglages en ligne de commande, par paquet :
+                    config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
   menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
-  check [fichier]   vérifie une configuration sans la charger
+  chat-mock         faux moteur d'assistant (protocole serve, pour essais)
+  preview [dossier] aperçu isolé ; capture les vues si un dossier est fourni
+  check [fichier]   exécute et vérifie la configuration sans modifier le démon
   init              écrit la configuration d'exemple si aucune n'existe
   stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
   snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
@@ -61,16 +89,25 @@ hl.exec_cmd("hyprdesk")
 hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }), { submap_universal = true })
 hl.bind(mainMod .. " + Right",     hl.dsp.focus({ workspace = "+1" }), { submap_universal = true })
 
+-- Captures : ajouter submap_universal AUX raccourcis existants (ne pas les dupliquer).
+-- Sans cette option, Print et les autres raccourcis de capture sont suspendus sur le bureau.
+-- Exemples :
+-- hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { submap_universal = true })
+-- hl.bind("SUPER + Print", hl.dsp.exec_cmd("hyprshot -m output -m active"), { submap_universal = true })
+
 -- Barre de hyprdesk (hd.bar) : flou derrière elle, comme une barre classique.
 hl.layer_rule({ name = "hyprdesk-bar-blur", match = { namespace = "^hyprdesk-bar$" }, blur = true, ignore_alpha = 0.2 })
 "#;
 
 /// Plugins de widgets d'exemple, déposés s'ils n'existent pas encore.
-const EXAMPLE_WIDGETS: &[(&str, &str)] =
-    &[("meteo.lua", include_str!("../assets/widgets/meteo.lua")), ("notes.lua", include_str!("../assets/widgets/notes.lua"))];
+const EXAMPLE_WIDGETS: &[(&str, &str)] = &[
+    ("meteo.lua", include_str!("../assets/widgets/meteo.lua")),
+    ("notes.lua", include_str!("../assets/widgets/notes.lua")),
+];
 
 fn install_example_widgets(config_path: &std::path::Path) {
-    let dir = widgets::plugins::dirs(config_path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+    let dir = widgets::plugins::dirs(config_path.parent().unwrap_or(std::path::Path::new(".")))[0]
+        .clone();
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -83,9 +120,15 @@ fn install_example_widgets(config_path: &std::path::Path) {
 }
 
 fn init_tracing() {
-    let filter = tracing_subscriber::EnvFilter::try_from_env("HYPRDESK_LOG")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,naga=warn,iced_wgpu=warn"));
-    tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();
+    let filter = tracing_subscriber::EnvFilter::try_from_env("HYPRDESK_LOG").unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(
+            "info,wgpu_core=warn,wgpu_hal=warn,naga=warn,iced_wgpu=warn",
+        )
+    });
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
 }
 
 fn daemon(path: PathBuf, replace: bool) -> ExitCode {
@@ -93,10 +136,19 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     let lock = single::lock_path();
     let _guard = match single::acquire(&lock) {
         Ok(g) => g,
+        Err(None) => {
+            eprintln!(
+                "hyprdesk : verrou indisponible — vérifier le dossier de session et ses permissions"
+            );
+            return ExitCode::FAILURE;
+        }
         Err(pid) if replace => {
             // Relève propre : l'instance en place rend les fenêtres et ses
             // raccourcis en quittant, puis libère le verrou.
-            tracing::info!("remplacement de l'instance en place{}", pid.map(|p| format!(" (pid {p})")).unwrap_or_default());
+            tracing::info!(
+                "remplacement de l'instance en place{}",
+                pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
+            );
             if let Err(e) = control::send(control::Command::Quit) {
                 tracing::warn!("arrêt de l'instance en place : {e}");
             }
@@ -123,14 +175,18 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     };
     // Arrêt brutal précédent, bureau affiché : on rend les raccourcis.
     if hypr::current_submap() == hypr::SUBMAP {
-        tracing::info!("submap « {} » laissée active par un arrêt précédent : remise à zéro", hypr::SUBMAP);
+        tracing::info!(
+            "submap « {} » laissée active par un arrêt précédent : remise à zéro",
+            hypr::SUBMAP
+        );
         hypr::set_submap(None);
     }
     // Fenêtres laissées de côté par un arrêt brutal, bureau affiché : on les rend.
     hypr::restore_leftover_stash();
     // Le dossier des modules et des plugins doit exister dès le démarrage :
     // c'est lui que la surveillance suit pour détecter les nouveaux widgets.
-    let widget_dir = widgets::plugins::dirs(path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
+    let widget_dir =
+        widgets::plugins::dirs(path.parent().unwrap_or(std::path::Path::new(".")))[0].clone();
     if let Err(e) = std::fs::create_dir_all(&widget_dir) {
         tracing::warn!("création de {} : {e}", widget_dir.display());
     }
@@ -138,12 +194,23 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         Ok(true) => {
             install_example_widgets(&path);
             tracing::info!("configuration d'exemple écrite dans {}", path.display());
-            hypr::notify(1, 6000, &format!("hyprdesk : configuration d'exemple créée — {}", path.display()));
+            hypr::notify(
+                1,
+                6000,
+                &format!(
+                    "hyprdesk : configuration d'exemple créée — {}",
+                    path.display()
+                ),
+            );
         }
         Ok(false) => {}
         Err(e) => tracing::warn!("création de {} : {e}", path.display()),
     }
-    tracing::info!("hyprdesk {} — config {}", env!("CARGO_PKG_VERSION"), path.display());
+    tracing::info!(
+        "hyprdesk {} — config {}",
+        env!("CARGO_PKG_VERSION"),
+        path.display()
+    );
     match ui::run(path) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -181,6 +248,13 @@ fn main() -> ExitCode {
             println!("hyprdesk {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        "preview" => match ui::preview::run(args.get(1).map(PathBuf::from)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("aperçu : {e}");
+                ExitCode::FAILURE
+            }
+        },
         "check" => {
             let p = args.get(1).map(PathBuf::from).unwrap_or(config_path);
             match ui::check(&p) {
@@ -234,6 +308,123 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Écran de verrouillage (ext-session-lock-v1, PAM) : processus à part.
+        "lock" => lock::run(),
+        "chat-mock" => chat::mock(),
+        // Lance l'application par défaut d'un rôle (navigateur, terminal, ai…).
+        "open" => {
+            let Some(r) = args.get(1).and_then(|r| apps::role(r)) else {
+                let all: Vec<&str> = apps::ROLES.iter().map(|r| r.id).collect();
+                eprintln!("hyprdesk open <rôle> : {}", all.join(", "));
+                return ExitCode::FAILURE;
+            };
+            let cfg = match config::lua::load_file(&config_path) {
+                Ok(l) => l.config,
+                Err(e) => {
+                    eprintln!("configuration : {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            // Rôle « ai » avec l'assistant actif : le démon l'ouvre (tiroir ou fenêtre).
+            if r.id == "ai"
+                && assistant::lyra_installed()
+                && cfg.plugin_on("assistant")
+                && control::send(control::Command::Assistant).is_ok()
+            {
+                return ExitCode::SUCCESS;
+            }
+            let g = &cfg.general;
+            // Rôle « ai » : LYRA (assistant du bureau), sinon l'outil choisi.
+            let lyra = (r.id == "ai").then(|| assistant::command(&cfg)).flatten();
+            match lyra.or_else(|| apps::command(r, &g.apps, &g.terminal)) {
+                Some(cmd) => match hypr::exec(&cmd) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("lancement de « {cmd} » : {e}");
+                        ExitCode::FAILURE
+                    }
+                },
+                None => {
+                    eprintln!(
+                        "aucune application pour « {} » (hyprdesk config set apps.{} …)",
+                        r.id, r.id
+                    );
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        // Partage du setup : archive .tar.gz (configs, plugins, fonds d'écran).
+        "export" => {
+            let screens = args.iter().any(|a| a == "--screens");
+            let out = args[1..]
+                .iter()
+                .find(|a| !a.starts_with("--"))
+                .map(|p| config::lua::expand_path(p, std::path::Path::new(".")))
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(format!(
+                        "hyprdesk-setup-{}.tar.gz",
+                        chrono::Local::now().format("%Y%m%d")
+                    ))
+                });
+            match share::export(&config_path, &out, screens) {
+                Ok(m) => {
+                    println!(
+                        "{} — {} fichier(s), {} fond(s), {} plugin(s){}",
+                        out.display(),
+                        m.files.len(),
+                        m.wallpapers.len(),
+                        m.plugins.len(),
+                        if screens { ", écrans compris" } else { "" }
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("export : {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "import" => {
+            let screens = args.iter().any(|a| a == "--screens");
+            let dry = args.iter().any(|a| a == "--dry-run");
+            let Some(file) = args[1..].iter().find(|a| !a.starts_with("--")) else {
+                eprintln!("hyprdesk import <archive.tar.gz> [--dry-run] [--screens]");
+                return ExitCode::FAILURE;
+            };
+            let file = config::lua::expand_path(file, std::path::Path::new("."));
+            match share::import(&file, &config_path, screens, dry) {
+                Ok(r) => {
+                    println!("{r}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("import : {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        // Contexte de l'environnement hyprdesk, pour un assistant IA.
+        "context" => match config::lua::load_file(&config_path) {
+            Ok(l) => {
+                print!("{}", assistant::context(&l.config, &config_path));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("configuration : {e}");
+                ExitCode::FAILURE
+            }
+        },
+        // Configuration en ligne de commande : même effet que l'écran Réglages.
+        "config" => match cli_config::run(&config_path, &args[1..]) {
+            Ok(out) => {
+                println!("{out}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("hyprdesk config : {e}");
+                ExitCode::FAILURE
+            }
+        },
         "snippet" => {
             print!("{SNIPPET}");
             ExitCode::SUCCESS

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use iced::futures::{SinkExt, Stream};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,30 +16,40 @@ pub enum Command {
     Toggle,
     Show,
     Hide,
+    /// `launcher-only` : fenêtres laissées en place, le lanceur (dock)
+    /// accessible sous elles ; les fenêtres en mosaïque lui laissent la place.
+    LauncherOnly,
+    /// launcher-only, ou no-desktop s'il y est déjà (raccourci `keys.launcher`).
+    ToggleLauncher,
+    /// Mode suivant : no-desktop → launcher-only → full-desktop → no-desktop.
+    Cycle,
     Reload,
     Status,
     Quit,
-    /// Affiche le bureau et ouvre l'écran Réglages sur un onglet
-    /// (0 bureau, 1 icônes, 2 fond d'écran, 3 effets, 4 widgets).
-    Settings(u8),
+    /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
+    /// sans changer le mode du bureau.
+    Settings(String),
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
+    /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
+    Assistant,
 }
 
 impl Command {
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s.trim() {
             "toggle" => Command::Toggle,
-            "show" => Command::Show,
-            "hide" => Command::Hide,
+            "show" | "full-desktop" => Command::Show,
+            "hide" | "no-desktop" => Command::Hide,
+            "launcher-only" | "controls" => Command::LauncherOnly,
+            "cycle" => Command::Cycle,
+            "toggle-launcher" => Command::ToggleLauncher,
             "reload" => Command::Reload,
             "status" => Command::Status,
             "quit" => Command::Quit,
-            "settings" | "settings bureau" => Command::Settings(0),
-            "settings icones" | "settings icônes" => Command::Settings(1),
-            "settings fond" => Command::Settings(2),
-            "settings effets" => Command::Settings(3),
-            "settings widgets" => Command::Settings(4),
+            "assistant" => Command::Assistant,
+            "settings" => Command::Settings("desktop".into()),
+            m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             _ => return None,
         })
@@ -48,6 +58,7 @@ impl Command {
     pub fn to_line(&self) -> String {
         match self {
             Command::Menu(m) => format!("menu {m}"),
+            Command::Settings(p) => format!("settings {p}"),
             c => c.as_str().to_string(),
         }
     }
@@ -57,15 +68,15 @@ impl Command {
             Command::Toggle => "toggle",
             Command::Show => "show",
             Command::Hide => "hide",
+            Command::LauncherOnly => "launcher-only",
+            Command::Cycle => "cycle",
+            Command::ToggleLauncher => "toggle-launcher",
             Command::Reload => "reload",
             Command::Status => "status",
             Command::Quit => "quit",
-            Command::Settings(1) => "settings icones",
-            Command::Settings(2) => "settings fond",
-            Command::Settings(3) => "settings effets",
-            Command::Settings(4) => "settings widgets",
             Command::Settings(_) => "settings",
             Command::Menu(_) => "menu",
+            Command::Assistant => "assistant",
         }
     }
 }
@@ -86,9 +97,14 @@ pub fn socket_path() -> anyhow::Result<PathBuf> {
 /// Client : envoie une commande et rend la réponse du démon.
 pub fn send(cmd: Command) -> anyhow::Result<String> {
     let path = socket_path()?;
-    let mut s = StdUnixStream::connect(&path)
-        .map_err(|e| anyhow::anyhow!("démon hyprdesk injoignable ({}) : {e} — est-il lancé ?", path.display()))?;
+    let mut s = StdUnixStream::connect(&path).map_err(|e| {
+        anyhow::anyhow!(
+            "démon hyprdesk injoignable ({}) : {e} — est-il lancé ?",
+            path.display()
+        )
+    })?;
     s.set_read_timeout(Some(Duration::from_secs(5)))?;
+    s.set_write_timeout(Some(Duration::from_secs(5)))?;
     s.write_all(format!("{}\n", cmd.to_line()).as_bytes())?;
     s.shutdown(std::net::Shutdown::Write)?;
     let mut out = String::new();
@@ -98,61 +114,92 @@ pub fn send(cmd: Command) -> anyhow::Result<String> {
 
 /// Serveur : flux des commandes reçues. `status` est servi sans passer par l'UI.
 pub fn server_stream() -> impl Stream<Item = Command> {
-    iced::stream::channel(16, async move |mut out: iced::futures::channel::mpsc::Sender<Command>| {
-        let path = match socket_path() {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!("socket de commande : {e}");
-                return;
-            }
-        };
-        // Une socket orpheline (démon précédent tué) empêche le bind.
-        let _ = std::fs::remove_file(&path);
-        let listener = match UnixListener::bind(&path) {
-            Ok(l) => l,
-            Err(e) => {
-                tracing::error!("écoute sur {} : {e}", path.display());
-                return;
-            }
-        };
-        tracing::info!("commandes sur {}", path.display());
-        loop {
-            let Ok((stream, _)) = listener.accept().await else { continue };
-            let (r, mut w) = stream.into_split();
-            let mut line = String::new();
-            if BufReader::new(r).read_line(&mut line).await.is_err() {
-                continue;
-            }
-            let reply = match Command::parse(&line) {
-                Some(Command::Status) => STATUS.lock().map(|s| s.clone()).unwrap_or_default(),
-                Some(c) => {
-                    let _ = out.send(c).await;
-                    "ok".to_string()
+    iced::stream::channel(
+        16,
+        async move |out: iced::futures::channel::mpsc::Sender<Command>| {
+            let path = match socket_path() {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("socket de commande : {e}");
+                    return;
                 }
-                None => format!("commande inconnue : {}", line.trim()),
             };
-            let _ = w.write_all(format!("{reply}\n").as_bytes()).await;
-        }
-    })
+            // Une socket orpheline (démon précédent tué) empêche le bind.
+            let _ = std::fs::remove_file(&path);
+            let listener = match UnixListener::bind(&path) {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("écoute sur {} : {e}", path.display());
+                    return;
+                }
+            };
+            tracing::info!("commandes sur {}", path.display());
+            let connections = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    continue;
+                };
+                let Ok(permit) = connections.clone().try_acquire_owned() else {
+                    continue;
+                };
+                let mut out = out.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let (r, mut w) = stream.into_split();
+                    let mut line = String::new();
+                    let mut reader = BufReader::new(r.take(1025));
+                    let read =
+                        tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+                            .await;
+                    if !matches!(read, Ok(Ok(1..))) || line.len() > 1024 || !line.ends_with('\n') {
+                        return;
+                    }
+                    let reply = match Command::parse(&line) {
+                        Some(Command::Status) => {
+                            STATUS.lock().map(|s| s.clone()).unwrap_or_default()
+                        }
+                        Some(c) => {
+                            match tokio::time::timeout(Duration::from_secs(2), out.send(c)).await {
+                                Ok(Ok(())) => "ok".to_string(),
+                                _ => "démon occupé".to_string(),
+                            }
+                        }
+                        None => format!("commande inconnue : {}", line.trim()),
+                    };
+                    let _ = tokio::time::timeout(
+                        Duration::from_secs(2),
+                        w.write_all(format!("{reply}\n").as_bytes()),
+                    )
+                    .await;
+                });
+            }
+        },
+    )
 }
 
 /// SIGTERM (systemctl stop) ou SIGINT (Ctrl-C) : quitter proprement, comme
 /// `hyprdesk quit` (fenêtres rendues, raccourcis retirés).
 pub fn signal_stream() -> impl Stream<Item = Command> {
-    iced::stream::channel(1, async move |mut out: iced::futures::channel::mpsc::Sender<Command>| {
-        use tokio::signal::unix::{SignalKind, signal};
-        let (Ok(mut term), Ok(mut int)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt())) else {
-            tracing::warn!("signaux indisponibles : arrêt propre sur SIGTERM désactivé");
-            return;
-        };
-        tokio::select! {
-            _ = term.recv() => tracing::info!("SIGTERM : arrêt propre"),
-            _ = int.recv() => tracing::info!("SIGINT : arrêt propre"),
-        }
-        let _ = out.send(Command::Quit).await;
-        // Le démon quitte ; ne plus rien émettre.
-        std::future::pending::<()>().await;
-    })
+    iced::stream::channel(
+        1,
+        async move |mut out: iced::futures::channel::mpsc::Sender<Command>| {
+            use tokio::signal::unix::{SignalKind, signal};
+            let (Ok(mut term), Ok(mut int)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+            ) else {
+                tracing::warn!("signaux indisponibles : arrêt propre sur SIGTERM désactivé");
+                return;
+            };
+            tokio::select! {
+                _ = term.recv() => tracing::info!("SIGTERM : arrêt propre"),
+                _ = int.recv() => tracing::info!("SIGINT : arrêt propre"),
+            }
+            let _ = out.send(Command::Quit).await;
+            // Le démon quitte ; ne plus rien émettre.
+            std::future::pending::<()>().await;
+        },
+    )
 }
 
 #[cfg(test)]
@@ -161,10 +208,28 @@ mod tests {
 
     #[test]
     fn aller_retour_des_commandes() {
-        for c in [Command::Toggle, Command::Show, Command::Hide, Command::Reload, Command::Status, Command::Quit, Command::Settings(0), Command::Settings(2)] {
-            assert_eq!(Command::parse(&format!("{}\n", c.to_line())), Some(c.clone()));
+        for c in [
+            Command::Toggle,
+            Command::Show,
+            Command::Hide,
+            Command::Reload,
+            Command::Status,
+            Command::Quit,
+            Command::Settings("desktop".into()),
+            Command::Settings("fond".into()),
+            Command::LauncherOnly,
+            Command::ToggleLauncher,
+            Command::Cycle,
+        ] {
+            assert_eq!(
+                Command::parse(&format!("{}\n", c.to_line())),
+                Some(c.clone())
+            );
         }
         assert_eq!(Command::parse("nope"), None);
-        assert_eq!(Command::parse("menu reseau"), Some(Command::Menu("reseau".into())));
+        assert_eq!(
+            Command::parse("menu reseau"),
+            Some(Command::Menu("reseau".into()))
+        );
     }
 }

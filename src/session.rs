@@ -21,12 +21,16 @@ pub struct Status {
 }
 
 struct Handle {
+    task: tokio::task::JoinHandle<()>,
     def: ComponentDef,
     stop: watch::Sender<bool>,
     status: Arc<Mutex<Status>>,
 }
 
-static COMPONENTS: LazyLock<Mutex<HashMap<String, Handle>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static COMPONENTS: LazyLock<Mutex<HashMap<String, Handle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static OPERATIONS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Plus de `MAX_FAILS` arrêts en moins de `FAIL_WINDOW` : on abandonne.
 const MAX_FAILS: usize = 5;
@@ -36,15 +40,30 @@ fn backoff(n: u32) -> Duration {
     Duration::from_secs([1, 2, 5, 10, 30][(n as usize).min(4)])
 }
 
+fn signal_group(pid: u32, signal: &str) {
+    let _ = std::process::Command::new("kill")
+        .args([signal, "--", &format!("-{pid}")])
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 fn terminate(pid: u32) {
-    let _ = std::process::Command::new("kill").arg("-TERM").arg(pid.to_string()).status();
+    signal_group(pid, "-TERM");
 }
 
 async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: Arc<Mutex<Status>>) {
     let mut fails: Vec<Instant> = Vec::new();
     loop {
+        if *stop.borrow() {
+            return;
+        }
         // `exec` : le shell laisse la place au programme, qu'on arrête directement.
-        let child = tokio::process::Command::new("sh").arg("-c").arg(format!("exec {}", def.exec)).kill_on_drop(true).spawn();
+        let child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("exec {}", def.exec))
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
@@ -83,9 +102,13 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
                 if let Ok(mut s) = status.lock() {
                     s.pid = None;
                 }
+                if let Some(p) = pid { signal_group(p,"-KILL"); }
                 tracing::info!("composant {} arrêté", def.name);
                 return;
             }
+        }
+        if let Some(p) = pid {
+            signal_group(p, "-KILL");
         }
         if !def.restart || *stop.borrow() {
             return;
@@ -94,8 +117,18 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
         fails.retain(|t| now.duration_since(*t) < FAIL_WINDOW);
         fails.push(now);
         if fails.len() > MAX_FAILS {
-            tracing::error!("composant {} : trop de plantages, supervision abandonnée", def.name);
-            crate::hypr::notify(4, 10000, &format!("hyprdesk : le composant « {} » plante en boucle, il n'est plus relancé", def.name));
+            tracing::error!(
+                "composant {} : trop de plantages, supervision abandonnée",
+                def.name
+            );
+            crate::hypr::notify(
+                4,
+                10000,
+                &format!(
+                    "hyprdesk : le composant « {} » plante en boucle, il n'est plus relancé",
+                    def.name
+                ),
+            );
             if let Ok(mut s) = status.lock() {
                 s.given_up = true;
             }
@@ -114,59 +147,94 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
 
 /// Aligne les composants lancés sur la config : arrête les retirés ou
 /// modifiés, lance les nouveaux. À appeler dans le runtime tokio.
-pub fn sync(defs: &[ComponentDef]) {
-    let Ok(mut map) = COMPONENTS.lock() else { return };
-    let stale: Vec<String> = map.iter().filter(|(n, h)| !defs.iter().any(|d| &d.name == *n && *d == h.def)).map(|(n, _)| n.clone()).collect();
-    for n in stale {
-        if let Some(h) = map.remove(&n) {
-            let _ = h.stop.send(true);
-        }
+pub async fn sync(defs: &[ComponentDef]) {
+    let _operation = OPERATIONS.lock().await;
+    let stale = {
+        let mut map = COMPONENTS.lock().unwrap_or_else(|e| e.into_inner());
+        let names: Vec<_> = map
+            .iter()
+            .filter(|(n, h)| !defs.iter().any(|d| &d.name == *n && *d == h.def))
+            .map(|(n, _)| n.clone())
+            .collect();
+        names
+            .into_iter()
+            .filter_map(|n| map.remove(&n))
+            .collect::<Vec<_>>()
+    };
+    for h in &stale {
+        let _ = h.stop.send(true);
+    }
+    for h in stale {
+        let _ = h.task.await;
     }
     for d in defs {
-        if map.contains_key(&d.name) {
-            continue;
-        }
-        let (tx, rx) = watch::channel(false);
-        let status = Arc::new(Mutex::new(Status::default()));
-        tokio::spawn(supervise(d.clone(), rx, status.clone()));
-        map.insert(d.name.clone(), Handle { def: d.clone(), stop: tx, status });
+        sync_one(d.clone());
     }
 }
 
-/// Relance un composant (bouton des réglages), même abandonné.
-pub fn restart(name: &str) {
-    let Ok(mut map) = COMPONENTS.lock() else { return };
-    if let Some(h) = map.remove(name) {
+/// Le remplaçant démarre seulement après l'arrêt confirmé de son prédécesseur.
+pub async fn restart(name: &str) {
+    let _operation = OPERATIONS.lock().await;
+    let handle = COMPONENTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(name);
+    if let Some(h) = handle {
         let _ = h.stop.send(true);
-        let def = h.def;
-        drop(map);
-        sync_one(def);
+        let _ = h.task.await;
+        sync_one(h.def);
     }
 }
 
 fn sync_one(def: ComponentDef) {
-    let Ok(mut map) = COMPONENTS.lock() else { return };
+    let mut map = COMPONENTS.lock().unwrap_or_else(|e| e.into_inner());
+    if map.contains_key(&def.name) {
+        return;
+    }
     let (tx, rx) = watch::channel(false);
     let status = Arc::new(Mutex::new(Status::default()));
-    tokio::spawn(supervise(def.clone(), rx, status.clone()));
-    map.insert(def.name.clone(), Handle { def, stop: tx, status });
+    let task = tokio::spawn(supervise(def.clone(), rx, status.clone()));
+    map.insert(
+        def.name.clone(),
+        Handle {
+            task,
+            def,
+            stop: tx,
+            status,
+        },
+    );
 }
 
-/// Arrêt du démon : SIGTERM à tous les composants, de façon synchrone.
-pub fn stop_all() {
-    let Ok(mut map) = COMPONENTS.lock() else { return };
-    for (_, h) in map.drain() {
+pub async fn stop_all() {
+    let _operation = OPERATIONS.lock().await;
+    let handles: Vec<_> = COMPONENTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain()
+        .map(|(_, h)| h)
+        .collect();
+    for h in &handles {
         let _ = h.stop.send(true);
-        if let Some(pid) = h.status.lock().ok().and_then(|s| s.pid) {
-            terminate(pid);
-        }
+    }
+    for h in handles {
+        let _ = h.task.await;
     }
 }
 
 /// État de tous les composants, triés par nom.
 pub fn snapshot() -> Vec<(ComponentDef, Status)> {
-    let Ok(map) = COMPONENTS.lock() else { return Vec::new() };
-    let mut v: Vec<_> = map.values().map(|h| (h.def.clone(), h.status.lock().map(|s| s.clone()).unwrap_or_default())).collect();
+    let Ok(map) = COMPONENTS.lock() else {
+        return Vec::new();
+    };
+    let mut v: Vec<_> = map
+        .values()
+        .map(|h| {
+            (
+                h.def.clone(),
+                h.status.lock().map(|s| s.clone()).unwrap_or_default(),
+            )
+        })
+        .collect();
     v.sort_by(|a, b| a.0.name.cmp(&b.0.name));
     v
 }
@@ -177,11 +245,19 @@ mod tests {
 
     #[tokio::test]
     async fn supervision_relance_et_arret() {
-        let defs = vec![ComponentDef { name: "test-sleep".into(), exec: "sleep 30".into(), restart: true }];
-        sync(&defs);
+        let defs = vec![ComponentDef {
+            name: "test-sleep".into(),
+            exec: "sleep 30".into(),
+            restart: true,
+        }];
+        sync(&defs).await;
         tokio::time::sleep(Duration::from_millis(300)).await;
         let snap = snapshot();
-        let pid = snap.iter().find(|(d, _)| d.name == "test-sleep").and_then(|(_, s)| s.pid).expect("lancé");
+        let pid = snap
+            .iter()
+            .find(|(d, _)| d.name == "test-sleep")
+            .and_then(|(_, s)| s.pid)
+            .expect("lancé");
         // Tué de l'extérieur : relancé avec un autre PID.
         terminate(pid);
         tokio::time::sleep(Duration::from_millis(1600)).await;
@@ -190,8 +266,21 @@ mod tests {
         assert_eq!(st.restarts, 1);
         assert!(st.pid.is_some_and(|p| p != pid));
         // Retiré de la config : arrêté.
-        sync(&[]);
+        sync(&[]).await;
         tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(snapshot().is_empty());
+        // Un composant qui ignore TERM ne doit jamais chevaucher son remplaçant.
+        let slow = ComponentDef {
+            name: "slow-stop".into(),
+            exec: r#"sh -c 'trap "" TERM; exec sleep 30'"#.into(),
+            restart: false,
+        };
+        sync(&[slow]).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let old = snapshot()[0].1.pid.unwrap();
+        restart("slow-stop").await;
+        assert!(!std::path::Path::new(&format!("/proc/{old}")).exists());
+        stop_all().await;
         assert!(snapshot().is_empty());
     }
 }

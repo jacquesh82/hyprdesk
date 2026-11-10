@@ -75,13 +75,13 @@ return {
     end,
     menu = function()
         local wifi, wired = connections()
-        local radio = hd.exec("nmcli radio wifi 2>/dev/null") == "enabled"
+        local radio = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
         local m = { { header = "Réseau" } }
         if wired then
             m[#m + 1] = { label = "Ethernet", detail = wired, icon = "network-wired-symbolic", checked = true }
         end
         m[#m + 1] = { label = "Wi-Fi", checked = radio,
-                      action = function() hd.exec("nmcli radio wifi " .. (radio and "off" or "on")) end }
+                      action = function() hd.exec("LC_ALL=C nmcli radio wifi " .. (radio and "off" or "on")) end }
         if radio then
             local n = 0
             for _, net in ipairs(networks()) do

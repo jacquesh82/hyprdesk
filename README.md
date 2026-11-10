@@ -1,8 +1,8 @@
 # hyprdesk
 
 **Un bureau à la demande pour Hyprland.** En tuiles, les fenêtres couvrent
-l'écran et le bureau n'existe plus. hyprdesk le rend visible d'une touche, par-dessus
-les fenêtres, avec un fond d'écran, des icônes et des widgets. Chaque workspace
+l'écran et le bureau n'existe plus. hyprdesk le rend visible d'une touche,
+avec un fond d'écran, des icônes et des widgets. Chaque workspace
 peut avoir son propre bureau. La configuration est en Lua, dans le style de
 `hyprland.lua` (Hyprland ≥ 0.57).
 
@@ -29,16 +29,23 @@ hyprdesk est la **racine** de la session graphique.
 
 ## Réglages (⚙)
 
+Chaque entrée des réglages est un **paquet intégré** (manifeste, messages,
+état, vue, clés CLI) ; conception des paquets, des widgets et du lanceur :
+[`docs/PLUGINS.md`](docs/PLUGINS.md).
+
 Le bouton ⚙ du dock, ou `hyprdesk settings [bureau|icones|fond|effets]`, ouvre
-un panneau par-dessus le bureau, sur l'écran actif. Il a quatre onglets :
+un panneau par-dessus le bureau, sur l'écran actif. Il regroupe les réglages suivants :
 
 | Onglet | Réglages |
 |---|---|
-| Bureau | bureau sur tous les écrans ou l'écran actif ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) ; session (composants, état, relance) |
-| Icônes | fenêtres ouvertes dans le dock (non, ce workspace, toutes) ; raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
+| Bureau | bureau sur tous les écrans, l'écran actif ou l'écran principal ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis (suspension, touches, conflits, raccourcis universels) ; session (composants, état, relance) |
+| Icônes | raccourcis vers des applications installées (partout ou sur ce workspace) ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
+| Lanceur | dock du bureau : fenêtres affichées (aucune, ce workspace, toutes) ; regroupement (aucun, par application, par workspace) |
 | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image choisie dans un dossier (vignettes), diaporama (intervalle, ordre aléatoire) ou couleur unie ; ajustement |
-| Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) : ajouter, ordonner, changer de zone, retirer |
+| Barre | afficher, position, hauteur, écrans (tous, principal, un seul) ; modules par zone (gauche, centre, droite) : ajouter, ordonner, changer de zone, retirer |
 | Widgets | widgets disponibles (intégrés et plugins détectés), activation à l'unité ; placement des widgets du bureau : ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
+| Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position par rapport à un voisin et alignement ; orientation et miroir ; résolution et fréquence ; échelle ; activation ; écran principal ; disposition automatique — chaque changement s'applique à chaud, puis se garde (écrit dans `monitors.lua`) ou revient seul au bout de 12 s |
+| Workspaces | nombre de workspaces permanents (ou laissés à Hyprland) ; affectation d'une application à un workspace, avec ou sans y aller |
 | Effets | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
 
 Tout s'applique **en direct**. Le panneau est un tiroir à droite, et le bureau
@@ -147,7 +154,7 @@ panneau signale les réglages que `hyprdesk.lua` surcharge.
 
 ## Installation
 
-Il faut Rust (édition 2024), Hyprland 0.57+ et un pilote Vulkan ou GL.
+Il faut Rust 1.99+ (édition 2024), Hyprland 0.57+ et un pilote Vulkan ou GL.
 
 ```bash
 ./scripts/install.sh
@@ -174,7 +181,8 @@ Pour que hyprdesk soit la racine de la session :
 - **Les raccourcis de hyprdesk sont installés par hyprdesk lui-même**, avec
   ceux de `hd.config({ keys = … })` ou de Réglages → Bureau :
   - `toggle`, `SUPER + D` par défaut, affiche ou masque le bureau ;
-  - `settings` ouvre les réglages ;
+  - `settings`, `SUPER + SHIFT + D` par défaut, ouvre les réglages (bureau
+    affiché compris, sans changer de mode) ;
   - `leave`, `SUPER + Escape` par défaut, est la sortie de secours.
 
   Ils sont réinstallés après chaque `hyprctl reload`.
@@ -199,7 +207,7 @@ Pensez aussi à retirer `hyprpaper` de l'autostart.
 ## Une seule instance
 
 Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
-`$XDG_RUNTIME_DIR/hyprdesk.lock` pendant toute sa vie.
+`$XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.lock` pendant toute sa vie.
 - **Seconde instance** : qu'elle vienne du service, d'un `hl.exec_cmd` ou d'un
   lancement manuel, elle signale celle en place (son PID) et s'arrête sans
   erreur. systemd ne la relance donc pas en boucle.
@@ -216,8 +224,13 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 |---|---|
 | `hyprdesk` / `hyprdesk daemon` | lance le démon (une seule instance par session) |
 | `hyprdesk daemon --replace` | remplace proprement l'instance en place |
-| `hyprdesk toggle` · `show` · `hide` | affiche / masque le bureau |
-| `hyprdesk settings [onglet]` | affiche le bureau et ouvre les réglages (`bureau`, `icones`, `fond`, `effets`) |
+| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres mises de côté), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué |
+| `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, ou no-desktop si on y est déjà (raccourcis SUPER + D, SUPER + ALT + D ; SUPER + CTRL + D : no-desktop) |
+| `hyprdesk cycle` | mode suivant : no-desktop → launcher-only → full-desktop → no-desktop (bouton Bureau de la barre ; clic droit : no-desktop) |
+| `hyprdesk settings [paquet]` | ouvre les réglages sans changer le mode du bureau (`desktop`, `launcher`, `screens`, `fond`…) |
+| `hyprdesk export [fichier] [--screens]` · `hyprdesk import <archive> [--dry-run] [--screens]` | partager son setup : configs, plugins, fonds d'écran (l'import sauvegarde l'actuel) |
+| `hyprdesk open <rôle>` · `hyprdesk context` | application par défaut d'un rôle (`browser`, `terminal`, `ai`…) ; contexte de l'environnement pour un assistant IA |
+| `hyprdesk config [list [paquet]] \| get \| set \| unset` | réglages en ligne de commande, par paquet, écrits dans `settings.lua` comme depuis l'écran (ex. `hyprdesk config set launcher_group app`) |
 | `hyprdesk reload` | relit la configuration (elle est aussi relue à chaque enregistrement) |
 | `hyprdesk status` | état : affiché ou caché, workspaces, config en erreur ou non |
 | `hyprdesk check [fichier]` | vérifie une configuration sans toucher au démon |
@@ -226,6 +239,17 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 Options et variables :
 - `--config <fichier>` ou `$HYPRDESK_CONFIG` : fichier de configuration à utiliser ;
 - `$HYPRDESK_LOG` : niveau de journal (`debug`, `info`…).
+
+## Écrans — `~/.config/hypr/monitors.lua`
+
+hyprdesk gère les écrans (il remplace hyprdmc) : l'onglet **Écrans** détecte
+les sorties, les place, les tourne, règle mode et échelle, et désigne l'écran
+principal. Un changement s'applique à chaud ; **Garder** l'écrit dans
+`monitors.lua` (requis par `hyprland.lua` : `require("monitors")`), sinon
+l'affichage d'avant revient seul. Les écrans débranchés gardent leur ligne, et
+un écran inconnu est accueilli en mode préféré, placé automatiquement. Un
+`monitors.lua` écrit par un autre outil est conservé une fois en
+`monitors.lua.bak`.
 
 ## Configuration — `~/.config/hypr/hyprdesk.lua`
 
@@ -240,6 +264,17 @@ hd.wallpaper({ monitor = "DP-1", path = "~/.wallpapers/portrait.png" })    -- un
 hd.wallpaper({ workspace = 3, rotate = { dir = "~/.wallpapers", interval = 600, shuffle = true } })
 hd.desktop({ workspace = 4, mode = "glass" })
 hd.desktop({ workspace = "special:magic", inherit = false })               -- sans les éléments globaux
+
+hd.config({ primary = "HDMI-A-2", show_on = "primary" })                  -- écran principal
+hd.bar({ monitor = "primary" })                                            -- barre sur l'écran principal
+-- Écrans étroits ou verticaux : barre compacte (auto), et modules propres aux écrans verticaux.
+hd.bar({ compact = "auto", left = { "workspaces", "window" }, right = { "tray", "volume", "session" },
+         portrait = { left = { "workspaces" }, right = { "volume", "session" } } })
+
+hd.config({ workspaces = 7 })                                              -- 1 à 7 toujours présents
+hd.config({ workspace_monitors = { ["HDMI-A-2"] = { 1, 2, 3, 4, 5 }, primary = { 6, 7 } } }) -- écran de chaque workspace
+hd.assign({ app = "firefox", workspace = 2 })                              -- s'ouvre sur 2, et y emmène
+hd.assign({ class = "^(org\\.telegram\\..*)$", workspace = 5, silent = true }) -- sans y aller
 
 hd.icon({ app = "firefox" })                                               -- identifiant .desktop
 hd.icon({ workspace = 2, label = "Projets", path = "~/Documents/DEV", pos = { 0, 1 } })
@@ -275,8 +310,7 @@ la souris garde sa place, par écran et par workspace, dans
 `~/.local/state/hyprdesk/layout.toml`. Le Lua n'est jamais réécrit.
 
 **Clavier.** Les flèches sélectionnent, Entrée lance, Échap ferme le panneau
-de réglages, puis le bureau. Les raccourcis
-Hyprland restent actifs : changer de workspace bureau ouvert affiche le bureau de
+de réglages, puis le bureau. Les raccourcis Hyprland marqués `submap_universal` restent actifs : changer de workspace bureau ouvert affiche le bureau de
 ce workspace.
 
 **Lancement.** Les programmes sont lancés par Hyprland
@@ -285,8 +319,8 @@ ce workspace.
 ## Développement
 
 ```bash
-cargo test                          # config Lua, résolution, placement, IPC, .desktop
-cargo run -- --config exemple.lua   # démon avec une config de test
+cargo test --locked                 # config Lua, résolution, placement, IPC, .desktop
+cargo run --locked -- --config exemple.lua   # démon avec une config de test
 ```
 
 `Cargo.lock` épingle `winit-core` en `0.31.0-beta.2`, parce que la beta.4 casse
@@ -297,4 +331,80 @@ L'IPC Hyprland vient de `hyprpanel-core`
 ([mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)),
 épinglé sur un commit.
 
-Licence MIT.
+Code sous licence MIT ; police Mindlog sous [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt).
+
+## Finition et typographie
+
+Mindlog 0.7 est la police par défaut sur le bureau, la barre, les menus et
+les réglages. Ses cinq graisses (Light, Regular, Medium, SemiBold et Bold) sont
+embarquées dans le binaire ; `scripts/install.sh` les installe aussi dans
+`${XDG_DATA_HOME:-~/.local/share}/fonts/hyprdesk/Mindlog`, avec leur licence OFL.
+Réglages → Bureau → Typographie propose Mindlog et les familles installées
+sur la machine, un aperçu et la taille du texte. Le choix est enregistré dans
+`settings.lua` ; `hd.config({ font = "Mindlog", font_size = 14 })` reste
+prioritaire s’il est déclaré dans le fichier utilisateur.
+
+Les cartes et le dock partagent un verre fumé, des contours discrets et un
+accent iris. Les icônes d’applications proviennent du thème système ; les
+commandes possèdent des secours SVG intégrés. `transition = "none"` désactive
+les nouveaux mouvements. Les fonds d’écran et couleurs explicitement choisis
+restent prioritaires. Voir [DESIGN.md](DESIGN.md) pour les règles communes.
+
+La zone de notification peut fournir son propre `StatusNotifierWatcher` quand
+aucun autre service ne le fournit. Elle cohabite avec un watcher existant.
+Les widgets réseau, Bluetooth et notifications utilisent respectivement
+`nmcli`, `bluetoothctl` et `wayle`. Volume utilise `wpctl`, la liste des polices
+`fc-list`, et les actions de session utilisent `hyprlock` et `systemctl`.
+Une commande manquante ou trop lente est signalée par le widget.
+
+## Fiabilité et limites d’exécution
+
+Les déplacements de fenêtres et changements de submap sont traités dans
+l’ordre par un acteur dédié. La restitution est vérifiée avant d’oublier une
+entrée du journal ; une erreur IPC conserve les retours encore en attente.
+Les fichiers d’état sont écrits atomiquement, et une sauvegarde ancienne ne
+peut pas remplacer une modification plus récente.
+
+Un widget ne lance qu’un relevé à la fois. Les résultats des anciennes
+configurations sont écartés. `hd.exec` limite la durée à cinq secondes et la
+sortie à 64 Kio par flux ; le widget `command` conserve son option `timeout`.
+Les commandes dépassant leurs limites sont arrêtées avec leur groupe de
+processus. Les appels Lua possèdent un budget de cinq secondes, également
+appliqué aux coroutines.
+
+Lua reste un environnement local de confiance, avec accès aux bibliothèques
+standard : ces limites ne constituent pas un sandbox pour du code non fiable.
+`check` exécute le Lua et charge les plugins ; il ne s’agit pas uniquement
+d’une validation syntaxique.
+
+## Boucle autonome de vérification
+
+Rust 1.99 ou supérieur est requis. `Cargo.lock` doit rester utilisé.
+
+```bash
+bash scripts/verify.sh            # format, Clippy strict, tests, build, D-Bus isolé
+bash scripts/verify.sh --visual   # ajoute les captures à 1440, 900 et 640 px
+cargo run --locked -- preview     # aperçu interactif sans modifier la session
+```
+
+L’aperçu emploie les vues réelles avec des données de démonstration. Il ne
+lance pas d’applications et n’écrit pas les réglages. Les captures sont placées
+par défaut dans `/tmp/hyprdesk-visual` et permettent de revoir les neuf vues.
+Les contrôles de l’aperçu sont limités à la navigation et à la typographie.
+Le flou fourni par le compositeur et les interactions multi-écrans nécessitent
+aussi une vérification dans une session Hyprland.
+
+### Hyprshot et les outils de capture
+
+Les raccourcis de capture doivent rester actifs dans la submap du bureau.
+Ajouter `submap_universal = true` aux déclarations existantes, par exemple :
+
+```lua
+hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { submap_universal = true })
+hl.bind("SUPER + Print", hl.dsp.exec_cmd("hyprshot -m output -m active"), { submap_universal = true })
+```
+
+La même option s’applique à `SHIFT + Print`, `ALT + Print` et à un raccourci
+personnalisé comme `SUPER + SHIFT + S`. Les modes région et écran capturent le
+bureau et les surfaces layer-shell. Le mode fenêtre de Hyprshot vise une
+fenêtre d’application ; le bureau et la barre ne sont pas des fenêtres XDG.

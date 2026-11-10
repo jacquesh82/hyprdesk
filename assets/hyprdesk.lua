@@ -25,8 +25,10 @@ hd.config({
     -- crossfade_ms    = 700,
     -- close_on_launch = true,
     -- icon_theme      = "Papirus-Dark",
+    -- font            = "Mindlog",   -- police embarquée par défaut, ou une famille installée
+    -- font_size       = 14,
     -- grid  = { cell = 96, gap = 16, margin = 32, icon_size = 48 },
-    -- theme = { fg = "#f8f8f2", bg = "#22212c", accent = "#9580ff" },
+    -- theme = { fg = "#f2f4fc", bg = "#171b27", accent = "#a69cff" },
 })
 
 -- Fonds d'écran (ou onglet « Fond d'écran » de l'écran ⚙) ---------------------

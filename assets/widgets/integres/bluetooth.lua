@@ -1,14 +1,14 @@
 -- Bluetooth (bluetoothctl) : activation, appareils connectés et appairés.
 local function devices(kind)
     local list = {}
-    for mac, name in hd.exec("bluetoothctl devices " .. kind .. " 2>/dev/null"):gmatch("Device (%S+) ([^\n]+)") do
+    for mac, name in hd.exec("LC_ALL=C bluetoothctl devices " .. kind .. " 2>/dev/null"):gmatch("Device (%S+) ([^\n]+)") do
         list[#list + 1] = { mac = mac, name = name }
     end
     return list
 end
 
 local function powered()
-    local show = hd.exec("bluetoothctl show 2>/dev/null")
+    local show = hd.exec("LC_ALL=C bluetoothctl show 2>/dev/null")
     if show == "" then return nil end
     return show:find("Powered: yes") ~= nil
 end
@@ -37,7 +37,7 @@ return {
         local on = powered()
         local m = { { header = "Bluetooth" },
                     { label = "Bluetooth", checked = on and true or false,
-                      action = function() hd.exec("bluetoothctl power " .. (on and "off" or "on")) end } }
+                      action = function() hd.exec("LC_ALL=C bluetoothctl power " .. (on and "off" or "on")) end } }
         if on then
             local connected = {}
             for _, d in ipairs(devices("Connected")) do connected[d.mac] = true end

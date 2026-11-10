@@ -67,14 +67,23 @@ pub fn parse_workspaces(v: &Value) -> Vec<Workspace> {
 }
 
 pub async fn workspaces_async() -> Vec<Workspace> {
-    tokio::task::spawn_blocking(|| ipc::query_json("workspaces").map(|v| parse_workspaces(&v)).unwrap_or_default()).await.unwrap_or_default()
+    tokio::task::spawn_blocking(|| {
+        ipc::query_json("workspaces")
+            .map(|v| parse_workspaces(&v))
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Fenêtre active : (classe, titre), depuis `j/activewindow`.
 pub async fn active_window_async() -> Option<(String, String)> {
     tokio::task::spawn_blocking(|| {
         let v = ipc::query_json("activewindow").ok()?;
-        Some((v["class"].as_str()?.to_string(), v["title"].as_str().unwrap_or("").to_string()))
+        Some((
+            v["class"].as_str()?.to_string(),
+            v["title"].as_str().unwrap_or("").to_string(),
+        ))
     })
     .await
     .ok()
@@ -101,7 +110,10 @@ pub fn focus_workspace(target: &str) -> Result<(), ipc::IpcError> {
 }
 
 pub fn focus_monitor(name: &str) {
-    let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(name)));
+    let _ = ipc::dispatch(&format!(
+        "hl.dsp.focus({{ monitor = \"{}\" }})",
+        ipc::lua_escape(name)
+    ));
 }
 
 /// Fenêtre ouverte, pour le dock des applications ouvertes.
@@ -114,11 +126,19 @@ pub struct Client {
 }
 
 pub fn parse_clients(v: &Value) -> Vec<Client> {
-    let Some(list) = v.as_array() else { return Vec::new() };
+    let Some(list) = v.as_array() else {
+        return Vec::new();
+    };
     list.iter()
-        .filter(|c| c["mapped"].as_bool().unwrap_or(true) && !c["hidden"].as_bool().unwrap_or(false))
+        .filter(|c| {
+            c["mapped"].as_bool().unwrap_or(true) && !c["hidden"].as_bool().unwrap_or(false)
+        })
         .filter_map(|c| {
-            let class = c["class"].as_str().filter(|s| !s.is_empty()).or(c["initialClass"].as_str())?.to_string();
+            let class = c["class"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or(c["initialClass"].as_str())?
+                .to_string();
             Some(Client {
                 address: c["address"].as_str()?.to_string(),
                 class,
@@ -142,7 +162,10 @@ pub async fn clients_async() -> Vec<Client> {
 
 /// Donne le focus à une fenêtre (et donc à son workspace).
 pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
-    let r = ipc::dispatch(&format!("hl.dsp.focus({{ window = \"address:{}\" }})", ipc::lua_escape(address)))?;
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.focus({{ window = \"address:{}\" }})",
+        ipc::lua_escape(address)
+    ))?;
     if r.trim() != "ok" {
         tracing::warn!("focus {address} : {r}");
     }
@@ -163,11 +186,16 @@ pub enum Update {
 /// Événement qui change la liste des fenêtres.
 pub fn is_window_event(line: &str) -> bool {
     let name = line.split(">>").next().unwrap_or("");
-    matches!(name, "openwindow" | "closewindow" | "movewindow" | "movewindowv2")
+    matches!(
+        name,
+        "openwindow" | "closewindow" | "movewindow" | "movewindowv2"
+    )
 }
 
 pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
-    let Some(list) = v.as_array() else { return Vec::new() };
+    let Some(list) = v.as_array() else {
+        return Vec::new();
+    };
     list.iter()
         .filter(|m| !m["disabled"].as_bool().unwrap_or(false))
         .filter_map(|m| {
@@ -177,11 +205,17 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
             // transform impair = rotation de 90° ou 270° : largeur et hauteur s'échangent.
             let rotated = m["transform"].as_u64().unwrap_or(0) % 2 == 1;
             let (w, h) = if rotated { (h, w) } else { (w, h) };
-            let special = m["specialWorkspace"]["name"].as_str().unwrap_or("");
-            let workspace = if !special.is_empty() {
+            // Le workspace des fenêtres mises de côté n'est jamais « celui de
+            // l'écran » : sinon on y mettrait de côté des fenêtres déjà de côté,
+            // avec lui pour adresse de retour, et elles n'en reviendraient plus.
+            let special = m["specialWorkspace"]["name"].as_str().unwrap_or("").trim();
+            let active = m["activeWorkspace"]["name"].as_str().unwrap_or("").trim();
+            let workspace = if !special.is_empty() && special != STASH {
                 special.to_string()
+            } else if active != STASH {
+                active.to_string()
             } else {
-                m["activeWorkspace"]["name"].as_str().unwrap_or("").to_string()
+                String::new()
             };
             let r = |i: usize| m["reserved"][i].as_f64().unwrap_or(0.0) as f32;
             Some(Monitor {
@@ -238,47 +272,58 @@ pub fn is_relevant(line: &str) -> bool {
 /// Flux d'états : écrans et fenêtres, d'abord en entier, puis à chaque changement pertinent.
 /// Se reconnecte seul si Hyprland redémarre la socket.
 pub fn stream() -> impl Stream<Item = Update> {
-    iced::stream::channel(16, async move |mut out: iced::futures::channel::mpsc::Sender<Update>| {
-        loop {
-            let _ = out.send(Update::Monitors(monitors_async().await)).await;
-            let _ = out.send(Update::Clients(clients_async().await)).await;
-            let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
-            let _ = out.send(Update::ActiveWindow(active_window_async().await)).await;
-            let path = match ipc::event_socket_path() {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!("socket d'événements : {e}");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
-            match UnixStream::connect(&path).await {
-                Ok(stream) => {
-                    let mut lines = BufReader::new(stream).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if is_relevant(&line) {
-                            let _ = out.send(Update::Monitors(monitors_async().await)).await;
-                        }
-                        if line.starts_with("configreloaded>>") {
-                            let _ = out.send(Update::Reloaded).await;
-                        }
-                        if is_window_event(&line) {
-                            let _ = out.send(Update::Clients(clients_async().await)).await;
-                        }
-                        if is_window_event(&line) || is_relevant(&line) || line.starts_with("createworkspace") || line.starts_with("destroyworkspace") {
-                            let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
-                        }
-                        if let Some(p) = line.strip_prefix("activewindow>>") {
-                            let _ = out.send(Update::ActiveWindow(parse_active_window(p))).await;
-                        }
+    iced::stream::channel(
+        16,
+        async move |mut out: iced::futures::channel::mpsc::Sender<Update>| {
+            loop {
+                let _ = out.send(Update::Monitors(monitors_async().await)).await;
+                let _ = out.send(Update::Clients(clients_async().await)).await;
+                let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
+                let _ = out
+                    .send(Update::ActiveWindow(active_window_async().await))
+                    .await;
+                let path = match ipc::event_socket_path() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("socket d'événements : {e}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        continue;
                     }
-                    tracing::info!("socket d'événements fermée, reconnexion");
+                };
+                match UnixStream::connect(&path).await {
+                    Ok(stream) => {
+                        let mut lines = BufReader::new(stream).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            if is_relevant(&line) {
+                                let _ = out.send(Update::Monitors(monitors_async().await)).await;
+                            }
+                            if line.starts_with("configreloaded>>") {
+                                let _ = out.send(Update::Reloaded).await;
+                            }
+                            if is_window_event(&line) {
+                                let _ = out.send(Update::Clients(clients_async().await)).await;
+                            }
+                            if is_window_event(&line)
+                                || is_relevant(&line)
+                                || line.starts_with("createworkspace")
+                                || line.starts_with("destroyworkspace")
+                            {
+                                let _ =
+                                    out.send(Update::Workspaces(workspaces_async().await)).await;
+                            }
+                            if let Some(p) = line.strip_prefix("activewindow>>") {
+                                let _ =
+                                    out.send(Update::ActiveWindow(parse_active_window(p))).await;
+                            }
+                        }
+                        tracing::info!("socket d'événements fermée, reconnexion");
+                    }
+                    Err(e) => tracing::warn!("connexion à {} : {e}", path.display()),
                 }
-                Err(e) => tracing::warn!("connexion à {} : {e}", path.display()),
+                tokio::time::sleep(Duration::from_secs(2)).await;
             }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
-    })
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +350,11 @@ fn modifier_bit(m: &str) -> Option<u32> {
 
 /// `"SUPER + SHIFT + D"` → (modmask, touche en minuscules).
 pub fn parse_combo(s: &str) -> Option<(u32, String)> {
-    let parts: Vec<&str> = s.split('+').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = s
+        .split('+')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
     let (key, mods) = parts.split_last()?;
     if modifier_bit(key).is_some() {
         return None;
@@ -324,8 +373,17 @@ pub fn conflicts_with(binds: &Value, combo: &str) -> Option<String> {
         let same = b["modmask"].as_u64() == Some(mask as u64)
             && b["key"].as_str().is_some_and(|k| k.to_lowercase() == key)
             && b["submap"].as_str().unwrap_or("").is_empty()
-            && !b["description"].as_str().unwrap_or("").starts_with("hyprdesk");
-        same.then(|| b["dispatcher"].as_str().unwrap_or("?").replace("HL.Dispatcher(", "").replace(')', ""))
+            && !b["description"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("hyprdesk");
+        same.then(|| {
+            b["dispatcher"]
+                .as_str()
+                .unwrap_or("?")
+                .replace("HL.Dispatcher(", "")
+                .replace(')', "")
+        })
     })
 }
 
@@ -337,13 +395,29 @@ pub fn universal_binds(binds: &Value) -> Vec<String> {
         .as_array()
         .map(|l| {
             l.iter()
-                .filter(|b| matches!(&b["submap_universal"], Value::Bool(true)) || b["submap_universal"].as_str() == Some("true"))
-                .filter(|b| !b["description"].as_str().unwrap_or("").starts_with("hyprdesk"))
+                .filter(|b| {
+                    matches!(&b["submap_universal"], Value::Bool(true))
+                        || b["submap_universal"].as_str() == Some("true")
+                })
+                .filter(|b| {
+                    !b["description"]
+                        .as_str()
+                        .unwrap_or("")
+                        .starts_with("hyprdesk")
+                })
                 .map(|b| {
                     let mask = b["modmask"].as_u64().unwrap_or(0) as u32;
-                    let mut parts: Vec<String> = names.iter().filter(|(bit, _)| mask & bit != 0).map(|(_, n)| n.to_string()).collect();
+                    let mut parts: Vec<String> = names
+                        .iter()
+                        .filter(|(bit, _)| mask & bit != 0)
+                        .map(|(_, n)| n.to_string())
+                        .collect();
                     parts.push(b["key"].as_str().unwrap_or("?").to_string());
-                    let what = b["dispatcher"].as_str().unwrap_or("").replace("HL.Dispatcher(", "").replace(')', "");
+                    let what = b["dispatcher"]
+                        .as_str()
+                        .unwrap_or("")
+                        .replace("HL.Dispatcher(", "")
+                        .replace(')', "");
                     format!("{} → {what}", parts.join(" + "))
                 })
                 .collect()
@@ -364,33 +438,75 @@ pub fn build_keys_lua(keys: &crate::config::Keys, exe: &str, skip: &[String]) ->
          local function leave(c) return function() hl.dispatch(hl.dsp.submap(\"reset\")) hl.dispatch(hl.dsp.exec_cmd(c)) end end\n",
     );
     let usable = |k: &String| !k.is_empty() && !skip.contains(k);
-    if usable(&keys.toggle) {
-        lua += &format!("keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : afficher le bureau\" }}))\n", q(&keys.toggle), q(&cmd("toggle")));
+    // Un raccourci par mode ; celui du mode en cours rend no-desktop.
+    for (k, arg, desc) in [
+        (&keys.toggle, "toggle", "full-desktop"),
+        (&keys.launcher, "toggle-launcher", "launcher-only"),
+        (&keys.hide, "hide", "no-desktop"),
+    ] {
+        if usable(k) {
+            lua += &format!(
+                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
+        }
     }
     if usable(&keys.settings) {
-        lua += &format!("keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : réglages\" }}))\n", q(&keys.settings), q(&cmd("settings")));
+        lua += &format!(
+            "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : réglages\" }}))\n",
+            q(&keys.settings),
+            q(&cmd("settings"))
+        );
     }
     lua += &format!("hl.define_submap({}, function()\n", q(SUBMAP));
-    for (k, desc) in [(&keys.toggle, "masquer le bureau"), (&keys.leave, "sortie de secours")] {
+    // Dans la submap (full-desktop, raccourcis suspendus) : chaque raccourci
+    // rend d'abord la main, puis change de mode.
+    for (k, arg, desc) in [
+        (&keys.toggle, "hide", "no-desktop"),
+        (&keys.launcher, "launcher-only", "launcher-only"),
+        (&keys.hide, "hide", "no-desktop"),
+        (&keys.leave, "hide", "sortie de secours"),
+    ] {
         if usable(k) {
-            lua += &format!("  keep(hl.bind({}, leave({}), {{ description = \"hyprdesk : {desc}\" }}))\n", q(k), q(&cmd("hide")));
+            lua += &format!(
+                "  keep(hl.bind({}, leave({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
         }
+    }
+    // Les réglages ne changent pas de mode : la submap reste active.
+    if usable(&keys.settings) {
+        lua += &format!(
+            "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : réglages\" }}))\n",
+            q(&keys.settings),
+            q(&cmd("settings"))
+        );
     }
     lua += "end)\n";
     // Barre et menus : flou derrière leur fond translucide, apparition en douceur.
     lua += "if __hyprdesk_rules then for _, r in ipairs(__hyprdesk_rules) do pcall(function() r:set_enabled(false) end) end end\n\
             __hyprdesk_rules = {}\n\
-            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-(bar|popover)$\" }, blur = true, ignore_alpha = 0.2, xray = false })) end)\n\
-            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-popover$\" }, animation = \"popin 92%\" })) end)\n";
+            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-(bar|popover|settings|launcher|launcher-popup)$\" }, blur = true, ignore_alpha = 0.2, xray = false })) end)\n\
+            pcall(function() table.insert(__hyprdesk_rules, hl.layer_rule({ match = { namespace = \"^hyprdesk-popover$\" }, animation = \"none\" })) end)\n";
     lua
 }
 
 /// Installe les raccourcis ; rend les conflits (raccourci, action déjà liée)
 /// et les raccourcis universels de Hyprland.
-pub fn install_keys(keys: &crate::config::Keys) -> Result<(Vec<(String, String)>, Vec<String>), ipc::IpcError> {
+pub type KeyReport = (Vec<(String, String)>, Vec<String>);
+
+pub fn install_keys(keys: &crate::config::Keys) -> Result<KeyReport, ipc::IpcError> {
     let binds = ipc::query_json("binds")?;
     let mut conflicts = Vec::new();
-    for k in [&keys.toggle, &keys.settings, &keys.leave] {
+    for k in [
+        &keys.toggle,
+        &keys.launcher,
+        &keys.hide,
+        &keys.settings,
+        &keys.leave,
+    ] {
         if !k.is_empty()
             && let Some(what) = conflicts_with(&binds, k)
             && !conflicts.iter().any(|(c, _): &(String, String)| c == k)
@@ -399,7 +515,9 @@ pub fn install_keys(keys: &crate::config::Keys) -> Result<(Vec<(String, String)>
         }
     }
     let skip: Vec<String> = conflicts.iter().map(|(k, _)| k.clone()).collect();
-    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "hyprdesk".into());
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "hyprdesk".into());
     let r = ipc::eval(&build_keys_lua(keys, &exe, &skip))?;
     if r.trim() != "ok" {
         tracing::warn!("installation des raccourcis : {r}");
@@ -416,9 +534,210 @@ pub fn remove_keys() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Workspaces permanents et affectation des applications : règles Hyprland
+// posées à chaud, comme les raccourcis. Une relecture de la config Hyprland
+// les efface ; hyprdesk les repose (`Update::Reloaded`).
+
+/// Expression régulière de classe pour une affectation. Une application
+/// installée est reconnue à son id `.desktop` comme à son `StartupWMClass`,
+/// tels quels ou en minuscules (Wayland et XWayland ne s'accordent pas).
+pub fn class_regex(app: &crate::config::AppMatch, wm_class: Option<&str>) -> String {
+    use crate::config::AppMatch;
+    match app {
+        AppMatch::Class(re) => re.clone(),
+        AppMatch::App(id) => {
+            let mut names: Vec<String> = Vec::new();
+            for n in [Some(id.as_str()), wm_class].into_iter().flatten() {
+                for v in [n.to_string(), n.to_lowercase()] {
+                    if !names.contains(&v) {
+                        names.push(v);
+                    }
+                }
+            }
+            let alts: Vec<String> = names.iter().map(|n| regex_escape(n)).collect();
+            format!("^({})$", alts.join("|"))
+        }
+    }
+}
+
+fn regex_escape(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        if r"\.^$|?*+()[]{}".contains(c) {
+            o.push('\\');
+        }
+        o.push(c);
+    }
+    o
+}
+
+/// Affectation prête à poser : classe (regex), workspace, sans y aller.
+pub type Assign = (String, String, bool);
+
+/// Lua qui remplace les règles de workspace de hyprdesk : les anciennes sont
+/// désactivées (Hyprland ne sait pas les retirer), les nouvelles posées.
+/// Écran d'un workspace : (workspace, écran, workspace par défaut de l'écran).
+pub type Placement = (String, String, bool);
+
+pub fn build_rules_lua(
+    workspaces: Option<u8>,
+    placement: &[Placement],
+    assigns: &[Assign],
+) -> String {
+    let q = |s: &str| format!("\"{}\"", ipc::lua_escape(s));
+    let mut lua = String::from(
+        "if __hyprdesk_ws then for _, r in ipairs(__hyprdesk_ws) do pcall(function() r:set_enabled(false) end) end end\n\
+         __hyprdesk_ws = {}\n\
+         local errs = {}\n\
+         local function keep(f) local ok, r = pcall(f) if ok then table.insert(__hyprdesk_ws, r) else table.insert(errs, tostring(r)) end end\n",
+    );
+    // Workspaces permanents (1..N) et workspaces placés sur un écran : un
+    // permanent placé est créé, ou déplacé, aussitôt sur son écran.
+    let n = workspaces.unwrap_or(0) as usize;
+    let mut names: Vec<String> = (1..=n).map(|i| i.to_string()).collect();
+    for (ws, _, _) in placement {
+        if !names.contains(ws) {
+            names.push(ws.clone());
+        }
+    }
+    for ws in &names {
+        let mut f = vec![format!("workspace = {}", q(ws))];
+        if ws.parse::<usize>().is_ok_and(|i| (1..=n).contains(&i)) {
+            f.push("persistent = true".into());
+        }
+        if let Some((_, mon, default)) = placement.iter().find(|(w, _, _)| w == ws) {
+            f.push(format!("monitor = {}", q(mon)));
+            if *default {
+                f.push("default = true".into());
+            }
+        }
+        lua += &format!(
+            "keep(function() return hl.workspace_rule({{ {} }}) end)\n",
+            f.join(", ")
+        );
+    }
+    for (i, (class, ws, silent)) in assigns.iter().enumerate() {
+        let target = if *silent {
+            format!("{ws} silent")
+        } else {
+            ws.clone()
+        };
+        lua += &format!(
+            "keep(function() return hl.window_rule({{ name = \"hyprdesk-assign-{}\", match = {{ class = {} }}, workspace = {} }}) end)\n",
+            i + 1,
+            q(class),
+            q(&target)
+        );
+    }
+    lua += "if #errs > 0 then error(table.concat(errs, \" ; \"), 0) end\n";
+    lua
+}
+
+/// Pose les règles de workspace ; une règle refusée par Hyprland (regex
+/// invalide…) est signalée sans empêcher les autres.
+pub fn install_rules(
+    workspaces: Option<u8>,
+    placement: &[Placement],
+    rules: &[crate::config::AssignRule],
+) -> Result<(), ipc::IpcError> {
+    use crate::config::AppMatch;
+    let assigns: Vec<Assign> = rules
+        .iter()
+        .map(|r| {
+            let wm_class = match &r.app {
+                AppMatch::App(id) => crate::launch::find_desktop_file(id)
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .and_then(|s| crate::launch::parse_desktop_entry(&s, ""))
+                    .and_then(|e| e.wm_class),
+                AppMatch::Class(_) => None,
+            };
+            (
+                class_regex(&r.app, wm_class.as_deref()),
+                r.workspace.clone(),
+                r.silent,
+            )
+        })
+        .collect();
+    let r = ipc::eval(&build_rules_lua(workspaces, placement, &assigns))?;
+    if r.trim() != "ok" {
+        tracing::warn!("règles de workspace : {r}");
+        notify(
+            3,
+            6000,
+            &format!("hyprdesk : règles de workspace refusées — {}", r.trim()),
+        );
+    }
+    Ok(())
+}
+
+/// Marges extérieures de Hyprland (`general:gaps_out`) : haut, droite, bas, gauche.
+pub fn base_gaps_out() -> [i32; 4] {
+    let css = ipc::query_json("getoption general:gaps_out")
+        .ok()
+        .and_then(|v| v["css"].as_str().map(String::from))
+        .unwrap_or_default();
+    let n: Vec<i32> = css
+        .split_whitespace()
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    match n.as_slice() {
+        [a] => [*a; 4],
+        [v, h] => [*v, *h, *v, *h],
+        [t, h, b] => [*t, *h, *b, *h],
+        [t, r, b, l, ..] => [*t, *r, *b, *l],
+        _ => [0; 4],
+    }
+}
+
+/// Lua des marges « bureau avec les fenêtres » : par écran, les fenêtres en
+/// mosaïque laissent libre la place des contrôles du bureau.
+/// `margins` : (écran, [haut, droite, bas, gauche]) en plus de `base`.
+pub fn build_gaps_lua(margins: &[(String, [i32; 4])], base: [i32; 4]) -> String {
+    let mut lua = String::from(
+        "if __hyprdesk_gaps then for _, r in ipairs(__hyprdesk_gaps) do pcall(function() r:set_enabled(false) end) end end\n\
+         __hyprdesk_gaps = {}\n",
+    );
+    for (mon, m) in margins {
+        lua += &format!(
+            "table.insert(__hyprdesk_gaps, hl.workspace_rule({{ workspace = \"m[{}]\", gaps_out = {{ top = {}, right = {}, bottom = {}, left = {} }} }}))\n",
+            ipc::lua_escape(mon),
+            base[0] + m[0],
+            base[1] + m[1],
+            base[2] + m[2],
+            base[3] + m[3],
+        );
+    }
+    lua
+}
+
+/// Pose (ou retire, liste vide) les marges des contrôles du bureau.
+pub fn set_desktop_gaps(margins: &[(String, [i32; 4])]) {
+    let base = if margins.is_empty() {
+        [0; 4]
+    } else {
+        base_gaps_out()
+    };
+    match ipc::eval(&build_gaps_lua(margins, base)) {
+        Ok(r) if r.trim() == "ok" => {}
+        Ok(r) => tracing::warn!("marges du bureau : {}", r.trim()),
+        Err(e) => tracing::warn!("marges du bureau : {e}"),
+    }
+}
+
+/// Désactive les règles de workspace de hyprdesk (arrêt du démon).
+pub fn remove_rules() {
+    if let Err(e) = ipc::eval(&build_rules_lua(None, &[], &[])) {
+        tracing::warn!("retrait des règles de workspace : {e}");
+    }
+}
+
 /// Entre dans la submap du bureau, ou en sort (`None`).
 pub fn set_submap(name: Option<&str>) {
-    let target = format!("hl.dsp.submap(\"{}\")", ipc::lua_escape(name.unwrap_or("reset")));
+    let target = format!(
+        "hl.dsp.submap(\"{}\")",
+        ipc::lua_escape(name.unwrap_or("reset"))
+    );
     if let Err(e) = ipc::dispatch(&target) {
         tracing::warn!("submap : {e}");
     }
@@ -426,7 +745,10 @@ pub fn set_submap(name: Option<&str>) {
 
 /// Submap courante (pour se remettre d'un arrêt brutal).
 pub fn current_submap() -> String {
-    ipc::repl("hl.get_current_submap()").unwrap_or_default().trim().to_string()
+    ipc::repl("hl.get_current_submap()")
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +775,9 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
         ipc::lua_escape(address)
     ))?;
     if r.trim() != "ok" {
-        tracing::warn!("déplacement de {address} vers {workspace} : {r}");
+        return Err(ipc::IpcError::Io(std::io::Error::other(format!(
+            "déplacement de {address} vers {workspace} : {r}"
+        ))));
     }
     Ok(())
 }
@@ -462,9 +786,47 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
 /// quand la fenêtre qui avait le focus y part, Hyprland l'ouvre pour suivre
 /// le focus, et les fenêtres réapparaissent par-dessus le bureau.
 pub fn close_stash_view() {
-    let Ok(v) = ipc::query_json("monitors") else { return };
+    let Ok(v) = ipc::query_json("monitors") else {
+        return;
+    };
     let Some(list) = v.as_array() else { return };
-    let focused = list.iter().find(|m| m["focused"].as_bool() == Some(true)).and_then(|m| m["name"].as_str()).map(String::from);
+    let focused = list
+        .iter()
+        .find(|m| m["focused"].as_bool() == Some(true))
+        .and_then(|m| m["name"].as_str())
+        .map(String::from);
+    // Écran resté sur un workspace ORDINAIRE nommé « special:hyprdesk » (état
+    // observé avec Hyprland 0.57) : on le ramène sur un workspace ordinaire.
+    let stuck: Vec<String> = list
+        .iter()
+        .filter(|m| {
+            m["activeWorkspace"]["name"].as_str() == Some(STASH)
+                && m["specialWorkspace"]["name"].as_str() != Some(STASH)
+        })
+        .filter_map(|m| m["name"].as_str().map(String::from))
+        .collect();
+    if !stuck.is_empty() {
+        let workspaces = ipc::query_json("workspaces").unwrap_or(Value::Null);
+        for mon in &stuck {
+            let target = regular_workspace(&v, &workspaces, mon);
+            tracing::warn!(
+                "{mon} affichait {STASH} comme workspace ordinaire : retour sur {target}"
+            );
+            let _ = ipc::dispatch(&format!(
+                "hl.dsp.focus({{ monitor = \"{}\" }})",
+                ipc::lua_escape(mon)
+            ));
+            let _ = focus_workspace(&target);
+        }
+        if let Some(f) = &focused
+            && !stuck.contains(f)
+        {
+            let _ = ipc::dispatch(&format!(
+                "hl.dsp.focus({{ monitor = \"{}\" }})",
+                ipc::lua_escape(f)
+            ));
+        }
+    }
     let open: Vec<String> = list
         .iter()
         .filter(|m| m["specialWorkspace"]["name"].as_str() == Some(STASH))
@@ -477,58 +839,184 @@ pub fn close_stash_view() {
     for mon in &open {
         // toggle_special agit sur l'écran qui a le focus.
         if Some(mon) != focused.as_ref() {
-            let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(mon)));
+            let _ = ipc::dispatch(&format!(
+                "hl.dsp.focus({{ monitor = \"{}\" }})",
+                ipc::lua_escape(mon)
+            ));
         }
-        if let Err(e) = ipc::dispatch(&format!("hl.dsp.workspace.toggle_special(\"{}\")", ipc::lua_escape(name))) {
+        if let Err(e) = ipc::dispatch(&format!(
+            "hl.dsp.workspace.toggle_special(\"{}\")",
+            ipc::lua_escape(name)
+        )) {
             tracing::warn!("fermeture de {STASH} : {e}");
         }
     }
     if let Some(f) = focused
         && !open.contains(&f)
     {
-        let _ = ipc::dispatch(&format!("hl.dsp.focus({{ monitor = \"{}\" }})", ipc::lua_escape(&f)));
+        let _ = ipc::dispatch(&format!(
+            "hl.dsp.focus({{ monitor = \"{}\" }})",
+            ipc::lua_escape(&f)
+        ));
     }
 }
 
 /// Fichier qui garde la liste, pour rendre les fenêtres même après un arrêt brutal.
 fn stash_path() -> Option<std::path::PathBuf> {
-    ipc::instance_dir().ok().map(|d| d.join("hyprdesk-stash.json"))
+    ipc::instance_dir()
+        .ok()
+        .map(|d| d.join("hyprdesk-stash.json"))
 }
 
-pub fn save_stash(list: &[Stashed]) {
-    let Some(p) = stash_path() else { return };
-    let r = if list.is_empty() {
-        std::fs::remove_file(&p).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+pub fn save_stash(list: &[Stashed]) -> std::io::Result<()> {
+    let p = stash_path().ok_or_else(|| std::io::Error::other("instance Hyprland indisponible"))?;
+    if list.is_empty() {
+        std::fs::remove_file(&p).or_else(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        })
     } else {
-        serde_json::to_string(list).map_err(std::io::Error::other).and_then(|s| std::fs::write(&p, s))
-    };
-    if let Err(e) = r {
-        tracing::warn!("{} : {e}", p.display());
+        let contents = serde_json::to_vec(list).map_err(std::io::Error::other)?;
+        crate::storage::write(&p, &contents, crate::storage::revision())
     }
 }
 
-/// Rend les fenêtres listées à leur workspace (celles qui existent encore).
-pub fn restore(list: &[Stashed]) {
-    let alive: Vec<String> = ipc::query_json("clients").map(|v| parse_clients(&v)).unwrap_or_default().into_iter().map(|c| c.address).collect();
-    for s in list {
-        if alive.contains(&s.address)
-            && let Err(e) = move_window(&s.address, &s.workspace)
-        {
+pub fn load_stash() -> std::io::Result<Vec<Stashed>> {
+    let p = stash_path().ok_or_else(|| std::io::Error::other("instance Hyprland indisponible"))?;
+    match std::fs::read(&p) {
+        Ok(s) => serde_json::from_slice(&s).map_err(std::io::Error::other),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Rend les fenêtres ; seules les entrées non résolues restent dans le journal.
+pub fn restore(list: &[Stashed]) -> Vec<Stashed> {
+    let list = repair_homes(list, || {
+        Ok((ipc::query_json("monitors")?, ipc::query_json("workspaces")?))
+    });
+    restore_using(
+        &list,
+        || ipc::query_json("clients").map_err(|e| e.to_string()),
+        |s| move_window(&s.address, &s.workspace).map_err(|e| e.to_string()),
+    )
+}
+
+/// Entrées dont l'adresse de retour est le workspace de mise de côté lui-même
+/// (journaux écrits par les versions précédentes) : retour sur un workspace
+/// ordinaire de leur écran, sinon elles resteraient cachées pour toujours.
+fn repair_homes(
+    list: &[Stashed],
+    query: impl FnOnce() -> Result<(Value, Value), ipc::IpcError>,
+) -> Vec<Stashed> {
+    if !list
+        .iter()
+        .any(|s| s.workspace == STASH || s.workspace.is_empty())
+    {
+        return list.to_vec();
+    }
+    let (monitors, workspaces) = query().unwrap_or((Value::Null, Value::Null));
+    list.iter()
+        .cloned()
+        .map(|mut s| {
+            if s.workspace == STASH || s.workspace.is_empty() {
+                s.workspace = regular_workspace(&monitors, &workspaces, &s.monitor);
+            }
+            s
+        })
+        .collect()
+}
+
+/// Workspace ordinaire d'un écran : celui qu'il affiche, sinon le plus petit
+/// des siens, sinon le 1.
+pub fn regular_workspace(monitors: &Value, workspaces: &Value, monitor: &str) -> String {
+    let ordinary = |w: &Value| {
+        w["id"].as_i64().is_some_and(|id| id >= 1)
+            && w["name"]
+                .as_str()
+                .is_some_and(|n| !n.starts_with("special:"))
+    };
+    let shown = monitors.as_array().and_then(|l| {
+        l.iter()
+            .find(|m| m["name"].as_str() == Some(monitor))
+            .map(|m| &m["activeWorkspace"])
+            .filter(|w| ordinary(w))
+            .and_then(|w| w["name"].as_str())
+    });
+    let own = || {
+        workspaces.as_array().and_then(|l| {
+            l.iter()
+                .filter(|w| w["monitor"].as_str() == Some(monitor) && ordinary(w))
+                .min_by_key(|w| w["id"].as_i64())
+                .and_then(|w| w["name"].as_str())
+        })
+    };
+    shown.or_else(own).unwrap_or("1").to_string()
+}
+
+fn restore_using(
+    list: &[Stashed],
+    mut query: impl FnMut() -> Result<Value, String>,
+    mut move_back: impl FnMut(&Stashed) -> Result<(), String>,
+) -> Vec<Stashed> {
+    if list.is_empty() {
+        return Vec::new();
+    }
+    let clients = match query() {
+        Ok(Value::Array(a)) => a,
+        other => {
+            tracing::warn!("restitution reportée : réponse clients invalide ({other:?})");
+            return list.to_vec();
+        }
+    };
+    let stashed = |s: &Stashed, clients: &[Value]| {
+        clients.iter().any(|c| {
+            c["address"].as_str() == Some(&s.address)
+                && c["workspace"]["name"].as_str() == Some(STASH)
+        })
+    };
+    let targets: Vec<_> = list.iter().filter(|s| stashed(s, &clients)).collect();
+    if targets.is_empty() {
+        return Vec::new();
+    }
+    for s in &targets {
+        if let Err(e) = move_back(s) {
             tracing::warn!("restitution de {} : {e}", s.address);
         }
+    }
+    match query() {
+        Ok(Value::Array(after)) => targets
+            .into_iter()
+            .filter(|s| stashed(s, &after))
+            .cloned()
+            .collect(),
+        _ => list.to_vec(),
     }
 }
 
 /// Au démarrage : rend les fenêtres d'une session précédente interrompue.
 pub fn restore_leftover_stash() {
-    let Some(p) = stash_path() else { return };
-    let Ok(s) = std::fs::read_to_string(&p) else { return };
-    let list: Vec<Stashed> = serde_json::from_str(&s).unwrap_or_default();
+    let list = match load_stash() {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::warn!("journal conservé : {e}");
+            return;
+        }
+    };
     if !list.is_empty() {
-        tracing::info!("{} fenêtre(s) mise(s) de côté par une session précédente : restituées", list.len());
-        restore(&list);
+        let pending = restore(&list);
+        tracing::info!(
+            "{} fenêtre(s) restituée(s), {} en attente",
+            list.len() - pending.len(),
+            pending.len()
+        );
+        if let Err(e) = save_stash(&pending) {
+            tracing::warn!("journal : {e}");
+        }
     }
-    let _ = std::fs::remove_file(&p);
 }
 
 /// Lance une commande par Hyprland (`hl.dsp.exec_cmd`) : le processus est un
@@ -556,14 +1044,176 @@ pub fn exec_floating(cmd: &str, w: u32, h: u32) -> Result<(), ipc::IpcError> {
 
 /// Notification Hyprland (icône 0 avertissement, 1 info, 3 ok, 4 erreur).
 pub fn notify(icon: u8, ms: u32, msg: &str) {
-    if let Err(e) = ipc::notify(icon, ms, "0", msg) {
-        tracing::warn!("notification Hyprland : {e}");
+    type Notice = (u8, u32, String);
+    static NOTICES: std::sync::LazyLock<std::sync::mpsc::SyncSender<Notice>> =
+        std::sync::LazyLock::new(|| {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Notice>(16);
+            std::thread::Builder::new()
+                .name("hyprdesk-notifications".into())
+                .spawn(move || {
+                    while let Ok((icon, ms, msg)) = rx.recv() {
+                        if let Err(e) = ipc::notify(icon, ms, "0", &msg) {
+                            tracing::warn!("notification Hyprland : {e}");
+                        }
+                    }
+                })
+                .expect("thread des notifications");
+            tx
+        });
+    if let Err(e) = NOTICES.try_send((icon, ms, msg.to_string())) {
+        tracing::warn!("notification reportée : {e}");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marges_du_bureau_avec_les_fenetres() {
+        let lua = build_gaps_lua(&[("DP-1".into(), [0, 290, 98, 130])], [5, 5, 5, 5]);
+        assert!(lua.contains(
+            r#"hl.workspace_rule({ workspace = "m[DP-1]", gaps_out = { top = 5, right = 295, bottom = 103, left = 135 } })"#
+        ));
+        // Retrait : seulement la désactivation des anciennes règles.
+        let off = build_gaps_lua(&[], [0; 4]);
+        assert!(off.contains("set_enabled(false)") && !off.contains("hl.workspace_rule"));
+    }
+
+    /// État relevé chez l'utilisateur : HDMI-A-2 affiche un workspace ORDINAIRE
+    /// nommé « special:hyprdesk », le journal y renvoie trois fenêtres.
+    fn etat_bloque() -> (Value, Value) {
+        let monitors = serde_json::json!([
+            { "name": "HDMI-A-2", "width": 2560, "height": 1440, "focused": false,
+              "activeWorkspace": { "name": "special:hyprdesk", "type": "normal" },
+              "specialWorkspace": { "name": "special:hyprdesk", "type": "special" } },
+            { "name": "DP-1", "width": 1440, "height": 2560, "focused": true,
+              "activeWorkspace": { "id": 6, "name": "6" },
+              "specialWorkspace": { "name": "" } }
+        ]);
+        let workspaces = serde_json::json!([
+            { "id": 6, "name": "6", "monitor": "DP-1" },
+            { "id": null, "name": "special:hyprdesk", "monitor": "HDMI-A-2" },
+            { "id": 3, "name": "3", "monitor": "HDMI-A-2" },
+            { "id": 1, "name": "1", "monitor": "HDMI-A-2" }
+        ]);
+        (monitors, workspaces)
+    }
+
+    #[test]
+    fn le_workspace_de_cote_n_est_jamais_celui_de_l_ecran() {
+        let (monitors, _) = etat_bloque();
+        let list = parse_monitors(&monitors);
+        assert_eq!(list[0].workspace, "");
+        assert_eq!(list[1].workspace, "6");
+        // Un autre workspace spécial ouvert reste, lui, celui de l'écran.
+        let magic = serde_json::json!([{ "name": "A", "width": 10, "height": 10,
+            "activeWorkspace": { "id": 2, "name": "2" },
+            "specialWorkspace": { "name": "special:magic" } }]);
+        assert_eq!(parse_monitors(&magic)[0].workspace, "special:magic");
+    }
+
+    #[test]
+    fn adresse_de_retour_invalide_reparee() {
+        let (monitors, workspaces) = etat_bloque();
+        assert_eq!(regular_workspace(&monitors, &workspaces, "HDMI-A-2"), "1");
+        assert_eq!(regular_workspace(&monitors, &workspaces, "DP-1"), "6");
+        assert_eq!(regular_workspace(&Value::Null, &Value::Null, "X"), "1");
+        let stuck = |a: &str, ws: &str, m: &str| Stashed {
+            address: a.into(),
+            workspace: ws.into(),
+            monitor: m.into(),
+        };
+        let list = vec![
+            stuck("0x1", STASH, "HDMI-A-2"),
+            stuck("0x2", "4", "HDMI-A-2"),
+            stuck("0x3", "", "DP-1"),
+        ];
+        let fixed = repair_homes(&list, || Ok(etat_bloque()));
+        let homes: Vec<&str> = fixed.iter().map(|s| s.workspace.as_str()).collect();
+        assert_eq!(homes, ["1", "4", "6"]);
+        // Journal sain : aucune requête.
+        let sane = vec![stuck("0x2", "4", "HDMI-A-2")];
+        assert_eq!(repair_homes(&sane, || panic!("requête inutile")), sane);
+    }
+
+    #[test]
+    fn regles_de_workspace() {
+        use crate::config::AppMatch;
+        assert_eq!(
+            class_regex(&AppMatch::App("org.telegram.desktop".into()), None),
+            r"^(org\.telegram\.desktop)$"
+        );
+        assert_eq!(
+            class_regex(&AppMatch::App("code".into()), Some("Code")),
+            "^(code|Code)$"
+        );
+        assert_eq!(
+            class_regex(&AppMatch::Class("^(a|b)$".into()), None),
+            "^(a|b)$"
+        );
+        let lua = build_rules_lua(
+            Some(3),
+            &[
+                ("1".into(), "HDMI-A-2".into(), true),
+                ("6".into(), "DP-1".into(), true),
+            ],
+            &[
+                ("^(firefox)$".into(), "2".into(), false),
+                ("^(k\"itty)$".into(), "4".into(), true),
+            ],
+        );
+        assert_eq!(lua.matches("persistent = true").count(), 3);
+        assert!(lua.contains(r#"workspace = "3", persistent = true }"#));
+        assert!(lua.contains(
+            r#"workspace = "1", persistent = true, monitor = "HDMI-A-2", default = true"#
+        ));
+        // Placé mais pas permanent : la règle s'applique à sa création.
+        assert!(lua.contains(r#"{ workspace = "6", monitor = "DP-1", default = true }"#));
+        assert!(lua.contains(r#"class = "^(firefox)$" }, workspace = "2" }"#));
+        assert!(lua.contains(r#"class = "^(k\"itty)$" }, workspace = "4 silent" }"#));
+        // Retrait : seulement la désactivation des anciennes règles.
+        let off = build_rules_lua(None, &[], &[]);
+        assert!(!off.contains("hl.workspace_rule") && !off.contains("hl.window_rule"));
+        assert!(off.contains("set_enabled(false)"));
+    }
+
+    #[test]
+    fn restoration_retains_failures_and_verifies_the_destination() {
+        let list = vec![Stashed {
+            address: "0x1".into(),
+            workspace: "1".into(),
+            monitor: "DP-1".into(),
+        }];
+        let still_hidden = serde_json::json!([{ "address":"0x1", "workspace":{"name":STASH} }]);
+        assert_eq!(
+            restore_using(
+                &list,
+                || Ok(Value::String("bad reply".into())),
+                |_| panic!("aucun déplacement sans état valide")
+            ),
+            list
+        );
+        assert_eq!(
+            restore_using(&list, || Ok(still_hidden.clone()), |_| Ok(())),
+            list,
+            "un accusé IPC seul ne prouve pas la restitution"
+        );
+        let mut queries = [
+            still_hidden,
+            serde_json::json!([{ "address":"0x1", "workspace":{"name":"1"} }]),
+        ]
+        .into_iter();
+        assert!(restore_using(&list, || Ok(queries.next().unwrap()), |_| Ok(())).is_empty());
+        assert!(
+            restore_using(
+                &list,
+                || Ok(serde_json::json!([{ "address":"0x1", "workspace":{"name":"7"} }])),
+                |_| panic!("respecter un déplacement manuel")
+            )
+            .is_empty()
+        );
+    }
 
     #[test]
     fn ecrans_rotation_echelle_special() {
@@ -579,7 +1229,15 @@ mod tests {
         .unwrap();
         let m = parse_monitors(&v);
         assert_eq!(m.len(), 2);
-        assert_eq!((m[0].width, m[0].height, m[0].workspace.as_str(), m[0].focused), (2560, 1440, "2", true));
+        assert_eq!(
+            (
+                m[0].width,
+                m[0].height,
+                m[0].workspace.as_str(),
+                m[0].focused
+            ),
+            (2560, 1440, "2", true)
+        );
         assert_eq!((m[1].width, m[1].height), (1152, 2048));
         assert_eq!(m[1].workspace, "special:magic");
     }
@@ -598,20 +1256,62 @@ mod tests {
                 {"modmask":64,"key":"D","submap":"hyprdesk","description":"","dispatcher":"HL.Dispatcher(exec_cmd)","submap_universal":"false"}]"#,
         )
         .unwrap();
-        assert_eq!(conflicts_with(&binds, "SUPER + q").as_deref(), Some("close"));
+        assert_eq!(
+            conflicts_with(&binds, "SUPER + q").as_deref(),
+            Some("close")
+        );
         // Nos propres raccourcis et ceux d'une autre submap ne sont pas des conflits.
         assert_eq!(conflicts_with(&binds, "SUPER + D"), None);
-        assert_eq!(universal_binds(&binds), vec!["SUPER + eacute → focus".to_string()]);
+        assert_eq!(
+            universal_binds(&binds),
+            vec!["SUPER + eacute → focus".to_string()]
+        );
     }
 
     #[test]
     fn lua_des_raccourcis() {
-        let k = crate::config::Keys { toggle: "SUPER + D".into(), settings: "SUPER + SHIFT + D".into(), leave: "SUPER + Escape".into() };
+        let k = crate::config::Keys {
+            toggle: "SUPER + D".into(),
+            launcher: "SUPER + ALT + D".into(),
+            hide: "SUPER + CTRL + D".into(),
+            settings: "SUPER + SHIFT + D".into(),
+            leave: "SUPER + Escape".into(),
+        };
         let lua = build_keys_lua(&k, "/bin/hyprdesk", &["SUPER + SHIFT + D".to_string()]);
-        assert!(lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#), "{lua}");
-        assert!(!lua.contains("SHIFT"), "un raccourci en conflit n'est pas installé : {lua}");
+        assert!(
+            lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
+            "{lua}"
+        );
+        assert!(
+            !lua.contains("SHIFT"),
+            "un raccourci en conflit n'est pas installé : {lua}"
+        );
         assert!(lua.contains(r#"hl.define_submap("hyprdesk", function()"#));
-        assert!(lua.contains(r#"keep(hl.bind("SUPER + Escape", leave("'/bin/hyprdesk' hide")"#), "{lua}");
+        assert!(
+            lua.contains(r#"keep(hl.bind("SUPER + Escape", leave("'/bin/hyprdesk' hide")"#),
+            "{lua}"
+        );
+        // Un raccourci par mode, partout ; dans la submap aussi.
+        assert!(lua.contains(
+            r#"hl.bind("SUPER + ALT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle-launcher")"#
+        ));
+        assert!(
+            lua.contains(r#"hl.bind("SUPER + CTRL + D", hl.dsp.exec_cmd("'/bin/hyprdesk' hide")"#)
+        );
+        assert!(
+            lua.contains(r#"hl.bind("SUPER + ALT + D", leave("'/bin/hyprdesk' launcher-only")"#)
+        );
+        assert!(lua.contains(r#"hl.bind("SUPER + D", leave("'/bin/hyprdesk' hide")"#));
+        // Réglages : hors submap et dans la submap, sans la quitter.
+        let lua = build_keys_lua(&k, "/bin/hyprdesk", &[]);
+        assert_eq!(
+            lua.matches(
+                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' settings")"#
+            )
+            .count(),
+            2,
+            "{lua}"
+        );
     }
 
     #[test]
@@ -623,7 +1323,10 @@ mod tests {
         .unwrap();
         let w = parse_workspaces(&v);
         assert_eq!(w.iter().map(|w| w.id).collect::<Vec<_>>(), vec![1, 6]);
-        assert_eq!(parse_active_window("kitty,vim a, b"), Some(("kitty".into(), "vim a, b".into())));
+        assert_eq!(
+            parse_active_window("kitty,vim a, b"),
+            Some(("kitty".into(), "vim a, b".into()))
+        );
         assert_eq!(parse_active_window(","), None);
     }
 
@@ -637,7 +1340,10 @@ mod tests {
         .unwrap();
         let c = parse_clients(&v);
         assert_eq!(c.len(), 2);
-        assert_eq!((c[0].class.as_str(), c[0].workspace.as_str()), ("kitty", "2"));
+        assert_eq!(
+            (c[0].class.as_str(), c[0].workspace.as_str()),
+            ("kitty", "2")
+        );
         assert_eq!(c[1].class, "steam");
         assert!(is_window_event("closewindow>>0x1"));
         assert!(!is_window_event("activewindow>>a,b"));
@@ -654,7 +1360,10 @@ mod tests {
 
     #[test]
     fn exec_echappe_la_commande() {
-        let c = ipc::build_dispatch(&format!("hl.dsp.exec_cmd(\"{}\")", ipc::lua_escape("xdg-open \"/a b\"")));
+        let c = ipc::build_dispatch(&format!(
+            "hl.dsp.exec_cmd(\"{}\")",
+            ipc::lua_escape("xdg-open \"/a b\"")
+        ));
         assert_eq!(c, r#"/dispatch hl.dsp.exec_cmd("xdg-open \"/a b\"")"#);
     }
 }

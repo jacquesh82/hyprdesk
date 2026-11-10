@@ -23,13 +23,19 @@ pub struct DesktopEntry {
     pub hidden: bool,
     pub wm_class: Option<String>,
     pub is_app: bool,
+    /// Types de fichiers ouverts (`MimeType`).
+    pub mime_types: Vec<String>,
+    pub categories: Vec<String>,
 }
 
 /// Lit la section `[Desktop Entry]`, avec le nom localisé si la langue le permet.
 pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
     let (lang_full, lang_short) = {
         let base = lang.split('.').next().unwrap_or("");
-        (base.to_string(), base.split('_').next().unwrap_or("").to_string())
+        (
+            base.to_string(),
+            base.split('_').next().unwrap_or("").to_string(),
+        )
     };
     let mut in_section = false;
     let mut e = DesktopEntry::default();
@@ -43,7 +49,9 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
         if !in_section || line.starts_with('#') {
             continue;
         }
-        let Some((k, v)) = line.split_once('=') else { continue };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         let (k, v) = (k.trim(), v.trim());
         match k {
             "Name" => e.name = v.to_string(),
@@ -52,9 +60,27 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
             "Terminal" => e.terminal = v == "true",
             "NoDisplay" | "Hidden" => e.hidden |= v == "true",
             "StartupWMClass" => e.wm_class = Some(v.to_string()),
+            "MimeType" => {
+                e.mime_types = v
+                    .split(';')
+                    .filter(|m| !m.is_empty())
+                    .map(String::from)
+                    .collect()
+            }
+            "Categories" => {
+                e.categories = v
+                    .split(';')
+                    .filter(|c| !c.is_empty())
+                    .map(String::from)
+                    .collect()
+            }
             "Type" => e.is_app = v == "Application",
-            _ if !lang_full.is_empty() && k == format!("Name[{lang_full}]") => name_full = Some(v.to_string()),
-            _ if !lang_short.is_empty() && k == format!("Name[{lang_short}]") => name_short = Some(v.to_string()),
+            _ if !lang_full.is_empty() && k == format!("Name[{lang_full}]") => {
+                name_full = Some(v.to_string())
+            }
+            _ if !lang_short.is_empty() && k == format!("Name[{lang_short}]") => {
+                name_short = Some(v.to_string())
+            }
             _ => {}
         }
     }
@@ -70,9 +96,8 @@ pub fn strip_field_codes(exec: &str) -> String {
     let mut chars = exec.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '%' {
-            match chars.next() {
-                Some('%') => out.push('%'),
-                Some(_) | None => {}
+            if let Some('%') = chars.next() {
+                out.push('%');
             }
         } else {
             out.push(c);
@@ -83,15 +108,23 @@ pub fn strip_field_codes(exec: &str) -> String {
 
 fn data_dirs() -> Vec<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let mut dirs = vec![std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"))];
-    let sys = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    let mut dirs = vec![
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local/share")),
+    ];
+    let sys =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
     dirs.extend(sys.split(':').filter(|s| !s.is_empty()).map(PathBuf::from));
     dirs
 }
 
 /// Cherche `<id>.desktop`, puis `*.<id>.desktop` (ex. `org.mozilla.firefox` pour `firefox`).
 pub fn find_desktop_file(id: &str) -> Option<PathBuf> {
-    let apps: Vec<PathBuf> = data_dirs().into_iter().map(|d| d.join("applications")).collect();
+    let apps: Vec<PathBuf> = data_dirs()
+        .into_iter()
+        .map(|d| d.join("applications"))
+        .collect();
     for dir in &apps {
         let p = dir.join(format!("{id}.desktop"));
         if p.is_file() {
@@ -100,7 +133,9 @@ pub fn find_desktop_file(id: &str) -> Option<PathBuf> {
     }
     let suffix = format!(".{}.desktop", id.to_lowercase());
     for dir in &apps {
-        let Ok(rd) = std::fs::read_dir(dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            continue;
+        };
         for entry in rd.flatten() {
             let name = entry.file_name().to_string_lossy().to_lowercase();
             if name.ends_with(&suffix) {
@@ -118,6 +153,9 @@ pub struct AppInfo {
     pub name: String,
     pub icon: Option<String>,
     pub wm_class: Option<String>,
+    /// Types de fichiers ouverts et catégories, pour les applications par défaut.
+    pub mime_types: Vec<String>,
+    pub categories: Vec<String>,
 }
 
 /// Applications visibles des dossiers XDG ; le dossier utilisateur masque le système.
@@ -126,18 +164,38 @@ pub fn installed_apps() -> Vec<AppInfo> {
     let mut out = Vec::new();
     let lang = lang();
     for dir in data_dirs().into_iter().map(|d| d.join("applications")) {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in rd.flatten() {
             let path = entry.path();
-            let Some(id) = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".desktop")) else { continue };
+            let Some(id) = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_suffix(".desktop"))
+            else {
+                continue;
+            };
             if !seen.insert(id.to_string()) {
                 continue;
             }
-            let Some(e) = std::fs::read_to_string(&path).ok().and_then(|s| parse_desktop_entry(&s, &lang)) else { continue };
+            let Some(e) = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| parse_desktop_entry(&s, &lang))
+            else {
+                continue;
+            };
             if e.hidden || !e.is_app {
                 continue;
             }
-            out.push(AppInfo { id: id.to_string(), name: e.name, icon: e.icon, wm_class: e.wm_class });
+            out.push(AppInfo {
+                id: id.to_string(),
+                name: e.name,
+                icon: e.icon,
+                wm_class: e.wm_class,
+                mime_types: e.mime_types,
+                categories: e.categories,
+            });
         }
     }
     out.sort_by_key(|a| a.name.to_lowercase());
@@ -146,7 +204,12 @@ pub fn installed_apps() -> Vec<AppInfo> {
 
 /// Image d'icône d'une fenêtre d'après sa classe : entrée `.desktop` du même
 /// nom, ou dont `StartupWMClass` correspond, sinon le nom de classe lui-même.
-pub fn icon_for_class(class: &str, apps: &[AppInfo], theme: Option<&str>, size: u16) -> Option<PathBuf> {
+pub fn icon_for_class(
+    class: &str,
+    apps: &[AppInfo],
+    theme: Option<&str>,
+    size: u16,
+) -> Option<PathBuf> {
     let lc = class.to_lowercase();
     let from_entry = find_desktop_file(class)
         .or_else(|| find_desktop_file(&lc))
@@ -155,7 +218,12 @@ pub fn icon_for_class(class: &str, apps: &[AppInfo], theme: Option<&str>, size: 
         .and_then(|e| e.icon)
         .or_else(|| {
             apps.iter()
-                .find(|a| a.wm_class.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(class)) || a.id.to_lowercase() == lc)
+                .find(|a| {
+                    a.wm_class
+                        .as_deref()
+                        .is_some_and(|w| w.eq_ignore_ascii_case(class))
+                        || a.id.to_lowercase() == lc
+                })
                 .and_then(|a| a.icon.clone())
         });
     from_entry
@@ -171,11 +239,18 @@ pub fn icon_themes() -> Vec<String> {
     dirs.push(home.join(".icons"));
     let mut out: Vec<String> = Vec::new();
     for d in dirs {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let idx = e.path().join("index.theme");
-            let Ok(s) = std::fs::read_to_string(&idx) else { continue };
-            if !s.lines().any(|l| l.trim_start().starts_with("Directories=")) {
+            let Ok(s) = std::fs::read_to_string(&idx) else {
+                continue;
+            };
+            if !s
+                .lines()
+                .any(|l| l.trim_start().starts_with("Directories="))
+            {
                 continue;
             }
             let name = e.file_name().to_string_lossy().into_owned();
@@ -189,7 +264,32 @@ pub fn icon_themes() -> Vec<String> {
 }
 
 fn lang() -> String {
-    std::env::var("LC_MESSAGES").or_else(|_| std::env::var("LANG")).unwrap_or_default()
+    std::env::var("LC_MESSAGES")
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default()
+}
+
+/// Familles installées et police embarquée : aucun téléchargement implicite.
+pub fn font_families() -> Vec<String> {
+    let mut families = std::process::Command::new("fc-list")
+        .args(["--format", "%{family[0]}\n"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    families.extend([
+        crate::fonts::FAMILY.into(),
+        "Noto Sans".into(),
+        "sans-serif".into(),
+    ]);
+    families.sort_by_key(|f| f.to_lowercase());
+    families.dedup();
+    families
 }
 
 /// Encadre un argument pour `sh` avec des apostrophes.
@@ -199,7 +299,11 @@ pub fn sh_quote(s: &str) -> String {
 
 /// Commande dans un terminal : `{cmd}` dans le gabarit, sinon `<terminal> -e <cmd>`.
 pub fn in_terminal(terminal: &str, cmd: &str) -> String {
-    if terminal.contains("{cmd}") { terminal.replace("{cmd}", cmd) } else { format!("{terminal} -e {cmd}") }
+    if terminal.contains("{cmd}") {
+        terminal.replace("{cmd}", cmd)
+    } else {
+        format!("{terminal} -e {cmd}")
+    }
 }
 
 /// Image d'icône : chemin absolu existant, sinon recherche dans le thème.
@@ -223,7 +327,12 @@ fn path_icon_name(p: &Path) -> &'static str {
     if p.is_dir() {
         return "folder";
     }
-    match p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref() {
+    match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
         Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "svg") => "image-x-generic",
         Some("pdf") => "application-pdf",
         Some("mp3" | "flac" | "ogg" | "wav") => "audio-x-generic",
@@ -238,36 +347,64 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
     let find = |names: &[&str]| names.iter().find_map(|n| lookup_icon(n, theme, size));
     match &def.kind {
         IconKind::App(id) => {
-            let entry = find_desktop_file(id).and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| parse_desktop_entry(&s, &lang()));
+            let entry = find_desktop_file(id)
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .and_then(|s| parse_desktop_entry(&s, &lang()));
             match entry {
                 Some(e) => {
                     let cmd = strip_field_codes(&e.exec);
-                    let icon = def.icon.clone().or(e.icon.clone()).unwrap_or_else(|| id.clone());
+                    let icon = def
+                        .icon
+                        .clone()
+                        .or(e.icon.clone())
+                        .unwrap_or_else(|| id.clone());
                     Resolved {
                         label: def.label.clone().unwrap_or(e.name),
                         image: find(&[icon.as_str(), id.as_str(), "application-x-executable"]),
-                        command: if e.terminal { in_terminal(terminal, &cmd) } else { cmd },
+                        command: if e.terminal {
+                            in_terminal(terminal, &cmd)
+                        } else {
+                            cmd
+                        },
                     }
                 }
                 // Application introuvable : on tente quand même l'identifiant comme commande.
                 None => Resolved {
                     label: def.label.clone().unwrap_or_else(|| id.clone()),
-                    image: find(&[def.icon.as_deref().unwrap_or(id), "application-x-executable"]),
+                    image: find(&[
+                        def.icon.as_deref().unwrap_or(id),
+                        "application-x-executable",
+                    ]),
                     command: id.clone(),
                 },
             }
         }
         IconKind::Path(p) => Resolved {
             label: def.label.clone().unwrap_or_else(|| {
-                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.display().to_string())
             }),
             image: find(&[def.icon.as_deref().unwrap_or(path_icon_name(p)), "folder"]),
             command: format!("xdg-open {}", sh_quote(&p.display().to_string())),
         },
-        IconKind::Exec { cmd, terminal: in_term } => Resolved {
-            label: def.label.clone().unwrap_or_else(|| cmd.split_whitespace().next().unwrap_or(cmd).to_string()),
-            image: find(&[def.icon.as_deref().unwrap_or("utilities-terminal"), "application-x-executable"]),
-            command: if *in_term { in_terminal(terminal, cmd) } else { cmd.clone() },
+        IconKind::Exec {
+            cmd,
+            terminal: in_term,
+        } => Resolved {
+            label: def
+                .label
+                .clone()
+                .unwrap_or_else(|| cmd.split_whitespace().next().unwrap_or(cmd).to_string()),
+            image: find(&[
+                def.icon.as_deref().unwrap_or("utilities-terminal"),
+                "application-x-executable",
+            ]),
+            command: if *in_term {
+                in_terminal(terminal, cmd)
+            } else {
+                cmd.clone()
+            },
         },
     }
 }
@@ -287,7 +424,10 @@ mod tests {
         assert!(!e.terminal);
         assert!(e.is_app && !e.hidden);
         // Les actions ne remplacent pas l'entrée principale.
-        assert_eq!(parse_desktop_entry(FIREFOX, "en_US.UTF-8").unwrap().name, "Firefox");
+        assert_eq!(
+            parse_desktop_entry(FIREFOX, "en_US.UTF-8").unwrap().name,
+            "Firefox"
+        );
     }
 
     #[test]

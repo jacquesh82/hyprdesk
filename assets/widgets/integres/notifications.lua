@@ -1,6 +1,6 @@
 -- Notifications (service de wayle) : nombre, Ne pas déranger, dernières notifications.
 local function status()
-    local s = hd.exec("wayle notify status 2>/dev/null")
+    local s = hd.exec("LC_ALL=C wayle notify status 2>/dev/null")
     if s == "" then return nil end
     return { count = tonumber(s:match("Notifications: (%d+)")) or 0, dnd = s:find("Do Not Disturb: enabled") ~= nil }
 end
@@ -22,9 +22,9 @@ return {
     menu = function()
         local s = status() or { count = 0, dnd = false }
         local m = { { header = "Notifications" },
-                    { label = "Ne pas déranger", checked = s.dnd, action = function() hd.exec("wayle notify dnd") end } }
+                    { label = "Ne pas déranger", checked = s.dnd, action = function() hd.exec("LC_ALL=C wayle notify dnd") end } }
         local n = 0
-        for app, title, body in hd.exec("wayle notify list 2>/dev/null"):gmatch("%[%d+%] ([^:\n]+): ([^\n]*)\n%s*([^\n]*)") do
+        for app, title, body in hd.exec("LC_ALL=C wayle notify list 2>/dev/null"):gmatch("%[%d+%] ([^:\n]+): ([^\n]*)\n%s*([^\n]*)") do
             n = n + 1
             if n == 1 then m[#m + 1] = { header = "Récentes" } end
             if n > 6 then break end
@@ -32,7 +32,7 @@ return {
         end
         if s.count > 0 then
             m[#m + 1] = "-"
-            m[#m + 1] = { label = "Tout effacer", action = function() hd.exec("wayle notify dismiss-all") end }
+            m[#m + 1] = { label = "Tout effacer", action = function() hd.exec("LC_ALL=C wayle notify dismiss-all") end }
         end
         return m
     end,

@@ -35,10 +35,10 @@ impl Rgba {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// Le fond d'écran du workspace couvre les fenêtres.
+    /// Fond d’écran net ; les fenêtres sont mises de côté.
     #[default]
     Opaque,
-    /// Fond translucide : les fenêtres restent visibles, floutées par Hyprland.
+    /// Fond d’écran flouté et teinté ; les fenêtres sont mises de côté.
     Glass,
 }
 
@@ -49,6 +49,18 @@ pub enum ShowOn {
     All,
     /// Seulement sur l'écran qui a le focus.
     Focused,
+    /// Seulement sur l'écran principal.
+    Primary,
+}
+
+impl ShowOn {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShowOn::All => "all",
+            ShowOn::Focused => "focused",
+            ShowOn::Primary => "primary",
+        }
+    }
 }
 
 /// Animation d'apparition du bureau.
@@ -109,6 +121,121 @@ impl RunningApps {
     }
 }
 
+/// Regroupement des fenêtres dans le lanceur (dock).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LauncherGroup {
+    /// Une entrée par fenêtre.
+    #[default]
+    None,
+    /// Une entrée par application (classe de fenêtre, donc par binaire),
+    /// avec le nombre de fenêtres ; un clic passe de l'une à l'autre.
+    App,
+    /// Fenêtres rangées par workspace, chaque groupe sous son numéro.
+    Workspace,
+}
+
+impl LauncherGroup {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "none" => LauncherGroup::None,
+            "app" => LauncherGroup::App,
+            "workspace" => LauncherGroup::Workspace,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LauncherGroup::None => "none",
+            LauncherGroup::App => "app",
+            LauncherGroup::Workspace => "workspace",
+        }
+    }
+}
+
+/// Écran de verrouillage (`hyprdesk lock`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LockCfg {
+    /// Fond flouté.
+    pub blur: bool,
+    /// Assombrissement du fond (0..1).
+    pub dim: f32,
+    /// Image propre au verrouillage ; sinon le fond du bureau de l'écran principal.
+    pub image: Option<std::path::PathBuf>,
+    pub show_user: bool,
+    pub show_battery: bool,
+    pub show_media: bool,
+}
+
+impl Default for LockCfg {
+    fn default() -> Self {
+        LockCfg {
+            blur: true,
+            dim: 0.35,
+            image: None,
+            show_user: true,
+            show_battery: true,
+            show_media: true,
+        }
+    }
+}
+
+/// Bord du bureau où se tient le lanceur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LauncherPosition {
+    #[default]
+    Bottom,
+    Top,
+    Left,
+    Right,
+}
+
+impl LauncherPosition {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "bottom" => LauncherPosition::Bottom,
+            "top" => LauncherPosition::Top,
+            "left" => LauncherPosition::Left,
+            "right" => LauncherPosition::Right,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LauncherPosition::Bottom => "bottom",
+            LauncherPosition::Top => "top",
+            LauncherPosition::Left => "left",
+            LauncherPosition::Right => "right",
+        }
+    }
+    pub fn vertical(self) -> bool {
+        matches!(self, LauncherPosition::Left | LauncherPosition::Right)
+    }
+}
+
+/// Apparence et contenu du lanceur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LauncherCfg {
+    pub position: LauncherPosition,
+    /// Taille des icônes, en pixels.
+    pub size: u16,
+    /// Applications épinglées (identifiants `.desktop`), toujours présentes.
+    pub pinned: Vec<String>,
+    pub show_settings: bool,
+    pub show_assistant: bool,
+}
+
+impl Default for LauncherCfg {
+    fn default() -> Self {
+        LauncherCfg {
+            position: LauncherPosition::Bottom,
+            size: 42,
+            pinned: Vec::new(),
+            show_settings: true,
+            show_assistant: true,
+        }
+    }
+}
+
 /// D'où vient une règle : l'écran Réglages (`hyprdesk/settings.lua`) ou le Lua de l'utilisateur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Origin {
@@ -135,11 +262,11 @@ pub struct Theme {
 
 impl Default for Theme {
     fn default() -> Self {
-        // Dracula PRO, cohérent avec la config Hyprland de l'auteur.
+        // Palette ardoise et iris, partagée par les surfaces de l’interface.
         Theme {
-            fg: Rgba(0xf8, 0xf8, 0xf2, 0xff),
-            bg: Rgba(0x22, 0x21, 0x2c, 0xff),
-            accent: Rgba(0x95, 0x80, 0xff, 0xff),
+            fg: Rgba(0xf2, 0xf4, 0xfc, 0xff),
+            bg: Rgba(0x17, 0x1b, 0x27, 0xff),
+            accent: Rgba(0xa6, 0x9c, 0xff, 0xff),
         }
     }
 }
@@ -157,7 +284,12 @@ pub struct Grid {
 
 impl Default for Grid {
     fn default() -> Self {
-        Grid { cell: 96, gap: 16, margin: 32, icon_size: 48 }
+        Grid {
+            cell: 96,
+            gap: 16,
+            margin: 32,
+            icon_size: 48,
+        }
     }
 }
 
@@ -241,8 +373,13 @@ pub enum BarItem {
 }
 
 /// Modules propres à la barre (les autres noms sont des types de widgets).
-pub const BAR_ITEMS: &[(&str, &str)] =
-    &[("workspaces", "Workspaces"), ("window", "Fenêtre active"), ("volume", "Volume"), ("tray", "Zone de notification"), ("desktop", "Bouton bureau")];
+pub const BAR_ITEMS: &[(&str, &str)] = &[
+    ("workspaces", "Workspaces"),
+    ("window", "Fenêtre active"),
+    ("volume", "Volume"),
+    ("tray", "Zone de notification"),
+    ("desktop", "Bouton bureau"),
+];
 
 impl BarItem {
     pub fn builtin(name: &str) -> Option<Self> {
@@ -265,6 +402,37 @@ pub struct BarDef {
     pub height: u16,
     /// Gauche, centre, droite.
     pub zones: [Vec<BarItem>; 3],
+    /// Modules des écrans verticaux (portrait), s'ils diffèrent.
+    pub portrait: Option<[Vec<BarItem>; 3]>,
+    pub compact: BarCompact,
+}
+
+/// Barre compacte : titres raccourcis, heure seule, icônes sans libellé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarCompact {
+    /// Sur les écrans étroits (moins de 1600 px) ou verticaux.
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl BarCompact {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "auto" => BarCompact::Auto,
+            "always" => BarCompact::Always,
+            "never" => BarCompact::Never,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BarCompact::Auto => "auto",
+            BarCompact::Always => "always",
+            BarCompact::Never => "never",
+        }
+    }
 }
 
 /// Composant de session lancé et supervisé par hyprdesk (`hd.component`).
@@ -280,8 +448,12 @@ pub struct ComponentDef {
 /// Chaîne vide = pas de raccourci.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Keys {
-    /// Afficher / masquer le bureau.
+    /// full-desktop, ou retour à no-desktop s'il y est déjà.
     pub toggle: String,
+    /// launcher-only, ou retour à no-desktop s'il y est déjà.
+    pub launcher: String,
+    /// no-desktop.
+    pub hide: String,
     /// Ouvrir les réglages.
     pub settings: String,
     /// Sortie de secours : masque le bureau et rend tous les raccourcis.
@@ -290,7 +462,13 @@ pub struct Keys {
 
 impl Default for Keys {
     fn default() -> Self {
-        Keys { toggle: "SUPER + D".into(), settings: String::new(), leave: "SUPER + Escape".into() }
+        Keys {
+            toggle: "SUPER + D".into(),
+            launcher: "SUPER + ALT + D".into(),
+            hide: "SUPER + CTRL + D".into(),
+            settings: "SUPER + SHIFT + D".into(),
+            leave: "SUPER + Escape".into(),
+        }
     }
 }
 
@@ -309,6 +487,12 @@ pub struct General {
     /// Durée du fondu enchaîné entre deux fonds d'écran.
     pub crossfade_ms: u64,
     pub running_apps: RunningApps,
+    /// Regroupement des fenêtres du lanceur.
+    pub launcher_group: LauncherGroup,
+    /// Position, taille, applications épinglées, boutons du lanceur.
+    pub launcher: LauncherCfg,
+    /// Écran de verrouillage.
+    pub lock: LockCfg,
     pub show_on: ShowOn,
     pub close_on_launch: bool,
     pub icon_theme: Option<String>,
@@ -321,6 +505,29 @@ pub struct General {
     pub glass_opacity: f32,
     /// Couleur de fond quand aucun fond d'écran ne s'applique.
     pub background: Rgba,
+    /// Workspaces permanents 1 à N (`None` : Hyprland les crée à la demande).
+    pub workspaces: Option<u8>,
+    /// Workspaces de chaque écran : écran (connecteur, ou `primary`) → workspaces,
+    /// le premier étant celui que l'écran affiche par défaut.
+    pub workspace_monitors: std::collections::BTreeMap<String, Vec<String>>,
+    /// Placement tel que déclaré (`hd.config`), avant l'effet des écrans dédiés ;
+    /// `workspace_monitors` est le placement effectif qui en découle.
+    pub workspace_monitors_declared: std::collections::BTreeMap<String, Vec<String>>,
+    /// Écrans dédiés : ils n'accueillent que leurs workspaces ; les autres vont
+    /// sur l'écran principal.
+    pub workspace_dedicated: std::collections::BTreeSet<String>,
+    /// Ouverture de l'assistant IA (LYRA) : fenêtre ou terminal.
+    pub assistant_mode: crate::assistant::AssistantMode,
+    /// Paquets intégrés désactivés (`hd.config({ disabled_plugins = { "bar" } })`) :
+    /// retirés des réglages, et leur fonction est coupée.
+    pub disabled_plugins: std::collections::BTreeSet<String>,
+    /// Applications par défaut, par rôle (`browser`, `terminal`, `ai`…) :
+    /// identifiant `.desktop` ou commande. Voir `crate::apps`.
+    pub apps: std::collections::BTreeMap<String, String>,
+    /// Écran principal (connecteur) : ancre de la disposition en 0×0, et
+    /// cible de `show_on = "primary"`, de `hd.bar({ monitor = "primary" })`
+    /// et de l'écran Réglages.
+    pub primary: Option<String>,
 }
 
 impl Default for General {
@@ -334,6 +541,9 @@ impl Default for General {
             transition: Transition::Fade,
             crossfade_ms: 700,
             running_apps: RunningApps::Off,
+            launcher_group: LauncherGroup::None,
+            launcher: LauncherCfg::default(),
+            lock: LockCfg::default(),
             show_on: ShowOn::All,
             close_on_launch: true,
             icon_theme: None,
@@ -343,7 +553,15 @@ impl Default for General {
             grid: Grid::default(),
             theme: Theme::default(),
             glass_opacity: 0.35,
-            background: Rgba(0x22, 0x21, 0x2c, 0xff),
+            background: Rgba(0x13, 0x17, 0x24, 0xff),
+            workspaces: None,
+            workspace_monitors: Default::default(),
+            workspace_monitors_declared: Default::default(),
+            workspace_dedicated: Default::default(),
+            primary: None,
+            apps: Default::default(),
+            disabled_plugins: Default::default(),
+            assistant_mode: Default::default(),
         }
     }
 }
@@ -359,13 +577,16 @@ pub struct Selector {
 
 impl Selector {
     pub fn matches(&self, monitor: &str, workspace: &str) -> bool {
-        let ok = |list: &Option<Vec<String>>, v: &str| list.as_ref().is_none_or(|l| l.iter().any(|x| x == v));
+        let ok = |list: &Option<Vec<String>>, v: &str| {
+            list.as_ref().is_none_or(|l| l.iter().any(|x| x == v))
+        };
         ok(&self.workspaces, workspace) && ok(&self.monitors, monitor)
     }
 
     /// Spécificité : un workspace nommé pèse plus qu'un écran nommé.
     pub fn specificity(&self) -> u8 {
-        (if self.workspaces.is_some() { 2 } else { 0 }) + (if self.monitors.is_some() { 1 } else { 0 })
+        (if self.workspaces.is_some() { 2 } else { 0 })
+            + (if self.monitors.is_some() { 1 } else { 0 })
     }
 
     pub fn is_workspace_wildcard(&self) -> bool {
@@ -376,7 +597,11 @@ impl Selector {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WallSource {
     Path(PathBuf),
-    Rotate { dir: PathBuf, interval: Duration, shuffle: bool },
+    Rotate {
+        dir: PathBuf,
+        interval: Duration,
+        shuffle: bool,
+    },
     /// Aplat de couleur, sans image.
     Color(Rgba),
 }
@@ -397,6 +622,28 @@ pub struct DesktopRule {
     /// `false` : les icônes et widgets déclarés pour tous les workspaces ne
     /// s'affichent pas sur ce bureau.
     pub inherit: bool,
+}
+
+/// Plus grand nombre de workspaces permanents réglable.
+pub const MAX_WORKSPACES: u8 = 30;
+
+/// Fenêtres visées par une affectation de workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppMatch {
+    /// Application installée (id `.desktop`) : sa classe de fenêtre est déduite.
+    App(String),
+    /// Expression régulière de classe, telle que Hyprland l'attend.
+    Class(String),
+}
+
+/// `hd.assign` : les fenêtres d'une application s'ouvrent sur un workspace.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignRule {
+    pub origin: Origin,
+    pub app: AppMatch,
+    pub workspace: String,
+    /// S'ouvrir là-bas sans y emmener l'utilisateur.
+    pub silent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -478,15 +725,29 @@ impl SysItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WidgetKind {
-    Clock { format: String },
+    Clock {
+        format: String,
+    },
     Calendar,
-    System { show: Vec<SysItem> },
+    System {
+        show: Vec<SysItem>,
+    },
     /// `player` : sous-chaîne du nom MPRIS, `*` = le premier qui joue.
-    Media { player: String },
-    Command { exec: String, timeout: Duration },
+    Media {
+        player: String,
+    },
+    Command {
+        exec: String,
+        timeout: Duration,
+    },
     /// Fonctions Lua (index dans le registre) : `render`, et les facultatives
     /// `on_click`, `on_scroll` et `menu`.
-    Lua { func: usize, click: Option<usize>, scroll: Option<usize>, menu: Option<usize> },
+    Lua {
+        func: usize,
+        click: Option<usize>,
+        scroll: Option<usize>,
+        menu: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -511,7 +772,13 @@ pub struct WidgetDef {
 
 impl WidgetDef {
     pub fn placement(&self) -> Placement {
-        Placement { anchor: self.anchor, x: self.x, y: self.y, size: self.size, card: self.card }
+        Placement {
+            anchor: self.anchor,
+            x: self.x,
+            y: self.y,
+            size: self.size,
+            card: self.card,
+        }
     }
 
     pub fn set_placement(&mut self, p: &Placement) {
@@ -525,7 +792,11 @@ impl WidgetDef {
     /// Même widget, en ignorant sa position : un déplacement ne doit pas
     /// relancer ses relevés.
     pub fn same_content(&self, o: &WidgetDef) -> bool {
-        self.id == o.id && self.type_id == o.type_id && self.kind == o.kind && self.interval == o.interval && self.sel == o.sel
+        self.id == o.id
+            && self.type_id == o.type_id
+            && self.kind == o.kind
+            && self.interval == o.interval
+            && self.sel == o.sel
     }
 }
 
@@ -583,6 +854,46 @@ impl HookEvent {
 }
 
 /// Configuration complète, sans référence à l'état Lua (sauf indices de fonctions).
+/// Paquets du cœur : toujours actifs.
+pub const CORE_PLUGINS: &[&str] = &["desktop", "plugins", "effects"];
+
+impl General {
+    /// Placement effectif : celui déclaré ; si des écrans sont dédiés, tous les
+    /// autres workspaces (1 à max(N, 10)) sont placés sur l'écran principal,
+    /// pour qu'aucun n'arrive sur un écran dédié.
+    pub fn expand_workspace_monitors(&mut self) {
+        let mut map = self.workspace_monitors_declared.clone();
+        let target = "primary";
+        let dedicated_primary = self.workspace_dedicated.contains(target)
+            || self
+                .primary
+                .as_ref()
+                .is_some_and(|p| self.workspace_dedicated.contains(p));
+        if !self.workspace_dedicated.is_empty() && !dedicated_primary {
+            let upto = self.workspaces.unwrap_or(10).max(10) as usize;
+            let placed: Vec<String> = map.values().flatten().cloned().collect();
+            let rest: Vec<String> = (1..=upto)
+                .map(|i| i.to_string())
+                .filter(|w| !placed.contains(w))
+                .collect();
+            if !rest.is_empty() {
+                let l = map.entry(target.to_string()).or_default();
+                l.extend(rest);
+                l.sort_by_key(|w| w.parse::<i64>().unwrap_or(i64::MAX));
+                l.dedup();
+            }
+        }
+        self.workspace_monitors = map;
+    }
+}
+
+impl Config {
+    /// Le paquet intégré `id` est-il actif ?
+    pub fn plugin_on(&self, id: &str) -> bool {
+        CORE_PLUGINS.contains(&id) || !self.general.disabled_plugins.contains(id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Config {
     pub general: General,
@@ -605,6 +916,8 @@ pub struct Config {
     pub components: Vec<ComponentDef>,
     /// Widgets désactivés depuis les réglages (`hd.disable`) : id → type.
     pub disabled: std::collections::BTreeMap<String, String>,
+    /// Affectations d'applications à un workspace (`hd.assign`).
+    pub assigns: Vec<AssignRule>,
 }
 
 #[cfg(test)]
@@ -614,8 +927,14 @@ mod tests {
     #[test]
     fn couleurs_hex_et_hyprland() {
         assert_eq!(Rgba::parse("#9580ff"), Some(Rgba(0x95, 0x80, 0xff, 0xff)));
-        assert_eq!(Rgba::parse("rgba(454158aa)"), Some(Rgba(0x45, 0x41, 0x58, 0xaa)));
-        assert_eq!(Rgba::parse("rgb(22212c)"), Some(Rgba(0x22, 0x21, 0x2c, 0xff)));
+        assert_eq!(
+            Rgba::parse("rgba(454158aa)"),
+            Some(Rgba(0x45, 0x41, 0x58, 0xaa))
+        );
+        assert_eq!(
+            Rgba::parse("rgb(22212c)"),
+            Some(Rgba(0x22, 0x21, 0x2c, 0xff))
+        );
         assert_eq!(Rgba::parse("bleu"), None);
         assert_eq!(Rgba::parse("#12"), None);
     }
@@ -623,8 +942,14 @@ mod tests {
     #[test]
     fn selecteur_et_specificite() {
         let any = Selector::default();
-        let ws = Selector { workspaces: Some(vec!["3".into()]), monitors: None };
-        let both = Selector { workspaces: Some(vec!["3".into()]), monitors: Some(vec!["DP-1".into()]) };
+        let ws = Selector {
+            workspaces: Some(vec!["3".into()]),
+            monitors: None,
+        };
+        let both = Selector {
+            workspaces: Some(vec!["3".into()]),
+            monitors: Some(vec!["DP-1".into()]),
+        };
         assert!(any.matches("HDMI-A-2", "1"));
         assert!(ws.matches("HDMI-A-2", "3"));
         assert!(!ws.matches("HDMI-A-2", "4"));
@@ -634,7 +959,10 @@ mod tests {
 
     #[test]
     fn elements_systeme() {
-        assert_eq!(SysItem::parse("disk:/home"), Some(SysItem::Disk("/home".into())));
+        assert_eq!(
+            SysItem::parse("disk:/home"),
+            Some(SysItem::Disk("/home".into()))
+        );
         assert_eq!(SysItem::parse("cpu"), Some(SysItem::Cpu));
         assert_eq!(SysItem::parse("gpu"), None);
     }
