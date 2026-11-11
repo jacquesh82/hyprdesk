@@ -14,6 +14,7 @@ use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 pub(crate) mod bar;
 mod chat;
+mod context;
 mod design;
 mod icons;
 mod osd;
@@ -179,6 +180,9 @@ pub enum Msg {
     Problem(problem::PrMsg),
     /// Lanceur avec recherche.
     Search(search::SMsg),
+    /// Clic droit sur une icône du bureau (surface, icône).
+    IconContext(Id, usize),
+    IconMenu(context::CMsg),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -350,6 +354,10 @@ pub struct App {
     problem: Option<problem::Problem>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
+    /// Menu contextuel d'une icône du bureau ouvert.
+    icon_menu: Option<context::IconMenu>,
+    /// Dossier Bureau suivi (réglage desktop_files) : empreinte, dernier relevé.
+    desk_stamp: Option<(crate::desktop_files::Stamp, Instant)>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -659,6 +667,8 @@ impl App {
             toasts: Default::default(),
             problem: None,
             search: None,
+            icon_menu: None,
+            desk_stamp: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -1967,6 +1977,19 @@ impl App {
 
     fn poll(&mut self) -> Task<Msg> {
         let now = Instant::now();
+        // Dossier Bureau en icônes : relu quand il change (toutes les 2 s au plus).
+        if self.cfg.general.desktop_files
+            && self
+                .desk_stamp
+                .is_none_or(|(_, at)| now.duration_since(at) >= Duration::from_secs(2))
+        {
+            let s = crate::desktop_files::stamp();
+            let changed = self.desk_stamp.is_some_and(|(old, _)| old != s);
+            self.desk_stamp = Some((s, now));
+            if changed {
+                return Task::done(Msg::ConfigChanged);
+            }
+        }
         let mut seen = HashSet::new();
         let mut tasks = Vec::new();
         let raised: Vec<Id> = self.raised.iter().copied().collect();
@@ -2927,6 +2950,11 @@ impl App {
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
             Msg::Search(m) => self.search_update(m),
+            Msg::IconContext(win, idx) => {
+                self.drag = None;
+                self.open_icon_menu(win, idx)
+            }
+            Msg::IconMenu(m) => self.icon_menu_update(m),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3213,6 +3241,13 @@ impl App {
                     self.search = None;
                     return Task::none();
                 }
+                if self
+                    .icon_menu
+                    .as_ref()
+                    .is_some_and(|m| m.win == id || m.catcher == id)
+                {
+                    return self.close_icon_menu();
+                }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.polkit.take() {
@@ -3308,6 +3343,9 @@ impl App {
                     };
                 }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    if self.icon_menu.is_some() {
+                        return self.close_icon_menu();
+                    }
                     if self.popover.is_some() {
                         self.menu_request += 1;
                         return self.close_popover();
@@ -3548,6 +3586,14 @@ impl App {
         }
         if self.search.as_ref().is_some_and(|s| s.win == id) {
             return self.view_search();
+        }
+        if let Some(m) = &self.icon_menu {
+            if m.win == id {
+                return self.view_icon_menu();
+            }
+            if m.catcher == id {
+                return self.view_icon_catcher();
+            }
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3802,6 +3848,7 @@ impl App {
         });
         mouse_area(body)
             .on_press(Msg::IconPress(win, idx))
+            .on_right_press(Msg::IconContext(win, idx))
             .on_enter(Msg::IconHover(Some((win, idx))))
             .on_exit(Msg::IconHover(None))
             .interaction(mouse::Interaction::Pointer)
@@ -3898,6 +3945,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Toasts(..) => "Toasts",
         Msg::Problem(..) => "Problem",
         Msg::Search(..) => "Search",
+        Msg::IconContext(..) => "IconContext",
+        Msg::IconMenu(..) => "IconMenu",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",

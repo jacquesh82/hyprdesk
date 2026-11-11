@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 47] = [
+const SCENES: [&str; 48] = [
     "desktop",
     "typography",
     "icons",
@@ -71,6 +71,7 @@ const SCENES: [&str; 47] = [
     "date-heure",
     "reseau",
     "bluetooth",
+    "menu-icone",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -822,6 +823,20 @@ impl Preview {
                 ..Default::default()
             };
         }
+        // Menu contextuel d'une icône (fichier du Bureau), corbeille à confirmer.
+        if SCENES[self.scene] == "menu-icone" {
+            self.app.icon_menu = Some(super::context::IconMenu {
+                win: iced::window::Id::unique(),
+                catcher: iced::window::Id::unique(),
+                icon: 1,
+                path: Some("/home/u/Bureau/Rapport.pdf".into()),
+                rename: None,
+                confirm: true,
+                error: None,
+            });
+        } else {
+            self.app.icon_menu = None;
+        }
         if SCENES[self.scene] == "tour"
             && let Some(p) = self.app.panel.as_mut()
         {
@@ -1057,6 +1072,17 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.icon_menu.is_some() {
+            layers.push(
+                container(self.app.view_icon_menu())
+                    .padding(iced::Padding {
+                        top: 150.0,
+                        left: 120.0,
+                        ..Default::default()
+                    })
+                    .into(),
             );
         }
         if self.app.search.is_some() {

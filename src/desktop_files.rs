@@ -93,12 +93,32 @@ pub fn icons_in(dir: &Path) -> Vec<IconDef> {
         .collect()
 }
 
+/// Dossier Bureau, relevé une fois (xdg-user-dir est un processus).
+pub fn desktop_dir_cached() -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(desktop_dir).clone()
+}
+
+fn trash_files() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .map(|d| d.join("Trash/files"))
+}
+
+/// Empreinte du Bureau et de la Corbeille (dates de modification des
+/// dossiers) : elle change quand un fichier y est ajouté, retiré, renommé.
+pub type Stamp = (Option<std::time::SystemTime>, Option<std::time::SystemTime>);
+
+pub fn stamp() -> Stamp {
+    let m = |p: Option<PathBuf>| p.and_then(|p| std::fs::metadata(p).ok()?.modified().ok());
+    (m(desktop_dir_cached()), m(trash_files()))
+}
+
 /// La corbeille contient-elle quelque chose ? (`$XDG_DATA_HOME/Trash/files`)
 pub fn trash_full() -> bool {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
-    data.and_then(|d| std::fs::read_dir(d.join("Trash/files")).ok())
+    trash_files()
+        .and_then(|d| std::fs::read_dir(d).ok())
         .is_some_and(|mut rd| rd.next().is_some())
 }
 
@@ -131,7 +151,9 @@ pub fn augment(cfg: &mut Config) {
     if !cfg.general.desktop_files {
         return;
     }
-    let mut add = desktop_dir().map(|d| icons_in(&d)).unwrap_or_default();
+    let mut add = desktop_dir_cached()
+        .map(|d| icons_in(&d))
+        .unwrap_or_default();
     add.push(trash_icon(trash_full()));
     for i in add {
         if !cfg.icons.iter().any(|c| c.id == i.id) {
