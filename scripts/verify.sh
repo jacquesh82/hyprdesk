@@ -16,7 +16,7 @@ if [[ "${1:-}" == "--visual" ]]; then
         xvfb-run -a -s '-screen 0 1600x1000x24' env -u WAYLAND_DISPLAY \
             WINIT_UNIX_BACKEND=x11 WGPU_BACKEND=vulkan HYPRDESK_PREVIEW_WIDTH="$width" \
             target/debug/hyprdesk preview "$output/$width"
-        for scene in desktop typography icons wallpaper widgets bar effects volume calendar workspaces screens launcher apps assistant plugins share launcher-idle launcher-hover launcher-top launcher-left launcher-right launcher-popup chat theme bureau launcher-opening launcher-menu-opening launcher-launching launcher-bright launcher-dark launcher-menu-long layouts tour veille osd animations animations-effets polkit notifications probleme recherche; do
+        for scene in desktop typography icons wallpaper widgets bar effects volume calendar workspaces screens launcher apps assistant plugins share launcher-idle launcher-hover launcher-top launcher-left launcher-right launcher-popup chat theme bureau launcher-opening launcher-menu-opening launcher-launching launcher-bright launcher-dark launcher-menu-long layouts tour veille osd animations animations-effets polkit notifications probleme recherche presse-papiers; do
             test -s "$output/$width/$scene.png"
         done
     done

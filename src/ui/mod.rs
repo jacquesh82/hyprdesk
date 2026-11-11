@@ -833,7 +833,11 @@ impl App {
             tasks.push(Task::done(Msg::Poll));
         }
         let idle_changed = o.idle != n.idle;
-        if old.components != self.cfg.components || idle_changed || old.catalog.is_empty() {
+        if old.components != self.cfg.components
+            || idle_changed
+            || o.clipboard_history != n.clipboard_history
+            || old.catalog.is_empty()
+        {
             // Composants de session : lancés, arrêtés ou relancés selon la config ;
             // hypridle s'y ajoute quand hyprdesk gère la veille (`crate::idle`).
             let mut defs = self.cfg.components.clone();
@@ -841,6 +845,12 @@ impl App {
                 tracing::warn!("{}", crate::tr!("configuration de hypridle : {e}", e = e));
             }
             if let Some(d) = crate::idle::component(&n.idle)
+                && !defs.iter().any(|c| c.name == d.name)
+            {
+                defs.push(d);
+            }
+            // Historique du presse-papiers : cliphist, sauf veilleur déjà en route.
+            if let Some(d) = crate::clipboard::component(n.clipboard_history)
                 && !defs.iter().any(|c| c.name == d.name)
             {
                 defs.push(d);

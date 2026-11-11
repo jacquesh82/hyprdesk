@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 41] = [
+const SCENES: [&str; 42] = [
     "desktop",
     "typography",
     "icons",
@@ -65,6 +65,7 @@ const SCENES: [&str; 41] = [
     "notifications",
     "probleme",
     "recherche",
+    "presse-papiers",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -610,6 +611,25 @@ impl Preview {
             let _ = self
                 .app
                 .search_update(super::search::SMsg::Query("fi".into()));
+        } else if SCENES[self.scene] == "presse-papiers" {
+            // Recherche dans l'historique du presse-papiers : « :clip ».
+            self.app.search = None;
+            let _ = self.app.toggle_search();
+            if let Some(s) = self.app.search.as_mut() {
+                s.query = ":clip".into();
+                s.clips = Some(Vec::new());
+            }
+            let entry = |id: u32, preview: &str| crate::clipboard::Entry {
+                line: format!("{id}\t{preview}"),
+                preview: preview.into(),
+            };
+            let _ = self.app.search_update(super::search::SMsg::Clips(vec![
+                entry(42, "https://plane.le-lab.net/mlg/issues/13"),
+                entry(41, "cargo test --release -- --nocapture"),
+                entry(40, "Rendez-vous jeudi 14 h, salle B"),
+                entry(39, "[[ binary data 48 KiB png 640x480 ]]"),
+                entry(38, "fn main() { println!(\"bonjour\"); }"),
+            ]));
         } else {
             self.app.search = None;
         }

@@ -9,6 +9,7 @@ mod assistant;
 mod brightness;
 mod chat;
 mod cli_config;
+mod clipboard;
 mod config;
 mod control;
 mod doctor;

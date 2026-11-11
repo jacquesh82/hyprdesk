@@ -201,6 +201,10 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.suspend_binds),
         |s, v, c| { s.suspend_binds = Some(parse_bool(v)?); Ok(()) },
         |s| s.suspend_binds = None;
+    "clipboard_history", "desktop", "on | off — historique du presse-papiers (hyprdesk lance cliphist ; « :clip » dans la recherche)",
+        |c| on_off(c.general.clipboard_history),
+        |s, v, c| { s.clipboard_history = Some(parse_bool(v)?); Ok(()) },
+        |s| s.clipboard_history = None;
     "font", "desktop", "nom de famille — police de l'interface",
         |c| c.general.font.clone().unwrap_or_default(),
         |s, v, c| { s.font = Some(v.to_string()); Ok(()) },

@@ -9,6 +9,7 @@
 ---@class HD.ConfigSpec
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
+---@field clipboard_history? boolean # historique du presse-papiers : hyprdesk lance cliphist (« :clip » dans la recherche)
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field fx? table # animations et effets de Hyprland : { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
 ---@field idle_manage? boolean # hyprdesk gère la veille : écrit la config de hypridle et le lance

@@ -1353,3 +1353,15 @@
 "Disposition du clavier" = "Keyboard layout"
 "Disposition du clavier ; molette : disposition suivante." = "Keyboard layout; scroll: next layout."
 "Une seule disposition configurée" = "Only one layout configured"
+
+# Presse-papiers : cliphist orchestré, « :clip » dans la recherche (MLG-13).
+"Aucun élément ne correspond." = "No item matches."
+"Historique du presse-papiers (cliphist)" = "Clipboard history (cliphist)"
+"L'historique du presse-papiers est vide." = "The clipboard history is empty."
+"Lecture de l'historique…" = "Reading history…"
+"Rechercher une application… (:clip : presse-papiers)" = "Search for an application… (:clip: clipboard)"
+"cliphist n'est pas installé (Réglages → Bureau → Dépendances)." = "cliphist is not installed (Settings → Desktop → Dependencies)."
+"presse-papiers : {e}" = "clipboard: {e}"
+"on | off — historique du presse-papiers (hyprdesk lance cliphist ; « :clip » dans la recherche)" = "on | off — clipboard history (hyprdesk runs cliphist; “:clip” in search)"
+"Chaque copie est gardée par cliphist. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers." = "Every copy is kept by cliphist. In search, type “:clip” and a few letters; Enter puts the item back on the clipboard."
+"cliphist et wl-clipboard ne sont pas installés (voir Dépendances)." = "cliphist and wl-clipboard are not installed (see Dependencies)."

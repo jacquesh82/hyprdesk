@@ -440,6 +440,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         &[
             "keys",
             "suspend_binds",
+            "clipboard_history",
             "float_launched",
             "mode",
             "fade_ms",
@@ -501,6 +502,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     let g = &mut b.config.general;
     if let Some(v) = opt_bool(t, "suspend_binds", CTX)? {
         g.suspend_binds = v;
+    }
+    if let Some(v) = opt_bool(t, "clipboard_history", CTX)? {
+        g.clipboard_history = v;
     }
     if let Some(v) = opt_bool(t, "float_launched", CTX)? {
         g.float_launched = v;

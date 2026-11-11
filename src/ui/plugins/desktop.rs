@@ -55,6 +55,7 @@ pub enum Msg {
     FontSize(f32),
     Fonts(Vec<String>),
     SuspendBinds(bool),
+    ClipboardHistory(bool),
     /// Saisie d'un raccourci (0 full-desktop, 1 réglages, 2 secours, 3 launcher-only, 4 no-desktop).
     KeyInput(usize, String),
     KeySubmit(usize),
@@ -309,6 +310,21 @@ impl App {
                 .size(12)
                 .color(dim),
         );
+        col = col.push(self.field(
+            "Historique du presse-papiers (cliphist)",
+            "clipboard_history",
+            toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+        ));
+        col = col.push(
+            text(if crate::clipboard::available() {
+                "Chaque copie est gardée par cliphist. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."
+            } else {
+                "cliphist et wl-clipboard ne sont pas installés (voir Dépendances)."
+            })
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        );
         let comps = crate::session::snapshot();
         if comps.is_empty() {
             col = col.push(text("Aucun composant.").font(self.font).size(12).color(dim));
@@ -443,6 +459,10 @@ impl App {
             }
             Msg::SuspendBinds(v) => {
                 self.settings.suspend_binds = Some(v);
+                self.commit()
+            }
+            Msg::ClipboardHistory(v) => {
+                self.settings.clipboard_history = Some(v);
                 self.commit()
             }
             Msg::KeyInput(i, v) => {

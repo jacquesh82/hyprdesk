@@ -634,6 +634,8 @@ pub struct General {
     pub keys: Keys,
     /// Bureau affiché : suspendre les raccourcis de Hyprland (submap
     /// « hyprdesk »), sauf ceux marqués `submap_universal`.
+    /// Historique du presse-papiers : hyprdesk lance cliphist (`crate::clipboard`).
+    pub clipboard_history: bool,
     pub suspend_binds: bool,
     /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
     /// le bureau autour d'elles.
@@ -706,6 +708,7 @@ impl Default for General {
         General {
             keys: Keys::default(),
             suspend_binds: true,
+            clipboard_history: true,
             float_launched: true,
             mode: Mode::Opaque,
             fade_ms: 150,

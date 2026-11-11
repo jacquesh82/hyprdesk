@@ -2,6 +2,10 @@
 //! centre de l'écran actif, un champ de saisie et les applications installées
 //! qui correspondent (recherche floue, `crate::search`). Entrée ou un clic
 //! lance, les flèches choisissent, Échap ferme.
+//!
+//! Une requête qui commence par `:clip` cherche dans l'historique du
+//! presse-papiers (MLG-13, `crate::clipboard`) : Entrée remet l'élément choisi
+//! dans le presse-papiers.
 
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::window::Id;
@@ -19,13 +23,40 @@ pub const SHOWN: usize = 8;
 const WIDTH: f32 = 620.0;
 const ROW: f32 = 46.0;
 const SHADOW: f32 = 18.0;
+/// Icône des éléments de l'historique du presse-papiers.
+const CLIP_ICON: &str = "edit-paste-symbolic";
 
 pub struct Search {
     pub win: Id,
     pub query: String,
-    /// Indices dans `App::apps`, du meilleur au moins bon.
+    /// Indices dans `App::apps` (ou dans `clips` en mode presse-papiers), du
+    /// meilleur au moins bon.
     pub results: Vec<usize>,
     pub selected: usize,
+    /// Historique du presse-papiers, lu à l'entrée en mode `:clip`.
+    pub clips: Option<Vec<crate::clipboard::Entry>>,
+}
+
+impl Search {
+    /// Mode presse-papiers (`:clip …`) : la requête dans l'historique.
+    pub fn clip_query(&self) -> Option<&str> {
+        crate::clipboard::query(&self.query)
+    }
+
+    fn rank_clips(&mut self) {
+        let Some(q) = crate::clipboard::query(&self.query) else {
+            return;
+        };
+        let clips = self.clips.as_deref().unwrap_or_default();
+        self.results = if q.is_empty() {
+            // Sans mot : les plus récents d'abord.
+            (0..clips.len().min(SHOWN)).collect()
+        } else {
+            let names: Vec<&str> = clips.iter().map(|c| c.preview.as_str()).collect();
+            crate::search::rank(q, &names, SHOWN)
+        };
+        self.selected = 0;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +64,7 @@ pub enum SMsg {
     Query(String),
     Launch(usize),
     Resolved(String),
+    Clips(Vec<crate::clipboard::Entry>),
 }
 
 fn height() -> f32 {
@@ -79,6 +111,7 @@ impl App {
             query: String::new(),
             results,
             selected: 0,
+            clips: None,
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -125,6 +158,63 @@ impl App {
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
         match m {
+            SMsg::Query(q) if crate::clipboard::query(&q).is_some() => {
+                let Some(s) = self.search.as_mut() else {
+                    return Task::none();
+                };
+                s.query = q;
+                if s.clips.is_some() {
+                    s.rank_clips();
+                    return Task::none();
+                }
+                // Premier passage en mode presse-papiers : lire l'historique.
+                s.clips = Some(Vec::new());
+                s.results.clear();
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::clipboard::history)
+                            .await
+                            .unwrap_or_default()
+                    },
+                    |c| Msg::Search(SMsg::Clips(c)),
+                )
+            }
+            SMsg::Clips(c) => {
+                if let Some(s) = self.search.as_mut() {
+                    s.clips = Some(c);
+                    s.rank_clips();
+                }
+                self.want_icon(CLIP_ICON)
+            }
+            SMsg::Launch(k)
+                if self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| s.clip_query().is_some()) =>
+            {
+                let entry = self.search.as_ref().and_then(|s| {
+                    let i = *s.results.get(k)?;
+                    s.clips.as_ref()?.get(i).cloned()
+                });
+                let Some(entry) = entry else {
+                    return Task::none();
+                };
+                let close = self.close_search();
+                let copy = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::clipboard::copy(&entry))
+                            .await
+                            .ok()
+                    },
+                    |r| {
+                        if let Some(Err(e)) = r {
+                            tracing::warn!("{}", crate::tr!("presse-papiers : {e}", e = e));
+                        }
+                        Msg::Noop
+                    },
+                );
+                Task::batch([close, copy])
+            }
             SMsg::Query(q) => {
                 let results = self.search_rank(&q);
                 let icons: Vec<String> = results
@@ -182,15 +272,29 @@ impl App {
             th.bg,
             th.effect(crate::config::Place::Menus).opacity.max(0.97),
         );
-        let input = text_input(crate::i18n::tr("Rechercher une application…"), &s.query)
-            .id(INPUT_ID)
-            .on_input(|q| Msg::Search(SMsg::Query(q)))
-            .on_submit(Msg::Search(SMsg::Launch(s.selected)))
-            .font(self.font)
-            .size(20)
-            .padding(14)
-            .width(Length::Fill);
+        let input = text_input(
+            crate::i18n::tr("Rechercher une application… (:clip : presse-papiers)"),
+            &s.query,
+        )
+        .id(INPUT_ID)
+        .on_input(|q| Msg::Search(SMsg::Query(q)))
+        .on_submit(Msg::Search(SMsg::Launch(s.selected)))
+        .font(self.font)
+        .size(20)
+        .padding(14)
+        .width(Length::Fill);
         let mut list = column![].spacing(2);
+        if s.clip_query().is_some() {
+            return container(self.search_card(
+                s,
+                input,
+                self.view_clips(s, fg, dim, accent),
+                bg,
+                fg,
+            ))
+            .padding(SHADOW)
+            .into();
+        }
         if s.results.is_empty() {
             list = list.push(
                 text(crate::i18n::tr("Aucune application ne correspond."))
@@ -236,7 +340,78 @@ impl App {
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
-        let card = container(column![input, list].spacing(12))
+        container(self.search_card(s, input, list.into(), bg, fg))
+            .padding(SHADOW)
+            .into()
+    }
+
+    /// Résultats du mode presse-papiers : aperçus sur une ligne.
+    fn view_clips<'a>(
+        &'a self,
+        s: &'a Search,
+        fg: Color,
+        dim: Color,
+        accent: Color,
+    ) -> Element<'a, Msg> {
+        let mut list = column![].spacing(2);
+        use crate::i18n::tr;
+        let missing = || tr("cliphist n'est pas installé (Réglages → Bureau → Dépendances).");
+        let empty = match s.clips.as_deref() {
+            None | Some([]) if !crate::clipboard::available() => Some(missing()),
+            None => Some(tr("Lecture de l'historique…")),
+            Some([]) => Some(tr("L'historique du presse-papiers est vide.")),
+            Some(_) if s.results.is_empty() => Some(tr("Aucun élément ne correspond.")),
+            Some(_) => None,
+        };
+        if let Some(msg) = empty {
+            list = list.push(text(msg).font(self.font).size(13).color(dim));
+        }
+        let clips = s.clips.as_deref().unwrap_or_default();
+        for (k, &i) in s.results.iter().enumerate() {
+            let Some(c) = clips.get(i) else { continue };
+            let preview: String = c.preview.chars().take(90).collect();
+            let icon: Element<'_, Msg> = self
+                .icon_named(CLIP_ICON, 22.0, dim)
+                .unwrap_or_else(|| iced::widget::Space::new().width(22).height(22).into());
+            let selected = k == s.selected;
+            list = list.push(
+                button(
+                    row![icon, text(preview).font(self.font).size(14).color(fg)]
+                        .spacing(14)
+                        .align_y(Alignment::Center),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .height(ROW)
+                .style(move |_, status| button::Style {
+                    background: (selected || matches!(status, button::Status::Hovered)).then(
+                        || {
+                            Color {
+                                a: if selected { 0.22 } else { 0.1 },
+                                ..accent
+                            }
+                            .into()
+                        },
+                    ),
+                    border: Border::default().rounded(10),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::Search(SMsg::Launch(k))),
+            );
+        }
+        list.into()
+    }
+
+    fn search_card<'a>(
+        &'a self,
+        _s: &'a Search,
+        input: iced::widget::TextInput<'a, Msg>,
+        list: Element<'a, Msg>,
+        bg: Color,
+        fg: Color,
+    ) -> Element<'a, Msg> {
+        container(column![input, list].spacing(12))
             .padding(16)
             .width(WIDTH)
             .height(height())
@@ -253,7 +428,7 @@ impl App {
                 },
                 text_color: Some(fg),
                 ..Default::default()
-            });
-        container(card).padding(SHADOW).into()
+            })
+            .into()
     }
 }

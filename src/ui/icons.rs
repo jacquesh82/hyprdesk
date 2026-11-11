@@ -164,6 +164,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Presse-papiers : une planchette et sa pince.
+        "edit-paste" => {
+            r#"<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>"#
+        }
         // Clavier : un rectangle et ses rangées de touches.
         "input-keyboard" => {
             r#"<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>"#
