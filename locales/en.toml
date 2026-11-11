@@ -1405,3 +1405,13 @@
 "Activer" = "Enable"
 "Désactiver" = "Disable"
 "on | off — lancer les applications de ~/.config/autostart et /etc/xdg/autostart (une fois par session)" = "on | off — launch the applications of ~/.config/autostart and /etc/xdg/autostart (once per session)"
+
+# Supports amovibles (MLG-16).
+"Aucun support branché" = "No drive plugged in"
+"Clés USB et disques externes : ouvrir, éjecter ; masqué s'il n'y en a pas." = "USB drives and external disks: open, eject; hidden when there are none."
+"Support connecté" = "Drive connected"
+"Supports amovibles" = "Removable drives"
+"Un fichier du support est peut-être encore ouvert." = "A file on the drive may still be open."
+"Éjecter « %s »" = "Eject “%s”"
+"Éjection impossible" = "Cannot eject"
+"Supports amovibles (montage, éjection)" = "Removable drives (mount, eject)"

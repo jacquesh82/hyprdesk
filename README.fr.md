@@ -173,6 +173,7 @@ les remplace :
 | `capture` | captures (zone, fenêtre, écran) et enregistrement de l'écran, indicateur rouge pendant l'enregistrement |
 | `clavier` | disposition du clavier active ; menu pour choisir, molette pour passer à la suivante |
 | `majs` | mises à jour en attente, mise à jour en un clic |
+| `supports` | clés USB et disques externes : notification au branchement, ouvrir, éjecter ; masqué s'il n'y en a pas |
 | `notifications` | Ne pas déranger, dernières notifications, tout effacer (service de wayle) |
 | `session` | verrouiller, veille, déconnexion, redémarrage, extinction (avec confirmation) |
 

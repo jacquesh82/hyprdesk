@@ -165,6 +165,12 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Support amovible : une clé USB.
+        "drive-removable-media" => {
+            r#"<rect x="7" y="9" width="10" height="13" rx="2"/><path d="M9 9V3h6v6M11 5.5h.01M13 5.5h.01"/>"#
+        }
+        // Éjecter : un triangle sur un trait.
+        "media-eject" => r#"<path d="M5 14 12 6l7 8ZM5 18h14"/>"#,
         // Capture : un appareil photo.
         "camera-photo" => {
             r#"<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>"#

@@ -143,6 +143,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "udisksctl",
+        probe: Probe::Program(&["udisksctl"]),
+        package: "udisks2",
+        feature: "Supports amovibles (montage, éjection)",
+        essential: false,
+    },
+    Dep {
         name: "wl-paste",
         probe: Probe::Program(&["wl-paste"]),
         package: "wl-clipboard",
