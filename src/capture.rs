@@ -177,18 +177,52 @@ fn notify(summary: &str, body: &str) {
         .status();
 }
 
+/// Fichier le plus récent d'un dossier, modifié après `since`.
+pub fn newest_since(dir: &std::path::Path, since: std::time::SystemTime) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let t = e.metadata().ok()?.modified().ok()?;
+            (t >= since && e.path().is_file()).then(|| (t, e.path()))
+        })
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
+}
+
+/// Capture d'écran. hyprshot reste silencieux : la notification vient
+/// d'ici (« Capture enregistrée », avec « Ouvrir ») — celle de hyprshot
+/// n'arrivait pas toujours jusqu'au centre de notifications.
 pub fn shot(s: Shot) -> std::io::Result<()> {
     let dir = shots_dir();
     std::fs::create_dir_all(&dir)?;
+    let since = std::time::SystemTime::now() - Duration::from_secs(1);
     let status = Command::new("hyprshot")
-        .args(["-z", "-m", s.mode(), "-o"])
+        .args(["-z", "--silent", "-m", s.mode(), "-o"])
         .arg(&dir)
         .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(std::io::Error::other(format!("hyprshot : {status}")))
+    if !status.success() {
+        // Zone abandonnée (Échap) : rien à signaler.
+        return Err(std::io::Error::other(format!("hyprshot : {status}")));
     }
+    let Some(file) = newest_since(&dir, since) else {
+        return Ok(());
+    };
+    let out = Command::new("notify-send")
+        .args(["-a", "hyprdesk", "-i"])
+        .arg(&file)
+        .arg("-A")
+        .arg(format!("open={}", crate::i18n::tr("Ouvrir")))
+        .arg(crate::i18n::tr("Capture enregistrée"))
+        .arg(crate::tr!(
+            "{f} — copiée dans le presse-papiers",
+            f = file.display()
+        ))
+        .output()?;
+    if String::from_utf8_lossy(&out.stdout).trim() == "open" {
+        let _ = Command::new("xdg-open").arg(&file).spawn();
+    }
+    Ok(())
 }
 
 /// Démarre un enregistrement (détaché : il survit à cette commande).
@@ -317,5 +351,24 @@ mod tests {
             record_args(f, None, Some("DP-1")),
             ["-f", "/v/a.mp4", "-o", "DP-1"]
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_newest {
+    use super::*;
+
+    #[test]
+    fn capture_la_plus_recente() {
+        let d = std::env::temp_dir().join(format!("hyprdesk-shots-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let since = std::time::SystemTime::now() - Duration::from_secs(1);
+        std::fs::write(d.join("a.png"), b"a").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(d.join("b.png"), b"b").unwrap();
+        assert_eq!(newest_since(&d, since), Some(d.join("b.png")));
+        let later = std::time::SystemTime::now() + Duration::from_secs(60);
+        assert_eq!(newest_since(&d, later), None);
+        std::fs::remove_dir_all(&d).unwrap();
     }
 }
