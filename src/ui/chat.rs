@@ -821,6 +821,24 @@ impl App {
                     })
                     .collect(),
             },
+            ServerMsg::ChoiceRequest {
+                id: "q2".into(),
+                kind: "choice".into(),
+                prompt: crate::i18n::tr("Comment veux-tu procéder ?").into(),
+                options: [
+                    "A — Retirer wayle, hyprdesk gère tout",
+                    "A + recréer le bouton GPU dans hyprdesk",
+                    "B — Garder wayle",
+                    "C — Chercher plus loin dans la config de wayle",
+                ]
+                .iter()
+                .map(|l| ChoiceOption {
+                    label: l.to_string(),
+                    value: l.to_string(),
+                    preview: None,
+                })
+                .collect(),
+            },
             ServerMsg::TurnStart { id: "m2".into() },
             ServerMsg::Thinking { active: true },
         ] {
@@ -1270,14 +1288,20 @@ impl App {
                     options,
                     answer,
                 } => {
-                    let pills = row(options.iter().map(|o| {
+                    // Propositions lisibles : courtes (couleurs…), des pastilles qui
+                    // passent à la ligne ; sinon une par ligne, sur toute la largeur.
+                    // Texte aux couleurs du thème, contraste garanti ; une fois
+                    // répondu, le choix reste en évidence, les autres s'estompent.
+                    let compact = options.iter().all(|o| o.label.chars().count() <= 14);
+                    let option = |o: &crate::chat::ChoiceOption| -> Element<'_, Msg> {
                         let chosen = answer.as_deref() == Some(o.value.as_str());
+                        let open = answer.is_none();
                         let swatch: Option<Color> = o
                             .preview
                             .as_deref()
                             .and_then(crate::config::Rgba::parse)
                             .map(|c| color(c, 1.0));
-                        let mut label = row![].spacing(6).align_y(Alignment::Center);
+                        let mut label = row![].spacing(8).align_y(Alignment::Center);
                         if let Some(sw) = swatch {
                             label = label.push(container(Space::new().width(14).height(14)).style(
                                 move |_| container::Style {
@@ -1287,22 +1311,64 @@ impl App {
                                 },
                             ));
                         }
-                        label = label.push(text(o.label.clone()).font(self.font).size(13));
-                        button(label)
-                            .padding([5, 12])
-                            .style(if chosen {
-                                button::primary
-                            } else {
-                                button::secondary
-                            })
-                            .on_press_maybe(
-                                answer.is_none().then(|| {
+                        let tc = if open || chosen { fg } else { dim };
+                        label = label.push(
+                            text(o.label.clone())
+                                .font(self.font)
+                                .size(13.5)
+                                .color(tc)
+                                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+                        );
+                        let mut b =
+                            button(label)
+                                .padding([7, 12])
+                                .style(move |_, st| {
+                                    let hover = matches!(st, button::Status::Hovered);
+                                    let a = if chosen {
+                                        0.4
+                                    } else if open && hover {
+                                        0.22
+                                    } else if open {
+                                        0.1
+                                    } else {
+                                        0.04
+                                    };
+                                    button::Style {
+                                        background: Some(
+                                            if chosen || (open && hover) {
+                                                Color { a, ..accent }
+                                            } else {
+                                                Color { a, ..fg }
+                                            }
+                                            .into(),
+                                        ),
+                                        border: Border::default().rounded(10).width(1).color(
+                                            if chosen {
+                                                accent
+                                            } else {
+                                                Color {
+                                                    a: if open { 0.22 } else { 0.08 },
+                                                    ..fg
+                                                }
+                                            },
+                                        ),
+                                        text_color: tc,
+                                        ..Default::default()
+                                    }
+                                })
+                                .on_press_maybe(open.then(|| {
                                     Msg::Chat(ChatMsg::Choose(id.clone(), o.value.clone()))
-                                }),
-                            )
-                            .into()
-                    }))
-                    .spacing(8);
+                                }));
+                        if !compact {
+                            b = b.width(Length::Fill);
+                        }
+                        b.into()
+                    };
+                    let pills: Element<'_, Msg> = if compact {
+                        row(options.iter().map(option)).spacing(8).wrap().into()
+                    } else {
+                        column(options.iter().map(option)).spacing(6).into()
+                    };
                     column![
                         text(prompt.clone()).font(self.font).size(13).color(fg),
                         pills

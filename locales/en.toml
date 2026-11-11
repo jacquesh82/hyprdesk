@@ -1705,3 +1705,4 @@
 "hyprland.lua, qui le lie à « {what} »" = "hyprland.lua, which binds it to “{what}”"
 "le raccourci {k}" = "the shortcut {k}"
 "tenu par {h} (pid {pid})" = "held by {h} (pid {pid})"
+"Comment veux-tu procéder ?" = "How do you want to proceed?"
