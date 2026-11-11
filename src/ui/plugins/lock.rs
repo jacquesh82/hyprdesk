@@ -45,6 +45,7 @@ pub enum Msg {
     ShowUser(bool),
     ShowBattery(bool),
     ShowMedia(bool),
+    Fingerprint(bool),
     LockNow,
     /// hyprdesk gère la veille (hypridle).
     IdleManage(bool),
@@ -134,6 +135,11 @@ impl App {
                 toggler(l.show_media)
                     .label(crate::i18n::tr("Morceau en cours, lecture / pause"))
                     .on_toggle(|v| wrap(Msg::ShowMedia(v))),
+                toggler(l.fingerprint)
+                    .label(crate::i18n::tr(
+                        "Empreinte digitale en plus du mot de passe (fprintd)"
+                    ))
+                    .on_toggle(|v| wrap(Msg::Fingerprint(v))),
             ]
             .spacing(8),
             self.section("Sécurité"),
@@ -272,6 +278,10 @@ impl App {
             }
             Msg::ShowMedia(v) => {
                 self.settings.lock_show_media = Some(v);
+                self.commit()
+            }
+            Msg::Fingerprint(v) => {
+                self.settings.lock_fingerprint = Some(v);
                 self.commit()
             }
             Msg::LockNow => {

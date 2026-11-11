@@ -11,6 +11,7 @@
 //! Anti-marquage : le contenu dérive lentement, et s'estompe après un moment
 //! sans saisie (l'extinction de l'écran reste l'affaire de hypridle).
 
+pub mod fprint;
 pub mod pam;
 pub mod state;
 
@@ -46,6 +47,8 @@ enum Msg {
     PlayPause,
     Keyboard(Option<(String, bool)>),
     Activity,
+    /// Issue de la vérification d'empreinte (fprintd).
+    Finger(fprint::Finger),
 }
 
 struct Lock {
@@ -74,6 +77,8 @@ struct Lock {
     media: Option<crate::widgets::MediaInfo>,
     /// Disposition du clavier, majuscules verrouillées.
     keyboard: Option<(String, bool)>,
+    /// Vérification d'empreinte en cours (indication « posez le doigt »).
+    finger: bool,
 }
 
 fn rgba(c: [u8; 4], a: f32) -> Color {
@@ -211,6 +216,7 @@ impl Lock {
             battery: battery(),
             media: None,
             keyboard: None,
+            finger: false,
             user,
             st,
         };
@@ -261,6 +267,16 @@ impl Lock {
                         .flatten()
                 },
                 Msg::Avatar,
+            ));
+        }
+        // Empreinte en parallèle du mot de passe (sans lecteur : rien ne s'affiche).
+        let mut lock = lock;
+        if lock.st.fingerprint {
+            lock.finger = true;
+            let u = lock.user.clone();
+            tasks.push(Task::perform(
+                async move { fprint::verify(&u).await },
+                Msg::Finger,
             ));
         }
         tasks.push(Task::done(Msg::Tick));
@@ -326,6 +342,17 @@ impl Lock {
                     },
                     Msg::Auth,
                 )
+            }
+            Msg::Finger(f) => {
+                self.finger = false;
+                match f {
+                    fprint::Finger::Matched => Task::done(Msg::UnLock),
+                    fprint::Finger::Unavailable => Task::none(),
+                    fprint::Finger::Failed(m) => {
+                        self.messages.push(m);
+                        Task::none()
+                    }
+                }
             }
             Msg::Auth(o) => {
                 self.checking = false;
@@ -516,6 +543,16 @@ impl Lock {
         }
         for m in &self.messages {
             notes = notes.push(text(m.clone()).font(self.font).size(13).color(fg));
+        }
+        if self.finger {
+            notes = notes.push(
+                text(crate::i18n::tr(
+                    "Ou posez le doigt sur le lecteur d'empreintes.",
+                ))
+                .font(self.font)
+                .size(13)
+                .color(dim),
+            );
         }
         col = col.push(notes);
 

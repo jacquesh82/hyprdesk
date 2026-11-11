@@ -32,6 +32,13 @@ pub struct LockState {
     /// Image propre au verrouillage (`lock_image`) : la même sur tous les écrans.
     #[serde(default)]
     pub own_image: bool,
+    /// Empreinte (fprintd) en plus du mot de passe.
+    #[serde(default = "yes")]
+    pub fingerprint: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// Part d'une scène étalée pour un écran : sa taille logique et son image.
@@ -61,6 +68,7 @@ impl Default for LockState {
             show_user: g.lock.show_user,
             show_battery: g.lock.show_battery,
             show_media: g.lock.show_media,
+            fingerprint: g.lock.fingerprint,
             span: false,
             outputs: Vec::new(),
             own_image: false,
@@ -110,6 +118,7 @@ pub fn from_config(cfg: &Config, monitor: &str, workspace: &str) -> LockState {
         show_user: l.show_user,
         show_battery: l.show_battery,
         show_media: l.show_media,
+        fingerprint: l.fingerprint,
         span,
         outputs: Vec::new(),
         own_image: own_is_set,

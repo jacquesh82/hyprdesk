@@ -14,6 +14,7 @@
 ---@field desktop_files? boolean # fichiers du dossier Bureau (xdg-user-dir DESKTOP) et Corbeille en icônes du bureau
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
 ---@field fx? table # animations et effets de Hyprland : { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
+---@field lock_fingerprint? boolean # empreinte (fprintd) en plus du mot de passe, si un lecteur est là
 ---@field idle_manage? boolean # hyprdesk gère la veille : écrit la config de hypridle et le lance
 ---@field idle_dim? integer # secondes sans activité avant d'assombrir l'écran (0 : jamais)
 ---@field idle_lock? integer # secondes avant de verrouiller (0 : jamais)

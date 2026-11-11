@@ -164,6 +164,8 @@ pub struct LockCfg {
     pub show_user: bool,
     pub show_battery: bool,
     pub show_media: bool,
+    /// Empreinte (fprintd) en plus du mot de passe, si un lecteur est là.
+    pub fingerprint: bool,
 }
 
 impl Default for LockCfg {
@@ -175,6 +177,7 @@ impl Default for LockCfg {
             show_user: true,
             show_battery: true,
             show_media: true,
+            fingerprint: true,
         }
     }
 }

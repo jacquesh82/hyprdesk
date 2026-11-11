@@ -461,6 +461,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "lock_show_user",
             "lock_show_battery",
             "lock_show_media",
+            "lock_fingerprint",
             "idle_manage",
             "idle_dim",
             "idle_lock",
@@ -619,6 +620,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "lock_show_media", CTX)? {
         g.lock.show_media = v;
+    }
+    if let Some(v) = opt_bool(t, "lock_fingerprint", CTX)? {
+        g.lock.fingerprint = v;
     }
     if let Some(v) = opt_bool(t, "idle_manage", CTX)? {
         g.idle.manage = v;

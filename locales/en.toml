@@ -1550,3 +1550,10 @@
 "  media <play-pause|next|previous|status|seek ±N>" = "  media <play-pause|next|previous|status|seek ±N>"
 "                    commande le lecteur en cours (MPRIS) ; status : son état" = "                    controls the current player (MPRIS); status: its state"
 "                    (clé=valeur) ; seek : avance ou recule de N secondes" = "                    (key=value); seek: moves forward or back N seconds"
+
+# Empreinte au verrouillage (MLG-25).
+"lecteur d'empreintes perdu" = "fingerprint reader lost"
+"Empreinte non reconnue." = "Fingerprint not recognised."
+"Ou posez le doigt sur le lecteur d'empreintes." = "Or place your finger on the fingerprint reader."
+"Empreinte digitale en plus du mot de passe (fprintd)" = "Fingerprint besides the password (fprintd)"
+"on | off — empreinte (fprintd) en plus du mot de passe, si un lecteur est là" = "on | off — fingerprint (fprintd) besides the password, when a reader is present"

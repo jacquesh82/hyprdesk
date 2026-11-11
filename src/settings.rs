@@ -121,6 +121,7 @@ pub struct Settings {
     pub lock_show_user: Option<bool>,
     pub lock_show_battery: Option<bool>,
     pub lock_show_media: Option<bool>,
+    pub lock_fingerprint: Option<bool>,
     pub idle_manage: Option<bool>,
     pub idle_dim: Option<u32>,
     pub idle_lock: Option<u32>,
@@ -273,6 +274,7 @@ impl Settings {
             lock_show_user: has("lock_show_user").then_some(g.lock.show_user),
             lock_show_battery: has("lock_show_battery").then_some(g.lock.show_battery),
             lock_show_media: has("lock_show_media").then_some(g.lock.show_media),
+            lock_fingerprint: has("lock_fingerprint").then_some(g.lock.fingerprint),
             idle_manage: has("idle_manage").then_some(g.idle.manage),
             idle_dim: has("idle_dim").then_some(g.idle.dim),
             idle_lock: has("idle_lock").then_some(g.idle.lock),
@@ -533,6 +535,7 @@ impl Settings {
         set!(lock_show_user, "lock_show_user", g.lock.show_user);
         set!(lock_show_battery, "lock_show_battery", g.lock.show_battery);
         set!(lock_show_media, "lock_show_media", g.lock.show_media);
+        set!(lock_fingerprint, "lock_fingerprint", g.lock.fingerprint);
         set!(idle_manage, "idle_manage", g.idle.manage);
         set!(idle_dim, "idle_dim", g.idle.dim);
         set!(idle_lock, "idle_lock", g.idle.lock);
@@ -968,6 +971,7 @@ impl Settings {
             ("lock_show_user", self.lock_show_user),
             ("lock_show_battery", self.lock_show_battery),
             ("lock_show_media", self.lock_show_media),
+            ("lock_fingerprint", self.lock_fingerprint),
             ("idle_manage", self.idle_manage),
         ] {
             if let Some(v) = v {

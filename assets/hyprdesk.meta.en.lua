@@ -14,6 +14,7 @@
 ---@field desktop_files? boolean # files of the Desktop folder (xdg-user-dir DESKTOP) and Trash as desktop icons
 ---@field float_launched? boolean # opened from the shown desktop: floating, centered window
 ---@field fx? table # Hyprland animations and effects: { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
+---@field lock_fingerprint? boolean # fingerprint (fprintd) besides the password, when a reader is present
 ---@field idle_manage? boolean # hyprdesk manages idle: writes the hypridle config and runs it
 ---@field idle_dim? integer # seconds of inactivity before dimming the screen (0: never)
 ---@field idle_lock? integer # seconds before locking (0: never)
