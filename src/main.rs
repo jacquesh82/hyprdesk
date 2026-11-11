@@ -117,9 +117,10 @@ Commandes :
   capture enregistrer [zone] | capture arreter
                     enregistre l'écran actif ou une zone (Vidéos/Enregistrements),
                     ou arrête l'enregistrement en cours
-  greeter [--tty | --demo]
+  greeter [--tty | --demo] [--window]
                     écran de connexion pour greetd (connexion, choix de l'environnement) ;
-                    --tty : au terminal ; --demo : sans greetd, pour l'essayer
+                    --tty : au terminal ; --demo : sans greetd, pour l'essayer ;
+                    --window : fenêtre ordinaire plein écran (cage, sans layer-shell)
   greeter setup <status|packages|install|enable|restore>
                     met l'écran de hyprdesk à la place de GDM (en root ; Réglages →
                     Écran de connexion) ; restore : revient au gestionnaire d'avant
@@ -904,7 +905,10 @@ fn main() -> ExitCode {
             }
         }
         // Écran de connexion pour greetd, au terminal.
-        "greeter" if args.get(1).is_none() => greeter_ui::run(false),
+        "greeter" if args.get(1).is_none() => greeter_ui::run(false, false),
+        "greeter" if args.get(1).map(String::as_str) == Some("--window") => {
+            greeter_ui::run(false, true)
+        }
         // Mise en place (Réglages → Écran de connexion), en root par pkexec.
         "greeter" if args.get(1).map(String::as_str) == Some("setup") => {
             match greeter_setup::cli(
@@ -918,7 +922,9 @@ fn main() -> ExitCode {
                 }
             }
         }
-        "greeter" if args.get(1).map(String::as_str) == Some("--demo") => greeter_ui::run(true),
+        "greeter" if args.get(1).map(String::as_str) == Some("--demo") => {
+            greeter_ui::run(true, args.get(2).map(String::as_str) == Some("--window"))
+        }
         "greeter" if args.get(1).map(String::as_str) == Some("--tty") => match greeter::run_tty() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

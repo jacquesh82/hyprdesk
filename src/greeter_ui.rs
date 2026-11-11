@@ -676,19 +676,53 @@ pub fn preview_view() -> Element<'static, GMsg> {
     G.get_or_init(Greeter::preview).view()
 }
 
-/// Point d'entrée de `hyprdesk greeter` (`demo` : sans greetd).
-pub fn run(demo: bool) -> std::process::ExitCode {
+/// Point d'entrée de `hyprdesk greeter` (`demo` : sans greetd ; `window` :
+/// fenêtre ordinaire plein écran au lieu d'une surface layer-shell).
+///
+/// Le greeter tourne sous le compositeur que greetd lance. cage (kiosque)
+/// n'offre pas layer-shell : il y faut une fenêtre ordinaire (xdg-shell),
+/// que cage met en plein écran. Sous un compositeur à layer-shell (Hyprland,
+/// démo dans la session), la surface plein écran au-dessus de tout. Si
+/// layer-shell manque malgré tout, repli sur la fenêtre.
+pub fn run(demo: bool, window: bool) -> std::process::ExitCode {
+    let r = if window {
+        run_window(demo)
+    } else {
+        run_layer(demo).or_else(|e| {
+            eprintln!(
+                "{}",
+                crate::tr!(
+                    "hyprdesk greeter : layer-shell indisponible ({e}), fenêtre ordinaire",
+                    e = e
+                )
+            );
+            run_window(demo)
+        })
+    };
+    match r {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{}", crate::tr!("hyprdesk greeter : {e}", e = e));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn boot(demo: bool) -> (Greeter, Task<GMsg>) {
+    let g = if demo {
+        Greeter::demo()
+    } else {
+        Greeter::new()
+    };
+    (g, iced::widget::operation::focus(USER_ID))
+}
+
+/// Surface layer-shell plein écran, clavier exclusif.
+fn run_layer(demo: bool) -> Result<(), String> {
     // Pas de presse-papiers : rien à coller dans le champ du mot de passe.
     iced_layershell::disable_clipboard();
     let mut app = iced_layershell::application(
-        move || {
-            let g = if demo {
-                Greeter::demo()
-            } else {
-                Greeter::new()
-            };
-            (g, iced::widget::operation::focus(USER_ID))
-        },
+        move || boot(demo),
         "hyprdesk-greeter",
         Greeter::update,
         Greeter::view,
@@ -706,13 +740,30 @@ pub fn run(demo: bool) -> std::process::ExitCode {
     for face in crate::fonts::bundled() {
         app = app.font(face);
     }
-    match app.run() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("{}", crate::tr!("hyprdesk greeter : {e}", e = e));
-            std::process::ExitCode::FAILURE
-        }
-    }
+    app.run().map_err(|e| e.to_string())
+}
+
+/// Fenêtre ordinaire plein écran, sans décorations (cage, ou tout
+/// compositeur sans layer-shell).
+fn run_window(demo: bool) -> Result<(), String> {
+    iced::application(move || boot(demo), Greeter::update, Greeter::view)
+        .subscription(Greeter::subscription)
+        .settings(iced::Settings {
+            fonts: crate::fonts::bundled(),
+            default_font: crate::fonts::DEFAULT,
+            ..Default::default()
+        })
+        .title(crate::i18n::tr("Connexion"))
+        .window(iced::window::Settings {
+            fullscreen: true,
+            decorations: false,
+            // Fermer la fenêtre ne doit pas laisser greetd sans écran : en
+            // vraie connexion, seul l'ouverture de session la referme.
+            exit_on_close_request: demo,
+            ..Default::default()
+        })
+        .run()
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

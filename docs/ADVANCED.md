@@ -238,8 +238,11 @@ unlock it:
 [greetd](https://sr.ht/~kennylevinsen/greetd/). It speaks greetd's IPC
 (length-prefixed JSON on `$GREETD_SOCK`) and lists the `wayland-sessions` and
 `xsessions` entries. It runs under the compositor greetd starts, for example
-`cage -s -- hyprdesk greeter`. `--tty` runs it in a terminal and `--demo` runs
-it without greetd. It offers suspend, restart and shut down.
+`cage -s -- hyprdesk greeter --window`. cage is a kiosk compositor without
+layer-shell, so `--window` opens a regular full-screen window instead of a
+layer surface. Without `--window`, the greeter falls back to a window when
+layer-shell is missing. `--tty` runs it in a terminal and `--demo` runs it
+without greetd. It offers suspend, restart and shut down.
 
 **Settings → Login screen** sets it up in place of GDM (or SDDM, LightDM…).
 It shows the login manager in use and the pieces greetd needs, then does

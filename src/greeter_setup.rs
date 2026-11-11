@@ -185,7 +185,8 @@ pub fn greeter_command(bin: &str, p: &Profile) -> String {
             env.push(format!("{k}={v}"));
         }
     }
-    let cage = format!("cage -s -- {bin} greeter");
+    // cage n'offre pas layer-shell : fenêtre ordinaire, qu'il met en plein écran.
+    let cage = format!("cage -s -- {bin} greeter --window");
     if env.is_empty() {
         cage
     } else {
@@ -643,7 +644,7 @@ mod tests {
         let (cmd, vt) = parse_config(&src);
         assert_eq!(
             cmd.as_deref(),
-            Some("cage -s -- /usr/local/bin/hyprdesk greeter")
+            Some("cage -s -- /usr/local/bin/hyprdesk greeter --window")
         );
         assert_eq!(vt, Some(1));
         assert!(is_ours(&cmd.unwrap()));
@@ -657,7 +658,7 @@ mod tests {
             cmd.as_deref(),
             Some(
                 "env XKB_DEFAULT_LAYOUT=fr XKB_DEFAULT_VARIANT=azerty \
-                 cage -s -- /usr/local/bin/hyprdesk greeter"
+                 cage -s -- /usr/local/bin/hyprdesk greeter --window"
             )
         );
         // Valeur douteuse : écartée, jamais recopiée dans la commande.

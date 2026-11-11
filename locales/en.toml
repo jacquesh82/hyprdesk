@@ -1926,3 +1926,9 @@
 "Redémarrer" = "Restart"
 "Éteindre" = "Shut down"
 "myMFA" = "myMFA"
+# Écran de connexion en fenêtre ordinaire sous cage (MLG-43).
+"Connexion" = "Login"
+"hyprdesk greeter : layer-shell indisponible ({e}), fenêtre ordinaire" = "hyprdesk greeter: layer-shell unavailable ({e}), regular window"
+"  greeter [--tty | --demo] [--window]" = "  greeter [--tty | --demo] [--window]"
+"                    --tty : au terminal ; --demo : sans greetd, pour l'essayer ;" = "                    --tty: in a terminal; --demo: without greetd, to try it;"
+"                    --window : fenêtre ordinaire plein écran (cage, sans layer-shell)" = "                    --window: regular full-screen window (cage, no layer-shell)"
