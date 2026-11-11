@@ -237,7 +237,8 @@
 "Avant la fenêtre active" = "Before the active window"
 "Avant une mise en veille, la session est toujours verrouillée ; au réveil, les écrans se rallument. Assombrir passe par brightnessctl." = "Before suspending, the session is always locked; on wake-up, screens turn back on. Dimming uses brightnessctl."
 "Avertissement" = "Warning"
-"bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme" = "bar.color.<text|background|accent|warning|critical> #rrggbb | theme; bar.module_color.<module> #rrggbb | theme"
+"bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;" = "bar.color.<text|background|accent|warning|critical> #rrggbb | theme; bar.module_color.<module> #rrggbb | theme ;"
+"fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland" = "fx.<section.option> <value> | hyprland ; fx.anim.<element> on | off | <speed> [curve] [style] | hyprland"
 "Barre" = "Bar"
 "Barre compacte (titres courts, heure seule, icônes sans libellé)" = "Compact bar (short titles, time only, icons without labels)"
 "Barre de hyprdesk" = "hyprdesk bar"
@@ -1627,3 +1628,10 @@
 "Recherche (toutes les applications)" = "Search (all applications)"
 "Fenêtres (Alt+Tab ; avec Maj : en arrière)" = "Windows (Alt+Tab; with Shift: backwards)"
 "Définir comme fond d'écran" = "Set as wallpaper"
+
+# hyprdesk config fx.* (MLG-30).
+"courbe « {c} » inconnue ({p0})" = "unknown curve “{c}” ({p0})"
+"effet « {k} » inconnu (hyprdesk config list animations)" = "unknown effect “{k}” (hyprdesk config list animations)"
+"style « {s} » non admis pour {l} ({p0})" = "style “{s}” not allowed for {l} ({p0})"
+"« {v} » : vitesse entre 0.1 et 100 (dixièmes de seconde)" = "“{v}”: speed between 0.1 and 100 (tenths of a second)"
+"élément animé « {n} » inconnu (hyprdesk config list animations)" = "unknown animated element “{n}” (hyprdesk config list animations)"

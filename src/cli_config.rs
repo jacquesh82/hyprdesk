@@ -609,6 +609,28 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 .unwrap_or_default(),
         );
     }
+    if let Some(k) = key.strip_prefix("fx.") {
+        let fx = &c.general.fx;
+        if let Some(leaf) = k.strip_prefix("anim.") {
+            return Some(match fx.anims.get(leaf) {
+                None => "hyprland".into(),
+                Some(a) if !a.enabled => "off".into(),
+                Some(a) => {
+                    let mut v = vec![format!("{}", a.speed), a.curve.clone()];
+                    v.extend(a.style.clone());
+                    v.join(" ")
+                }
+            });
+        }
+        if crate::fx::opt(k).is_some() {
+            return Some(
+                fx.options
+                    .get(k)
+                    .map(crate::tiling::OptValue::display)
+                    .unwrap_or_else(|| "hyprland".into()),
+            );
+        }
+    }
     if let Some(o) = crate::tiling::opt(key) {
         return Some(
             c.general
@@ -727,6 +749,50 @@ fn dynamic_set(
             Some(l) => return Some(Err(crate::tr!("« {v} » : layout inconnu", v = l))),
         }
         s.tiling = Some(t);
+        return Some(Ok(()));
+    }
+    if let Some(k) = key.strip_prefix("fx.") {
+        let mut fx = s.fx.clone().unwrap_or_else(|| c.general.fx.clone());
+        let v = v
+            .map(str::trim)
+            .filter(|v| !matches!(*v, "" | "none" | "hyprland"));
+        if let Some(name) = k.strip_prefix("anim.") {
+            let Some(leaf) = crate::fx::leaf(name) else {
+                return Some(Err(crate::tr!(
+                    "élément animé « {n} » inconnu (hyprdesk config list animations)",
+                    n = name
+                )));
+            };
+            match v {
+                None => {
+                    fx.anims.remove(name);
+                }
+                Some(raw) => match parse_anim(leaf, raw) {
+                    Ok(a) => {
+                        fx.anims.insert(name.to_string(), a);
+                    }
+                    Err(e) => return Some(Err(e)),
+                },
+            }
+        } else if let Some(o) = crate::fx::opt(k) {
+            match v {
+                None => {
+                    fx.options.remove(k);
+                }
+                Some(raw) => match o.parse(raw) {
+                    Ok(val) => {
+                        fx.options.insert(k.to_string(), val);
+                    }
+                    Err(e) => return Some(Err(e)),
+                },
+            }
+        } else {
+            return Some(Err(crate::tr!(
+                "effet « {k} » inconnu (hyprdesk config list animations)",
+                k = k
+            )));
+        }
+        s.fx = Some(fx);
         return Some(Ok(()));
     }
     if let Some(o) = crate::tiling::opt(key) {
@@ -887,7 +953,57 @@ fn usage() -> String {
 const USAGE: &str =
     "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
 Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
-bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme";
+bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
+fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland";
+
+/// `fx.anim.<élément>` : `on`, `off`, ou `<vitesse> [courbe] [style]`.
+fn parse_anim(leaf: &crate::fx::Leaf, raw: &str) -> Result<crate::fx::Anim, String> {
+    let mut a = crate::fx::Anim::new_for(leaf);
+    let mut parts = raw.split_whitespace();
+    match parts.next() {
+        Some("off" | "false" | "no") => {
+            a.enabled = false;
+            return Ok(a);
+        }
+        Some("on" | "true" | "yes") | None => return Ok(a),
+        Some(speed) => {
+            a.speed = speed
+                .replace(',', ".")
+                .parse::<f64>()
+                .ok()
+                .filter(|v| (0.1..=100.0).contains(v))
+                .ok_or_else(|| {
+                    crate::tr!(
+                        "« {v} » : vitesse entre 0.1 et 100 (dixièmes de seconde)",
+                        v = speed
+                    )
+                })?;
+        }
+    }
+    if let Some(curve) = parts.next() {
+        if crate::fx::curve(curve).is_none() {
+            let known: Vec<&str> = crate::fx::CURVES.iter().map(|c| c.name).collect();
+            return Err(crate::tr!(
+                "courbe « {c} » inconnue ({p0})",
+                c = curve,
+                p0 = known.join(", ")
+            ));
+        }
+        a.curve = curve.to_string();
+    }
+    if let Some(style) = parts.next() {
+        if !leaf.styles.contains(&style) {
+            return Err(crate::tr!(
+                "style « {s} » non admis pour {l} ({p0})",
+                s = style,
+                l = leaf.name,
+                p0 = leaf.styles.join(", ")
+            ));
+        }
+        a.style = Some(style.to_string());
+    }
+    Ok(a)
+}
 
 pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
     let full = || load_file(config_path).map(|l| l.config);
@@ -942,6 +1058,15 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                                 .iter()
                                 .flat_map(|b| b.colors.modules.keys())
                                 .map(|m| format!("bar.module_color.{m}")),
+                        )
+                        .collect(),
+                    "animations" => crate::fx::OPTIONS
+                        .iter()
+                        .map(|o| format!("fx.{}", o.path()))
+                        .chain(
+                            crate::fx::LEAVES
+                                .iter()
+                                .map(|l| format!("fx.anim.{}", l.name)),
                         )
                         .collect(),
                     "theme" => Place::ALL
@@ -1100,6 +1225,45 @@ mod tests {
         let list = run_s(&p, &["list"]).unwrap();
         assert!(list.contains("[launcher] Lanceur") && list.contains("launcher_group"));
         assert!(run_s(&p, &["list", "screens"]).unwrap().contains("primary"));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Animations et effets en ligne de commande (fx.*).
+    #[test]
+    fn effets_en_ligne_de_commande() {
+        let p = tmp();
+        assert_eq!(
+            run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(),
+            "hyprland"
+        );
+        run_s(&p, &["set", "fx.decoration.rounding", "12"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(), "12");
+        assert!(run_s(&p, &["set", "fx.decoration.rounding", "99"]).is_err());
+        assert!(run_s(&p, &["set", "fx.decoration.inconnu", "1"]).is_err());
+        run_s(&p, &["set", "fx.anim.windowsIn", "3 ease-out popin"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "fx.anim.windowsIn"]).unwrap(),
+            "3 ease-out popin"
+        );
+        run_s(&p, &["set", "fx.anim.windowsOut", "off"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "fx.anim.windowsOut"]).unwrap(), "off");
+        assert!(run_s(&p, &["set", "fx.anim.windowsIn", "3 ease-out fade"]).is_err());
+        assert!(run_s(&p, &["set", "fx.anim.nimporte", "on"]).is_err());
+        assert!(
+            run_s(&p, &["list", "animations"])
+                .unwrap()
+                .contains("fx.anim.windowsIn")
+        );
+        run_s(&p, &["unset", "fx.anim.windowsIn"]).unwrap();
+        run_s(&p, &["set", "fx.decoration.rounding", "hyprland"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "fx.anim.windowsIn"]).unwrap(),
+            "hyprland"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(),
+            "hyprland"
+        );
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 
