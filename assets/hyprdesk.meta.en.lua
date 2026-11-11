@@ -10,6 +10,7 @@
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field clipboard_history? boolean # clipboard history: hyprdesk runs cliphist (":clip" in search)
+---@field forced_modes? table<string, "no-desktop"|"launcher-only"|"full-desktop"> # forced mode: screen ("DP-1") or workspace ("ws:5"); no-desktop: never a desktop there; the others: the desktop switches to it on arrival
 ---@field autostart? boolean # launch XDG autostart applications (~/.config/autostart, /etc/xdg/autostart), once per session
 ---@field desktop_files? boolean # files of the Desktop folder (xdg-user-dir DESKTOP) and Trash as desktop icons
 ---@field float_launched? boolean # opened from the shown desktop: floating, centered window

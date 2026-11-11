@@ -37,6 +37,9 @@ struct Plugin {
     options: Vec<String>,
 }
 
+/// Modes qu'on peut imposer à un écran ou un workspace.
+pub const FORCED_MODES: &[&str] = &["no-desktop", "launcher-only", "full-desktop"];
+
 /// Facultatif : une fonction Lua nommée `key`, ou erreur si autre chose.
 fn opt_fn(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Function>> {
     match t.get::<Value>(key)? {
@@ -483,6 +486,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspaces",
             "workspace_monitors",
             "workspace_dedicated",
+            "forced_modes",
             "primary",
             "apps",
             "disabled_plugins",
@@ -777,6 +781,28 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(l) = string_list(t.get("workspace_dedicated")?, "workspace_dedicated", CTX)? {
         g.workspace_dedicated = l.into_iter().collect();
+    }
+    if let Some(map) = t.get::<Option<Table>>("forced_modes")? {
+        const C: &str = "hd.config.forced_modes";
+        g.forced_modes.clear();
+        for pair in map.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            let (Value::String(k), Value::String(v)) = (k, v) else {
+                return Err(err(crate::tr!(
+                    "{C} : [\"DP-1\"] ou [\"ws:5\"] = \"no-desktop\" | \"launcher-only\" | \"full-desktop\"",
+                    C = C
+                )));
+            };
+            let v = v.to_str()?.to_string();
+            if !FORCED_MODES.contains(&v.as_str()) {
+                return Err(err(crate::tr!(
+                    "{C} : « {v} » n'est pas un mode (no-desktop, launcher-only, full-desktop)",
+                    C = C,
+                    v = v
+                )));
+            }
+            g.forced_modes.insert(k.to_str()?.to_string(), v);
+        }
     }
     if let Some(map) = t.get::<Option<Table>>("workspace_monitors")? {
         const C: &str = "hd.config.workspace_monitors";

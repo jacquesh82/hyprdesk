@@ -154,6 +154,7 @@ pub struct Settings {
     pub workspaces: Option<u8>,
     /// Workspaces de chaque écran.
     pub workspace_monitors: Option<BTreeMap<String, Vec<String>>>,
+    pub forced_modes: Option<BTreeMap<String, String>>,
     /// Écrans dédiés.
     pub workspace_dedicated: Option<std::collections::BTreeSet<String>>,
     /// Écran principal (`hd.config({ primary = "DP-1" })`).
@@ -316,6 +317,7 @@ impl Settings {
                 .collect(),
             workspace_monitors: has("workspace_monitors")
                 .then(|| g.workspace_monitors_declared.clone()),
+            forced_modes: has("forced_modes").then(|| g.forced_modes.clone()),
             workspace_dedicated: has("workspace_dedicated").then(|| g.workspace_dedicated.clone()),
             workspaces: if has("workspaces") {
                 g.workspaces
@@ -587,6 +589,9 @@ impl Settings {
         }
         if free("workspace_monitors") {
             g.workspace_monitors_declared = self.workspace_monitors.clone().unwrap_or_default();
+        }
+        if free("forced_modes") {
+            g.forced_modes = self.forced_modes.clone().unwrap_or_default();
         }
         if free("workspace_dedicated") {
             g.workspace_dedicated = self.workspace_dedicated.clone().unwrap_or_default();
@@ -1056,6 +1061,13 @@ impl Settings {
         }
         if let Some(n) = self.workspaces {
             cfg.push(format!("workspaces = {n}"));
+        }
+        if let Some(m) = self.forced_modes.as_ref().filter(|m| !m.is_empty()) {
+            let f: Vec<String> = m
+                .iter()
+                .map(|(k, v)| format!("[{}] = {}", q(k), q(v)))
+                .collect();
+            cfg.push(format!("forced_modes = {{ {} }}", f.join(", ")));
         }
         if let Some(m) = self.workspace_monitors.as_ref().filter(|m| !m.is_empty()) {
             let f: Vec<String> = m

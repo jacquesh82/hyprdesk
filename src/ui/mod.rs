@@ -384,6 +384,10 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Mode imposé en cours (règle `forced_modes` de l'écran actif) et le
+    /// mode d'avant, rendu en la quittant.
+    forced_key: Option<String>,
+    forced_prev: Option<DesktopMode>,
     /// Module Luminosité ; dernière relecture des écrans DDC/CI (lente).
     light: bar::Light,
     light_ddc_at: Option<Instant>,
@@ -701,6 +705,8 @@ impl App {
             active_window: None,
             volume: None,
             light: bar::Light::default(),
+            forced_key: None,
+            forced_prev: None,
             light_ddc_at: None,
             audio: bar::Audio::default(),
             with_windows: false,
@@ -1172,6 +1178,16 @@ impl App {
 
     /// Le bureau affiché apparaît-il sur cet écran (`show_on`) ?
     fn shows_on(&self, monitor: &str) -> bool {
+        // Écran (ou workspace affiché) imposé en no-desktop : jamais de bureau.
+        let ws = self
+            .monitors
+            .iter()
+            .find(|m| m.name == monitor)
+            .map(|m| m.workspace.as_str())
+            .unwrap_or("");
+        if self.cfg.general.forced_mode(monitor, ws) == Some("no-desktop") {
+            return false;
+        }
         match self.cfg.general.show_on {
             ShowOn::All => true,
             ShowOn::Focused => self.monitors.iter().any(|m| m.focused && m.name == monitor),
@@ -1888,11 +1904,49 @@ impl App {
         if names(&old) != names(&self.monitors) && !self.cfg.general.workspace_monitors.is_empty() {
             tasks.push(self.install_rules());
         }
+        tasks.push(self.apply_forced_mode());
         if self.visible {
             tasks.push(self.sync_raised());
             tasks.push(Task::done(Msg::Poll));
         }
         Task::batch(tasks)
+    }
+
+    /// Règle `forced_modes` de l'écran actif : en arrivant sur un écran ou
+    /// un workspace imposé en launcher-only ou full-desktop, le bureau passe
+    /// dans ce mode ; en le quittant, il reprend le mode d'avant. Seule
+    /// l'arrivée compte : un changement fait à la main sur place reste.
+    fn apply_forced_mode(&mut self) -> Task<Msg> {
+        let Some(m) = self.monitors.iter().find(|m| m.focused) else {
+            return Task::none();
+        };
+        let g = &self.cfg.general;
+        let rule = g
+            .forced_modes
+            .contains_key(&format!("ws:{}", m.workspace))
+            .then(|| format!("ws:{}", m.workspace))
+            .or_else(|| g.forced_modes.contains_key(&m.name).then(|| m.name.clone()));
+        let wanted = g
+            .forced_mode(&m.name, &m.workspace)
+            .and_then(DesktopMode::parse)
+            .filter(|w| *w != DesktopMode::NoDesktop);
+        let key = wanted.and(rule);
+        if key == self.forced_key {
+            return Task::none();
+        }
+        self.forced_key = key;
+        match wanted {
+            Some(w) => {
+                if self.forced_prev.is_none() {
+                    self.forced_prev = Some(self.mode());
+                }
+                self.set_mode(w)
+            }
+            None => match self.forced_prev.take() {
+                Some(prev) => self.set_mode(prev),
+                None => Task::none(),
+            },
+        }
     }
 
     // -- Fonds d'écran ---------------------------------------------------------
@@ -4102,6 +4156,15 @@ impl DesktopMode {
         }
     }
 
+    pub fn parse(s: &str) -> Option<DesktopMode> {
+        Some(match s {
+            "no-desktop" => DesktopMode::NoDesktop,
+            "launcher-only" => DesktopMode::LauncherOnly,
+            "full-desktop" => DesktopMode::FullDesktop,
+            _ => return None,
+        })
+    }
+
     /// Mode suivant du bouton : no-desktop → launcher-only → full-desktop → no-desktop.
     pub(super) fn next(self) -> Self {
         match self {
@@ -4224,6 +4287,39 @@ mod regression_tests {
             y: 0.0,
             scale: 1.0,
         }
+    }
+
+    /// Modes imposés : arriver sur le workspace imposé change le mode, en
+    /// repartir le rend ; un écran imposé en no-desktop n'a jamais de bureau.
+    #[test]
+    fn forced_modes_follow_the_focus() {
+        let mut app = app();
+        let mut cfg = (*app.cfg).clone();
+        cfg.general
+            .forced_modes
+            .insert("ws:5".into(), "full-desktop".into());
+        cfg.general
+            .forced_modes
+            .insert("B".into(), "no-desktop".into());
+        app.cfg = std::sync::Arc::new(cfg);
+        let on = |ws: &str| Monitor {
+            workspace: ws.into(),
+            ..monitor("A", true)
+        };
+        let _ = app.set_monitors(vec![on("1"), monitor("B", false)]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        let _ = app.set_monitors(vec![on("5"), monitor("B", false)]);
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        assert!(app.shows_on("A") && !app.shows_on("B"));
+        // Sur place, un changement à la main reste.
+        app.fade = None;
+        let _ = app.set_mode(DesktopMode::LauncherOnly);
+        let _ = app.set_monitors(vec![on("5"), monitor("B", false)]);
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        // En repartant : le mode d'avant (no-desktop).
+        app.fade = None;
+        let _ = app.set_monitors(vec![on("2"), monitor("B", false)]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
     }
 
     #[test]

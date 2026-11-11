@@ -477,8 +477,8 @@ mod tests {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
         assert!(!visible("plugins", false) && visible("plugins", true));
-        assert_eq!(visible_tabs("desktop", false).len(), 2);
-        assert_eq!(visible_tabs("desktop", true).len(), 4);
+        assert_eq!(visible_tabs("desktop", false).len(), 3);
+        assert_eq!(visible_tabs("desktop", true).len(), 5);
     }
 
     /// Onglets : identifiants uniques, désignables sans casse ni accents.

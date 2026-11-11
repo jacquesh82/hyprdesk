@@ -609,6 +609,15 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 .unwrap_or_default(),
         );
     }
+    if let Some(k) = key.strip_prefix("forced.") {
+        return Some(
+            c.general
+                .forced_modes
+                .get(k)
+                .cloned()
+                .unwrap_or_else(|| "none".into()),
+        );
+    }
     if let Some(k) = key.strip_prefix("fx.") {
         let fx = &c.general.fx;
         if let Some(leaf) = k.strip_prefix("anim.") {
@@ -749,6 +758,34 @@ fn dynamic_set(
             Some(l) => return Some(Err(crate::tr!("« {v} » : layout inconnu", v = l))),
         }
         s.tiling = Some(t);
+        return Some(Ok(()));
+    }
+    if let Some(k) = key.strip_prefix("forced.") {
+        if k.is_empty() || k == "ws:" {
+            return Some(Err(crate::i18n::tr(
+                "forced.<écran> ou forced.ws:<workspace> attendu",
+            )
+            .into()));
+        }
+        let mut m = s
+            .forced_modes
+            .clone()
+            .unwrap_or_else(|| c.general.forced_modes.clone());
+        match v.map(str::trim) {
+            None | Some("none" | "") => {
+                m.remove(k);
+            }
+            Some(mode) if crate::config::lua::FORCED_MODES.contains(&mode) => {
+                m.insert(k.to_string(), mode.to_string());
+            }
+            Some(other) => {
+                return Some(Err(crate::tr!(
+                    "« {v} » n'est pas un mode (no-desktop, launcher-only, full-desktop)",
+                    v = other
+                )));
+            }
+        }
+        s.forced_modes = Some(m);
         return Some(Ok(()));
     }
     if let Some(k) = key.strip_prefix("fx.") {
@@ -954,7 +991,8 @@ const USAGE: &str =
     "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
 Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
 bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
-fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland";
+fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
+forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none";
 
 /// `fx.anim.<élément>` : `on`, `off`, ou `<vitesse> [courbe] [style]`.
 fn parse_anim(leaf: &crate::fx::Leaf, raw: &str) -> Result<crate::fx::Anim, String> {
@@ -1225,6 +1263,21 @@ mod tests {
         let list = run_s(&p, &["list"]).unwrap();
         assert!(list.contains("[launcher] Lanceur") && list.contains("launcher_group"));
         assert!(run_s(&p, &["list", "screens"]).unwrap().contains("primary"));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Modes imposés par écran ou workspace.
+    #[test]
+    fn modes_imposes() {
+        let p = tmp();
+        assert_eq!(run_s(&p, &["get", "forced.DP-1"]).unwrap(), "none");
+        run_s(&p, &["set", "forced.DP-1", "full-desktop"]).unwrap();
+        run_s(&p, &["set", "forced.ws:5", "no-desktop"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "forced.DP-1"]).unwrap(), "full-desktop");
+        assert_eq!(run_s(&p, &["get", "forced.ws:5"]).unwrap(), "no-desktop");
+        assert!(run_s(&p, &["set", "forced.DP-1", "plein"]).is_err());
+        run_s(&p, &["unset", "forced.DP-1"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "forced.DP-1"]).unwrap(), "none");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

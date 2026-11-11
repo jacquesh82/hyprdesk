@@ -26,6 +26,7 @@ pub const INFO: PluginInfo = PluginInfo {
 pub const TABS: &[super::SubTab] = &[
     ("affichage", "Affichage"),
     ("raccourcis", "Raccourcis"),
+    ("modes", "Modes imposés"),
     ("session", "Session"),
     ("dependances", "Dépendances"),
 ];
@@ -64,7 +65,29 @@ pub enum Msg {
     KeySubmit(usize),
     ComponentRestart(String),
     FloatLaunched(bool),
+    /// Mode imposé : écran (`DP-1`) ou workspace (`ws:5`) → mode, ou libre.
+    Forced(String, Option<&'static str>),
 }
+
+/// Choix d'un mode imposé (`None` : libre).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForcedChoice(pub Option<&'static str>);
+
+impl std::fmt::Display for ForcedChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            None => crate::i18n::tr("Libre (mode global)"),
+            Some(m) => m,
+        })
+    }
+}
+
+const FORCED_CHOICES: [ForcedChoice; 4] = [
+    ForcedChoice(None),
+    ForcedChoice(Some("no-desktop")),
+    ForcedChoice(Some("launcher-only")),
+    ForcedChoice(Some("full-desktop")),
+];
 
 /// Mode d'un workspace : par défaut, ou imposé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +110,9 @@ impl App {
         }
         if self.on_subtab(INFO.id, "session") {
             return self.session_section();
+        }
+        if self.on_subtab(INFO.id, "modes") {
+            return self.forced_section();
         }
         if self.on_subtab(INFO.id, "dependances") {
             return self.deps_section();
@@ -310,6 +336,87 @@ impl App {
     }
 
     /// Composants de session supervisés par hyprdesk.
+    /// Modes imposés : par écran, puis par workspace.
+    pub(in crate::ui) fn forced_section(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let current = |key: &str| {
+            let v = g.forced_modes.get(key).map(String::as_str);
+            FORCED_CHOICES
+                .iter()
+                .copied()
+                .find(|c| c.0 == v)
+                .unwrap_or(ForcedChoice(None))
+        };
+        let pick = |key: String| {
+            let k2 = key.clone();
+            pick_list(
+                FORCED_CHOICES,
+                Some(current(&key)),
+                move |c: ForcedChoice| wrap(Msg::Forced(k2.clone(), c.0)),
+            )
+            .font(self.font)
+            .text_size(13)
+            .width(220)
+        };
+        let mut col = column![
+            self.section("Modes imposés"),
+            text(
+                "Un écran ou un workspace peut garder son propre mode. no-desktop : le bureau \
+                 n'y apparaît jamais. launcher-only ou full-desktop : en y arrivant, le bureau \
+                 passe dans ce mode, et reprend le précédent en le quittant. La règle d'un \
+                 workspace l'emporte sur celle de l'écran."
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+            self.section("Écrans"),
+        ]
+        .spacing(10);
+        let mut screens: Vec<String> = self.monitors.iter().map(|m| m.name.clone()).collect();
+        screens.extend(
+            g.forced_modes
+                .keys()
+                .filter(|k| !k.starts_with("ws:") && !screens.contains(k))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        for name in screens {
+            col = col.push(
+                row![
+                    text(name.clone())
+                        .font(self.font)
+                        .size(14)
+                        .width(Length::Fill),
+                    pick(name)
+                ]
+                .align_y(Alignment::Center),
+            );
+        }
+        col = col.push(self.section("Workspaces"));
+        let n = g.workspaces.unwrap_or(10).max(1);
+        let mut ws: Vec<String> = (1..=n).map(|w| w.to_string()).collect();
+        for k in g.forced_modes.keys().filter_map(|k| k.strip_prefix("ws:")) {
+            if !ws.iter().any(|w| w == k) {
+                ws.push(k.to_string());
+            }
+        }
+        for w in ws {
+            col = col.push(
+                row![
+                    text(crate::tr!("Workspace {w}", w = w))
+                        .font(self.font)
+                        .size(14)
+                        .width(Length::Fill),
+                    pick(format!("ws:{w}"))
+                ]
+                .align_y(Alignment::Center),
+            );
+        }
+        col.into()
+    }
+
     pub(in crate::ui) fn session_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
@@ -581,6 +688,23 @@ impl App {
             }
             Msg::FloatLaunched(v) => {
                 self.settings.float_launched = Some(v);
+                self.commit()
+            }
+            Msg::Forced(key, mode) => {
+                let mut m = self
+                    .settings
+                    .forced_modes
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.general.forced_modes.clone());
+                match mode {
+                    Some(v) => {
+                        m.insert(key, v.to_string());
+                    }
+                    None => {
+                        m.remove(&key);
+                    }
+                }
+                self.settings.forced_modes = Some(m);
                 self.commit()
             }
         }

@@ -753,6 +753,9 @@ pub struct General {
     /// Écrans dédiés : ils n'accueillent que leurs workspaces ; les autres vont
     /// sur l'écran principal.
     pub workspace_dedicated: std::collections::BTreeSet<String>,
+    /// Modes imposés : écran (`DP-1`) ou workspace (`ws:5`) → `no-desktop`,
+    /// `launcher-only` ou `full-desktop`.
+    pub forced_modes: std::collections::BTreeMap<String, String>,
     /// Ouverture de l'assistant IA (LYRA) : fenêtre ou terminal.
     pub assistant_mode: crate::assistant::AssistantMode,
     /// Langue de l'interface : `auto` (celle du système), `fr` ou `en`.
@@ -807,6 +810,7 @@ impl Default for General {
             workspaces: None,
             workspace_monitors: Default::default(),
             workspace_monitors_declared: Default::default(),
+            forced_modes: Default::default(),
             workspace_dedicated: Default::default(),
             primary: None,
             apps: Default::default(),
@@ -1121,6 +1125,15 @@ impl General {
     /// Placement effectif : celui déclaré ; si des écrans sont dédiés, tous les
     /// autres workspaces (1 à max(N, 10)) sont placés sur l'écran principal,
     /// pour qu'aucun n'arrive sur un écran dédié.
+    /// Mode imposé à un écran affichant ce workspace : la règle du
+    /// workspace d'abord, puis celle de l'écran.
+    pub fn forced_mode(&self, monitor: &str, workspace: &str) -> Option<&str> {
+        self.forced_modes
+            .get(&format!("ws:{workspace}"))
+            .or_else(|| self.forced_modes.get(monitor))
+            .map(String::as_str)
+    }
+
     pub fn expand_workspace_monitors(&mut self) {
         let mut map = self.workspace_monitors_declared.clone();
         let target = "primary";

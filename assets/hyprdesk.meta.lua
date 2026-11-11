@@ -10,6 +10,7 @@
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field clipboard_history? boolean # historique du presse-papiers : hyprdesk lance cliphist (« :clip » dans la recherche)
+---@field forced_modes? table<string, "no-desktop"|"launcher-only"|"full-desktop"> # mode imposé : écran ("DP-1") ou workspace ("ws:5") ; no-desktop : jamais de bureau là ; les autres : le bureau y passe en arrivant
 ---@field autostart? boolean # lancer les applications du démarrage automatique XDG (~/.config/autostart, /etc/xdg/autostart), une fois par session
 ---@field desktop_files? boolean # fichiers du dossier Bureau (xdg-user-dir DESKTOP) et Corbeille en icônes du bureau
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée

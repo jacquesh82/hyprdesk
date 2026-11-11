@@ -238,7 +238,8 @@
 "Avant une mise en veille, la session est toujours verrouillée ; au réveil, les écrans se rallument. Assombrir passe par brightnessctl." = "Before suspending, the session is always locked; on wake-up, screens turn back on. Dimming uses brightnessctl."
 "Avertissement" = "Warning"
 "bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;" = "bar.color.<text|background|accent|warning|critical> #rrggbb | theme; bar.module_color.<module> #rrggbb | theme ;"
-"fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland" = "fx.<section.option> <value> | hyprland ; fx.anim.<element> on | off | <speed> [curve] [style] | hyprland"
+"fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;" = "fx.<section.option> <value> | hyprland ; fx.anim.<element> on | off | <speed> [curve] [style] | hyprland ;"
+"forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none" = "forced.<screen> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none"
 "Barre" = "Bar"
 "Barre compacte (titres courts, heure seule, icônes sans libellé)" = "Compact bar (short titles, time only, icons without labels)"
 "Barre de hyprdesk" = "hyprdesk bar"
@@ -1635,3 +1636,14 @@
 "style « {s} » non admis pour {l} ({p0})" = "style “{s}” not allowed for {l} ({p0})"
 "« {v} » : vitesse entre 0.1 et 100 (dixièmes de seconde)" = "“{v}”: speed between 0.1 and 100 (tenths of a second)"
 "élément animé « {n} » inconnu (hyprdesk config list animations)" = "unknown animated element “{n}” (hyprdesk config list animations)"
+
+"forced.<écran> ou forced.ws:<workspace> attendu" = "forced.<screen> or forced.ws:<workspace> expected"
+"« {v} » n'est pas un mode (no-desktop, launcher-only, full-desktop)" = "“{v}” is not a mode (no-desktop, launcher-only, full-desktop)"
+"{C} : « {v} » n'est pas un mode (no-desktop, launcher-only, full-desktop)" = "{C}: “{v}” is not a mode (no-desktop, launcher-only, full-desktop)"
+"{C} : [\"DP-1\"] ou [\"ws:5\"] = \"no-desktop\" | \"launcher-only\" | \"full-desktop\"" = "{C}: [\"DP-1\"] or [\"ws:5\"] = \"no-desktop\" | \"launcher-only\" | \"full-desktop\""
+
+# Modes imposés (MLG-33).
+"Libre (mode global)" = "Free (global mode)"
+"Modes imposés" = "Forced modes"
+"Un écran ou un workspace peut garder son propre mode. no-desktop : le bureau n'y apparaît jamais. launcher-only ou full-desktop : en y arrivant, le bureau passe dans ce mode, et reprend le précédent en le quittant. La règle d'un workspace l'emporte sur celle de l'écran." = "A screen or a workspace can keep its own mode. no-desktop: the desktop never shows there. launcher-only or full-desktop: on arrival, the desktop switches to that mode, and goes back to the previous one on leaving. A workspace rule wins over the screen's."
+"Workspace {w}" = "Workspace {w}"
