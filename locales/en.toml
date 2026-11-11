@@ -1321,3 +1321,10 @@
 "Aucune application ne correspond." = "No matching application."
 "Rechercher une application…" = "Search for an application…"
 "  search            ouvre ou referme le lanceur avec recherche (toutes les applications)" = "  search            opens or closes the search launcher (all applications)"
+
+# Réseau : mot de passe, VPN, mode avion (MLG-9).
+"Mode avion" = "Airplane mode"
+"Mot de passe" = "Password"
+"Rechercher les réseaux" = "Scan for networks"
+"VPN" = "VPN"
+"Wi-Fi « %s »" = "Wi-Fi “%s”"
