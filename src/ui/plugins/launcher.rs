@@ -71,12 +71,20 @@ pub enum Msg {
     AppsCategories(bool),
     /// keys.search = SUPER + R (à la place d'un autre lanceur).
     UseSuperR,
+    /// Le même lanceur dans tous les modes (apps_unified).
+    AppsUnified(bool),
+    /// Plein bureau : raccourci propre (keys.search_desktop), saisi puis validé.
+    DeskKey(String),
+    DeskKeySubmit,
 }
 
 /// État d'écran : recherche d'une application à épingler.
 #[derive(Default)]
 pub struct State {
     pub pin_filter: String,
+    /// Raccourci du plein bureau en cours de saisie, et son erreur.
+    pub desk_key: Option<String>,
+    pub desk_error: Option<String>,
 }
 
 /// Une entrée de la rangée du lanceur.
@@ -1188,6 +1196,44 @@ impl App {
         .into()
     }
 
+    /// Ce qu'ouvre le raccourci du lanceur hors plein bureau, puis en plein bureau.
+    fn launcher_keys_text(&self) -> (String, String) {
+        let g = &self.cfg.general;
+        let k = &g.keys;
+        let r = &self.key_report;
+        let held = |list: &[crate::keymap::Held]| {
+            list.iter()
+                .find(|h| h.action.id == "search")
+                .map(|h| h.holder.describe())
+        };
+        let outside = if k.search.is_empty() {
+            crate::i18n::tr("Hors plein bureau : aucun raccourci (le dock, ou hyprdesk apps).")
+                .to_string()
+        } else if let Some(h) = held(&r.left) {
+            crate::tr!("Hors plein bureau : {k} reste à {h}.", k = k.search, h = h)
+        } else if let Some(h) = held(&r.taken) {
+            crate::tr!(
+                "Hors plein bureau : {k} ouvre ce lanceur, à la place de {h}.",
+                k = k.search,
+                h = h
+            )
+        } else {
+            crate::tr!("Hors plein bureau : {k} ouvre ce lanceur.", k = k.search)
+        };
+        let desk = if k.search_desktop.is_empty() {
+            &k.search
+        } else {
+            &k.search_desktop
+        };
+        let inside = if desk.is_empty() {
+            crate::i18n::tr("En plein bureau : aucun raccourci (le dock, ou hyprdesk apps).")
+                .to_string()
+        } else {
+            crate::tr!("En plein bureau : {k} ouvre ce lanceur.", k = desk)
+        };
+        (outside, inside)
+    }
+
     /// Réglages d'apparence : bord, taille, applications épinglées, boutons.
     /// Onglet Applications : le lanceur d'applications.
     fn launcher_apps_tab(&self) -> Element<'_, UiMsg> {
@@ -1203,11 +1249,12 @@ impl App {
             })
             .font(self.font)
         };
-        let key = if g.keys.search.is_empty() {
-            crate::i18n::tr("aucun").to_string()
-        } else {
-            g.keys.search.clone()
-        };
+        let (outside, inside) = self.launcher_keys_text();
+        let desk_input = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.launcher.desk_key.clone())
+            .unwrap_or_else(|| g.keys.search_desktop.clone());
         let mut col = column![
             self.section("Lanceur d'applications"),
             text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant.")
@@ -1245,40 +1292,69 @@ impl App {
                 iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
             ),
             self.section("Raccourci"),
-            text(crate::tr!(
-                "Ouverture : {k} (Réglages → Bureau → Raccourcis).",
-                k = key
-            ))
-            .font(self.font)
-            .size(13)
-            .color(fg),
+            self.field(
+                "Le même lanceur dans tous les modes",
+                "apps_unified",
+                iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v))),
+            ),
+            text(outside).font(self.font).size(13).color(fg),
+            text(inside).font(self.font).size(13).color(fg),
+            self.field(
+                "Plein bureau : un autre raccourci",
+                "keys.search_desktop",
+                iced::widget::text_input(crate::i18n::tr("vide : le même"), &desk_input)
+                    .font(self.font)
+                    .on_input(|v| wrap(Msg::DeskKey(v)))
+                    .on_submit(wrap(Msg::DeskKeySubmit))
+                    .padding(8)
+                    .width(220),
+            ),
+            text("Les autres raccourcis, et tous les conflits : Réglages → Bureau → Raccourcis.")
+                .font(self.font)
+                .size(11)
+                .color(dim),
         ]
         .spacing(12);
-        // Le raccourci est déjà pris par hyprland.lua (rofi sur SUPER + R…).
-        if let Some((k, what)) = self.key_conflicts.iter().find(|(k, _)| *k == g.keys.search) {
-            let prompt = crate::takeover::ask_prompt(
-                &crate::tr!("le raccourci {k} du lanceur d'applications", k = k),
-                &crate::tr!(
-                    "hyprland.lua, qui le lie à « {what} » (un autre lanceur)",
-                    what = what
-                ),
-            );
-            col = col.push(
-                row![
-                    text(crate::tr!(
-                        "{k} lance déjà « {what} » depuis hyprland.lua : hyprdesk ne le prend que bureau affiché. Retirez ce raccourci de hyprland.lua pour n'avoir qu'un lanceur.",
-                        k = k,
-                        what = what
-                    ))
+        if let Some(e) = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.launcher.desk_error.clone())
+        {
+            col = col.push(text(e).font(self.font).size(12).color(warn));
+        }
+        // Un raccourci du lanceur en conflit : hyprdesk le prend, ou LYRA.
+        for i in ["keys.search", "keys.search_desktop"]
+            .iter()
+            .filter_map(|k| self.key_report.issue_for(k))
+        {
+            let mut line = row![
+                text(i.message())
                     .font(self.font)
                     .size(12)
                     .color(warn)
                     .width(Length::Fill),
-                    self.lyra_button(crate::i18n::tr("Lanceur d'applications"), prompt),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            if i.holder().is_some() {
+                line = line.push(
+                    button(
+                        text(crate::i18n::tr("hyprdesk le prend"))
+                            .font(self.font)
+                            .size(12),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(super::desktop::wrap(
+                        super::desktop::Msg::TakeKey(i.action.combo.clone()),
+                    )),
+                );
+            }
+            line = line.push(self.lyra_button(
+                crate::i18n::tr("Lanceur d'applications"),
+                crate::keymap::lyra_prompt(&self.key_report),
+            ));
+            col = col.push(line);
         }
         let mut actions = row![
             button(
@@ -1488,6 +1564,57 @@ impl App {
             }
             Msg::UseSuperR => {
                 self.settings.key_search = Some("SUPER + R".into());
+                self.commit()
+            }
+            Msg::AppsUnified(v) => {
+                self.settings.apps_unified = Some(v);
+                self.commit()
+            }
+            Msg::DeskKey(v) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.launcher.desk_key = Some(v);
+                    p.launcher.desk_error = None;
+                }
+                Task::none()
+            }
+            Msg::DeskKeySubmit => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                let v = p
+                    .launcher
+                    .desk_key
+                    .clone()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
+                    p.launcher.desk_error = Some(crate::tr!(
+                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        v = v
+                    ));
+                    return Task::none();
+                }
+                let keys = crate::config::Keys {
+                    search_desktop: v.clone(),
+                    ..self.cfg.general.keys.clone()
+                };
+                if let Some(other) = crate::keymap::duplicate_of(
+                    &keys,
+                    self.cfg.general.apps_launcher.unified,
+                    "keys.search_desktop",
+                ) {
+                    p.launcher.desk_error = Some(crate::tr!(
+                        "« {v} » sert déjà à « {other} » : choisissez une autre combinaison.",
+                        v = v,
+                        other = crate::i18n::tr(other)
+                    ));
+                    return Task::none();
+                }
+                p.launcher.desk_key = None;
+                // Saisi aussi dans Bureau → Raccourcis : le champ suit.
+                p.desktop.keys[9] = v.clone();
+                self.settings.key_search_desktop = Some(v);
                 self.commit()
             }
             Msg::PinFilter(f) => {

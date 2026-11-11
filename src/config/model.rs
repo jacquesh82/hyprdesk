@@ -289,6 +289,10 @@ impl AppsStyle {
 /// Lanceur d'applications : présentation, suggestions, catégories.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AppsCfg {
+    /// Le même lanceur dans tous les modes : `keys.search` ouvre celui de
+    /// hyprdesk partout, pris à hyprland.lua s'il y est lié (rofi…). Sinon,
+    /// hors plein bureau, la combinaison reste à hyprland.lua.
+    pub unified: bool,
     pub style: AppsStyle,
     /// Applications mises en avant (les plus lancées), 0 : aucune.
     pub suggestions: u8,
@@ -298,6 +302,7 @@ pub struct AppsCfg {
 impl Default for AppsCfg {
     fn default() -> Self {
         AppsCfg {
+            unified: true,
             style: AppsStyle::Auto,
             suggestions: 8,
             categories: true,
@@ -722,10 +727,15 @@ pub struct Keys {
     pub leave: String,
     /// Sélecteur de fenêtres (`hyprdesk switch`) ; avec Maj : en arrière.
     pub switch: String,
-    /// Lanceur avec recherche (`hyprdesk search`).
+    /// Lanceur d'applications (`hyprdesk search`), dans tous les modes.
     pub search: String,
+    /// Plein bureau : un autre raccourci pour le lanceur (vide : `search`).
+    pub search_desktop: String,
     /// Vue d'ensemble des fenêtres (`hyprdesk overview`).
     pub overview: String,
+    /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
+    /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
+    pub take: Vec<String>,
     /// Touches multimédia (volume, luminosité, lecture) par hyprdesk : là où
     /// hyprland.lua ne les lie pas déjà, et toujours bureau affiché.
     pub media: bool,
@@ -737,8 +747,11 @@ impl Default for Keys {
             toggle: "SUPER + D".into(),
             launcher: "SUPER + ALT + D".into(),
             switch: "ALT + Tab".into(),
-            search: "SUPER + Space".into(),
+            // Le lanceur de hyprdesk, dans tous les modes (apps_unified).
+            search: "SUPER + R".into(),
+            search_desktop: String::new(),
             overview: "SUPER + Tab".into(),
+            take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par

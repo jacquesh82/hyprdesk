@@ -527,6 +527,23 @@ impl Preview {
         if self.scene == 1 {
             self.app.subtabs.insert("theme", "texte");
         }
+        // Bureau → Raccourcis : des conflits d'exemple, et SUPER + R pris à rofi.
+        self.app.key_report = if SCENES[self.scene] == "bureau" {
+            let source = crate::keymap::parse_source(
+                "local mainMod = \"SUPER\"\nlocal menu = \"rofi -show drun\"\n\
+                 hl.bind(mainMod .. \" + R\", hl.dsp.exec_cmd(menu))\n\
+                 hl.bind(mainMod .. \" + Tab\", hl.dsp.workspace.toggle_special(\"magic\"))\n\
+                 hl.bind(\"SUPER + SHIFT + D\", hl.dsp.exec_cmd(\"discord\"), { submap_universal = true })\n",
+            );
+            let binds = serde_json::json!([
+                { "modmask": 64, "key": "R", "submap": "", "submap_universal": "false", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "Tab", "submap": "", "submap_universal": "false", "description": "", "dispatcher": "HL.Dispatcher(workspace)" },
+                { "modmask": 65, "key": "D", "submap": "", "submap_universal": "true", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+            ]);
+            crate::keymap::analyse(&self.app.cfg.general.keys, true, &binds, &source).0
+        } else {
+            Default::default()
+        };
         // Verrouillage → Veille, hyprdesk gérant la veille (délais par défaut).
         // Agent polkit : la carte de saisie, une tentative refusée.
         if SCENES[self.scene] == "polkit" {

@@ -25,6 +25,7 @@ mod hypr;
 mod i18n;
 mod idle;
 mod inputs;
+mod keymap;
 mod launch;
 mod layout;
 mod lock;
@@ -129,6 +130,7 @@ Commandes :
   preview [dossier] aperçu isolé ; capture les vues si un dossier est fourni
   check [fichier]   exécute et vérifie la configuration sans modifier le démon
   doctor            dépendances externes : présentes, absentes, et ce qui en dépend
+  keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
   stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
   snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
@@ -1004,6 +1006,32 @@ fn main() -> ExitCode {
                 )
             );
             ExitCode::SUCCESS
+        }
+        // Raccourcis : où chacun agit, conflits avec hyprland.lua (MLG-40).
+        "keys" => {
+            let cfg = match ui::check(&config_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let keys = &cfg.general.keys;
+            let source = keymap::load_source(&config_path);
+            match hypr::key_report(keys, cfg.general.apps_launcher.unified, &source) {
+                Ok(r) => {
+                    print!("{}", keymap::text_report(keys, &r));
+                    if r.issues.is_empty() {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("Hyprland injoignable : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
         }
         // Dépendances externes : présentes, absentes, et ce qui en dépend.
         "doctor" => {

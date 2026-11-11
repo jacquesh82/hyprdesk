@@ -501,6 +501,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "launcher_pinned",
             "launcher_show_settings",
             "launcher_show_assistant",
+            "apps_unified",
             "apps_style",
             "apps_suggestions",
             "apps_categories",
@@ -576,8 +577,18 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         check_keys(
             &k,
             &[
-                "toggle", "launcher", "hide", "settings", "lock", "leave", "media", "switch",
-                "search", "overview",
+                "toggle",
+                "launcher",
+                "hide",
+                "settings",
+                "lock",
+                "leave",
+                "media",
+                "switch",
+                "search",
+                "search_desktop",
+                "overview",
+                "take",
             ],
             C,
         )?;
@@ -593,6 +604,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("leave", &mut g.keys.leave),
             ("switch", &mut g.keys.switch),
             ("search", &mut g.keys.search),
+            ("search_desktop", &mut g.keys.search_desktop),
             ("overview", &mut g.keys.overview),
         ] {
             match k.get::<Value>(name)? {
@@ -617,6 +629,36 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                         p0 = v.type_name()
                     )));
                 }
+            }
+        }
+        // Combinaisons prises à hyprland.lua : une liste, false pour aucune.
+        match k.get::<Value>("take")? {
+            Value::Nil => {}
+            Value::Boolean(false) => g.keys.take.clear(),
+            v => {
+                let list: Vec<String> = match v {
+                    Value::String(s) => vec![s.to_str()?.to_string()],
+                    Value::Table(t) => t
+                        .sequence_values::<String>()
+                        .collect::<mlua::Result<Vec<_>>>()?,
+                    v => {
+                        return Err(err(crate::tr!(
+                            "{C} : « take » attend une liste de raccourcis, pas {p0}",
+                            C = C,
+                            p0 = v.type_name()
+                        )));
+                    }
+                };
+                for s in &list {
+                    if crate::hypr::parse_combo(s).is_none() {
+                        return Err(err(crate::tr!(
+                            "{C} : raccourci « {s} » illisible (ex. \"SUPER + SHIFT + D\")",
+                            C = C,
+                            s = s
+                        )));
+                    }
+                }
+                g.keys.take = list.iter().map(|s| s.trim().to_string()).collect();
             }
         }
     }
@@ -711,6 +753,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "apps_categories", CTX)? {
         g.apps_launcher.categories = v;
+    }
+    if let Some(v) = opt_bool(t, "apps_unified", CTX)? {
+        g.apps_launcher.unified = v;
     }
     if let Some(v) = opt_bool(t, "launcher_show_assistant", CTX)? {
         g.launcher.show_assistant = v;

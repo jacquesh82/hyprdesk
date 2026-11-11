@@ -101,7 +101,9 @@ pub struct Settings {
     pub key_lock: Option<String>,
     pub key_switch: Option<String>,
     pub key_search: Option<String>,
+    pub key_search_desktop: Option<String>,
     pub key_overview: Option<String>,
+    pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
     pub key_media: Option<bool>,
@@ -130,6 +132,7 @@ pub struct Settings {
     pub apps_style: Option<crate::config::AppsStyle>,
     pub apps_suggestions: Option<u8>,
     pub apps_categories: Option<bool>,
+    pub apps_unified: Option<bool>,
     pub lock_blur: Option<bool>,
     pub lock_dim: Option<f32>,
     pub lock_image: Option<PathBuf>,
@@ -282,7 +285,9 @@ impl Settings {
             key_lock: has("keys.lock").then(|| g.keys.lock.clone()),
             key_switch: has("keys.switch").then(|| g.keys.switch.clone()),
             key_search: has("keys.search").then(|| g.keys.search.clone()),
+            key_search_desktop: has("keys.search_desktop").then(|| g.keys.search_desktop.clone()),
             key_overview: has("keys.overview").then(|| g.keys.overview.clone()),
+            key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
             key_media: has("keys.media").then_some(g.keys.media),
@@ -329,6 +334,7 @@ impl Settings {
             apps_style: has("apps_style").then_some(g.apps_launcher.style),
             apps_suggestions: has("apps_suggestions").then_some(g.apps_launcher.suggestions),
             apps_categories: has("apps_categories").then_some(g.apps_launcher.categories),
+            apps_unified: has("apps_unified").then_some(g.apps_launcher.unified),
             icon_theme: if has("icon_theme") {
                 g.icon_theme.clone()
             } else {
@@ -526,7 +532,13 @@ impl Settings {
         set!(key_lock, "keys.lock", g.keys.lock);
         set!(key_switch, "keys.switch", g.keys.switch);
         set!(key_search, "keys.search", g.keys.search);
+        set!(
+            key_search_desktop,
+            "keys.search_desktop",
+            g.keys.search_desktop
+        );
         set!(key_overview, "keys.overview", g.keys.overview);
+        set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
         set!(key_media, "keys.media", g.keys.media);
@@ -560,6 +572,7 @@ impl Settings {
             "apps_categories",
             g.apps_launcher.categories
         );
+        set!(apps_unified, "apps_unified", g.apps_launcher.unified);
         set!(launcher_pinned, "launcher_pinned", g.launcher.pinned);
         set!(
             launcher_show_settings,
@@ -916,6 +929,7 @@ impl Settings {
             ("lock", &self.key_lock),
             ("switch", &self.key_switch),
             ("search", &self.key_search),
+            ("search_desktop", &self.key_search_desktop),
             ("overview", &self.key_overview),
             ("leave", &self.key_leave),
         ] {
@@ -929,6 +943,10 @@ impl Settings {
         }
         if let Some(v) = self.key_media {
             keys.push(format!("media = {v}"));
+        }
+        if let Some(list) = &self.key_take {
+            let items: Vec<String> = list.iter().map(|k| q(k)).collect();
+            keys.push(format!("take = {{ {} }}", items.join(", ")));
         }
         if !keys.is_empty() {
             cfg.push(format!("keys = {{ {} }}", keys.join(", ")));
@@ -1041,6 +1059,9 @@ impl Settings {
         }
         if let Some(v) = self.apps_categories {
             cfg.push(format!("apps_categories = {v}"));
+        }
+        if let Some(v) = self.apps_unified {
+            cfg.push(format!("apps_unified = {v}"));
         }
         if let Some(v) = self.lock_blur {
             cfg.push(format!("lock_blur = {v}"));

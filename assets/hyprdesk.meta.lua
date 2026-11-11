@@ -7,7 +7,7 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, overview?: string|false, media?: boolean }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, take?: string[]|false, media?: boolean }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
 ---@field clipboard_history? boolean # historique du presse-papiers : hyprdesk lance cliphist (« :clip » dans la recherche)
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # options des plugins (Réglages → Plugins → Configurer), pour chaque instance sauf les options écrites sur l'instance
@@ -32,6 +32,7 @@
 ---@field apps_style? "auto"|"plein"|"central" # lanceur d'applications : grande feuille en plein bureau et carte centrée sinon (auto), ou toujours l'une
 ---@field apps_suggestions? integer # applications les plus lancées mises en avant (0 à 16, 8 par défaut)
 ---@field apps_categories? boolean # catégories dans la grande feuille
+---@field apps_unified? boolean # le même lanceur dans tous les modes (keys.search pris à hyprland.lua) ; false : celui de hyprland.lua hors plein bureau
 ---@field launcher_group? "none"|"app"|"workspace" # lanceur : une entrée par fenêtre, par application, ou par workspace
 ---@field primary? string|false # écran principal (connecteur, ex. "DP-1") : ancre en 0×0, bureau/barre/réglages
 ---@field close_on_launch? boolean

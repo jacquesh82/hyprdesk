@@ -360,8 +360,8 @@ pub struct App {
     class_imgs: HashMap<String, IconImg>,
     class_pending: HashSet<String>,
     theme: iced::Theme,
-    key_conflicts: Vec<(String, String)>,
-    universal_binds: Vec<String>,
+    /// Raccourcis : conflits, pris à hyprland.lua, laissés (`crate::keymap`).
+    key_report: crate::keymap::Report,
     /// La submap « hyprdesk » est active (raccourcis de Hyprland suspendus).
     in_submap: bool,
     /// Surfaces passées au-dessus des fenêtres (mode verre seulement).
@@ -698,8 +698,7 @@ impl App {
             class_imgs: HashMap::new(),
             class_pending: HashSet::new(),
             theme: make_theme(&Config::default()),
-            key_conflicts: Vec::new(),
-            universal_binds: Vec::new(),
+            key_report: Default::default(),
             in_submap: false,
             windows: if preview {
                 crate::windows::WindowManager::disabled()
@@ -884,6 +883,7 @@ impl App {
         }
         // Premier chargement (catalogue vide avant), raccourcis ou flou modifiés.
         if o.keys != n.keys
+            || o.apps_launcher.unified != n.apps_launcher.unified
             || o.theme.blurred_namespaces() != n.theme.blurred_namespaces()
             || old.catalog.is_empty()
         {
@@ -1004,11 +1004,14 @@ impl App {
     /// (Ré)installe les raccourcis de hyprdesk dans Hyprland.
     fn install_keys(&self) -> Task<Msg> {
         let keys = self.cfg.general.keys.clone();
+        let unified = self.cfg.general.apps_launcher.unified;
         let blurred = self.cfg.general.theme.blurred_namespaces();
+        let config_path = self.config_path.clone();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    hypr::install_keys(&keys, &blurred).map_err(|e| e.to_string())
+                    let source = crate::keymap::load_source(&config_path);
+                    hypr::install_keys(&keys, unified, &blurred, &source).map_err(|e| e.to_string())
                 })
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
@@ -2916,27 +2919,29 @@ impl App {
             }
             Msg::KeysInstalled(r) => {
                 match r {
-                    Ok((conflicts, universal)) => {
-                        if !conflicts.is_empty() && conflicts != self.key_conflicts {
-                            let list: Vec<String> = conflicts
-                                .iter()
-                                .map(|(k, w)| crate::tr!("{k} (déjà lié à {w})", k = k, w = w))
-                                .collect();
+                    Ok(report) => {
+                        // Conflits nouveaux : dits une fois, à l'installation.
+                        let fresh: Vec<String> = report
+                            .issues
+                            .iter()
+                            .filter(|i| !self.key_report.issues.contains(i))
+                            .map(|i| i.message())
+                            .collect();
+                        if !fresh.is_empty() {
                             tracing::warn!(
                                 "{}",
-                                crate::tr!("raccourcis non installés : {p0}", p0 = list.join(", "))
+                                crate::tr!("raccourcis en conflit : {p0}", p0 = fresh.join(" ; "))
                             );
                             hypr::notify(
                                 0,
-                                8000,
+                                10000,
                                 &crate::tr!(
-                                    "hyprdesk : raccourci laissé à hyprland.lua (hyprdesk ne le pose que bureau affiché) — {p0}",
-                                    p0 = list.join(", ")
+                                    "hyprdesk : raccourcis en conflit (Réglages → Bureau → Raccourcis, ou hyprdesk keys) — {p0}",
+                                    p0 = fresh.join(" ; ")
                                 ),
                             );
                         }
-                        self.key_conflicts = conflicts;
-                        self.universal_binds = universal;
+                        self.key_report = report;
                     }
                     Err(e) => tracing::warn!("{}", crate::tr!("raccourcis : {e}", e = e)),
                 }

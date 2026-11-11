@@ -276,10 +276,23 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.switch.clone(),
         |s, v, c| { s.key_switch = Some(combo(v)?); Ok(()) },
         |s| s.key_switch = None;
-    "keys.search", "desktop", "raccourci | none — lanceur avec recherche (toutes les applications)",
+    "keys.search", "desktop", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)",
         |c| c.general.keys.search.clone(),
         |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
         |s| s.key_search = None;
+    "keys.search_desktop", "desktop", "raccourci | none — plein bureau : un autre raccourci pour le lanceur (none : keys.search)",
+        |c| c.general.keys.search_desktop.clone(),
+        |s, v, c| { s.key_search_desktop = Some(combo(v)?); Ok(()) },
+        |s| s.key_search_desktop = None;
+    "keys.take", "desktop", "raccourci,raccourci,… | none — raccourcis que hyprdesk prend à hyprland.lua (déliés là-bas)",
+        |c| c.general.keys.take.join(","),
+        |s, v, c| {
+            s.key_take = Some(if matches!(v.trim(), "none" | "") { Vec::new() } else {
+                v.split(',').map(|k| combo(k.trim())).filter(|k| !matches!(k, Ok(k) if k.is_empty())).collect::<Result<Vec<_>, _>>()?
+            });
+            Ok(())
+        },
+        |s| s.key_take = None;
     "keys.overview", "desktop", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
         |c| c.general.keys.overview.clone(),
         |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
@@ -349,6 +362,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.apps_launcher.suggestions.to_string(),
         |s, v, c| { s.apps_suggestions = Some(number(v, 0u8, 16)?); Ok(()) },
         |s| s.apps_suggestions = None;
+    "apps_unified", "launcher", "on | off — le même lanceur dans tous les modes (keys.search pris à hyprland.lua) ; off : celui de hyprland.lua hors plein bureau",
+        |c| on_off(c.general.apps_launcher.unified),
+        |s, v, c| { s.apps_unified = Some(parse_bool(v)?); Ok(()) },
+        |s| s.apps_unified = None;
     "apps_categories", "launcher", "on | off — catégories dans la grande feuille",
         |c| on_off(c.general.apps_launcher.categories),
         |s, v, c| { s.apps_categories = Some(parse_bool(v)?); Ok(()) },

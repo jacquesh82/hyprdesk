@@ -378,27 +378,6 @@ pub fn parse_combo(s: &str) -> Option<(u32, String)> {
     Some((mask, key.to_lowercase()))
 }
 
-/// Raccourci déjà pris dans Hyprland (hors submap, hors ceux de hyprdesk).
-pub fn conflicts_with(binds: &Value, combo: &str) -> Option<String> {
-    let (mask, key) = parse_combo(combo)?;
-    binds.as_array()?.iter().find_map(|b| {
-        let same = b["modmask"].as_u64() == Some(mask as u64)
-            && b["key"].as_str().is_some_and(|k| k.to_lowercase() == key)
-            && b["submap"].as_str().unwrap_or("").is_empty()
-            && !b["description"]
-                .as_str()
-                .unwrap_or("")
-                .starts_with("hyprdesk");
-        same.then(|| {
-            b["dispatcher"]
-                .as_str()
-                .unwrap_or("?")
-                .replace("HL.Dispatcher(", "")
-                .replace(')', "")
-        })
-    })
-}
-
 /// Raccourcis de Hyprland marqués `submap_universal` : ils restent actifs
 /// sur le bureau. Rendus lisibles (« SUPER + eacute → focus »).
 pub fn universal_binds(binds: &Value) -> Vec<String> {
@@ -466,7 +445,7 @@ pub fn build_keys_lua(
     keys: &crate::config::Keys,
     blurred: &[&str],
     exe: &str,
-    skip: &[String],
+    plan: &crate::keymap::Plan,
     ws_mod: &str,
 ) -> String {
     let q = |s: &str| format!("\"{}\"", ipc::lua_escape(s));
@@ -477,71 +456,69 @@ pub fn build_keys_lua(
          local function keep(b) table.insert(__hyprdesk_binds, b) end\n\
          local function leave(c) return function() hl.dispatch(hl.dsp.submap(\"reset\")) hl.dispatch(hl.dsp.exec_cmd(c)) end end\n",
     );
-    let usable = |k: &String| !k.is_empty() && !skip.contains(k);
-    // Verrouillage : par défaut celui de hyprland.lua. Réglé dans hyprdesk, il
-    // le remplace (la combinaison est libérée) ; retiré ou changé, Hyprland
-    // relit sa config pour rendre le raccourci d'origine, puis hyprdesk se réinstalle.
-    let lock = if keys.lock.is_empty() {
-        "nil".to_string()
-    } else {
-        q(&keys.lock)
-    };
+    // Combinaisons prises à hyprland.lua (keys.take, verrouillage réglé,
+    // lanceur unifié) : déliées avant de poser celles de hyprdesk. Une
+    // combinaison rendue : Hyprland relit sa config pour retrouver celle
+    // d'origine, puis hyprdesk se réinstalle.
+    let taken: Vec<String> = plan.take.iter().map(|k| q(k)).collect();
     lua += &format!(
-        "local lock_key = {lock}
-         if __hyprdesk_lock_key and __hyprdesk_lock_key ~= lock_key then
-             __hyprdesk_lock_key = nil
-             hl.dispatch(hl.dsp.exec_cmd(\"hyprctl reload\"))
+        "local taken = {{ {} }}
+         local now = {{}} for _, k in ipairs(taken) do now[k] = true end
+         if __hyprdesk_lock_key then __hyprdesk_taken = __hyprdesk_taken or {{ [__hyprdesk_lock_key] = true }} __hyprdesk_lock_key = nil end
+         if __hyprdesk_taken then
+             for k in pairs(__hyprdesk_taken) do
+                 if not now[k] then __hyprdesk_taken = nil hl.dispatch(hl.dsp.exec_cmd(\"hyprctl reload\")) break end
+             end
          end
-         if lock_key then pcall(function() hl.unbind(lock_key) end) __hyprdesk_lock_key = lock_key end
-"
+         for _, k in ipairs(taken) do pcall(function() hl.unbind(k) end) end
+         __hyprdesk_taken = now
+",
+        taken.join(", ")
     );
-    // Un raccourci par mode ; celui du mode en cours rend no-desktop.
-    for (k, arg, desc) in [
-        (&keys.toggle, "toggle", "full-desktop"),
-        (&keys.launcher, "toggle-launcher", "launcher-only"),
-        (&keys.hide, "hide", "no-desktop"),
-    ] {
-        if usable(k) {
-            lua += &format!(
-                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
-        }
-    }
-    // Sélecteur de fenêtres, et en arrière avec Maj (sauf si hyprland.lua les lie).
+    let bind = |lua: &mut String, indent: &str, k: &str, action: String, desc: &str| {
+        *lua += &format!(
+            "{indent}keep(hl.bind({}, {action}, {{ description = \"hyprdesk : {desc}\" }}))\n",
+            q(k)
+        );
+    };
+    let exec = |arg: &str| format!("hl.dsp.exec_cmd({})", q(&cmd(arg)));
     let switch_back = crate::switcher::with_shift(&keys.switch).unwrap_or_default();
-    for (k, arg, desc) in [
-        (&keys.switch, "switch", "fenêtres"),
-        (&switch_back, "switch prev", "fenêtres, en arrière"),
-        (&keys.search, "search", "recherche"),
-        (&keys.overview, "overview", "vue d'ensemble"),
+    // Hors plein bureau. Un raccourci par mode ; celui du mode en cours rend no-desktop.
+    for (id, k, arg, desc) in [
+        ("toggle", &keys.toggle, "toggle", "full-desktop"),
+        (
+            "launcher",
+            &keys.launcher,
+            "toggle-launcher",
+            "launcher-only",
+        ),
+        ("hide", &keys.hide, "hide", "no-desktop"),
+        ("switch", &keys.switch, "switch", "fenêtres"),
+        (
+            "switch-back",
+            &switch_back,
+            "switch prev",
+            "fenêtres, en arrière",
+        ),
+        ("search", &keys.search, "search", "lanceur d'applications"),
+        ("overview", &keys.overview, "overview", "vue d'ensemble"),
+        ("settings", &keys.settings, "settings", "réglages"),
+        ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
-        if usable(k) {
-            lua += &format!(
-                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
+        if plan.outside(id, k) {
+            bind(&mut lua, "", k, exec(arg), desc);
         }
     }
-    for (k, arg, desc) in [
-        (&keys.settings, "settings", "réglages"),
-        (&keys.lock, "lock", "verrouiller"),
-    ] {
-        if usable(k) {
-            lua += &format!(
-                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
-        }
-    }
-    // Touches multimédia : actives écran verrouillé (`locked`) ; hors submap,
-    // seulement celles que hyprland.lua ne lie pas déjà (`skip`).
-    let media = |lua: &mut String, indent: &str, skip: &[String]| {
+    // Touches multimédia : actives écran verrouillé (`locked`), là où
+    // hyprland.lua ne les lie pas déjà.
+    let media = |lua: &mut String, indent: &str, inside: bool| {
         for (k, arg, repeating) in MEDIA_KEYS {
-            if keys.media && !skip.iter().any(|s| s == k) {
+            let ok = if inside {
+                plan.desktop("media", k)
+            } else {
+                plan.outside("media", k)
+            };
+            if keys.media && ok {
                 *lua += &format!(
                     "{indent}keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ locked = true, repeating = {repeating}, description = \"hyprdesk : touche multimédia\" }}))\n",
                     q(k),
@@ -550,61 +527,51 @@ pub fn build_keys_lua(
             }
         }
     };
-    media(&mut lua, "", skip);
-    // Dans la submap, les raccourcis de Hyprland sont suspendus : un raccourci
-    // déjà pris hors de la submap n'y est pas en conflit, il s'installe.
-    let usable = |k: &String| !k.is_empty();
+    media(&mut lua, "", false);
+    // Dans la submap (full-desktop), les raccourcis de Hyprland sont
+    // suspendus, sauf ceux marqués submap_universal.
     lua += &format!("hl.define_submap({}, function()\n", q(SUBMAP));
-    // Dans la submap (full-desktop, raccourcis suspendus) : chaque raccourci
-    // rend d'abord la main, puis change de mode.
-    for (k, arg, desc) in [
-        (&keys.toggle, "hide", "no-desktop"),
-        (&keys.launcher, "launcher-only", "launcher-only"),
-        (&keys.hide, "hide", "no-desktop"),
-        (&keys.leave, "hide", "sortie de secours"),
+    let leave = |arg: &str| format!("leave({})", q(&cmd(arg)));
+    // Chaque raccourci de mode rend d'abord la main, puis change de mode.
+    for (id, k, arg, desc) in [
+        ("toggle", &keys.toggle, "hide", "no-desktop"),
+        ("launcher", &keys.launcher, "launcher-only", "launcher-only"),
+        ("hide", &keys.hide, "hide", "no-desktop"),
+        ("leave", &keys.leave, "hide", "sortie de secours"),
     ] {
-        if usable(k) {
-            lua += &format!(
-                "  keep(hl.bind({}, leave({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
+        if plan.desktop(id, k) {
+            bind(&mut lua, "  ", k, leave(arg), desc);
         }
     }
-    // Réglages et verrouillage ne changent pas de mode : la submap reste active.
+    // Réglages, verrouillage, lanceur, fenêtres : la submap reste active.
     // Verrouillage non réglé : la combinaison de hyprland.lua (posée par
-    // l'installation), suspendue avec les autres dans la submap.
+    // l'installation), suspendue avec les autres dans la submap. Lanceur :
+    // celui du plein bureau s'il est réglé.
     let submap_lock = if keys.lock.is_empty() {
         LOCK_KEY_DEFAULT.to_string()
     } else {
         keys.lock.clone()
     };
-    for (k, arg, desc) in [
-        (&keys.settings, "settings", "réglages"),
-        (&submap_lock, "lock", "verrouiller"),
+    let (search_id, desk_search) = if keys.search_desktop.trim().is_empty() {
+        ("search", &keys.search)
+    } else {
+        ("search-desktop", &keys.search_desktop)
+    };
+    for (id, k, arg, desc) in [
+        ("settings", &keys.settings, "settings", "réglages"),
+        ("lock", &submap_lock, "lock", "verrouiller"),
+        (search_id, desk_search, "search", "lanceur d'applications"),
+        ("switch", &keys.switch, "switch", "fenêtres"),
+        (
+            "switch-back",
+            &switch_back,
+            "switch prev",
+            "fenêtres, en arrière",
+        ),
+        ("overview", &keys.overview, "overview", "vue d'ensemble"),
     ] {
-        if usable(k) {
-            lua += &format!(
-                "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
-        }
-    }
-    // Recherche, applications, fenêtres : ils ne changent pas de mode.
-    let switch_back = crate::switcher::with_shift(&keys.switch).unwrap_or_default();
-    for (k, arg, desc) in [
-        (&keys.search, "search", "recherche"),
-        (&keys.switch, "switch", "fenêtres"),
-        (&switch_back, "switch prev", "fenêtres, en arrière"),
-        (&keys.overview, "overview", "vue d'ensemble"),
-    ] {
-        if usable(k) {
-            lua += &format!(
-                "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
-                q(k),
-                q(&cmd(arg))
-            );
+        if plan.desktop(id, k) {
+            bind(&mut lua, "  ", k, exec(arg), desc);
         }
     }
     // Changer de workspace reste possible bureau affiché : la rangée des
@@ -619,8 +586,9 @@ pub fn build_keys_lua(
             );
         }
     }
-    // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les tient toutes.
-    media(&mut lua, "  ", &[]);
+    // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les
+    // tient, sauf celles marquées submap_universal.
+    media(&mut lua, "  ", true);
     lua += "end)\n";
     // Surfaces floutées selon le thème (barre, menus, lanceur, réglages),
     // menus sans animation d'apparition.
@@ -640,54 +608,40 @@ pub fn build_keys_lua(
     lua
 }
 
-/// Installe les raccourcis ; rend les conflits (raccourci, action déjà liée)
-/// et les raccourcis universels de Hyprland.
-pub type KeyReport = (Vec<(String, String)>, Vec<String>);
+/// Installe les raccourcis ; rend ce qui les gêne (`crate::keymap`).
+pub type KeyReport = crate::keymap::Report;
 
 pub fn install_keys(
     keys: &crate::config::Keys,
+    unified: bool,
     blurred: &[&str],
+    source: &[crate::keymap::SourceBind],
 ) -> Result<KeyReport, ipc::IpcError> {
     let binds = ipc::query_json("binds")?;
-    let mut conflicts = Vec::new();
-    // Le raccourci de verrouillage réglé dans hyprdesk remplace celui de
-    // hyprland.lua (build_keys_lua) : jamais en conflit.
-    for k in [
-        &keys.toggle,
-        &keys.launcher,
-        &keys.hide,
-        &keys.settings,
-        &keys.leave,
-        &keys.search,
-        &keys.switch,
-        &keys.overview,
-    ] {
-        if !k.is_empty()
-            && let Some(what) = conflicts_with(&binds, k)
-            && !conflicts.iter().any(|(c, _): &(String, String)| c == k)
-        {
-            conflicts.push((k.clone(), what));
-        }
-    }
-    let mut skip: Vec<String> = conflicts.iter().map(|(k, _)| k.clone()).collect();
-    // Touches multimédia déjà liées par hyprland.lua : laissées à leur
-    // commande hors du bureau, sans être signalées comme conflit.
-    skip.extend(
-        MEDIA_KEYS
-            .iter()
-            .filter(|(k, _, _)| conflicts_with(&binds, k).is_some())
-            .map(|(k, _, _)| k.to_string()),
-    );
+    let (mut report, plan) = crate::keymap::analyse(keys, unified, &binds, source);
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
     let ws_mod = workspace_modifier(&binds);
-    let r = ipc::eval(&build_keys_lua(keys, blurred, &exe, &skip, &ws_mod))?;
+    let r = ipc::eval(&build_keys_lua(keys, blurred, &exe, &plan, &ws_mod))?;
     if r.trim() != "ok" {
         tracing::warn!("{}", crate::tr!("installation des raccourcis : {r}", r = r));
     }
     let after = ipc::query_json("binds").unwrap_or(binds);
-    Ok((conflicts, universal_binds(&after)))
+    report.universal = universal_binds(&after);
+    Ok(report)
+}
+
+/// `hyprdesk keys` : analyse sans rien installer.
+pub fn key_report(
+    keys: &crate::config::Keys,
+    unified: bool,
+    source: &[crate::keymap::SourceBind],
+) -> Result<KeyReport, ipc::IpcError> {
+    let binds = ipc::query_json("binds")?;
+    let (mut report, _) = crate::keymap::analyse(keys, unified, &binds, source);
+    report.universal = universal_binds(&binds);
+    Ok(report)
 }
 
 /// Touches de la rangée des chiffres (AZERTY, QWERTY, QWERTZ…).
@@ -1635,12 +1589,13 @@ mod tests {
                 {"modmask":64,"key":"D","submap":"hyprdesk","description":"","dispatcher":"HL.Dispatcher(exec_cmd)","submap_universal":"false"}]"#,
         )
         .unwrap();
-        assert_eq!(
-            conflicts_with(&binds, "SUPER + q").as_deref(),
-            Some("close")
-        );
         // Nos propres raccourcis et ceux d'une autre submap ne sont pas des conflits.
-        assert_eq!(conflicts_with(&binds, "SUPER + D"), None);
+        let f = crate::keymap::foreign(&binds);
+        assert!(
+            f.iter()
+                .any(|f| f.combo == (64, "q".into()) && f.what == "close")
+        );
+        assert!(!f.iter().any(|f| f.combo == (64, "d".into())));
         assert_eq!(
             universal_binds(&binds),
             vec!["SUPER + eacute → focus".to_string()]
@@ -1656,7 +1611,7 @@ mod tests {
             &k,
             &[],
             "/bin/hyprdesk",
-            &["XF86AudioRaiseVolume".into()],
+            &crate::keymap::Plan::skipping(&["XF86AudioRaiseVolume"]),
             "SUPER",
         );
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();
@@ -1667,7 +1622,10 @@ mod tests {
         assert!(submap.contains(r#"hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("'/bin/hyprdesk' media play-pause"), { locked = true, repeating = false"#));
         // Coupées : aucune.
         let off = crate::config::Keys { media: false, ..k };
-        assert!(!build_keys_lua(&off, &[], "/bin/hyprdesk", &[], "SUPER").contains("XF86"));
+        assert!(
+            !build_keys_lua(&off, &[], "/bin/hyprdesk", &Default::default(), "SUPER")
+                .contains("XF86")
+        );
         for (key, _, _) in MEDIA_KEYS {
             assert!(parse_combo(key).is_some(), "{key}");
         }
@@ -1686,14 +1644,11 @@ mod tests {
             search: "SUPER + Space".into(),
             overview: "SUPER + Tab".into(),
             media: true,
+            ..Default::default()
         };
-        let lua = build_keys_lua(
-            &k,
-            &["hyprdesk-bar"],
-            "/bin/hyprdesk",
-            &["SUPER + SHIFT + D".to_string()],
-            "SUPER",
-        );
+        let mut plan = crate::keymap::Plan::skipping(&["SUPER + SHIFT + D"]);
+        plan.take = vec!["SUPER + L".into()];
+        let lua = build_keys_lua(&k, &["hyprdesk-bar"], "/bin/hyprdesk", &plan, "SUPER");
         assert!(
             lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
             "{lua}"
@@ -1747,16 +1702,16 @@ mod tests {
         assert!(lua.contains(r#"hl.bind("SUPER + D", leave("'/bin/hyprdesk' hide")"#));
         // Verrouillage réglé : la combinaison de hyprland.lua est libérée, puis liée.
         assert!(
-            lua.contains(r#"local lock_key = "SUPER + L""#)
-                && lua.contains("hl.unbind(lock_key)")
+            lua.contains(r#"local taken = { "SUPER + L" }"#)
+                && lua.contains("hl.unbind(k)")
                 && lua.contains(r#"hl.bind("SUPER + L", hl.dsp.exec_cmd("'/bin/hyprdesk' lock")"#),
             "{lua}"
         );
         // Non réglé : rien de lié ; s'il l'était, Hyprland relit sa config.
         let mut none = k.clone();
         none.lock.clear();
-        let lua = build_keys_lua(&none, &[], "/bin/hyprdesk", &[], "SUPER");
-        assert!(lua.contains("local lock_key = nil") && lua.contains("hyprctl reload"));
+        let lua = build_keys_lua(&none, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        assert!(lua.contains("local taken = {  }") && lua.contains("hyprctl reload"));
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();
         assert!(!main.contains("' lock\")"), "{lua}");
         // … sauf dans la submap, où celui de hyprland.lua est suspendu.
@@ -1765,7 +1720,7 @@ mod tests {
             "{lua}"
         );
         // Réglages : hors submap et dans la submap, sans la quitter.
-        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[], "SUPER");
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
         assert!(!lua.contains("blur = true"), "aucun flou demandé : {lua}");
         assert_eq!(
             lua.matches(
@@ -1846,7 +1801,7 @@ mod tests {
         assert_eq!(workspace_modifier(&alt), "SUPER + ALT");
         assert_eq!(workspace_modifier(&serde_json::json!([])), "SUPER");
         let k = crate::config::Keys::default();
-        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[], "SUPER");
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
         let sub = &lua[lua.find("hl.define_submap").unwrap()..];
         assert!(sub.contains(r#"hl.bind("SUPER + code:10", hl.dsp.focus({ workspace = 1 })"#));
         assert!(sub.contains(r#"hl.bind("SUPER + code:19", hl.dsp.focus({ workspace = 10 })"#));

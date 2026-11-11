@@ -39,7 +39,7 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub fonts: Vec<String>,
-    pub keys: [String; 9],
+    pub keys: [String; 10],
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
@@ -67,6 +67,10 @@ pub enum Msg {
     /// Saisie d'un raccourci (0 full-desktop, 1 réglages, 2 secours, 3 launcher-only, 4 no-desktop).
     KeyInput(usize, String),
     KeySubmit(usize),
+    /// Raccourci en conflit avec hyprland.lua : hyprdesk le prend (keys.take)…
+    TakeKey(String),
+    /// … ou le rend.
+    ReleaseKey(String),
     ComponentRestart(String),
     FloatLaunched(bool),
     /// Agent polkit concurrent : « Prendre la main » (pid), puis confirmation.
@@ -295,6 +299,7 @@ impl App {
         };
         let mut col = column![
             self.section("Raccourcis"),
+            self.key_conflicts_view(),
             self.adv(self.field(
                 "Bureau affiché : suspendre les raccourcis de Hyprland",
                 "suspend_binds",
@@ -305,7 +310,8 @@ impl App {
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
             key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
-            key_field(6, crate::i18n::tr("Recherche (toutes les applications)"), "keys.search"),
+            key_field(6, crate::i18n::tr("Lanceur d'applications (tous les modes)"), "keys.search"),
+            key_field(9, crate::i18n::tr("Lanceur d'applications en plein bureau (vide : le même)"), "keys.search_desktop"),
             key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
             self.adv(self.field(
@@ -339,44 +345,126 @@ impl App {
         if let Some(e) = &p.desktop.key_error {
             col = col.push(text(e.clone()).font(self.font).size(12).color(warn));
         }
-        for (k, what) in &self.key_conflicts {
-            let msg = crate::tr!(
-                "{k} est déjà lié à « {what} » dans hyprland.lua : hyprdesk ne l'installe que bureau affiché (raccourcis de Hyprland suspendus). Pour qu'il agisse partout, retirez-le de hyprland.lua ou choisissez-en un autre.",
-                k = k,
-                what = what
-            );
-            let prompt = crate::takeover::ask_prompt(
-                &crate::tr!("le raccourci {k}", k = k),
-                &crate::tr!("hyprland.lua, qui le lie à « {what} »", what = what),
-            );
-            col = col.push(
-                row![
-                    text(msg)
-                        .font(self.font)
-                        .size(12)
-                        .color(warn)
-                        .width(Length::Fill),
-                    self.lyra_button(crate::i18n::tr("Raccourcis"), prompt),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
-        }
         col = col.push(
             text("Raccourcis de Hyprland actifs sur le bureau")
                 .font(self.font)
                 .size(14)
                 .color(fg),
         );
-        if self.universal_binds.is_empty() {
+        if self.key_report.universal.is_empty() {
             col = col.push(
                 text("Aucun. Pour garder un raccourci (ex. changer de workspace), ajoutez { submap_universal = true } à son hl.bind dans hyprland.lua.").font(self.font)
                     .size(12)
                     .color(dim),
             );
         }
-        for b in &self.universal_binds {
+        for b in &self.key_report.universal {
             col = col.push(text(b.clone()).font(self.font).size(12).color(dim));
+        }
+        col.into()
+    }
+
+    /// Conflits de raccourcis (`crate::keymap`) : chacun avec ses issues —
+    /// hyprdesk le prend, LYRA ; puis ceux que hyprdesk a pris à hyprland.lua.
+    pub(in crate::ui) fn key_conflicts_view(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let r = &self.key_report;
+        let mut col = column![].spacing(10);
+        if !r.issues.is_empty() {
+            col = col.push(
+                row![
+                    text(crate::tr!(
+                        "Conflits de raccourcis : {n}",
+                        n = r.issues.len()
+                    ))
+                    .font(self.font)
+                    .size(14)
+                    .color(warn)
+                    .width(Length::Fill),
+                    self.lyra_button(crate::i18n::tr("Raccourcis"), crate::keymap::lyra_prompt(r)),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
+        for i in &r.issues {
+            let mut line = row![
+                text(i.message())
+                    .font(self.font)
+                    .size(12)
+                    .color(warn)
+                    .width(Length::Fill),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            if i.holder().is_some() {
+                line = line.push(
+                    button(
+                        text(crate::i18n::tr("hyprdesk le prend"))
+                            .font(self.font)
+                            .size(12),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::TakeKey(i.action.combo.clone()))),
+                );
+            }
+            col = col.push(line);
+        }
+        if !r.taken.is_empty() {
+            col = col.push(
+                text(crate::i18n::tr("Pris à hyprland.lua par hyprdesk"))
+                    .font(self.font)
+                    .size(14)
+                    .color(fg),
+            );
+        }
+        for h in &r.taken {
+            let mut line = row![
+                text(crate::tr!(
+                    "{k} : « {label} », à la place de {h}",
+                    k = h.action.combo,
+                    label = crate::i18n::tr(h.action.label),
+                    h = h.holder.describe()
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim)
+                .width(Length::Fill),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            // Rendu ici seulement s'il a été pris ici (keys.take) ; le
+            // lanceur unifié se règle dans Lanceur, le verrouillage plus haut.
+            if g.keys
+                .take
+                .iter()
+                .any(|t| crate::keymap::norm(t) == crate::keymap::norm(&h.action.combo))
+            {
+                line = line.push(
+                    button(text(crate::i18n::tr("Rendre")).font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::ReleaseKey(h.action.combo.clone()))),
+                );
+            }
+            col = col.push(line);
+        }
+        for h in &r.left {
+            col = col.push(
+                text(crate::tr!(
+                    "{k} : {h} hors plein bureau, « {label} » bureau affiché (lanceur non unifié).",
+                    k = h.action.combo,
+                    h = h.holder.describe(),
+                    label = crate::i18n::tr(h.action.label)
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
         }
         col.into()
     }
@@ -777,6 +865,33 @@ impl App {
                     ));
                     return Task::none();
                 }
+                // Déjà la combinaison d'une autre action de hyprdesk : refusée.
+                let mut keys = self.cfg.general.keys.clone();
+                let (edited, target) = match i {
+                    0 => ("keys.toggle", &mut keys.toggle),
+                    1 => ("keys.settings", &mut keys.settings),
+                    3 => ("keys.launcher", &mut keys.launcher),
+                    4 => ("keys.hide", &mut keys.hide),
+                    5 => ("keys.lock", &mut keys.lock),
+                    6 => ("keys.search", &mut keys.search),
+                    7 => ("keys.switch", &mut keys.switch),
+                    8 => ("keys.overview", &mut keys.overview),
+                    9 => ("keys.search_desktop", &mut keys.search_desktop),
+                    _ => ("keys.leave", &mut keys.leave),
+                };
+                *target = v.clone();
+                if let Some(other) = crate::keymap::duplicate_of(
+                    &keys,
+                    self.cfg.general.apps_launcher.unified,
+                    edited,
+                ) {
+                    panel.desktop.key_error = Some(crate::tr!(
+                        "« {v} » sert déjà à « {other} » : choisissez une autre combinaison.",
+                        v = v,
+                        other = crate::i18n::tr(other)
+                    ));
+                    return Task::none();
+                }
                 match i {
                     0 => self.settings.key_toggle = Some(v),
                     1 => self.settings.key_settings = Some(v),
@@ -786,8 +901,25 @@ impl App {
                     6 => self.settings.key_search = Some(v),
                     7 => self.settings.key_switch = Some(v),
                     8 => self.settings.key_overview = Some(v),
+                    9 => self.settings.key_search_desktop = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
+                self.commit()
+            }
+            Msg::TakeKey(k) => {
+                let mut list = self.cfg.general.keys.take.clone();
+                if !list.contains(&k) {
+                    list.push(k);
+                }
+                self.settings.key_take = Some(list);
+                self.commit()
+            }
+            Msg::ReleaseKey(k) => {
+                let mut list = self.cfg.general.keys.take.clone();
+                list.retain(|t| {
+                    !crate::keymap::norm(t).is_some_and(|n| Some(n) == crate::keymap::norm(&k))
+                });
+                self.settings.key_take = Some(list);
                 self.commit()
             }
             Msg::ComponentRestart(name) => {

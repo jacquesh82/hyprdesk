@@ -7,7 +7,7 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, overview?: string|false, media?: boolean }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, take?: string[]|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field clipboard_history? boolean # clipboard history: hyprdesk runs cliphist (":clip" in search)
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # plugin options (Settings → Plugins → Configure), for every instance except options written on the instance
@@ -32,6 +32,7 @@
 ---@field apps_style? "auto"|"plein"|"central" # application launcher: large sheet in full-desktop and centered card otherwise (auto), or always one of them
 ---@field apps_suggestions? integer # most launched applications highlighted (0 to 16, 8 by default)
 ---@field apps_categories? boolean # categories in the large sheet
+---@field apps_unified? boolean # the same launcher in every mode (keys.search taken from hyprland.lua); false: hyprland.lua's one outside the full desktop
 ---@field launcher_group? "none"|"app"|"workspace" # launcher: one entry per window, per application, or per workspace
 ---@field primary? string|false # primary screen (connector, e.g. "DP-1"): anchored at 0×0, desktop/bar/settings
 ---@field close_on_launch? boolean

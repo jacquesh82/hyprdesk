@@ -206,6 +206,7 @@ impl App {
             k.search.clone(),
             k.switch.clone(),
             k.overview.clone(),
+            k.search_desktop.clone(),
         ];
         self.panel = Some(p);
         let from = self

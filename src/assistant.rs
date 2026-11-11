@@ -262,6 +262,25 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
             LauncherGroup::Workspace => "workspace",
         }
     );
+    o += &crate::tr!(
+        "\n## Raccourcis\n\nLanceur d'applications : `{p0}`, {p1} ; plein bureau : `{p2}`. Où agit chaque raccourci de hyprdesk, et les conflits avec hyprland.lua : `hyprdesk keys`. Une combinaison de hyprland.lua prise par hyprdesk : `keys.take` ({p3}).\n",
+        p0 = g.keys.search,
+        p1 = if g.apps_launcher.unified {
+            crate::i18n::tr("le même dans tous les modes (apps_unified)")
+        } else {
+            crate::i18n::tr("celui de hyprland.lua hors plein bureau (apps_unified = false)")
+        },
+        p2 = if g.keys.search_desktop.is_empty() {
+            &g.keys.search
+        } else {
+            &g.keys.search_desktop
+        },
+        p3 = if g.keys.take.is_empty() {
+            crate::i18n::tr("aucune").to_string()
+        } else {
+            g.keys.take.join(", ")
+        }
+    );
     o += "\n## Workspaces\n\n";
     o += &format!(
         "- permanents : {}\n",
