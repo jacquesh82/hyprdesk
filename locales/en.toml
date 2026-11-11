@@ -1553,8 +1553,9 @@
 # Écran de connexion graphique (MLG-23).
 "greetd injoignable." = "greetd unreachable."
 "Identifiant" = "Username"
-"  greeter [--tty]   écran de connexion pour greetd (connexion, choix de session) ;" = "  greeter [--tty]   login screen for greetd (login, session choice);"
-"                    --tty : au terminal" = "                    --tty: in the terminal"
+"  greeter [--tty | --demo]" = "  greeter [--tty | --demo]"
+"                    écran de connexion pour greetd (connexion, choix de l'environnement) ;" = "                    login screen for greetd (login, desktop environment choice);"
+"                    --tty : au terminal ; --demo : sans greetd, pour l'essayer" = "                    --tty: in the terminal; --demo: without greetd, to try it out"
 
 # Calendrier : navigation entre les mois (MLG-24).
 "Aujourd'hui" = "Today"
@@ -1592,3 +1593,8 @@
 "Empreinte digitale au verrouillage" = "Fingerprint on the lock screen"
 "Écran de connexion (hyprdesk greeter)" = "Login screen (hyprdesk greeter)"
 "Écran de connexion graphique (cage -s -- hyprdesk greeter)" = "Graphical login screen (cage -s -- hyprdesk greeter)"
+"Démo : la session « {s} » serait ouverte pour {u}." = "Demo: the “{s}” session would be opened for {u}."
+"Démo : rien n'est vérifié ni lancé. Échap pour quitter." = "Demo: nothing is checked or started. Escape to quit."
+"Quitter la démo" = "Quit the demo"
+"Environnement" = "Environment"
+"Mot de passe :" = "Password:"
