@@ -249,7 +249,7 @@ de recherche, le premier trouvé l'emporte :
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `majs`, `supports`, `nuit`, `notifications`,
+Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `majs`, `supports`, `nuit`, `vkbd`, `notifications`,
 `session`) sont intégrés au binaire, et un fichier du même nom les remplace.
 
 ```lua

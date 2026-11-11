@@ -143,6 +143,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "wvkbd",
+        probe: Probe::Program(&["wvkbd-mobintl", "wvkbd-deskintl", "wvkbd"]),
+        package: "wvkbd",
+        feature: "Clavier virtuel (accessibilité)",
+        essential: false,
+    },
+    Dep {
         name: "udisksctl",
         probe: Probe::Program(&["udisksctl"]),
         package: "udisks2",

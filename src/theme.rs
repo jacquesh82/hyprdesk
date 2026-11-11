@@ -95,7 +95,37 @@ pub const PRESETS: &[Preset] = &[
         opacity: [0.82, 0.95, 0.92, 0.98, 0.90],
         blur: true,
     },
+    // Accessibilité (MLG-20) : blanc sur noir, accent jaune, surfaces
+    // opaques et sans flou ; contrastes WCAG AAA (≥ 7:1), vérifiés en test.
+    Preset {
+        name: "Contraste élevé",
+        fg: Rgba(0xff, 0xff, 0xff, 0xff),
+        bg: Rgba(0x00, 0x00, 0x00, 0xff),
+        accent: Rgba(0xff, 0xd4, 0x00, 0xff),
+        opacity: [1.0, 1.0, 1.0, 1.0, 1.0],
+        blur: false,
+    },
 ];
+
+/// Luminance relative WCAG d'une couleur.
+pub fn luminance(c: Rgba) -> f64 {
+    let lin = |v: u8| {
+        let s = v as f64 / 255.0;
+        if s <= 0.039_28 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
+}
+
+/// Rapport de contraste WCAG entre deux couleurs (1 à 21).
+pub fn contrast(a: Rgba, b: Rgba) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
 
 /// Résumé d'un thème, lisible sans charger son Lua (manifeste d'archive).
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -587,6 +617,19 @@ pub fn create(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn contraste_eleve_aaa() {
+        let p = PRESETS
+            .iter()
+            .find(|p| p.name == "Contraste élevé")
+            .expect("préréglage");
+        assert!(contrast(p.fg, p.bg) >= 7.0);
+        assert!(contrast(p.accent, p.bg) >= 7.0);
+        assert!(p.opacity.iter().all(|o| *o == 1.0) && !p.blur);
+        assert!((contrast(Rgba(0, 0, 0, 255), Rgba(255, 255, 255, 255)) - 21.0).abs() < 0.01);
+    }
+
     use super::*;
 
     /// Retirer un thème le met de côté (récupérable) ; hors de « Mes thèmes », refusé.

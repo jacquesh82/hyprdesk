@@ -251,7 +251,7 @@ folders, the first match wins:
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `majs`, `supports`, `nuit`, `notifications`,
+The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `majs`, `supports`, `nuit`, `vkbd`, `notifications`,
 `session`) are built into the binary, and a file with the same name replaces them.
 
 ```lua

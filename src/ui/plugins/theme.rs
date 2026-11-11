@@ -478,7 +478,28 @@ impl App {
 
         match self.subtab(INFO.id) {
             "couleurs" => {
-                return column![self.section("Couleurs"), colors].spacing(14).into();
+                // Accessibilité : contraste du texte sur les surfaces (WCAG AA : 4,5:1).
+                let ratio = crate::theme::contrast(th.fg, th.bg);
+                let note = if ratio < 4.5 {
+                    text(crate::tr!(
+                        "Contraste faible : {r}:1 (au moins 4,5:1 conseillé ; thème « Contraste élevé » : 21:1).",
+                        r = format!("{ratio:.1}")
+                    ))
+                    .font(font)
+                    .size(12)
+                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                } else {
+                    text(crate::tr!(
+                        "Contraste du texte : {r}:1.",
+                        r = format!("{ratio:.1}")
+                    ))
+                    .font(font)
+                    .size(12)
+                    .color(dim)
+                };
+                return column![self.section("Couleurs"), colors, note]
+                    .spacing(14)
+                    .into();
             }
             "texte" => return self.typography(),
             "effets" => {

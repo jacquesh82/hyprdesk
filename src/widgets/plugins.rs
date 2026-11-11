@@ -50,6 +50,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/integres/nuit.lua"),
     ),
     (
+        "vkbd",
+        include_str!("../../assets/widgets/integres/vkbd.lua"),
+    ),
+    (
         "notifications",
         include_str!("../../assets/widgets/integres/notifications.lua"),
     ),

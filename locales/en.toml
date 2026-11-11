@@ -1501,3 +1501,15 @@
 "Mettre à la corbeille" = "Move to trash"
 "Copier le chemin" = "Copy path"
 "Réglages du bureau…" = "Desktop settings…"
+
+# Accessibilité : contraste élevé, clavier virtuel (MLG-20).
+"Contraste élevé" = "High contrast"
+"Contraste faible : {r}:1 (au moins 4,5:1 conseillé ; thème « Contraste élevé » : 21:1)." = "Low contrast: {r}:1 (at least 4.5:1 advised; “High contrast” theme: 21:1)."
+"Contraste du texte : {r}:1." = "Text contrast: {r}:1."
+"Clavier virtuel" = "On-screen keyboard"
+"Affiche ou masque le clavier à l'écran (wvkbd)." = "Shows or hides the on-screen keyboard (wvkbd)."
+"Clavier virtuel — clic : afficher ou masquer" = "On-screen keyboard — click: show or hide"
+"wvkbd n'est pas installé" = "wvkbd is not installed"
+"Afficher ou masquer" = "Show or hide"
+"Quitter le clavier" = "Quit the keyboard"
+"Clavier virtuel (accessibilité)" = "On-screen keyboard (accessibility)"
