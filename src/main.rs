@@ -907,7 +907,10 @@ fn main() -> ExitCode {
         "greeter" if args.get(1).is_none() => greeter_ui::run(false),
         // Mise en place (Réglages → Écran de connexion), en root par pkexec.
         "greeter" if args.get(1).map(String::as_str) == Some("setup") => {
-            match greeter_setup::cli(args.get(2).map(String::as_str)) {
+            match greeter_setup::cli(
+                args.get(2).map(String::as_str),
+                args.get(3).map(String::as_str),
+            ) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("{}", crate::tr!("hyprdesk greeter setup : {e}", e = e));

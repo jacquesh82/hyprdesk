@@ -239,7 +239,7 @@ unlock it:
 (length-prefixed JSON on `$GREETD_SOCK`) and lists the `wayland-sessions` and
 `xsessions` entries. It runs under the compositor greetd starts, for example
 `cage -s -- hyprdesk greeter`. `--tty` runs it in a terminal and `--demo` runs
-it without greetd.
+it without greetd. It offers suspend, restart and shut down.
 
 **Settings → Login screen** sets it up in place of GDM (or SDDM, LightDM…).
 It shows the login manager in use and the pieces greetd needs, then does
@@ -248,7 +248,14 @@ each system step through `pkexec hyprdesk greeter setup <action>`:
 - `packages` installs greetd and cage;
 - `install` copies hyprdesk to `/usr/local/bin`, because the `greeter` user
   cannot read `~/.local/bin`. It then writes `/etc/greetd/config.toml`. A file
-  from another tool is kept once as `config.toml.bak`;
+  from another tool is kept once as `config.toml.bak`. It also installs the
+  screen profile `/etc/greetd/hyprdesk.json`, taken from your session: the
+  keyboard layout is passed to cage (`XKB_DEFAULT_*`), so the password is not
+  typed in QWERTY, along with the theme colors. It adds its own lines to
+  `/etc/pam.d/greetd`: fingerprint (`pam_fprintd`, opt-in, 10 s before the
+  password) and the myMFA keyring (`pam_mymfa`, when the myMFA Linux client is
+  installed). It creates `/var/lib/hyprdesk-greeter`, where the screen
+  remembers the last user and session;
 - `enable` disables the current manager and enables greetd. This happens at
   the next boot, so the open session is not cut off. It is refused while a
   piece is missing;

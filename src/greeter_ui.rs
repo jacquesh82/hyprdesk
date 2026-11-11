@@ -46,6 +46,28 @@ pub enum GMsg {
     Quit,
     /// Tab (Maj + Tab : `true`) : champ suivant ou précédent.
     FocusNext(bool),
+    /// Veille, redémarrage, extinction (`systemctl suspend|reboot|poweroff`).
+    Power(&'static str),
+    PowerFailed(String),
+}
+
+/// Dernière connexion réussie (dossier d'état du greeter).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Last {
+    user: String,
+    session: String,
+}
+
+fn last_path() -> std::path::PathBuf {
+    std::path::Path::new(crate::greeter_setup::STATE_DIR).join("dernier.json")
+}
+
+fn read_last() -> Last {
+    std::fs::read_to_string(last_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 /// Entrée de la liste des sessions.
@@ -115,16 +137,26 @@ fn send(stream: Arc<Mutex<Option<UnixStream>>>, req: Request) -> Task<GMsg> {
 impl Greeter {
     pub fn new() -> Self {
         let sessions = greeter::sessions();
+        // Profil posé par Réglages → Écran de connexion (thème de
+        // l'utilisateur), et dernière connexion : identifiant et session.
+        let theme = crate::greeter_setup::Profile::installed()
+            .map(|p| p.theme())
+            .unwrap_or_default();
+        let last = read_last();
+        let session = sessions
+            .iter()
+            .position(|s| s.id == last.session)
+            .unwrap_or(0);
         Greeter {
             font: crate::fonts::DEFAULT,
             title_font: Font {
                 weight: iced::font::Weight::Bold,
                 ..crate::fonts::DEFAULT
             },
-            theme: crate::config::Theme::default(),
+            theme,
             sessions,
-            session: 0,
-            user: String::new(),
+            session,
+            user: last.user,
             answer: String::new(),
             phase: Phase::User,
             started: false,
@@ -286,6 +318,15 @@ impl Greeter {
                 Step::Start => {
                     self.started = true;
                     let s = self.sessions.get(self.session).cloned();
+                    // Retenus pour la prochaine fois (sans effet si le dossier
+                    // d'état n'existe pas).
+                    let last = Last {
+                        user: self.user.trim().to_string(),
+                        session: s.as_ref().map(|s| s.id.clone()).unwrap_or_default(),
+                    };
+                    if let Ok(body) = serde_json::to_string(&last) {
+                        let _ = std::fs::write(last_path(), body);
+                    }
                     let (cmd, env) = match &s {
                         Some(s) => (
                             vec!["sh".into(), "-c".into(), format!("exec {}", s.exec)],
@@ -299,6 +340,48 @@ impl Greeter {
                 Step::Fail(m) => self.fail(m),
             },
             GMsg::Quit if self.demo => iced::exit(),
+            GMsg::Power(verb) => {
+                if self.demo {
+                    self.messages = vec![
+                        match verb {
+                            "suspend" => {
+                                crate::i18n::tr("Démo : l'ordinateur se mettrait en veille.")
+                            }
+                            "reboot" => crate::i18n::tr("Démo : l'ordinateur redémarrerait."),
+                            _ => crate::i18n::tr("Démo : l'ordinateur s'éteindrait."),
+                        }
+                        .to_string(),
+                    ];
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            std::process::Command::new("systemctl")
+                                .arg(verb)
+                                .output()
+                                .map_err(|e| e.to_string())
+                                .and_then(|o| {
+                                    if o.status.success() {
+                                        Ok(())
+                                    } else {
+                                        Err(String::from_utf8_lossy(&o.stderr).trim().to_string())
+                                    }
+                                })
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| match r {
+                        Ok(()) => GMsg::Tick,
+                        Err(e) => GMsg::PowerFailed(e),
+                    },
+                )
+            }
+            GMsg::PowerFailed(e) => {
+                self.error = Some(e);
+                Task::none()
+            }
             GMsg::FocusNext(back) => {
                 if back {
                     iced::widget::operation::focus_previous()
@@ -444,7 +527,46 @@ impl Greeter {
             );
         }
         let bg = rgba(th.bg, 1.0);
-        container(col)
+        let power = |label: &'static str, verb: &'static str| {
+            button(
+                text(crate::i18n::tr(label))
+                    .font(self.font)
+                    .size(13)
+                    .color(dim),
+            )
+            .padding([6, 14])
+            .style(move |_, status| button::Style {
+                background: Some(
+                    Color {
+                        a: if matches!(status, button::Status::Hovered) {
+                            0.18
+                        } else {
+                            0.0
+                        },
+                        ..accent
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(12),
+                text_color: fg,
+                ..Default::default()
+            })
+            .on_press(GMsg::Power(verb))
+        };
+        let page = column![
+            Space::new().height(Length::Fill),
+            col,
+            Space::new().height(Length::Fill),
+            row![
+                power("Veille", "suspend"),
+                power("Redémarrer", "reboot"),
+                power("Éteindre", "poweroff"),
+            ]
+            .spacing(8),
+        ]
+        .align_x(Alignment::Center)
+        .padding(24);
+        container(page)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)

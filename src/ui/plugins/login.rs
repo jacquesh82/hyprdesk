@@ -8,9 +8,9 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use crate::greeter_setup::{self, Status, dm_label};
+use crate::greeter_setup::{self, Profile, Status, dm_label};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, row};
+use iced::widget::{Space, button, column, container, row, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -38,14 +38,20 @@ pub struct State {
     pub confirm: bool,
     /// Issue de la dernière action : (réussie, message).
     pub outcome: Option<(bool, String)>,
+    /// Clavier de la session (disposition, variante, options), lu dans
+    /// Hyprland : repris par l'écran de connexion.
+    pub keyboard: (String, String, String),
+    /// Empreinte digitale à la connexion (appliquée à l'écriture).
+    pub fingerprint: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    Loaded(Status),
+    Loaded(Box<Status>, (String, String, String)),
+    Fingerprint(bool),
     /// `packages`, `install`, `enable`, `restore`.
     Act(&'static str),
-    Done(&'static str, Result<(), String>, Status),
+    Done(&'static str, Result<(), String>, Box<Status>),
     /// Bascule : demande (true) ou annulation (false) de la confirmation.
     Confirm(bool),
     Demo,
@@ -54,11 +60,17 @@ pub enum Msg {
 pub fn load() -> Task<UiMsg> {
     Task::perform(
         async {
-            tokio::task::spawn_blocking(greeter_setup::status)
-                .await
-                .unwrap_or_default()
+            tokio::task::spawn_blocking(|| {
+                let i = crate::inputs::read();
+                (
+                    greeter_setup::status(),
+                    (i.kb_layout, i.kb_variant, i.kb_options),
+                )
+            })
+            .await
+            .unwrap_or_default()
         },
-        |s| wrap(Msg::Loaded(s)),
+        |(s, k)| wrap(Msg::Loaded(Box::new(s), k)),
     )
 }
 
@@ -75,6 +87,22 @@ fn done_label(action: &str) -> &'static str {
 }
 
 impl App {
+    /// Profil de l'écran d'après les réglages de la session.
+    fn login_profile(&self, st: &State) -> Profile {
+        let th = &self.cfg.general.theme;
+        let c = |v: crate::config::Rgba| [v.0, v.1, v.2, v.3];
+        Profile {
+            layout: st.keyboard.0.clone(),
+            variant: st.keyboard.1.clone(),
+            options: st.keyboard.2.clone(),
+            theme: th.name.clone(),
+            fg: c(th.fg),
+            bg: c(th.bg),
+            accent: c(th.accent),
+            fingerprint: st.fingerprint,
+        }
+    }
+
     /// Ligne d'état : pastille verte ou orange, libellé, détail.
     fn login_check<'a>(&self, ok: bool, label: &'a str, detail: String) -> Element<'a, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
@@ -189,6 +217,84 @@ impl App {
                 col.push(self.login_button("Installer greetd et cage", Some(Msg::Act("packages"))));
         }
 
+        // Écran : ce que la configuration reprend de la session.
+        let want = self.login_profile(st);
+        col = col.push(self.section("Écran"));
+        let kb = if want.layout.is_empty() {
+            crate::i18n::tr("disposition par défaut (us)").to_string()
+        } else if want.variant.is_empty() {
+            want.layout.clone()
+        } else {
+            format!("{} ({})", want.layout, want.variant)
+        };
+        col = col.push(self.login_check(
+            !want.layout.is_empty(),
+            "Clavier",
+            crate::tr!("{k}, repris de Réglages → Clavier et souris", k = kb),
+        ));
+        col = col.push(self.login_check(
+            true,
+            "Thème",
+            crate::tr!("{t}, celui du bureau", t = want.theme),
+        ));
+        col = col.push(
+            self.login_check(
+                true,
+                "Retenus",
+                crate::i18n::tr(
+                    "dernier identifiant et dernière session ; veille, redémarrage, extinction",
+                )
+                .to_string(),
+            ),
+        );
+        col = col.push(
+            toggler(st.fingerprint)
+                .label(crate::i18n::tr(
+                    "Empreinte digitale à la connexion (fprintd)",
+                ))
+                .on_toggle_maybe(s.fprintd.then_some(|v| wrap(Msg::Fingerprint(v))))
+                .font(self.font)
+                .text_size(13),
+        );
+        col = col.push(small(
+            if s.fprintd {
+                crate::i18n::tr(
+                    "L'écran attend le doigt 10 s, puis demande le mot de passe. Connecté par \
+                     l'empreinte, le trousseau myMFA reste verrouillé (il lui faut le mot de passe).",
+                )
+                .to_string()
+            } else {
+                crate::i18n::tr("fprintd n'est pas installé (paquet fprintd).").to_string()
+            },
+            dim,
+        ));
+        col = col.push(self.login_check(
+            s.mymfa_module,
+            "myMFA",
+            if s.mymfa_module {
+                crate::i18n::tr(
+                    "trousseau myMFA déverrouillé à la connexion (pam_mymfa), à la place de gnome-keyring",
+                )
+                .to_string()
+            } else {
+                crate::i18n::tr(
+                    "pam_mymfa absent : installez le client Linux de myMFA pour ouvrir le trousseau à la connexion",
+                )
+                .to_string()
+            },
+        ));
+        let installed_differs =
+            s.ours && s.profile.as_ref() != Some(&want) || s.ours && s.mymfa_module != s.pam_mymfa;
+        if installed_differs {
+            col = col.push(small(
+                crate::i18n::tr(
+                    "L'écran installé ne suit plus ces réglages : réécrire la configuration.",
+                )
+                .to_string(),
+                warn,
+            ));
+        }
+
         // Configuration de greetd.
         col = col.push(self.section("Configuration"));
         col = col.push(match &s.command {
@@ -210,7 +316,7 @@ impl App {
             dim,
         ));
         col = col.push(self.login_button(
-            if s.ours && !s.binary_stale {
+            if s.ours && !s.binary_stale && !installed_differs {
                 "Réécrire la configuration"
             } else {
                 "Écrire la configuration"
@@ -318,12 +424,26 @@ impl App {
     }
 
     pub(in crate::ui) fn login_update(&mut self, m: Msg) -> Task<UiMsg> {
+        // Profil à installer, d'après la session (avant d'emprunter le panneau).
+        let staged = match (&m, self.panel.as_ref()) {
+            (Msg::Act("install"), Some(p)) => Some(self.login_profile(&p.login)),
+            _ => None,
+        };
         let Some(p) = self.panel.as_mut() else {
             return Task::none();
         };
         match m {
-            Msg::Loaded(s) => {
-                p.login.status = s;
+            Msg::Loaded(s, k) => {
+                // Empreinte : celle du profil installé tant qu'on n'y a pas touché.
+                if !p.login.status.loaded {
+                    p.login.fingerprint = s.profile.as_ref().is_some_and(|p| p.fingerprint);
+                }
+                p.login.status = *s;
+                p.login.keyboard = k;
+                Task::none()
+            }
+            Msg::Fingerprint(v) => {
+                p.login.fingerprint = v;
                 Task::none()
             }
             Msg::Confirm(v) => {
@@ -331,18 +451,26 @@ impl App {
                 Task::none()
             }
             Msg::Act(action) => {
+                let profile = staged;
                 p.login.busy = Some(action);
                 p.login.outcome = None;
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            let r = greeter_setup::run_privileged(action);
+                            let extra = match &profile {
+                                Some(pr) => match greeter_setup::stage_profile(pr) {
+                                    Ok(path) => vec![path],
+                                    Err(e) => return (Err(e), greeter_setup::status()),
+                                },
+                                None => Vec::new(),
+                            };
+                            let r = greeter_setup::run_privileged(action, &extra);
                             (r, greeter_setup::status())
                         })
                         .await
                         .unwrap_or_else(|e| (Err(e.to_string()), Status::default()))
                     },
-                    move |(r, s)| wrap(Msg::Done(action, r, s)),
+                    move |(r, s)| wrap(Msg::Done(action, r, Box::new(s))),
                 )
             }
             Msg::Done(action, r, s) => {
@@ -353,7 +481,7 @@ impl App {
                     Err(e) => (false, e),
                 });
                 if s.loaded {
-                    p.login.status = s;
+                    p.login.status = *s;
                 }
                 Task::none()
             }

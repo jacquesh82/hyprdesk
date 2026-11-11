@@ -856,12 +856,19 @@ impl Preview {
                     binary: Some(crate::greeter_setup::SYSTEM_BIN.into()),
                     command: Some(crate::greeter_setup::greeter_command(
                         crate::greeter_setup::SYSTEM_BIN,
+                        &crate::greeter_setup::Profile {
+                            layout: "fr".into(),
+                            variant: "azerty".into(),
+                            ..Default::default()
+                        },
                     )),
+                    fprintd: true,
                     ours: true,
                     loaded: true,
                     ..Default::default()
                 },
                 confirm: true,
+                keyboard: ("fr".into(), "azerty".into(), String::new()),
                 ..Default::default()
             };
         }
