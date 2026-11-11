@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 42] = [
+const SCENES: [&str; 43] = [
     "desktop",
     "typography",
     "icons",
@@ -66,6 +66,7 @@ const SCENES: [&str; 42] = [
     "probleme",
     "recherche",
     "presse-papiers",
+    "son",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -480,6 +481,7 @@ impl Preview {
         // Scènes repérées par leur nom (et non leur rang).
         let tab = tab.or(match SCENES[self.scene] {
             "animations" | "animations-effets" => Some("animations"),
+            "son" => Some("sound"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -701,6 +703,32 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+        }
+        // Son : appareils et applications d'exemple (l'aperçu ne lit pas PipeWire).
+        if SCENES[self.scene] == "son"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            let n = |id: u32, name: &str, default: bool, volume: f32, muted: bool| {
+                super::plugins::sound::Node {
+                    id,
+                    name: name.into(),
+                    default,
+                    volume,
+                    muted,
+                }
+            };
+            p.sound = super::plugins::sound::State {
+                outputs: vec![
+                    n(46, "Audio intégré (IEC958)", false, 1.0, false),
+                    n(55, "Arctis Nova Pro Wireless", true, 0.45, false),
+                ],
+                inputs: vec![n(56, "Arctis Nova Pro Wireless Mono", true, 0.9, false)],
+                streams: vec![
+                    n(78, "Firefox", false, 0.8, false),
+                    n(91, "Spotify", false, 0.6, true),
+                ],
+                loaded: true,
+            };
         }
         if SCENES[self.scene] == "tour"
             && let Some(p) = self.app.panel.as_mut()

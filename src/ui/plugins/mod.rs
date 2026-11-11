@@ -28,6 +28,7 @@ pub mod lock;
 pub mod plugins;
 pub mod screens;
 pub mod share;
+pub mod sound;
 pub mod theme;
 pub mod wallpaper;
 pub mod widgets;
@@ -65,6 +66,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     layouts::INFO,
     effects::INFO,
     animations::INFO,
+    sound::INFO,
     lock::INFO,
     share::INFO,
     plugins::INFO,
@@ -93,6 +95,10 @@ pub const GROUPS: &[Group] = &[
     Group {
         label: "Fenêtres et écrans",
         ids: &["screens", "workspaces", "layouts"],
+    },
+    Group {
+        label: "Système",
+        ids: &["sound"],
     },
     Group {
         label: "Applications",
@@ -290,6 +296,7 @@ pub enum PluginMsg {
     Workspaces(workspaces::Msg),
     Layouts(layouts::Msg),
     Animations(animations::Msg),
+    Sound(sound::Msg),
     Effects(effects::Msg),
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
@@ -312,6 +319,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Workspaces(m) => app.workspaces_update(m),
         PluginMsg::Layouts(m) => app.layouts_update(m),
         PluginMsg::Animations(m) => app.animations_update(m),
+        PluginMsg::Sound(m) => app.sound_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
@@ -334,6 +342,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "workspaces" => app.tab_workspaces(p),
         "layouts" => app.layouts_page(),
         "animations" => app.animations_page(),
+        "sound" => app.sound_page(),
         "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
         "apptheme" => app.apptheme_page(),
@@ -354,6 +363,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         ]),
         "apps" => apps::load_system(),
         "animations" => animations::load_current(),
+        "sound" => sound::load(),
         "assistant" => assistant::load_status(),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées

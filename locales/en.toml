@@ -1426,3 +1426,14 @@
 "Éclairage nocturne géré par %s" = "Night light managed by %s"
 "Écran plus chaud le soir (hyprsunset) : horaire ou à la demande." = "Warmer screen in the evening (hyprsunset): scheduled or on demand."
 "à retirer de hyprland.lua pour laisser hyprdesk le gérer" = "remove it from hyprland.lua to let hyprdesk manage it"
+
+# Réglages → Son (MLG-18).
+"Actualiser" = "Refresh"
+"Aucun appareil." = "No device."
+"Aucune application ne joue de son." = "No application is playing sound."
+"Entrée" = "Input"
+"Lecture des appareils…" = "Reading devices…"
+"Réglages de PipeWire (wpctl)." = "PipeWire settings (wpctl)."
+"Son" = "Sound"
+"Sortie et entrée audio, leur volume, et le volume de chaque application." = "Audio output and input, their volume, and each application's volume."
+"Couper" = "Mute"
