@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 57] = [
+const SCENES: [&str; 58] = [
     "desktop",
     "typography",
     "icons",
@@ -81,6 +81,7 @@ const SCENES: [&str; 57] = [
     "applications",
     "lanceur-central",
     "clavier-souris",
+    "ecran-connexion",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -514,6 +515,7 @@ impl Preview {
             "bluetooth" => Some("bt"),
             "plugin-config" => Some("plugins"),
             "clavier-souris" => Some("input"),
+            "ecran-connexion" => Some("login"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -836,6 +838,30 @@ impl Preview {
                 }),
                 layouts,
                 variants,
+                ..Default::default()
+            };
+        }
+        // Écran de connexion : GDM en service, greetd installé, configuration
+        // écrite, bascule à confirmer.
+        if SCENES[self.scene] == "ecran-connexion"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.login = super::plugins::login::State {
+                status: crate::greeter_setup::Status {
+                    dm: Some("gdm.service".into()),
+                    dm_active: true,
+                    greetd: true,
+                    cage: true,
+                    greeter_user: true,
+                    binary: Some(crate::greeter_setup::SYSTEM_BIN.into()),
+                    command: Some(crate::greeter_setup::greeter_command(
+                        crate::greeter_setup::SYSTEM_BIN,
+                    )),
+                    ours: true,
+                    loaded: true,
+                    ..Default::default()
+                },
+                confirm: true,
                 ..Default::default()
             };
         }

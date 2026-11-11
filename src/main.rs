@@ -20,6 +20,7 @@ mod doctor;
 mod fonts;
 mod fx;
 mod greeter;
+mod greeter_setup;
 mod greeter_ui;
 mod hypr;
 mod i18n;
@@ -119,6 +120,9 @@ Commandes :
   greeter [--tty | --demo]
                     écran de connexion pour greetd (connexion, choix de l'environnement) ;
                     --tty : au terminal ; --demo : sans greetd, pour l'essayer
+  greeter setup <status|packages|install|enable|restore>
+                    met l'écran de hyprdesk à la place de GDM (en root ; Réglages →
+                    Écran de connexion) ; restore : revient au gestionnaire d'avant
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
@@ -901,6 +905,16 @@ fn main() -> ExitCode {
         }
         // Écran de connexion pour greetd, au terminal.
         "greeter" if args.get(1).is_none() => greeter_ui::run(false),
+        // Mise en place (Réglages → Écran de connexion), en root par pkexec.
+        "greeter" if args.get(1).map(String::as_str) == Some("setup") => {
+            match greeter_setup::cli(args.get(2).map(String::as_str)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk greeter setup : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "greeter" if args.get(1).map(String::as_str) == Some("--demo") => greeter_ui::run(true),
         "greeter" if args.get(1).map(String::as_str) == Some("--tty") => match greeter::run_tty() {
             Ok(()) => ExitCode::SUCCESS,

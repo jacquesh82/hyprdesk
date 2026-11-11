@@ -14,7 +14,8 @@ hyprdesk brings it back with a single key: wallpaper, icons and widgets,
 with a separate desktop for each workspace if you want one.
 
 It also gives you **one place to set up Hyprland's essentials** (screens,
-keyboard and mouse, workspaces, layouts, animations, shortcuts, idle and lock)
+keyboard and mouse, workspaces, layouts, animations, shortcuts, idle and lock,
+login screen)
 without editing config files by hand. **Every change applies live**, with no reload and no
 restart.
 

@@ -232,6 +232,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "system-lock-screen" => {
             r#"<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>"#
         }
+        // Écran de connexion : un écran, une silhouette au milieu.
+        "system-users" => {
+            r#"<rect x="3" y="4" width="18" height="13" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M8 15a4 4 0 0 1 8 0M9 21h6M12 17v4"/>"#
+        }
         "preferences-system-notifications" => {
             r#"<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5ZM10 21h4"/>"#
         }

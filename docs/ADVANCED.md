@@ -241,6 +241,20 @@ unlock it:
 `cage -s -- hyprdesk greeter`. `--tty` runs it in a terminal and `--demo` runs
 it without greetd.
 
+**Settings → Login screen** sets it up in place of GDM (or SDDM, LightDM…).
+It shows the login manager in use and the pieces greetd needs, then does
+each system step through `pkexec hyprdesk greeter setup <action>`:
+
+- `packages` installs greetd and cage;
+- `install` copies hyprdesk to `/usr/local/bin`, because the `greeter` user
+  cannot read `~/.local/bin`. It then writes `/etc/greetd/config.toml`. A file
+  from another tool is kept once as `config.toml.bak`;
+- `enable` disables the current manager and enables greetd. This happens at
+  the next boot, so the open session is not cut off. It is refused while a
+  piece is missing;
+- `restore` goes back to the previous manager. From a console:
+  `sudo hyprdesk greeter setup restore`.
+
 ## Configuration reference
 
 The whole API is described in LuaLS definitions (`hyprdesk stubs` writes
