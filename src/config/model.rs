@@ -608,6 +608,8 @@ pub struct Keys {
     pub lock: String,
     /// Sortie de secours : masque le bureau et rend tous les raccourcis.
     pub leave: String,
+    /// Sélecteur de fenêtres (`hyprdesk switch`) ; avec Maj : en arrière.
+    pub switch: String,
     /// Touches multimédia (volume, luminosité, lecture) par hyprdesk : là où
     /// hyprland.lua ne les lie pas déjà, et toujours bureau affiché.
     pub media: bool,
@@ -618,6 +620,7 @@ impl Default for Keys {
         Keys {
             toggle: "SUPER + D".into(),
             launcher: "SUPER + ALT + D".into(),
+            switch: "ALT + Tab".into(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par

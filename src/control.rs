@@ -37,6 +37,8 @@ pub enum Command {
     Tour,
     /// Ouvre ou referme le lanceur avec recherche.
     Search,
+    /// Sélecteur de fenêtres : ouvre, ou fenêtre suivante (`true` : précédente).
+    Switch(bool),
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
     /// `hyprdesk osd` une fois l'action faite.
     Osd(String),
@@ -60,6 +62,8 @@ impl Command {
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
             "search" => Command::Search,
+            "switch" | "switch next" => Command::Switch(false),
+            "switch prev" | "switch-prev" => Command::Switch(true),
             "settings" => Command::Settings("desktop".into()),
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
@@ -99,6 +103,8 @@ impl Command {
             Command::Assistant => "assistant",
             Command::Tour => "tour",
             Command::Search => "search",
+            Command::Switch(false) => "switch",
+            Command::Switch(true) => "switch prev",
             Command::Osd(_) => "osd-show",
             Command::Problem(_) => "problem",
         }

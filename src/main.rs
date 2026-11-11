@@ -36,6 +36,7 @@ mod share;
 mod single;
 mod span;
 mod storage;
+mod switcher;
 mod theme;
 mod tiling;
 mod tray;
@@ -64,6 +65,8 @@ Commandes :
                     ouvre l'écran Réglages (ex. bureau/raccourcis), sans changer le mode
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
+  switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
+                    à la fenêtre suivante (prev : précédente)
   tour              ouvre les réglages sur la visite guidée
                     (paquet : desktop, icons, launcher, wallpaper, widgets, bar,
                     screens, workspaces, effects, theme…)

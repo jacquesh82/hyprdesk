@@ -508,6 +508,20 @@ pub fn build_keys_lua(
             );
         }
     }
+    // Sélecteur de fenêtres, et en arrière avec Maj (sauf si hyprland.lua les lie).
+    let switch_back = crate::switcher::with_shift(&keys.switch).unwrap_or_default();
+    for (k, arg, desc) in [
+        (&keys.switch, "switch", "fenêtres"),
+        (&switch_back, "switch prev", "fenêtres, en arrière"),
+    ] {
+        if usable(k) {
+            lua += &format!(
+                "keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
+        }
+    }
     for (k, arg, desc) in [
         (&keys.settings, "settings", "réglages"),
         (&keys.lock, "lock", "verrouiller"),
@@ -1555,6 +1569,7 @@ mod tests {
             settings: "SUPER + SHIFT + D".into(),
             lock: "SUPER + L".into(),
             leave: "SUPER + Escape".into(),
+            switch: "ALT + Tab".into(),
             media: true,
         };
         let lua = build_keys_lua(
@@ -1567,6 +1582,11 @@ mod tests {
             lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
             "{lua}"
         );
+        // Sélecteur de fenêtres, et en arrière avec Maj.
+        assert!(lua.contains(r#"hl.bind("ALT + Tab", hl.dsp.exec_cmd("'/bin/hyprdesk' switch")"#));
+        assert!(lua.contains(
+            r#"hl.bind("ALT + SHIFT + Tab", hl.dsp.exec_cmd("'/bin/hyprdesk' switch prev")"#
+        ));
         // En conflit hors de la submap : pas installé là, mais bien dans la
         // submap, où les raccourcis de Hyprland sont suspendus.
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();

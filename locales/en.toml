@@ -1513,3 +1513,10 @@
 "Afficher ou masquer" = "Show or hide"
 "Quitter le clavier" = "Quit the keyboard"
 "Clavier virtuel (accessibilité)" = "On-screen keyboard (accessibility)"
+
+# Sélecteur de fenêtres (MLG-22).
+"Aucune fenêtre ouverte." = "No open window."
+"Lecture des fenêtres…" = "Reading windows…"
+"  switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe" = "  switch [prev]     window switcher (Alt+Tab, keys.switch): opens it, or moves"
+"                    à la fenêtre suivante (prev : précédente)" = "                    to the next window (prev: previous)"
+"raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)" = "shortcut | none — window switcher (Alt+Tab; with Shift: backwards)"

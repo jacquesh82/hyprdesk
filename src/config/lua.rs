@@ -522,7 +522,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         check_keys(
             &k,
             &[
-                "toggle", "launcher", "hide", "settings", "lock", "leave", "media",
+                "toggle", "launcher", "hide", "settings", "lock", "leave", "media", "switch",
             ],
             C,
         )?;
@@ -536,6 +536,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("settings", &mut g.keys.settings),
             ("lock", &mut g.keys.lock),
             ("leave", &mut g.keys.leave),
+            ("switch", &mut g.keys.switch),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}

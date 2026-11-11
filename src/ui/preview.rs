@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 48] = [
+const SCENES: [&str; 49] = [
     "desktop",
     "typography",
     "icons",
@@ -72,6 +72,7 @@ const SCENES: [&str; 48] = [
     "reseau",
     "bluetooth",
     "menu-icone",
+    "fenetres",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -837,6 +838,35 @@ impl Preview {
         } else {
             self.app.icon_menu = None;
         }
+        // Sélecteur de fenêtres (Alt+Tab), la deuxième choisie.
+        if SCENES[self.scene] == "fenetres" {
+            let w = |a: &str, class: &str, title: &str, ws: &str| crate::switcher::Win {
+                address: a.into(),
+                class: class.into(),
+                title: title.into(),
+                workspace: ws.into(),
+                focus: 0,
+            };
+            self.app.switcher = Some(super::switcher::Switcher {
+                win: iced::window::Id::unique(),
+                wins: vec![
+                    w("0x1", "kitty", "~/projets/hyprdesk — cargo test", "1"),
+                    w("0x2", "firefox", "Plane — MLG-22 Fenêtres", "2"),
+                    w("0x3", "org.gnome.Nautilus", "Téléchargements", "2"),
+                    w(
+                        "0x4",
+                        "libreoffice-writer",
+                        "Rapport.odt — LibreOffice Writer",
+                        "3",
+                    ),
+                ],
+                selected: 1,
+                loading: false,
+                back: false,
+            });
+        } else {
+            self.app.switcher = None;
+        }
         if SCENES[self.scene] == "tour"
             && let Some(p) = self.app.panel.as_mut()
         {
@@ -1072,6 +1102,15 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.switcher.is_some() {
+            layers.push(
+                container(self.app.view_switcher())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into(),
             );
         }
         if self.app.icon_menu.is_some() {

@@ -25,6 +25,7 @@ mod popover;
 pub mod preview;
 mod problem;
 mod search;
+mod switcher;
 mod toasts;
 mod tour;
 mod widget_view;
@@ -183,6 +184,9 @@ pub enum Msg {
     /// Clic droit sur une icône du bureau (surface, icône).
     IconContext(Id, usize),
     IconMenu(context::CMsg),
+    Switcher(switcher::SwMsg),
+    /// Touches de modification (relâcher Alt valide le sélecteur de fenêtres).
+    Modifiers(keyboard::Modifiers),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -354,6 +358,8 @@ pub struct App {
     problem: Option<problem::Problem>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
+    /// Sélecteur de fenêtres (Alt+Tab) ouvert.
+    switcher: Option<switcher::Switcher>,
     /// Menu contextuel d'une icône du bureau ouvert.
     icon_menu: Option<context::IconMenu>,
     /// Dossier Bureau suivi (réglage desktop_files) : empreinte, dernier relevé.
@@ -593,6 +599,7 @@ fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
         Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::Cursor(id, position)),
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::Released),
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => Some(Msg::Key(id, key)),
+        Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::Modifiers(m)),
         _ => None,
     }
 }
@@ -668,6 +675,7 @@ impl App {
             problem: None,
             search: None,
             icon_menu: None,
+            switcher: None,
             desk_stamp: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
@@ -2522,6 +2530,7 @@ impl App {
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
+                control::Command::Switch(back) => self.switch_windows(back),
                 control::Command::Tour => {
                     let o = self.open_panel();
                     Task::batch([
@@ -2955,6 +2964,13 @@ impl App {
                 self.open_icon_menu(win, idx)
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
+            Msg::Switcher(m) => self.switcher_update(m),
+            Msg::Modifiers(m) => {
+                if self.switcher.is_some() && !m.alt() && !m.logo() && !m.control() {
+                    return self.switcher_commit();
+                }
+                Task::none()
+            }
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3241,6 +3257,10 @@ impl App {
                     self.search = None;
                     return Task::none();
                 }
+                if self.switcher.as_ref().is_some_and(|s| s.win == id) {
+                    self.switcher = None;
+                    return Task::none();
+                }
                 if self
                     .icon_menu
                     .as_ref()
@@ -3332,6 +3352,19 @@ impl App {
                 None => Task::none(),
             },
             Msg::Key(id, key) => {
+                // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
+                if self.switcher.is_some() {
+                    use keyboard::key::Named;
+                    return match key {
+                        keyboard::Key::Named(Named::Escape) => self.close_switcher(),
+                        keyboard::Key::Named(Named::Enter) => self.switcher_commit(),
+                        keyboard::Key::Named(Named::ArrowDown | Named::Tab) => {
+                            self.switch_windows(false)
+                        }
+                        keyboard::Key::Named(Named::ArrowUp) => self.switch_windows(true),
+                        _ => Task::none(),
+                    };
+                }
                 // Recherche ouverte : Échap la ferme, les flèches choisissent.
                 if self.search.is_some() {
                     use keyboard::key::Named;
@@ -3586,6 +3619,9 @@ impl App {
         }
         if self.search.as_ref().is_some_and(|s| s.win == id) {
             return self.view_search();
+        }
+        if self.switcher.as_ref().is_some_and(|s| s.win == id) {
+            return self.view_switcher();
         }
         if let Some(m) = &self.icon_menu {
             if m.win == id {
@@ -3947,6 +3983,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Search(..) => "Search",
         Msg::IconContext(..) => "IconContext",
         Msg::IconMenu(..) => "IconMenu",
+        Msg::Switcher(..) => "Switcher",
+        Msg::Modifiers(..) => "Modifiers",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",
