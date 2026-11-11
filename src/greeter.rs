@@ -154,13 +154,18 @@ fn shell_in(passwd: &str, user: &str) -> String {
 /// Commande de la session : par le shell de connexion de l'utilisateur
 /// (`-l`), qui lit son profil (~/.bash_profile, ~/.profile : PATH,
 /// variables), comme GDM.
+///
+/// Une seule ligne de shell, déjà citée : greetd ne lance pas `cmd` comme
+/// une liste d'arguments, il en recolle les éléments par des espaces dans
+/// `/bin/sh -c "… ; exec <cmd>"`. Envoyer `["bash", "-l", "-c", "exec X"]`
+/// y devenait `bash -l -c exec X` : bash lançait `exec` seul et la session
+/// se fermait aussitôt (retour en boucle à l'écran de connexion).
 pub fn session_cmd(shell: &str, exec: &str) -> Vec<String> {
-    vec![
-        shell.to_string(),
-        "-l".into(),
-        "-c".into(),
-        format!("exec {exec}"),
-    ]
+    vec![format!(
+        "{} -l -c {}",
+        crate::launch::sh_quote(shell),
+        crate::launch::sh_quote(&format!("exec {exec}"))
+    )]
 }
 
 /// Environnement de la session lancée.
@@ -339,7 +344,18 @@ mod tests {
         assert_eq!(shell_in(pw, "inconnu"), "/bin/sh");
         assert_eq!(
             session_cmd("/usr/bin/bash", "start-hyprland"),
-            vec!["/usr/bin/bash", "-l", "-c", "exec start-hyprland"]
+            vec!["'/usr/bin/bash' -l -c 'exec start-hyprland'"]
+        );
+        // Recollée par greetd (« exec » + éléments séparés d'espaces), la
+        // ligne reste une seule commande : le programme reçoit tout le -c.
+        let cmd = session_cmd("/bin/echo", "uwsm start -e -D Hyprland hyprland.desktop");
+        let out = std::process::Command::new("sh")
+            .args(["-c", &format!("exec {}", cmd.join(" "))])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "-l -c exec uwsm start -e -D Hyprland hyprland.desktop\n"
         );
     }
     use std::os::unix::net::UnixListener;
