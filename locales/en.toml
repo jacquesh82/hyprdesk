@@ -1756,3 +1756,5 @@
 "le raccourci {k} du lanceur d'applications" = "the application launcher shortcut {k}"
 "{CTX} : apps_style « {s} » inconnu (auto, plein, central)" = "{CTX}: unknown apps_style “{s}” (auto, plein, central)"
 "{k} lance déjà « {what} » depuis hyprland.lua : hyprdesk ne le prend que bureau affiché. Retirez ce raccourci de hyprland.lua pour n'avoir qu'un lanceur." = "{k} already launches “{what}” from hyprland.lua: hyprdesk only takes it while the desktop is shown. Remove that shortcut from hyprland.lua to have a single launcher."
+"Fenêtres — le bureau se masque pour une fenêtre cachée" = "Windows — the desktop hides for a hidden window"
+"{c} · cachée par le bureau" = "{c} · hidden by the desktop"

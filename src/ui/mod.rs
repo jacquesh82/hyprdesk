@@ -4426,6 +4426,48 @@ mod regression_tests {
         assert_eq!(app.mode(), DesktopMode::NoDesktop);
     }
 
+    /// Plein bureau : Alt+Tab vers une fenêtre cachée quitte le bureau ;
+    /// vers une fenêtre ouverte sur le bureau, le bureau reste.
+    #[test]
+    fn alt_tab_in_full_desktop() {
+        let w = |a: &str, stashed: bool| crate::switcher::Win {
+            address: a.into(),
+            class: "kitty".into(),
+            title: String::new(),
+            workspace: if stashed {
+                hypr::STASH.into()
+            } else {
+                "1".into()
+            },
+            focus: 0,
+            stashed,
+        };
+        let open = |app: &mut App, wins: Vec<crate::switcher::Win>| {
+            app.switcher = Some(switcher::Switcher {
+                win: Id::unique(),
+                wins,
+                selected: 0,
+                loading: false,
+                back: false,
+                sticky: false,
+            });
+        };
+        let mut app = app();
+        app.visible = true;
+        app.with_windows = false;
+        app.session_windows.insert("0xd".into());
+        open(&mut app, vec![w("0xd", false)]);
+        let _ = app.switcher_commit();
+        assert_eq!(app.mode(), DesktopMode::FullDesktop, "fenêtre du bureau");
+        open(&mut app, vec![w("0x1", true)]);
+        let _ = app.switcher_commit();
+        assert_eq!(
+            app.mode(),
+            DesktopMode::NoDesktop,
+            "fenêtre cachée : bureau masqué"
+        );
+    }
+
     #[test]
     fn an_old_result_cannot_repopulate_the_new_configuration() {
         let mut app = app();

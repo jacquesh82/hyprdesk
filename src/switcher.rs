@@ -12,9 +12,13 @@ pub struct Win {
     pub title: String,
     pub workspace: String,
     pub focus: i64,
+    /// Mise de côté par le plein bureau (`special:hyprdesk`).
+    pub stashed: bool,
 }
 
-pub fn parse(v: &Value) -> Vec<Win> {
+/// Fenêtres dans l'ordre du focus ; `stashed` : aussi celles que le plein
+/// bureau a mises de côté (`special:hyprdesk`), marquées.
+pub fn parse_with(v: &Value, stashed: bool) -> Vec<Win> {
     let mut out: Vec<Win> = v
         .as_array()
         .map(|a| a.as_slice())
@@ -28,10 +32,12 @@ pub fn parse(v: &Value) -> Vec<Win> {
                 .as_str()
                 .unwrap_or_default()
                 .to_string();
-            if ws.starts_with("special:hyprdesk") {
+            let is_stash = ws == crate::hypr::STASH;
+            if ws.starts_with("special:hyprdesk") && !(stashed && is_stash) {
                 return None;
             }
             Some(Win {
+                stashed: is_stash,
                 address: c["address"].as_str()?.to_string(),
                 class: c["class"].as_str().unwrap_or_default().to_string(),
                 title: c["title"].as_str().unwrap_or_default().to_string(),
@@ -45,9 +51,10 @@ pub fn parse(v: &Value) -> Vec<Win> {
 }
 
 /// Fenêtres, relevé bloquant.
-pub fn read() -> Vec<Win> {
+/// Comme `read`, avec les fenêtres mises de côté par le plein bureau.
+pub fn read_with(stashed: bool) -> Vec<Win> {
     hyprpanel_core::ipc::query_json("clients")
-        .map(|v| parse(&v))
+        .map(|v| parse_with(&v, stashed))
         .unwrap_or_default()
 }
 
@@ -94,9 +101,22 @@ mod tests {
             ]"#,
         )
         .unwrap();
-        let w = parse(&v);
+        let w = parse_with(&v, false);
         let a: Vec<&str> = w.iter().map(|w| w.address.as_str()).collect();
         assert_eq!(a, ["0x1", "0x2"]);
+        // Plein bureau : les fenêtres mises de côté sont proposées, marquées ;
+        // celles parties avec le bureau (hyprdesk-bureau) jamais.
+        let v2: Value = serde_json::from_str(
+            r#"[
+              {"address":"0x5","class":"kitty","title":"cachée","workspace":{"name":"special:hyprdesk"},"focusHistoryID":0},
+              {"address":"0x3","class":"x","title":"bureau","workspace":{"name":"special:hyprdesk-bureau"},"focusHistoryID":1}
+            ]"#,
+        )
+        .unwrap();
+        assert!(parse_with(&v2, false).is_empty());
+        let w = parse_with(&v2, true);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].stashed && w[0].address == "0x5");
     }
 
     #[test]

@@ -68,6 +68,8 @@ impl App {
             sticky: false,
         });
         let h = height(SHOWN) + 2.0 * SHADOW;
+        // Plein bureau : aussi les fenêtres que le bureau a mises de côté.
+        let full = self.mode() == super::DesktopMode::FullDesktop;
         Task::batch([
             Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
@@ -83,8 +85,8 @@ impl App {
                 id: win,
             }),
             Task::perform(
-                async {
-                    tokio::task::spawn_blocking(crate::switcher::read)
+                async move {
+                    tokio::task::spawn_blocking(move || crate::switcher::read_with(full))
                         .await
                         .unwrap_or_default()
                 },
@@ -101,22 +103,32 @@ impl App {
     }
 
     /// Donne le focus à la fenêtre choisie et ferme la carte.
+    /// Fenêtre choisie : elle prend le focus. En plein bureau, une fenêtre
+    /// cachée par le bureau (ou d'un autre workspace) fait d'abord quitter le
+    /// bureau (no-desktop : les fenêtres reviennent) ; une fenêtre ouverte sur
+    /// le bureau prend le focus sans le quitter.
     pub(super) fn switcher_commit(&mut self) -> Task<Msg> {
-        let address = self
+        let chosen = self
             .switcher
             .as_ref()
             .and_then(|s| s.wins.get(s.selected))
-            .map(|w| w.address.clone());
+            .map(|w| (w.address.clone(), w.stashed));
         let close = self.close_switcher();
-        let Some(a) = address else {
+        let Some((a, stashed)) = chosen else {
             return close;
         };
+        let leave = self.mode() == super::DesktopMode::FullDesktop
+            && (stashed || !self.session_windows.contains(&a));
         let focus = Task::perform(
             async move {
                 let _ = tokio::task::spawn_blocking(move || crate::hypr::focus_window(&a)).await;
             },
             |_| Msg::Noop,
         );
+        if leave {
+            // Le bureau se masque (fenêtres rendues), puis le focus.
+            return Task::batch([close, self.hide().chain(focus)]);
+        }
         Task::batch([close, focus])
     }
 
@@ -154,14 +166,14 @@ impl App {
             th.bg,
             th.effect(crate::config::Place::Menus).opacity.max(0.97),
         );
-        let mut list = column![
-            text(crate::i18n::tr("Fenêtres"))
-                .font(self.font)
-                .size(12)
-                .color(dim)
-                .height(28)
-        ]
-        .spacing(2);
+        // En plein bureau, le choix d'une fenêtre cachée quitte le bureau.
+        let title = if self.mode() == super::DesktopMode::FullDesktop {
+            crate::i18n::tr("Fenêtres — le bureau se masque pour une fenêtre cachée")
+        } else {
+            crate::i18n::tr("Fenêtres")
+        };
+        let mut list =
+            column![text(title).font(self.font).size(12).color(dim).height(28)].spacing(2);
         if s.wins.is_empty() {
             list = list.push(
                 text(if s.loading {
@@ -192,10 +204,14 @@ impl App {
                         icon,
                         column![
                             text(w.title.clone()).font(self.font).size(14).color(fg),
-                            text(format!("{} · {}", w.class, w.workspace))
-                                .font(self.font)
-                                .size(11)
-                                .color(dim)
+                            text(if w.stashed {
+                                crate::tr!("{c} · cachée par le bureau", c = w.class)
+                            } else {
+                                format!("{} · {}", w.class, w.workspace)
+                            })
+                            .font(self.font)
+                            .size(11)
+                            .color(dim)
                         ]
                         .width(Length::Fill)
                     ]

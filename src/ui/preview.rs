@@ -973,12 +973,18 @@ impl Preview {
                 title: title.into(),
                 workspace: ws.into(),
                 focus: 0,
+                stashed: ws == crate::hypr::STASH,
             };
             self.app.switcher = Some(super::switcher::Switcher {
                 win: iced::window::Id::unique(),
                 wins: vec![
                     w("0x1", "kitty", "~/projets/hyprdesk — cargo test", "1"),
-                    w("0x2", "firefox", "Plane — MLG-22 Fenêtres", "2"),
+                    w(
+                        "0x2",
+                        "firefox",
+                        "Plane — MLG-22 Fenêtres",
+                        crate::hypr::STASH,
+                    ),
                     w("0x3", "org.gnome.Nautilus", "Téléchargements", "2"),
                     w(
                         "0x4",
