@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 43] = [
+const SCENES: [&str; 45] = [
     "desktop",
     "typography",
     "icons",
@@ -67,6 +67,8 @@ const SCENES: [&str; 43] = [
     "recherche",
     "presse-papiers",
     "son",
+    "energie",
+    "date-heure",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -482,6 +484,8 @@ impl Preview {
         let tab = tab.or(match SCENES[self.scene] {
             "animations" | "animations-effets" => Some("animations"),
             "son" => Some("sound"),
+            "energie" => Some("energy"),
+            "date-heure" => Some("datetime"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -728,6 +732,35 @@ impl Preview {
                     n(91, "Spotify", false, 0.6, true),
                 ],
                 loaded: true,
+            };
+        }
+        // Énergie et Date et heure : états d'exemple (l'aperçu ne lit pas le système).
+        if SCENES[self.scene] == "energie"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.energy = super::plugins::energy::State {
+                profiles: vec![
+                    ("performance".into(), false),
+                    ("balanced".into(), true),
+                    ("power-saver".into(), false),
+                ],
+                batteries: vec![("BAT0".into(), 76, "Discharging".into())],
+                loaded: true,
+            };
+            Arc::make_mut(&mut self.app.cfg).general.idle.manage = true;
+        }
+        if SCENES[self.scene] == "date-heure"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.datetime = super::plugins::datetime::State {
+                timezone: "Europe/Paris".into(),
+                ntp: true,
+                can_ntp: true,
+                synced: true,
+                local_rtc: false,
+                zones: vec!["Europe/London".into(), "Europe/Paris".into()],
+                loaded: true,
+                error: None,
             };
         }
         if SCENES[self.scene] == "tour"

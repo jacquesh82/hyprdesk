@@ -199,6 +199,8 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="M12 3v11m-4-4 4 4 4-4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>"#
         }
         // Animations : un disque en mouvement, sa traînée derrière lui.
+        // Date et heure : une horloge.
+        "preferences-system-time" => r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>"#,
         "preferences-desktop-animation" => {
             r#"<circle cx="15.5" cy="12" r="5.5"/><path d="M2 9h5M3 12h4M2 15h5"/>"#
         }

@@ -18,8 +18,10 @@ pub mod apps;
 pub mod apptheme;
 pub mod assistant;
 pub mod bar;
+pub mod datetime;
 pub mod desktop;
 pub mod effects;
+pub mod energy;
 pub mod icons;
 pub mod launcher;
 pub mod layouts;
@@ -67,6 +69,8 @@ pub const BUILTIN: &[PluginInfo] = &[
     effects::INFO,
     animations::INFO,
     sound::INFO,
+    energy::INFO,
+    datetime::INFO,
     lock::INFO,
     share::INFO,
     plugins::INFO,
@@ -98,7 +102,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["sound"],
+        ids: &["sound", "energy", "datetime"],
     },
     Group {
         label: "Applications",
@@ -297,6 +301,8 @@ pub enum PluginMsg {
     Layouts(layouts::Msg),
     Animations(animations::Msg),
     Sound(sound::Msg),
+    Energy(energy::Msg),
+    DateTime(datetime::Msg),
     Effects(effects::Msg),
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
@@ -320,6 +326,8 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Layouts(m) => app.layouts_update(m),
         PluginMsg::Animations(m) => app.animations_update(m),
         PluginMsg::Sound(m) => app.sound_update(m),
+        PluginMsg::Energy(m) => app.energy_update(m),
+        PluginMsg::DateTime(m) => app.datetime_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
@@ -343,6 +351,8 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "layouts" => app.layouts_page(),
         "animations" => app.animations_page(),
         "sound" => app.sound_page(),
+        "energy" => app.energy_page(),
+        "datetime" => app.datetime_page(),
         "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
         "apptheme" => app.apptheme_page(),
@@ -364,6 +374,8 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "apps" => apps::load_system(),
         "animations" => animations::load_current(),
         "sound" => sound::load(),
+        "energy" => energy::load(),
+        "datetime" => datetime::load(),
         "assistant" => assistant::load_status(),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées
