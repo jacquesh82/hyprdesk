@@ -236,6 +236,27 @@ impl BarSettings {
         let base = self.zones.clone();
         &mut self.portrait.get_or_insert(base)[(z - 3).min(2)]
     }
+
+    /// Déplace le module `from` (zone, rang) pour qu'il occupe la place
+    /// `to` (zone, rang d'insertion, compté avant le retrait). Faux si rien
+    /// ne bouge.
+    pub fn move_entry(&mut self, from: (usize, usize), to: (usize, usize)) -> bool {
+        let (fz, fi) = from;
+        let (tz, mut ti) = to;
+        if fz > 2 || tz > 2 || fi >= self.zones[fz].len() {
+            return false;
+        }
+        if fz == tz && (ti == fi || ti == fi + 1) {
+            return false;
+        }
+        let e = self.zones[fz].remove(fi);
+        if fz == tz && ti > fi {
+            ti -= 1;
+        }
+        let ti = ti.min(self.zones[tz].len());
+        self.zones[tz].insert(ti, e);
+        true
+    }
 }
 
 impl Settings {
@@ -2106,5 +2127,39 @@ mod tests {
             lua.lines().all(|l| l.starts_with("--") || l.is_empty()),
             "{lua}"
         );
+    }
+
+    #[test]
+    fn deplacer_un_module_de_barre() {
+        let ids = |b: &BarSettings, z: usize| -> Vec<String> {
+            b.zones[z].iter().map(|e| e.type_id.clone()).collect()
+        };
+        let mut b = BarSettings {
+            zones: [
+                vec![BarEntry::new("a"), BarEntry::new("b"), BarEntry::new("c")],
+                vec![],
+                vec![BarEntry::new("x")],
+            ],
+            ..Default::default()
+        };
+        // Sur place : rien.
+        assert!(!b.move_entry((0, 1), (0, 1)) && !b.move_entry((0, 1), (0, 2)));
+        // Vers la droite dans la même zone : avant « c » … puis en bout.
+        assert!(b.move_entry((0, 0), (0, 2)));
+        assert_eq!(ids(&b, 0), ["b", "a", "c"]);
+        assert!(b.move_entry((0, 0), (0, 3)));
+        assert_eq!(ids(&b, 0), ["a", "c", "b"]);
+        // Vers une zone vide, puis avant « x ».
+        assert!(b.move_entry((0, 2), (1, 0)));
+        assert!(b.move_entry((0, 0), (2, 0)));
+        assert_eq!(
+            (ids(&b, 0), ids(&b, 1), ids(&b, 2)),
+            (
+                vec!["c".to_string()],
+                vec!["b".to_string()],
+                vec!["a".to_string(), "x".to_string()]
+            )
+        );
+        assert!(!b.move_entry((0, 5), (1, 0)));
     }
 }

@@ -117,6 +117,12 @@ pub enum Msg {
     VolumeStep(i32),
     VolumeSet(f32),
     VolumeValue(Option<(f32, bool)>),
+    /// Réglages ouverts : glisser un module de la barre (zone, rang).
+    BarDragStart(usize, usize),
+    /// Survol pendant le glisser : place d'insertion (zone, rang).
+    BarDragOver(usize, usize),
+    /// Relâché : le module va à la place survolée.
+    BarDragEnd,
     /// Luminosité relue (rétroéclairage, écrans DDC/CI).
     LightValue(bar::Light),
     /// Molette sur le module : pas en pour cent.
@@ -290,6 +296,9 @@ struct WidgetDrag {
     moved: bool,
 }
 
+/// Glisser d'un module de barre : (zone, rang) d'origine, place survolée.
+type BarDrag = ((usize, usize), Option<(usize, usize)>);
+
 pub struct App {
     lua: LuaHandle,
     config_path: PathBuf,
@@ -384,6 +393,9 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Module de barre en cours de déplacement : (zone, rang) d'origine, et
+    /// place d'insertion survolée.
+    bar_drag: Option<BarDrag>,
     /// Mode imposé en cours (règle `forced_modes` de l'écran actif) et le
     /// mode d'avant, rendu en la quittant.
     forced_key: Option<String>,
@@ -707,6 +719,7 @@ impl App {
             light: bar::Light::default(),
             forced_key: None,
             forced_prev: None,
+            bar_drag: None,
             light_ddc_at: None,
             audio: bar::Audio::default(),
             with_windows: false,
@@ -3360,6 +3373,31 @@ impl App {
             Msg::Repoll(widget) => {
                 self.last_poll.remove(&widget);
                 self.poll()
+            }
+            Msg::BarDragStart(z, i) => {
+                self.bar_drag = Some(((z, i), None));
+                Task::none()
+            }
+            Msg::BarDragOver(z, i) => {
+                if let Some((_, over)) = self.bar_drag.as_mut() {
+                    *over = Some((z, i));
+                }
+                Task::none()
+            }
+            Msg::BarDragEnd => {
+                let Some((from, Some(to))) = self.bar_drag.take() else {
+                    return Task::none();
+                };
+                let moved = self
+                    .settings
+                    .bar
+                    .get_or_insert_with(|| crate::settings::BarSettings::from_config(&self.cfg))
+                    .move_entry(from, to);
+                if moved {
+                    self.commit_reload()
+                } else {
+                    Task::none()
+                }
             }
             Msg::LightValue(l) => {
                 self.pending_widgets.remove("bar:light");

@@ -518,15 +518,18 @@ impl App {
             _ => &bar.zones,
         };
         // Chaque zone est rognée : sur un écran étroit, elles ne se chevauchent pas.
+        // Réglages ouverts : les modules se déplacent en les glissant (zones
+        // ordinaires seulement ; les écrans verticaux gardent les leurs).
+        let edit = self.panel.is_some() && std::ptr::eq(zones, &bar.zones);
         let content = row![
-            container(self.bar_zone(id, s, &zones[0]))
+            container(self.bar_zone(id, s, &zones[0], edit.then_some(0)))
                 .width(Length::Fill)
                 .align_x(Alignment::Start)
                 .clip(true),
-            container(self.bar_zone(id, s, &zones[1]))
+            container(self.bar_zone(id, s, &zones[1], edit.then_some(1)))
                 .align_x(Alignment::Center)
                 .clip(true),
-            container(self.bar_zone(id, s, &zones[2]))
+            container(self.bar_zone(id, s, &zones[2], edit.then_some(2)))
                 .width(Length::Fill)
                 .align_x(Alignment::End)
                 .clip(true),
@@ -586,12 +589,66 @@ impl App {
         }
     }
 
-    fn bar_zone<'a>(&'a self, id: Id, s: &BarSurface, items: &'a [BarItem]) -> Element<'a, Msg> {
+    fn bar_zone<'a>(
+        &'a self,
+        id: Id,
+        s: &BarSurface,
+        items: &'a [BarItem],
+        edit: Option<usize>,
+    ) -> Element<'a, Msg> {
         let compact = self.bar_compact(&s.monitor);
-        row(items.iter().map(|it| self.bar_item(id, s, it)))
-            .spacing(if compact { 0 } else { 2 })
-            .align_y(Alignment::Center)
-            .into()
+        let Some(z) = edit else {
+            return row(items.iter().map(|it| self.bar_item(id, s, it)))
+                .spacing(if compact { 0 } else { 2 })
+                .align_y(Alignment::Center)
+                .into();
+        };
+        // Mode réglage : chaque module est une poignée ; un repère d'accent
+        // marque la place où il ira.
+        let pal = self.bar_palette();
+        let accent = color(pal.accent, 1.0);
+        let h = (s.height as f32 - 10.0).max(12.0);
+        let drag = self.bar_drag;
+        let marker = move |at: (usize, usize)| -> Element<'a, Msg> {
+            let on = drag.is_some_and(|(_, over)| over == Some(at));
+            container(Space::new().width(3).height(h))
+                .style(move |_| container::Style {
+                    background: on.then(|| accent.into()),
+                    border: Border::default().rounded(2),
+                    ..Default::default()
+                })
+                .into()
+        };
+        let mut r = row![].spacing(0).align_y(Alignment::Center);
+        for (i, it) in items.iter().enumerate() {
+            r = r.push(marker((z, i)));
+            let dragged = drag.is_some_and(|(from, _)| from == (z, i));
+            let item = container(self.bar_item(id, s, it)).style(move |_| container::Style {
+                border: Border::default().rounded(7).width(1).color(Color {
+                    a: if dragged { 0.9 } else { 0.35 },
+                    ..accent
+                }),
+                ..Default::default()
+            });
+            let handle = mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                .interaction(mouse::Interaction::Grab)
+                .on_press(Msg::BarDragStart(z, i))
+                .on_enter(Msg::BarDragOver(z, i))
+                .on_release(Msg::BarDragEnd);
+            r = r.push(iced::widget::stack![item, handle]);
+        }
+        r = r.push(marker((z, items.len())));
+        // Bout de zone (et zone vide) : on peut y déposer.
+        r.push(
+            mouse_area(
+                Space::new()
+                    .width(if items.is_empty() { 48 } else { 16 })
+                    .height(h),
+            )
+            .on_enter(Msg::BarDragOver(z, items.len()))
+            .on_release(Msg::BarDragEnd),
+        )
+        .into()
     }
 
     /// Module de barre : capsule au survol, clics gauche/droit/milieu, molette,
