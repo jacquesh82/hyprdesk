@@ -193,6 +193,22 @@ pub fn tail(out: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
+/// Journal complet des mises à jour (tournant : 1 Mio, 3 anciens gardés).
+pub fn log_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join(".local/state")
+        })
+        .join("hyprdesk")
+        .join("updates.log")
+}
+
+fn open_log() -> crate::processes::RotatingLog {
+    crate::processes::RotatingLog::open(&log_path(), 1024 * 1024, 3)
+}
+
 /// Met à jour chaque source, l'une après l'autre ; s'arrête au premier échec.
 pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
     let mut steps = Vec::new();
@@ -200,26 +216,36 @@ pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
         let (prog, args) = s.upgrade.split_first().expect("commande non vide");
         let mut cmd = tokio::process::Command::new(prog);
         cmd.args(args).env("LC_ALL", "C");
-        let step = match crate::processes::output(&mut cmd, Duration::from_secs(3600)).await {
-            Ok(o) => {
-                let mut log = String::from_utf8_lossy(&o.stdout).into_owned();
-                log.push_str(&String::from_utf8_lossy(&o.stderr));
-                Step {
+        let mut log = open_log();
+        log.write(
+            format!(
+                "\n== {} — {}\n",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                s.upgrade.join(" ")
+            )
+            .as_bytes(),
+        );
+        let step =
+            match crate::processes::output_logged(&mut cmd, Duration::from_secs(3600), log).await {
+                Ok(o) => {
+                    let mut log = String::from_utf8_lossy(&o.stdout).into_owned();
+                    log.push_str(&String::from_utf8_lossy(&o.stderr));
+                    Step {
+                        source: s.id,
+                        command: s.upgrade.join(" "),
+                        ok: o.status.success(),
+                        code: o.status.code(),
+                        tail: tail(&log, TAIL_LINES),
+                    }
+                }
+                Err(e) => Step {
                     source: s.id,
                     command: s.upgrade.join(" "),
-                    ok: o.status.success(),
-                    code: o.status.code(),
-                    tail: tail(&log, TAIL_LINES),
-                }
-            }
-            Err(e) => Step {
-                source: s.id,
-                command: s.upgrade.join(" "),
-                ok: false,
-                code: None,
-                tail: e.to_string(),
-            },
-        };
+                    ok: false,
+                    code: None,
+                    tail: e.to_string(),
+                },
+            };
         let failed = !step.ok;
         steps.push(step);
         if failed {
@@ -241,8 +267,9 @@ pub fn report(failed: &Step) -> String {
         })
         .unwrap_or_else(|| "Linux".into());
     crate::tr!(
-        "La mise à jour du système a échoué ({os}).\n\nCommande : {cmd}\nCode de sortie : {code}\n\nFin du journal :\n{tail}\n\nQue s'est-il passé, et comment le corriger ?",
+        "La mise à jour du système a échoué ({os}).\n\nCommande : {cmd}\nCode de sortie : {code}\nJournal complet : {log}\n\nFin du journal :\n{tail}\n\nQue s'est-il passé, et comment le corriger ?",
         os = os,
+        log = log_path().display(),
         cmd = failed.command,
         code = failed.code.map_or("?".to_string(), |c| c.to_string()),
         tail = failed.tail

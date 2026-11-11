@@ -1310,7 +1310,7 @@
 "Dépôts Arch" = "Arch repositories"
 "Flatpak" = "Flatpak"
 "Zypper" = "Zypper"
-"La mise à jour du système a échoué ({os}).\n\nCommande : {cmd}\nCode de sortie : {code}\n\nFin du journal :\n{tail}\n\nQue s'est-il passé, et comment le corriger ?" = "The system update failed ({os}).\n\nCommand: {cmd}\nExit code: {code}\n\nEnd of the log:\n{tail}\n\nWhat happened, and how can it be fixed?"
+"La mise à jour du système a échoué ({os}).\n\nCommande : {cmd}\nCode de sortie : {code}\nJournal complet : {log}\n\nFin du journal :\n{tail}\n\nQue s'est-il passé, et comment le corriger ?" = "The system update failed ({os}).\n\nCommand: {cmd}\nExit code: {code}\nFull log: {log}\n\nEnd of the log:\n{tail}\n\nWhat happened, and how can it be fixed?"
 "aucune source de paquets reconnue" = "no known package source"
 "{n} paquet(s) à mettre à jour" = "{n} package(s) to update"
 "Mises à jour en attente (Arch)" = "Pending updates (Arch)"
