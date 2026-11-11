@@ -1604,3 +1604,5 @@
 "ddcutil : écran du bus {b} injoignable" = "ddcutil: display on bus {b} unreachable"
 "luminosité : {e}" = "brightness: {e}"
 "Luminosité des écrans externes (DDC/CI)" = "External screen brightness (DDC/CI)"
+"Clavier virtuel : wvkbd n'est pas installé (paquet wvkbd)" = "On-screen keyboard: wvkbd is not installed (package wvkbd)"
+"wvkbd n'est pas installé : installez le paquet wvkbd." = "wvkbd is not installed: install the wvkbd package."

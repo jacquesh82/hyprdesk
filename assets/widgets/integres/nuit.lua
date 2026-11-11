@@ -5,10 +5,39 @@
 -- <K>` / `identity`) et le lance s'il ne tourne pas. Un autre outil déjà
 -- en place (wlsunset, gammastep, redshift) garde la main : le module le
 -- signale et ne touche à rien (deux outils se disputeraient l'écran).
+--
+-- Le choix fait dans le menu (mode, température) est gardé dans
+-- $XDG_STATE_HOME/hyprdesk/nuit : il survit au rechargement de la config,
+-- de Hyprland et à la session suivante.
+
+local STATE = (os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state"))
+    .. "/hyprdesk/nuit"
 
 local mode = "auto"      -- auto | on | off
 local temp_choice = nil  -- température choisie dans le menu (sinon l'option)
 local applied = nil      -- dernier état appliqué : "on:<K>" ou "off"
+
+local function load()
+    local f = io.open(STATE, "r")
+    if not f then return end
+    for line in f:lines() do
+        local k, v = line:match("^([a-z]+)=(.*)$")
+        if k == "mode" and (v == "auto" or v == "on" or v == "off") then mode = v
+        elseif k == "temperature" then temp_choice = tonumber(v) end
+    end
+    f:close()
+end
+
+local function save()
+    hd.exec("mkdir -p " .. string.format("%q", STATE:match("^(.*)/[^/]*$")))
+    local f = io.open(STATE, "w")
+    if not f then return end
+    f:write("mode=" .. mode .. "\n")
+    if temp_choice then f:write("temperature=" .. temp_choice .. "\n") end
+    f:close()
+end
+
+load()
 
 local TEMPS = { 3400, 4000, 4500, 5000 }
 
@@ -71,6 +100,8 @@ return {
         end
         if hd.exec("command -v hyprsunset") == "" then return { state = "hidden" } end
         local on = wanted(o)
+        -- hyprsunset relancé (ou Hyprland rechargé) : l'état est renvoyé.
+        if hd.exec("pgrep -x hyprsunset 2>/dev/null") == "" then applied = nil end
         apply(on, temperature(o))
         return {
             icon = on and "night-light-symbolic" or "night-light-disabled-symbolic",
@@ -93,7 +124,7 @@ return {
             return m
         end
         local function set(v)
-            return function() mode = v; apply(wanted(o), temperature(o)) end
+            return function() mode = v; save(); apply(wanted(o), temperature(o)) end
         end
         m[#m + 1] = { label = hd.t("Automatique"), detail = (o.debut or "19:30") .. " → " .. (o.fin or "07:00"),
                       checked = mode == "auto", action = set("auto") }
@@ -103,7 +134,7 @@ return {
         for _, k in ipairs(TEMPS) do
             m[#m + 1] = { label = k .. " K", detail = k <= 3400 and hd.t("très chaud") or nil,
                           checked = temperature(o) == k,
-                          action = function() temp_choice = k; apply(wanted(o), temperature(o)) end }
+                          action = function() temp_choice = k; save(); apply(wanted(o), temperature(o)) end }
         end
         return m
     end,

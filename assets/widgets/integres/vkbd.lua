@@ -1,5 +1,5 @@
 -- Clavier virtuel (wvkbd) : l'afficher ou le masquer depuis la barre.
--- Masqué si wvkbd n'est pas installé (hyprdesk doctor le signale).
+-- Sans wvkbd : icône estompée, le clic dit quel paquet installer.
 -- wvkbd reçoit SIGRTMIN pour se montrer ou se cacher ; il est lancé caché
 -- (--hidden) au premier clic s'il ne tourne pas.
 
@@ -32,13 +32,21 @@ return {
     options     = {},
     render = function()
         local p = prog()
-        if not p then return { state = "hidden" } end
+        if not p then
+            return { icon = "input-keyboard-symbolic", state = "warning",
+                     tooltip = hd.t("Clavier virtuel : wvkbd n'est pas installé (paquet wvkbd)") }
+        end
         return { icon = "input-keyboard-symbolic", state = running(p) and "active" or "normal",
                  tooltip = hd.t("Clavier virtuel — clic : afficher ou masquer") }
     end,
     on_click = function()
         local p = prog()
-        if p then toggle(p) end
+        if p then
+            toggle(p)
+        else
+            hd.spawn("notify-send -a hyprdesk " .. string.format("%q", hd.t("Clavier virtuel"))
+                .. " " .. string.format("%q", hd.t("wvkbd n'est pas installé : installez le paquet wvkbd.")))
+        end
     end,
     menu = function()
         local p = prog()
