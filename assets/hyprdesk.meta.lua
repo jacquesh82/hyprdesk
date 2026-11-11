@@ -206,6 +206,7 @@ function hd.component(name, spec) end
 ---@field disabled? boolean
 ---@field confirm? string # question de confirmation avant l'action
 ---@field input? string # champ de saisie (texte d'aide) : Entrée appelle action(texte)
+---@field image? string # image locale (chemin ou file:///…), une pochette par exemple
 ---@field secret? boolean # saisie masquée (mot de passe)
 ---@field action? fun(text?: string)
 

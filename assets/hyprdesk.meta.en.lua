@@ -206,6 +206,7 @@ function hd.component(name, spec) end
 ---@field disabled? boolean
 ---@field confirm? string # confirmation question before the action
 ---@field input? string # text field (placeholder): Enter calls action(text)
+---@field image? string # local image (path or file:///…), an album cover for instance
 ---@field secret? boolean # masked input (password)
 ---@field action? fun(text?: string)
 

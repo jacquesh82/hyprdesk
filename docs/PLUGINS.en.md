@@ -270,7 +270,9 @@ return {
 A menu entry can also be a **text field**: `{ input = "Password",
 label = "Wi-Fi “Home”", secret = true, action = function(text) … end }`. Enter
 calls the action with the typed text, then the menu closes; `secret` masks the input,
-which is wiped from hyprdesk's memory as soon as it is sent.
+which is wiped from hyprdesk's memory as soon as it is sent. An entry `{ image = "/path.png" }`
+(or `file:///…`) shows an image, an album cover for instance: only a local file,
+nothing is downloaded.
 
 The same plugin works on the desktop and in the bar (`hd.bar({ right = { "vpn" } })`).
 Available helpers: `hd.exec` (output of a command, time-bounded) and
