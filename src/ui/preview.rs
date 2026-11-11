@@ -976,6 +976,7 @@ impl Preview {
                 selected: 1,
                 loading: false,
                 back: false,
+                sticky: false,
             });
         } else {
             self.app.switcher = None;

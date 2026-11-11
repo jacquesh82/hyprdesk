@@ -203,6 +203,7 @@ impl App {
             k.lock.clone(),
             k.search.clone(),
             k.switch.clone(),
+            k.overview.clone(),
         ];
         self.panel = Some(p);
         let from = self

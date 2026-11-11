@@ -2689,6 +2689,26 @@ impl App {
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
                 control::Command::Apps => self.toggle_apps(),
+                control::Command::Overview => {
+                    let cmd = self.cfg.general.overview_command.trim().to_string();
+                    if cmd.is_empty() {
+                        if self.switcher.is_some() {
+                            return self.close_switcher();
+                        }
+                        let t = self.switch_windows(false);
+                        if let Some(s) = self.switcher.as_mut() {
+                            s.sticky = true;
+                        }
+                        t
+                    } else {
+                        Task::perform(
+                            async move {
+                                let _ = tokio::task::spawn_blocking(move || hypr::exec(&cmd)).await;
+                            },
+                            |_| Msg::Noop,
+                        )
+                    }
+                }
                 control::Command::Switch(back) => self.switch_windows(back),
                 control::Command::Tour => {
                     let o = self.open_panel();
@@ -3146,7 +3166,11 @@ impl App {
                 Task::none()
             }
             Msg::Modifiers(m) => {
-                if self.switcher.is_some() && !m.alt() && !m.logo() && !m.control() {
+                if self.switcher.as_ref().is_some_and(|s| !s.sticky)
+                    && !m.alt()
+                    && !m.logo()
+                    && !m.control()
+                {
                     return self.switcher_commit();
                 }
                 Task::none()

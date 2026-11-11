@@ -7,7 +7,7 @@
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, media?: boolean }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, overview?: string|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field clipboard_history? boolean # clipboard history: hyprdesk runs cliphist (":clip" in search)
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # plugin options (Settings → Plugins → Configure), for every instance except options written on the instance

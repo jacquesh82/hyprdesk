@@ -530,6 +530,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspace_monitors",
             "workspace_dedicated",
             "forced_modes",
+            "overview_command",
             "plugin_options",
             "update_commands",
             "primary",
@@ -573,7 +574,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             &k,
             &[
                 "toggle", "launcher", "hide", "settings", "lock", "leave", "media", "switch",
-                "search",
+                "search", "overview",
             ],
             C,
         )?;
@@ -589,6 +590,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("leave", &mut g.keys.leave),
             ("switch", &mut g.keys.switch),
             ("search", &mut g.keys.search),
+            ("overview", &mut g.keys.overview),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}
@@ -777,6 +779,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         g.language = l;
     }
     parse_tiling(t, &mut g.tiling)?;
+    if let Some(c) = opt_string(t, "overview_command", CTX)? {
+        g.overview_command = c;
+    }
     if let Some(po) = t.get::<Option<Table>>("plugin_options")? {
         const C: &str = "hd.config.plugin_options";
         g.plugin_options.clear();

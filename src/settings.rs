@@ -101,6 +101,8 @@ pub struct Settings {
     pub key_lock: Option<String>,
     pub key_switch: Option<String>,
     pub key_search: Option<String>,
+    pub key_overview: Option<String>,
+    pub overview_command: Option<String>,
     pub key_leave: Option<String>,
     pub key_media: Option<bool>,
     pub suspend_binds: Option<bool>,
@@ -277,6 +279,8 @@ impl Settings {
             key_lock: has("keys.lock").then(|| g.keys.lock.clone()),
             key_switch: has("keys.switch").then(|| g.keys.switch.clone()),
             key_search: has("keys.search").then(|| g.keys.search.clone()),
+            key_overview: has("keys.overview").then(|| g.keys.overview.clone()),
+            overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
             key_media: has("keys.media").then_some(g.keys.media),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
@@ -516,6 +520,8 @@ impl Settings {
         set!(key_lock, "keys.lock", g.keys.lock);
         set!(key_switch, "keys.switch", g.keys.switch);
         set!(key_search, "keys.search", g.keys.search);
+        set!(key_overview, "keys.overview", g.keys.overview);
+        set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
         set!(key_media, "keys.media", g.keys.media);
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
@@ -893,6 +899,7 @@ impl Settings {
             ("lock", &self.key_lock),
             ("switch", &self.key_switch),
             ("search", &self.key_search),
+            ("overview", &self.key_overview),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {

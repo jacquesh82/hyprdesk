@@ -1676,3 +1676,11 @@
 "Développement" = "Development"
 "Jeux" = "Games"
 "Utilitaires" = "Utilities"
+
+# Vue d'ensemble (MLG-22).
+"commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)" = "command | none — overview through a Hyprland plugin (otherwise the hyprdesk switcher)"
+"raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)" = "shortcut | none — window overview (hyprdesk overview)"
+"  overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)" = "  overview          window overview (overview_command, otherwise the switcher)"
+"Vue d'ensemble des fenêtres" = "Window overview"
+"Vue d'ensemble par un plugin de Hyprland" = "Overview through a Hyprland plugin"
+"vide : le sélecteur de hyprdesk" = "empty: the hyprdesk switcher"

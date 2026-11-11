@@ -674,6 +674,8 @@ pub struct Keys {
     pub switch: String,
     /// Lanceur avec recherche (`hyprdesk search`).
     pub search: String,
+    /// Vue d'ensemble des fenêtres (`hyprdesk overview`).
+    pub overview: String,
     /// Touches multimédia (volume, luminosité, lecture) par hyprdesk : là où
     /// hyprland.lua ne les lie pas déjà, et toujours bureau affiché.
     pub media: bool,
@@ -686,6 +688,7 @@ impl Default for Keys {
             launcher: "SUPER + ALT + D".into(),
             switch: "ALT + Tab".into(),
             search: "SUPER + Space".into(),
+            overview: "SUPER + Tab".into(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par
@@ -765,6 +768,9 @@ pub struct General {
     /// Commandes des mises à jour remplacées : source (`pacman`, `aur`…) →
     /// (relevé, mise à jour), en shell ; vide : celle de hyprdesk.
     pub update_commands: std::collections::BTreeMap<String, (String, String)>,
+    /// Vue d'ensemble : commande d'un plugin de Hyprland (hyprexpo,
+    /// Hyprspace…) ; vide : le sélecteur de fenêtres de hyprdesk.
+    pub overview_command: String,
     /// Modes imposés : écran (`DP-1`) ou workspace (`ws:5`) → `no-desktop`,
     /// `launcher-only` ou `full-desktop`.
     pub forced_modes: std::collections::BTreeMap<String, String>,
@@ -823,6 +829,7 @@ impl Default for General {
             workspace_monitors: Default::default(),
             workspace_monitors_declared: Default::default(),
             forced_modes: Default::default(),
+            overview_command: String::new(),
             plugin_options: Default::default(),
             update_commands: Default::default(),
             workspace_dedicated: Default::default(),

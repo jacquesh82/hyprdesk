@@ -39,8 +39,10 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub fonts: Vec<String>,
-    pub keys: [String; 8],
+    pub keys: [String; 9],
     pub key_error: Option<String>,
+    /// Commande de vue d'ensemble en cours de saisie.
+    pub overview_cmd: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +67,9 @@ pub enum Msg {
     KeySubmit(usize),
     ComponentRestart(String),
     FloatLaunched(bool),
+    /// Commande de vue d'ensemble : saisie, puis validée.
+    OverviewCmd(String),
+    OverviewCmdSubmit,
     /// Mode imposé : écran (`DP-1`) ou workspace (`ws:5`) → mode, ou libre.
     Forced(String, Option<&'static str>),
 }
@@ -298,6 +303,23 @@ impl App {
             key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
             key_field(6, crate::i18n::tr("Recherche (toutes les applications)"), "keys.search"),
             key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
+            key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
+            self.adv(self.field(
+                "Vue d'ensemble par un plugin de Hyprland",
+                "overview_command",
+                text_input(
+                    crate::i18n::tr("vide : le sélecteur de hyprdesk"),
+                    p.desktop
+                        .overview_cmd
+                        .as_deref()
+                        .unwrap_or(&g.overview_command),
+                )
+                .font(self.font)
+                .on_input(|v| wrap(Msg::OverviewCmd(v)))
+                .on_submit(wrap(Msg::OverviewCmdSubmit))
+                .padding(8)
+                .width(260),
+            )),
             key_field(5, crate::i18n::tr("Verrouiller la session"), "keys.lock"),
             text(
                 "Vide : celui de hyprland.lua (SUPER + L, posé à l'installation). \
@@ -677,6 +699,7 @@ impl App {
                     5 => self.settings.key_lock = Some(v),
                     6 => self.settings.key_search = Some(v),
                     7 => self.settings.key_switch = Some(v),
+                    8 => self.settings.key_overview = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()
@@ -688,6 +711,23 @@ impl App {
             }
             Msg::FloatLaunched(v) => {
                 self.settings.float_launched = Some(v);
+                self.commit()
+            }
+            Msg::OverviewCmd(v) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.desktop.overview_cmd = Some(v);
+                }
+                Task::none()
+            }
+            Msg::OverviewCmdSubmit => {
+                let Some(v) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.desktop.overview_cmd.take())
+                else {
+                    return Task::none();
+                };
+                self.settings.overview_command = Some(v.trim().to_string());
                 self.commit()
             }
             Msg::Forced(key, mode) => {

@@ -69,6 +69,7 @@ Commandes :
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
+  overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
                     à la fenêtre suivante (prev : précédente)
   tour              ouvre les réglages sur la visite guidée

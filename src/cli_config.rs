@@ -280,6 +280,14 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.search.clone(),
         |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
         |s| s.key_search = None;
+    "keys.overview", "desktop", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
+        |c| c.general.keys.overview.clone(),
+        |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
+        |s| s.key_overview = None;
+    "overview_command", "desktop", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
+        |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
+        |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
+        |s| s.overview_command = None;
     "keys.leave", "desktop", "raccourci | none — sortie de secours",
         |c| c.general.keys.leave.clone(),
         |s, v, c| { s.key_leave = Some(combo(v)?); Ok(()) },
