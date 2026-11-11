@@ -28,11 +28,16 @@ pub const NAMESPACE: &str = "hyprdesk-mymfa-fenetre";
 const WIDTH: f32 = 860.0;
 const HEIGHT: f32 = 600.0;
 const MARGE: f32 = 18.0;
+/// Le mot de passe révélé quitte la fenêtre après ce délai (comme la copie
+/// sensible du démon, 30 s).
+const REVEAL_S: u64 = 30;
 
 /// Onglet affiché.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Onglet {
     Codes,
+    MotsDePasse,
+    Activite,
     Reglages,
 }
 
@@ -40,11 +45,18 @@ impl Onglet {
     fn titre(self) -> String {
         crate::i18n::tr(match self {
             Onglet::Codes => "Codes 2FA",
+            Onglet::MotsDePasse => "Mots de passe",
+            Onglet::Activite => "Activité",
             Onglet::Reglages => "Réglages",
         })
         .to_string()
     }
-    const TOUS: [Onglet; 2] = [Onglet::Codes, Onglet::Reglages];
+    const TOUS: [Onglet; 4] = [
+        Onglet::Codes,
+        Onglet::MotsDePasse,
+        Onglet::Activite,
+        Onglet::Reglages,
+    ];
 }
 
 /// Filtre de la liste des codes.
@@ -90,6 +102,21 @@ pub enum FMsg {
     VerifierCompte,
     ApercuCompte(Result<Value, String>),
     AjouterCompte,
+    /// Mots de passe (MLG-46).
+    VoirSite(Option<String>),
+    Reveal(String),
+    Revele(Result<String, String>),
+    CopierLogin(String, &'static str),
+    FavoriLogin(String, bool),
+    FormulaireSite(bool, Option<String>),
+    ChampSite(&'static str, String),
+    Generer,
+    Genere(Result<String, String>),
+    Longueur(u16),
+    Bascule(&'static str),
+    EnregistrerSite,
+    SupprimerLogin(String),
+    SupprimerPasskey(String),
     /// Réglages et synchro Drive (MLG-47).
     Verrouiller,
     StatutSynchro(Result<Value, String>),
@@ -113,6 +140,13 @@ pub struct Fenetre {
     pub filtre: Filtre,
     /// Codes masqués (l'état, cohérent dans la fenêtre).
     pub masque: bool,
+    /// Site ouvert en détail (Mots de passe) et son mot de passe révélé.
+    pub detail: Option<String>,
+    pub revele: String,
+    pub revele_vivant: bool,
+    /// Formulaire d'un site (vide : création).
+    pub formulaire: Option<FormulaireSite>,
+    pub generateur: Generateur,
     /// Nouveau compte 2FA (formulaire du code, pas encore du scanner d'image).
     pub nouveau: NouveauCompte,
     pub statut_synchro: Option<Value>,
@@ -120,6 +154,38 @@ pub struct Fenetre {
     pub message: Option<(bool, String)>,
     pub occupe: bool,
     pub tiques: u32,
+}
+
+/// Formulaire d'un site (création ou modification).
+#[derive(Debug, Clone, Default)]
+pub struct FormulaireSite {
+    pub id: String, // vide = création
+    pub origin: String,
+    pub username: String,
+    pub password: String,
+    pub title: String,
+    pub note: String,
+    pub tag: String,
+}
+
+/// État du générateur.
+#[derive(Debug, Clone)]
+pub struct Generateur {
+    pub longueur: u16,
+    pub chiffres: bool,
+    pub symboles: bool,
+    pub phrase: bool,
+}
+
+impl Default for Generateur {
+    fn default() -> Self {
+        Self {
+            longueur: 20,
+            chiffres: true,
+            symboles: true,
+            phrase: false,
+        }
+    }
 }
 
 /// Code affiché (8-tuple de `Codes`, tous les champs cette fois).
@@ -199,6 +265,11 @@ impl Fenetre {
             recherche: String::new(),
             filtre: Filtre::Tous,
             masque: false,
+            detail: None,
+            revele: String::new(),
+            revele_vivant: false,
+            formulaire: None,
+            generateur: Generateur::default(),
             nouveau: NouveauCompte::default(),
             statut_synchro: None,
             journal: None,
@@ -206,6 +277,40 @@ impl Fenetre {
             occupe: false,
             tiques: 0,
         }
+    }
+
+    fn dit_message(&mut self, erreur: bool, texte: String) {
+        self.message = Some((erreur, texte));
+        self.occupe = false;
+    }
+
+    /// Logins du contenu, du plus récemment utilisé au plus ancien.
+    fn logins_liste(&self) -> Vec<Value> {
+        let mut l = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("logins"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let cle = |v: &Value| -> String {
+            v.get("usedAt")
+                .or_else(|| v.get("updatedAt"))
+                .or_else(|| v.get("createdAt"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        l.sort_by_key(|v| std::cmp::Reverse(cle(v)));
+        l
+    }
+
+    fn texte_de(v: &Value, c: &str) -> String {
+        v.get(c).and_then(Value::as_str).unwrap_or("").to_string()
+    }
+
+    fn champ_bool(v: &Value, c: &str) -> bool {
+        v.get(c).and_then(Value::as_bool).unwrap_or(false)
     }
 
     fn codes_visibles(&self) -> Vec<CodeVue> {
@@ -247,7 +352,28 @@ fn contenu_apercu() -> Value {
             { "id": "1", "type": "totp", "issuer": "GitHub", "account": "jacques", "tag": "travail", "favorite": true },
             { "id": "2", "type": "totp", "issuer": "OVH", "account": "moi@example.net", "tag": "", "favorite": false },
         ],
+        "logins": [
+            { "id": "l1", "origin": "https://github.com", "host": "github.com", "username": "jacques",
+              "title": "", "note": "clé de secours dans le coffre", "tag": "travail", "favorite": true,
+              "hasPassword": true, "passwordLength": 20,
+              "createdAt": "2026-11-01T10:00:00.000Z", "updatedAt": "2026-11-10T09:00:00.000Z",
+              "usedAt": "2026-11-11T08:30:00.000Z", "passwordChangedAt": "2026-11-10T09:00:00.000Z" },
+            { "id": "l2", "origin": "https://www.ovh.com", "host": "ovh.com", "username": "moi@example.net",
+              "title": "OVHcloud", "note": "", "tag": "", "favorite": false,
+              "hasPassword": true, "passwordLength": 16,
+              "createdAt": "2026-10-02T10:00:00.000Z", "updatedAt": "2026-10-02T10:00:00.000Z",
+              "usedAt": "2026-11-09T14:00:00.000Z", "passwordChangedAt": "2026-10-02T10:00:00.000Z" },
+        ],
+        "passkeys": [
+            { "id": "p1", "credentialId": "abc", "rpId": "github.com", "rpName": "GitHub",
+              "userName": "jacques", "userDisplayName": "Jacques" },
+        ],
         "tags": ["travail"],
+        "history": [
+            { "id": "h1", "at": "2026-11-11T08:30:00.000Z", "action": "update", "label": { "issuer": "GitHub", "account": "jacques" } },
+            { "id": "h2", "at": "2026-11-11T08:29:00.000Z", "action": "create", "label": { "issuer": "OVH", "account": "moi@example.net" } },
+            { "id": "h3", "at": "2026-11-09T14:00:00.000Z", "action": "delete", "label": { "issuer": "Test", "account": "" } },
+        ],
     })
 }
 
@@ -285,6 +411,12 @@ impl App {
     }
 
     pub fn mfa_fenetre_close(&mut self) -> Task<Msg> {
+        if let Some(f) = self.mfa_fenetre.as_mut() {
+            crate::lock::pam::wipe(&mut f.revele);
+            if let Some(form) = f.formulaire.as_mut() {
+                crate::lock::pam::wipe(&mut form.password);
+            }
+        }
         self.mfa_fenetre = None;
         Task::none()
     }
@@ -501,6 +633,228 @@ impl App {
                     ),
                 )
             }
+            FMsg::VoirSite(id) => {
+                // Changer de détail efface un mot de passe révélé qui traîne.
+                if f.revele_vivant {
+                    crate::lock::pam::wipe(&mut f.revele);
+                    f.revele.clear();
+                    f.revele_vivant = false;
+                }
+                f.detail = match (&f.detail, id) {
+                    (_, None) => None,
+                    (Some(d), Some(i)) if *d == *i => None,
+                    (_, Some(i)) => Some(i),
+                };
+                Task::none()
+            }
+            FMsg::Reveal(id) => Task::perform(
+                {
+                    let id = id.clone();
+                    async move { mymfa::reveal_password(&id).await }
+                },
+                |r| Msg::MymfaF(FMsg::Revele(r)),
+            ),
+            FMsg::Revele(r) => match r {
+                Ok(mot) => {
+                    crate::lock::pam::wipe(&mut f.revele);
+                    f.revele = mot;
+                    f.revele_vivant = true;
+                    // Effacé après 30 s, comme la copie sensible du démon.
+                    Task::perform(
+                        tokio::time::sleep(std::time::Duration::from_secs(REVEAL_S)),
+                        |()| Msg::MymfaF(FMsg::Revele(Err(String::new()))),
+                    )
+                }
+                Err(e) if e.is_empty() => {
+                    // Délai écoulé.
+                    crate::lock::pam::wipe(&mut f.revele);
+                    f.revele.clear();
+                    f.revele_vivant = false;
+                    Task::none()
+                }
+                Err(e) => Task::done(Msg::MymfaF(FMsg::Message(true, e))),
+            },
+            FMsg::CopierLogin(id, champ) => Task::perform(mymfa::copy_login(id, champ), |r| {
+                Msg::MymfaF(match r {
+                    Ok(()) => FMsg::Message(false, tr_("Copié.")),
+                    Err(e) => FMsg::Message(true, e),
+                })
+            }),
+            FMsg::FavoriLogin(id, v) => Task::perform(
+                {
+                    let id = id.clone();
+                    async move {
+                        mymfa::apply(serde_json::json!({
+                            "op": "update_login", "id": id, "patch": { "favorite": v }
+                        }))
+                        .await
+                    }
+                },
+                |r| Msg::MymfaF(message(r.map(|_| tr_("Modifié.")))),
+            )
+            .chain(Task::perform(mymfa::content(), |r| {
+                Msg::MymfaF(FMsg::Contenu(r))
+            })),
+            FMsg::FormulaireSite(ouvert, id) => {
+                f.formulaire = ouvert.then(|| {
+                    // Édition : préremplir depuis le contenu (sans le mot de passe).
+                    let mut form = FormulaireSite {
+                        id: id.clone().unwrap_or_default(),
+                        ..Default::default()
+                    };
+                    if let Some(i) = &id {
+                        for l in f.logins_liste() {
+                            if mymfa_fenetre_champ(&l, "id") == *i {
+                                for (c, k) in [
+                                    ("origin", "origin"),
+                                    ("username", "username"),
+                                    ("title", "title"),
+                                    ("note", "note"),
+                                    ("tag", "tag"),
+                                ] {
+                                    if let Some(v) = l.get(k).and_then(Value::as_str) {
+                                        match c {
+                                            "origin" => form.origin = v.to_string(),
+                                            "username" => form.username = v.to_string(),
+                                            "title" => form.title = v.to_string(),
+                                            "note" => form.note = v.to_string(),
+                                            "tag" => form.tag = v.to_string(),
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    form
+                });
+                Task::none()
+            }
+            FMsg::ChampSite(champ, v) => {
+                if let Some(form) = f.formulaire.as_mut() {
+                    let mut v = v;
+                    match champ {
+                        "origin" => form.origin = std::mem::take(&mut v),
+                        "username" => form.username = std::mem::take(&mut v),
+                        "password" => form.password = std::mem::take(&mut v),
+                        "title" => form.title = std::mem::take(&mut v),
+                        "note" => form.note = std::mem::take(&mut v),
+                        "tag" => form.tag = std::mem::take(&mut v),
+                        _ => {}
+                    }
+                }
+                Task::none()
+            }
+            FMsg::Generer => {
+                let g = f.generateur.clone();
+                Task::perform(
+                    async move {
+                        mymfa::generate(serde_json::json!({
+                            "length": g.longueur,
+                            "digits": g.chiffres,
+                            "symbols": g.symboles,
+                            "words": g.phrase,
+                        }))
+                        .await
+                    },
+                    |r| {
+                        Msg::MymfaF(FMsg::Genere(
+                            r.map(|v| v.as_str().unwrap_or_default().to_string()),
+                        ))
+                    },
+                )
+            }
+            FMsg::Genere(r) => {
+                match r {
+                    Ok(mot) => {
+                        if let Some(form) = f.formulaire.as_mut() {
+                            crate::lock::pam::wipe(&mut form.password);
+                            form.password = mot;
+                        }
+                    }
+                    Err(e) => f.dit_message(true, e),
+                }
+                Task::none()
+            }
+            FMsg::Longueur(n) => {
+                f.generateur.longueur = n;
+                Task::none()
+            }
+            FMsg::Bascule(k) => {
+                match k {
+                    "chiffres" => f.generateur.chiffres = !f.generateur.chiffres,
+                    "symboles" => f.generateur.symboles = !f.generateur.symboles,
+                    "phrase" => f.generateur.phrase = !f.generateur.phrase,
+                    _ => {}
+                }
+                Task::none()
+            }
+            FMsg::EnregistrerSite => {
+                if f.occupe {
+                    return Task::none();
+                }
+                let Some(form) = f.formulaire.clone() else {
+                    return Task::none();
+                };
+                if form.password.is_empty() {
+                    f.dit_message(true, tr_("Le mot de passe ne peut pas être vide."));
+                    return Task::none();
+                }
+                f.occupe = true;
+                let creation = form.id.is_empty();
+                let op = if creation {
+                    serde_json::json!({
+                        "op": "add_login", "origin": form.origin, "username": form.username,
+                        "password": form.password, "title": form.title, "note": form.note, "tag": form.tag,
+                    })
+                } else {
+                    serde_json::json!({
+                        "op": "update_login", "id": form.id, "patch": {
+                            "origin": form.origin, "username": form.username, "password": form.password,
+                            "title": form.title, "note": form.note, "tag": form.tag,
+                        }
+                    })
+                };
+                let mut mdp = form.password.clone();
+                Task::perform(mymfa::apply(op), move |r| {
+                    crate::lock::pam::wipe(&mut mdp);
+                    Msg::MymfaF(message(r.map(|_| {
+                        if creation {
+                            tr_("Site enregistré.")
+                        } else {
+                            tr_("Site mis à jour.")
+                        }
+                    })))
+                })
+                .chain(
+                    Task::perform(mymfa::content(), |r| Msg::MymfaF(FMsg::Contenu(r)))
+                        .chain(Task::done(Msg::MymfaF(FMsg::FormulaireSite(false, None)))),
+                )
+            }
+            FMsg::SupprimerLogin(id) => Task::perform(
+                {
+                    let id = id.clone();
+                    async move {
+                        mymfa::apply(serde_json::json!({ "op": "remove_login", "id": id })).await
+                    }
+                },
+                |r| Msg::MymfaF(message(r.map(|_| tr_("Site supprimé.")))),
+            )
+            .chain(Task::perform(mymfa::content(), |r| {
+                Msg::MymfaF(FMsg::Contenu(r))
+            })),
+            FMsg::SupprimerPasskey(id) => Task::perform(
+                {
+                    let id = id.clone();
+                    async move {
+                        mymfa::apply(serde_json::json!({ "op": "remove_passkey", "id": id })).await
+                    }
+                },
+                |r| Msg::MymfaF(message(r.map(|_| tr_("Passkey supprimée.")))),
+            )
+            .chain(Task::perform(mymfa::content(), |r| {
+                Msg::MymfaF(FMsg::Contenu(r))
+            })),
             FMsg::Verrouiller => Task::perform(mymfa::lock(), |r| match r {
                 Ok(()) => Msg::MymfaF(FMsg::Fermer),
                 Err(e) => Msg::MymfaF(FMsg::Message(true, e)),
@@ -648,6 +1002,8 @@ impl Fenetre {
 
         let corps = match self.onglet {
             Onglet::Codes => self.vue_codes(app),
+            Onglet::MotsDePasse => self.vue_sites(app),
+            Onglet::Activite => self.vue_activite(app),
             Onglet::Reglages => self.vue_reglages(app),
         };
 
@@ -1005,6 +1361,635 @@ impl Fenetre {
         col.into()
     }
 
+    /* ── Onglet Mots de passe (MLG-46) ── */
+
+    fn vue_sites(&self, app: &App) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let accent = color(th.accent, 1.0);
+        let edge = color(r.edge, 1.0);
+        let ok = color(r.focus, 1.0);
+        let warn = color(r.error, 1.0);
+        let wrap = Msg::MymfaF;
+        let mut col = column![].spacing(10);
+
+        // Recherche partagée + nouveau site.
+        col = col.push(
+            row![
+                text_input(
+                    crate::i18n::tr("Rechercher (site, identifiant, étiquette)…"),
+                    &self.recherche,
+                )
+                .font(app.font)
+                .size(14)
+                .padding([8, 10])
+                .width(Length::Fill)
+                .style(move |_, status| {
+                    let bord = match status {
+                        text_input::Status::Focused { .. } => accent,
+                        _ => edge,
+                    };
+                    text_input::Style {
+                        background: Color { a: 0.06, ..fg }.into(),
+                        border: Border::default().rounded(8).width(1).color(bord),
+                        icon: fg,
+                        placeholder: dim,
+                        value: fg,
+                        selection: Color { a: 0.35, ..accent },
+                    }
+                })
+                .on_input(move |s| wrap(FMsg::Recherche(s))),
+                bouton_simple(
+                    app,
+                    crate::i18n::tr("Nouveau site"),
+                    FMsg::FormulaireSite(true, None)
+                ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+
+        // Formulaire (création ou édition).
+        if let Some(form) = &self.formulaire {
+            col = col.push(self.vue_formulaire(app, form));
+        }
+
+        // Liste des sites, du plus récemment utilisé au plus ancien.
+        let q = self.recherche.to_lowercase();
+        let mut montres = 0;
+        for l in self.logins_liste() {
+            let id = Self::texte_de(&l, "id");
+            let titre = Self::texte_de(&l, "title");
+            let hote = Self::texte_de(&l, "host");
+            let user = Self::texte_de(&l, "username");
+            let tag = Self::texte_de(&l, "tag");
+            let site = if titre.is_empty() {
+                hote.clone()
+            } else {
+                titre.clone()
+            };
+            let correspond = q.is_empty()
+                || site.to_lowercase().contains(&q)
+                || user.to_lowercase().contains(&q)
+                || tag.to_lowercase().contains(&q);
+            if !correspond {
+                continue;
+            }
+            montres += 1;
+            let ouvert = self.detail.as_deref() == Some(id.as_str());
+            let favori = Self::champ_bool(&l, "favorite");
+            let ligne = container(
+                row![
+                    button(
+                        column![
+                            text(site.clone()).font(app.font).size(14).color(fg),
+                            text(if user.is_empty() {
+                                if tag.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("#{tag}")
+                                }
+                            } else if tag.is_empty() {
+                                user.clone()
+                            } else {
+                                format!("{user} · #{tag}")
+                            })
+                            .font(app.font)
+                            .size(11)
+                            .color(dim),
+                        ]
+                        .spacing(2)
+                        .width(Length::FillPortion(6)),
+                    )
+                    .padding(0)
+                    .style(|_, _| button::Style::default())
+                    .on_press(wrap(FMsg::VoirSite(Some(id.clone())))),
+                    iced::widget::Space::new().width(Length::FillPortion(1)),
+                    iced::widget::Space::new().width(Length::FillPortion(1)),
+                    bouton_etoile_login(app, id.clone(), favori),
+                    bouton_poubelle_login(app, id, site.clone()),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            )
+            .padding(10)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(
+                    if ouvert {
+                        Color { a: 0.10, ..accent }
+                    } else {
+                        Color { a: 0.05, ..fg }
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(10).width(1).color(if ouvert {
+                    accent
+                } else {
+                    edge
+                }),
+                ..Default::default()
+            });
+            col = col.push(ligne);
+            if !ouvert {
+                continue;
+            }
+
+            // ── Détail du site : identifiant, mot de passe, note, passkeys.
+            let detail = self.vue_detail_site(app, &l);
+            col = col.push(container(detail).padding([0, 10]).width(Length::Fill));
+            let _ = ok;
+            let _ = warn;
+        }
+        if montres == 0 && self.formulaire.is_none() {
+            col = col.push(
+                text(
+                    crate::i18n::tr("Aucun site : enregistrez-en un (« Nouveau site »).")
+                        .to_string(),
+                )
+                .font(app.font)
+                .size(13)
+                .color(dim),
+            );
+        }
+        col.into()
+    }
+
+    /// Détail d'un site : identifiant, mot de passe (révélation 30 s), note,
+    /// étiquette, passkeys du site.
+    fn vue_detail_site(&self, app: &App, l: &Value) -> Element<'static, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let wrap = Msg::MymfaF;
+        let id = Self::texte_de(l, "id");
+        let user = Self::texte_de(l, "username");
+        let note = Self::texte_de(l, "note");
+        let host = Self::texte_de(l, "host");
+        let a_mdp = Self::champ_bool(l, "hasPassword");
+        let mut col = column![].spacing(6);
+
+        // Identifiant.
+        if !user.is_empty() {
+            col = col.push(
+                row![
+                    text(crate::i18n::tr("Identifiant").to_string())
+                        .font(app.font)
+                        .size(12)
+                        .color(dim)
+                        .width(Length::Fixed(110.0)),
+                    text(user.clone()).font(app.font).size(13).color(fg),
+                    iced::widget::Space::new().width(Length::Fill),
+                    bouton_simple(
+                        app,
+                        crate::i18n::tr("Copier l'identifiant"),
+                        FMsg::CopierLogin(id.clone(), "username")
+                    ),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        // Mot de passe : révélé 30 s, sinon à la demande (jamais en clair d'office).
+        if a_mdp {
+            let montre = self.detail.as_deref() == Some(id.as_str()) && self.revele_vivant;
+            col = col.push(
+                row![
+                    text(crate::i18n::tr("Mot de passe").to_string())
+                        .font(app.font)
+                        .size(12)
+                        .color(dim)
+                        .width(Length::Fixed(110.0)),
+                    text(if montre {
+                        format!("{} (30 s)", "*".repeat(self.revele.chars().count().min(24)))
+                    } else {
+                        "••••••••".to_string()
+                    })
+                    .font(app.font)
+                    .size(13)
+                    .color(if montre { fg } else { dim }),
+                    iced::widget::Space::new().width(Length::Fill),
+                    if montre {
+                        bouton_simple(
+                            app,
+                            crate::i18n::tr("Cacher"),
+                            FMsg::Revele(Err(String::new())),
+                        )
+                    } else {
+                        bouton_simple(app, crate::i18n::tr("Afficher"), FMsg::Reveal(id.clone()))
+                    },
+                    bouton_simple(
+                        app,
+                        crate::i18n::tr("Copier"),
+                        FMsg::CopierLogin(id.clone(), "password")
+                    ),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        // Note.
+        if !note.is_empty() {
+            col = col.push(
+                row![
+                    text(crate::i18n::tr("Note").to_string())
+                        .font(app.font)
+                        .size(12)
+                        .color(dim)
+                        .width(Length::Fixed(110.0)),
+                    text(note).font(app.font).size(13).color(fg),
+                ]
+                .spacing(8),
+            );
+        }
+        // Étiquette et adresse.
+        let tag = Self::texte_de(l, "tag");
+        let origin = Self::texte_de(l, "origin");
+        col = col.push(
+            row![
+                text(if tag.is_empty() {
+                    origin.clone()
+                } else {
+                    format!("{origin} · #{tag}")
+                })
+                .font(app.font)
+                .size(12)
+                .color(dim),
+                iced::widget::Space::new().width(Length::Fill),
+                bouton_simple(
+                    app,
+                    crate::i18n::tr("Modifier"),
+                    FMsg::FormulaireSite(true, Some(id.clone()))
+                ),
+            ]
+            .spacing(8),
+        );
+        // Code 2FA du même site (service dont le nom ou l'adresse correspond).
+        let comptes = self.comptes_apercu();
+        let mut compte_lie: Option<&Value> = None;
+        for a in &comptes {
+            let issuer = Self::texte_de(a, "issuer");
+            if !host.is_empty()
+                && !issuer.is_empty()
+                && (host.contains(&issuer.to_lowercase()) || issuer.to_lowercase().contains(&host))
+            {
+                compte_lie = Some(a);
+                break;
+            }
+        }
+        if let Some(a) = compte_lie {
+            col = col.push(
+                row![
+                    text(crate::i18n::tr("Code 2FA du site").to_string())
+                        .font(app.font)
+                        .size(12)
+                        .color(dim)
+                        .width(Length::Fixed(110.0)),
+                    text(format!(
+                        "{} — {}",
+                        Self::texte_de(a, "issuer"),
+                        Self::texte_de(a, "account")
+                    ))
+                    .font(app.font)
+                    .size(13)
+                    .color(fg),
+                ]
+                .spacing(8),
+            );
+        }
+        // Passkeys du site.
+        for p in self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("passkeys"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let rp = Self::texte_de(p, "rpId");
+            if !host.is_empty() && !rp.is_empty() && !host.ends_with(&rp) && !rp.ends_with(&host) {
+                continue;
+            }
+            let pid = Self::texte_de(p, "id");
+            let nom = {
+                let n = Self::texte_de(p, "userName");
+                let d = Self::texte_de(p, "userDisplayName");
+                if n.is_empty() { d } else { n }
+            };
+            col = col.push(
+                row![
+                    text(format!("🔑 {} — {}", rp, nom))
+                        .font(app.font)
+                        .size(12)
+                        .color(fg),
+                    iced::widget::Space::new().width(Length::Fill),
+                    bouton_simple(
+                        app,
+                        crate::i18n::tr("Supprimer la passkey"),
+                        FMsg::SupprimerPasskey(pid)
+                    ),
+                ]
+                .spacing(8),
+            );
+        }
+        let _ = wrap;
+        col.into()
+    }
+
+    fn vue_formulaire(&self, app: &App, form: &FormulaireSite) -> Element<'static, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let accent = color(th.accent, 1.0);
+        let edge = color(r.edge, 1.0);
+        let ok = color(r.focus, 1.0);
+        let warn = color(r.error, 1.0);
+        let wrap = Msg::MymfaF;
+        let creation = form.id.is_empty();
+        let champ = |placeholder: &'static str, valeur: &str, nom: &'static str, secret: bool| {
+            let mut t = text_input(placeholder, valeur)
+                .font(app.font)
+                .size(13)
+                .padding([8, 10])
+                .width(Length::Fill)
+                .style(move |_, status| {
+                    let bord = match status {
+                        text_input::Status::Focused { .. } => accent,
+                        _ => edge,
+                    };
+                    text_input::Style {
+                        background: Color { a: 0.06, ..fg }.into(),
+                        border: Border::default().rounded(8).width(1).color(bord),
+                        icon: fg,
+                        placeholder: dim,
+                        value: fg,
+                        selection: Color { a: 0.35, ..accent },
+                    }
+                })
+                .on_input(move |s| wrap(FMsg::ChampSite(nom, s)));
+            if secret {
+                t = t.secure(secret);
+            }
+            t
+        };
+        let (niveau, bits) = solidite(&form.password);
+        let jauge = if form.password.is_empty() {
+            None
+        } else {
+            let (c, t) = match niveau {
+                1 => (warn, crate::i18n::tr("faible").to_string()),
+                2 => (dim, crate::i18n::tr("moyen").to_string()),
+                3 => (accent, crate::i18n::tr("bon").to_string()),
+                _ => (ok, crate::i18n::tr("excellent").to_string()),
+            };
+            Some(
+                row![
+                    text(crate::i18n::tr("Solidité").to_string())
+                        .font(app.font)
+                        .size(11)
+                        .color(dim),
+                    container(
+                        container(iced::widget::Space::new().width(Length::Fill))
+                            .width(Length::Fill)
+                            .style(move |_| container::Style {
+                                background: Some(c.into()),
+                                ..Default::default()
+                            }),
+                    )
+                    .width(match niveau {
+                        1 => Length::FillPortion(1),
+                        2 => Length::FillPortion(2),
+                        3 => Length::FillPortion(3),
+                        _ => Length::FillPortion(4),
+                    })
+                    .height(4),
+                    text(format!("{t} · {bits} bits"))
+                        .font(app.font)
+                        .size(11)
+                        .color(c),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .width(Length::Fill),
+            )
+        };
+        let gene = &self.generateur;
+        let mut col = column![
+            text(if creation {
+                crate::i18n::tr("Nouveau site").to_string()
+            } else {
+                crate::i18n::tr("Modifier le site").to_string()
+            })
+            .font(app.font)
+            .size(14)
+            .color(fg),
+            champ(
+                "https://exemple.fr (adresse)",
+                &form.origin,
+                "origin",
+                false
+            ),
+            row![
+                champ("identifiant", &form.username, "username", false),
+                champ("titre (optionnel)", &form.title, "title", false),
+            ]
+            .spacing(8),
+            champ("mot de passe", &form.password, "password", true),
+        ]
+        .spacing(6)
+        .width(Length::Fill);
+        if let Some(j) = jauge {
+            col = col.push(j);
+        }
+        // Générateur : longueur, chiffres, symboles, phrase.
+        col = col.push(
+            row![
+                text(crate::i18n::tr("Générer :").to_string())
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+                bouton_simple(
+                    app,
+                    &format!("− {}", gene.longueur),
+                    FMsg::Longueur(gene.longueur.saturating_sub(4).max(8))
+                ),
+                text(gene.longueur.to_string())
+                    .font(app.font)
+                    .size(12)
+                    .color(fg),
+                bouton_simple(
+                    app,
+                    &format!("+ {}", gene.longueur + 4),
+                    FMsg::Longueur((gene.longueur + 4).min(64))
+                ),
+                bascule(app, "chiffres", gene.chiffres, crate::i18n::tr("123")),
+                bascule(app, "symboles", gene.symboles, crate::i18n::tr("#$&")),
+                bascule(app, "phrase", gene.phrase, crate::i18n::tr("phrase")),
+                bouton_simple(app, crate::i18n::tr("Générer"), FMsg::Generer),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .wrap(),
+        );
+        col = col.push(
+            row![
+                champ("note (optionnelle)", &form.note, "note", false),
+                champ("étiquette (optionnelle)", &form.tag, "tag", false),
+            ]
+            .spacing(8),
+        );
+        col = col.push(
+            row![
+                bouton_simple(
+                    app,
+                    &if creation {
+                        crate::i18n::tr("Enregistrer le site").to_string()
+                    } else {
+                        crate::i18n::tr("Mettre à jour").to_string()
+                    },
+                    FMsg::EnregistrerSite,
+                ),
+                bouton_simple(
+                    app,
+                    crate::i18n::tr("Annuler"),
+                    FMsg::FormulaireSite(false, None)
+                ),
+            ]
+            .spacing(8),
+        );
+        container(col)
+            .padding(10)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(Color { a: 0.08, ..accent }.into()),
+                border: Border::default().rounded(10).width(1).color(accent),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Comptes 2FA du contenu (aperçu sans secret).
+    fn comptes_apercu(&self) -> Vec<Value> {
+        self.contenu
+            .as_ref()
+            .and_then(|c| c.get("accounts"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /* ── Onglet Activité (MLG-46) ── */
+
+    fn vue_activite(&self, app: &App) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let edge = color(r.edge, 1.0);
+        let mut col = column![].spacing(8);
+        let vide = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("history"))
+            .and_then(Value::as_array)
+            .map(|h| h.is_empty())
+            .unwrap_or(true);
+        if vide {
+            col = col.push(
+                text(crate::i18n::tr("Aucune activité enregistrée.").to_string())
+                    .font(app.font)
+                    .size(13)
+                    .color(dim),
+            );
+            return col.into();
+        }
+        let entrees = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("history"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        // Groupées par jour, du plus récent au plus ancien (l'historique du
+        // web est déjà trié décroissant, on regarde la date de chaque entrée).
+        let mut jour_courant = String::new();
+        for e in &entrees {
+            let at = Self::texte_de(e, "at");
+            let jour = at.get(..10).unwrap_or("").to_string();
+            if jour != jour_courant {
+                jour_courant = jour.clone();
+                let libelle = if jour
+                    == self
+                        .contenu
+                        .as_ref()
+                        .map(|_| aujourd_hui())
+                        .unwrap_or_default()
+                {
+                    crate::i18n::tr("Aujourd'hui").to_string()
+                } else {
+                    jour.clone()
+                };
+                col = col.push(text(libelle).font(app.font).size(12).color(dim));
+            }
+            let action = Self::texte_de(e, "action");
+            let label = e
+                .get("label")
+                .map(|l| {
+                    let issuer = l.get("issuer").and_then(Value::as_str).unwrap_or("");
+                    let compte = l.get("account").and_then(Value::as_str).unwrap_or("");
+                    match (issuer.is_empty(), compte.is_empty()) {
+                        (false, false) => format!("{issuer} — {compte}"),
+                        (false, true) => issuer.to_string(),
+                        _ => compte.to_string(),
+                    }
+                })
+                .unwrap_or_default();
+            col = col.push(
+                container(
+                    row![
+                        text(at.get(11..16).unwrap_or("").to_string())
+                            .font(app.font)
+                            .size(12)
+                            .color(dim)
+                            .width(Length::Fixed(46.0)),
+                        text(Self::verbe_site(&action))
+                            .font(app.font)
+                            .size(13)
+                            .color(fg)
+                            .width(Length::Fixed(90.0)),
+                        text(label).font(app.font).size(13).color(fg),
+                    ]
+                    .spacing(10),
+                )
+                .padding([4, 8])
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.04, ..fg }.into()),
+                    border: Border::default().rounded(6).width(1).color(edge),
+                    ..Default::default()
+                }),
+            );
+        }
+        col.into()
+    }
+
+    fn verbe_site(action: &str) -> String {
+        crate::i18n::tr(match action {
+            "create" => "création",
+            "update" => "modification",
+            "delete" => "suppression",
+            "import" => "import",
+            "security" => "sécurité",
+            "hotp" => "code HOTP",
+            autre => autre,
+        })
+        .to_string()
+    }
+
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
 
     fn vue_reglages(&self, app: &App) -> Element<'_, Msg> {
@@ -1134,6 +2119,167 @@ impl Fenetre {
         }
         col.into()
     }
+}
+
+fn mymfa_fenetre_champ(v: &Value, c: &str) -> String {
+    v.get(c).and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+/// Date du jour (UTC), pour le groupement d'activité.
+fn aujourd_hui() -> String {
+    mymfa_core_date()
+}
+
+fn mymfa_core_date() -> String {
+    // Le démon et le web horodatent en ISO UTC : la date est les 10 premiers
+    // caractères de l'instant ISO courant.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let jours = secs.div_euclid(86_400);
+    // Algorithme de Howard Hinnant (civil_from_days), comme mymfa-core.
+    let z = jours + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+fn bascule(app: &App, nom: &'static str, actif: bool, t: &str) -> Element<'static, Msg> {
+    let th = &app.cfg.general.theme;
+    let r = crate::theme::readable(th.fg, th.bg, th.accent);
+    let fg = color(r.fg, 1.0);
+    let accent = color(th.accent, 1.0);
+    let edge = color(r.edge, 1.0);
+    let wrap = Msg::MymfaF;
+    button(
+        text(t.to_string())
+            .font(app.font)
+            .size(12)
+            .color(if actif { accent } else { fg }),
+    )
+    .padding([5, 10])
+    .style(move |_, _| button::Style {
+        background: Some(
+            if actif {
+                Color { a: 0.15, ..accent }
+            } else {
+                Color { a: 0.05, ..fg }
+            }
+            .into(),
+        ),
+        text_color: if actif { accent } else { fg },
+        border: Border::default()
+            .rounded(999)
+            .width(1)
+            .color(if actif { accent } else { edge }),
+        ..Default::default()
+    })
+    .on_press(wrap(FMsg::Bascule(nom)))
+    .into()
+}
+
+fn bouton_etoile_login(app: &App, id: String, favori: bool) -> Element<'static, Msg> {
+    let th = &app.cfg.general.theme;
+    let r = crate::theme::readable(th.fg, th.bg, th.accent);
+    let dim = color(r.dim, 1.0);
+    let accent = color(th.accent, 1.0);
+    let wrap = Msg::MymfaF;
+    let marque = if favori { "★" } else { "☆" };
+    let c = if favori { accent } else { dim };
+    button(text(marque.to_string()).font(app.font).size(15).color(c))
+        .padding(4)
+        .style(|_, _| button::Style::default())
+        .on_press(wrap(FMsg::FavoriLogin(id, !favori)))
+        .into()
+}
+
+fn bouton_poubelle_login(app: &App, id: String, _site: String) -> Element<'static, Msg> {
+    let th = &app.cfg.general.theme;
+    let r = crate::theme::readable(th.fg, th.bg, th.accent);
+    let dim = color(r.dim, 1.0);
+    let warn = color(r.error, 1.0);
+    let wrap = Msg::MymfaF;
+    button(text("🗑").font(app.font).size(13).color(dim))
+        .padding(4)
+        .style(move |_, st| button::Style {
+            text_color: match st {
+                button::Status::Hovered | button::Status::Pressed => warn,
+                _ => dim,
+            },
+            ..Default::default()
+        })
+        .on_press(wrap(FMsg::SupprimerLogin(id)))
+        .into()
+}
+
+/// Solidité d'un mot de passe (0-4, bits), réplique de l'heuristique du web
+/// et du démon (`password_strength`) : pour guider la saisie, pas un oracle.
+pub fn solidite(mot: &str) -> (u8, u32) {
+    if mot.is_empty() {
+        return (0, 0);
+    }
+    let mut pool: f64 = 0.0;
+    if mot.chars().any(|c| c.is_ascii_lowercase()) {
+        pool += 26.0;
+    }
+    if mot.chars().any(|c| c.is_ascii_uppercase()) {
+        pool += 26.0;
+    }
+    if mot.chars().any(|c| c.is_ascii_digit()) {
+        pool += 10.0;
+    }
+    if mot.chars().any(|c| !c.is_ascii_alphanumeric()) {
+        pool += 33.0;
+    }
+    let mut bits = mot.chars().count() as f64 * pool.max(1.0).log2();
+    let triple = mot
+        .chars()
+        .zip(mot.chars().skip(1))
+        .zip(mot.chars().skip(2))
+        .any(|((a, b), c)| a == b && b == c);
+    if triple {
+        bits *= 0.75;
+    }
+    let bas = mot.to_lowercase();
+    for commun in [
+        "password",
+        "motdepasse",
+        "azerty",
+        "qwerty",
+        "123456",
+        "12345678",
+        "admin",
+        "bonjour",
+        "soleil",
+        "welcome",
+    ] {
+        if bas.contains(commun) {
+            bits = bits.min(24.0);
+        }
+    }
+    let b: Vec<u32> = mot.chars().map(|c| c as u32).collect();
+    let suite = b.windows(3).any(|w| w[0] + 1 == w[1] && w[1] + 1 == w[2]);
+    if suite {
+        bits *= 0.7;
+    }
+    let niveau = if bits < 36.0 {
+        1
+    } else if bits < 60.0 {
+        2
+    } else if bits < 80.0 {
+        3
+    } else {
+        4
+    };
+    (niveau, bits.round() as u32)
 }
 
 fn f_meme_etiquette(f: &Filtre, t: &str) -> bool {
