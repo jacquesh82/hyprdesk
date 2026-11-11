@@ -636,6 +636,8 @@ pub struct General {
     /// « hyprdesk »), sauf ceux marqués `submap_universal`.
     /// Historique du presse-papiers : hyprdesk lance cliphist (`crate::clipboard`).
     pub clipboard_history: bool,
+    /// Démarrage automatique XDG (`crate::autostart`), une fois par session.
+    pub autostart: bool,
     pub suspend_binds: bool,
     /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
     /// le bureau autour d'elles.
@@ -709,6 +711,7 @@ impl Default for General {
             keys: Keys::default(),
             suspend_binds: true,
             clipboard_history: true,
+            autostart: false,
             float_launched: true,
             mode: Mode::Opaque,
             fade_ms: 150,

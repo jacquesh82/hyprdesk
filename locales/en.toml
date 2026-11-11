@@ -1391,3 +1391,17 @@
 "  capture enregistrer [zone] | capture arreter" = "  capture enregistrer [zone] | capture arreter"
 "                    enregistre l'écran actif ou une zone (Vidéos/Enregistrements)," = "                    records the active screen or an area (Videos/Enregistrements),"
 "                    ou arrête l'enregistrement en cours" = "                    or stops the recording in progress"
+
+# Démarrage automatique XDG (MLG-15).
+"Démarrage automatique des applications (XDG)" = "Automatic start of applications (XDG)"
+"Lance une fois par session les applications de ~/.config/autostart et /etc/xdg/autostart, sauf celles qui tournent déjà. À laisser coupé si hyprland.lua les lance déjà." = "Starts the applications of ~/.config/autostart and /etc/xdg/autostart once per session, except those already running. Leave off if hyprland.lua already starts them."
+"déjà en cours" = "already running"
+"démarrage automatique : {e}" = "autostart: {e}"
+"démarrage automatique : {n}" = "autostart: {n}"
+"désactivée" = "disabled"
+"lancée au démarrage" = "started at login"
+"programme absent" = "program missing"
+"réservée à un autre bureau" = "for another desktop"
+"Activer" = "Enable"
+"Désactiver" = "Disable"
+"on | off — lancer les applications de ~/.config/autostart et /etc/xdg/autostart (une fois par session)" = "on | off — launch the applications of ~/.config/autostart and /etc/xdg/autostart (once per session)"

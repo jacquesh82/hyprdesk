@@ -108,7 +108,7 @@ pub fn executable(prog: &str) -> bool {
 }
 
 /// Premier mot d'une ligne Exec (guillemets compris), après `env VAR=…`.
-fn exec_program(exec: &str) -> Option<String> {
+pub fn exec_program(exec: &str) -> Option<String> {
     let mut words = Vec::new();
     let mut rest = exec.trim();
     while !rest.is_empty() {

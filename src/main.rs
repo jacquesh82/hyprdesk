@@ -6,6 +6,7 @@
 mod apps;
 mod apptheme;
 mod assistant;
+mod autostart;
 mod brightness;
 mod capture;
 mod chat;

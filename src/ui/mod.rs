@@ -867,6 +867,27 @@ impl App {
                 |_| Msg::Noop,
             ));
         }
+        // Démarrage automatique XDG : une fois par session Hyprland (marqueur),
+        // au premier chargement ou quand le réglage vient d'être activé.
+        if n.autostart && (!o.autostart || old.catalog.is_empty()) {
+            let terminal = n.terminal.clone();
+            tasks.push(Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || crate::autostart::launch_all(&terminal))
+                        .await
+                        .unwrap_or_default()
+                },
+                |names| {
+                    if !names.is_empty() {
+                        tracing::info!(
+                            "{}",
+                            crate::tr!("démarrage automatique : {n}", n = names.join(", "))
+                        );
+                    }
+                    Msg::Noop
+                },
+            ));
+        }
         if o.suspend_binds != n.suspend_binds {
             tasks.push(self.sync_submap());
         }

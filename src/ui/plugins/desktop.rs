@@ -56,6 +56,8 @@ pub enum Msg {
     Fonts(Vec<String>),
     SuspendBinds(bool),
     ClipboardHistory(bool),
+    Autostart(bool),
+    AutostartEntry(String, bool),
     /// Saisie d'un raccourci (0 full-desktop, 1 réglages, 2 secours, 3 launcher-only, 4 no-desktop).
     KeyInput(usize, String),
     KeySubmit(usize),
@@ -325,6 +327,53 @@ impl App {
             .size(12)
             .color(dim),
         );
+        col = col.push(self.field(
+            "Démarrage automatique des applications (XDG)",
+            "autostart",
+            toggler(g.autostart).on_toggle(|v| wrap(Msg::Autostart(v))),
+        ));
+        col = col.push(
+            text("Lance une fois par session les applications de ~/.config/autostart et /etc/xdg/autostart, sauf celles qui tournent déjà. À laisser coupé si hyprland.lua les lance déjà.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
+        if self.advanced() || g.autostart {
+            for e in crate::autostart::entries_cached() {
+                use crate::autostart::Status;
+                let (state, toggle) = match e.status {
+                    Status::Run => (crate::i18n::tr("lancée au démarrage"), Some(false)),
+                    Status::Running => (crate::i18n::tr("déjà en cours"), Some(false)),
+                    Status::Disabled => (crate::i18n::tr("désactivée"), Some(true)),
+                    Status::OtherDesktop => (crate::i18n::tr("réservée à un autre bureau"), None),
+                    Status::Missing => (crate::i18n::tr("programme absent"), None),
+                };
+                let mut line = row![
+                    column![
+                        text(e.name.clone()).font(self.font).size(13).color(fg),
+                        text(format!("{state} — {}", e.exec))
+                            .font(self.font)
+                            .size(11)
+                            .color(dim)
+                    ]
+                    .width(Length::Fill),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center);
+                if let Some(enable) = toggle {
+                    line = line.push(
+                        button(
+                            text(if enable { "Activer" } else { "Désactiver" })
+                                .font(self.font)
+                                .size(12),
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::AutostartEntry(e.id.clone(), enable))),
+                    );
+                }
+                col = col.push(line);
+            }
+        }
         let comps = crate::session::snapshot();
         if comps.is_empty() {
             col = col.push(text("Aucun composant.").font(self.font).size(12).color(dim));
@@ -464,6 +513,18 @@ impl App {
             Msg::ClipboardHistory(v) => {
                 self.settings.clipboard_history = Some(v);
                 self.commit()
+            }
+            Msg::Autostart(v) => {
+                self.settings.autostart = Some(v);
+                self.commit()
+            }
+            Msg::AutostartEntry(id, enabled) => {
+                if let Some(e) = crate::autostart::entries().into_iter().find(|e| e.id == id)
+                    && let Err(err) = crate::autostart::set_enabled(&e, enabled)
+                {
+                    tracing::warn!("{}", crate::tr!("démarrage automatique : {e}", e = err));
+                }
+                Task::none()
             }
             Msg::KeyInput(i, v) => {
                 if let Some(slot) = panel.desktop.keys.get_mut(i) {

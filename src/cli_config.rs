@@ -205,6 +205,10 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.clipboard_history),
         |s, v, c| { s.clipboard_history = Some(parse_bool(v)?); Ok(()) },
         |s| s.clipboard_history = None;
+    "autostart", "desktop", "on | off — lancer les applications de ~/.config/autostart et /etc/xdg/autostart (une fois par session)",
+        |c| on_off(c.general.autostart),
+        |s, v, c| { s.autostart = Some(parse_bool(v)?); Ok(()) },
+        |s| s.autostart = None;
     "font", "desktop", "nom de famille — police de l'interface",
         |c| c.general.font.clone().unwrap_or_default(),
         |s, v, c| { s.font = Some(v.to_string()); Ok(()) },

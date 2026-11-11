@@ -94,6 +94,7 @@ pub struct Settings {
     pub key_media: Option<bool>,
     pub suspend_binds: Option<bool>,
     pub clipboard_history: Option<bool>,
+    pub autostart: Option<bool>,
     pub float_launched: Option<bool>,
     pub show_on: Option<ShowOn>,
     pub mode: Option<Mode>,
@@ -239,6 +240,7 @@ impl Settings {
             key_media: has("keys.media").then_some(g.keys.media),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             clipboard_history: has("clipboard_history").then_some(g.clipboard_history),
+            autostart: has("autostart").then_some(g.autostart),
             float_launched: has("float_launched").then_some(g.float_launched),
             show_on: has("show_on").then_some(g.show_on),
             mode: has("mode").then_some(g.mode),
@@ -470,6 +472,7 @@ impl Settings {
         set!(key_media, "keys.media", g.keys.media);
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(clipboard_history, "clipboard_history", g.clipboard_history);
+        set!(autostart, "autostart", g.autostart);
         set!(float_launched, "float_launched", g.float_launched);
         set!(show_on, "show_on", g.show_on);
         set!(mode, "mode", g.mode);
@@ -850,6 +853,9 @@ impl Settings {
         }
         if let Some(v) = self.clipboard_history {
             cfg.push(format!("clipboard_history = {v}"));
+        }
+        if let Some(v) = self.autostart {
+            cfg.push(format!("autostart = {v}"));
         }
         if let Some(v) = self.float_launched {
             cfg.push(format!("float_launched = {v}"));
