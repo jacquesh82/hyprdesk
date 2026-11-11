@@ -187,6 +187,8 @@ pub enum Msg {
     Switcher(switcher::SwMsg),
     /// Calendrier : mois suivant (+1), précédent (-1), en cours (0).
     CalendarMonth(i32),
+    /// Menu du tray relu pendant qu'il est ouvert (clé du popover, entrées).
+    MenuRefreshed(String, Vec<config::MenuEntry>),
     /// Touches de modification (relâcher Alt valide le sélecteur de fenêtres).
     Modifiers(keyboard::Modifiers),
     Frame,
@@ -1988,7 +1990,35 @@ impl App {
 
     // -- Widgets ---------------------------------------------------------------
 
+    /// Menu du tray ouvert : relu toutes les 2 s (LayoutUpdated, cases cochées…).
+    fn refresh_tray_menu(&mut self) -> Task<Msg> {
+        let now = Instant::now();
+        if let Some(p) = self.popover.as_mut()
+            && let popover::Kind::Menu {
+                source: popover::MenuSource::Tray { bus, menu_path },
+                ..
+            } = &p.kind
+            && now.duration_since(p.refreshed) >= Duration::from_secs(2)
+        {
+            p.refreshed = now;
+            let (bus, path, key) = (bus.clone(), menu_path.clone(), p.key.clone());
+            return Task::perform(
+                async move { crate::tray::menu(&bus, &path).await },
+                move |r| match r {
+                    Ok(e) => Msg::MenuRefreshed(key.clone(), e),
+                    Err(_) => Msg::Noop,
+                },
+            );
+        }
+        Task::none()
+    }
+
     fn poll(&mut self) -> Task<Msg> {
+        let refresh = self.refresh_tray_menu();
+        Task::batch([refresh, self.poll_widgets()])
+    }
+
+    fn poll_widgets(&mut self) -> Task<Msg> {
         let now = Instant::now();
         // Dossier Bureau en icônes : relu quand il change (toutes les 2 s au plus).
         if self.cfg.general.desktop_files
@@ -2970,6 +3000,19 @@ impl App {
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
             Msg::Switcher(m) => self.switcher_update(m),
+            Msg::MenuRefreshed(key, new) => {
+                if let Some(p) = self.popover.as_mut()
+                    && p.key == key
+                    && let popover::Kind::Menu {
+                        entries,
+                        source: popover::MenuSource::Tray { .. },
+                    } = &mut p.kind
+                    && *entries != new
+                {
+                    *entries = new;
+                }
+                Task::none()
+            }
             Msg::CalendarMonth(d) => {
                 self.cal_months = if d == 0 {
                     0
@@ -3998,6 +4041,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::IconMenu(..) => "IconMenu",
         Msg::Switcher(..) => "Switcher",
         Msg::CalendarMonth(..) => "CalendarMonth",
+        Msg::MenuRefreshed(..) => "MenuRefreshed",
         Msg::Modifiers(..) => "Modifiers",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",

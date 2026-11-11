@@ -370,47 +370,114 @@ pub fn clean_label(s: &str) -> String {
 
 type Layout = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
 
-/// Aplatit l'arbre dbusmenu : les sous-menus deviennent des titres de section.
-fn flatten(children: Vec<OwnedValue>, depth: u8, out: &mut Vec<MenuEntry>) {
-    for c in children.into_iter().take(256) {
+/// Entrée de l'arbre dbusmenu, lue une fois (puis aplatie, testable).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Node {
+    pub id: i32,
+    pub label: String,
+    pub visible: bool,
+    pub separator: bool,
+    /// Sous-menu (même vide : à remplir par AboutToShow).
+    pub submenu: bool,
+    pub toggle: Option<bool>,
+    pub enabled: bool,
+    pub icon: Option<String>,
+    pub children: Vec<Node>,
+}
+
+impl Default for Node {
+    fn default() -> Self {
+        Node {
+            id: 0,
+            label: String::new(),
+            visible: true,
+            separator: false,
+            submenu: false,
+            toggle: None,
+            enabled: true,
+            icon: None,
+            children: Vec::new(),
+        }
+    }
+}
+
+/// Arbre dbusmenu (profondeur bornée).
+fn nodes(children: Vec<OwnedValue>, depth: u8) -> Vec<Node> {
+    if depth > 8 {
+        return Vec::new();
+    }
+    children
+        .into_iter()
+        .take(256)
+        .filter_map(|c| {
+            let (id, props, sub) = Layout::try_from(c).ok()?;
+            let children = nodes(sub, depth + 1);
+            Some(Node {
+                id,
+                label: clean_label(&get::<String>(&props, "label").unwrap_or_default()),
+                visible: get::<bool>(&props, "visible") != Some(false),
+                separator: get::<String>(&props, "type").as_deref() == Some("separator"),
+                submenu: get::<String>(&props, "children-display").as_deref() == Some("submenu")
+                    || !children.is_empty(),
+                toggle: match get::<String>(&props, "toggle-type").as_deref() {
+                    Some("checkmark") | Some("radio") => {
+                        Some(get::<i32>(&props, "toggle-state") == Some(1))
+                    }
+                    _ => None,
+                },
+                enabled: get::<bool>(&props, "enabled").unwrap_or(true),
+                icon: get::<String>(&props, "icon-name").filter(|s| !s.is_empty()),
+                children,
+            })
+        })
+        .collect()
+}
+
+/// Sous-menus encore vides (l'application les remplit à l'ouverture).
+pub fn empty_submenus(nodes: &[Node], out: &mut Vec<i32>) {
+    for n in nodes {
+        if n.submenu && n.children.is_empty() && n.visible {
+            out.push(n.id);
+        }
+        empty_submenus(&n.children, out);
+    }
+}
+
+/// Aplatit l'arbre : chaque sous-menu devient un titre de section portant
+/// son chemin (« Fichier › Récents »), à toute profondeur.
+pub fn flatten(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>) {
+    for n in nodes {
         if out.len() >= 256 {
             break;
         }
-        let Ok((id, props, sub)) = Layout::try_from(c) else {
-            continue;
-        };
-        if get::<bool>(&props, "visible") == Some(false) {
+        if !n.visible {
             continue;
         }
-        if get::<String>(&props, "type").as_deref() == Some("separator") {
+        if n.separator {
             if !matches!(out.last(), None | Some(MenuEntry::Separator)) {
                 out.push(MenuEntry::Separator);
             }
             continue;
         }
-        let label = clean_label(&get::<String>(&props, "label").unwrap_or_default());
-        let submenu = get::<String>(&props, "children-display").as_deref() == Some("submenu")
-            || !sub.is_empty();
-        if submenu && depth < 2 {
-            if !label.is_empty() {
-                out.push(MenuEntry::Header(label));
+        if n.submenu {
+            let here = match (path.is_empty(), n.label.is_empty()) {
+                (true, _) => n.label.clone(),
+                (false, true) => path.to_string(),
+                (false, false) => format!("{path} › {}", n.label),
+            };
+            if !here.is_empty() && !n.children.is_empty() {
+                out.push(MenuEntry::Header(here.clone()));
             }
-            flatten(sub, depth + 1, out);
+            flatten(&n.children, &here, out);
             continue;
         }
-        let checked = match get::<String>(&props, "toggle-type").as_deref() {
-            Some("checkmark") | Some("radio") => {
-                Some(get::<i32>(&props, "toggle-state") == Some(1))
-            }
-            _ => None,
-        };
         out.push(MenuEntry::Item {
-            label,
+            label: n.label.clone(),
             detail: None,
-            icon: get::<String>(&props, "icon-name").filter(|s| !s.is_empty()),
-            checked,
-            enabled: get::<bool>(&props, "enabled").unwrap_or(true),
-            action: Some(id as i64),
+            icon: n.icon.clone(),
+            checked: n.toggle,
+            enabled: n.enabled,
+            action: Some(n.id as i64),
             confirm: None,
         });
     }
@@ -419,33 +486,52 @@ fn flatten(children: Vec<OwnedValue>, depth: u8, out: &mut Vec<MenuEntry>) {
     }
 }
 
-/// Menu d'un élément (dbusmenu).
-pub async fn menu(bus_name: &str, menu_path: &str) -> Result<Vec<MenuEntry>, String> {
-    let conn = bus().await.map_err(|e| e.to_string())?;
-    // Certaines applications ne remplissent leur menu qu'à l'ouverture.
-    let _ = conn
-        .call_method(
-            Some(bus_name),
-            menu_path,
-            Some(MENU),
-            "AboutToShow",
-            &(0i32,),
-        )
-        .await;
+async fn layout(
+    conn: &zbus::Connection,
+    bus_name: &str,
+    menu_path: &str,
+) -> Result<Vec<Node>, String> {
     let reply = conn
         .call_method(
             Some(bus_name),
             menu_path,
             Some(MENU),
             "GetLayout",
-            &(0i32, 3i32, Vec::<String>::new()),
+            // Profondeur -1 : tout l'arbre.
+            &(0i32, -1i32, Vec::<String>::new()),
         )
         .await
         .map_err(|e| e.to_string())?;
     let (_rev, (_id, _props, children)): (u32, Layout) =
         reply.body().deserialize().map_err(|e| e.to_string())?;
+    Ok(nodes(children, 0))
+}
+
+/// Menu d'un élément (dbusmenu).
+pub async fn menu(bus_name: &str, menu_path: &str) -> Result<Vec<MenuEntry>, String> {
+    let conn = bus().await.map_err(|e| e.to_string())?;
+    let about = |id: i32| {
+        let conn = conn.clone();
+        async move {
+            let _ = conn
+                .call_method(Some(bus_name), menu_path, Some(MENU), "AboutToShow", &(id,))
+                .await;
+        }
+    };
+    // Certaines applications ne remplissent leur menu qu'à l'ouverture.
+    about(0).await;
+    let mut tree = layout(conn, bus_name, menu_path).await?;
+    // Sous-menus vides : les ouvrir, puis relire l'arbre (une fois).
+    let mut empty = Vec::new();
+    empty_submenus(&tree, &mut empty);
+    if !empty.is_empty() {
+        for id in empty.into_iter().take(32) {
+            about(id).await;
+        }
+        tree = layout(conn, bus_name, menu_path).await?;
+    }
     let mut out = Vec::new();
-    flatten(children, 0, &mut out);
+    flatten(&tree, "", &mut out);
     Ok(out)
 }
 
@@ -475,6 +561,85 @@ pub async fn menu_event(bus_name: &str, menu_path: &str, id: i32) {
 
 #[cfg(test)]
 mod tests {
+
+    fn item(id: i32, label: &str) -> Node {
+        Node {
+            id,
+            label: label.into(),
+            ..Default::default()
+        }
+    }
+
+    fn sub(id: i32, label: &str, children: Vec<Node>) -> Node {
+        Node {
+            id,
+            label: label.into(),
+            submenu: true,
+            children,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sous_menus_imbriques() {
+        let tree = vec![
+            item(1, "Ouvrir"),
+            Node {
+                separator: true,
+                ..Default::default()
+            },
+            sub(
+                2,
+                "Fichier",
+                vec![
+                    item(3, "Nouveau"),
+                    sub(4, "Récents", vec![item(5, "a.txt")]),
+                ],
+            ),
+            Node {
+                visible: false,
+                ..item(6, "Caché")
+            },
+            Node {
+                separator: true,
+                ..Default::default()
+            },
+        ];
+        let mut out = Vec::new();
+        flatten(&tree, "", &mut out);
+        let labels: Vec<String> = out
+            .iter()
+            .map(|e| match e {
+                MenuEntry::Item { label, .. } => label.clone(),
+                MenuEntry::Header(h) => format!("# {h}"),
+                MenuEntry::Separator => "-".into(),
+                MenuEntry::Input { .. } => "input".into(),
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Ouvrir",
+                "-",
+                "# Fichier",
+                "Nouveau",
+                "# Fichier › Récents",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[test]
+    fn sous_menus_vides_reperes() {
+        let tree = vec![
+            sub(2, "Vide", vec![]),
+            sub(3, "Plein", vec![item(4, "x"), sub(5, "Vide aussi", vec![])]),
+        ];
+        let mut ids = Vec::new();
+        empty_submenus(&tree, &mut ids);
+        assert_eq!(ids, [2, 5]);
+    }
+
     use super::*;
 
     #[tokio::test]

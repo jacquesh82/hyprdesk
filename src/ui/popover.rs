@@ -80,6 +80,8 @@ pub struct Popover {
     pub kind: Kind,
     pub size: Size,
     pub started: std::time::Instant,
+    /// Dernière relecture du menu (menus du tray : suivis ouverts).
+    pub refreshed: std::time::Instant,
     max_height: f32,
     /// Entrée en attente de confirmation.
     pub confirm: Option<usize>,
@@ -227,6 +229,7 @@ impl App {
             kind,
             size,
             started: std::time::Instant::now(),
+            refreshed: std::time::Instant::now(),
             max_height,
             confirm: None,
             inputs: Default::default(),
