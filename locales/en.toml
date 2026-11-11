@@ -1932,3 +1932,5 @@
 "  greeter [--tty | --demo] [--window]" = "  greeter [--tty | --demo] [--window]"
 "                    --tty : au terminal ; --demo : sans greetd, pour l'essayer ;" = "                    --tty: in a terminal; --demo: without greetd, to try it;"
 "                    --window : fenêtre ordinaire plein écran (cage, sans layer-shell)" = "                    --window: regular full-screen window (cage, no layer-shell)"
+# Écran de connexion : fond (MLG-43).
+"Aucun (couleur du thème)" = "None (theme color)"

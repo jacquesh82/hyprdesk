@@ -10,8 +10,9 @@
 
 use crate::greeter_setup::{self, Profile, Status, dm_label};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, row, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
+use std::path::PathBuf;
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -41,13 +42,18 @@ pub struct State {
     /// Clavier de la session (disposition, variante, options), lu dans
     /// Hyprland : repris par l'écran de connexion.
     pub keyboard: (String, String, String),
+    /// Fond de l'écran (image de la bibliothèque) ; aucun : couleur du thème.
+    pub wallpaper: Option<PathBuf>,
+    /// Images de la bibliothèque (~/.wallpapers).
+    pub images: Vec<PathBuf>,
     /// Empreinte digitale à la connexion (appliquée à l'écriture).
     pub fingerprint: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    Loaded(Box<Status>, (String, String, String)),
+    Loaded(Box<Status>, (String, String, String), Vec<PathBuf>),
+    Wallpaper(WallChoice),
     Fingerprint(bool),
     /// `packages`, `install`, `enable`, `restore`.
     Act(&'static str),
@@ -57,20 +63,37 @@ pub enum Msg {
     Demo,
 }
 
+/// Entrée de la liste des fonds (aucun : couleur du thème).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WallChoice(pub Option<PathBuf>);
+
+impl std::fmt::Display for WallChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(p) => f.write_str(&p.file_name().unwrap_or_default().to_string_lossy()),
+            None => f.write_str(crate::i18n::tr("Aucun (couleur du thème)")),
+        }
+    }
+}
+
 pub fn load() -> Task<UiMsg> {
     Task::perform(
         async {
             tokio::task::spawn_blocking(|| {
                 let i = crate::inputs::read();
+                let images = super::super::list_images(&super::wallpaper::expand(
+                    &super::wallpaper::default_folder(),
+                ));
                 (
                     greeter_setup::status(),
                     (i.kb_layout, i.kb_variant, i.kb_options),
+                    images,
                 )
             })
             .await
             .unwrap_or_default()
         },
-        |(s, k)| wrap(Msg::Loaded(Box::new(s), k)),
+        |(s, k, l)| wrap(Msg::Loaded(Box::new(s), k, l)),
     )
 }
 
@@ -100,6 +123,12 @@ impl App {
             bg: c(th.bg),
             accent: c(th.accent),
             fingerprint: st.fingerprint,
+            wallpaper_source: st
+                .wallpaper
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            wallpaper: String::new(),
         }
     }
 
@@ -247,6 +276,27 @@ impl App {
                 .to_string(),
             ),
         );
+        let mut walls: Vec<WallChoice> = std::iter::once(WallChoice(None))
+            .chain(st.images.iter().map(|p| WallChoice(Some(p.clone()))))
+            .collect();
+        if let Some(w) = &st.wallpaper
+            && !st.images.contains(w)
+        {
+            walls.push(WallChoice(Some(w.clone())));
+        }
+        col = col.push(
+            row![
+                text("Fond d'écran").font(self.font).size(13),
+                pick_list(walls, Some(WallChoice(st.wallpaper.clone())), |c| {
+                    wrap(Msg::Wallpaper(c))
+                })
+                .font(self.font)
+                .text_size(13)
+                .width(Length::Fill),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        );
         col = col.push(
             toggler(st.fingerprint)
                 .label(crate::i18n::tr(
@@ -283,8 +333,9 @@ impl App {
                 .to_string()
             },
         ));
-        let installed_differs =
-            s.ours && s.profile.as_ref() != Some(&want) || s.ours && s.mymfa_module != s.pam_mymfa;
+        let installed_differs = s.ours
+            && !s.profile.as_ref().is_some_and(|p| p.same_settings(&want))
+            || s.ours && s.mymfa_module != s.pam_mymfa;
         if installed_differs {
             col = col.push(small(
                 crate::i18n::tr(
@@ -433,13 +484,31 @@ impl App {
             return Task::none();
         };
         match m {
-            Msg::Loaded(s, k) => {
-                // Empreinte : celle du profil installé tant qu'on n'y a pas touché.
+            Msg::Loaded(s, k, images) => {
+                // Empreinte et fond : ceux du profil installé tant qu'on n'y a
+                // pas touché ; sans profil, le fond par défaut du bureau.
                 if !p.login.status.loaded {
                     p.login.fingerprint = s.profile.as_ref().is_some_and(|p| p.fingerprint);
+                    p.login.wallpaper = match &s.profile {
+                        Some(pr) => Some(PathBuf::from(&pr.wallpaper_source))
+                            .filter(|w| !w.as_os_str().is_empty()),
+                        None => self.cfg.wallpapers.iter().find_map(|w| match &w.source {
+                            crate::config::WallSource::Path(path)
+                                if w.sel == crate::config::Selector::default() =>
+                            {
+                                Some(path.clone())
+                            }
+                            _ => None,
+                        }),
+                    };
                 }
+                p.login.images = images;
                 p.login.status = *s;
                 p.login.keyboard = k;
+                Task::none()
+            }
+            Msg::Wallpaper(WallChoice(w)) => {
+                p.login.wallpaper = w;
                 Task::none()
             }
             Msg::Fingerprint(v) => {

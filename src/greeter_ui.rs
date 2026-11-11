@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::greeter::{self, AuthKind, Request, Response, Session, Step};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, row, text_input};
+use iced::widget::{Space, button, column, container, image, pick_list, row, stack, text_input};
 use iced::{Alignment, Border, Color, Element, Font, Length, Subscription, Task};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, StartMode};
@@ -105,6 +105,8 @@ pub struct Greeter {
     stream: Arc<Mutex<Option<UnixStream>>>,
     /// Démo sans greetd (`--demo`).
     demo: bool,
+    /// Fond (copie posée par Réglages → Écran de connexion).
+    wallpaper: Option<image::Handle>,
 }
 
 fn rgba(c: crate::config::Rgba, a: f32) -> Color {
@@ -139,9 +141,11 @@ impl Greeter {
         let sessions = greeter::sessions();
         // Profil posé par Réglages → Écran de connexion (thème de
         // l'utilisateur), et dernière connexion : identifiant et session.
-        let theme = crate::greeter_setup::Profile::installed()
-            .map(|p| p.theme())
-            .unwrap_or_default();
+        let profile = crate::greeter_setup::Profile::installed().unwrap_or_default();
+        let theme = profile.theme();
+        let wallpaper = Some(profile.wallpaper)
+            .filter(|w| !w.is_empty() && std::path::Path::new(w).is_file())
+            .map(image::Handle::from_path);
         let last = read_last();
         let session = sessions
             .iter()
@@ -164,6 +168,7 @@ impl Greeter {
             error: None,
             stream: Arc::new(Mutex::new(None)),
             demo: false,
+            wallpaper,
         }
     }
 
@@ -553,24 +558,45 @@ impl Greeter {
             })
             .on_press(GMsg::Power(verb))
         };
-        let page = column![
-            Space::new().height(Length::Fill),
-            col,
-            Space::new().height(Length::Fill),
+        // Zone de connexion en bas à droite, sur un voile du thème (lisible
+        // sur n'importe quelle image) ; alimentation en bas à gauche.
+        let veil = rgba(th.bg, if self.wallpaper.is_some() { 0.72 } else { 0.0 });
+        let card = container(col).padding(28).style(move |_| container::Style {
+            background: Some(veil.into()),
+            border: Border::default().rounded(28),
+            ..Default::default()
+        });
+        let power_row = container(
             row![
                 power("Veille", "suspend"),
                 power("Redémarrer", "reboot"),
                 power("Éteindre", "poweroff"),
             ]
             .spacing(8),
-        ]
-        .align_x(Alignment::Center)
-        .padding(24);
-        container(page)
+        )
+        .padding(6)
+        .style(move |_| container::Style {
+            background: Some(veil.into()),
+            border: Border::default().rounded(16),
+            ..Default::default()
+        });
+        let page = row![power_row, Space::new().width(Length::Fill), card].align_y(Alignment::End);
+        let overlay = container(page)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .align_bottom(Length::Fill)
+            .padding(48);
+        let back: Element<'_, GMsg> = match &self.wallpaper {
+            Some(h) => image(h.clone())
+                .content_fit(iced::ContentFit::Cover)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        container(stack![back, overlay])
+            .width(Length::Fill)
+            .height(Length::Fill)
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 text_color: Some(fg),

@@ -27,6 +27,8 @@ pub const CONFIG: &str = "/etc/greetd/config.toml";
 /// Profil de l'écran (lisible par l'utilisateur `greeter`).
 pub const PROFILE: &str = "/etc/greetd/hyprdesk.json";
 pub const PAM: &str = "/etc/pam.d/greetd";
+/// Fond de l'écran, copié (et réduit) depuis la bibliothèque de l'utilisateur.
+pub const WALLPAPER: &str = "/etc/greetd/hyprdesk-fond.jpg";
 /// Dossier d'état du greeter (à l'utilisateur `greeter`) : dernier
 /// utilisateur et dernière session.
 pub const STATE_DIR: &str = "/var/lib/hyprdesk-greeter";
@@ -63,6 +65,11 @@ pub struct Profile {
     pub accent: [u8; 4],
     /// Empreinte digitale à la connexion (pam_fprintd).
     pub fingerprint: bool,
+    /// Image choisie par l'utilisateur (son chemin, souvent dans son dossier,
+    /// que l'utilisateur greeter ne lit pas).
+    pub wallpaper_source: String,
+    /// Sa copie lisible par le greeter (posée par `install`), vide : aucun fond.
+    pub wallpaper: String,
 }
 
 impl Profile {
@@ -77,6 +84,15 @@ impl Profile {
             t.accent = c(self.accent);
         }
         t
+    }
+
+    /// Mêmes réglages, au chemin de la copie du fond près.
+    pub fn same_settings(&self, other: &Profile) -> bool {
+        let strip = |p: &Profile| Profile {
+            wallpaper: String::new(),
+            ..p.clone()
+        };
+        strip(self) == strip(other)
     }
 
     /// Profil installé (absent ou illisible : aucun).
@@ -486,7 +502,33 @@ fn read_profile(path: Option<&str>) -> Result<Profile, String> {
         .filter(|c| !c.is_control())
         .take(80)
         .collect();
+    if !Path::new(&p.wallpaper_source).is_absolute() {
+        p.wallpaper_source.clear();
+    }
+    p.wallpaper.clear();
     Ok(p)
+}
+
+/// Copie du fond pour le greeter : image décodée (seuls les formats connus
+/// passent), réduite à 3840 × 2160 au plus, enregistrée en JPEG.
+fn install_wallpaper(src: &str) -> Result<(), String> {
+    let img = ::image::open(src).map_err(|e| format!("{src} : {e}"))?;
+    let img = if img.width() > 3840 || img.height() > 2160 {
+        img.resize(3840, 2160, ::image::imageops::FilterType::Lanczos3)
+    } else {
+        img
+    };
+    let tmp = format!("{WALLPAPER}.nouveau");
+    let file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    let mut out = std::io::BufWriter::new(file);
+    ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+        .encode_image(&img.to_rgb8())
+        .map_err(|e| e.to_string())?;
+    drop(out);
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, WALLPAPER).map_err(|e| e.to_string())
 }
 
 /// Copie hyprdesk dans /usr/local/bin (sauf binaire du paquet), installe le
@@ -494,7 +536,7 @@ fn read_profile(path: Option<&str>) -> Result<Profile, String> {
 /// dossier d'état du greeter.
 fn install(profile: Option<&str>) -> Result<(), String> {
     let io = |e: std::io::Error| e.to_string();
-    let p = read_profile(profile)?;
+    let mut p = read_profile(profile)?;
     let bin = if Path::new(PACKAGED_BIN).is_file() {
         PACKAGED_BIN
     } else {
@@ -512,6 +554,12 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         SYSTEM_BIN
     };
     std::fs::create_dir_all("/etc/greetd").map_err(io)?;
+    if p.wallpaper_source.is_empty() {
+        let _ = std::fs::remove_file(WALLPAPER);
+    } else {
+        install_wallpaper(&p.wallpaper_source)?;
+        p.wallpaper = WALLPAPER.into();
+    }
     std::fs::write(
         PROFILE,
         serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?,
