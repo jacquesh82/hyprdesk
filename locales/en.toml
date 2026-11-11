@@ -1520,3 +1520,12 @@
 "  switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe" = "  switch [prev]     window switcher (Alt+Tab, keys.switch): opens it, or moves"
 "                    à la fenêtre suivante (prev : précédente)" = "                    to the next window (prev: previous)"
 "raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)" = "shortcut | none — window switcher (Alt+Tab; with Shift: backwards)"
+
+# Écran de connexion greetd (MLG-23).
+"Connexion annulée." = "Login cancelled."
+"GREETD_SOCK absent : lancer depuis greetd." = "GREETD_SOCK missing: run from greetd."
+"Aucune session (wayland-sessions, xsessions)." = "No session (wayland-sessions, xsessions)."
+"Session [1] :" = "Session [1]:"
+"Identifiant :" = "Username:"
+"hyprdesk greeter : {e}" = "hyprdesk greeter: {e}"
+"  greeter --tty     écran de connexion au terminal pour greetd (connexion, choix de session)" = "  greeter --tty     terminal login screen for greetd (login, session choice)"

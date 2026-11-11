@@ -18,6 +18,7 @@ mod desktop_files;
 mod doctor;
 mod fonts;
 mod fx;
+mod greeter;
 mod hypr;
 mod i18n;
 mod idle;
@@ -103,6 +104,7 @@ Commandes :
   capture enregistrer [zone] | capture arreter
                     enregistre l'écran actif ou une zone (Vidéos/Enregistrements),
                     ou arrête l'enregistrement en cours
+  greeter --tty     écran de connexion au terminal pour greetd (connexion, choix de session)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
@@ -767,6 +769,14 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Écran de connexion pour greetd, au terminal.
+        "greeter" if args.get(1).map(String::as_str) == Some("--tty") => match greeter::run_tty() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", crate::tr!("hyprdesk greeter : {e}", e = e));
+                ExitCode::FAILURE
+            }
+        },
         // Captures et enregistrement de l'écran (hyprshot, wf-recorder).
         "capture" => {
             let action = match capture::parse(&args[1..]) {

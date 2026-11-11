@@ -381,7 +381,7 @@ pub async fn register(prompter: Arc<dyn Prompter>) -> zbus::Result<zbus::Connect
 /// Saisie au terminal (`hyprdesk polkit-agent`), à la manière de pkttyagent.
 pub struct TtyPrompter;
 
-fn read_tty(echo: bool) -> Option<String> {
+pub(crate) fn read_tty(echo: bool) -> Option<String> {
     use std::io::BufRead;
     let tty = std::fs::OpenOptions::new()
         .read(true)
