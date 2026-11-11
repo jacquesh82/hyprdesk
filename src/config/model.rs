@@ -485,6 +485,15 @@ pub enum MenuEntry {
     },
     Separator,
     Header(String),
+    /// Champ de saisie : Entrée appelle l'action avec le texte (mot de passe
+    /// Wi-Fi, nom…), puis le menu se ferme.
+    Input {
+        label: Option<String>,
+        placeholder: String,
+        /// Saisie masquée (mot de passe).
+        secret: bool,
+        action: Option<i64>,
+    },
 }
 
 /// Position de la barre.

@@ -265,6 +265,11 @@ return {
 }
 ```
 
+Une entrée de menu peut aussi être un **champ de saisie** : `{ input = "Mot de passe",
+label = "Wi-Fi « Maison »", secret = true, action = function(texte) … end }`. Entrée
+appelle l'action avec le texte saisi, puis le menu se ferme ; `secret` masque la saisie,
+qui est effacée de la mémoire de hyprdesk dès l'envoi.
+
 Le même plugin sert sur le bureau et dans la barre (`hd.bar({ right = { "vpn" } })`).
 Aides disponibles : `hd.exec` (sortie d'une commande, temps borné) et
 `hd.spawn` (lancement par Hyprland) ; `hd.exe` est le chemin du hyprdesk en

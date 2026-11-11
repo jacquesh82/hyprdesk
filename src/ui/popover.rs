@@ -66,6 +66,10 @@ pub enum PMsg {
     Confirm(usize),
     CancelConfirm,
     Spawn(String),
+    /// Saisie dans l'entrée n (champ `input`).
+    Input(usize, String),
+    /// Entrée validée : l'action reçoit le texte.
+    Submit(usize),
 }
 
 pub struct Popover {
@@ -79,6 +83,8 @@ pub struct Popover {
     max_height: f32,
     /// Entrée en attente de confirmation.
     pub confirm: Option<usize>,
+    /// Texte des champs de saisie, par entrée.
+    pub inputs: std::collections::HashMap<usize, String>,
 }
 
 /// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
@@ -133,6 +139,9 @@ fn card_height(kind: &Kind, confirm: Option<usize>, audio: &super::bar::Audio) -
                 .map(|(i, e)| match e {
                     MenuEntry::Header(_) => 26.0,
                     MenuEntry::Separator => 11.0,
+                    MenuEntry::Input { label, .. } => {
+                        44.0 + if label.is_some() { 20.0 } else { 0.0 }
+                    }
                     MenuEntry::Item { label, detail, .. } => {
                         let base = if stacked(label, detail.as_deref()) {
                             44.0
@@ -233,8 +242,46 @@ impl App {
             started: std::time::Instant::now(),
             max_height,
             confirm: None,
+            inputs: Default::default(),
         });
         Task::batch(tasks)
+    }
+
+    /// Champ de saisie d'un menu (`{ input = "…", secret = true, action = … }`).
+    fn pop_input<'a>(
+        &'a self,
+        i: usize,
+        label: Option<&'a str>,
+        placeholder: &'a str,
+        secret: bool,
+    ) -> Element<'a, Msg> {
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let value = self
+            .popover
+            .as_ref()
+            .and_then(|p| p.inputs.get(&i))
+            .map(String::as_str)
+            .unwrap_or("");
+        let mut col = column![].spacing(4).padding([4, 10]);
+        if let Some(l) = label {
+            col = col.push(
+                text(l.to_string())
+                    .font(self.font)
+                    .size(12)
+                    .color(Color { a: 0.7, ..fg }),
+            );
+        }
+        col.push(
+            iced::widget::text_input(placeholder, value)
+                .secure(secret)
+                .on_input(move |s| Msg::Popover(PMsg::Input(i, s)))
+                .on_submit(Msg::Popover(PMsg::Submit(i)))
+                .font(self.font)
+                .size(13)
+                .padding(8),
+        )
+        .into()
     }
 
     pub(super) fn close_popover(&mut self) -> Task<Msg> {
@@ -251,6 +298,44 @@ impl App {
         match m {
             PMsg::Spawn(cmd) => {
                 let t = self.run_from_desktop(cmd, false);
+                Task::batch([t, self.close_popover()])
+            }
+            PMsg::Input(i, s) => {
+                let old = p.inputs.insert(i, s);
+                if let Some(mut old) = old {
+                    crate::lock::pam::wipe(&mut old);
+                }
+                Task::none()
+            }
+            PMsg::Submit(i) => {
+                let Kind::Menu { entries, source } = &p.kind else {
+                    return Task::none();
+                };
+                let Some(MenuEntry::Input {
+                    action: Some(action),
+                    ..
+                }) = entries.get(i)
+                else {
+                    return Task::none();
+                };
+                let (action, source) = (*action, source.clone());
+                // Le texte part vers le Lua ; il n'en reste rien ici.
+                let text = p.inputs.remove(&i).unwrap_or_default();
+                let t = match source {
+                    MenuSource::Lua { widget } => {
+                        let lua = self.lua.clone();
+                        Task::perform(
+                            async move {
+                                if let Err(e) = lua.menu_action(action as usize, Some(text)).await {
+                                    tracing::warn!("{}", crate::tr!("menu : {e}", e = e));
+                                }
+                                widget
+                            },
+                            Msg::Repoll,
+                        )
+                    }
+                    MenuSource::Tray { .. } => Task::none(),
+                };
                 Task::batch([t, self.close_popover()])
             }
             PMsg::CancelConfirm => {
@@ -292,7 +377,7 @@ impl App {
                         let lua = self.lua.clone();
                         Task::perform(
                             async move {
-                                if let Err(e) = lua.menu_action(action as usize).await {
+                                if let Err(e) = lua.menu_action(action as usize, None).await {
                                     tracing::warn!("{}", crate::tr!("menu : {e}", e = e));
                                 }
                                 widget
@@ -524,6 +609,12 @@ impl App {
             col = col.push(match e {
                 MenuEntry::Header(h) => self.pop_header(h.clone()),
                 MenuEntry::Separator => self.pop_separator(),
+                MenuEntry::Input {
+                    label,
+                    placeholder,
+                    secret,
+                    ..
+                } => self.pop_input(i, label.as_deref(), placeholder, *secret),
                 MenuEntry::Item {
                     label,
                     detail,

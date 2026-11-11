@@ -198,7 +198,9 @@ function hd.component(name, spec) end
 ---@field checked? boolean
 ---@field disabled? boolean
 ---@field confirm? string # confirmation question before the action
----@field action? fun()
+---@field input? string # text field (placeholder): Enter calls action(text)
+---@field secret? boolean # masked input (password)
+---@field action? fun(text?: string)
 
 ---@class HD.Plugin
 ---@field name? string

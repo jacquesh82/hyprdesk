@@ -1770,6 +1770,16 @@ impl Loaded {
                         _ => None,
                     };
                     let flag = |k: &str| opt_bool(&e, k, "menu").map_err(|e| short_lua_error(&e));
+                    // `{ input = "…", secret = true, action = function(text) … end }`
+                    if let Some(placeholder) = gs("input")? {
+                        out.push(MenuEntry::Input {
+                            label: gs("label")?,
+                            placeholder,
+                            secret: flag("secret")?.unwrap_or(false),
+                            action,
+                        });
+                        continue;
+                    }
                     out.push(MenuEntry::Item {
                         label: gs("label")?.unwrap_or_default(),
                         detail: gs("detail")?,
@@ -2031,6 +2041,8 @@ enum Req {
     },
     MenuAction {
         action: usize,
+        /// Texte saisi (entrée `input`), passé à la fonction Lua.
+        arg: Option<String>,
         reply: oneshot::Sender<Result<(), String>>,
     },
     Hook {
@@ -2118,7 +2130,7 @@ impl LuaHandle {
                                 });
                             let _ = reply.send(r);
                         }
-                        Req::MenuAction { action, reply } => {
+                        Req::MenuAction { action, arg, reply } => {
                             if reply.is_closed() {
                                 continue;
                             }
@@ -2131,7 +2143,7 @@ impl LuaHandle {
                                     .ok_or_else(|| "aucune config chargée".to_string())
                                     .and_then(|l| {
                                         reset_budget(&l.lua).map_err(|e| e.to_string())?;
-                                        f.call::<()>(()).map_err(|e| short_lua_error(&e))
+                                        f.call::<()>(arg).map_err(|e| short_lua_error(&e))
                                     }),
                                 None => Err("action de menu introuvable".into()),
                             };
@@ -2202,10 +2214,10 @@ impl LuaHandle {
             .map_err(|_| "thread Lua arrêté".to_string())?
     }
 
-    pub async fn menu_action(&self, action: usize) -> Result<(), String> {
+    pub async fn menu_action(&self, action: usize, arg: Option<String>) -> Result<(), String> {
         let (reply, rx) = oneshot::channel();
         self.tx
-            .try_send(Req::MenuAction { action, reply })
+            .try_send(Req::MenuAction { action, arg, reply })
             .map_err(|_| "thread Lua arrêté".to_string())?;
         tokio::time::timeout(Duration::from_secs(15), rx)
             .await
@@ -2326,8 +2338,8 @@ mod tests {
         let old = action_id(handle.menu(index).await.unwrap());
         let current = action_id(handle.menu(index).await.unwrap());
         assert_ne!(old, current);
-        assert!(handle.menu_action(old).await.is_err());
-        handle.menu_action(current).await.unwrap();
+        assert!(handle.menu_action(old, None).await.is_err());
+        handle.menu_action(current, None).await.unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2748,6 +2760,41 @@ mod tests {
         ));
         actions[0].call::<()>(()).unwrap();
         assert_eq!(l.render(func).unwrap().text, "100");
+    }
+
+    #[test]
+    fn menu_avec_saisie() {
+        let l = load(
+            r#"local recu = ""
+               hd.widget("lua", {
+                 render = function() return { text = recu } end,
+                 menu = function() return { { input = "Mot de passe", label = "Wi-Fi « Maison »", secret = true,
+                                              action = function(t) recu = t end } } end,
+               })"#,
+        )
+        .unwrap();
+        let WidgetKind::Lua {
+            func,
+            menu: Some(m),
+            ..
+        } = l.config.widgets[0].kind
+        else {
+            panic!()
+        };
+        let mut actions = Vec::new();
+        let menu = l.menu(m, &mut actions).unwrap();
+        assert_eq!(
+            menu,
+            vec![MenuEntry::Input {
+                label: Some("Wi-Fi « Maison »".into()),
+                placeholder: "Mot de passe".into(),
+                secret: true,
+                action: Some(0),
+            }]
+        );
+        // L'action reçoit le texte saisi.
+        actions[0].call::<()>("s3cret").unwrap();
+        assert_eq!(l.render(func).unwrap().text, "s3cret");
     }
 
     #[test]
