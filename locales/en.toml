@@ -1606,3 +1606,16 @@
 "Luminosité des écrans externes (DDC/CI)" = "External screen brightness (DDC/CI)"
 "Clavier virtuel : wvkbd n'est pas installé (paquet wvkbd)" = "On-screen keyboard: wvkbd is not installed (package wvkbd)"
 "wvkbd n'est pas installé : installez le paquet wvkbd." = "wvkbd is not installed: install the wvkbd package."
+
+# LYRA : plusieurs conversations, étapes techniques repliées.
+"Conversation {n}" = "Conversation {n}"
+"Fermer cette conversation" = "Close this conversation"
+"LYRA : nouvelle discussion" = "LYRA: new conversation"
+"LYRA · {provider} · réfléchit…" = "LYRA · {provider} · thinking…"
+"LYRA écrit…" = "LYRA is writing…"
+"{n} à lire" = "{n} unread"
+"{origin} souhaite en parler avec LYRA." = "{origin} would like to talk it over with LYRA."
+"État de Hyprland" = "Hyprland status"
+"▸ {n} étape(s) technique(s)" = "▸ {n} technical step(s)"
+"▸ {n} étape(s) technique(s) — en cours…" = "▸ {n} technical step(s) — running…"
+"▾ Masquer les détails ({n} étape(s))" = "▾ Hide the details ({n} step(s))"

@@ -879,7 +879,7 @@ fn main() -> ExitCode {
                 Some("--report") => {
                     return match std::fs::read_to_string(updates::report_path()) {
                         Ok(r) => {
-                            updates::send_problem(&r);
+                            updates::send_problem(&r, true);
                             println!("{r}");
                             ExitCode::SUCCESS
                         }

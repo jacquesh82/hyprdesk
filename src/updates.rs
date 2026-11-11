@@ -368,15 +368,21 @@ pub async fn upgrade_and_report(sources: &[Source]) -> Option<String> {
             let r = report(f);
             let _ = std::fs::write(report_path(), &r);
             set_state("failed");
-            send_problem(&r);
+            send_problem(&r, false);
             Some(r)
         }
     }
 }
 
-/// Confie un problème au démon ; sans démon, une notification Hyprland.
-pub fn send_problem(text: &str) {
-    if crate::control::send(crate::control::Command::Problem(text.to_string())).is_err() {
+/// Confie un problème au démon (`show` : demande explicite, la conversation
+/// s'affiche) ; sans démon, une notification Hyprland.
+pub fn send_problem(text: &str, show: bool) {
+    let cmd = if show {
+        crate::control::Command::ProblemShow(text.to_string())
+    } else {
+        crate::control::Command::Problem(text.to_string())
+    };
+    if crate::control::send(cmd).is_err() {
         crate::hypr::notify(
             3,
             8000,

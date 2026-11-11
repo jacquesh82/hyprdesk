@@ -58,15 +58,13 @@ pub enum Entry {
     Error(String),
 }
 
-pub struct ChatPanel {
-    /// Surface du bureau de l'écran visé (contexte).
-    pub win: Id,
-    /// Surface propre du tiroir ; `None` : caché (la session continue,
-    /// le moteur reste lancé ; seul « Nouvelle » repart de zéro).
-    pub surface: Option<Id>,
-    /// Session : change à chaque ouverture (relance le moteur).
+/// Une conversation : son moteur (un processus `serve` à elle) et son fil.
+pub struct Conversation {
+    /// Identifiant du moteur (relancé si elle repart de zéro).
     pub session: u64,
     pub engine: Vec<String>,
+    /// Titre au sélecteur : « Conversation n », ou le module qui l'a ouverte.
+    pub title: String,
     pub entries: Vec<Entry>,
     pub input: String,
     pub busy: bool,
@@ -75,24 +73,29 @@ pub struct ChatPanel {
     pub provider: String,
     pub providers: Vec<String>,
     pub sender: Option<tokio::sync::mpsc::UnboundedSender<ClientMsg>>,
-    /// Message à envoyer dès que le moteur répond (problème soumis par hyprdesk).
+    /// Message à envoyer dès que le moteur est prêt et libre (module).
     pub pending: Option<String>,
+    /// Le moteur a dit « prêt » (après Hello).
+    pub ready: bool,
     /// Le moteur s'est arrêté (message), ou n'a pas pu démarrer.
     pub ended: Option<String>,
     /// Images collées, envoyées avec le prochain message.
     pub attachments: Vec<std::path::PathBuf>,
     /// Réponse affichée en texte sélectionnable (n° d'entrée, contenu).
     pub selecting: Option<(usize, iced::widget::text_editor::Content)>,
+    /// Groupes d'étapes techniques dépliés (n° de leur première entrée).
+    pub expanded: std::collections::HashSet<usize>,
+    /// Du nouveau pendant qu'on regardait une autre conversation.
+    pub unread: bool,
     next_id: u64,
 }
 
-impl ChatPanel {
-    pub fn new(win: Id, surface: Option<Id>, session: u64, engine: Vec<String>) -> Self {
-        ChatPanel {
-            win,
-            surface,
+impl Conversation {
+    pub fn new(session: u64, engine: Vec<String>, title: String) -> Self {
+        Conversation {
             session,
             engine,
+            title,
             entries: Vec::new(),
             input: String::new(),
             busy: false,
@@ -102,25 +105,113 @@ impl ChatPanel {
             providers: Vec::new(),
             sender: None,
             pending: None,
+            ready: false,
             ended: None,
             attachments: Vec::new(),
             selecting: None,
+            expanded: Default::default(),
+            unread: false,
             next_id: 0,
         }
     }
 }
 
+/// Conversations ouvertes en même temps, au plus.
+pub const MAX_CONVERSATIONS: usize = 8;
+
+/// Le tiroir et ses conversations.
+pub struct ChatPanel {
+    /// Surface du bureau de l'écran visé (contexte).
+    pub win: Id,
+    /// Surface propre du tiroir ; `None` : caché (les conversations
+    /// continuent, leurs moteurs restent lancés).
+    pub surface: Option<Id>,
+    pub convs: Vec<Conversation>,
+    /// Conversation affichée (indice dans `convs`).
+    pub active: usize,
+}
+
+impl ChatPanel {
+    pub fn new(win: Id, surface: Option<Id>, session: u64, engine: Vec<String>) -> Self {
+        ChatPanel {
+            win,
+            surface,
+            convs: vec![Conversation::new(
+                session,
+                engine,
+                crate::tr!("Conversation {n}", n = 1),
+            )],
+            active: 0,
+        }
+    }
+
+    pub fn cur(&self) -> &Conversation {
+        &self.convs[self.active.min(self.convs.len() - 1)]
+    }
+
+    pub fn cur_mut(&mut self) -> &mut Conversation {
+        let i = self.active.min(self.convs.len() - 1);
+        &mut self.convs[i]
+    }
+
+    pub fn by_session(&mut self, session: u64) -> Option<&mut Conversation> {
+        self.convs.iter_mut().find(|c| c.session == session)
+    }
+
+    /// Ajoute une conversation (la plus ancienne inactive part au-delà du
+    /// maximum) ; rend son indice.
+    pub fn push(&mut self, conv: Conversation) -> usize {
+        if self.convs.len() >= MAX_CONVERSATIONS
+            && let Some(i) = self
+                .convs
+                .iter()
+                .enumerate()
+                .filter(|(i, c)| *i != self.active && !c.busy)
+                .map(|(i, _)| i)
+                .next()
+        {
+            self.convs.remove(i);
+            if self.active > i {
+                self.active -= 1;
+            }
+        }
+        self.convs.push(conv);
+        self.convs.len() - 1
+    }
+
+    /// Prochain numéro libre pour « Conversation n ».
+    fn next_title(&self) -> String {
+        let n = (1..)
+            .find(|n| {
+                let t = crate::tr!("Conversation {n}", n = n);
+                !self.convs.iter().any(|c| c.title == t)
+            })
+            .unwrap_or(1);
+        crate::tr!("Conversation {n}", n = n)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ChatMsg {
-    Connected(tokio::sync::mpsc::UnboundedSender<ClientMsg>),
-    Engine(ServerMsg),
-    Ended(String),
+    /// Événements d'un moteur (par session).
+    Connected(u64, tokio::sync::mpsc::UnboundedSender<ClientMsg>),
+    Engine(u64, ServerMsg),
+    Ended(u64, String),
     Input(String),
     Send,
     Cancel,
     Confirm(String, bool),
     Choose(String, String),
+    /// Nouvelle conversation (son propre moteur), affichée.
     NewConversation,
+    /// Affiche une conversation (sélecteur).
+    Switch(u64),
+    /// Ferme une conversation (son moteur s'arrête).
+    CloseConversation(u64),
+    /// Ouvre le tiroir sur une conversation (notification « Ouvrir »).
+    Show(u64),
+    /// Déplie ou replie un groupe d'étapes techniques.
+    ToggleSteps(usize),
     Provider(String),
     Link(String),
     Close,
@@ -130,22 +221,25 @@ pub enum ChatMsg {
     Select(usize),
     /// Action dans le texte sélectionnable (sélection, pas d'édition).
     EditorAction(iced::widget::text_editor::Action),
-    /// Colle l'image du presse-papiers (bouton, ou Ctrl+V dans le tiroir).
+    /// Colle l'image du presse-papiers (bouton).
     PasteImage,
+    /// Ctrl+V dans le tiroir : image jointe, ou texte ajouté à la saisie.
     KeyPaste(Id),
     Pasted(Result<std::path::PathBuf, String>),
+    PastedText(String),
     RemoveAttachment(usize),
 }
 
-/// Flux du moteur : lance le processus, transmet ses lignes, écrit les nôtres.
+/// Flux d'un moteur : lance le processus, transmet ses lignes, écrit les nôtres.
 fn engine_stream(data: &(u64, Vec<String>)) -> impl Stream<Item = ChatMsg> + use<> {
-    let argv = data.1.clone();
+    let (session, argv) = (data.0, data.1.clone());
     iced::stream::channel(
         64,
         async move |mut out: iced::futures::channel::mpsc::Sender<ChatMsg>| {
             let Some((prog, args)) = argv.split_first() else {
                 let _ = out
                     .send(ChatMsg::Ended(
+                        session,
                         crate::i18n::tr("aucun moteur d'assistant").into(),
                     ))
                     .await;
@@ -161,30 +255,33 @@ fn engine_stream(data: &(u64, Vec<String>)) -> impl Stream<Item = ChatMsg> + use
             let mut child = match child {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = out.send(ChatMsg::Ended(format!("{prog} : {e}"))).await;
+                    let _ = out
+                        .send(ChatMsg::Ended(session, format!("{prog} : {e}")))
+                        .await;
                     return;
                 }
             };
             let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
                 let _ = out
                     .send(ChatMsg::Ended(
+                        session,
                         crate::i18n::tr("moteur sans entrée/sortie").into(),
                     ))
                     .await;
                 return;
             };
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ClientMsg>();
-            let _ = out.send(ChatMsg::Connected(tx)).await;
+            let _ = out.send(ChatMsg::Connected(session, tx)).await;
             let mut lines = BufReader::new(stdout).lines();
             loop {
                 tokio::select! {
                     line = lines.next_line() => match line {
                         Ok(Some(l)) if l.trim().is_empty() => {}
                         Ok(Some(l)) => {
-                            let _ = out.send(ChatMsg::Engine(crate::chat::parse(&l))).await;
+                            let _ = out.send(ChatMsg::Engine(session, crate::chat::parse(&l))).await;
                         }
                         _ => {
-                            let _ = out.send(ChatMsg::Ended(crate::i18n::tr("l'assistant s'est arrêté").into())).await;
+                            let _ = out.send(ChatMsg::Ended(session, crate::i18n::tr("l'assistant s'est arrêté").into())).await;
                             break;
                         }
                     },
@@ -192,7 +289,7 @@ fn engine_stream(data: &(u64, Vec<String>)) -> impl Stream<Item = ChatMsg> + use
                         Some(m) => {
                             let line = crate::chat::encode(&m) + "\n";
                             if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                                let _ = out.send(ChatMsg::Ended(crate::i18n::tr("l'assistant ne répond plus").into())).await;
+                                let _ = out.send(ChatMsg::Ended(session, crate::i18n::tr("l'assistant ne répond plus").into())).await;
                                 break;
                             }
                         }
@@ -224,69 +321,132 @@ impl std::fmt::Display for ProviderChoice {
     }
 }
 
+/// Entrée du sélecteur de conversations.
+#[derive(Debug, Clone, PartialEq)]
+struct ConvChoice(u64, String);
+
+impl std::fmt::Display for ConvChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.1)
+    }
+}
+
+/// Groupes d'étapes techniques consécutives : (première, après la dernière).
+pub fn step_groups(entries: &[Entry]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < entries.len() {
+        if matches!(entries[i], Entry::Tool { .. }) {
+            let start = i;
+            while i < entries.len() && matches!(entries[i], Entry::Tool { .. }) {
+                i += 1;
+            }
+            out.push((start, i));
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 impl App {
-    /// Ouvre le tiroir de l'assistant sur l'écran principal (le tiroir des
-    /// réglages se ferme : un seul tiroir à la fois). `None` : pas de moteur.
-    /// Tiroir de l'assistant affiché.
-    /// Soumet un texte à l'assistant LYRA (tiroir ouvert si besoin) ; `None`
-    /// si LYRA ne sait pas se faire dessiner ici.
-    pub(super) fn ask_assistant(&mut self, text: String) -> Option<Task<Msg>> {
+    /// Un module soumet un texte à LYRA : une conversation à lui s'ouvre
+    /// (titre `origin`), le texte part dès que le moteur est prêt, et une
+    /// notification le signale (« Ouvrir » affiche la conversation). `show` :
+    /// demande explicite, le tiroir s'ouvre aussitôt dessus. `None` : LYRA ne
+    /// sait pas se faire dessiner ici.
+    pub(super) fn ask_assistant(
+        &mut self,
+        text: String,
+        origin: &str,
+        show: bool,
+    ) -> Option<Task<Msg>> {
         let engine = crate::assistant::serve_command(&self.cfg)?;
         if !self.cfg.plugin_on("assistant") {
             return None;
         }
-        let open = if self.chat_shown() {
+        self.chat_session = self.chat_session.wrapping_add(1);
+        let session = self.chat_session;
+        let mut conv = Conversation::new(session, engine, origin.to_string());
+        conv.pending = Some(text);
+        conv.unread = !show;
+        let win = self.chat_target()?.0;
+        let chat = self.chat.get_or_insert_with(|| ChatPanel {
+            win,
+            surface: None,
+            convs: Vec::new(),
+            active: 0,
+        });
+        let i = chat.push(conv);
+        if show || chat.convs.len() == 1 {
+            chat.active = i;
+        }
+        let open = if show && !self.chat_shown() {
+            self.show_chat()
+        } else {
+            Task::none()
+        };
+        let notify = if show {
             Task::none()
         } else {
-            self.open_chat(engine)
+            notify_conversation(session, origin.to_string())
         };
-        let c = self.chat.as_mut()?;
-        if c.sender.is_some() && !c.busy {
-            c.input = text;
-            Some(Task::batch([open, Task::done(Msg::Chat(ChatMsg::Send))]))
-        } else {
-            c.pending = Some(text);
-            Some(open)
-        }
+        Some(Task::batch([open, notify]))
     }
 
     pub(super) fn chat_shown(&self) -> bool {
         self.chat.as_ref().is_some_and(|c| c.surface.is_some())
     }
 
+    /// Surface de bureau et écran du tiroir (l'écran principal).
+    fn chat_target(&self) -> Option<(Id, String)> {
+        let primary = self.primary_monitor();
+        self.surfaces
+            .iter()
+            .find(|(_, n)| Some(*n) == primary.as_ref())
+            .or_else(|| self.surfaces.iter().next())
+            .map(|(id, n)| (*id, n.clone()))
+    }
+
+    /// Ouvre le tiroir (une première conversation s'il n'y en a pas).
     pub(super) fn open_chat(&mut self, engine: Vec<String>) -> Task<Msg> {
         if self.chat_shown() {
             return Task::none();
         }
+        if self.chat.as_ref().is_none_or(|c| c.convs.is_empty()) {
+            let Some((win, _)) = self.chat_target() else {
+                return Task::none();
+            };
+            self.chat_session = self.chat_session.wrapping_add(1);
+            let fresh = ChatPanel::new(win, None, self.chat_session, engine);
+            match self.chat.as_mut() {
+                Some(c) => {
+                    c.convs = fresh.convs;
+                    c.active = 0;
+                }
+                None => self.chat = Some(fresh),
+            }
+        }
+        self.show_chat()
+    }
+
+    /// Affiche la surface du tiroir sur les conversations existantes.
+    fn show_chat(&mut self) -> Task<Msg> {
         let close_settings = if self.panel.is_some() {
             self.close_panel()
         } else {
             Task::none()
         };
-        let primary = self.primary_monitor();
-        let Some((win, monitor)) = self
-            .surfaces
-            .iter()
-            .find(|(_, n)| Some(*n) == primary.as_ref())
-            .or_else(|| self.surfaces.iter().next())
-            .map(|(id, n)| (*id, n.clone()))
-        else {
+        let Some((win, monitor)) = self.chat_target() else {
             return close_settings;
         };
         let surface = Id::unique();
-        // Session cachée : la même revient (moteur et conversation intacts).
-        if let Some(c) = self.chat.as_mut() {
-            c.win = win;
-            c.surface = Some(surface);
-        } else {
-            self.chat_session = self.chat_session.wrapping_add(1);
-            self.chat = Some(ChatPanel::new(
-                win,
-                Some(surface),
-                self.chat_session,
-                engine,
-            ));
-        }
+        let Some(c) = self.chat.as_mut() else {
+            return close_settings;
+        };
+        c.win = win;
+        c.surface = Some(surface);
+        c.cur_mut().unread = false;
         let create = Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
                 size: Some((self.panel_width() as u32, 0)),
@@ -304,8 +464,8 @@ impl App {
         Task::batch([close_settings, create, self.sync_window_gaps(), focus])
     }
 
-    /// Cache le tiroir de l'assistant : la session continue (moteur lancé,
-    /// conversation gardée) et revient à la prochaine ouverture.
+    /// Cache le tiroir de l'assistant : les conversations continuent
+    /// (moteurs lancés) et reviennent à la prochaine ouverture.
     pub(super) fn close_chat(&mut self) -> Task<Msg> {
         match self.chat.as_mut().and_then(|c| c.surface.take()) {
             Some(id) => Task::batch([iced::window::close(id), self.sync_window_gaps()]),
@@ -314,35 +474,88 @@ impl App {
     }
 
     pub(super) fn chat_subscription(&self) -> Subscription<Msg> {
-        match &self.chat {
-            // Sans moteur (aperçu) : rien à lancer.
-            Some(c) if c.engine.is_empty() => Subscription::none(),
-            Some(c) => {
-                let engine = Subscription::run_with((c.session, c.engine.clone()), engine_stream)
-                    .map(Msg::Chat);
-                if c.surface.is_none() {
-                    return engine;
+        let Some(chat) = &self.chat else {
+            return Subscription::none();
+        };
+        // Un moteur par conversation (sans moteur : aperçu, rien à lancer).
+        let mut subs: Vec<Subscription<Msg>> = chat
+            .convs
+            .iter()
+            .filter(|c| !c.engine.is_empty())
+            .map(|c| {
+                Subscription::run_with((c.session, c.engine.clone()), engine_stream).map(Msg::Chat)
+            })
+            .collect();
+        if chat.surface.is_some() {
+            // Ctrl+V dans le tiroir : image jointe, ou texte ajouté à la saisie.
+            subs.push(iced::event::listen_with(|e, _, id| match e {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Character(c),
+                    modifiers,
+                    ..
+                }) if modifiers.control() && c.as_str().eq_ignore_ascii_case("v") => {
+                    Some(Msg::Chat(ChatMsg::KeyPaste(id)))
                 }
-                // Ctrl+V dans le tiroir : une image du presse-papiers se joint au message.
-                let paste = iced::event::listen_with(|e, _, id| match e {
-                    iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                        key: iced::keyboard::Key::Character(c),
-                        modifiers,
-                        ..
-                    }) if modifiers.control() && c.as_str().eq_ignore_ascii_case("v") => {
-                        Some(Msg::Chat(ChatMsg::KeyPaste(id)))
-                    }
-                    _ => None,
-                });
-                Subscription::batch([engine, paste])
-            }
-            None => Subscription::none(),
+                _ => None,
+            }));
+        }
+        Subscription::batch(subs)
+    }
+
+    fn chat_send(&mut self, session: u64, m: ClientMsg) {
+        if let Some(tx) = self
+            .chat
+            .as_mut()
+            .and_then(|c| c.by_session(session))
+            .and_then(|c| c.sender.as_ref())
+        {
+            let _ = tx.send(m);
         }
     }
 
-    fn chat_send(&mut self, m: ClientMsg) {
-        if let Some(tx) = self.chat.as_ref().and_then(|c| c.sender.as_ref()) {
-            let _ = tx.send(m);
+    /// Envoie un message dans une conversation (refusé pendant un tour, ou
+    /// sans moteur connecté).
+    fn send_in(&mut self, session: u64, text: String) {
+        let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session)) else {
+            return;
+        };
+        let text = text.trim().to_string();
+        if text.is_empty() || c.busy || c.sender.is_none() {
+            return;
+        }
+        c.next_id += 1;
+        let id = format!("m{}", c.next_id);
+        let files = std::mem::take(&mut c.attachments);
+        c.entries.push(Entry::User {
+            text: text.clone(),
+            images: files.len(),
+        });
+        c.busy = true;
+        self.chat_send(
+            session,
+            ClientMsg::Message {
+                id,
+                text,
+                attachments: files
+                    .into_iter()
+                    .map(|p| crate::chat::Attachment {
+                        path: p.display().to_string(),
+                    })
+                    .collect(),
+            },
+        );
+    }
+
+    /// Message d'un module en attente : envoyé dès que le moteur est prêt et libre.
+    fn flush_pending(&mut self, session: u64) {
+        let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session)) else {
+            return;
+        };
+        if !c.ready || c.busy || c.sender.is_none() {
+            return;
+        }
+        if let Some(p) = c.pending.take() {
+            self.send_in(session, p);
         }
     }
 
@@ -361,26 +574,131 @@ impl App {
         }
         match msg {
             ChatMsg::Copy(t) => return copy_text(t),
-            ChatMsg::PasteImage => return paste_image(),
+            ChatMsg::PasteImage => return paste_clipboard(false),
             ChatMsg::KeyPaste(id) => {
                 return if self.chat.as_ref().is_some_and(|c| c.surface == Some(id)) {
-                    paste_image()
+                    paste_clipboard(true)
                 } else {
                     Task::none()
                 };
             }
+            ChatMsg::Show(session) => {
+                if let Some(chat) = self.chat.as_mut()
+                    && let Some(i) = chat.convs.iter().position(|c| c.session == session)
+                {
+                    chat.active = i;
+                    chat.convs[i].unread = false;
+                    if !self.chat_shown() {
+                        return self.show_chat();
+                    }
+                }
+                return Task::none();
+            }
+            ChatMsg::NewConversation => {
+                let Some(engine) = crate::assistant::serve_command(&self.cfg)
+                    .or_else(|| self.chat.as_ref().map(|c| c.cur().engine.clone()))
+                else {
+                    return Task::none();
+                };
+                self.chat_session = self.chat_session.wrapping_add(1);
+                let session = self.chat_session;
+                if let Some(chat) = self.chat.as_mut() {
+                    let title = chat.next_title();
+                    let i = chat.push(Conversation::new(session, engine, title));
+                    chat.active = i;
+                }
+                return iced::widget::operation::focus(CHAT_INPUT);
+            }
+            ChatMsg::Connected(session, tx) => {
+                if let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session)) {
+                    c.sender = Some(tx);
+                    c.ended = None;
+                }
+                self.chat_send(
+                    session,
+                    ClientMsg::Hello {
+                        client: "hyprdesk".into(),
+                        protocol: crate::chat::PROTOCOL,
+                        language: crate::i18n::code().into(),
+                    },
+                );
+                return Task::none();
+            }
+            ChatMsg::Engine(session, m) => {
+                self.chat_engine(session, m);
+                self.flush_pending(session);
+                return Task::none();
+            }
+            ChatMsg::Ended(session, why) => {
+                if let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session)) {
+                    c.sender = None;
+                    c.ready = false;
+                    c.busy = false;
+                    c.thinking = false;
+                    c.ended = Some(why);
+                }
+                return Task::none();
+            }
+            ChatMsg::CloseConversation(session) => {
+                if let Some(chat) = self.chat.as_mut()
+                    && let Some(i) = chat.convs.iter().position(|c| c.session == session)
+                {
+                    chat.convs.remove(i);
+                    if chat.active > i || chat.active >= chat.convs.len() {
+                        chat.active = chat.active.saturating_sub(1);
+                    }
+                    if chat.convs.is_empty() {
+                        // Plus aucune : une conversation neuve pour le tiroir.
+                        return Task::done(Msg::Chat(ChatMsg::NewConversation));
+                    }
+                }
+                return Task::none();
+            }
+            ChatMsg::Switch(session) => {
+                if let Some(chat) = self.chat.as_mut()
+                    && let Some(i) = chat.convs.iter().position(|c| c.session == session)
+                {
+                    chat.active = i;
+                    chat.convs[i].unread = false;
+                }
+                return iced::widget::operation::focus(CHAT_INPUT);
+            }
+            ChatMsg::Send => {
+                let Some(chat) = self.chat.as_mut() else {
+                    return Task::none();
+                };
+                let c = chat.cur_mut();
+                if c.busy || c.sender.is_none() || c.input.trim().is_empty() {
+                    return Task::none();
+                }
+                let (session, text) = (c.session, std::mem::take(&mut c.input));
+                self.send_in(session, text);
+                return Task::none();
+            }
             _ => {}
         }
-        let Some(c) = self.chat.as_mut() else {
+        let Some(chat) = self.chat.as_mut() else {
             return Task::none();
         };
+        let c = chat.cur_mut();
+        let session = c.session;
         match msg {
-            ChatMsg::Copy(_) | ChatMsg::PasteImage | ChatMsg::KeyPaste(_) => {}
             ChatMsg::Pasted(Ok(p)) => c.attachments.push(p),
             ChatMsg::Pasted(Err(e)) => c.entries.push(Entry::Error(e)),
+            ChatMsg::PastedText(t) => {
+                // La saisie a pu le recevoir elle-même (presse-papiers d'iced) : pas de doublon.
+                if !c.input.ends_with(&t) {
+                    c.input.push_str(&t);
+                }
+            }
             ChatMsg::RemoveAttachment(i) => {
                 if i < c.attachments.len() {
                     c.attachments.remove(i);
+                }
+            }
+            ChatMsg::ToggleSteps(i) => {
+                if !c.expanded.remove(&i) {
+                    c.expanded.insert(i);
                 }
             }
             ChatMsg::Select(i) => {
@@ -400,56 +718,8 @@ impl App {
                     content.perform(a);
                 }
             }
-            ChatMsg::Connected(tx) => {
-                c.sender = Some(tx);
-                c.ended = None;
-                let pending = c.pending.take();
-                self.chat_send(ClientMsg::Hello {
-                    client: "hyprdesk".into(),
-                    protocol: crate::chat::PROTOCOL,
-                    language: crate::i18n::code().into(),
-                });
-                // Problème soumis avant la connexion : envoyé maintenant.
-                if let Some(p) = pending {
-                    if let Some(c) = self.chat.as_mut() {
-                        c.input = p;
-                    }
-                    return Task::done(Msg::Chat(ChatMsg::Send));
-                }
-            }
-            ChatMsg::Ended(why) => {
-                c.sender = None;
-                c.busy = false;
-                c.thinking = false;
-                c.ended = Some(why);
-            }
             ChatMsg::Input(s) => c.input = s,
-            ChatMsg::Send => {
-                let text = c.input.trim().to_string();
-                if text.is_empty() || c.busy || c.sender.is_none() {
-                    return Task::none();
-                }
-                c.input.clear();
-                c.next_id += 1;
-                let id = format!("m{}", c.next_id);
-                let files = std::mem::take(&mut c.attachments);
-                c.entries.push(Entry::User {
-                    text: text.clone(),
-                    images: files.len(),
-                });
-                c.busy = true;
-                self.chat_send(ClientMsg::Message {
-                    id,
-                    text,
-                    attachments: files
-                        .into_iter()
-                        .map(|p| crate::chat::Attachment {
-                            path: p.display().to_string(),
-                        })
-                        .collect(),
-                });
-            }
-            ChatMsg::Cancel => self.chat_send(ClientMsg::Cancel),
+            ChatMsg::Cancel => self.chat_send(session, ClientMsg::Cancel),
             ChatMsg::Confirm(id, accept) => {
                 for e in c.entries.iter_mut() {
                     if let Entry::Confirm { id: i, answer, .. } = e
@@ -459,10 +729,13 @@ impl App {
                     }
                 }
                 c.busy = true;
-                self.chat_send(ClientMsg::Confirm {
-                    request: id,
-                    accept,
-                });
+                self.chat_send(
+                    session,
+                    ClientMsg::Confirm {
+                        request: id,
+                        accept,
+                    },
+                );
             }
             ChatMsg::Choose(id, value) => {
                 for e in c.entries.iter_mut() {
@@ -473,21 +746,13 @@ impl App {
                     }
                 }
                 c.busy = true;
-                self.chat_send(ClientMsg::Choice { request: id, value });
-            }
-            ChatMsg::NewConversation => {
-                c.entries.clear();
-                c.busy = false;
-                c.thinking = false;
-                c.progress = None;
-                self.chat_send(ClientMsg::NewConversation);
+                self.chat_send(session, ClientMsg::Choice { request: id, value });
             }
             ChatMsg::Provider(p) => {
                 c.provider = p.clone();
-                self.chat_send(ClientMsg::Provider { value: p });
+                self.chat_send(session, ClientMsg::Provider { value: p });
             }
-            ChatMsg::Engine(m) => self.chat_engine(m),
-            ChatMsg::Link(_) | ChatMsg::Close => {}
+            _ => {}
         }
         Task::none()
     }
@@ -495,7 +760,11 @@ impl App {
     /// Aperçu : une conversation déjà remplie, rejouée par le protocole.
     pub(super) fn chat_demo(&mut self, win: Id) {
         use crate::chat::ChoiceOption;
-        self.chat = Some(ChatPanel::new(win, Some(Id::unique()), 0, Vec::new()));
+        let mut chat = ChatPanel::new(win, Some(Id::unique()), 0, Vec::new());
+        let mut other = Conversation::new(1, Vec::new(), crate::i18n::tr("Mises à jour").into());
+        other.unread = true;
+        chat.convs.push(other);
+        self.chat = Some(chat);
         let msgs = [ServerMsg::Ready {
             protocol: 1,
             provider: "claude_code".into(),
@@ -503,21 +772,21 @@ impl App {
             fs: false,
         }];
         for m in msgs {
-            self.chat_engine(m);
+            self.chat_engine(0, m);
         }
         if let Some(c) = self.chat.as_mut() {
-            c.entries.push(Entry::User {
+            c.cur_mut().entries.push(Entry::User {
                 text: crate::i18n::tr("Mes fenêtres sont trop collées, tu peux espacer ?").into(),
                 images: 0,
             });
         }
         for m in [
-            ServerMsg::Delta {
-                text: crate::i18n::tr(
-                    "Les marges extérieures valent **5 px**. Je propose de passer à `10` \
-                       (aperçu à chaud, non enregistré) :",
-                )
-                .into(),
+            ServerMsg::Tool {
+                id: "t0".into(),
+                name: "hypr_status".into(),
+                summary: "État de Hyprland".into(),
+                status: "done".into(),
+                result: None,
             },
             ServerMsg::Tool {
                 id: "t1".into(),
@@ -525,6 +794,13 @@ impl App {
                 summary: "Lecture de general:gaps_out".into(),
                 status: "done".into(),
                 result: Some("5 5 5 5".into()),
+            },
+            ServerMsg::Delta {
+                text: crate::i18n::tr(
+                    "Les marges extérieures valent **5 px**. Je propose de passer à `10` \
+                       (aperçu à chaud, non enregistré) :",
+                )
+                .into(),
             },
             ServerMsg::ConfirmRequest {
                 id: "c1".into(),
@@ -545,18 +821,34 @@ impl App {
                     })
                     .collect(),
             },
+            ServerMsg::TurnStart { id: "m2".into() },
+            ServerMsg::Thinking { active: true },
         ] {
-            self.chat_engine(m);
+            self.chat_engine(0, m);
         }
         if let Some(c) = self.chat.as_mut() {
-            c.input = crate::i18n::tr("Oui, et augmente aussi les marges intérieures").into();
+            c.cur_mut().input =
+                crate::i18n::tr("Oui, et augmente aussi les marges intérieures").into();
         }
     }
 
-    fn chat_engine(&mut self, m: ServerMsg) {
-        let Some(c) = self.chat.as_mut() else { return };
+    fn chat_engine(&mut self, session: u64, m: ServerMsg) {
+        let Some(chat) = self.chat.as_mut() else {
+            return;
+        };
+        let shown = chat.surface.is_some();
+        let active = chat.cur().session;
+        let Some(c) = chat.by_session(session) else {
+            return;
+        };
+        // Réponse dans une conversation qu'on ne regarde pas : marquée.
+        if matches!(m, ServerMsg::Delta { .. } | ServerMsg::TurnEnd { .. })
+            && (!shown || session != active)
+        {
+            c.unread = true;
+        }
         // Texte de l'assistant : ajouté à sa dernière bulle, ou à une nouvelle.
-        let push_text = |c: &mut ChatPanel, t: &str| {
+        let push_text = |c: &mut Conversation, t: &str| {
             if let Some(Entry::Assistant { raw, md }) = c.entries.last_mut() {
                 raw.push_str(t);
                 md.push_str(t);
@@ -575,6 +867,7 @@ impl App {
                 providers,
                 ..
             } => {
+                c.ready = true;
                 c.provider = provider;
                 c.providers = providers;
             }
@@ -663,9 +956,13 @@ impl App {
 
     /// Le tiroir de l'assistant, au format du tiroir des réglages.
     pub(super) fn view_chat(&self) -> Element<'_, Msg> {
-        let Some(c) = &self.chat else {
+        let Some(chat) = &self.chat else {
             return Space::new().into();
         };
+        if chat.convs.is_empty() {
+            return Space::new().into();
+        }
+        let c = chat.cur();
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = Color { a: 0.6, ..fg };
@@ -697,11 +994,19 @@ impl App {
                     Some(_) => crate::i18n::tr("LYRA · arrêtée").to_string(),
                     None if c.provider.is_empty() =>
                         crate::i18n::tr("LYRA · démarrage…").to_string(),
+                    None if c.busy => crate::tr!(
+                        "LYRA · {provider} · réfléchit…",
+                        provider = provider_label(&c.provider)
+                    ),
                     None => crate::tr!("LYRA · {provider}", provider = provider_label(&c.provider)),
                 })
                 .font(self.font)
                 .size(12)
-                .color(Color { a: 0.65, ..fg }),
+                .color(if c.busy {
+                    accent
+                } else {
+                    Color { a: 0.65, ..fg }
+                }),
             ]
             .spacing(5)
             .width(Length::Fill),
@@ -723,6 +1028,55 @@ impl App {
         ]
         .spacing(8)
         .align_y(Alignment::Center);
+
+        // Sélecteur des conversations : ● en cours de réponse, • du nouveau.
+        let choices: Vec<ConvChoice> = chat
+            .convs
+            .iter()
+            .map(|v| {
+                let mark = if v.busy {
+                    "● "
+                } else if v.unread {
+                    "• "
+                } else {
+                    ""
+                };
+                ConvChoice(v.session, format!("{mark}{}", v.title))
+            })
+            .collect();
+        let current = choices.iter().find(|x| x.0 == c.session).cloned();
+        let others_unread = chat
+            .convs
+            .iter()
+            .filter(|v| v.session != c.session && v.unread)
+            .count();
+        let mut conv_row = row![
+            pick_list(choices, current, |x: ConvChoice| Msg::Chat(
+                ChatMsg::Switch(x.0)
+            ))
+            .font(self.font)
+            .text_size(13)
+            .padding([5, 10])
+            .width(Length::Fill),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if others_unread > 0 {
+            conv_row = conv_row.push(
+                text(crate::tr!("{n} à lire", n = others_unread))
+                    .font(self.font)
+                    .size(12)
+                    .color(accent),
+            );
+        }
+        conv_row = conv_row.push(iced::widget::tooltip(
+            button(text("×").font(self.font).size(15))
+                .padding([2, 8])
+                .style(button::text)
+                .on_press(Msg::Chat(ChatMsg::CloseConversation(c.session))),
+            text(crate::i18n::tr("Fermer cette conversation")).font(self.font),
+            iced::widget::tooltip::Position::Left,
+        ));
 
         // Fil de la conversation.
         let md_settings = markdown::Settings::with_text_size(14, &self.theme);
@@ -751,7 +1105,34 @@ impl App {
             .style(button::text)
             .on_press(Msg::Chat(msg))
         };
+        // Étapes techniques (outils) : repliées par défaut, une ligne par groupe.
+        let groups = step_groups(&c.entries);
         for (i, e) in c.entries.iter().enumerate() {
+            if let Some(&(start, end)) = groups.iter().find(|(a, b)| i >= *a && i < *b) {
+                let open = c.expanded.contains(&start);
+                if i == start {
+                    let n = end - start;
+                    let running = c.entries[start..end]
+                        .iter()
+                        .any(|e| matches!(e, Entry::Tool { status, .. } if status == "running"));
+                    let label = if open {
+                        crate::tr!("▾ Masquer les détails ({n} étape(s))", n = n)
+                    } else if running {
+                        crate::tr!("▸ {n} étape(s) technique(s) — en cours…", n = n)
+                    } else {
+                        crate::tr!("▸ {n} étape(s) technique(s)", n = n)
+                    };
+                    thread = thread.push(
+                        button(text(label).font(self.font).size(12).color(dim))
+                            .padding([1, 4])
+                            .style(button::text)
+                            .on_press(Msg::Chat(ChatMsg::ToggleSteps(start))),
+                    );
+                }
+                if !open {
+                    continue;
+                }
+            }
             let el: Element<'_, Msg> = match e {
                 Entry::User { text: t, images } => {
                     let mut body =
@@ -933,13 +1314,38 @@ impl App {
             };
             thread = thread.push(el);
         }
-        if c.thinking || (c.busy && !matches!(c.entries.last(), Some(Entry::Assistant { .. }))) {
-            let label = match &c.progress {
-                Some((phase, Some(f))) => format!("{phase} — {:.0} %", f * 100.0),
-                Some((phase, None)) => phase.clone(),
-                None => crate::i18n::tr("LYRA réfléchit…").into(),
+        // LYRA travaille : un repère bien visible tant que le tour dure ; la
+        // phase technique (préparation du contexte) seulement en détail.
+        if c.busy || c.thinking {
+            let writing = matches!(c.entries.last(), Some(Entry::Assistant { .. })) && !c.thinking;
+            let label = if writing {
+                crate::i18n::tr("LYRA écrit…").to_string()
+            } else {
+                crate::i18n::tr("LYRA réfléchit…").to_string()
             };
-            thread = thread.push(text(label).font(self.font).size(12).color(dim));
+            let mut pill = row![
+                text("●").font(self.font).size(12).color(accent),
+                text(label).font(self.font).size(13).color(fg),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center);
+            if let Some((phase, f)) = &c.progress {
+                let detail = match f {
+                    Some(f) => format!("{phase} — {:.0} %", f * 100.0),
+                    None => phase.clone(),
+                };
+                pill = pill.push(text(detail).font(self.font).size(11).color(dim));
+            }
+            thread =
+                thread.push(
+                    container(pill)
+                        .padding([6, 12])
+                        .style(move |_| container::Style {
+                            background: Some(Color { a: 0.12, ..accent }.into()),
+                            border: Border::default().rounded(12),
+                            ..Default::default()
+                        }),
+                );
         }
         if let Some(why) = &c.ended {
             thread = thread.push(text(why.clone()).font(self.font).size(12).color(warn));
@@ -1016,6 +1422,7 @@ impl App {
         let card = container(
             column![
                 header,
+                conv_row,
                 iced::widget::rule::horizontal(1),
                 body,
                 attached,
@@ -1091,26 +1498,58 @@ fn copy_text(t: String) -> Task<Msg> {
 
 /// Image du presse-papiers (wl-paste) enregistrée dans le dossier de la
 /// session, pour être jointe au prochain message. Rien s'il n'y en a pas.
-fn paste_image() -> Task<Msg> {
+/// Ce que contient le presse-papiers.
+enum Clip {
+    Image(Result<std::path::PathBuf, String>),
+    Text(String),
+}
+
+/// Colle le presse-papiers : une image se joint au message ; du texte
+/// (`text`, Ctrl+V) s'ajoute à la saisie.
+fn paste_clipboard(text: bool) -> Task<Msg> {
     Task::perform(
-        async {
-            tokio::task::spawn_blocking(|| -> Option<Result<std::path::PathBuf, String>> {
+        async move {
+            tokio::task::spawn_blocking(move || -> Option<Clip> {
                 let types = std::process::Command::new("wl-paste")
                     .arg("--list-types")
                     .output()
                     .ok()?;
                 let types = String::from_utf8_lossy(&types.stdout).to_string();
-                let mime = types
+                let image = types
                     .lines()
                     .find(|t| t.starts_with("image/png"))
-                    .or_else(|| types.lines().find(|t| t.starts_with("image/")))?
-                    .trim()
-                    .to_string();
+                    .or_else(|| types.lines().find(|t| t.starts_with("image/")))
+                    .map(|t| t.trim().to_string());
+                let Some(mime) = image else {
+                    if !text {
+                        return None;
+                    }
+                    let plain = types.lines().any(|t| {
+                        t.starts_with("text/plain") || t == "UTF8_STRING" || t == "STRING"
+                    });
+                    if !plain {
+                        return None;
+                    }
+                    let out = std::process::Command::new("wl-paste")
+                        .args(["--no-newline", "--type", "text/plain;charset=utf-8"])
+                        .output()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .or_else(|| {
+                            std::process::Command::new("wl-paste")
+                                .arg("--no-newline")
+                                .output()
+                                .ok()
+                        })?;
+                    let t = String::from_utf8_lossy(&out.stdout).into_owned();
+                    return (!t.is_empty()).then_some(Clip::Text(t));
+                };
                 let ext = mime
                     .trim_start_matches("image/")
                     .split(';')
                     .next()
-                    .unwrap_or("png");
+                    .unwrap_or("png")
+                    .to_string();
                 let out = std::process::Command::new("wl-paste")
                     .args(["--no-newline", "--type", &mime])
                     .output()
@@ -1119,20 +1558,56 @@ fn paste_image() -> Task<Msg> {
                     return None;
                 }
                 let dir = crate::lock::state::path().with_file_name("chat");
-                Some((|| {
+                Some(Clip::Image((|| {
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     let p = dir.join(format!("image-{}.{ext}", crate::storage::revision()));
                     std::fs::write(&p, &out.stdout).map_err(|e| e.to_string())?;
                     Ok(p)
-                })())
+                })()))
             })
             .await
             .ok()
             .flatten()
         },
         |r| match r {
-            Some(r) => Msg::Chat(ChatMsg::Pasted(r)),
+            Some(Clip::Image(r)) => Msg::Chat(ChatMsg::Pasted(r)),
+            Some(Clip::Text(t)) => Msg::Chat(ChatMsg::PastedText(t)),
             None => Msg::Noop,
+        },
+    )
+}
+
+/// Notification « LYRA : nouvelle discussion » ; « Ouvrir » affiche la conversation.
+fn notify_conversation(session: u64, origin: String) -> Task<Msg> {
+    Task::perform(
+        async move {
+            let title = crate::i18n::tr("LYRA : nouvelle discussion").to_string();
+            let body = crate::tr!("{origin} souhaite en parler avec LYRA.", origin = origin);
+            let open = format!("open={}", crate::i18n::tr("Ouvrir"));
+            crate::processes::output(
+                tokio::process::Command::new("notify-send").args([
+                    "-a",
+                    "LYRA",
+                    "-i",
+                    "dialog-information",
+                    "-A",
+                    &open,
+                    "--wait",
+                    &title,
+                    &body,
+                ]),
+                std::time::Duration::from_secs(3600),
+            )
+            .await
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "open")
+            .unwrap_or(false)
+        },
+        move |open| {
+            if open {
+                Msg::Chat(ChatMsg::Show(session))
+            } else {
+                Msg::Noop
+            }
         },
     )
 }
@@ -1181,13 +1656,30 @@ mod tests {
         app
     }
 
+    fn cur(app: &App) -> &Conversation {
+        app.chat.as_ref().unwrap().cur()
+    }
+
+    fn ready(app: &mut App, session: u64) {
+        let _ = app.chat_update(ChatMsg::Engine(
+            session,
+            ServerMsg::Ready {
+                protocol: 1,
+                provider: "claude_code".into(),
+                providers: vec![],
+                fs: false,
+            },
+        ));
+    }
+
     /// Un tour complet : saisie, texte au fil de l'eau, confirmation, fin ;
     /// rien n'est envoyé pendant un tour ni sans moteur connecté.
     #[test]
     fn un_tour_de_conversation() {
         let mut app = app_with_chat();
+        let s = cur(&app).session;
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let _ = app.chat_update(ChatMsg::Connected(tx));
+        let _ = app.chat_update(ChatMsg::Connected(s, tx));
         assert!(matches!(rx.try_recv(), Ok(ClientMsg::Hello { .. })));
         let _ = app.chat_update(ChatMsg::Input("  règle les gaps ".into()));
         let _ = app.chat_update(ChatMsg::Send);
@@ -1199,68 +1691,140 @@ mod tests {
         let _ = app.chat_update(ChatMsg::Send);
         assert!(rx.try_recv().is_err());
         for t in ["Je ", "propose **10**."] {
-            let _ = app.chat_update(ChatMsg::Engine(ServerMsg::Delta { text: t.into() }));
+            let _ = app.chat_update(ChatMsg::Engine(s, ServerMsg::Delta { text: t.into() }));
         }
-        let _ = app.chat_update(ChatMsg::Engine(ServerMsg::ConfirmRequest {
-            id: "c1".into(),
-            command: "hyprctl keyword general:gaps_out 10".into(),
-            reason: String::new(),
-            risk: "low".into(),
-        }));
-        let c = app.chat.as_ref().unwrap();
+        let _ = app.chat_update(ChatMsg::Engine(
+            s,
+            ServerMsg::ConfirmRequest {
+                id: "c1".into(),
+                command: "hyprctl keyword general:gaps_out 10".into(),
+                reason: String::new(),
+                risk: "low".into(),
+            },
+        ));
         // Une seule bulle pour le texte en flux ; la confirmation rend la main.
-        assert_eq!(c.entries.len(), 3);
-        assert!(!c.busy);
+        assert_eq!(cur(&app).entries.len(), 3);
+        assert!(!cur(&app).busy);
         let _ = app.chat_update(ChatMsg::Confirm("c1".into(), false));
         assert!(matches!(
             rx.try_recv(),
             Ok(ClientMsg::Confirm { accept: false, .. })
         ));
-        let _ = app.chat_update(ChatMsg::Engine(ServerMsg::TurnEnd {
-            id: "c1".into(),
-            text: String::new(),
-        }));
-        let c = app.chat.as_ref().unwrap();
-        assert!(!c.busy);
+        let _ = app.chat_update(ChatMsg::Engine(
+            s,
+            ServerMsg::TurnEnd {
+                id: "c1".into(),
+                text: String::new(),
+            },
+        ));
+        assert!(!cur(&app).busy);
         assert!(matches!(
-            c.entries[2],
+            cur(&app).entries[2],
             Entry::Confirm {
                 answer: Some(false),
                 ..
             }
         ));
         // Moteur arrêté : l'envoi est impossible, la raison est affichée.
-        let _ = app.chat_update(ChatMsg::Ended("arrêt".into()));
+        let _ = app.chat_update(ChatMsg::Ended(s, "arrêt".into()));
         let _ = app.chat_update(ChatMsg::Send);
-        assert!(app.chat.as_ref().unwrap().sender.is_none());
+        assert!(cur(&app).sender.is_none());
     }
 
-    /// Cacher le tiroir (réglages, Échap) garde la session : même moteur,
-    /// mêmes messages au retour ; seul « Nouvelle » vide la conversation.
+    /// Cacher le tiroir garde les conversations ; « Nouvelle » en ouvre une
+    /// autre (son propre moteur) sans perdre la première.
     #[test]
-    fn session_gardee() {
+    fn conversations_gardees() {
         let mut app = app_with_chat();
+        let s = cur(&app).session;
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let _ = app.chat_update(ChatMsg::Connected(tx));
+        let _ = app.chat_update(ChatMsg::Connected(s, tx));
         let _ = app.chat_update(ChatMsg::Input("bonjour".into()));
         let _ = app.chat_update(ChatMsg::Send);
-        let _ = app.chat_update(ChatMsg::Engine(ServerMsg::Delta {
-            text: "Salut **toi**".into(),
-        }));
-        let session = app.chat.as_ref().unwrap().session;
+        let _ = app.chat_update(ChatMsg::Engine(
+            s,
+            ServerMsg::Delta {
+                text: "Salut **toi**".into(),
+            },
+        ));
         let _ = app.open_panel();
         assert!(!app.chat_shown());
-        assert!(app.chat.as_ref().unwrap().sender.is_some(), "moteur gardé");
+        assert!(cur(&app).sender.is_some(), "moteur gardé");
         let _ = app.open_chat(vec!["moteur".into()]);
-        let c = app.chat.as_ref().unwrap();
-        assert!(app.chat_shown() && c.session == session && c.entries.len() == 2);
+        assert!(app.chat_shown() && cur(&app).session == s && cur(&app).entries.len() == 2);
         // Sélection : la réponse passe en texte sélectionnable, puis revient.
         let _ = app.chat_update(ChatMsg::Select(1));
-        assert!(app.chat.as_ref().unwrap().selecting.is_some());
+        assert!(cur(&app).selecting.is_some());
         let _ = app.chat_update(ChatMsg::Select(1));
-        assert!(app.chat.as_ref().unwrap().selecting.is_none());
+        assert!(cur(&app).selecting.is_none());
         let _ = app.chat_update(ChatMsg::NewConversation);
-        assert!(app.chat.as_ref().unwrap().entries.is_empty());
+        let chat = app.chat.as_ref().unwrap();
+        assert_eq!(chat.convs.len(), 2);
+        assert!(cur(&app).entries.is_empty() && cur(&app).session != s);
+        // Retour sur la première, intacte ; puis on la ferme.
+        let _ = app.chat_update(ChatMsg::Switch(s));
+        assert_eq!(cur(&app).entries.len(), 2);
+        let _ = app.chat_update(ChatMsg::CloseConversation(s));
+        assert_eq!(app.chat.as_ref().unwrap().convs.len(), 1);
+        assert_ne!(cur(&app).session, s);
+    }
+
+    /// Un module parle à LYRA : une conversation à lui, envoyée dès que son
+    /// moteur est prêt — même si une autre conversation est occupée.
+    #[test]
+    fn un_module_ouvre_sa_conversation() {
+        let mut app = app_with_chat();
+        let first = cur(&app).session;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = app.chat_update(ChatMsg::Connected(first, tx));
+        let _ = app.chat_update(ChatMsg::Input("une longue question".into()));
+        let _ = app.chat_update(ChatMsg::Send);
+        assert!(cur(&app).busy);
+        // Sans moteur LYRA installé, ask_assistant ne fait rien : on simule.
+        app.chat_session += 1;
+        let s = app.chat_session;
+        let mut conv = Conversation::new(s, vec!["moteur".into()], "Mises à jour".into());
+        conv.pending = Some("La mise à jour a échoué".into());
+        conv.unread = true;
+        app.chat.as_mut().unwrap().push(conv);
+        assert_eq!(
+            cur(&app).session,
+            first,
+            "la conversation en cours reste affichée"
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = app.chat_update(ChatMsg::Connected(s, tx));
+        assert!(matches!(rx.try_recv(), Ok(ClientMsg::Hello { .. })));
+        assert!(rx.try_recv().is_err(), "rien avant « prêt »");
+        ready(&mut app, s);
+        assert!(
+            matches!(rx.try_recv(), Ok(ClientMsg::Message { text, .. }) if text == "La mise à jour a échoué")
+        );
+        let _ = app.chat_update(ChatMsg::Show(s));
+        assert_eq!(cur(&app).session, s);
+        assert!(!cur(&app).unread);
+    }
+
+    /// Étapes techniques consécutives : un groupe, replié par défaut.
+    #[test]
+    fn etapes_techniques_groupees() {
+        let tool = || Entry::Tool {
+            name: "t".into(),
+            summary: String::new(),
+            status: "done".into(),
+            result: None,
+        };
+        let entries = vec![
+            Entry::User {
+                text: "x".into(),
+                images: 0,
+            },
+            tool(),
+            tool(),
+            Entry::Error("e".into()),
+            tool(),
+        ];
+        assert_eq!(step_groups(&entries), vec![(1, 3), (4, 5)]);
     }
 
     /// Un seul tiroir : ouvrir les réglages ferme l'assistant.

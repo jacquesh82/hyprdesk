@@ -32,8 +32,9 @@ pub enum PrMsg {
 
 impl App {
     /// Un problème arrive : à l'assistant s'il est là, sinon à la fenêtre.
-    pub(super) fn show_problem(&mut self, text: String) -> Task<Msg> {
-        if let Some(t) = self.ask_assistant(text.clone()) {
+    pub(super) fn show_problem(&mut self, text: String, show: bool) -> Task<Msg> {
+        let origin = crate::i18n::tr("Mises à jour").to_string();
+        if let Some(t) = self.ask_assistant(text.clone(), &origin, show) {
             return t;
         }
         if let Some(p) = self.problem.as_mut() {

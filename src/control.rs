@@ -43,8 +43,12 @@ pub enum Command {
     /// `hyprdesk osd` une fois l'action faite.
     Osd(String),
     /// Un problème à montrer (texte libre, sur plusieurs lignes) : soumis à
-    /// l'assistant LYRA s'il est là, sinon une fenêtre de détail copiable.
+    /// l'assistant LYRA s'il est là (une conversation à lui, signalée par
+    /// une notification), sinon une fenêtre de détail copiable.
     Problem(String),
+    /// Le même, demandé explicitement (« Voir le problème… ») : la
+    /// conversation s'affiche aussitôt.
+    ProblemShow(String),
 }
 
 impl Command {
@@ -70,6 +74,9 @@ impl Command {
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
             // Une requête tient sur une ligne : le texte voyage en chaîne JSON.
             m if m.starts_with("problem ") => Command::Problem(serde_json::from_str(&m[8..]).ok()?),
+            m if m.starts_with("problem-show ") => {
+                Command::ProblemShow(serde_json::from_str(&m[13..]).ok()?)
+            }
             _ => return None,
         })
     }
@@ -81,6 +88,10 @@ impl Command {
             Command::Osd(l) => format!("osd-show {l}"),
             Command::Problem(t) => format!(
                 "problem {}",
+                serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
+            ),
+            Command::ProblemShow(t) => format!(
+                "problem-show {}",
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
             ),
             c => c.as_str().to_string(),
@@ -107,6 +118,7 @@ impl Command {
             Command::Switch(true) => "switch prev",
             Command::Osd(_) => "osd-show",
             Command::Problem(_) => "problem",
+            Command::ProblemShow(_) => "problem-show",
         }
     }
 }

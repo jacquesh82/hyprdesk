@@ -2610,7 +2610,8 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
-                control::Command::Problem(t) => self.show_problem(t),
+                control::Command::Problem(t) => self.show_problem(t, false),
+                control::Command::ProblemShow(t) => self.show_problem(t, true),
                 control::Command::Osd(line) => match osd::parse(&line) {
                     Some((kind, value, muted)) => self.show_osd(kind, value, muted),
                     None => Task::none(),
