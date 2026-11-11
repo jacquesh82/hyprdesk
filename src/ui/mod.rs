@@ -1545,6 +1545,8 @@ impl App {
                 .iter()
                 .map(|m| self.stash_workspace(m))
                 .collect();
+            // Plein bureau : les fenêtres du bureau, cachées en mode lanceur, reviennent.
+            tasks.extend(self.bring_back_desk_windows());
             tasks.push(self.sync_raised());
             tasks.push(self.sync_submap());
             self.publish_status();
@@ -1580,8 +1582,11 @@ impl App {
             }
         }
         // Les fenêtres du bureau, parties avec lui, reviennent (après la mise
-        // de côté des autres : l'acteur traite les demandes dans l'ordre).
-        tasks.extend(self.bring_back_desk_windows());
+        // de côté des autres : l'acteur traite les demandes dans l'ordre) —
+        // en plein bureau seulement, pas en mode lanceur.
+        if !self.with_windows {
+            tasks.extend(self.bring_back_desk_windows());
+        }
         self.last_poll.clear();
         tasks.push(Task::done(Msg::Poll));
         tasks.push(self.refresh_walls());
@@ -1620,12 +1625,15 @@ impl App {
         if !self.visible {
             return self.show();
         }
-        // Depuis le bureau vide : les fenêtres reviennent, le bureau reste dessous.
-        let tasks = vec![
+        // Depuis le plein bureau : ses fenêtres flottantes partent (elles ne
+        // s'affichent qu'en plein bureau), les autres reviennent, le bureau
+        // reste dessous.
+        let mut tasks = self.park_desk_windows();
+        tasks.extend([
             self.restore_stash(None),
             self.sync_raised(),
             self.sync_submap(),
-        ];
+        ]);
         self.publish_status();
         Task::batch(tasks)
     }
@@ -1657,10 +1665,7 @@ impl App {
         }
         // Les fenêtres flottantes ouvertes sur le bureau partent avec lui
         // (avant le retour des fenêtres mises de côté, qui reprennent le focus).
-        let desk: Vec<String> = self.desk_windows.drain().collect();
-        if !desk.is_empty() {
-            tasks.push(Self::window_result(self.windows.park(desk)));
-        }
+        tasks.extend(self.park_desk_windows());
         // Les fenêtres mises de côté reviennent.
         tasks.push(self.restore_stash(None));
         tasks.push(self.sync_window_gaps());
@@ -1669,6 +1674,19 @@ impl App {
         tasks.push(self.sync_submap());
         tasks.push(self.finish_fade());
         Task::batch(tasks)
+    }
+
+    /// Les fenêtres flottantes ouvertes sur le bureau partent dans `hypr::DESK`
+    /// (bureau masqué ou mode lanceur : elles ne s'affichent qu'en plein bureau).
+    fn park_desk_windows(&mut self) -> Vec<Task<Msg>> {
+        let desk: Vec<String> = self.desk_windows.drain().collect();
+        if desk.is_empty() {
+            return Vec::new();
+        }
+        for a in &desk {
+            self.session_windows.remove(a);
+        }
+        vec![Self::window_result(self.windows.park(desk))]
     }
 
     /// Fenêtres en attente dans `hypr::DESK` : elles reviennent sur le bureau
@@ -4408,6 +4426,34 @@ mod regression_tests {
         app.fade = None;
         let _ = app.show();
         assert!(app.desk_windows.contains("0x1") && app.session_windows.contains("0x1"));
+    }
+
+    /// Les fenêtres du bureau ne s'affichent qu'en plein bureau : le mode
+    /// lanceur les cache, le retour au plein bureau les rend.
+    #[test]
+    fn desk_windows_only_in_full_desktop() {
+        let mut app = app();
+        app.visible = true;
+        app.session_windows.insert("0x1".into());
+        app.desk_windows.insert("0x1".into());
+        let _ = app.show_with_windows();
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        assert!(app.desk_windows.is_empty() && !app.session_windows.contains("0x1"));
+        app.clients = vec![hypr::Client {
+            address: "0x1".into(),
+            class: "kitty".into(),
+            title: String::new(),
+            workspace: hypr::DESK.into(),
+        }];
+        // Depuis le bureau masqué, le mode lanceur ne les ramène pas.
+        let _ = app.hide();
+        app.fade = None;
+        let _ = app.show_with_windows();
+        assert!(app.desk_windows.is_empty());
+        // Le plein bureau, si.
+        let _ = app.show();
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        assert!(app.desk_windows.contains("0x1"));
     }
 
     #[test]
