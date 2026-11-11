@@ -467,6 +467,7 @@ pub fn build_keys_lua(
     blurred: &[&str],
     exe: &str,
     skip: &[String],
+    ws_mod: &str,
 ) -> String {
     let q = |s: &str| format!("\"{}\"", ipc::lua_escape(s));
     let cmd = |arg: &str| format!("{} {arg}", crate::launch::sh_quote(exe));
@@ -590,6 +591,34 @@ pub fn build_keys_lua(
             );
         }
     }
+    // Recherche, applications, fenêtres : ils ne changent pas de mode.
+    let switch_back = crate::switcher::with_shift(&keys.switch).unwrap_or_default();
+    for (k, arg, desc) in [
+        (&keys.search, "search", "recherche"),
+        (&keys.switch, "switch", "fenêtres"),
+        (&switch_back, "switch prev", "fenêtres, en arrière"),
+        (&keys.overview, "overview", "vue d'ensemble"),
+    ] {
+        if usable(k) {
+            lua += &format!(
+                "  keep(hl.bind({}, hl.dsp.exec_cmd({}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(k),
+                q(&cmd(arg))
+            );
+        }
+    }
+    // Changer de workspace reste possible bureau affiché : la rangée des
+    // chiffres (codes physiques 10 à 19, quelle que soit la disposition du
+    // clavier) avec le modificateur des raccourcis de workspace de
+    // hyprland.lua ; le bureau suit (fenêtres du nouveau workspace mises de côté).
+    if !ws_mod.is_empty() {
+        for n in 1..=10 {
+            lua += &format!(
+                "  keep(hl.bind({}, hl.dsp.focus({{ workspace = {n} }}), {{ description = \"hyprdesk : workspace {n}\" }}))\n",
+                q(&format!("{ws_mod} + code:{}", 9 + n))
+            );
+        }
+    }
     // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les tient toutes.
     media(&mut lua, "  ", &[]);
     lua += "end)\n";
@@ -649,12 +678,85 @@ pub fn install_keys(
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
-    let r = ipc::eval(&build_keys_lua(keys, blurred, &exe, &skip))?;
+    let ws_mod = workspace_modifier(&binds);
+    let r = ipc::eval(&build_keys_lua(keys, blurred, &exe, &skip, &ws_mod))?;
     if r.trim() != "ok" {
         tracing::warn!("{}", crate::tr!("installation des raccourcis : {r}", r = r));
     }
     let after = ipc::query_json("binds").unwrap_or(binds);
     Ok((conflicts, universal_binds(&after)))
+}
+
+/// Touches de la rangée des chiffres (AZERTY, QWERTY, QWERTZ…).
+const NUMBER_ROW: &[&str] = &[
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+    "ampersand",
+    "eacute",
+    "quotedbl",
+    "apostrophe",
+    "parenleft",
+    "minus",
+    "egrave",
+    "underscore",
+    "ccedilla",
+    "agrave",
+    "exclam",
+    "at",
+    "numbersign",
+    "dollar",
+    "percent",
+    "asciicircum",
+    "asterisk",
+    "parenright",
+    "section",
+    "plus",
+];
+
+/// Modificateur des raccourcis de workspace de hyprland.lua : celui des
+/// raccourcis « focus » posés sur la rangée des chiffres (SUPER à défaut).
+pub fn workspace_modifier(binds: &Value) -> String {
+    let mask = binds
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|b| b["submap"].as_str().unwrap_or("").is_empty())
+        .filter(|b| {
+            b["dispatcher"]
+                .as_str()
+                .is_some_and(|d| d.contains("focus") || d == "workspace")
+        })
+        .filter(|b| {
+            b["key"].as_str().is_some_and(|k| NUMBER_ROW.contains(&k))
+                || b["key"].as_str().is_some_and(|k| {
+                    k.strip_prefix("code:")
+                        .and_then(|c| c.parse::<u32>().ok())
+                        .is_some_and(|c| (10..=19).contains(&c))
+                })
+        })
+        .filter_map(|b| b["modmask"].as_u64())
+        .next()
+        .unwrap_or(64);
+    modmask_name(mask)
+}
+
+/// Masque de modificateurs de Hyprland → « SUPER + ALT ».
+pub fn modmask_name(mask: u64) -> String {
+    let mut parts = Vec::new();
+    for (bit, name) in [(64, "SUPER"), (8, "ALT"), (4, "CTRL"), (1, "SHIFT")] {
+        if mask & bit != 0 {
+            parts.push(name);
+        }
+    }
+    parts.join(" + ")
 }
 
 /// Retire les raccourcis de hyprdesk (arrêt du démon).
@@ -1547,7 +1649,13 @@ mod tests {
         let k = crate::config::Keys::default();
         let raise = r#"hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("'/bin/hyprdesk' osd volume +5"), { locked = true, repeating = true"#;
         // Déjà liée par hyprland.lua : seulement dans la submap.
-        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &["XF86AudioRaiseVolume".into()]);
+        let lua = build_keys_lua(
+            &k,
+            &[],
+            "/bin/hyprdesk",
+            &["XF86AudioRaiseVolume".into()],
+            "SUPER",
+        );
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();
         assert!(!main.contains(raise) && submap.contains(raise), "{lua}");
         assert!(main.contains(
@@ -1556,7 +1664,7 @@ mod tests {
         assert!(submap.contains(r#"hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("'/bin/hyprdesk' media play-pause"), { locked = true, repeating = false"#));
         // Coupées : aucune.
         let off = crate::config::Keys { media: false, ..k };
-        assert!(!build_keys_lua(&off, &[], "/bin/hyprdesk", &[]).contains("XF86"));
+        assert!(!build_keys_lua(&off, &[], "/bin/hyprdesk", &[], "SUPER").contains("XF86"));
         for (key, _, _) in MEDIA_KEYS {
             assert!(parse_combo(key).is_some(), "{key}");
         }
@@ -1581,6 +1689,7 @@ mod tests {
             &["hyprdesk-bar"],
             "/bin/hyprdesk",
             &["SUPER + SHIFT + D".to_string()],
+            "SUPER",
         );
         assert!(
             lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
@@ -1643,7 +1752,7 @@ mod tests {
         // Non réglé : rien de lié ; s'il l'était, Hyprland relit sa config.
         let mut none = k.clone();
         none.lock.clear();
-        let lua = build_keys_lua(&none, &[], "/bin/hyprdesk", &[]);
+        let lua = build_keys_lua(&none, &[], "/bin/hyprdesk", &[], "SUPER");
         assert!(lua.contains("local lock_key = nil") && lua.contains("hyprctl reload"));
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();
         assert!(!main.contains("' lock\")"), "{lua}");
@@ -1653,7 +1762,7 @@ mod tests {
             "{lua}"
         );
         // Réglages : hors submap et dans la submap, sans la quitter.
-        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[]);
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[], "SUPER");
         assert!(!lua.contains("blur = true"), "aucun flou demandé : {lua}");
         assert_eq!(
             lua.matches(
@@ -1716,5 +1825,28 @@ mod tests {
             ipc::lua_escape("xdg-open \"/a b\"")
         ));
         assert_eq!(c, r#"/dispatch hl.dsp.exec_cmd("xdg-open \"/a b\"")"#);
+    }
+
+    /// Bureau affiché : la rangée des chiffres change de workspace, avec le
+    /// modificateur des raccourcis de workspace de hyprland.lua.
+    #[test]
+    fn workspaces_bureau_affiche() {
+        let binds = serde_json::json!([
+            { "submap": "", "dispatcher": "HL.Dispatcher(exec_cmd)", "key": "ampersand", "modmask": 1 },
+            { "submap": "", "dispatcher": "HL.Dispatcher(focus)", "key": "eacute", "modmask": 64 },
+            { "submap": "", "dispatcher": "HL.Dispatcher(move)", "key": "eacute", "modmask": 72 },
+        ]);
+        assert_eq!(workspace_modifier(&binds), "SUPER");
+        let alt = serde_json::json!([
+            { "submap": "", "dispatcher": "HL.Dispatcher(focus)", "key": "code:11", "modmask": 72 },
+        ]);
+        assert_eq!(workspace_modifier(&alt), "SUPER + ALT");
+        assert_eq!(workspace_modifier(&serde_json::json!([])), "SUPER");
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &[], "SUPER");
+        let sub = &lua[lua.find("hl.define_submap").unwrap()..];
+        assert!(sub.contains(r#"hl.bind("SUPER + code:10", hl.dsp.focus({ workspace = 1 })"#));
+        assert!(sub.contains(r#"hl.bind("SUPER + code:19", hl.dsp.focus({ workspace = 10 })"#));
+        assert!(sub.contains("' search\""), "{sub}");
     }
 }
