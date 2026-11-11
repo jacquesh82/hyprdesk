@@ -43,9 +43,18 @@ pub enum CMsg {
     RenameSubmit,
     Trash,
     CopyPath,
+    /// Image : fond d'écran de tous les bureaux.
+    Wallpaper,
     Settings,
     Close,
     Done(Result<(), String>),
+}
+
+/// Image utilisable comme fond d'écran.
+pub fn is_wallpaper(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp"))
 }
 
 /// Nouveau nom acceptable : non vide, sans « / », ni « . » ni « .. ».
@@ -104,6 +113,9 @@ impl App {
                 ("Mettre à la corbeille", CMsg::Trash)
             });
             v.push(("Copier le chemin", CMsg::CopyPath));
+            if m.path.as_deref().is_some_and(is_wallpaper) {
+                v.push(("Définir comme fond d'écran", CMsg::Wallpaper));
+            }
         }
         v.push(("Réglages du bureau…", CMsg::Settings));
         v
@@ -276,6 +288,22 @@ impl App {
                 }
                 close
             }
+            CMsg::Wallpaper => {
+                let close = self.close_icon_menu();
+                let Some(p) = path.filter(|p| is_wallpaper(p)) else {
+                    return close;
+                };
+                // Tous les bureaux, en gardant l'ajustement du fond actuel.
+                let sel = crate::config::Selector::default();
+                let fit = self
+                    .settings
+                    .wallpaper(&sel)
+                    .map(|w| w.fit)
+                    .unwrap_or_default();
+                self.settings
+                    .set_wallpaper(sel, crate::config::WallSource::Path(p), fit);
+                Task::batch([close, self.commit()])
+            }
             CMsg::Settings => {
                 let close = self.close_icon_menu();
                 Task::batch([
@@ -393,6 +421,14 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn images_de_fond() {
+        assert!(is_wallpaper(Path::new("/a/b.JPG")));
+        assert!(is_wallpaper(Path::new("x.webp")));
+        assert!(!is_wallpaper(Path::new("notes.txt")));
+        assert!(!is_wallpaper(Path::new("dossier")));
+    }
 
     #[test]
     fn noms_valides() {
