@@ -43,14 +43,17 @@ end
 
 return {
     name        = hd.t("Mises à jour"),
-    description = hd.t("Paquets à mettre à jour ; mise à jour en un clic ; masqué si tout est à jour."),
+    description = hd.t("Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher)."),
     interval    = 60,
     anchor      = "top-right",
-    options     = { texte = true },
+    options     = { texte = true, masquer_a_jour = false },
     render = function(o)
         local s = read()
         refresh_if_old(s)
-        if not s then return { state = "hidden" } end
+        if not s or s.state == "checking" and s.checked == 0 then
+            return { icon = "software-update-available-symbolic", text = "",
+                     tooltip = hd.t("Recherche des mises à jour…") }
+        end
         if s.state == "running" then
             return { icon = "software-update-available-symbolic", text = o.texte and "…" or "",
                      tooltip = hd.t("Mise à jour en cours…"), state = "active" }
@@ -59,14 +62,19 @@ return {
             return { icon = "software-update-available-symbolic", text = o.texte and "!" or "",
                      tooltip = hd.t("La dernière mise à jour a échoué"), state = "critical" }
         end
-        if s.total == 0 then return { state = "hidden" } end
+        if s.total == 0 then
+            if o.masquer_a_jour then return { state = "hidden" } end
+            return { icon = "software-update-none-symbolic", text = "",
+                     tooltip = hd.t("Le système est à jour") }
+        end
         return { icon = "software-update-available-symbolic", text = o.texte and tostring(s.total) or "",
                  tooltip = string.format(hd.t("%d paquet(s) à mettre à jour"), s.total),
                  state = s.total >= 50 and "warning" or "normal" }
     end,
     menu = function()
         local s = read() or { state = "idle", total = 0, sources = {} }
-        local m = { { header = string.format(hd.t("%d paquet(s) à mettre à jour"), s.total) } }
+        local m = { { header = s.total > 0 and string.format(hd.t("%d paquet(s) à mettre à jour"), s.total)
+                                  or hd.t("Le système est à jour") } }
         for _, src in ipairs(s.sources) do
             if src.n > 0 then
                 local first = {}

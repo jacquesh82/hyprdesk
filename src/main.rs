@@ -7,6 +7,7 @@ mod apps;
 mod apptheme;
 mod assistant;
 mod autostart;
+mod bar_offer;
 mod brightness;
 mod capture;
 mod chat;
@@ -300,6 +301,8 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             crate::tr!("création de {p0} : {e}", p0 = path.display(), e = e)
         ),
     }
+    // Modules de barre livrés depuis : ajoutés une fois à la barre réglée.
+    bar_offer::run(&path);
     tracing::info!(
         "{}",
         crate::tr!(

@@ -70,6 +70,12 @@ impl Default for BarSettings {
                     BarEntry::new("bluetooth"),
                     BarEntry::new("batterie"),
                     BarEntry::new("volume"),
+                    // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
+                    BarEntry::new("clavier"),
+                    BarEntry::new("nuit"),
+                    BarEntry::new("supports"),
+                    BarEntry::new("capture"),
+                    BarEntry::new("majs"),
                     BarEntry::new("notifications"),
                     // Accès au bureau vide, toujours en bout de barre.
                     BarEntry::new("desktop"),

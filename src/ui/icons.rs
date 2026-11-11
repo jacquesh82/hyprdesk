@@ -198,6 +198,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "software-update-available" | "system-software-update" => {
             r#"<path d="M12 3v11m-4-4 4 4 4-4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>"#
         }
+        // À jour : une coche au-dessus du plateau.
+        "software-update-none" => {
+            r#"<path d="m7 8 3.5 3.5L17 5M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>"#
+        }
         // Animations : un disque en mouvement, sa traînée derrière lui.
         // Date et heure : une horloge.
         "preferences-system-time" => r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>"#,

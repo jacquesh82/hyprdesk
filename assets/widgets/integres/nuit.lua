@@ -85,6 +85,11 @@ return {
         if other then
             m[#m + 1] = { label = string.format(hd.t("Géré par %s"), other),
                           detail = hd.t("à retirer de hyprland.lua pour laisser hyprdesk le gérer") }
+            if hd.exec("command -v hyprsunset") ~= "" then
+                m[#m + 1] = { label = hd.t("Laisser hyprdesk le gérer (cette session)"),
+                              confirm = string.format(hd.t("Arrêter %s jusqu'à la prochaine session ?"), other),
+                              action = function() hd.exec("pkill -x " .. other); applied = nil end }
+            end
             return m
         end
         local function set(v)

@@ -1326,7 +1326,7 @@
 "Mettre à jour %d paquet(s) ?" = "Update %d package(s)?"
 "Mise à jour en cours…" = "Updating…"
 "Mises à jour" = "Updates"
-"Paquets à mettre à jour ; mise à jour en un clic ; masqué si tout est à jour." = "Packages to update; one-click update; hidden when everything is up to date."
+"Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher)." = "Packages to update; one-click update. Up to date: a discreet check mark (option masquer_a_jour hides it)."
 "Tout mettre à jour" = "Update everything"
 "Un problème est survenu" = "A problem occurred"
 "Voir le problème…" = "Show the problem…"
@@ -1577,3 +1577,11 @@
 "Ou posez le doigt sur le lecteur d'empreintes." = "Or place your finger on the fingerprint reader."
 "Empreinte digitale en plus du mot de passe (fprintd)" = "Fingerprint besides the password (fprintd)"
 "on | off — empreinte (fprintd) en plus du mot de passe, si un lecteur est là" = "on | off — fingerprint (fprintd) besides the password, when a reader is present"
+
+# Modules de barre livrés après coup (bar_offer).
+"barre : ajout des modules : {e}" = "bar: adding modules: {e}"
+"barre : nouveaux modules ajoutés : {p0}" = "bar: new modules added: {p0}"
+"Le système est à jour" = "The system is up to date"
+"Recherche des mises à jour…" = "Checking for updates…"
+"Laisser hyprdesk le gérer (cette session)" = "Let hyprdesk handle it (this session)"
+"Arrêter %s jusqu'à la prochaine session ?" = "Stop %s until the next session?"
