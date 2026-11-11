@@ -68,6 +68,8 @@ scripts:
 #   (session, veille, date), fc-list (polices) ; wl-copy / wl-paste
 #   (copier-coller) ; notify-send (notifications des captures, de la batterie,
 #   de LYRA) ; xdg-user-dir (dossiers Images et Vidéos des captures) ;
+#   greetd et cage (écran de connexion, Réglages → Écran de connexion : le
+#   paquet les installe, la bascule depuis GDM reste un choix explicite) ;
 # - facultatifs : les outils orchestrés (hyprdesk doctor, Réglages → Bureau →
 #   Dépendances) et les renvois des menus : gio (corbeille), rfkill (mode
 #   avion), pkexec (mises à jour), checkupdates / flatpak (mises à jour).
@@ -86,6 +88,8 @@ overrides:
       - xdg-utils
       - systemd
       - fontconfig
+      - greetd
+      - cage
     recommends:
       - hyprland
       - hypridle
@@ -117,8 +121,6 @@ overrides:
       - slurp
       - wvkbd
       - fprintd
-      - greetd
-      - cage
       - pavucontrol
       - unzip
       - git
@@ -138,6 +140,8 @@ overrides:
       - tar
       - systemd
       - fontconfig
+      - greetd
+      - cage
     recommends:
       - hyprland
       - hypridle
@@ -168,8 +172,6 @@ overrides:
       - slurp
       - wvkbd
       - fprintd
-      - greetd
-      - cage
       - pavucontrol
       - unzip
       - git
@@ -189,6 +191,8 @@ overrides:
       - systemd
       - fontconfig
       - hyprland
+      - greetd
+      - cage
     # optdepends : « paquet: raison ».
     suggests:
       - "hypridle: veille et verrouillage automatique"
@@ -218,8 +222,6 @@ overrides:
       - "slurp: capture ou enregistrement d'une zone"
       - "wvkbd: clavier virtuel"
       - "fprintd: empreinte digitale au verrouillage"
-      - "greetd: écran de connexion (hyprdesk greeter)"
-      - "cage: écran de connexion graphique"
       - "pavucontrol: réglages du son avancés"
       - "unzip: thèmes au format .zip"
       - "git: plugins depuis un dépôt git"
