@@ -249,6 +249,115 @@ pub fn report(failed: &Step) -> String {
     )
 }
 
+/// État partagé avec le plugin de barre (`majs.lua`), en lignes simples
+/// faciles à lire en Lua :
+/// `state=idle|checking|running|failed`, `checked=<unix>`, `total=<n>`,
+/// puis une ligne `source=<libellé>|<n>|<paquets séparés par des espaces>`
+/// par source.
+pub fn state_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("hyprdesk-updates.txt")
+}
+
+/// Rapport du dernier échec (`hyprdesk updates --report` le renvoie au démon).
+pub fn report_path() -> std::path::PathBuf {
+    state_path().with_file_name("hyprdesk-updates-report.txt")
+}
+
+pub fn render_state(state: &str, checked: u64, pending: &[Pending]) -> String {
+    let mut out = format!(
+        "state={state}\nchecked={checked}\ntotal={}\n",
+        total(pending)
+    );
+    for p in pending {
+        out.push_str(&format!(
+            "source={}|{}|{}\n",
+            crate::i18n::tr(p.label),
+            p.packages.len(),
+            p.packages.join(" ")
+        ));
+    }
+    out
+}
+
+/// État courant (`state=…`), s'il existe.
+pub fn current_state() -> Option<String> {
+    let s = std::fs::read_to_string(state_path()).ok()?;
+    s.lines()
+        .find_map(|l| l.strip_prefix("state=").map(String::from))
+}
+
+/// Remplace la ligne `state=` en gardant le reste (comptes affichés).
+pub fn set_state(state: &str) {
+    let path = state_path();
+    let old = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<String> = old
+        .lines()
+        .filter(|l| !l.starts_with("state="))
+        .map(String::from)
+        .collect();
+    lines.insert(0, format!("state={state}"));
+    let _ = std::fs::write(&path, lines.join("\n") + "\n");
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Relevé, écrit pour le plugin ; un relevé ou une mise à jour en cours
+/// n'est pas doublé.
+pub async fn refresh(sources: &[Source]) -> Vec<Pending> {
+    if matches!(
+        current_state().as_deref(),
+        Some("checking") | Some("running")
+    ) {
+        return Vec::new();
+    }
+    set_state("checking");
+    let pending = check(sources).await;
+    let _ = std::fs::write(state_path(), render_state("idle", now(), &pending));
+    pending
+}
+
+/// Mise à jour complète pour le plugin : état « running », puis relevé ;
+/// en cas d'échec, état « failed », rapport gardé et confié au démon
+/// (assistant LYRA, ou fenêtre de détail copiable).
+pub async fn upgrade_and_report(sources: &[Source]) -> Option<String> {
+    set_state("running");
+    let steps = upgrade(sources).await;
+    match steps.iter().find(|s| !s.ok) {
+        None => {
+            let pending = check(sources).await;
+            let _ = std::fs::write(state_path(), render_state("idle", now(), &pending));
+            crate::hypr::notify(1, 5000, crate::i18n::tr("hyprdesk : système à jour"));
+            None
+        }
+        Some(f) => {
+            let r = report(f);
+            let _ = std::fs::write(report_path(), &r);
+            set_state("failed");
+            send_problem(&r);
+            Some(r)
+        }
+    }
+}
+
+/// Confie un problème au démon ; sans démon, une notification Hyprland.
+pub fn send_problem(text: &str) {
+    if crate::control::send(crate::control::Command::Problem(text.to_string())).is_err() {
+        crate::hypr::notify(
+            3,
+            8000,
+            crate::i18n::tr("hyprdesk : la mise à jour a échoué — hyprdesk updates --report"),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,6 +421,25 @@ mod tests {
             ["org.mozilla.firefox", "org.gnome.Platform"]
         );
         assert!(parse("pacman", "").is_empty());
+    }
+
+    #[test]
+    fn etat_pour_le_plugin() {
+        let p = vec![
+            Pending {
+                source: "pacman",
+                label: "Dépôts Arch",
+                packages: vec!["linux".into(), "firefox".into()],
+            },
+            Pending {
+                source: "flatpak",
+                label: "Flatpak",
+                packages: vec![],
+            },
+        ];
+        let s = render_state("idle", 42, &p);
+        assert!(s.starts_with("state=idle\nchecked=42\ntotal=2\n"), "{s}");
+        assert!(s.contains("|2|linux firefox\n") && s.contains("Flatpak|0|\n"));
     }
 
     #[test]

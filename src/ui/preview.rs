@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 39] = [
+const SCENES: [&str; 40] = [
     "desktop",
     "typography",
     "icons",
@@ -63,6 +63,7 @@ const SCENES: [&str; 39] = [
     "animations-effets",
     "polkit",
     "notifications",
+    "probleme",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -513,6 +514,10 @@ impl Preview {
                 reply: Some(super::polkit::Responder::detached()),
             });
         }
+        // Les bulles n'appartiennent qu'à leur scène.
+        if SCENES[self.scene] != "notifications" {
+            self.app.toasts.list.clear();
+        }
         // Bulles de notifications : une ordinaire, une critique avec actions.
         if SCENES[self.scene] == "notifications" {
             let mut crit = std::collections::HashMap::new();
@@ -551,6 +556,22 @@ impl Preview {
                     since: std::time::Instant::now(),
                 },
             ];
+        }
+        // Fenêtre de détail d'un problème (mise à jour échouée, sans assistant).
+        if SCENES[self.scene] == "probleme" {
+            self.app.problem = Some(super::problem::Problem {
+                win: iced::window::Id::unique(),
+                text: crate::updates::report(&crate::updates::Step {
+                    source: "aur",
+                    command: "yay -Syu --noconfirm --sudo pkexec".into(),
+                    ok: false,
+                    code: Some(1),
+                    tail: ":: Processing package changes...\nerror: failed to commit transaction (conflicting files)\npython-foo: /usr/lib/python3.13/site-packages/foo/__init__.py exists in filesystem\nErrors occurred, no packages were upgraded.".into(),
+                }),
+                copied: false,
+            });
+        } else {
+            self.app.problem = None;
         }
         // La carte polkit n'appartient qu'à sa scène.
         if SCENES[self.scene] != "polkit" {
@@ -856,6 +877,16 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.problem.is_some() {
+            layers.push(
+                container(self.app.view_problem())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into(),
             );
         }
         if !self.app.toasts.list.is_empty() {

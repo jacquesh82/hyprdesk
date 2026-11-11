@@ -75,6 +75,8 @@ pub struct ChatPanel {
     pub provider: String,
     pub providers: Vec<String>,
     pub sender: Option<tokio::sync::mpsc::UnboundedSender<ClientMsg>>,
+    /// Message à envoyer dès que le moteur répond (problème soumis par hyprdesk).
+    pub pending: Option<String>,
     /// Le moteur s'est arrêté (message), ou n'a pas pu démarrer.
     pub ended: Option<String>,
     /// Images collées, envoyées avec le prochain message.
@@ -99,6 +101,7 @@ impl ChatPanel {
             provider: String::new(),
             providers: Vec::new(),
             sender: None,
+            pending: None,
             ended: None,
             attachments: Vec::new(),
             selecting: None,
@@ -225,6 +228,28 @@ impl App {
     /// Ouvre le tiroir de l'assistant sur l'écran principal (le tiroir des
     /// réglages se ferme : un seul tiroir à la fois). `None` : pas de moteur.
     /// Tiroir de l'assistant affiché.
+    /// Soumet un texte à l'assistant LYRA (tiroir ouvert si besoin) ; `None`
+    /// si LYRA ne sait pas se faire dessiner ici.
+    pub(super) fn ask_assistant(&mut self, text: String) -> Option<Task<Msg>> {
+        let engine = crate::assistant::serve_command(&self.cfg)?;
+        if !self.cfg.plugin_on("assistant") {
+            return None;
+        }
+        let open = if self.chat_shown() {
+            Task::none()
+        } else {
+            self.open_chat(engine)
+        };
+        let c = self.chat.as_mut()?;
+        if c.sender.is_some() && !c.busy {
+            c.input = text;
+            Some(Task::batch([open, Task::done(Msg::Chat(ChatMsg::Send))]))
+        } else {
+            c.pending = Some(text);
+            Some(open)
+        }
+    }
+
     pub(super) fn chat_shown(&self) -> bool {
         self.chat.as_ref().is_some_and(|c| c.surface.is_some())
     }
@@ -378,11 +403,19 @@ impl App {
             ChatMsg::Connected(tx) => {
                 c.sender = Some(tx);
                 c.ended = None;
+                let pending = c.pending.take();
                 self.chat_send(ClientMsg::Hello {
                     client: "hyprdesk".into(),
                     protocol: crate::chat::PROTOCOL,
                     language: crate::i18n::code().into(),
                 });
+                // Problème soumis avant la connexion : envoyé maintenant.
+                if let Some(p) = pending {
+                    if let Some(c) = self.chat.as_mut() {
+                        c.input = p;
+                    }
+                    return Task::done(Msg::Chat(ChatMsg::Send));
+                }
             }
             ChatMsg::Ended(why) => {
                 c.sender = None;

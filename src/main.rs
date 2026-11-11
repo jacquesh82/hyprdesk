@@ -90,9 +90,9 @@ Commandes :
   media <play-pause|next|previous>
                     commande le lecteur en cours (MPRIS)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
-  updates [--upgrade]
+  updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
-                    --upgrade : mise à jour non interactive (pkexec)
+                    --upgrade : mise à jour non interactive (pkexec), échec confié au démon
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -782,23 +782,41 @@ fn main() -> ExitCode {
                 eprintln!("{}", crate::i18n::tr("aucune source de paquets reconnue"));
                 return ExitCode::FAILURE;
             }
-            if args.get(1).map(String::as_str) == Some("--upgrade") {
-                let steps = block_on(updates::upgrade(&sources));
-                for s in &steps {
-                    println!(
-                        "{} {} : {}",
-                        if s.ok { "✓" } else { "✗" },
-                        s.source,
-                        s.command
-                    );
+            match args.get(1).map(String::as_str) {
+                // Mise à jour complète (plugin de barre) : état, relevé, rapport d'échec au démon.
+                Some("--upgrade") => {
+                    return match block_on(updates::upgrade_and_report(&sources)) {
+                        Some(r) => {
+                            eprintln!("{r}");
+                            ExitCode::FAILURE
+                        }
+                        None => ExitCode::SUCCESS,
+                    };
                 }
-                return match steps.iter().find(|s| !s.ok) {
-                    Some(f) => {
-                        eprintln!("\n{}", updates::report(f));
-                        ExitCode::FAILURE
-                    }
-                    None => ExitCode::SUCCESS,
-                };
+                // Relevé écrit pour le plugin de barre.
+                Some("--refresh") => {
+                    let p = block_on(updates::refresh(&sources));
+                    println!("{}", updates::total(&p));
+                    return ExitCode::SUCCESS;
+                }
+                // Dernier échec, renvoyé au démon (assistant ou fenêtre de détail).
+                Some("--report") => {
+                    return match std::fs::read_to_string(updates::report_path()) {
+                        Ok(r) => {
+                            updates::send_problem(&r);
+                            println!("{r}");
+                            ExitCode::SUCCESS
+                        }
+                        Err(_) => {
+                            eprintln!(
+                                "{}",
+                                crate::i18n::tr("aucun échec de mise à jour enregistré")
+                            );
+                            ExitCode::FAILURE
+                        }
+                    };
+                }
+                _ => {}
             }
             let pending = block_on(updates::check(&sources));
             for p in &pending {

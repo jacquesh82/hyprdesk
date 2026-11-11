@@ -38,6 +38,9 @@ pub enum Command {
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
     /// `hyprdesk osd` une fois l'action faite.
     Osd(String),
+    /// Un problème à montrer (texte libre, sur plusieurs lignes) : soumis à
+    /// l'assistant LYRA s'il est là, sinon une fenêtre de détail copiable.
+    Problem(String),
 }
 
 impl Command {
@@ -58,6 +61,8 @@ impl Command {
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
+            // Une requête tient sur une ligne : le texte voyage en chaîne JSON.
+            m if m.starts_with("problem ") => Command::Problem(serde_json::from_str(&m[8..]).ok()?),
             _ => return None,
         })
     }
@@ -67,6 +72,10 @@ impl Command {
             Command::Menu(m) => format!("menu {m}"),
             Command::Settings(p) => format!("settings {p}"),
             Command::Osd(l) => format!("osd-show {l}"),
+            Command::Problem(t) => format!(
+                "problem {}",
+                serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
+            ),
             c => c.as_str().to_string(),
         }
     }
@@ -87,6 +96,7 @@ impl Command {
             Command::Assistant => "assistant",
             Command::Tour => "tour",
             Command::Osd(_) => "osd-show",
+            Command::Problem(_) => "problem",
         }
     }
 }

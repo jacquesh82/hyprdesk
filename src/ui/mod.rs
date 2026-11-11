@@ -22,6 +22,7 @@ pub(crate) mod plugins;
 mod polkit;
 mod popover;
 pub mod preview;
+mod problem;
 mod toasts;
 mod tour;
 mod widget_view;
@@ -173,6 +174,8 @@ pub enum Msg {
     Polkit(polkit::PMsg),
     /// Bulles de notifications.
     Toasts(toasts::TMsg),
+    /// Fenêtre de détail d'un problème.
+    Problem(problem::PrMsg),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -340,6 +343,8 @@ pub struct App {
     polkit: Option<polkit::Dialog>,
     /// Bulles de notifications (si hyprdesk tient le nom du démon).
     toasts: toasts::Toasts,
+    /// Problème affiché (sans assistant pour le prendre).
+    problem: Option<problem::Problem>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -647,6 +652,7 @@ impl App {
             osd: None,
             polkit: None,
             toasts: Default::default(),
+            problem: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -2437,6 +2443,7 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                control::Command::Problem(t) => self.show_problem(t),
                 control::Command::Osd(line) => match osd::parse(&line) {
                     Some((kind, value, muted)) => self.show_osd(kind, value, muted),
                     None => Task::none(),
@@ -2870,6 +2877,7 @@ impl App {
             Msg::OsdTick => self.osd_tick(),
             Msg::Polkit(m) => self.polkit_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
+            Msg::Problem(m) => self.problem_update(m),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3146,6 +3154,10 @@ impl App {
                 }
                 if self.toasts.win == Some(id) {
                     self.toasts.win = None;
+                    return Task::none();
+                }
+                if self.problem.as_ref().is_some_and(|p| p.win == id) {
+                    self.problem = None;
                     return Task::none();
                 }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
@@ -3467,6 +3479,9 @@ impl App {
         }
         if self.toasts.win == Some(id) {
             return self.view_toasts();
+        }
+        if self.problem.as_ref().is_some_and(|p| p.win == id) {
+            return self.view_problem();
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3815,6 +3830,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::OsdTick => "OsdTick",
         Msg::Polkit(..) => "Polkit",
         Msg::Toasts(..) => "Toasts",
+        Msg::Problem(..) => "Problem",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",
