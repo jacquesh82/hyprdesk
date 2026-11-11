@@ -22,6 +22,8 @@ pub const POPOVER_NAMESPACE: &str = "hyprdesk-popover";
 /// Marge transparente autour de la carte, pour son ombre.
 pub const SHADOW: f32 = 18.0;
 const WIDTH: f32 = 300.0;
+/// Côté d'une image de menu (pochette).
+const IMAGE: f32 = 120.0;
 /// Écart entre la barre et le haut de la carte.
 const GAP: f32 = 6.0;
 
@@ -141,6 +143,7 @@ fn card_height(
                 .enumerate()
                 .map(|(i, e)| match e {
                     MenuEntry::Header(_) => 26.0,
+                    MenuEntry::Image(_) => IMAGE + 12.0,
                     MenuEntry::Separator => 11.0,
                     MenuEntry::Input { label, .. } => {
                         44.0 + if label.is_some() { 20.0 } else { 0.0 }
@@ -615,6 +618,16 @@ impl App {
         for (i, e) in entries.iter().enumerate() {
             col = col.push(match e {
                 MenuEntry::Header(h) => self.pop_header(h.clone()),
+                MenuEntry::Image(p) => container(
+                    iced::widget::image(iced::widget::image::Handle::from_path(p))
+                        .width(IMAGE)
+                        .height(IMAGE)
+                        .content_fit(iced::ContentFit::Cover)
+                        .border_radius(10),
+                )
+                .center_x(Length::Fill)
+                .padding([6, 0])
+                .into(),
                 MenuEntry::Separator => self.pop_separator(),
                 MenuEntry::Input {
                     label,

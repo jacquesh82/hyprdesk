@@ -614,6 +614,7 @@ mod tests {
                 MenuEntry::Header(h) => format!("# {h}"),
                 MenuEntry::Separator => "-".into(),
                 MenuEntry::Input { .. } => "input".into(),
+                MenuEntry::Image(_) => "image".into(),
             })
             .collect();
         assert_eq!(

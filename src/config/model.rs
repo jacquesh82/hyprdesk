@@ -488,6 +488,8 @@ pub enum MenuEntry {
     },
     Separator,
     Header(String),
+    /// Image (pochette d'album…) : un fichier local, en tête de menu.
+    Image(std::path::PathBuf),
     /// Champ de saisie : Entrée appelle l'action avec le texte (mot de passe
     /// Wi-Fi, nom…), puis le menu se ferme.
     Input {

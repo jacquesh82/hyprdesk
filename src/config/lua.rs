@@ -40,6 +40,26 @@ struct Plugin {
     options: Vec<String>,
 }
 
+/// Décode les `%XX` d'un chemin d'URL `file://`.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Valeur d'option de plugin (booléen, nombre, texte).
 fn opt_value(v: &Value) -> Option<crate::tiling::OptValue> {
     use crate::tiling::OptValue;
@@ -1911,6 +1931,15 @@ impl Loaded {
                         out.push(MenuEntry::Header(h));
                         continue;
                     }
+                    // Image : un fichier local (`/…` ou `file:///…`) qui existe.
+                    if let Some(img) = gs("image")? {
+                        let path = img.strip_prefix("file://").unwrap_or(&img).to_string();
+                        let path = std::path::PathBuf::from(percent_decode(&path));
+                        if path.is_absolute() && path.is_file() {
+                            out.push(MenuEntry::Image(path));
+                        }
+                        continue;
+                    }
                     let action = match e.get::<Value>("action").map_err(|e| e.to_string())? {
                         Value::Function(f) => {
                             actions.push(f);
@@ -2969,6 +2998,28 @@ mod tests {
         ));
         actions[0].call::<()>(()).unwrap();
         assert_eq!(l.render(func).unwrap().text, "100");
+    }
+
+    /// Image de menu : un fichier local qui existe (file:// décodé), sinon rien.
+    #[test]
+    fn menu_avec_image() {
+        let dir = std::env::temp_dir().join(format!("hyprdesk-img {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("pochette.png");
+        std::fs::write(&png, b"x").unwrap();
+        let url = format!("file://{}", png.display()).replace(' ', "%20");
+        let l = load(&format!(
+            r#"hd.widget("lua", {{ render = function() return "" end,
+                 menu = function() return {{ {{ image = "{url}" }}, {{ image = "https://exemple/a.png" }},
+                                             {{ image = "/nulle/part.png" }} }} end }})"#
+        ))
+        .unwrap();
+        let WidgetKind::Lua { menu: Some(m), .. } = l.config.widgets[0].kind else {
+            panic!()
+        };
+        let menu = l.menu(m, &mut Vec::new()).unwrap();
+        assert_eq!(menu, vec![MenuEntry::Image(png)]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

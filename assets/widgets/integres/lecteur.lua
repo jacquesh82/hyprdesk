@@ -61,6 +61,8 @@ return {
             m[#m + 1] = { label = hd.t("Aucun morceau en cours") }
             return m
         end
+        -- Pochette : seulement un fichier local (file://, rien n'est téléchargé).
+        if (s.art or ""):match("^file:///") then m[#m + 1] = { image = s.art } end
         m[#m + 1] = { label = s.title ~= "" and s.title or s.player,
                       detail = table.concat({ s.artist or "", s.album or "" }, (s.artist ~= "" and s.album ~= "") and " · " or "") }
         if s.length and s.length > 0 then
