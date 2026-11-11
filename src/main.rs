@@ -319,10 +319,28 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             p1 = path.display()
         )
     );
-    match ui::run(path) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            tracing::error!("{e}");
+    let r = ui::run(path);
+    let reason = control::EXIT_REASON.lock().ok().and_then(|r| r.clone());
+    match (r, reason) {
+        (Ok(()), Some(why)) => {
+            tracing::info!("{}", crate::tr!("hyprdesk s'arrête : {why}", why = why));
+            ExitCode::SUCCESS
+        }
+        // Fin sans demande d'arrêt : jamais un succès (systemd relance).
+        (Ok(()), None) => {
+            tracing::error!(
+                "{}",
+                crate::i18n::tr(
+                    "boucle d'affichage terminée sans demande d'arrêt : sortie en erreur"
+                )
+            );
+            ExitCode::FAILURE
+        }
+        (Err(e), _) => {
+            tracing::error!(
+                "{}",
+                crate::tr!("hyprdesk s'arrête sur une erreur : {e}", e = e)
+            );
             ExitCode::FAILURE
         }
     }

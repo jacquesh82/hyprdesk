@@ -14,6 +14,9 @@ Type=simple
 # --replace : le service reprend la main sur une instance lancée à la main
 # (une seule instance par session, verrou $XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.lock).
 ExecStart=%h/.local/bin/hyprdesk daemon --replace
+# Relancé sur toute fin anormale : hyprdesk ne sort avec 0 que sur demande
+# (hyprdesk quit, SIGTERM de systemctl stop) ; une boucle d'affichage
+# terminée sans demande, une erreur Wayland ou D-Bus sortent en erreur.
 Restart=on-failure
 RestartSec=3
 Slice=session.slice

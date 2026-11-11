@@ -1562,14 +1562,14 @@ impl App {
             .hook(self.hooks(ev), name, &monitor.name, &monitor.workspace);
     }
 
-    fn publish_status(&self) {
+    pub(super) fn publish_status(&self) {
         let screens: Vec<String> = self
             .monitors
             .iter()
             .map(|m| format!("{}:{}", m.name, m.workspace))
             .collect();
         control::set_status(crate::tr!(
-            "{mode} (pid {pid}) — écrans {screens} — config {state} ({path})",
+            "{mode} (pid {pid}) — écrans {screens} — config {state} ({path})\nagent polkit : {polkit}",
             mode = self.mode().as_str(),
             pid = std::process::id(),
             screens = screens.join(" "),
@@ -1577,7 +1577,8 @@ impl App {
                 None => "ok".to_string(),
                 Some(e) => crate::tr!("en erreur : {e}", e = e),
             },
-            path = self.config_path.display()
+            path = self.config_path.display(),
+            polkit = crate::polkit::state().text()
         ));
     }
 

@@ -66,6 +66,8 @@ pub enum Event {
     Done {
         ok: bool,
     },
+    /// L'état de l'agent a changé (`crate::polkit::state()`).
+    State,
 }
 
 #[derive(Debug, Clone)]
@@ -108,33 +110,72 @@ impl Prompter for UiPrompter {
     }
 }
 
-/// Abonnement : enregistre l'agent auprès de polkit et relaie ses demandes.
-/// Un autre agent déjà en place (polkit-kde…) : rien n'est enregistré.
+/// Abonnement : enregistre l'agent auprès de polkit pour la session et
+/// relaie ses demandes. Un autre agent tient la session (polkit-kde…) :
+/// « occupé », et un nouvel essai toutes les 5 s, pour prendre la main dès
+/// qu'il s'arrête ; une autre erreur : nouvel essai, de plus en plus espacé.
 pub fn stream() -> impl Stream<Item = Event> {
     iced::stream::channel(
         8,
         async move |mut out: iced::futures::channel::mpsc::Sender<Event>| {
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let conn = match crate::polkit::register(Arc::new(UiPrompter { tx })).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::info!(
-                        "{}",
-                        crate::tr!(
-                            "agent polkit non enregistré ({e}) : un autre agent est sans doute en place",
-                            e = e
-                        )
-                    );
-                    return;
-                }
-            };
-            tracing::info!("{}", crate::i18n::tr("agent polkit en place"));
-            while let Some(ev) = rx.recv().await {
-                if out.send(ev).await.is_err() {
-                    break;
+            use crate::polkit::{AgentState, is_busy_error, retry_delay, set_state};
+            let mut attempt = 0u32;
+            let mut last: Option<AgentState> = None;
+            loop {
+                let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+                match crate::polkit::register(Arc::new(UiPrompter { tx })).await {
+                    Ok((conn, session)) => {
+                        // Écrit seulement après la réponse positive de polkit.
+                        tracing::info!(
+                            "{}",
+                            crate::tr!("agent polkit en place (session {s})", s = session)
+                        );
+                        set_state(AgentState::Active(session));
+                        let _ = out.send(Event::State).await;
+                        while let Some(ev) = rx.recv().await {
+                            if out.send(ev).await.is_err() {
+                                break;
+                            }
+                        }
+                        drop(conn);
+                        tracing::error!(
+                            "{}",
+                            crate::i18n::tr(
+                                "agent polkit : relais interrompu, nouvel enregistrement"
+                            )
+                        );
+                        attempt = 0;
+                        last = None;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        let busy = is_busy_error(&msg);
+                        let st = if busy {
+                            AgentState::Busy(crate::takeover::polkit_holder())
+                        } else {
+                            AgentState::Error(msg.clone())
+                        };
+                        // Journalisé à chaque changement d'état, pas à chaque essai.
+                        if last.as_ref() != Some(&st) {
+                            tracing::warn!(
+                                "{}",
+                                crate::tr!(
+                                    "agent polkit non enregistré : {state} — {e}",
+                                    state = st.text(),
+                                    e = msg
+                                )
+                            );
+                            set_state(st.clone());
+                            let _ = out.send(Event::State).await;
+                            last = Some(st);
+                        }
+                        tokio::time::sleep(retry_delay(attempt, busy)).await;
+                        if !busy {
+                            attempt = attempt.saturating_add(1);
+                        }
+                    }
                 }
             }
-            drop(conn);
         },
     )
 }
@@ -154,6 +195,11 @@ pub struct Dialog {
 impl App {
     pub(super) fn polkit_update(&mut self, m: PMsg) -> Task<Msg> {
         match m {
+            // État de l'agent changé : `hyprdesk status` le reflète.
+            PMsg::Event(Event::State) => {
+                self.publish_status();
+                Task::none()
+            }
             PMsg::Event(Event::Prompt {
                 req,
                 text,
@@ -262,13 +308,17 @@ impl App {
             return iced::widget::Space::new().into();
         };
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
-        let accent = color(th.accent, 1.0);
-        let bg = color(
-            th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.92),
-        );
+        // Contrastes WCAG AA garantis (texte 4,5:1, champ et boutons 3:1),
+        // sur un fond opaque : la fenêtre ne dépend pas de ce qu'il y a dessous.
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let error = color(r.error, 1.0);
+        let edge = color(r.edge, 1.0);
+        let focus = color(r.focus, 1.0);
+        let btn = color(r.button, 1.0);
+        let on_btn = color(r.on_button, 1.0);
+        let bg = color(th.bg, 1.0);
         let waiting = d.reply.is_none();
         let wrap = |m: PMsg| Msg::Polkit(m);
         let mut input = text_input(
@@ -284,7 +334,22 @@ impl App {
         .font(self.font)
         .size(16)
         .padding(12)
-        .width(Length::Fill);
+        .width(Length::Fill)
+        .style(move |_, status| {
+            let border = match status {
+                text_input::Status::Focused { .. } => focus,
+                _ if d.message.as_ref().is_some_and(|(_, e)| *e) => error,
+                _ => edge,
+            };
+            text_input::Style {
+                background: bg.into(),
+                border: Border::default().rounded(10).width(2).color(border),
+                icon: fg,
+                placeholder: dim,
+                value: fg,
+                selection: Color { a: 0.4, ..focus },
+            }
+        });
         if !waiting {
             input = input
                 .on_input(move |s| wrap(PMsg::Input(s)))
@@ -310,19 +375,50 @@ impl App {
             input,
         ]
         .spacing(12);
-        if let Some((m, error)) = &d.message {
-            col = col.push(text(m.clone()).font(self.font).size(12).color(if *error {
-                accent
-            } else {
-                dim
-            }));
+        if let Some((m, is_error)) = &d.message {
+            col = col.push(
+                text(m.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(if *is_error { error } else { dim }),
+            );
         }
+        // Désactivé (vérification en cours) : mêmes couleurs, donc mêmes
+        // contrastes ; seul le contour passe à la couleur des champs.
+        let ok_style = move |_: &iced::Theme, st: button::Status| button::Style {
+            background: Some(
+                match st {
+                    button::Status::Hovered | button::Status::Pressed => {
+                        color(crate::theme::mix(r.button, r.on_button, 0.12), 1.0)
+                    }
+                    _ => btn,
+                }
+                .into(),
+            ),
+            text_color: on_btn,
+            border: Border::default().rounded(10).width(2).color(
+                if matches!(st, button::Status::Disabled) {
+                    edge
+                } else {
+                    btn
+                },
+            ),
+            ..Default::default()
+        };
+        let cancel_style = move |_: &iced::Theme, st: button::Status| button::Style {
+            background: matches!(st, button::Status::Hovered | button::Status::Pressed)
+                .then(|| Color { a: 0.12, ..fg }.into()),
+            text_color: fg,
+            border: Border::default().rounded(10).width(2).color(edge),
+            ..Default::default()
+        };
         let mut ok = button(
             text(crate::i18n::tr("Authentifier"))
                 .font(self.font)
                 .size(14),
         )
-        .padding([8, 16]);
+        .padding([8, 16])
+        .style(ok_style);
         if !waiting {
             ok = ok.on_press(wrap(PMsg::Submit));
         }
@@ -331,7 +427,7 @@ impl App {
                 iced::widget::Space::new().width(Length::Fill),
                 button(text(crate::i18n::tr("Annuler")).font(self.font).size(14))
                     .padding([8, 16])
-                    .style(button::text)
+                    .style(cancel_style)
                     .on_press(wrap(PMsg::Cancel)),
                 ok,
             ]
@@ -347,7 +443,7 @@ impl App {
                 border: Border::default()
                     .rounded(super::design::RADIUS)
                     .width(1)
-                    .color(Color { a: 0.12, ..fg }),
+                    .color(edge),
                 shadow: Shadow {
                     color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
                     offset: Vector::new(0.0, 8.0),

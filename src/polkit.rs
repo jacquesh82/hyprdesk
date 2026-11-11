@@ -16,6 +16,11 @@
 //! se branche par le trait `Prompter`. Un seul agent par session : si un
 //! autre est déjà enregistré (polkit-kde, hyprpolkitagent…), polkit refuse
 //! l'enregistrement et c'est lui qui reste en place.
+//!
+//! L'agent s'enregistre pour la SESSION (sujet `unix-session`, identifiant
+//! de logind) : un agent enregistré pour son seul processus (`unix-process`)
+//! est accepté même quand un autre tient la session, mais ne reçoit jamais
+//! ses demandes. L'état (actif, occupé, erreur) est exposé par `state()`.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -345,9 +350,99 @@ impl Agent {
     }
 }
 
+/// État de l'agent du démon, pour `hyprdesk status` et l'écran des conflits.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum AgentState {
+    /// Pas encore tenté (ou en cours).
+    #[default]
+    Starting,
+    /// Enregistré pour cette session (identifiant logind).
+    Active(String),
+    /// Un autre agent tient la session (son programme, s'il est reconnu).
+    Busy(Option<String>),
+    /// Échec d'une autre nature (message D-Bus).
+    Error(String),
+}
+
+impl AgentState {
+    pub fn text(&self) -> String {
+        match self {
+            AgentState::Starting => crate::i18n::tr("démarrage").to_string(),
+            AgentState::Active(s) => crate::tr!("actif (session {s})", s = s),
+            AgentState::Busy(Some(h)) => crate::tr!("occupé ({h})", h = h),
+            AgentState::Busy(None) => crate::i18n::tr("occupé par un autre agent").to_string(),
+            AgentState::Error(e) => crate::tr!("erreur : {e}", e = e),
+        }
+    }
+}
+
+static STATE: Mutex<AgentState> = Mutex::new(AgentState::Starting);
+
+pub fn state() -> AgentState {
+    STATE.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+pub fn set_state(s: AgentState) {
+    if let Ok(mut st) = STATE.lock() {
+        *st = s;
+    }
+}
+
+/// Refus parce qu'un agent tient déjà la session (sinon : autre erreur).
+pub fn is_busy_error(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    m.contains("already exists") || m.contains("already registered")
+}
+
+/// Délai avant le prochain essai : court tant qu'un autre agent tient la
+/// session (reprise dès qu'il s'arrête), croissant pour une autre erreur.
+pub fn retry_delay(attempt: u32, busy: bool) -> std::time::Duration {
+    if busy {
+        return std::time::Duration::from_secs(5);
+    }
+    std::time::Duration::from_secs((5u64 << attempt.min(4)).min(60))
+}
+
+/// Session logind de ce processus (`GetSessionByPID`, puis `Id`), sinon
+/// `$XDG_SESSION_ID`.
+async fn session_id(conn: &zbus::Connection) -> Option<String> {
+    let from_logind = async {
+        let reply = conn
+            .call_method(
+                Some("org.freedesktop.login1"),
+                "/org/freedesktop/login1",
+                Some("org.freedesktop.login1.Manager"),
+                "GetSessionByPID",
+                &(std::process::id()),
+            )
+            .await
+            .ok()?;
+        let path: zbus::zvariant::OwnedObjectPath = reply.body().deserialize().ok()?;
+        let reply = conn
+            .call_method(
+                Some("org.freedesktop.login1"),
+                path.as_str(),
+                Some("org.freedesktop.DBus.Properties"),
+                "Get",
+                &("org.freedesktop.login1.Session", "Id"),
+            )
+            .await
+            .ok()?;
+        let v: OwnedValue = reply.body().deserialize().ok()?;
+        String::try_from(v).ok().filter(|s| !s.is_empty())
+    };
+    match from_logind.await {
+        Some(id) => Some(id),
+        None => std::env::var("XDG_SESSION_ID")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    }
+}
+
 /// Publie l'agent et l'enregistre auprès de polkit pour la session de ce
-/// processus. Erreur si polkit refuse (un autre agent est déjà en place).
-pub async fn register(prompter: Arc<dyn Prompter>) -> zbus::Result<zbus::Connection> {
+/// processus ; rend la connexion et l'identifiant de session. Erreur si
+/// polkit refuse (un autre agent tient déjà la session : `is_busy_error`).
+pub async fn register(prompter: Arc<dyn Prompter>) -> zbus::Result<(zbus::Connection, String)> {
     let conn = zbus::Connection::system().await?;
     conn.object_server()
         .at(
@@ -358,24 +453,41 @@ pub async fn register(prompter: Arc<dyn Prompter>) -> zbus::Result<zbus::Connect
             },
         )
         .await?;
-    let pid = std::process::id();
-    let start = std::fs::read_to_string("/proc/self/stat")
-        .ok()
-        .and_then(|s| start_time(&s))
-        .unwrap_or(0);
-    let mut d: HashMap<&str, Value> = HashMap::new();
-    d.insert("pid", Value::from(pid));
-    d.insert("start-time", Value::from(start));
     let locale = std::env::var("LANG").unwrap_or_else(|_| "C".into());
+    let mut d: HashMap<&str, Value> = HashMap::new();
+    // La session (et non ce seul processus) : c'est d'elle que viennent
+    // les demandes de pkexec, des gestionnaires de paquets, d'udisks…
+    let (kind, label) = match session_id(&conn).await {
+        Some(id) => {
+            d.insert("session-id", Value::from(id.clone()));
+            ("unix-session", id)
+        }
+        None => {
+            let pid = std::process::id();
+            let start = std::fs::read_to_string("/proc/self/stat")
+                .ok()
+                .and_then(|s| start_time(&s))
+                .unwrap_or(0);
+            d.insert("pid", Value::from(pid));
+            d.insert("start-time", Value::from(start));
+            tracing::warn!(
+                "{}",
+                crate::i18n::tr(
+                    "agent polkit : session logind introuvable, enregistré pour ce processus seulement"
+                )
+            );
+            ("unix-process", format!("pid {pid}"))
+        }
+    };
     conn.call_method(
         Some("org.freedesktop.PolicyKit1"),
         "/org/freedesktop/PolicyKit1/Authority",
         Some("org.freedesktop.PolicyKit1.Authority"),
         "RegisterAuthenticationAgent",
-        &(("unix-process", d), locale.as_str(), OBJECT_PATH),
+        &((kind, d), locale.as_str(), OBJECT_PATH),
     )
     .await?;
-    Ok(conn)
+    Ok((conn, label))
 }
 
 /// Saisie au terminal (`hyprdesk polkit-agent`), à la manière de pkttyagent.
@@ -582,5 +694,24 @@ mod tests {
             Outcome::Cancelled
         );
         drop(h);
+    }
+
+    #[test]
+    fn etat_et_reprise() {
+        assert!(is_busy_error(
+            "org.freedesktop.PolicyKit1.Error.Failed: An authentication agent already exists for the given subject"
+        ));
+        assert!(!is_busy_error("org.freedesktop.DBus.Error.ServiceUnknown"));
+        // Session occupée : un nouvel essai toutes les 5 s (reprise rapide).
+        assert_eq!(retry_delay(9, true), std::time::Duration::from_secs(5));
+        // Autre erreur : 5, 10, 20, 40, puis 60 s au plus.
+        let d: Vec<u64> = (0..6).map(|a| retry_delay(a, false).as_secs()).collect();
+        assert_eq!(d, [5, 10, 20, 40, 60, 60]);
+        assert!(AgentState::Active("3".into()).text().contains('3'));
+        assert!(
+            AgentState::Busy(Some("polkit-kde-authentication-agent-1".into()))
+                .text()
+                .contains("polkit-kde")
+        );
     }
 }

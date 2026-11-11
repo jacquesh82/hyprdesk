@@ -127,6 +127,79 @@ pub fn contrast(a: Rgba, b: Rgba) -> f64 {
     (hi + 0.05) / (lo + 0.05)
 }
 
+/// Mélange `a` vers `b` (t = 0 : a, 1 : b), opaque.
+pub fn mix(a: Rgba, b: Rgba, t: f64) -> Rgba {
+    let m = |x: u8, y: u8| {
+        (x as f64 + (y as f64 - x as f64) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Rgba(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2), 0xff)
+}
+
+/// `c` assez contrastée sur `bg` (au moins `min`) : rapprochée de `toward`,
+/// puis du blanc ou du noir (le plus contrasté sur `bg`) si besoin.
+pub fn ensure_contrast(c: Rgba, bg: Rgba, toward: Rgba, min: f64) -> Rgba {
+    let c = Rgba(c.0, c.1, c.2, 0xff);
+    if contrast(c, bg) >= min {
+        return c;
+    }
+    let extreme = if contrast(Rgba(255, 255, 255, 255), bg) >= contrast(Rgba(0, 0, 0, 255), bg) {
+        Rgba(255, 255, 255, 255)
+    } else {
+        Rgba(0, 0, 0, 255)
+    };
+    for target in [toward, extreme] {
+        for i in 1..=20 {
+            let m = mix(c, target, i as f64 / 20.0);
+            if contrast(m, bg) >= min {
+                return m;
+            }
+        }
+    }
+    extreme
+}
+
+/// Couleurs lisibles d'une fenêtre (WCAG AA) : texte ≥ 4,5:1, contours et
+/// boutons ≥ 3:1 sur le fond, texte des boutons ≥ 4,5:1 sur le bouton.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Readable {
+    pub fg: Rgba,
+    /// Texte secondaire (compte, aide, état).
+    pub dim: Rgba,
+    /// Message d'erreur.
+    pub error: Rgba,
+    /// Contour des champs et boutons (repos), et au focus.
+    pub edge: Rgba,
+    pub focus: Rgba,
+    /// Bouton principal et son texte.
+    pub button: Rgba,
+    pub on_button: Rgba,
+}
+
+pub fn readable(fg: Rgba, bg: Rgba, accent: Rgba) -> Readable {
+    let bg = Rgba(bg.0, bg.1, bg.2, 0xff);
+    let fg = ensure_contrast(fg, bg, fg, 7.0);
+    let dim = ensure_contrast(mix(fg, bg, 0.3), bg, fg, 4.5);
+    let error = ensure_contrast(Rgba(0xff, 0x95, 0x80, 0xff), bg, fg, 4.5);
+    let edge = ensure_contrast(mix(fg, bg, 0.45), bg, fg, 3.0);
+    let focus = ensure_contrast(accent, bg, fg, 3.0);
+    let button = focus;
+    let on_button = [bg, fg, Rgba(0, 0, 0, 255), Rgba(255, 255, 255, 255)]
+        .into_iter()
+        .max_by(|a, b| contrast(*a, button).total_cmp(&contrast(*b, button)))
+        .unwrap_or(bg);
+    Readable {
+        fg,
+        dim,
+        error,
+        edge,
+        focus,
+        button,
+        on_button,
+    }
+}
+
 /// Résumé d'un thème, lisible sans charger son Lua (manifeste d'archive).
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
@@ -753,5 +826,38 @@ mod tests {
         let t = from_scene(&inner.join("scene.png"), "X").unwrap();
         assert!(t.wallpapers[0].span);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Fenêtre d'authentification : contrastes WCAG AA pour chaque thème
+    /// livré, et pour des couleurs malvenues (accent pâle sur fond clair).
+    #[test]
+    fn contrastes_aa() {
+        let mut cases: Vec<(Rgba, Rgba, Rgba)> =
+            PRESETS.iter().map(|p| (p.fg, p.bg, p.accent)).collect();
+        cases.push((
+            Rgba(0x99, 0x99, 0x99, 0xff),
+            Rgba(0xee, 0xee, 0xee, 0xff),
+            Rgba(0xff, 0xff, 0x80, 0xff),
+        ));
+        cases.push((
+            Rgba(0x30, 0x30, 0x30, 0xff),
+            Rgba(0x20, 0x20, 0x20, 0xff),
+            Rgba(0x10, 0x10, 0x60, 0xff),
+        ));
+        for (fg, bg, accent) in cases {
+            let r = readable(fg, bg, accent);
+            let bg = Rgba(bg.0, bg.1, bg.2, 0xff);
+            for (name, c, min) in [
+                ("fg", r.fg, 4.5),
+                ("dim", r.dim, 4.5),
+                ("error", r.error, 4.5),
+                ("edge", r.edge, 3.0),
+                ("focus", r.focus, 3.0),
+                ("button", r.button, 3.0),
+            ] {
+                assert!(contrast(c, bg) >= min, "{name} {c:?} sur {bg:?}");
+            }
+            assert!(contrast(r.on_button, r.button) >= 4.5, "texte du bouton");
+        }
     }
 }

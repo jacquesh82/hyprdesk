@@ -106,14 +106,23 @@ async fn supervise(def: ComponentDef, mut stop: watch::Receiver<bool>, status: A
                 if let Some(p) = pid {
                     terminate(p);
                 }
-                if tokio::time::timeout(Duration::from_secs(3), child.wait()).await.is_err() {
-                    let _ = child.kill().await;
-                }
+                let how = match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                    Ok(Ok(st)) => st.to_string(),
+                    Ok(Err(e)) => e.to_string(),
+                    Err(_) => {
+                        let _ = child.kill().await;
+                        crate::i18n::tr("tué après 3 s").to_string()
+                    }
+                };
                 if let Ok(mut s) = status.lock() {
                     s.pid = None;
+                    s.last_exit = Some(how.clone());
                 }
                 if let Some(p) = pid { signal_group(p,"-KILL"); }
-                tracing::info!("{}", crate::tr!("composant {p0} arrêté", p0 = def.name));
+                tracing::info!(
+                    "{}",
+                    crate::tr!("composant {p0} arrêté à la demande de hyprdesk : {how}", p0 = def.name, how = how)
+                );
                 return;
             }
         }

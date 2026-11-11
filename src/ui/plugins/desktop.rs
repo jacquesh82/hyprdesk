@@ -43,6 +43,8 @@ pub struct State {
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
+    /// « Prendre la main » cliqué une fois : le pid à arrêter, à confirmer.
+    pub takeover: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +69,8 @@ pub enum Msg {
     KeySubmit(usize),
     ComponentRestart(String),
     FloatLaunched(bool),
+    /// Agent polkit concurrent : « Prendre la main » (pid), puis confirmation.
+    TakeOver(u32),
     /// Commande de vue d'ensemble : saisie, puis validée.
     OverviewCmd(String),
     OverviewCmdSubmit,
@@ -588,6 +592,32 @@ impl App {
             );
             for c in conflicts {
                 let origin = crate::i18n::tr(c.feature).to_string();
+                // Agent polkit : il peut être arrêté d'ici ; hyprdesk
+                // s'enregistre alors dans les 5 s (nouvel essai périodique).
+                let take: Element<'_, UiMsg> =
+                    if c.feature.starts_with("Authentification administrateur") {
+                        let confirm =
+                            self.panel.as_ref().and_then(|p| p.desktop.takeover) == Some(c.pid);
+                        button(
+                            text(if confirm {
+                                crate::tr!("Confirmer : arrêter {h}", h = c.holder)
+                            } else {
+                                crate::i18n::tr("Prendre la main").to_string()
+                            })
+                            .font(self.font)
+                            .size(12),
+                        )
+                        .padding([4, 10])
+                        .style(if confirm {
+                            button::danger
+                        } else {
+                            button::secondary
+                        })
+                        .on_press(wrap(Msg::TakeOver(c.pid)))
+                        .into()
+                    } else {
+                        Space::new().into()
+                    };
                 col = col.push(
                     row![
                         column![
@@ -602,6 +632,7 @@ impl App {
                             .color(dim),
                         ]
                         .width(Length::Fill),
+                        take,
                         self.lyra_button(&origin, c.prompt()),
                     ]
                     .spacing(10)
@@ -767,6 +798,28 @@ impl App {
             Msg::FloatLaunched(v) => {
                 self.settings.float_launched = Some(v);
                 self.commit()
+            }
+            Msg::TakeOver(pid) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                if p.desktop.takeover != Some(pid) {
+                    p.desktop.takeover = Some(pid);
+                    return Task::none();
+                }
+                p.desktop.takeover = None;
+                tracing::warn!(
+                    "{}",
+                    crate::tr!(
+                        "agent polkit concurrent arrêté à la demande (pid {pid})",
+                        pid = pid
+                    )
+                );
+                // SAFETY : simple signal à un processus de l'utilisateur.
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGTERM);
+                }
+                Task::none()
             }
             Msg::OverviewCmd(v) => {
                 if let Some(p) = self.panel.as_mut() {

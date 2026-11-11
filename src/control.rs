@@ -149,6 +149,37 @@ impl Command {
     }
 }
 
+/// Raison de l'arrêt demandé (commande `quit` et son expéditeur, signal) ;
+/// sans raison, la fin de la boucle d'affichage est une erreur.
+pub static EXIT_REASON: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_exit_reason(r: String) {
+    if let Ok(mut e) = EXIT_REASON.lock() {
+        e.get_or_insert(r);
+    }
+}
+
+/// Programme à l'autre bout de la socket (pid et ligne de commande).
+fn peer(stream: &tokio::net::UnixStream) -> String {
+    let Some(pid) = stream.peer_cred().ok().and_then(|c| c.pid()) else {
+        return crate::i18n::tr("expéditeur inconnu").to_string();
+    };
+    let cmd = std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map(|b| {
+            b.split(|c| *c == 0)
+                .filter(|a| !a.is_empty())
+                .map(|a| String::from_utf8_lossy(a).into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    if cmd.is_empty() {
+        format!("pid {pid}")
+    } else {
+        format!("{cmd} (pid {pid})")
+    }
+}
+
 /// Résumé lisible de l'état du démon, tenu à jour par l'UI pour `status`.
 pub static STATUS: Mutex<String> = Mutex::new(String::new());
 
@@ -220,6 +251,7 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                 let mut out = out.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
+                    let from = peer(&stream);
                     let (r, mut w) = stream.into_split();
                     let mut line = String::new();
                     let mut reader = BufReader::new(r.take(1025));
@@ -234,6 +266,17 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                             STATUS.lock().map(|s| s.clone()).unwrap_or_default()
                         }
                         Some(c) => {
+                            // L'arrêt est toujours tracé, avec son expéditeur.
+                            if c == Command::Quit {
+                                let why = crate::tr!("commande « quit » de {from}", from = from);
+                                tracing::warn!(
+                                    "{}",
+                                    crate::tr!("arrêt demandé : {why}", why = why)
+                                );
+                                set_exit_reason(why);
+                            } else {
+                                tracing::debug!("commande « {} » de {from}", c.as_str());
+                            }
                             match tokio::time::timeout(Duration::from_secs(2), out.send(c)).await {
                                 Ok(Ok(())) => "ok".to_string(),
                                 _ => crate::i18n::tr("démon occupé").to_string(),
@@ -270,8 +313,14 @@ pub fn signal_stream() -> impl Stream<Item = Command> {
                 return;
             };
             tokio::select! {
-                _ = term.recv() => tracing::info!("{}", crate::tr!("SIGTERM : arrêt propre")),
-                _ = int.recv() => tracing::info!("{}", crate::tr!("SIGINT : arrêt propre")),
+                _ = term.recv() => {
+                    tracing::info!("{}", crate::tr!("SIGTERM : arrêt propre"));
+                    set_exit_reason("SIGTERM".into());
+                }
+                _ = int.recv() => {
+                    tracing::info!("{}", crate::tr!("SIGINT : arrêt propre"));
+                    set_exit_reason("SIGINT".into());
+                }
             }
             let _ = out.send(Command::Quit).await;
             // Le démon quitte ; ne plus rien émettre.

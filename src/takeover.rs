@@ -61,6 +61,29 @@ const HOLDERS: &[(&str, &[&str])] = &[
     ("Éclairage nocturne", &["wlsunset", "gammastep", "redshift"]),
 ];
 
+/// Agent polkit en place d'après les processus (pour « occupé par … »).
+pub fn polkit_holder() -> Option<String> {
+    let names = HOLDERS
+        .iter()
+        .find(|(f, _)| f.starts_with("Authentification administrateur"))
+        .map(|(_, n)| *n)?;
+    processes()
+        .into_iter()
+        .find(|(c, _)| {
+            names
+                .iter()
+                .any(|n| c == n || (c.len() == 15 && n.starts_with(c.as_str())))
+        })
+        .map(|(c, _)| {
+            // Le nom complet (le nom court de /proc est tronqué à 15).
+            names
+                .iter()
+                .find(|n| **n == c || n.starts_with(c.as_str()))
+                .map(|n| n.to_string())
+                .unwrap_or(c)
+        })
+}
+
 /// Processus `name` → pid, parmi `/proc` (nom court du processus).
 fn processes() -> Vec<(String, u32)> {
     std::fs::read_dir("/proc")
@@ -77,10 +100,16 @@ fn processes() -> Vec<(String, u32)> {
 
 /// Conflits d'après la liste des processus. `notifications_ours` : hyprdesk
 /// tient déjà le service de notifications.
-pub fn detect(procs: &[(String, u32)], notifications_ours: bool) -> Vec<Conflict> {
+pub fn detect(
+    procs: &[(String, u32)],
+    notifications_ours: bool,
+    polkit_ours: bool,
+) -> Vec<Conflict> {
     let mut out = Vec::new();
     for (feature, names) in HOLDERS {
-        if *feature == "Notifications" && notifications_ours {
+        if (*feature == "Notifications" && notifications_ours)
+            || (feature.starts_with("Authentification administrateur") && polkit_ours)
+        {
             continue;
         }
         // Les noms courts de /proc sont tronqués à 15 caractères.
@@ -114,7 +143,9 @@ pub fn cached(notifications_ours: bool, clipboard_on: bool) -> Vec<Conflict> {
     {
         return list.clone();
     }
-    let mut list = detect(&processes(), notifications_ours);
+    // L'agent de hyprdesk tient la session : un autre agent lancé ne la tient pas.
+    let polkit_ours = matches!(crate::polkit::state(), crate::polkit::AgentState::Active(_));
+    let mut list = detect(&processes(), notifications_ours, polkit_ours);
     if let Some(pid) = crate::idle::foreign_cached() {
         list.push(Conflict {
             feature: "Veille et verrouillage automatique",
@@ -150,7 +181,7 @@ mod tests {
             ("wlsunset".to_string(), 12),
             ("kitty".to_string(), 13),
         ];
-        let c = detect(&procs, false);
+        let c = detect(&procs, false, false);
         let f: Vec<&str> = c.iter().map(|c| c.feature).collect();
         assert_eq!(
             f,
@@ -162,7 +193,9 @@ mod tests {
         );
         assert_eq!(c[1].pid, 11);
         // Notifications tenues par hyprdesk : pas de conflit.
-        assert_eq!(detect(&procs, true).len(), 2);
+        assert_eq!(detect(&procs, true, false).len(), 2);
+        // Agent de hyprdesk actif : l'autre agent n'est pas un conflit.
+        assert_eq!(detect(&procs, true, true).len(), 1);
         assert!(c[2].prompt().contains("wlsunset (pid 12)"));
     }
 }
