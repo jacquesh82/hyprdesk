@@ -1346,3 +1346,10 @@
 "Profil d'énergie : " = "Power profile: "
 "Économie d'énergie" = "Power saver"
 "Équilibré" = "Balanced"
+
+# Clavier : disposition dans la barre (MLG-12).
+"Clavier" = "Keyboard"
+"Disposition : " = "Layout: "
+"Disposition du clavier" = "Keyboard layout"
+"Disposition du clavier ; molette : disposition suivante." = "Keyboard layout; scroll: next layout."
+"Une seule disposition configurée" = "Only one layout configured"

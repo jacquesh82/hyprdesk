@@ -164,6 +164,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Clavier : un rectangle et ses rangées de touches.
+        "input-keyboard" => {
+            r#"<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>"#
+        }
         // Profils d'énergie : une jauge, l'aiguille selon le profil.
         "power-profile-performance" => r#"<path d="M4 17a8 8 0 1 1 16 0M12 17l4.5-5"/>"#,
         "power-profile-balanced" => r#"<path d="M4 17a8 8 0 1 1 16 0M12 17V10"/>"#,
