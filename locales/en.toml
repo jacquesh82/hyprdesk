@@ -2025,3 +2025,4 @@
 "Terminé" = "Done"
 "Une saisie, cette fois seulement : il s'ouvrira ensuite seul à la connexion." = "One entry, this time only: it will then unlock on its own at login."
 "{n} caractères au moins. Retenez-le : rien ne permet de le retrouver." = "At least {n} characters. Remember it: there is no way to recover it."
+"Le démon myMFA en service est trop ancien : mettez à jour le client (linux/scripts/installer.sh), puis réessayez." = "The running myMFA daemon is too old: update the client (linux/scripts/installer.sh), then try again."

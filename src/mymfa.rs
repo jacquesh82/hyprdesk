@@ -151,6 +151,22 @@ pub fn error_text(e: &zbus::Error) -> String {
     }
 }
 
+/// Message d'une erreur de création : un démon d'avant CreateVault /
+/// InstallVault (binaire remplacé sans relance) est désigné comme tel.
+fn create_error_text(e: &zbus::Error) -> String {
+    match e {
+        zbus::Error::MethodError(name, _, _)
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            crate::i18n::tr(
+                "Le démon myMFA en service est trop ancien : mettez à jour le client (linux/scripts/installer.sh), puis réessayez.",
+            )
+            .to_string()
+        }
+        other => error_text(other),
+    }
+}
+
 /// Mauvais mot de passe (`today.mindlog.MyMfa1.Error.WrongPassword`).
 pub fn is_wrong_password(e: &zbus::Error) -> bool {
     matches!(e, zbus::Error::MethodError(name, _, _) if name.as_str().ends_with(".WrongPassword"))
@@ -235,7 +251,7 @@ pub async fn create_vault(mut password: String) -> Result<bool, String> {
         Err(e) => Err(e),
     };
     crate::lock::pam::wipe(&mut password);
-    let p = r.map_err(|e| error_text(&e))?;
+    let p = r.map_err(|e| create_error_text(&e))?;
     Ok(p.sealed().await.unwrap_or(false))
 }
 
@@ -250,7 +266,7 @@ pub async fn install_vault(path: PathBuf, mut password: String) -> Result<bool, 
         Err(e) => Err(e),
     };
     crate::lock::pam::wipe(&mut password);
-    let p = r.map_err(|e| error_text(&e))?;
+    let p = r.map_err(|e| create_error_text(&e))?;
     Ok(p.sealed().await.unwrap_or(false))
 }
 

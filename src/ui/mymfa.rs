@@ -82,6 +82,9 @@ pub enum MMsg {
     Confirm(String),
     /// Entrée dans le premier champ de la création : vers la confirmation.
     Next,
+    /// Tab (ou Maj + Tab) : de l'un des deux champs de la création à l'autre ;
+    /// ailleurs, le seul champ garde le focus.
+    Tab,
     Submit,
     Cancel,
     /// Réponse du démon à Unlock : `Ok(scellé)`, `Err((mauvais mot de passe, message))`.
@@ -408,6 +411,19 @@ impl App {
                 Task::none()
             }
             MMsg::Next => iced::widget::operation::focus(CONFIRM_ID),
+            MMsg::Tab => match self.mfa_dialog.as_ref().map(|d| &d.kind) {
+                Some(Kind::Create) => {
+                    iced::widget::operation::is_focused(CONFIRM_ID).then(|on_confirm| {
+                        iced::widget::operation::focus(if on_confirm {
+                            INPUT_ID
+                        } else {
+                            CONFIRM_ID
+                        })
+                    })
+                }
+                Some(Kind::Unlock | Kind::Install(_)) => iced::widget::operation::focus(INPUT_ID),
+                _ => Task::none(),
+            },
             MMsg::Submit => {
                 let Some(d) = self.mfa_dialog.as_mut() else {
                     return Task::none();

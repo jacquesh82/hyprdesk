@@ -3673,7 +3673,8 @@ impl App {
                 None => Task::none(),
             },
             Msg::Key(id, key) => {
-                // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt ».
+                // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt » ; Tab
+                // passe du mot de passe à sa confirmation et retour.
                 if self.mfa_dialog.is_some()
                     && key == keyboard::Key::Named(keyboard::key::Named::Escape)
                 {
@@ -3682,6 +3683,11 @@ impl App {
                 if self.mfa_ready_open() && key == keyboard::Key::Named(keyboard::key::Named::Enter)
                 {
                     return self.mfa_update(mymfa::MMsg::Submit);
+                }
+                if self.mfa_dialog.is_some()
+                    && key == keyboard::Key::Named(keyboard::key::Named::Tab)
+                {
+                    return self.mfa_update(mymfa::MMsg::Tab);
                 }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {
