@@ -1538,3 +1538,15 @@
 
 # Calendrier : navigation entre les mois (MLG-24).
 "Aujourd'hui" = "Today"
+
+# Lecteur multimédia (MLG-24).
+"Lecteur" = "Player"
+"Morceau en cours (MPRIS) ; menu : position et commandes." = "Current track (MPRIS); menu: position and controls."
+"Aucun morceau en cours" = "Nothing playing"
+"Pause" = "Pause"
+"Lecture" = "Play"
+"Reculer de 10 s" = "Back 10 s"
+"Avancer de 10 s" = "Forward 10 s"
+"  media <play-pause|next|previous|status|seek ±N>" = "  media <play-pause|next|previous|status|seek ±N>"
+"                    commande le lecteur en cours (MPRIS) ; status : son état" = "                    controls the current player (MPRIS); status: its state"
+"                    (clé=valeur) ; seek : avance ou recule de N secondes" = "                    (key=value); seek: moves forward or back N seconds"

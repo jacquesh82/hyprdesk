@@ -38,6 +38,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/integres/clavier.lua"),
     ),
     (
+        "lecteur",
+        include_str!("../../assets/widgets/integres/lecteur.lua"),
+    ),
+    (
         "majs",
         include_str!("../../assets/widgets/integres/majs.lua"),
     ),

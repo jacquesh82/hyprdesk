@@ -98,8 +98,9 @@ Commandes :
   menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
   osd <volume|mic|brightness|kbd> <+N|-N|toggle>
                     règle le son ou la luminosité (touches XF86, keys.media)
-  media <play-pause|next|previous>
-                    commande le lecteur en cours (MPRIS)
+  media <play-pause|next|previous|status|seek ±N>
+                    commande le lecteur en cours (MPRIS) ; status : son état
+                    (clé=valeur) ; seek : avance ou recule de N secondes
   capture <zone|fenetre|ecran>
                     capture d'écran (Images/Captures, copiée ; touches Impr)
   capture enregistrer [zone] | capture arreter
@@ -758,9 +759,35 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // État du lecteur (plugin « lecteur ») ; aucun lecteur : sortie vide.
+        "media" if args.get(1).map(String::as_str) == Some("status") => {
+            if let Some(s) = block_on(crate::widgets::media::status()) {
+                print!("{}", crate::widgets::media::status_lines(&s));
+            }
+            ExitCode::SUCCESS
+        }
+        "media" if args.get(1).map(String::as_str) == Some("seek") => {
+            let Some(secs) = args.get(2).and_then(|a| a.parse::<i64>().ok()) else {
+                eprintln!("hyprdesk media seek <+N|-N>");
+                return ExitCode::from(2);
+            };
+            let r = block_on(async {
+                let s = crate::widgets::media::status()
+                    .await
+                    .ok_or_else(|| crate::i18n::tr("aucun lecteur (MPRIS)").to_string())?;
+                crate::widgets::media::seek(&s.bus, secs).await
+            });
+            match r {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "media" => {
             let Some(method) = args.get(1).and_then(|a| osd::media_method(a)) else {
-                eprintln!("hyprdesk media <play-pause|next|previous>");
+                eprintln!("hyprdesk media <play-pause|next|previous|status|seek ±N>");
                 return ExitCode::from(2);
             };
             match block_on(osd::media(method)) {

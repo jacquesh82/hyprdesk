@@ -172,6 +172,7 @@ les remplace :
 | `batterie` | batterie de l'ordinateur et des périphériques (souris, clavier) ; masqué s'il n'y en a pas |
 | `capture` | captures (zone, fenêtre, écran) et enregistrement de l'écran, indicateur rouge pendant l'enregistrement |
 | `clavier` | disposition du clavier active ; menu pour choisir, molette pour passer à la suivante |
+| `lecteur` | morceau en cours (MPRIS) ; menu : position, précédent, lecture / pause, suivant, ±10 s ; molette : ±10 s |
 | `majs` | mises à jour en attente, mise à jour en un clic |
 | `supports` | clés USB et disques externes : notification au branchement, ouvrir, éjecter ; masqué s'il n'y en a pas |
 | `nuit` | éclairage nocturne (hyprsunset) : horaire ou à la demande, température ; laisse la main à wlsunset/gammastep s'ils tournent |
