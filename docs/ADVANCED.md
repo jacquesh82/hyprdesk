@@ -110,6 +110,13 @@ to return to. The Alt+Tab switcher filters it out too.
   `monitors.lua`. If you don't confirm within 12 s, the previous layout comes
   back. Unplugged screens keep their line, so they come back as they were when
   plugged in again.
+- **Keyboard, mouse, touchpad.** hyprdesk reads the current values from
+  Hyprland (`getoption`) and applies changes live (`hl.config({ input = … })`).
+  It then writes them to `inputs.lua`, which `hyprland.lua` loads with
+  `require("inputs")`. Keyboard layouts and variants come from
+  xkeyboard-config (`evdev.lst`). If another tool wrote the file before, its
+  version is kept once as `inputs.lua.bak`. Sliders apply when you release
+  them.
 
 ## Keyboard: bindings and the submap
 
@@ -121,6 +128,26 @@ to return to. The Alt+Tab switcher filters it out too.
   `SUPER + F` and the like no longer act on the hidden windows. Bindings
   marked `{ submap_universal = true }` in `hyprland.lua` (typically workspace
   switching and screenshots) stay active, and the desktop follows them.
+- The submap still lets you move around: the **number row** goes to
+  workspaces 1 to 10, with the same modifier as your workspace bindings
+  (`SUPER` by default). It matches physical key codes, so it works with
+  AZERTY, QWERTY and any other layout. The desktop follows, and the new
+  workspace's windows are set aside too. `keys.search` (or
+  `keys.search_desktop`), `keys.switch` and `keys.overview` also stay
+  available.
+- **Shortcut conflicts.** hyprdesk compares its shortcuts with Hyprland's
+  live bindings and with `hyprland.lua` (line and command of each
+  `hl.bind`). Two hyprdesk actions on one combination: the second is not
+  installed. A combination bound in `hyprland.lua`: hyprdesk's action only
+  works while the desktop is shown. A combination marked
+  `submap_universal`: hyprdesk leaves it alone, so nothing fires twice
+  (media keys included). Settings → Desktop → Shortcuts lists them first,
+  with "hyprdesk takes it" (`keys.take`) and a LYRA button; `hyprdesk keys`
+  prints the same report and exits with 1 if there is a conflict.
+- **Alt+Tab on the full desktop** also offers the windows the desktop has
+  set aside, labelled as such. Picking one, or a window from another
+  workspace, hides the desktop and focuses it. A window opened from the
+  desktop takes focus without leaving it.
 - The submap gives control back to Hyprland *before* calling hyprdesk. If the
   daemon dies mid-way, you are never stuck, and a submap left open is closed
   on the next start. `keys.leave` (`SUPER + Escape`) is the emergency exit.
@@ -228,9 +255,10 @@ name, a number, a list, or `"*"`.
 | Grid and icons | `grid = { cell, gap, margin, icon_size }`, `icon_theme` |
 | Look | `theme = { name, fg, bg, accent, effects = { bar, menus, launcher, settings, widgets } }` (each effect: `opacity`, `blur`), `font`, `font_size` |
 | Motion | `transition` (`"fade"`/`"slide"`/`"none"`), `fade_ms`, `crossfade_ms`, `fx` (Hyprland animations, curves and decoration, as `hl.config` keys) |
-| Launcher and apps | `running_apps` (`"off"`/`"workspace"`/`"all"`), `launcher_group` (`"none"`/`"app"`/`"workspace"`), `apps_style`, `apps_suggestions`, `apps_categories`, `terminal` |
+| Dock | `running_apps` (`"off"`/`"workspace"`/`"all"`), `launcher_group` (`"none"`/`"app"`/`"workspace"`) |
+| App launcher | `apps_unified` (`true` by default: `keys.search` opens hyprdesk's launcher in every mode, taken from `hyprland.lua` if it binds that key; `false`: `hyprland.lua` keeps it outside the full desktop), `apps_style` (`"auto"`: large sheet on the full desktop, centered card otherwise; or `"plein"` / `"central"` to always use one), `apps_suggestions` (0 to 16 most launched apps, 8 by default), `apps_categories`, `terminal` |
 | Workspaces and layouts | `workspaces` (1 to 30, or `false`), `workspace_monitors`, `layout` (`dwindle`, `master`, `scrolling`, `monocle`, `grid`, `columns`, `rows`, `centered`, `lua:<name>`), `layout_workspaces`, `dwindle`, `master`, `scrolling` |
-| Keys | `keys = { toggle, launcher, hide, settings, lock, leave, switch, search, overview, media }` (`false` disables a key), `suspend_binds` |
+| Keys | `keys = { toggle, launcher, hide, settings, lock, leave, switch, search, search_desktop, overview, media, take }` (`false` disables a key; `search` is `SUPER + R`; `search_desktop` replaces it on the full desktop; `take` lists `hyprland.lua` combinations hyprdesk unbinds and uses — given back when removed), `suspend_binds`, `overview_command` (a Hyprland plugin's overview, such as hyprexpo or Hyprspace; otherwise hyprdesk's switcher, which stays open until you click, press Enter or Escape) |
 | Session | `autostart`, `clipboard_history`, `idle_manage`, `idle_dim`, `idle_lock`, `idle_dpms`, `idle_suspend`, `lock_fingerprint`, `update_commands` |
 | Plugins | `plugin_options = { [plugin] = { option = value } }`: defaults for every instance |
 | Interface | `language` (`"auto"`/`"fr"`/`"en"`), `advanced_settings`, `tour_seen` |
@@ -349,6 +377,7 @@ confirmations and memory.
 | `~/.config/hypr/hyprdesk/widgets/` | your plugins |
 | `~/.config/hypr/hyprdesk/themes/` | "My themes" (theme archives) |
 | `~/.config/hypr/monitors.lua` | screen layout, written on **Keep** (`require("monitors")` in `hyprland.lua`) |
+| `~/.config/hypr/inputs.lua` | keyboard, mouse and touchpad settings (`require("inputs")` in `hyprland.lua`) |
 | `$XDG_STATE_HOME/hyprdesk/layout.toml` | icon positions moved with the mouse |
 | `$XDG_STATE_HOME/hyprdesk/bar-offered` | bar modules already offered once |
 | `$XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.sock` · `.lock` | control socket, single-instance lock |

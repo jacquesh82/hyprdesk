@@ -14,8 +14,8 @@ hyprdesk brings it back with a single key: wallpaper, icons and widgets,
 with a separate desktop for each workspace if you want one.
 
 It also gives you **one place to set up Hyprland's essentials** (screens,
-workspaces, layouts, animations, shortcuts, idle and lock) without editing
-config files by hand. **Every change applies live**, with no reload and no
+keyboard and mouse, workspaces, layouts, animations, shortcuts, idle and lock)
+without editing config files by hand. **Every change applies live**, with no reload and no
 restart.
 
 <p align="center">
@@ -25,7 +25,10 @@ restart.
 ## Features
 
 - **Hyprland made simple, applied live.** One settings drawer handles screens
-  (position, rotation, scale, refresh rate), workspaces and their screens,
+  (position, rotation, scale, refresh rate), keyboard (layouts and variants,
+  key repeat, Num Lock, with a test area), mouse and touchpad (speed,
+  acceleration, natural scrolling, tap to click, left-handed mode),
+  workspaces and their screens,
   layouts (Dwindle, Master, Scrolling, Monocle) for each workspace, animations
   and blur, shortcuts, and idle and lock delays. You see each change
   instantly. Screen changes revert on their own after 12 s unless you keep
@@ -33,19 +36,30 @@ restart.
   `hyprland.lua`.
 - **Three desktop modes.** `SUPER + D` sets the windows aside and shows the
   desktop. `SUPER + ALT + D` leaves the windows where they are and shows only
-  the dock. A third mode hides the desktop entirely.
+  the dock. A third mode hides the desktop entirely. You can also force a mode
+  on a screen or a workspace.
 - **Wallpapers for each workspace and screen**, with crossfades and
   slideshows. hyprdesk replaces hyprpaper.
-- **A bar, a dock and a launcher.** Workspaces, tray, volume and
-  brightness, app search, and a full-screen app grid.
+- **A bar and a dock.** Workspaces, tray, volume, brightness and any plugin.
+  You rearrange bar modules by dragging them.
+- **One app launcher** (`SUPER + R`, in every mode). On the full desktop it opens as a
+  large sheet with categories. In the other modes it opens as a centered
+  search card. The fuzzy search finds Firefox when you type "ffx". Your most
+  launched apps come first as suggestions, and `:clip` searches your
+  clipboard history.
+- **Window navigation.** The `ALT + Tab` switcher also offers the windows the
+  desktop has set aside. Picking one hides the desktop and brings it back.
+  `SUPER + Tab` opens a window overview. It uses hyprexpo or Hyprspace if you
+  have one, and hyprdesk's own switcher otherwise. While the desktop is shown,
+  the number row still switches workspaces, whatever your keyboard layout.
 - **Widgets and Lua plugins.** Clock, calendar, system stats and media player
   come built in. To add your own widget, drop a Lua file in a folder. No
   recompiling.
 - **Themes and default apps.** Bundled themes, or themes built from an image,
   and one default application per role (browser, terminal, files…).
-- **Session essentials.** Lock screen, greetd login screen, polkit agent,
-  notifications, Alt+Tab switcher, screenshots and screen recording,
-  clipboard history.
+- **Session essentials.** Lock screen (with fingerprint support), greetd login
+  screen, polkit agent, notifications with history and Do Not Disturb,
+  screenshots and screen recording, clipboard history, pending updates.
 - **AI assistant (optional).** A chat drawer that already knows your setup.
   It proposes changes with a live preview, and nothing runs until you accept.
   It is powered by **LYRA**, from
@@ -109,7 +123,24 @@ git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
 hyprdesk snippet          # prints the lines to add to hyprland.lua
 ```
 
-Then press `SUPER + D`.
+Then press `SUPER + D`. The default shortcuts are:
+
+| Shortcut | Action |
+|---|---|
+| `SUPER + D` | show the desktop (press again to hide it) |
+| `SUPER + ALT + D` | windows stay in place, dock only |
+| `SUPER + CTRL + D` | hide the desktop |
+| `SUPER + SHIFT + D` | open Settings |
+| `SUPER + R` | app launcher and search, in every mode |
+| `ALT + Tab` | window switcher |
+| `SUPER + Tab` | window overview |
+| `SUPER + Escape` | emergency exit |
+
+hyprdesk never takes over a shortcut that `hyprland.lua` already uses,
+except the launcher's `SUPER + R` (so that one key opens the same launcher
+everywhere; you can turn that off) and the ones you hand over yourself.
+Settings → Desktop → Shortcuts and `hyprdesk keys` show every conflict, with
+the `hyprland.lua` line involved; LYRA can sort them out with you.
 
 ## Configuration
 
