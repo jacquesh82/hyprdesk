@@ -1328,3 +1328,12 @@
 "Rechercher les réseaux" = "Scan for networks"
 "VPN" = "VPN"
 "Wi-Fi « %s »" = "Wi-Fi “%s”"
+
+# Bluetooth : recherche, appairage, oubli (MLG-10).
+"20 s" = "20 s"
+"Gérer les appareils…" = "Manage devices…"
+"Oublier un appareil" = "Forget a device"
+"Oublier « %s » ?" = "Forget “%s”?"
+"Rechercher des appareils" = "Scan for devices"
+"appairer" = "pair"
+"À proximité" = "Nearby"
