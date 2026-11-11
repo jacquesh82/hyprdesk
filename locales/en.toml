@@ -1585,3 +1585,10 @@
 "Recherche des mises à jour…" = "Checking for updates…"
 "Laisser hyprdesk le gérer (cette session)" = "Let hyprdesk handle it (this session)"
 "Arrêter %s jusqu'à la prochaine session ?" = "Stop %s until the next session?"
+
+# Empreinte, écran de connexion : dépendances (MLG-25, MLG-23).
+"fprintd est installé : l'écran de verrouillage propose l'empreinte dès qu'un lecteur et une empreinte enregistrée (fprintd-enroll) sont là." = "fprintd is installed: the lock screen offers the fingerprint as soon as a reader and an enrolled fingerprint (fprintd-enroll) are present."
+"fprintd n'est pas installé (paquet fprintd) : sans lui, l'écran de verrouillage ne demande que le mot de passe." = "fprintd is not installed (package fprintd): without it, the lock screen only asks for the password."
+"Empreinte digitale au verrouillage" = "Fingerprint on the lock screen"
+"Écran de connexion (hyprdesk greeter)" = "Login screen (hyprdesk greeter)"
+"Écran de connexion graphique (cage -s -- hyprdesk greeter)" = "Graphical login screen (cage -s -- hyprdesk greeter)"

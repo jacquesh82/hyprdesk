@@ -140,6 +140,24 @@ impl App {
                         "Empreinte digitale en plus du mot de passe (fprintd)"
                     ))
                     .on_toggle(|v| wrap(Msg::Fingerprint(v))),
+                text(if crate::doctor::has("fprintd") {
+                    crate::i18n::tr(
+                        "fprintd est installé : l'écran de verrouillage propose l'empreinte \
+                         dès qu'un lecteur et une empreinte enregistrée (fprintd-enroll) sont là.",
+                    )
+                } else {
+                    crate::i18n::tr(
+                        "fprintd n'est pas installé (paquet fprintd) : sans lui, \
+                         l'écran de verrouillage ne demande que le mot de passe.",
+                    )
+                })
+                .font(self.font)
+                .size(12)
+                .color(if crate::doctor::has("fprintd") {
+                    dim
+                } else {
+                    Color::from_rgb8(0xff, 0xb8, 0x6c)
+                }),
             ]
             .spacing(8),
             self.section("Sécurité"),

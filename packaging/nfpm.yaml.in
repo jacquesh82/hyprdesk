@@ -101,6 +101,12 @@ overrides:
       - wf-recorder
       - cliphist
       - hyprsunset
+      - udisks2
+      - slurp
+      - wvkbd
+      - fprintd
+      - greetd
+      - cage
       - pavucontrol
       - unzip
       - git
@@ -140,6 +146,12 @@ overrides:
       - wf-recorder
       - cliphist
       - hyprsunset
+      - udisks2
+      - slurp
+      - wvkbd
+      - fprintd
+      - greetd
+      - cage
       - pavucontrol
       - unzip
       - git
@@ -177,6 +189,12 @@ overrides:
       - "wf-recorder: enregistrement de l'écran"
       - "cliphist: historique du presse-papiers"
       - "hyprsunset: éclairage nocturne"
+      - "udisks2: supports amovibles (montage, éjection)"
+      - "slurp: capture ou enregistrement d'une zone"
+      - "wvkbd: clavier virtuel"
+      - "fprintd: empreinte digitale au verrouillage"
+      - "greetd: écran de connexion (hyprdesk greeter)"
+      - "cage: écran de connexion graphique"
       - "pavucontrol: réglages du son avancés"
       - "unzip: thèmes au format .zip"
       - "git: plugins depuis un dépôt git"

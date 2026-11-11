@@ -150,6 +150,31 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "fprintd",
+        probe: Probe::File(&[
+            "/usr/share/dbus-1/system-services/net.reactivated.Fprint.service",
+            "/usr/lib/fprintd",
+            "/usr/libexec/fprintd",
+        ]),
+        package: "fprintd",
+        feature: "Empreinte digitale au verrouillage",
+        essential: false,
+    },
+    Dep {
+        name: "greetd",
+        probe: Probe::Program(&["greetd"]),
+        package: "greetd",
+        feature: "Écran de connexion (hyprdesk greeter)",
+        essential: false,
+    },
+    Dep {
+        name: "cage",
+        probe: Probe::Program(&["cage"]),
+        package: "cage",
+        feature: "Écran de connexion graphique (cage -s -- hyprdesk greeter)",
+        essential: false,
+    },
+    Dep {
         name: "udisksctl",
         probe: Probe::Program(&["udisksctl"]),
         package: "udisks2",
@@ -202,6 +227,13 @@ fn probe_with(
         Probe::Program(names) => names.iter().find(|n| has_program(n)).map(|n| n.to_string()),
         Probe::File(paths) => paths.iter().find(|f| has_file(f)).map(|f| f.to_string()),
     }
+}
+
+/// Dépendance `name` présente (relevé récent).
+pub fn has(name: &str) -> bool {
+    cached()
+        .iter()
+        .any(|st| st.dep.name == name && st.found.is_some())
 }
 
 /// Relève toutes les dépendances, maintenant.
