@@ -164,6 +164,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Profils d'énergie : une jauge, l'aiguille selon le profil.
+        "power-profile-performance" => r#"<path d="M4 17a8 8 0 1 1 16 0M12 17l4.5-5"/>"#,
+        "power-profile-balanced" => r#"<path d="M4 17a8 8 0 1 1 16 0M12 17V10"/>"#,
+        "power-profile-power-saver" => r#"<path d="M4 17a8 8 0 1 1 16 0M12 17 7.5 12"/>"#,
         // Mises à jour : une flèche qui descend dans un plateau.
         "software-update-available" | "system-software-update" => {
             r#"<path d="M12 3v11m-4-4 4 4 4-4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>"#

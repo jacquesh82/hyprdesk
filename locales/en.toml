@@ -1337,3 +1337,12 @@
 "Rechercher des appareils" = "Scan for devices"
 "appairer" = "pair"
 "À proximité" = "Nearby"
+
+# Énergie : profils, alertes de batterie (MLG-11).
+"Batterie faible : %d %%" = "Low battery: %d %%"
+"Branchez l'ordinateur pour continuer à travailler." = "Plug in the computer to keep working."
+"Performance" = "Performance"
+"Profil d'énergie" = "Power profile"
+"Profil d'énergie : " = "Power profile: "
+"Économie d'énergie" = "Power saver"
+"Équilibré" = "Balanced"
