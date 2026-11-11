@@ -93,20 +93,6 @@ fn stacked(label: &str, detail: Option<&str>) -> bool {
     detail.is_some_and(|d| d.chars().count() > 22 || label.chars().count() + d.chars().count() > 32)
 }
 
-/// Semaines affichées par le calendrier du mois en cours.
-fn calendar_weeks() -> u32 {
-    use chrono::Datelike;
-    let today = chrono::Local::now().date_naive();
-    let first = today.with_day(1).unwrap_or(today);
-    let next = if first.month() == 12 {
-        chrono::NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
-    } else {
-        chrono::NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
-    };
-    let days = next.map(|n| (n - first).num_days() as u32).unwrap_or(30);
-    (first.weekday().num_days_from_monday() + days).div_ceil(7)
-}
-
 /// Hauteur de la carte pour un contenu donné (les surfaces layer-shell ont une taille fixe).
 /// Hauteur d'une section du menu Son : titre, curseur, muet.
 const AUDIO_SECTION: f32 = 26.0 + 32.0 + 30.0;
@@ -131,7 +117,8 @@ fn card_height(kind: &Kind, confirm: Option<usize>, audio: &super::bar::Audio) -
             };
             AUDIO_SECTION + device_rows(&audio.outputs) + 11.0 + mic + 11.0 + 30.0 + 16.0
         }
-        Kind::Calendar => 112.0 + calendar_weeks() as f32 * 23.0,
+        // Six lignes au plus : on change de mois sans changer la taille de la carte.
+        Kind::Calendar => 112.0 + 28.0 + 6.0 * 23.0,
         Kind::Menu { entries, .. } => {
             let rows: f32 = entries
                 .iter()
@@ -285,6 +272,8 @@ impl App {
     }
 
     pub(super) fn close_popover(&mut self) -> Task<Msg> {
+        // Le calendrier rouvre toujours sur le mois en cours.
+        self.cal_months = 0;
         match self.popover.take() {
             Some(p) => Task::batch([iced::window::close(p.win), iced::window::close(p.catcher)]),
             None => Task::none(),
@@ -840,9 +829,53 @@ impl App {
                 .spacing(2)
             )
             .padding([6, 10]),
-            container(self.view_calendar(12.5, fg, dim, accent, Some(WIDTH - 32.0)))
-                .padding([4, 10]),
+            container(self.calendar_nav(fg, accent)).padding([0, 10]),
+            container(self.view_calendar(
+                12.5,
+                fg,
+                dim,
+                accent,
+                Some(WIDTH - 32.0),
+                Some(self.cal_months)
+            ))
+            .padding([4, 10]),
         ]
         .into()
+    }
+
+    /// Mois précédent, aujourd'hui, mois suivant.
+    fn calendar_nav(&self, fg: Color, accent: Color) -> Element<'_, Msg> {
+        let nav = |label: &str, delta: i32| {
+            button(text(label.to_string()).font(self.font).size(13).color(fg))
+                .padding([2, 10])
+                .style(move |_, st| button::Style {
+                    background: matches!(st, button::Status::Hovered)
+                        .then(|| Color { a: 0.14, ..accent }.into()),
+                    border: Border::default().rounded(8),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::CalendarMonth(delta))
+        };
+        let first =
+            super::widget_view::month_start(chrono::Local::now().date_naive(), self.cal_months);
+        let month = first
+            .format_localized("%B %Y", crate::i18n::chrono_locale())
+            .to_string();
+        let mut r = row![
+            nav("‹", -1),
+            text(month)
+                .font(self.title_font())
+                .size(14)
+                .color(fg)
+                .width(Length::Fill)
+                .align_x(Alignment::Center),
+            nav("›", 1)
+        ]
+        .spacing(4);
+        if self.cal_months != 0 {
+            r = r.push(nav(crate::i18n::tr("Aujourd'hui"), 0));
+        }
+        r.align_y(Alignment::Center).into()
     }
 }

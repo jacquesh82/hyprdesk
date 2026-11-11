@@ -54,6 +54,7 @@ impl App {
                 dim,
                 accent,
                 None,
+                None,
             ),
             WidgetKind::System { .. } => {
                 let size = if w.size > 0.0 { w.size } else { base };
@@ -296,28 +297,29 @@ impl App {
         dim: Color,
         accent: Color,
         width: Option<f32>,
+        // Mois décalé de n (le titre est alors affiché par l'appelant), ou
+        // le mois en cours avec son titre (widget du bureau).
+        nav: Option<i32>,
     ) -> Element<'_, Msg> {
+        let (months, with_title) = (nav.unwrap_or(0), nav.is_none());
         let today = Local::now().date_naive();
-        let first = today.with_day(1).unwrap_or(today);
-        let next_month = if first.month() == 12 {
-            chrono::NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
-        } else {
-            chrono::NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
-        };
-        let days = next_month
-            .map(|n| (n - first).num_days() as u32)
-            .unwrap_or(30);
+        // Mois affiché : celui d'aujourd'hui, décalé de `months`.
+        let first = month_start(today, months);
+        let days = month_days(first);
+        let this_month = months == 0;
         let offset = first.weekday().num_days_from_monday();
         let w = width.map(|width| width / 7.0).unwrap_or(size * 2.2);
         let title = format!("{}", first.format_localized("%B %Y", chrono_locale()));
-        let mut grid = column![
-            text(title)
-                .font(self.font)
-                .size(size * 1.1)
-                .color(fg)
-                .font(self.title_font())
-        ]
-        .spacing(6);
+        let mut grid = column![].spacing(6);
+        if with_title {
+            grid = grid.push(
+                text(title)
+                    .font(self.font)
+                    .size(size * 1.1)
+                    .color(fg)
+                    .font(self.title_font()),
+            );
+        }
         // Initiales des jours, lundi d'abord, dans la langue de l'utilisateur.
         let monday = first - chrono::Duration::days(offset as i64);
         let head = row((0..7).map(|i| {
@@ -337,7 +339,7 @@ impl App {
         }));
         grid = grid.push(head);
         let mut day = 1u32;
-        let cells = (offset + days).div_ceil(7);
+        let cells = month_weeks(first);
         for week in 0..cells {
             let r = row((0..7u32).map(|wd| {
                 let slot = week * 7 + wd;
@@ -346,7 +348,7 @@ impl App {
                 }
                 let d = day;
                 day += 1;
-                let is_today = d == today.day();
+                let is_today = this_month && d == today.day();
                 let label = text(d.to_string())
                     .font(self.font)
                     .size(size)
@@ -365,5 +367,42 @@ impl App {
             grid = grid.push(r);
         }
         grid.into()
+    }
+}
+
+/// Premier jour du mois d'aujourd'hui décalé de `months` (négatif : avant).
+pub(super) fn month_start(today: chrono::NaiveDate, months: i32) -> chrono::NaiveDate {
+    let m0 = today.year() * 12 + today.month0() as i32 + months;
+    chrono::NaiveDate::from_ymd_opt(m0.div_euclid(12), m0.rem_euclid(12) as u32 + 1, 1)
+        .unwrap_or(today)
+}
+
+/// Jours du mois commençant à `first`.
+pub(super) fn month_days(first: chrono::NaiveDate) -> u32 {
+    let next = month_start(first, 1);
+    ((next - first).num_days() as u32).clamp(28, 31)
+}
+
+/// Semaines (lignes) du calendrier de ce mois, lundi d'abord.
+pub(super) fn month_weeks(first: chrono::NaiveDate) -> u32 {
+    (first.weekday().num_days_from_monday() + month_days(first)).div_ceil(7)
+}
+
+#[cfg(test)]
+mod calendar_tests {
+    use super::*;
+
+    #[test]
+    fn mois_decales() {
+        let d = |y, m, j| chrono::NaiveDate::from_ymd_opt(y, m, j).unwrap();
+        assert_eq!(month_start(d(2026, 11, 11), 0), d(2026, 11, 1));
+        assert_eq!(month_start(d(2026, 11, 11), 2), d(2027, 1, 1));
+        assert_eq!(month_start(d(2026, 1, 31), -1), d(2025, 12, 1));
+        assert_eq!(month_start(d(2026, 3, 15), -26), d(2024, 1, 1));
+        assert_eq!(month_days(d(2028, 2, 1)), 29);
+        assert_eq!(month_days(d(2026, 2, 1)), 28);
+        // Novembre 2026 commence un dimanche : 6 lignes.
+        assert_eq!(month_weeks(d(2026, 11, 1)), 6);
+        assert_eq!(month_weeks(d(2027, 2, 1)), 4);
     }
 }

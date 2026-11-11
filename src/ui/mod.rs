@@ -185,6 +185,8 @@ pub enum Msg {
     IconContext(Id, usize),
     IconMenu(context::CMsg),
     Switcher(switcher::SwMsg),
+    /// Calendrier : mois suivant (+1), précédent (-1), en cours (0).
+    CalendarMonth(i32),
     /// Touches de modification (relâcher Alt valide le sélecteur de fenêtres).
     Modifiers(keyboard::Modifiers),
     Frame,
@@ -358,6 +360,8 @@ pub struct App {
     problem: Option<problem::Problem>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
+    /// Calendrier du popover : mois affiché, relatif au mois en cours.
+    cal_months: i32,
     /// Sélecteur de fenêtres (Alt+Tab) ouvert.
     switcher: Option<switcher::Switcher>,
     /// Menu contextuel d'une icône du bureau ouvert.
@@ -676,6 +680,7 @@ impl App {
             search: None,
             icon_menu: None,
             switcher: None,
+            cal_months: 0,
             desk_stamp: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
@@ -2965,6 +2970,14 @@ impl App {
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
             Msg::Switcher(m) => self.switcher_update(m),
+            Msg::CalendarMonth(d) => {
+                self.cal_months = if d == 0 {
+                    0
+                } else {
+                    (self.cal_months + d).clamp(-1200, 1200)
+                };
+                Task::none()
+            }
             Msg::Modifiers(m) => {
                 if self.switcher.is_some() && !m.alt() && !m.logo() && !m.control() {
                     return self.switcher_commit();
@@ -3984,6 +3997,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::IconContext(..) => "IconContext",
         Msg::IconMenu(..) => "IconMenu",
         Msg::Switcher(..) => "Switcher",
+        Msg::CalendarMonth(..) => "CalendarMonth",
         Msg::Modifiers(..) => "Modifiers",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",

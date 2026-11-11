@@ -1535,3 +1535,6 @@
 "Identifiant" = "Username"
 "  greeter [--tty]   écran de connexion pour greetd (connexion, choix de session) ;" = "  greeter [--tty]   login screen for greetd (login, session choice);"
 "                    --tty : au terminal" = "                    --tty: in the terminal"
+
+# Calendrier : navigation entre les mois (MLG-24).
+"Aujourd'hui" = "Today"
