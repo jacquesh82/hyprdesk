@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 59] = [
+const SCENES: [&str; 62] = [
     "desktop",
     "typography",
     "icons",
@@ -83,6 +83,9 @@ const SCENES: [&str; 59] = [
     "clavier-souris",
     "ecran-connexion",
     "mots-de-passe",
+    "coffre-creation",
+    "coffre-sauvegarde",
+    "coffre-pret",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -755,6 +758,43 @@ impl Preview {
         } else {
             self.app.search = None;
         }
+        // Coffre myMFA : création (saisie en cours, confirmation fausse),
+        // reprise de la sauvegarde du web, coffre prêt.
+        self.app.mfa_dialog = None;
+        if let Some(kind) = match SCENES[self.scene] {
+            "coffre-creation" => Some(super::mymfa::Kind::Create),
+            "coffre-sauvegarde" => Some(super::mymfa::Kind::Install(PathBuf::from(
+                "/home/jacques/Téléchargements/mymfa-vault-2026-11-11.json",
+            ))),
+            "coffre-pret" => Some(super::mymfa::Kind::Ready { sealed: true }),
+            _ => None,
+        } {
+            let creating = kind == super::mymfa::Kind::Create;
+            self.app.mfa = crate::mymfa::State {
+                installed: true,
+                session_key: true,
+                ..Default::default()
+            };
+            self.app.mfa_dialog = Some(super::mymfa::Dialog {
+                win: iced::window::Id::unique(),
+                kind,
+                app: String::new(),
+                input: if creating {
+                    "correct horse".into()
+                } else {
+                    String::new()
+                },
+                confirm: if creating {
+                    "correct hor".into()
+                } else {
+                    String::new()
+                },
+                backup: None,
+                sealing: false,
+                message: None,
+                busy: false,
+            });
+        }
         // La carte polkit n'appartient qu'à sa scène.
         if SCENES[self.scene] != "polkit" {
             self.app.polkit = None;
@@ -860,6 +900,7 @@ impl Preview {
                 vault: true,
                 locked: false,
                 sealed: true,
+                session_key: false,
                 secret_service: false,
             };
         }
@@ -1420,6 +1461,16 @@ impl Preview {
                         top: 44.0,
                         ..Padding::ZERO
                     })
+                    .into(),
+            );
+        }
+        if self.app.mfa_dialog.is_some() {
+            layers.push(
+                container(self.app.view_mfa_dialog())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
                     .into(),
             );
         }

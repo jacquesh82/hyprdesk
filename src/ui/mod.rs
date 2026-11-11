@@ -383,6 +383,9 @@ pub struct App {
     /// Trousseau myMFA : état connu, carte de déverrouillage ouverte.
     pub(crate) mfa: crate::mymfa::State,
     mfa_dialog: Option<mymfa::Dialog>,
+    /// Accueil myMFA de l'ouverture de session (création du coffre, ou
+    /// dernière saisie avant le sceau) encore à faire ; démarrage du démon.
+    mfa_greet: Option<std::time::Instant>,
     /// Bulles de notifications (si hyprdesk tient le nom du démon).
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
@@ -717,6 +720,7 @@ impl App {
             polkit: None,
             mfa: Default::default(),
             mfa_dialog: None,
+            mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
             search: None,
@@ -2707,6 +2711,7 @@ impl App {
                 control::Command::Search => self.toggle_search(),
                 control::Command::Mymfa(a) => match a.as_str() {
                     "lock" => self.mfa_update(mymfa::MMsg::Lock),
+                    "setup" => self.mfa_update(mymfa::MMsg::Setup(None)),
                     "codes" => self.open_search_with(":2fa "),
                     "logins" => self.open_search_with(":mdp "),
                     _ => self.mfa_update(mymfa::MMsg::Ask),
@@ -3580,7 +3585,7 @@ impl App {
                 }
                 if self.mfa_dialog.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.mfa_dialog.take() {
-                        crate::lock::pam::wipe(&mut d.input);
+                        d.wipe();
                     }
                     return Task::none();
                 }
@@ -3668,11 +3673,15 @@ impl App {
                 None => Task::none(),
             },
             Msg::Key(id, key) => {
-                // Carte myMFA : Échap l'annule.
+                // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt ».
                 if self.mfa_dialog.is_some()
                     && key == keyboard::Key::Named(keyboard::key::Named::Escape)
                 {
                     return self.close_mfa_dialog();
+                }
+                if self.mfa_ready_open() && key == keyboard::Key::Named(keyboard::key::Named::Enter)
+                {
+                    return self.mfa_update(mymfa::MMsg::Submit);
                 }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {

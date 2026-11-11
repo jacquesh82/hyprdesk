@@ -29,7 +29,7 @@ return {
         if s == "absent" then return { state = "hidden" } end
         if s == "sans-coffre" then
             return { icon = "system-lock-screen-symbolic", state = "warning",
-                     tooltip = hd.t("myMFA : pas encore de coffre (Réglages → Mots de passe)") }
+                     tooltip = hd.t("myMFA : pas encore de coffre — menu pour le créer") }
         end
         if s == "verrouille" then
             return { icon = "system-lock-screen-symbolic", state = "normal",
@@ -41,7 +41,10 @@ return {
     menu = function()
         local s = state()
         local m = { { header = hd.t("myMFA") } }
-        if s == "verrouille" then
+        if s == "sans-coffre" then
+            m[#m + 1] = { label = hd.t("Créer le coffre…"), icon = "system-lock-screen-symbolic",
+                          action = function() hyprdesk("mymfa setup") end }
+        elseif s == "verrouille" then
             m[#m + 1] = { label = hd.t("Déverrouiller le coffre…"), icon = "system-lock-screen-symbolic",
                           action = function() hyprdesk("mymfa unlock") end }
         elseif s == "ouvert" then

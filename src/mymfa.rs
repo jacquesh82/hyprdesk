@@ -22,6 +22,8 @@ pub const NAME: &str = "today.mindlog.MyMfa1";
 )]
 pub trait MyMfa1 {
     fn unlock(&self, password: &str) -> zbus::Result<()>;
+    fn create_vault(&self, password: &str) -> zbus::Result<()>;
+    fn install_vault(&self, path: &str, password: &str) -> zbus::Result<()>;
     fn lock(&self) -> zbus::Result<()>;
     #[allow(clippy::type_complexity)]
     fn codes(&self) -> zbus::Result<Vec<(String, String, String, String, String, u32, u32, bool)>>;
@@ -37,6 +39,8 @@ pub trait MyMfa1 {
     fn vault_present(&self) -> zbus::Result<bool>;
     #[zbus(property)]
     fn sealed(&self) -> zbus::Result<bool>;
+    #[zbus(property)]
+    fn session_key(&self) -> zbus::Result<bool>;
     #[zbus(property)]
     fn secret_service(&self) -> zbus::Result<bool>;
     #[zbus(signal)]
@@ -54,6 +58,9 @@ pub struct State {
     pub locked: bool,
     /// Déverrouillage à la connexion en place (sceau de session).
     pub sealed: bool,
+    /// Une clé de session (pam_mymfa) attend : le prochain déverrouillage,
+    /// ou la création du coffre, la scellera.
+    pub session_key: bool,
     /// Le démon tient org.freedesktop.secrets (sinon gnome-keyring, en général).
     pub secret_service: bool,
 }
@@ -187,6 +194,7 @@ pub async fn state_of(conn: &zbus::Connection) -> State {
         vault: p.vault_present().await.unwrap_or(false),
         locked: p.locked().await.unwrap_or(true),
         sealed: p.sealed().await.unwrap_or(false),
+        session_key: p.session_key().await.unwrap_or(false),
         secret_service: p.secret_service().await.unwrap_or(false),
     }
 }
@@ -198,15 +206,52 @@ pub async fn state() -> State {
     }
 }
 
-/// Déverrouille ; `Err((mauvais_mot_de_passe, message))`. Le mot de passe
-/// est effacé après l'envoi.
-pub async fn unlock(mut password: String) -> Result<(), (bool, String)> {
+/// Déverrouille ; `Ok(scellé)` (le démon scelle au passage si une clé de
+/// session attendait), `Err((mauvais_mot_de_passe, message))`. Le mot de
+/// passe est effacé après l'envoi.
+pub async fn unlock(mut password: String) -> Result<bool, (bool, String)> {
     let r = match proxy().await {
-        Ok(p) => p.unlock(&password).await,
+        Ok(p) => p.unlock(&password).await.map(|()| p),
         Err(e) => Err(e),
     };
     crate::lock::pam::wipe(&mut password);
-    r.map_err(|e| (is_wrong_password(&e), error_text(&e)))
+    let p = r.map_err(|e| (is_wrong_password(&e), error_text(&e)))?;
+    Ok(p.sealed().await.unwrap_or(false))
+}
+
+/// Longueur minimale du mot de passe d'un nouveau coffre (celle du web).
+pub const MIN_LEN: usize = 10;
+
+/// Longueur comptée comme le web (unités UTF-16, `password.length`).
+pub fn length(password: &str) -> usize {
+    password.encode_utf16().count()
+}
+
+/// Crée le coffre de cet ordinateur ; le démon l'ouvre aussitôt et le
+/// scelle si la session vient de pam_mymfa. Rend `Ok(scellé)`.
+pub async fn create_vault(mut password: String) -> Result<bool, String> {
+    let r = match proxy().await {
+        Ok(p) => p.create_vault(&password).await.map(|()| p),
+        Err(e) => Err(e),
+    };
+    crate::lock::pam::wipe(&mut password);
+    let p = r.map_err(|e| error_text(&e))?;
+    Ok(p.sealed().await.unwrap_or(false))
+}
+
+/// Installe la sauvegarde du web `path` avec son mot de passe ; comme
+/// `create_vault` ensuite.
+pub async fn install_vault(path: PathBuf, mut password: String) -> Result<bool, String> {
+    let r = match proxy().await {
+        Ok(p) => p
+            .install_vault(&path.to_string_lossy(), &password)
+            .await
+            .map(|()| p),
+        Err(e) => Err(e),
+    };
+    crate::lock::pam::wipe(&mut password);
+    let p = r.map_err(|e| error_text(&e))?;
+    Ok(p.sealed().await.unwrap_or(false))
 }
 
 pub async fn lock() -> Result<(), String> {
@@ -468,5 +513,12 @@ mod tests {
             username: "moi".into(),
         };
         assert_eq!(l.label(), "example.org — moi");
+    }
+
+    #[test]
+    fn longueur_comme_le_web() {
+        assert_eq!(length("motdepasse"), 10);
+        assert_eq!(length("é"), 1);
+        assert_eq!(length("🔐"), 2);
     }
 }

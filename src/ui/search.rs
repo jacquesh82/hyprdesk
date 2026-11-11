@@ -403,7 +403,7 @@ impl App {
                     .search
                     .as_ref()
                     .map(|s| match &s.mfa {
-                        Some((_, MfaList::Locked)) => Pick::Unlock,
+                        Some((_, MfaList::Locked | MfaList::NoVault)) => Pick::Unlock,
                         Some((_, MfaList::Codes(c))) => s
                             .results
                             .get(k)
@@ -640,7 +640,7 @@ impl App {
                 tr("Le client myMFA n'est pas installé (Réglages → Mots de passe).").to_string(),
             ),
             Some(MfaList::NoVault) => {
-                Some(tr("Pas encore de coffre myMFA (Réglages → Mots de passe).").to_string())
+                Some(tr("Pas encore de coffre myMFA : Entrée pour le créer.").to_string())
             }
             Some(MfaList::Locked) => {
                 Some(tr("Coffre verrouillé : Entrée pour le déverrouiller.").to_string())

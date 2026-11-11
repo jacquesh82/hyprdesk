@@ -48,7 +48,7 @@ pub enum Msg {
     Loaded(Box<State>),
     Unlock,
     Lock,
-    /// Ouvre un terminal sur `mymfa init` (avec la sauvegarde : `--from`).
+    /// Carte de création du coffre (avec la sauvegarde : sa reprise).
     Init(Option<PathBuf>),
     Confirm(bool),
     TakeOver,
@@ -146,10 +146,10 @@ impl App {
                 crate::i18n::tr("pas encore de coffre sur cet ordinateur").to_string(),
             ));
             let mut actions =
-                row![self.pw_button("Créer un coffre…", Some(Msg::Init(None)), st.busy)].spacing(8);
+                row![self.pw_button("Créer le coffre…", Some(Msg::Init(None)), st.busy)].spacing(8);
             if let Some(b) = &st.backup {
                 actions = actions.push(self.pw_button(
-                    "Installer la sauvegarde du web…",
+                    "Reprendre la sauvegarde du web…",
                     Some(Msg::Init(Some(b.clone()))),
                     st.busy,
                 ));
@@ -330,27 +330,7 @@ impl App {
             }
             Msg::Unlock => self.mfa_update(MMsg::Ask),
             Msg::Lock => self.mfa_update(MMsg::Lock),
-            Msg::Init(from) => {
-                let cmd = match from {
-                    Some(f) => format!(
-                        "mymfa init --from {}",
-                        crate::launch::sh_quote(&f.to_string_lossy())
-                    ),
-                    None => "mymfa init".to_string(),
-                };
-                // Le terminal reste ouvert sur le résultat, le temps de le lire.
-                let line = format!("{cmd}; echo; read -rp \"Entrée pour fermer \" _");
-                let full = crate::launch::in_terminal(
-                    &self.cfg.general.terminal,
-                    &format!("sh -c {}", crate::launch::sh_quote(&line)),
-                );
-                Task::perform(
-                    async move {
-                        let _ = tokio::task::spawn_blocking(move || crate::hypr::exec(&full)).await;
-                    },
-                    |_| UiMsg::Noop,
-                )
-            }
+            Msg::Init(from) => self.mfa_update(MMsg::Setup(from)),
             Msg::Confirm(v) => {
                 if let Some(p) = self.panel.as_mut() {
                     p.passwords.confirm = v;
