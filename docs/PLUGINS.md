@@ -349,6 +349,15 @@ Le paquet **Plugins** montre tout ce qui est installé :
   fichier `.lua`, un dossier `init.lua` ou un dépôt git, dans
   `~/.config/hypr/hyprdesk/widgets/` (`widgets::plugins::install`). Le
   retirer le déplace dans `.retired/`, d'où on peut le remettre.
+- **Configurer.** Un plugin qui déclare des `options` a un bouton
+  « Configurer » : chaque option s'y règle (interrupteur pour un booléen,
+  champ pour un nombre ou un texte). Le réglage va dans
+  `hd.config({ plugin_options = { <plugin> = { <option> = <valeur> } } })` et
+  vaut pour chaque instance du plugin, sauf les options écrites sur
+  l'instance elle-même. « Valeurs du plugin » revient aux valeurs par
+  défaut. Pour le plugin `majs`, on y voit aussi les commandes de relevé et
+  de mise à jour de chaque source, modifiables
+  (`hd.config({ update_commands = { aur = { upgrade = "…" } } })`).
 
 Un paquet *compilé* tiers n'est pas chargeable à chaud. L'extension d'un tiers
 passe donc par les plugins Lua, ou par une contribution au registre `BUILTIN`.

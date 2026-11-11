@@ -1647,3 +1647,20 @@
 "Modes imposés" = "Forced modes"
 "Un écran ou un workspace peut garder son propre mode. no-desktop : le bureau n'y apparaît jamais. launcher-only ou full-desktop : en y arrivant, le bureau passe dans ce mode, et reprend le précédent en le quittant. La règle d'un workspace l'emporte sur celle de l'écran." = "A screen or a workspace can keep its own mode. no-desktop: the desktop never shows there. launcher-only or full-desktop: on arrival, the desktop switches to that mode, and goes back to the previous one on leaving. A workspace rule wins over the screen's."
 "Workspace {w}" = "Workspace {w}"
+
+# Options des plugins, commandes des mises à jour.
+"{C} : {{ <plugin> = {{ <option> = <valeur> }} }} attendu" = "{C}: {{ <plugin> = {{ <option> = <value> }} }} expected"
+"{C} : {{ <source> = {{ check = \"…\", upgrade = \"…\" }} }} attendu" = "{C}: {{ <source> = {{ check = \"…\", upgrade = \"…\" }} }} expected"
+"{C}.{p}.{k} : booléen, nombre ou texte attendu" = "{C}.{p}.{k}: boolean, number or text expected"
+
+# Plugins → Configurer.
+"Commandes de hyprdesk" = "hyprdesk commands"
+"Commandes utilisées" = "Commands used"
+"Relevé : sans droits, une ligne par paquet. Mise à jour : non interactive (pkexec pour les droits). Vide : la commande de hyprdesk. Journal : ~/.local/state/hyprdesk/updates.log." = "Check: without privileges, one line per package. Update: non-interactive (pkexec for privileges). Empty: the hyprdesk command. Log: ~/.local/state/hyprdesk/updates.log."
+"Valeurs du plugin" = "Plugin defaults"
+"Valider un texte avec Entrée. Ces réglages valent pour chaque instance du plugin, sauf les options écrites dans hyprdesk.lua." = "Confirm a text with Enter. These settings apply to every instance of the plugin, except options written in hyprdesk.lua."
+"mise à jour" = "update"
+"relevé" = "check"
+"« {v} » : un nombre est attendu" = "“{v}”: a number is expected"
+"Configurer" = "Configure"
+"aucune : comprise dans une autre étape" = "none: included in another step"

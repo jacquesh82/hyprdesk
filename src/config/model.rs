@@ -753,6 +753,16 @@ pub struct General {
     /// Écrans dédiés : ils n'accueillent que leurs workspaces ; les autres vont
     /// sur l'écran principal.
     pub workspace_dedicated: std::collections::BTreeSet<String>,
+    /// Options des plugins réglées dans Réglages → Plugins (« Configurer ») :
+    /// plugin → option → valeur ; elles valent pour chaque instance, sauf
+    /// les options écrites sur l'instance elle-même.
+    pub plugin_options: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, crate::tiling::OptValue>,
+    >,
+    /// Commandes des mises à jour remplacées : source (`pacman`, `aur`…) →
+    /// (relevé, mise à jour), en shell ; vide : celle de hyprdesk.
+    pub update_commands: std::collections::BTreeMap<String, (String, String)>,
     /// Modes imposés : écran (`DP-1`) ou workspace (`ws:5`) → `no-desktop`,
     /// `launcher-only` ou `full-desktop`.
     pub forced_modes: std::collections::BTreeMap<String, String>,
@@ -811,6 +821,8 @@ impl Default for General {
             workspace_monitors: Default::default(),
             workspace_monitors_declared: Default::default(),
             forced_modes: Default::default(),
+            plugin_options: Default::default(),
+            update_commands: Default::default(),
             workspace_dedicated: Default::default(),
             primary: None,
             apps: Default::default(),
@@ -1097,6 +1109,8 @@ pub struct WidgetType {
     pub toggleable: bool,
     /// Plugin illisible : le message d'erreur, affiché dans les réglages.
     pub error: Option<String>,
+    /// Options du plugin et leurs valeurs par défaut (« Configurer »).
+    pub options: Vec<(String, crate::tiling::OptValue)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

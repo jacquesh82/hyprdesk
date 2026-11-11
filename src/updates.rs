@@ -105,6 +105,42 @@ pub fn sources() -> Vec<Source> {
     detect(crate::launch::executable)
 }
 
+/// Commandes remplacées (Réglages → Plugins → Mises à jour → Configurer) :
+/// source → (relevé, mise à jour), en shell ; vide : celle de hyprdesk.
+pub fn with_overrides(
+    mut list: Vec<Source>,
+    over: &std::collections::BTreeMap<String, (String, String)>,
+) -> Vec<Source> {
+    let sh = |c: &str| vec!["sh".to_string(), "-c".to_string(), c.to_string()];
+    for s in list.iter_mut() {
+        if let Some((check, upgrade)) = over.get(s.id) {
+            if !check.trim().is_empty() {
+                s.check = sh(check.trim());
+            }
+            if !upgrade.trim().is_empty() {
+                s.upgrade = sh(upgrade.trim());
+            }
+        }
+    }
+    list
+}
+
+/// Sources de cette machine, avec les commandes réglées dans settings.lua.
+pub fn configured_sources(config_path: &std::path::Path) -> Vec<Source> {
+    let over = crate::config::lua::load_settings_only(config_path)
+        .map(|c| c.general.update_commands)
+        .unwrap_or_default();
+    with_overrides(sources(), &over)
+}
+
+/// Commande affichée (argv rejoint, ou le texte shell d'une commande remplacée).
+pub fn shown(argv: &[String]) -> String {
+    match argv {
+        [sh, c, cmd] if sh == "sh" && c == "-c" => cmd.clone(),
+        _ => argv.join(" "),
+    }
+}
+
 /// Paquets à mettre à jour, d'après la sortie de la commande de comptage.
 pub fn parse(source: &str, out: &str) -> Vec<String> {
     let lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
@@ -488,5 +524,24 @@ mod tests {
             tail: "error: failed to commit transaction (conflicting files)".into(),
         });
         assert!(r.contains("yay -Syu") && r.contains("conflicting files") && r.contains(": 1"));
+    }
+
+    #[test]
+    fn commandes_remplacees() {
+        let has = |p: &str| matches!(p, "pacman" | "checkupdates" | "yay" | "flatpak");
+        let mut over = std::collections::BTreeMap::new();
+        over.insert(
+            "aur".to_string(),
+            (String::new(), "yay -Syu --noconfirm".to_string()),
+        );
+        let list = with_overrides(detect(has), &over);
+        let aur = list.iter().find(|s| s.id == "aur").unwrap();
+        assert_eq!(aur.check, vec!["yay".to_string(), "-Qua".to_string()]);
+        assert_eq!(shown(&aur.upgrade), "yay -Syu --noconfirm");
+        let flat = list.iter().find(|s| s.id == "flatpak").unwrap();
+        assert_eq!(
+            shown(&flat.check),
+            "flatpak remote-ls --updates --columns=application"
+        );
     }
 }

@@ -351,6 +351,14 @@ The **Plugins** package shows everything that is installed:
   installed from a `.lua` file, an `init.lua` folder or a git repository, into
   `~/.config/hypr/hyprdesk/widgets/` (`widgets::plugins::install`).
   Removing it moves it to `.retired/`, from where it can be restored.
+- **Configure.** A plugin that declares `options` has a "Configure" button:
+  each option is set there (a switch for a boolean, a field for a number or
+  text). The setting goes to
+  `hd.config({ plugin_options = { <plugin> = { <option> = <value> } } })` and
+  applies to every instance of the plugin, except options written on the
+  instance itself. "Plugin defaults" goes back to the default values. For the
+  `majs` plugin, the check and update commands of each source are shown and
+  can be changed (`hd.config({ update_commands = { aur = { upgrade = "…" } } })`).
 
 A third-party *compiled* package cannot be hot-loaded. Third-party extensions
 therefore go through Lua plugins, or through a contribution to the `BUILTIN`

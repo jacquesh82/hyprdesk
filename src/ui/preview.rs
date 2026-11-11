@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 53] = [
+const SCENES: [&str; 54] = [
     "desktop",
     "typography",
     "icons",
@@ -77,6 +77,7 @@ const SCENES: [&str; 53] = [
     "fenetres",
     "connexion",
     "luminosite",
+    "plugin-config",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -508,6 +509,7 @@ impl Preview {
             "date-heure" => Some("datetime"),
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
+            "plugin-config" => Some("plugins"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -729,6 +731,46 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+        }
+        // Plugins → Mises à jour → Configurer : options et commandes d'exemple.
+        if SCENES[self.scene] == "plugin-config" {
+            use crate::tiling::OptValue;
+            Arc::make_mut(&mut self.app.cfg)
+                .catalog
+                .push(crate::config::WidgetType {
+                    id: "majs".into(),
+                    name: crate::i18n::tr("Mises à jour").into(),
+                    description: crate::i18n::tr("Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher).").into(),
+                    source: crate::config::WidgetSource::Bundled,
+                    anchor: crate::config::Anchor::TopRight,
+                    toggleable: true,
+                    error: None,
+                    options: vec![
+                        ("masquer_a_jour".into(), OptValue::Bool(false)),
+                        ("texte".into(), OptValue::Bool(true)),
+                    ],
+                });
+        }
+        if SCENES[self.scene] == "plugin-config"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.plugins.tab = super::plugins::plugins::Tab::Widgets;
+            p.plugins.configuring = Some("majs".into());
+            p.plugins.update_sources = vec![
+                (
+                    "pacman".into(),
+                    "Dépôts Arch".into(),
+                    "checkupdates".into(),
+                    String::new(),
+                ),
+                (
+                    "aur".into(),
+                    "AUR".into(),
+                    "yay -Qua".into(),
+                    "yay -Syu --noconfirm --sudo pkexec --answerclean None --answerdiff None"
+                        .into(),
+                ),
+            ];
         }
         // Son : appareils et applications d'exemple (l'aperçu ne lit pas PipeWire).
         if SCENES[self.scene] == "son"

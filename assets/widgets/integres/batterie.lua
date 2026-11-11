@@ -55,17 +55,19 @@ local function available_profiles()
     return out
 end
 
--- Alertes de batterie faible : une fois par décharge, à 20 % puis à 10 %.
+-- Alertes de batterie faible : une fois par décharge, au seuil « faible »
+-- puis au seuil « critique » (options, 20 et 10 % par défaut).
 local alerted = 100
 
-local function alert(b)
+local function alert(b, o)
+    local low, crit = tonumber(o.faible) or 20, tonumber(o.critique) or 10
     if b.status ~= "Discharging" then alerted = 100; return end
-    if b.cap > 20 then alerted = 100; return end
-    local level = b.cap <= 10 and 10 or 20
+    if b.cap > low then alerted = 100; return end
+    local level = b.cap <= crit and crit or low
     if level >= alerted then return end
     alerted = level
     hd.spawn(string.format("notify-send -a hyprdesk -u %s %q %q",
-        level == 10 and "critical" or "normal",
+        level == crit and "critical" or "normal",
         string.format(hd.t("Batterie faible : %d %%"), b.cap),
         hd.t("Branchez l'ordinateur pour continuer à travailler.")))
 end
@@ -75,7 +77,7 @@ return {
     description = hd.t("Batterie de l'ordinateur et des périphériques ; masqué s'il n'y en a pas."),
     interval    = 30,
     anchor      = "top-right",
-    options     = { peripheriques = true, texte = true },
+    options     = { peripheriques = true, texte = true, faible = 20, critique = 10 },
     render = function(o)
         local all, main = batteries(), nil
         for _, b in ipairs(all) do if not b.device then main = b; break end end
@@ -89,14 +91,15 @@ return {
             return { icon = "power-profile-" .. p .. "-symbolic", text = "",
                      tooltip = hd.t("Profil d'énergie : ") .. p }
         end
-        if not main.device then alert(main) end
+        if not main.device then alert(main, o) end
         local tips = {}
         for _, b in ipairs(all) do tips[#tips + 1] = b.name .. " — " .. b.cap .. " %" end
         return {
             icon = icon(main),
             text = o.texte and (main.cap .. " %") or "",
             tooltip = table.concat(tips, "\n"),
-            state = (main.cap <= 10 and "critical") or (main.cap <= 20 and "warning") or "normal",
+            state = (main.cap <= (tonumber(o.critique) or 10) and "critical")
+                or (main.cap <= (tonumber(o.faible) or 20) and "warning") or "normal",
         }
     end,
     menu = function()

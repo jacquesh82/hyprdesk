@@ -853,7 +853,7 @@ fn main() -> ExitCode {
         }),
         // Mises à jour en attente, et mise à jour non interactive.
         "updates" => {
-            let sources = updates::sources();
+            let sources = updates::configured_sources(&config_path);
             if sources.is_empty() {
                 eprintln!("{}", crate::i18n::tr("aucune source de paquets reconnue"));
                 return ExitCode::FAILURE;

@@ -148,6 +148,7 @@ pub fn builtin_types() -> Vec<WidgetType> {
             anchor: b.anchor,
             toggleable: b.toggleable,
             error: None,
+            options: Vec::new(),
         })
         .collect()
 }

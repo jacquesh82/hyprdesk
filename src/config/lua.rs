@@ -27,6 +27,9 @@ struct Builder {
     places: Vec<(Origin, String, PlacePatch)>,
     /// `hd.disable` : widgets à retirer une fois tout déclaré.
     disabled: Vec<(Origin, String)>,
+    /// Options de chaque instance de plugin (type, table, options écrites
+    /// sur l'instance) : `plugin_options` s'y applique une fois tout lu.
+    plugin_opts: Vec<(String, Table, Vec<String>)>,
 }
 
 /// Plugin de widget chargé : sa table Lua et ses valeurs par défaut.
@@ -35,6 +38,18 @@ struct Plugin {
     interval: f64,
     anchor: Anchor,
     options: Vec<String>,
+}
+
+/// Valeur d'option de plugin (booléen, nombre, texte).
+fn opt_value(v: &Value) -> Option<crate::tiling::OptValue> {
+    use crate::tiling::OptValue;
+    Some(match v {
+        Value::Boolean(b) => OptValue::Bool(*b),
+        Value::Integer(i) => OptValue::Num(*i as f64),
+        Value::Number(n) if n.is_finite() => OptValue::Num(*n),
+        Value::String(s) => OptValue::Str(s.to_str().ok()?.to_string()),
+        _ => return None,
+    })
 }
 
 /// Modes qu'on peut imposer à un écran ou un workspace.
@@ -129,9 +144,13 @@ fn load_plugin(
             None => Anchor::TopRight,
         };
         let mut options = Vec::new();
+        let mut defaults: Vec<(String, crate::tiling::OptValue)> = Vec::new();
         if let Some(o) = t.get::<Option<Table>>("options")? {
             for pair in o.pairs::<String, Value>() {
-                let k = pair?.0;
+                let (k, v) = pair?;
+                if let Some(d) = opt_value(&v) {
+                    defaults.push((k.clone(), d));
+                }
                 if crate::widgets::COMMON_OPTIONS.contains(&k.as_str()) {
                     return Err(err(crate::tr!(
                         "{ctx} : l'option « {k} » est réservée",
@@ -151,6 +170,10 @@ fn load_plugin(
             anchor,
             toggleable: true,
             error: None,
+            options: {
+                defaults.sort_by(|a, b| a.0.cmp(&b.0));
+                defaults
+            },
         };
         let interval = opt_num(&t, "interval", &ctx)?.unwrap_or(60.0).max(0.1);
         Ok((
@@ -487,6 +510,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspace_monitors",
             "workspace_dedicated",
             "forced_modes",
+            "plugin_options",
+            "update_commands",
             "primary",
             "apps",
             "disabled_plugins",
@@ -732,6 +757,47 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         g.language = l;
     }
     parse_tiling(t, &mut g.tiling)?;
+    if let Some(po) = t.get::<Option<Table>>("plugin_options")? {
+        const C: &str = "hd.config.plugin_options";
+        g.plugin_options.clear();
+        for pair in po.pairs::<String, Table>() {
+            let (plugin, opts) = pair.map_err(|_| {
+                err(crate::tr!(
+                    "{C} : {{ <plugin> = {{ <option> = <valeur> }} }} attendu",
+                    C = C
+                ))
+            })?;
+            let mut m = std::collections::BTreeMap::new();
+            for o in opts.pairs::<String, Value>() {
+                let (k, v) = o?;
+                let v = opt_value(&v).ok_or_else(|| {
+                    err(crate::tr!(
+                        "{C}.{p}.{k} : booléen, nombre ou texte attendu",
+                        C = C,
+                        p = plugin,
+                        k = k
+                    ))
+                })?;
+                m.insert(k, v);
+            }
+            g.plugin_options.insert(plugin, m);
+        }
+    }
+    if let Some(uc) = t.get::<Option<Table>>("update_commands")? {
+        const C: &str = "hd.config.update_commands";
+        g.update_commands.clear();
+        for pair in uc.pairs::<String, Table>() {
+            let (source, cmds) = pair.map_err(|_| {
+                err(crate::tr!(
+                    "{C} : {{ <source> = {{ check = \"…\", upgrade = \"…\" }} }} attendu",
+                    C = C
+                ))
+            })?;
+            let check = opt_string(&cmds, "check", C)?.unwrap_or_default();
+            let upgrade = opt_string(&cmds, "upgrade", C)?.unwrap_or_default();
+            g.update_commands.insert(source, (check, upgrade));
+        }
+    }
     if let Some(fx) = t.get::<Option<Table>>("fx")? {
         g.fx = crate::fx::parse(&fx).map_err(|e| err(format!("{CTX} : {e}")))?;
     }
@@ -1226,12 +1292,16 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                 opts.set(k, v)?;
             }
         }
+        let mut explicit = Vec::new();
         for k in &p.options {
             let v: Value = t.get(k.as_str())?;
             if !v.is_nil() {
                 opts.set(k.as_str(), v)?;
+                explicit.push(k.clone());
             }
         }
+        b.plugin_opts
+            .push((kind.to_string(), opts.clone(), explicit));
         // Chaque fonction du plugin reçoit ses options : render(o), on_click(o),
         // on_scroll(o, sens), menu(o).
         let bind = |f: Function| -> mlua::Result<Function> {
@@ -1961,6 +2031,7 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
             anchor: Anchor::TopRight,
             toggleable: false,
             error: Some(error),
+            options: Vec::new(),
         };
         if !crate::widgets::plugins::valid_id(&id) {
             catalog.push(broken(
@@ -1995,6 +2066,7 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         plugins,
         places: Vec::new(),
         disabled: Vec::new(),
+        plugin_opts: Vec::new(),
     }));
     for (src, name, origin) in chunks {
         if let Some(b) = lua.app_data_ref::<RefCell<Builder>>() {
@@ -2012,6 +2084,26 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         .into_inner();
     apply_places(&mut b);
     b.config.general.expand_workspace_monitors();
+    // Options réglées dans Réglages → Plugins : sur chaque instance, sauf
+    // celles écrites sur l'instance elle-même.
+    for (kind, opts, explicit) in std::mem::take(&mut b.plugin_opts) {
+        let Some(over) = b.config.general.plugin_options.get(&kind) else {
+            continue;
+        };
+        for (k, v) in over {
+            if explicit.contains(k) {
+                continue;
+            }
+            let v = match v {
+                crate::tiling::OptValue::Bool(x) => Value::Boolean(*x),
+                crate::tiling::OptValue::Num(n) => Value::Number(*n),
+                crate::tiling::OptValue::Str(s) => {
+                    Value::String(lua.create_string(s).map_err(|e| e.to_string())?)
+                }
+            };
+            opts.set(k.as_str(), v).map_err(|e| e.to_string())?;
+        }
+    }
     // Widgets désactivés depuis les réglages, quelle que soit leur origine.
     for (origin, id) in std::mem::take(&mut b.disabled) {
         match b.config.widgets.iter().position(|w| w.id == id) {
@@ -2693,6 +2785,44 @@ mod tests {
         assert_eq!(c.wallpapers[0].origin, Origin::Settings);
         assert_eq!(c.wallpapers[1].origin, Origin::User);
         assert_eq!(c.icons[0].origin, Origin::Settings);
+    }
+
+    /// Options réglées dans Réglages → Plugins : sur chaque instance, sauf
+    /// celles écrites sur l'instance ; valeurs par défaut au catalogue.
+    #[test]
+    fn options_de_plugin_reglees() {
+        let dir = std::env::temp_dir().join(format!("hyprdesk-popts-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("hyprdesk/widgets")).unwrap();
+        std::fs::write(
+            dir.join("hyprdesk/widgets/meteo.lua"),
+            r#"return { name = "Météo", options = { ville = "Paris", texte = true },
+                        render = function(o) return o.ville .. tostring(o.texte) end }"#,
+        )
+        .unwrap();
+        let chunks = vec![
+            (r#"hd.config({ plugin_options = { meteo = { ville = "Nantes", texte = false } } })"#.to_string(), "s.lua".to_string(), Origin::Settings),
+            (r#"hd.widget("meteo", { id = "a" }) hd.widget("meteo", { id = "b", ville = "Lyon" })"#.to_string(), "u.lua".to_string(), Origin::User),
+        ];
+        let l = load_chunks(&chunks, &dir).unwrap();
+        let c = &l.config;
+        let render = |i: usize| match c.widgets[i].kind {
+            WidgetKind::Lua { func, .. } => l.render(func).unwrap().text,
+            _ => panic!(),
+        };
+        assert_eq!(render(0), "Nantesfalse");
+        assert_eq!(render(1), "Lyonfalse", "l'option de l'instance l'emporte");
+        let t = c.catalog.iter().find(|t| t.id == "meteo").unwrap();
+        assert_eq!(
+            t.options,
+            vec![
+                ("texte".to_string(), crate::tiling::OptValue::Bool(true)),
+                (
+                    "ville".to_string(),
+                    crate::tiling::OptValue::Str("Paris".into())
+                ),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

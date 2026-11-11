@@ -16,11 +16,11 @@ local function running(p)
     return hd.exec("pgrep -x " .. p .. " 2>/dev/null") ~= ""
 end
 
-local function toggle(p)
+local function toggle(p, o)
     if running(p) then
         hd.exec("pkill -RTMIN -x " .. p)
     else
-        hd.spawn(p .. " -L 280")
+        hd.spawn(p .. " -L " .. math.floor(tonumber(o.hauteur) or 280))
     end
 end
 
@@ -29,7 +29,8 @@ return {
     description = hd.t("Affiche ou masque le clavier à l'écran (wvkbd)."),
     interval    = 10,
     anchor      = "top-right",
-    options     = {},
+    -- Hauteur du clavier en pixels (paysage).
+    options     = { hauteur = 280 },
     render = function()
         local p = prog()
         if not p then
@@ -39,23 +40,23 @@ return {
         return { icon = "input-keyboard-symbolic", state = running(p) and "active" or "normal",
                  tooltip = hd.t("Clavier virtuel — clic : afficher ou masquer") }
     end,
-    on_click = function()
+    on_click = function(o)
         local p = prog()
         if p then
-            toggle(p)
+            toggle(p, o)
         else
             hd.spawn("notify-send -a hyprdesk " .. string.format("%q", hd.t("Clavier virtuel"))
                 .. " " .. string.format("%q", hd.t("wvkbd n'est pas installé : installez le paquet wvkbd.")))
         end
     end,
-    menu = function()
+    menu = function(o)
         local p = prog()
         local m = { { header = hd.t("Clavier virtuel") } }
         if not p then
             m[#m + 1] = { label = hd.t("wvkbd n'est pas installé") }
             return m
         end
-        m[#m + 1] = { label = hd.t("Afficher ou masquer"), action = function() toggle(p) end }
+        m[#m + 1] = { label = hd.t("Afficher ou masquer"), action = function() toggle(p, o) end }
         if running(p) then
             m[#m + 1] = { label = hd.t("Quitter le clavier"), action = function() hd.exec("pkill -x " .. p) end }
         end

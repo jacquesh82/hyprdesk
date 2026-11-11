@@ -48,6 +48,14 @@ pub struct State {
     pub source: String,
     /// Résultat de la dernière installation ou du dernier retrait.
     pub report: Option<Result<String, String>>,
+    /// Plugin dont la configuration est dépliée.
+    pub configuring: Option<String>,
+    /// Saisies en cours (option ou commande → texte).
+    pub drafts: std::collections::HashMap<String, String>,
+    /// Sources de paquets de la machine (mises à jour) : id, libellé,
+    /// relevé et mise à jour de hyprdesk.
+    pub update_sources: Vec<(String, String, String, String)>,
+    pub opt_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +69,20 @@ pub enum Msg {
     Installed(Result<String, String>),
     /// Retire un plugin tiers (fichier du plugin).
     Retire(std::path::PathBuf),
+    /// Déplie ou replie la configuration d'un plugin.
+    Configure(String),
+    /// Option booléenne d'un plugin.
+    OptBool(String, String, bool),
+    /// Saisie d'une option (clé de brouillon, texte).
+    Draft(String, String),
+    /// Option texte ou nombre validée (plugin, option).
+    OptSubmit(String, String),
+    /// Toutes les options d'un plugin reviennent aux valeurs du plugin.
+    OptReset(String),
+    /// Commande de mise à jour validée (source, `true` : mise à jour).
+    UpdSubmit(String, bool),
+    /// Commandes d'une source rendues à hyprdesk.
+    UpdReset(String),
 }
 
 /// Dossier des plugins de l'utilisateur.
@@ -176,6 +198,20 @@ impl App {
                         .on_press(wrap(Msg::Retire(path))),
                 );
             }
+            let configurable = !t.options.is_empty() || t.id == "majs";
+            if configurable && t.error.is_none() {
+                let open = p.plugins.configuring.as_deref() == Some(t.id.as_str());
+                line = line.push(
+                    button(
+                        text(if open { "Fermer" } else { "Configurer" })
+                            .font(self.font)
+                            .size(12),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Configure(t.id.clone()))),
+                );
+            }
             if t.toggleable || active {
                 let id = t.id.clone();
                 line = line.push(toggler(active).on_toggle(move |v| {
@@ -183,6 +219,9 @@ impl App {
                 }));
             }
             lua = lua.push(line);
+            if p.plugins.configuring.as_deref() == Some(t.id.as_str()) {
+                lua = lua.push(self.plugin_config(t));
+            }
         }
 
         // Ajouter un plugin tiers.
@@ -306,8 +345,331 @@ impl App {
         column![tabs, body].spacing(6).into()
     }
 
+    /// Configuration d'un plugin : ses options (valeur réglée, sinon celle
+    /// du plugin) ; pour les mises à jour, les commandes de chaque source.
+    fn plugin_config<'a>(&'a self, t: &'a crate::config::WidgetType) -> Element<'a, UiMsg> {
+        use crate::tiling::OptValue;
+        let Some(p) = &self.panel else {
+            return column![].into();
+        };
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let set = self.cfg.general.plugin_options.get(&t.id);
+        let mut col = column![].spacing(8);
+        for (k, default) in &t.options {
+            let cur = set.and_then(|m| m.get(k)).unwrap_or(default);
+            let label = text(k.replace('_', " "))
+                .font(self.font)
+                .size(13)
+                .width(Length::Fill);
+            let field: Element<'_, UiMsg> = match cur {
+                OptValue::Bool(b) => {
+                    let (id, key) = (t.id.clone(), k.clone());
+                    toggler(*b)
+                        .on_toggle(move |v| wrap(Msg::OptBool(id.clone(), key.clone(), v)))
+                        .into()
+                }
+                other => {
+                    let dk = format!("opt:{}:{k}", t.id);
+                    let shown = p
+                        .plugins
+                        .drafts
+                        .get(&dk)
+                        .cloned()
+                        .unwrap_or_else(|| other.display());
+                    let (id, key) = (t.id.clone(), k.clone());
+                    text_input(&default.display(), &shown)
+                        .font(self.font)
+                        .size(13)
+                        .padding(6)
+                        .width(220)
+                        .on_input(move |v| wrap(Msg::Draft(dk.clone(), v)))
+                        .on_submit(wrap(Msg::OptSubmit(id, key)))
+                        .into()
+                }
+            };
+            col = col.push(row![label, field].spacing(10).align_y(Alignment::Center));
+        }
+        if !t.options.is_empty() {
+            col = col.push(
+                row![
+                    text(crate::i18n::tr(
+                        "Valider un texte avec Entrée. Ces réglages valent pour chaque \
+                         instance du plugin, sauf les options écrites dans hyprdesk.lua."
+                    ))
+                    .font(self.font)
+                    .size(11)
+                    .color(dim)
+                    .width(Length::Fill),
+                    button(text("Valeurs du plugin").font(self.font).size(11))
+                        .padding([3, 8])
+                        .style(button::text)
+                        .on_press(wrap(Msg::OptReset(t.id.clone()))),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        if t.id == "majs" {
+            col = col.push(
+                text(crate::i18n::tr("Commandes utilisées"))
+                    .font(self.title_font())
+                    .size(13),
+            );
+            col = col.push(
+                text(crate::i18n::tr(
+                    "Relevé : sans droits, une ligne par paquet. Mise à jour : non interactive \
+                     (pkexec pour les droits). Vide : la commande de hyprdesk. Journal : \
+                     ~/.local/state/hyprdesk/updates.log.",
+                ))
+                .font(self.font)
+                .size(11)
+                .color(dim),
+            );
+            let over = &self.cfg.general.update_commands;
+            for (id, label, check, upgrade) in &p.plugins.update_sources {
+                let (oc, ou) = over.get(id).cloned().unwrap_or_default();
+                let field = |upgrade_cmd: bool, default: &str, set: &str| {
+                    let dk = format!("upd:{id}:{upgrade_cmd}");
+                    let shown = p
+                        .plugins
+                        .drafts
+                        .get(&dk)
+                        .cloned()
+                        .unwrap_or_else(|| set.to_string());
+                    let hint = if default.is_empty() {
+                        crate::i18n::tr("aucune : comprise dans une autre étape").to_string()
+                    } else {
+                        default.to_string()
+                    };
+                    text_input(&hint, &shown)
+                        .font(iced::Font::MONOSPACE)
+                        .size(12)
+                        .padding(6)
+                        .width(Length::Fill)
+                        .on_input(move |v| wrap(Msg::Draft(dk.clone(), v)))
+                        .on_submit(wrap(Msg::UpdSubmit(id.clone(), upgrade_cmd)))
+                };
+                col = col.push(
+                    row![
+                        text(crate::i18n::tr(label))
+                            .font(self.font)
+                            .size(13)
+                            .width(Length::Fill),
+                        button(text("Commandes de hyprdesk").font(self.font).size(11))
+                            .padding([3, 8])
+                            .style(button::text)
+                            .on_press(wrap(Msg::UpdReset(id.clone()))),
+                    ]
+                    .align_y(Alignment::Center),
+                );
+                col = col.push(
+                    row![
+                        text(crate::i18n::tr("relevé"))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim)
+                            .width(90),
+                        field(false, check, &oc)
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+                col = col.push(
+                    row![
+                        text(crate::i18n::tr("mise à jour"))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim)
+                            .width(90),
+                        field(true, upgrade, &ou)
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+            }
+            if p.plugins.update_sources.is_empty() {
+                col = col.push(
+                    text(crate::i18n::tr("aucune source de paquets reconnue"))
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
+                );
+            }
+        }
+        if let Some(e) = &p.plugins.opt_error {
+            col = col.push(
+                text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+            );
+        }
+        container(col)
+            .padding(12)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                border: iced::Border::default()
+                    .rounded(10)
+                    .width(1)
+                    .color(Color { a: 0.15, ..fg }),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Enregistre une option de plugin (et recharge : les plugins relisent leurs options).
+    fn set_plugin_option(
+        &mut self,
+        plugin: &str,
+        key: &str,
+        v: Option<crate::tiling::OptValue>,
+    ) -> Task<UiMsg> {
+        let mut all = self
+            .settings
+            .plugin_options
+            .clone()
+            .unwrap_or_else(|| self.cfg.general.plugin_options.clone());
+        let m = all.entry(plugin.to_string()).or_default();
+        match v {
+            Some(v) => {
+                m.insert(key.to_string(), v);
+            }
+            None => {
+                m.remove(key);
+            }
+        }
+        all.retain(|_, m| !m.is_empty());
+        self.settings.plugin_options = Some(all);
+        let applied = self.apply();
+        Task::batch([applied, self.commit_reload()])
+    }
+
     pub(in crate::ui) fn plugins_update(&mut self, msg: Msg) -> Task<UiMsg> {
+        use crate::tiling::OptValue;
         match msg {
+            Msg::Configure(id) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                p.plugins.drafts.clear();
+                p.plugins.opt_error = None;
+                if p.plugins.configuring.as_deref() == Some(id.as_str()) {
+                    p.plugins.configuring = None;
+                    return Task::none();
+                }
+                if id == "majs" {
+                    p.plugins.update_sources = crate::updates::sources()
+                        .into_iter()
+                        .map(|s| {
+                            (
+                                s.id.to_string(),
+                                s.label.to_string(),
+                                crate::updates::shown(&s.check),
+                                crate::updates::shown(&s.upgrade),
+                            )
+                        })
+                        .collect();
+                }
+                p.plugins.configuring = Some(id);
+                Task::none()
+            }
+            Msg::OptBool(plugin, key, v) => {
+                self.set_plugin_option(&plugin, &key, Some(OptValue::Bool(v)))
+            }
+            Msg::Draft(k, v) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.plugins.drafts.insert(k, v);
+                    p.plugins.opt_error = None;
+                }
+                Task::none()
+            }
+            Msg::OptSubmit(plugin, key) => {
+                let dk = format!("opt:{plugin}:{key}");
+                let Some(raw) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.plugins.drafts.remove(&dk))
+                else {
+                    return Task::none();
+                };
+                let default = self
+                    .cfg
+                    .catalog
+                    .iter()
+                    .find(|t| t.id == plugin)
+                    .and_then(|t| t.options.iter().find(|(k, _)| *k == key))
+                    .map(|(_, v)| v.clone());
+                let raw = raw.trim().to_string();
+                let v = match default {
+                    _ if raw.is_empty() => None,
+                    Some(OptValue::Num(_)) => match raw.replace(',', ".").parse::<f64>() {
+                        Ok(n) if n.is_finite() => Some(OptValue::Num(n)),
+                        _ => {
+                            if let Some(p) = self.panel.as_mut() {
+                                p.plugins.opt_error =
+                                    Some(crate::tr!("« {v} » : un nombre est attendu", v = raw));
+                            }
+                            return Task::none();
+                        }
+                    },
+                    _ => Some(OptValue::Str(raw)),
+                };
+                self.set_plugin_option(&plugin, &key, v)
+            }
+            Msg::OptReset(plugin) => {
+                let mut all = self
+                    .settings
+                    .plugin_options
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.general.plugin_options.clone());
+                all.remove(&plugin);
+                self.settings.plugin_options = Some(all);
+                if let Some(p) = self.panel.as_mut() {
+                    p.plugins.drafts.clear();
+                }
+                let applied = self.apply();
+                Task::batch([applied, self.commit_reload()])
+            }
+            Msg::UpdSubmit(source, upgrade) => {
+                let dk = format!("upd:{source}:{upgrade}");
+                let Some(raw) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.plugins.drafts.remove(&dk))
+                else {
+                    return Task::none();
+                };
+                let mut all = self
+                    .settings
+                    .update_commands
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.general.update_commands.clone());
+                let e = all.entry(source).or_default();
+                if upgrade {
+                    e.1 = raw.trim().to_string();
+                } else {
+                    e.0 = raw.trim().to_string();
+                }
+                all.retain(|_, (c, u)| !c.is_empty() || !u.is_empty());
+                self.settings.update_commands = Some(all);
+                self.commit()
+            }
+            Msg::UpdReset(source) => {
+                let mut all = self
+                    .settings
+                    .update_commands
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.general.update_commands.clone());
+                all.remove(&source);
+                self.settings.update_commands = Some(all);
+                if let Some(p) = self.panel.as_mut() {
+                    p.plugins
+                        .drafts
+                        .retain(|k, _| !k.starts_with(&format!("upd:{source}:")));
+                }
+                self.commit()
+            }
             Msg::Tab(tab) => {
                 if let Some(p) = self.panel.as_mut() {
                     p.plugins.tab = tab;

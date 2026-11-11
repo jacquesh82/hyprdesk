@@ -155,6 +155,8 @@ pub struct Settings {
     /// Workspaces de chaque écran.
     pub workspace_monitors: Option<BTreeMap<String, Vec<String>>>,
     pub forced_modes: Option<BTreeMap<String, String>>,
+    pub plugin_options: Option<BTreeMap<String, BTreeMap<String, crate::tiling::OptValue>>>,
+    pub update_commands: Option<BTreeMap<String, (String, String)>>,
     /// Écrans dédiés.
     pub workspace_dedicated: Option<std::collections::BTreeSet<String>>,
     /// Écran principal (`hd.config({ primary = "DP-1" })`).
@@ -318,6 +320,8 @@ impl Settings {
             workspace_monitors: has("workspace_monitors")
                 .then(|| g.workspace_monitors_declared.clone()),
             forced_modes: has("forced_modes").then(|| g.forced_modes.clone()),
+            plugin_options: has("plugin_options").then(|| g.plugin_options.clone()),
+            update_commands: has("update_commands").then(|| g.update_commands.clone()),
             workspace_dedicated: has("workspace_dedicated").then(|| g.workspace_dedicated.clone()),
             workspaces: if has("workspaces") {
                 g.workspaces
@@ -592,6 +596,12 @@ impl Settings {
         }
         if free("forced_modes") {
             g.forced_modes = self.forced_modes.clone().unwrap_or_default();
+        }
+        if free("plugin_options") {
+            g.plugin_options = self.plugin_options.clone().unwrap_or_default();
+        }
+        if free("update_commands") {
+            g.update_commands = self.update_commands.clone().unwrap_or_default();
         }
         if free("workspace_dedicated") {
             g.workspace_dedicated = self.workspace_dedicated.clone().unwrap_or_default();
@@ -1061,6 +1071,31 @@ impl Settings {
         }
         if let Some(n) = self.workspaces {
             cfg.push(format!("workspaces = {n}"));
+        }
+        if let Some(m) = self.plugin_options.as_ref().filter(|m| !m.is_empty()) {
+            let f: Vec<String> = m
+                .iter()
+                .filter(|(_, o)| !o.is_empty())
+                .map(|(p, o)| {
+                    let o: Vec<String> = o
+                        .iter()
+                        .map(|(k, v)| format!("[{}] = {}", q(k), v.lua()))
+                        .collect();
+                    format!("[{}] = {{ {} }}", q(p), o.join(", "))
+                })
+                .collect();
+            if !f.is_empty() {
+                cfg.push(format!("plugin_options = {{ {} }}", f.join(", ")));
+            }
+        }
+        if let Some(m) = self.update_commands.as_ref().filter(|m| !m.is_empty()) {
+            let f: Vec<String> = m
+                .iter()
+                .map(|(src, (c, u))| {
+                    format!("[{}] = {{ check = {}, upgrade = {} }}", q(src), q(c), q(u))
+                })
+                .collect();
+            cfg.push(format!("update_commands = {{ {} }}", f.join(", ")));
         }
         if let Some(m) = self.forced_modes.as_ref().filter(|m| !m.is_empty()) {
             let f: Vec<String> = m
