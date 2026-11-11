@@ -385,7 +385,14 @@ impl Lock {
                 if let (Some(o), None) = (same.next(), same.next()) {
                     self.by_size.insert(id, o.name.clone());
                 }
-                Task::none()
+                // Surface de verrouillage prête : le champ du mot de passe
+                // prend le focus (demandé au démarrage, avant les surfaces,
+                // il se perdait : il fallait cliquer avant de taper).
+                if self.checking {
+                    Task::none()
+                } else {
+                    iced::widget::operation::focus(INPUT_ID)
+                }
             }
             Msg::Avatar(h) => {
                 self.avatar = h;
