@@ -12,6 +12,7 @@ configure. If you only want to try it out, the [README](../README.md) is enough.
 - [Configuration pipeline](#configuration-pipeline)
 - [Session root: native and orchestrated services](#session-root-native-and-orchestrated-services)
 - [Lock screen and greeter](#lock-screen-and-greeter)
+- [Keyring: myMFA](#keyring-mymfa)
 - [Configuration reference](#configuration-reference)
 - [Widget plugins](#widget-plugins) · [Writing a plugin](WRITING_PLUGINS.md)
 - [AI assistant](#ai-assistant)
@@ -272,6 +273,33 @@ each system step through `pkexec hyprdesk greeter setup <action>`:
   piece is missing;
 - `restore` goes back to the previous manager. From a console:
   `sudo hyprdesk greeter setup restore`.
+
+## Keyring: myMFA
+
+hyprdesk is the interface of the myMFA Linux client
+(`mindlog.mymfa.clients/linux`), a keyring that replaces gnome-keyring. The
+`mymfa` daemon serves the Secret Service to applications from the myMFA vault
+(the same vault as the web and Android apps) and publishes
+`today.mindlog.MyMfa1` on the session bus. hyprdesk listens to it:
+
+- when an application needs a secret and the vault is locked, hyprdesk shows
+  an unlock card in its own style (the daemon's fallback pinentry is turned
+  off by a `mymfa.service.d/hyprdesk.conf` drop-in);
+- in the launcher, `:2fa` lists the current 2FA codes and `:mdp` the site
+  logins. Enter copies the code or the password; the daemon does the copy
+  itself and clears a password after 30 s. With the vault locked, Enter opens
+  the unlock card;
+- the `mymfa` bar module shows whether the vault is locked or unlocked;
+- **Settings → Passwords** creates the vault or installs the web backup,
+  locks and unlocks it, and replaces gnome-keyring: its secrets are imported,
+  then its units are masked and myMFA takes the name. Going back is one
+  button, and the gnome-keyring files are never touched.
+
+`hyprdesk mymfa unlock|lock|codes|logins` does the same from a shortcut. At
+login, the hyprdesk greeter adds `pam_mymfa` to `/etc/pam.d/greetd` when the
+module is installed, alongside `pam_gnome_keyring` while gnome-keyring is
+still in use. The first unlock after such a login seals the vault password
+with the session key, and after that the vault opens on its own.
 
 ## Configuration reference
 

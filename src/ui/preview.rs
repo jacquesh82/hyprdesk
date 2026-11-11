@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 58] = [
+const SCENES: [&str; 59] = [
     "desktop",
     "typography",
     "icons",
@@ -82,6 +82,7 @@ const SCENES: [&str; 58] = [
     "lanceur-central",
     "clavier-souris",
     "ecran-connexion",
+    "mots-de-passe",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -516,6 +517,7 @@ impl Preview {
             "plugin-config" => Some("plugins"),
             "clavier-souris" => Some("input"),
             "ecran-connexion" => Some("login"),
+            "mots-de-passe" => Some("passwords"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -839,6 +841,26 @@ impl Preview {
                 layouts,
                 variants,
                 ..Default::default()
+            };
+        }
+        // Mots de passe : coffre ouvert, gnome-keyring encore là, reprise à confirmer.
+        if SCENES[self.scene] == "mots-de-passe"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.passwords = super::plugins::passwords::State {
+                loaded: true,
+                gnome_keyring: true,
+                pam_mymfa: true,
+                mymfa_module: true,
+                confirm: true,
+                ..Default::default()
+            };
+            self.app.mfa = crate::mymfa::State {
+                installed: true,
+                vault: true,
+                locked: false,
+                sealed: true,
+                secret_service: false,
             };
         }
         // Écran de connexion : GDM en service, greetd installé, configuration

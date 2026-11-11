@@ -5,7 +5,10 @@
 //!
 //! Une requête qui commence par `:clip` cherche dans l'historique du
 //! presse-papiers (MLG-13, `crate::clipboard`) : Entrée remet l'élément choisi
-//! dans le presse-papiers.
+//! dans le presse-papiers. `:2fa` et `:mdp` cherchent dans le coffre myMFA
+//! (MLG-44, `crate::mymfa`) : Entrée copie le code ou le mot de passe (par
+//! le démon mymfa) ; coffre verrouillé, Entrée ouvre la carte de
+//! déverrouillage.
 
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::window::Id;
@@ -24,6 +27,20 @@ const ROW: f32 = 46.0;
 const SHADOW: f32 = 18.0;
 /// Icône des éléments de l'historique du presse-papiers.
 const CLIP_ICON: &str = "edit-paste-symbolic";
+/// Icône des codes et mots de passe du coffre.
+const MFA_ICON: &str = "system-lock-screen";
+
+/// Contenu du coffre en mode `:2fa` / `:mdp`.
+#[derive(Debug, Clone)]
+pub enum MfaList {
+    Loading,
+    Absent,
+    NoVault,
+    Locked,
+    Error(String),
+    Codes(Vec<crate::mymfa::Code>),
+    Logins(Vec<crate::mymfa::Login>),
+}
 
 pub struct Search {
     pub win: Id,
@@ -40,12 +57,32 @@ pub struct Search {
     pub category: Option<usize>,
     /// Applications mises en avant (les plus lancées), indices dans `App::apps`.
     pub suggested: Vec<usize>,
+    /// Mode coffre (`:2fa`, `:mdp`) : le mode chargé et son contenu.
+    pub mfa: Option<(crate::mymfa::Mode, MfaList)>,
 }
 
 impl Search {
     /// Mode presse-papiers (`:clip …`) : la requête dans l'historique.
     pub fn clip_query(&self) -> Option<&str> {
         crate::clipboard::query(&self.query)
+    }
+
+    fn rank_mfa(&mut self) {
+        let Some((_, q)) = crate::mymfa::query(&self.query) else {
+            return;
+        };
+        let labels: Vec<String> = match &self.mfa {
+            Some((_, MfaList::Codes(c))) => c.iter().map(|c| c.label()).collect(),
+            Some((_, MfaList::Logins(l))) => l.iter().map(|l| l.label()).collect(),
+            _ => Vec::new(),
+        };
+        self.results = if q.is_empty() {
+            (0..labels.len().min(SHOWN)).collect()
+        } else {
+            let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+            crate::search::rank(q, &names, SHOWN)
+        };
+        self.selected = 0;
     }
 
     fn rank_clips(&mut self) {
@@ -74,6 +111,7 @@ pub enum SMsg {
     Launch(usize),
     Resolved(String),
     Clips(Vec<crate::clipboard::Entry>),
+    Mfa(crate::mymfa::Mode, MfaList),
 }
 
 impl App {
@@ -181,6 +219,19 @@ impl App {
     }
 
     /// `hyprdesk search` : le même lanceur (un seul, quelle que soit la commande).
+    /// Ouvre le lanceur sur une requête (`:2fa `, `:mdp `).
+    pub(super) fn open_search_with(&mut self, query: &str) -> Task<Msg> {
+        let open = if self.search.is_some() {
+            Task::none()
+        } else {
+            self.toggle_search()
+        };
+        Task::batch([
+            open,
+            Task::done(Msg::Search(SMsg::Query(query.to_string()))),
+        ])
+    }
+
     pub(super) fn toggle_search(&mut self) -> Task<Msg> {
         self.toggle_launcher()
     }
@@ -222,6 +273,7 @@ impl App {
             grid: sheet,
             category: None,
             suggested,
+            mfa: None,
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -277,6 +329,118 @@ impl App {
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
         match m {
+            SMsg::Query(q) if crate::mymfa::query(&q).is_some() => {
+                let Some((mode, _)) = crate::mymfa::query(&q) else {
+                    return Task::none();
+                };
+                let st = self.mfa.clone();
+                let Some(s) = self.search.as_mut() else {
+                    return Task::none();
+                };
+                s.query = q;
+                if s.mfa.as_ref().is_some_and(|(m, _)| *m == mode) {
+                    s.rank_mfa();
+                    return Task::none();
+                }
+                // Premier passage dans ce mode : contenu lu au démon.
+                s.results.clear();
+                let list = if !st.installed {
+                    MfaList::Absent
+                } else if !st.vault {
+                    MfaList::NoVault
+                } else if st.locked {
+                    MfaList::Locked
+                } else {
+                    MfaList::Loading
+                };
+                let load = matches!(list, MfaList::Loading);
+                s.mfa = Some((mode, list));
+                let icon = self.want_icon(MFA_ICON);
+                if !load {
+                    return icon;
+                }
+                let fetch = Task::perform(
+                    async move {
+                        match mode {
+                            crate::mymfa::Mode::Codes => match crate::mymfa::codes().await {
+                                Ok(c) => MfaList::Codes(c),
+                                Err(e) => MfaList::Error(e),
+                            },
+                            crate::mymfa::Mode::Logins => {
+                                match crate::mymfa::logins(String::new()).await {
+                                    Ok(l) => MfaList::Logins(l),
+                                    Err(e) => MfaList::Error(e),
+                                }
+                            }
+                        }
+                    },
+                    move |l| Msg::Search(SMsg::Mfa(mode, l)),
+                );
+                Task::batch([icon, fetch])
+            }
+            SMsg::Mfa(mode, list) => {
+                if let Some(s) = self.search.as_mut()
+                    && s.mfa.as_ref().is_some_and(|(m, _)| *m == mode)
+                {
+                    s.mfa = Some((mode, list));
+                    s.rank_mfa();
+                }
+                Task::none()
+            }
+            SMsg::Launch(k)
+                if self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| crate::mymfa::query(&s.query).is_some()) =>
+            {
+                enum Pick {
+                    Unlock,
+                    Code(String),
+                    Login(String),
+                    Nothing,
+                }
+                let pick = self
+                    .search
+                    .as_ref()
+                    .map(|s| match &s.mfa {
+                        Some((_, MfaList::Locked)) => Pick::Unlock,
+                        Some((_, MfaList::Codes(c))) => s
+                            .results
+                            .get(k)
+                            .and_then(|&i| c.get(i))
+                            .map(|c| Pick::Code(c.id.clone()))
+                            .unwrap_or(Pick::Nothing),
+                        Some((_, MfaList::Logins(l))) => s
+                            .results
+                            .get(k)
+                            .and_then(|&i| l.get(i))
+                            .map(|l| Pick::Login(l.id.clone()))
+                            .unwrap_or(Pick::Nothing),
+                        _ => Pick::Nothing,
+                    })
+                    .unwrap_or(Pick::Nothing);
+                let report = |r: Result<(), String>| {
+                    if let Err(e) = r {
+                        tracing::warn!("{}", crate::tr!("myMFA : {e}", e = e));
+                    }
+                    Msg::Noop
+                };
+                match pick {
+                    Pick::Nothing => Task::none(),
+                    Pick::Unlock => {
+                        let close = self.close_search();
+                        Task::batch([close, self.mfa_update(super::mymfa::MMsg::Ask)])
+                    }
+                    Pick::Code(id) => Task::batch([
+                        self.close_search(),
+                        Task::perform(crate::mymfa::copy_code(id), report),
+                    ]),
+                    Pick::Login(id) => Task::batch([
+                        self.close_search(),
+                        Task::perform(crate::mymfa::copy_login(id, "password"), report),
+                    ]),
+                }
+            }
             SMsg::Query(q) if crate::clipboard::query(&q).is_some() => {
                 let Some(s) = self.search.as_mut() else {
                     return Task::none();
@@ -418,6 +582,9 @@ impl App {
         let Some(s) = &self.search else {
             return iced::widget::Space::new().into();
         };
+        if crate::mymfa::query(&s.query).is_some() {
+            return self.view_mfa_search(s);
+        }
         if s.clip_query().is_none() {
             return if s.grid {
                 self.view_apps_grid(s)
@@ -431,7 +598,7 @@ impl App {
         let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
         let bg = color(th.bg, 1.0);
         let input = text_input(
-            crate::i18n::tr("Rechercher une application… (:clip : presse-papiers)"),
+            crate::i18n::tr("Rechercher une application… (:clip, :2fa, :mdp)"),
             &s.query,
         )
         .id(INPUT_ID)
@@ -442,6 +609,113 @@ impl App {
         .padding(14)
         .width(Length::Fill);
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .padding(SHADOW)
+            .into()
+    }
+
+    /// Mode coffre (`:2fa`, `:mdp`) : la même carte que le presse-papiers.
+    fn view_mfa_search<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
+        let th = &self.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
+        let bg = color(th.bg, 1.0);
+        let input = text_input(
+            crate::i18n::tr("Rechercher une application… (:clip, :2fa, :mdp)"),
+            &s.query,
+        )
+        .id(INPUT_ID)
+        .on_input(|q| Msg::Search(SMsg::Query(q)))
+        .on_submit(Msg::Search(SMsg::Launch(s.selected)))
+        .font(self.font)
+        .size(20)
+        .padding(14)
+        .width(Length::Fill);
+        use crate::i18n::tr;
+        let mut list = column![].spacing(2);
+        let note = match s.mfa.as_ref().map(|(_, l)| l) {
+            None | Some(MfaList::Loading) => Some(tr("Lecture du coffre…").to_string()),
+            Some(MfaList::Absent) => Some(
+                tr("Le client myMFA n'est pas installé (Réglages → Mots de passe).").to_string(),
+            ),
+            Some(MfaList::NoVault) => {
+                Some(tr("Pas encore de coffre myMFA (Réglages → Mots de passe).").to_string())
+            }
+            Some(MfaList::Locked) => {
+                Some(tr("Coffre verrouillé : Entrée pour le déverrouiller.").to_string())
+            }
+            Some(MfaList::Error(e)) => Some(e.clone()),
+            Some(_) if s.results.is_empty() => Some(tr("Aucun élément ne correspond.").to_string()),
+            Some(_) => None,
+        };
+        if let Some(msg) = note {
+            list = list.push(text(msg).font(self.font).size(13).color(dim));
+        }
+        let rows: Vec<(String, String)> = match s.mfa.as_ref().map(|(_, l)| l) {
+            Some(MfaList::Codes(c)) => s
+                .results
+                .iter()
+                .filter_map(|&i| c.get(i))
+                .map(|c| {
+                    let code = if c.code.len() == 6 {
+                        format!("{} {}", &c.code[..3], &c.code[3..])
+                    } else {
+                        c.code.clone()
+                    };
+                    let detail = if c.remaining > 0 {
+                        format!("{code} · {} s", c.remaining)
+                    } else {
+                        code
+                    };
+                    (c.label(), detail)
+                })
+                .collect(),
+            Some(MfaList::Logins(l)) => s
+                .results
+                .iter()
+                .filter_map(|&i| l.get(i))
+                .map(|l| (l.label(), tr("copier le mot de passe").to_string()))
+                .collect(),
+            _ => Vec::new(),
+        };
+        for (k, (label, detail)) in rows.into_iter().enumerate() {
+            let icon: Element<'_, Msg> = self
+                .icon_named(MFA_ICON, 22.0, dim)
+                .unwrap_or_else(|| iced::widget::Space::new().width(22).height(22).into());
+            let selected = k == s.selected;
+            list = list.push(
+                button(
+                    row![
+                        icon,
+                        text(label).font(self.font).size(14).color(fg),
+                        iced::widget::Space::new().width(Length::Fill),
+                        text(detail).font(self.font).size(13).color(dim),
+                    ]
+                    .spacing(14)
+                    .align_y(Alignment::Center),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .height(ROW)
+                .style(move |_, status| button::Style {
+                    background: (selected || matches!(status, button::Status::Hovered)).then(
+                        || {
+                            Color {
+                                a: if selected { 0.22 } else { 0.1 },
+                                ..accent
+                            }
+                            .into()
+                        },
+                    ),
+                    border: Border::default().rounded(10),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::Search(SMsg::Launch(k))),
+            );
+        }
+        container(self.search_card(s, input, list.into(), bg, fg))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .padding(SHADOW)

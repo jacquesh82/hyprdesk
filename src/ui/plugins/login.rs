@@ -155,6 +155,7 @@ impl App {
             lang: std::env::var("LANG").unwrap_or_default(),
             monitors: st.screens.clone(),
             login_monitor: st.login_monitor.clone(),
+            gnome_keyring: st.status.gnome_keyring,
         }
     }
 

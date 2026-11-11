@@ -19,6 +19,7 @@ pub const OFFERED: &[&str] = &[
     "supports",
     "capture",
     "majs",
+    "mymfa",
 ];
 
 /// Modules devant lesquels les nouveaux se placent (le premier trouvé).
@@ -118,7 +119,7 @@ mod tests {
         // Ce qui a déjà été proposé ne l'est plus (même retiré depuis).
         assert_eq!(
             pending("brightness\nclavier\nnuit\n"),
-            vec!["supports", "capture", "majs"]
+            vec!["supports", "capture", "majs", "mymfa"]
         );
         assert!(pending(&OFFERED.join("\n")).is_empty());
     }

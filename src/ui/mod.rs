@@ -19,6 +19,7 @@ pub(crate) mod color_picker;
 mod context;
 mod design;
 mod icons;
+mod mymfa;
 mod osd;
 mod panel;
 pub(crate) mod plugins;
@@ -193,6 +194,8 @@ pub enum Msg {
     OsdTick,
     /// Agent polkit : demande de mot de passe, saisie, réponse.
     Polkit(polkit::PMsg),
+    /// Trousseau myMFA : état, demandes de déverrouillage, carte.
+    Mymfa(mymfa::MMsg),
     /// Bulles de notifications.
     Toasts(toasts::TMsg),
     /// Fenêtre de détail d'un problème.
@@ -377,6 +380,9 @@ pub struct App {
     osd: Option<osd::Osd>,
     /// Carte d'authentification polkit ouverte.
     polkit: Option<polkit::Dialog>,
+    /// Trousseau myMFA : état connu, carte de déverrouillage ouverte.
+    pub(crate) mfa: crate::mymfa::State,
+    mfa_dialog: Option<mymfa::Dialog>,
     /// Bulles de notifications (si hyprdesk tient le nom du démon).
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
@@ -709,6 +715,8 @@ impl App {
             desk_windows: HashSet::new(),
             osd: None,
             polkit: None,
+            mfa: Default::default(),
+            mfa_dialog: None,
             toasts: Default::default(),
             problem: None,
             search: None,
@@ -2697,6 +2705,12 @@ impl App {
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
+                control::Command::Mymfa(a) => match a.as_str() {
+                    "lock" => self.mfa_update(mymfa::MMsg::Lock),
+                    "codes" => self.open_search_with(":2fa "),
+                    "logins" => self.open_search_with(":mdp "),
+                    _ => self.mfa_update(mymfa::MMsg::Ask),
+                },
                 control::Command::Apps => self.toggle_apps(),
                 control::Command::Ask(origin, text) => self.show_problem_from(&origin, text, true),
                 control::Command::Notifications(a) => {
@@ -3159,6 +3173,7 @@ impl App {
             }
             Msg::OsdTick => self.osd_tick(),
             Msg::Polkit(m) => self.polkit_update(m),
+            Msg::Mymfa(m) => self.mfa_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
             Msg::Search(m) => self.search_update(m),
@@ -3563,6 +3578,12 @@ impl App {
                 {
                     return self.close_icon_menu();
                 }
+                if self.mfa_dialog.as_ref().is_some_and(|d| d.win == id) {
+                    if let Some(mut d) = self.mfa_dialog.take() {
+                        crate::lock::pam::wipe(&mut d.input);
+                    }
+                    return Task::none();
+                }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.polkit.take() {
@@ -3647,6 +3668,12 @@ impl App {
                 None => Task::none(),
             },
             Msg::Key(id, key) => {
+                // Carte myMFA : Échap l'annule.
+                if self.mfa_dialog.is_some()
+                    && key == keyboard::Key::Named(keyboard::key::Named::Escape)
+                {
+                    return self.close_mfa_dialog();
+                }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {
                     use keyboard::key::Named;
@@ -3795,6 +3822,8 @@ impl App {
             Subscription::run(control::server_stream).map(Msg::Control),
             // Agent polkit (fenêtre de saisie) ; inactif si un autre agent est en place.
             Subscription::run(polkit::stream).map(|e| Msg::Polkit(polkit::PMsg::Event(e))),
+            // Trousseau myMFA : état et demandes de déverrouillage (sans client : rien).
+            Subscription::run(mymfa::stream).map(|e| Msg::Mymfa(mymfa::MMsg::Event(e))),
             // Démon de notifications (bulles) ; inactif si un autre tient le nom.
             Subscription::run(toasts::stream).map(|e| Msg::Toasts(toasts::TMsg::Event(e))),
             Subscription::run(control::signal_stream).map(Msg::Control),
@@ -3925,6 +3954,9 @@ impl App {
         }
         if self.polkit.as_ref().is_some_and(|d| d.win == id) {
             return self.view_polkit();
+        }
+        if self.mfa_dialog.as_ref().is_some_and(|d| d.win == id) {
+            return self.view_mfa_dialog();
         }
         if self.toasts.win == Some(id) {
             return self.view_toasts();

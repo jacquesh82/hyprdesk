@@ -84,6 +84,9 @@ pub struct Profile {
     /// Écran qui porte la connexion (les autres restent noirs) ; vide : le
     /// premier.
     pub login_monitor: String,
+    /// gnome-keyring sert encore (pas remplacé par myMFA) : déverrouillé à
+    /// la connexion.
+    pub gnome_keyring: bool,
 }
 
 /// Un écran de la disposition (mêmes valeurs que monitors.lua).
@@ -237,6 +240,8 @@ pub struct Status {
     pub keyring_module: bool,
     /// Hyprland disponible pour porter l'écran (sinon cage).
     pub hyprland: bool,
+    /// gnome-keyring sert encore dans la session (pas remplacé par myMFA).
+    pub gnome_keyring: bool,
     pub fprintd: bool,
     pub loaded: bool,
 }
@@ -436,20 +441,18 @@ pub fn pam_with(src: &str, fingerprint: bool, mymfa: bool, keyring: bool) -> Str
         );
         lines.insert(j, mark("empreinte digitale"));
     }
-    // Trousseau : myMFA s'il est installé, sinon gnome-keyring (déverrouillé
-    // par le mot de passe de connexion, comme sous GDM).
-    let module = if mymfa {
-        Some(("pam_mymfa.so", "", "trousseau myMFA"))
-    } else if keyring {
-        Some((
+    // Trousseaux ouverts par le mot de passe de connexion : gnome-keyring
+    // (comme sous GDM) tant qu'il sert, myMFA s'il est installé ; les deux
+    // pendant la transition.
+    let modules = [
+        keyring.then_some((
             "pam_gnome_keyring.so",
             " auto_start",
             "trousseau gnome-keyring",
-        ))
-    } else {
-        None
-    };
-    if let Some((module, session_arg, what)) = module {
+        )),
+        mymfa.then_some(("pam_mymfa.so", "", "trousseau myMFA")),
+    ];
+    for (module, session_arg, what) in modules.into_iter().flatten() {
         for kind in ["auth", "session"] {
             if let Some(i) = lines.iter().rposition(|l| pam_kind(l) == Some(kind)) {
                 let arg = if kind == "session" { session_arg } else { "" };
@@ -591,6 +594,7 @@ pub fn status() -> Status {
         mymfa_module: mymfa_module(),
         keyring_module: keyring_module(),
         hyprland: matches!(compositor(), Some(Compositor::Hyprland(_))),
+        gnome_keyring: crate::mymfa::gnome_keyring_in_use(),
         fprintd: crate::doctor::has("fprintd"),
         loaded: true,
     }
@@ -821,7 +825,7 @@ fn install(profile: Option<&str>) -> Result<(), String> {
             &src,
             p.fingerprint && has("fprintd"),
             mymfa_module(),
-            keyring_module(),
+            keyring_module() && p.gnome_keyring,
         );
         if new != src {
             std::fs::write(PAM, new).map_err(io)?;
@@ -1004,8 +1008,8 @@ mod tests {
                 .iter()
                 .any(|l| l.starts_with("session") && l.contains("pam_mymfa"))
         );
-        // myMFA remplace gnome-keyring : pas les deux.
-        assert_eq!(pam_state(&both), (true, true, false));
+        // Pendant la transition, les deux trousseaux s'ouvrent.
+        assert_eq!(pam_state(&both), (true, true, true));
         // Rejouable, puis retirable sans trace.
         assert_eq!(pam_with(&both, true, true, true), both);
         assert_eq!(pam_with(&both, false, false, false), ARCH_PAM);

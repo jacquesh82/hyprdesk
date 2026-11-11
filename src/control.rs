@@ -57,6 +57,8 @@ pub enum Command {
     /// Le même, demandé explicitement (« Voir le problème… ») : la
     /// conversation s'affiche aussitôt.
     ProblemShow(String),
+    /// Trousseau myMFA : `unlock` (carte de déverrouillage), `lock`.
+    Mymfa(String),
 }
 
 impl Command {
@@ -91,6 +93,7 @@ impl Command {
             m if m.starts_with("notifications ") => {
                 Command::Notifications(m[14..].trim().to_string())
             }
+            m if m.starts_with("mymfa ") => Command::Mymfa(m[6..].trim().to_string()),
             m if m.starts_with("problem-show ") => {
                 Command::ProblemShow(serde_json::from_str(&m[13..]).ok()?)
             }
@@ -108,6 +111,7 @@ impl Command {
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
             ),
             Command::Notifications(a) => format!("notifications {a}"),
+            Command::Mymfa(a) => format!("mymfa {a}"),
             Command::Ask(o, t) => format!(
                 "ask {}",
                 serde_json::to_string(&(o, t)).unwrap_or_else(|_| "[\"\",\"\"]".into())
@@ -145,6 +149,7 @@ impl Command {
             Command::Osd(_) => "osd-show",
             Command::Problem(_) => "problem",
             Command::ProblemShow(_) => "problem-show",
+            Command::Mymfa(_) => "mymfa",
         }
     }
 }
