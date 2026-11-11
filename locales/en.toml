@@ -1484,3 +1484,8 @@
 "Éditeur de connexions…" = "Connection editor…"
 "Oublier" = "Forget"
 "Confirmer l'oubli" = "Confirm forget"
+
+# Bureau type gestionnaire de fichiers (MLG-19).
+"Corbeille" = "Trash"
+"Fichiers du dossier Bureau et Corbeille" = "Desktop folder files and Trash"
+"on | off — fichiers du dossier Bureau et Corbeille sur le bureau" = "on | off — Desktop folder files and Trash on the desktop"

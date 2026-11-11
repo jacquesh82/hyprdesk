@@ -14,6 +14,7 @@ mod cli_config;
 mod clipboard;
 mod config;
 mod control;
+mod desktop_files;
 mod doctor;
 mod fonts;
 mod fx;

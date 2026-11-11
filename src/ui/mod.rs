@@ -718,7 +718,17 @@ impl App {
         );
         Task::batch([
             Task::perform(
-                async move { lua.load(path).await.map(Arc::new) },
+                async move {
+                    let mut cfg = lua.load(path).await?;
+                    // Dossier Bureau en icônes (réglage desktop_files), hors du fil de l'interface.
+                    let cfg = tokio::task::spawn_blocking(move || {
+                        crate::desktop_files::augment(&mut cfg);
+                        cfg
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    Ok(Arc::new(cfg))
+                },
                 Msg::ConfigLoaded,
             ),
             settings,

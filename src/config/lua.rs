@@ -442,6 +442,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "suspend_binds",
             "clipboard_history",
             "autostart",
+            "desktop_files",
             "float_launched",
             "mode",
             "fade_ms",
@@ -509,6 +510,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "autostart", CTX)? {
         g.autostart = v;
+    }
+    if let Some(v) = opt_bool(t, "desktop_files", CTX)? {
+        g.desktop_files = v;
     }
     if let Some(v) = opt_bool(t, "float_launched", CTX)? {
         g.float_launched = v;

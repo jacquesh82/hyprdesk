@@ -95,6 +95,7 @@ pub struct Settings {
     pub suspend_binds: Option<bool>,
     pub clipboard_history: Option<bool>,
     pub autostart: Option<bool>,
+    pub desktop_files: Option<bool>,
     pub float_launched: Option<bool>,
     pub show_on: Option<ShowOn>,
     pub mode: Option<Mode>,
@@ -241,6 +242,7 @@ impl Settings {
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             clipboard_history: has("clipboard_history").then_some(g.clipboard_history),
             autostart: has("autostart").then_some(g.autostart),
+            desktop_files: has("desktop_files").then_some(g.desktop_files),
             float_launched: has("float_launched").then_some(g.float_launched),
             show_on: has("show_on").then_some(g.show_on),
             mode: has("mode").then_some(g.mode),
@@ -473,6 +475,7 @@ impl Settings {
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(clipboard_history, "clipboard_history", g.clipboard_history);
         set!(autostart, "autostart", g.autostart);
+        set!(desktop_files, "desktop_files", g.desktop_files);
         set!(float_launched, "float_launched", g.float_launched);
         set!(show_on, "show_on", g.show_on);
         set!(mode, "mode", g.mode);
@@ -856,6 +859,9 @@ impl Settings {
         }
         if let Some(v) = self.autostart {
             cfg.push(format!("autostart = {v}"));
+        }
+        if let Some(v) = self.desktop_files {
+            cfg.push(format!("desktop_files = {v}"));
         }
         if let Some(v) = self.float_launched {
             cfg.push(format!("float_launched = {v}"));

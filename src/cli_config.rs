@@ -209,6 +209,10 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.autostart),
         |s, v, c| { s.autostart = Some(parse_bool(v)?); Ok(()) },
         |s| s.autostart = None;
+    "desktop_files", "desktop", "on | off — fichiers du dossier Bureau et Corbeille sur le bureau",
+        |c| on_off(c.general.desktop_files),
+        |s, v, c| { s.desktop_files = Some(parse_bool(v)?); Ok(()) },
+        |s| s.desktop_files = None;
     "font", "desktop", "nom de famille — police de l'interface",
         |c| c.general.font.clone().unwrap_or_default(),
         |s, v, c| { s.font = Some(v.to_string()); Ok(()) },

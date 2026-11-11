@@ -638,6 +638,8 @@ pub struct General {
     pub clipboard_history: bool,
     /// Démarrage automatique XDG (`crate::autostart`), une fois par session.
     pub autostart: bool,
+    /// Bureau type gestionnaire de fichiers : le dossier Bureau XDG en icônes (`crate::desktop_files`).
+    pub desktop_files: bool,
     pub suspend_binds: bool,
     /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
     /// le bureau autour d'elles.
@@ -712,6 +714,7 @@ impl Default for General {
             suspend_binds: true,
             clipboard_history: true,
             autostart: false,
+            desktop_files: false,
             float_launched: true,
             mode: Mode::Opaque,
             fade_ms: 150,

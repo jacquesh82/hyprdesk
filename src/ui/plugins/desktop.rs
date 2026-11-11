@@ -58,6 +58,7 @@ pub enum Msg {
     ClipboardHistory(bool),
     Autostart(bool),
     AutostartEntry(String, bool),
+    DesktopFiles(bool),
     /// Saisie d'un raccourci (0 full-desktop, 1 réglages, 2 secours, 3 launcher-only, 4 no-desktop).
     KeyInput(usize, String),
     KeySubmit(usize),
@@ -129,6 +130,11 @@ impl App {
                     radio(crate::i18n::tr("L'écran principal seulement"), ShowOn::Primary, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
                 ]
                 .spacing(8),
+            ),
+            self.field(
+                "Fichiers du dossier Bureau et Corbeille",
+                "desktop_files",
+                toggler(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v))),
             ),
             self.field(
                 "Fermer après un lancement",
@@ -517,6 +523,11 @@ impl App {
             Msg::Autostart(v) => {
                 self.settings.autostart = Some(v);
                 self.commit()
+            }
+            Msg::DesktopFiles(v) => {
+                // Les icônes du dossier sont ajoutées au chargement : on recharge.
+                self.settings.desktop_files = Some(v);
+                self.commit_reload()
             }
             Msg::AutostartEntry(id, enabled) => {
                 if let Some(e) = crate::autostart::entries().into_iter().find(|e| e.id == id)
