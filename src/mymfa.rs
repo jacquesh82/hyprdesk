@@ -46,6 +46,7 @@ pub trait MyMfa1 {
     fn generate(&self, options: &str) -> zbus::Result<String>;
     /// Synchronisation Drive (LIN-06) : cycle immédiat et états.
     fn sync_now(&self) -> zbus::Result<String>;
+    fn audit(&self) -> zbus::Result<String>;
     fn sync_status(&self) -> zbus::Result<String>;
     fn sync_journal(&self) -> zbus::Result<String>;
     fn drive_connect(&self) -> zbus::Result<String>;
@@ -392,8 +393,6 @@ pub async fn preview(account: serde_json::Value) -> Result<serde_json::Value, St
 }
 
 /// Mot de passe d'un site (RevealPassword), à la demande.
-/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
-#[allow(dead_code)]
 pub async fn reveal_password(id: &str) -> Result<String, String> {
     proxy()
         .await
@@ -404,8 +403,8 @@ pub async fn reveal_password(id: &str) -> Result<String, String> {
 }
 
 /// Mot de passe généré : `{"password", "strength": {"level","bits"}}`.
-/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
-#[allow(dead_code)]
+/// Mot de passe généré : le démon renvoie le mot de passe lui-même (chaîne
+/// JSON), pas un objet.
 pub async fn generate(options: serde_json::Value) -> Result<serde_json::Value, String> {
     let p = proxy().await.map_err(|e| error_text(&e))?;
     let texte = p
@@ -416,6 +415,14 @@ pub async fn generate(options: serde_json::Value) -> Result<serde_json::Value, S
 }
 
 /// Statut de la synchronisation Drive.
+/// Santé des mots de passe (Audit du démon) : faibles, réutilisés,
+/// à renouveler — sans aucun mot de passe.
+pub async fn audit() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.audit().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
 pub async fn sync_status() -> Result<serde_json::Value, String> {
     let p = proxy().await.map_err(|e| error_text(&e))?;
     let texte = p.sync_status().await.map_err(|e| error_text(&e))?;

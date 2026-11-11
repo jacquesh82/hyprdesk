@@ -29,6 +29,8 @@ freedesktop-icons = "0.4"
 chrono = { version = "0.4", features = ["unstable-locales"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Décodage des QR (fenêtre myMFA, Scanner — MLG-46).
+rqrr = "0.11"
 toml = "0.9"
 thiserror = "2"
 anyhow = "1"

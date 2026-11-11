@@ -38,6 +38,7 @@ pub enum Onglet {
     Codes,
     MotsDePasse,
     Activite,
+    TableauDeBord,
     Reglages,
 }
 
@@ -47,14 +48,16 @@ impl Onglet {
             Onglet::Codes => "Codes 2FA",
             Onglet::MotsDePasse => "Mots de passe",
             Onglet::Activite => "Activité",
+            Onglet::TableauDeBord => "Tableau de bord",
             Onglet::Reglages => "Réglages",
         })
         .to_string()
     }
-    const TOUS: [Onglet; 4] = [
+    const TOUS: [Onglet; 5] = [
         Onglet::Codes,
         Onglet::MotsDePasse,
         Onglet::Activite,
+        Onglet::TableauDeBord,
         Onglet::Reglages,
     ];
 }
@@ -117,6 +120,14 @@ pub enum FMsg {
     EnregistrerSite,
     SupprimerLogin(String),
     SupprimerPasskey(String),
+    /// Tableau de bord (MLG-46).
+    Audit(Result<Value, String>),
+    /// Scanner : image et capture écran.
+    DecoderImage,
+    ImageDecode(Result<String, String>),
+    CapturerEcran,
+    Capture(Result<String, String>),
+    CheminImage(String),
     /// Réglages et synchro Drive (MLG-47).
     Verrouiller,
     StatutSynchro(Result<Value, String>),
@@ -151,6 +162,10 @@ pub struct Fenetre {
     pub nouveau: NouveauCompte,
     pub statut_synchro: Option<Value>,
     pub journal: Option<Value>,
+    /// Santé des mots de passe (Audit du démon).
+    pub audit: Option<Value>,
+    /// Chemin d'image à décoder (Scanner du nouveau compte).
+    pub image_chemin: String,
     pub message: Option<(bool, String)>,
     pub occupe: bool,
     pub tiques: u32,
@@ -273,6 +288,8 @@ impl Fenetre {
             nouveau: NouveauCompte::default(),
             statut_synchro: None,
             journal: None,
+            audit: None,
+            image_chemin: String::new(),
             message: None,
             occupe: false,
             tiques: 0,
@@ -447,11 +464,13 @@ impl App {
                 );
                 let codes = Task::perform(mymfa::codes_pleines(), |r| Msg::MymfaF(FMsg::Codes(r)));
                 let contenu = if f.tiques % 5 == 1 {
-                    Task::perform(mymfa::content(), |r| Msg::MymfaF(FMsg::Contenu(r))).chain(
-                        Task::perform(mymfa::sync_status(), |r| {
+                    Task::perform(mymfa::content(), |r| Msg::MymfaF(FMsg::Contenu(r)))
+                        .chain(Task::perform(mymfa::sync_status(), |r| {
                             Msg::MymfaF(FMsg::StatutSynchro(r))
-                        }),
-                    )
+                        }))
+                        .chain(Task::perform(mymfa::audit(), |r| {
+                            Msg::MymfaF(FMsg::Audit(r))
+                        }))
                 } else {
                     Task::none()
                 };
@@ -855,6 +874,63 @@ impl App {
             .chain(Task::perform(mymfa::content(), |r| {
                 Msg::MymfaF(FMsg::Contenu(r))
             })),
+            FMsg::Audit(r) => {
+                if let Ok(a) = r {
+                    f.audit = Some(a);
+                }
+                Task::none()
+            }
+            FMsg::CheminImage(v) => {
+                f.image_chemin = v;
+                Task::none()
+            }
+            FMsg::DecoderImage => {
+                let chemin = f.image_chemin.clone();
+                Task::perform(
+                    async move { tokio::task::spawn_blocking(move || decoder_image(&chemin)).await },
+                    |r| {
+                        Msg::MymfaF(FMsg::ImageDecode(match r {
+                            Ok(interne) => interne,
+                            Err(e) => Err(e.to_string()),
+                        }))
+                    },
+                )
+            }
+            FMsg::ImageDecode(r) => match r {
+                Ok(texte) => {
+                    f.image_chemin.clear();
+                    f.nouveau.texte = texte;
+                    Task::done(Msg::MymfaF(FMsg::VerifierCompte))
+                }
+                Err(e) => Task::done(Msg::MymfaF(FMsg::Message(true, e))),
+            },
+            FMsg::CapturerEcran => Task::perform(
+                async {
+                    tokio::process::Command::new("sh")
+                        .arg("-c")
+                        .arg("grim -g \"$(slurp)\" /tmp/hyprdesk-qr.png && echo ok")
+                        .output()
+                        .await
+                },
+                |r| {
+                    let ok = r.map(|o| o.status.success()).unwrap_or(false);
+                    if ok {
+                        Msg::MymfaF(FMsg::Capture(Ok("/tmp/hyprdesk-qr.png".into())))
+                    } else {
+                        Msg::MymfaF(FMsg::Capture(Err(crate::i18n::tr(
+                            "Capture interrompue (sélection annulée ?).",
+                        )
+                        .to_string())))
+                    }
+                },
+            ),
+            FMsg::Capture(r) => match r {
+                Ok(chemin) => {
+                    f.image_chemin = chemin;
+                    Task::done(Msg::MymfaF(FMsg::DecoderImage))
+                }
+                Err(e) => Task::done(Msg::MymfaF(FMsg::Message(true, e))),
+            },
             FMsg::Verrouiller => Task::perform(mymfa::lock(), |r| match r {
                 Ok(()) => Msg::MymfaF(FMsg::Fermer),
                 Err(e) => Msg::MymfaF(FMsg::Message(true, e)),
@@ -1004,6 +1080,7 @@ impl Fenetre {
             Onglet::Codes => self.vue_codes(app),
             Onglet::MotsDePasse => self.vue_sites(app),
             Onglet::Activite => self.vue_activite(app),
+            Onglet::TableauDeBord => self.vue_tableau(app),
             Onglet::Reglages => self.vue_reglages(app),
         };
 
@@ -1320,6 +1397,46 @@ impl Fenetre {
                 bouton_simple(app, crate::i18n::tr("Annuler"), FMsg::NouveauCompte(false)),
             ]
             .spacing(8),
+            container(iced::widget::Space::new().height(1))
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(edge.into()),
+                    ..Default::default()
+                }),
+            text(crate::i18n::tr("Ou depuis un code QR :").to_string())
+                .font(app.font)
+                .size(12)
+                .color(dim),
+            row![
+                text_input(crate::i18n::tr("chemin de l'image…"), &self.image_chemin,)
+                    .font(app.font)
+                    .size(13)
+                    .padding([8, 10])
+                    .width(Length::Fill)
+                    .style(move |_, status| {
+                        let bord = match status {
+                            text_input::Status::Focused { .. } => accent,
+                            _ => edge,
+                        };
+                        text_input::Style {
+                            background: Color { a: 0.06, ..fg }.into(),
+                            border: Border::default().rounded(8).width(1).color(bord),
+                            icon: fg,
+                            placeholder: dim,
+                            value: fg,
+                            selection: Color { a: 0.35, ..accent },
+                        }
+                    })
+                    .on_input(move |s| wrap(FMsg::CheminImage(s))),
+                bouton_simple(app, crate::i18n::tr("Décoder l'image"), FMsg::DecoderImage),
+                bouton_simple(
+                    app,
+                    crate::i18n::tr("Capturer l'écran"),
+                    FMsg::CapturerEcran
+                ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         ]
         .spacing(8)
         .width(Length::Fill);
@@ -1990,6 +2107,252 @@ impl Fenetre {
         .to_string()
     }
 
+    /* ── Onglet Tableau de bord (MLG-46) : chiffres, usage, santé ── */
+
+    fn vue_tableau(&self, app: &App) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let accent = color(th.accent, 1.0);
+        let edge = color(r.edge, 1.0);
+        let warn = color(r.error, 1.0);
+        let mut col = column![].spacing(12);
+
+        // ── Chiffres clés.
+        let comptes = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("accounts"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let logins = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("logins"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let cles = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("passkeys"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let chiffres = row![
+            self.chiffre_carte(app, &comptes.to_string(), crate::i18n::tr("codes 2FA")),
+            self.chiffre_carte(
+                app,
+                &logins.to_string(),
+                crate::i18n::tr("sites enregistrés")
+            ),
+            self.chiffre_carte(app, &cles.to_string(), crate::i18n::tr("passkeys")),
+        ]
+        .spacing(8);
+        col = col.push(chiffres);
+
+        // ── Usage sur 30 jours : entrées d'historique par jour.
+        col = col.push(
+            text(crate::i18n::tr("Usage sur 30 jours").to_string())
+                .font(app.font)
+                .size(14)
+                .color(fg),
+        );
+        let histoire = self
+            .contenu
+            .as_ref()
+            .and_then(|c| c.get("history"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut par_jour: std::collections::BTreeMap<String, u32> =
+            std::collections::BTreeMap::new();
+        for e in &histoire {
+            if let Some(jour) = Self::texte_de(e, "at").get(..10) {
+                *par_jour.entry(jour.to_string()).or_insert(0) += 1;
+            }
+        }
+        let jours: Vec<(String, u32)> = par_jour.into_iter().collect();
+        let sommet = jours.iter().map(|(_, n)| *n).max().unwrap_or(1).max(1);
+        let mut barres = row![].spacing(3).align_y(Alignment::End);
+        let largeur = jours.len();
+        for (jour, n) in jours.iter().rev().take(30).rev() {
+            let hauteur = 6.0 + 44.0 * (*n as f32 / sommet as f32);
+            barres = barres.push(
+                container(
+                    column![
+                        container(iced::widget::Space::new().height(hauteur))
+                            .width(Length::Fill)
+                            .style(move |_| container::Style {
+                                background: Some(accent.into()),
+                                ..Default::default()
+                            }),
+                        text(jour.get(8..10).unwrap_or("").to_string())
+                            .font(app.font)
+                            .size(9)
+                            .color(dim),
+                    ]
+                    .spacing(2),
+                )
+                .width(Length::FillPortion(largeur.max(1) as u16)),
+            );
+        }
+        if jours.is_empty() {
+            barres = barres.push(
+                text(crate::i18n::tr("Aucun usage enregistré sur 30 jours.").to_string())
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        col = col.push(
+            container(barres)
+                .padding(8)
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.05, ..fg }.into()),
+                    border: Border::default().rounded(8).width(1).color(edge),
+                    ..Default::default()
+                }),
+        );
+
+        // ── Santé des mots de passe (Audit du démon : faibles, réutilisés,
+        // à renouveler — jamais de mot de passe dans la réponse).
+        col = col.push(
+            text(crate::i18n::tr("Santé des mots de passe").to_string())
+                .font(app.font)
+                .size(14)
+                .color(fg),
+        );
+        let Some(a) = &self.audit else {
+            col = col.push(
+                text(crate::i18n::tr("Chargement de l'audit…").to_string())
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+            );
+            return col.into();
+        };
+        let section_sante =
+            |titre: String, vide: String, items: Vec<Value>, cle_label: &str| -> Element<'_, Msg> {
+                let mut bloc = column![text(titre).font(app.font).size(13).color(warn),].spacing(4);
+                if items.is_empty() {
+                    bloc = bloc.push(text(vide).font(app.font).size(12).color(dim));
+                }
+                for item in &items {
+                    bloc = bloc.push(
+                        text(Self::texte_de(item, cle_label))
+                            .font(app.font)
+                            .size(12)
+                            .color(fg),
+                    );
+                }
+                bloc.into()
+            };
+        let faibles = a
+            .get("faibles")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let reutilises = a
+            .get("reutilises")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let a_renouveller = a
+            .get("aRenouveler")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if faibles.is_empty() && reutilises.is_empty() && a_renouveller.is_empty() {
+            col = col.push(
+                text(
+                    crate::i18n::tr(
+                        "Aucun problème détecté : mots de passe forts, uniques et récents.",
+                    )
+                    .to_string(),
+                )
+                .font(app.font)
+                .size(12)
+                .color(ok_vert(app)),
+            );
+        }
+        if !faibles.is_empty() {
+            col = col.push(section_sante(
+                crate::tr!("Faibles ({n})", n = faibles.len()).to_string(),
+                String::new(),
+                faibles,
+                "label",
+            ));
+        }
+        if !reutilises.is_empty() {
+            let mut bloc = column![
+                text(crate::tr!("Réutilisés ({n})", n = reutilises.len()).to_string())
+                    .font(app.font)
+                    .size(13)
+                    .color(warn)
+            ]
+            .spacing(4);
+            for groupe in &reutilises {
+                let sites = groupe
+                    .get("sites")
+                    .and_then(Value::as_array)
+                    .map(|s| {
+                        s.iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(" · ")
+                    })
+                    .unwrap_or_default();
+                bloc = bloc.push(text(sites).font(app.font).size(12).color(fg));
+            }
+            col = col.push(bloc);
+        }
+        if !a_renouveller.is_empty() {
+            col = col.push(section_sante(
+                crate::tr!("À renouveler ({n})", n = a_renouveller.len()).to_string(),
+                String::new(),
+                a_renouveller,
+                "label",
+            ));
+        }
+        col = col.push(
+            text(crate::i18n::tr("Fuites (Have I Been Pwned) : vérification côté web en attendant le port au démon.").to_string())
+                .font(app.font)
+                .size(11)
+                .color(dim),
+        );
+        col.into()
+    }
+
+    fn chiffre_carte(&self, app: &App, nombre: &str, libelle: &str) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let edge = color(r.edge, 1.0);
+        container(
+            column![
+                text(nombre.to_string())
+                    .font(app.title_font())
+                    .size(26)
+                    .color(fg),
+                text(libelle.to_string()).font(app.font).size(11).color(dim),
+            ]
+            .spacing(2),
+        )
+        .padding(10)
+        .width(Length::FillPortion(3))
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.05, ..fg }.into()),
+            border: Border::default().rounded(10).width(1).color(edge),
+            ..Default::default()
+        })
+        .into()
+    }
+
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
 
     fn vue_reglages(&self, app: &App) -> Element<'_, Msg> {
@@ -2280,6 +2643,24 @@ pub fn solidite(mot: &str) -> (u8, u32) {
         4
     };
     (niveau, bits.round() as u32)
+}
+
+/// Décode le premier QR d'une image (chemin local) : renvoie son contenu.
+fn decoder_image(chemin: &str) -> Result<String, String> {
+    let img = image::open(chemin).map_err(|e| format!("image illisible : {e}"))?;
+    let luma = img.to_luma8();
+    let mut preparee = rqrr::PreparedImage::prepare(luma);
+    for grille in preparee.detect_grids() {
+        if let Ok((_, contenu)) = grille.decode() {
+            return Ok(contenu);
+        }
+    }
+    Err(crate::i18n::tr("Aucun code QR trouvé dans cette image.").to_string())
+}
+
+fn ok_vert(app: &App) -> Color {
+    let th = &app.cfg.general.theme;
+    color(crate::theme::readable(th.fg, th.bg, th.accent).focus, 1.0)
 }
 
 fn f_meme_etiquette(f: &Filtre, t: &str) -> bool {
