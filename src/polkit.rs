@@ -403,7 +403,28 @@ pub fn retry_delay(attempt: u32, busy: bool) -> std::time::Duration {
     std::time::Duration::from_secs((5u64 << attempt.min(4)).min(60))
 }
 
+/// Session graphique de l'utilisateur (`User.Display` de logind) : celle
+/// d'un service systemd utilisateur, qui n'appartient à aucune session.
+async fn display_session(conn: &zbus::Connection) -> Option<String> {
+    // SAFETY : getuid ne peut pas échouer.
+    let uid = unsafe { libc::getuid() };
+    let reply = conn
+        .call_method(
+            Some("org.freedesktop.login1"),
+            format!("/org/freedesktop/login1/user/_{uid}").as_str(),
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &("org.freedesktop.login1.User", "Display"),
+        )
+        .await
+        .ok()?;
+    let v: OwnedValue = reply.body().deserialize().ok()?;
+    let (id, _path): (String, zbus::zvariant::OwnedObjectPath) = v.try_into().ok()?;
+    (!id.is_empty()).then_some(id)
+}
+
 /// Session logind de ce processus (`GetSessionByPID`, puis `Id`), sinon
+/// la session graphique de l'utilisateur (service systemd), sinon
 /// `$XDG_SESSION_ID`.
 async fn session_id(conn: &zbus::Connection) -> Option<String> {
     let from_logind = async {
@@ -431,12 +452,15 @@ async fn session_id(conn: &zbus::Connection) -> Option<String> {
         let v: OwnedValue = reply.body().deserialize().ok()?;
         String::try_from(v).ok().filter(|s| !s.is_empty())
     };
-    match from_logind.await {
-        Some(id) => Some(id),
-        None => std::env::var("XDG_SESSION_ID")
-            .ok()
-            .filter(|s| !s.is_empty()),
+    if let Some(id) = from_logind.await {
+        return Some(id);
     }
+    if let Some(id) = display_session(conn).await {
+        return Some(id);
+    }
+    std::env::var("XDG_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// Publie l'agent et l'enregistre auprès de polkit pour la session de ce
