@@ -1415,3 +1415,14 @@
 "Éjecter « %s »" = "Eject “%s”"
 "Éjection impossible" = "Cannot eject"
 "Supports amovibles (montage, éjection)" = "Removable drives (mount, eject)"
+
+# Éclairage nocturne (MLG-17).
+"Désactivé" = "Off"
+"Géré par %s" = "Managed by %s"
+"Température" = "Temperature"
+"très chaud" = "very warm"
+"Éclairage nocturne : %d K" = "Night light: %d K"
+"Éclairage nocturne désactivé" = "Night light off"
+"Éclairage nocturne géré par %s" = "Night light managed by %s"
+"Écran plus chaud le soir (hyprsunset) : horaire ou à la demande." = "Warmer screen in the evening (hyprsunset): scheduled or on demand."
+"à retirer de hyprland.lua pour laisser hyprdesk le gérer" = "remove it from hyprland.lua to let hyprdesk manage it"

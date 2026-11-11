@@ -174,6 +174,7 @@ les remplace :
 | `clavier` | disposition du clavier active ; menu pour choisir, molette pour passer à la suivante |
 | `majs` | mises à jour en attente, mise à jour en un clic |
 | `supports` | clés USB et disques externes : notification au branchement, ouvrir, éjecter ; masqué s'il n'y en a pas |
+| `nuit` | éclairage nocturne (hyprsunset) : horaire ou à la demande, température ; laisse la main à wlsunset/gammastep s'ils tournent |
 | `notifications` | Ne pas déranger, dernières notifications, tout effacer (service de wayle) |
 | `session` | verrouiller, veille, déconnexion, redémarrage, extinction (avec confirmation) |
 
