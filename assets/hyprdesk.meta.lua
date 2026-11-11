@@ -167,7 +167,7 @@ function hd.disable(id) end
 ---@param fn fun(e: HD.HookEvent)
 function hd.on(event, fn) end
 
----@alias HD.BarModule "workspaces"|"window"|"volume"|"tray"|"desktop"|string|table # ou widget : "clock", { "clock", format = "%H:%M" }
+---@alias HD.BarModule "workspaces"|"window"|"volume"|"brightness"|"tray"|"desktop"|string|table # ou widget : "clock", { "clock", format = "%H:%M" }
 
 ---@class HD.BarSpec
 ---@field monitor? HD.Selector # "primary" : l'écran principal

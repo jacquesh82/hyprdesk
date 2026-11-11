@@ -206,7 +206,7 @@ return {
 Bundled plugins are built into the binary — a file with the same name replaces
 them: `reseau` (wired and Wi-Fi), `bluetooth`, `batterie`, `capture` (screenshots, screen recording), `clavier` (keyboard layout), `lecteur` (media player, MPRIS),
 `majs` (pending updates), `supports` (USB drives: open, eject), `nuit` (night light, hyprsunset), `vkbd` (on-screen keyboard), `notifications` (Do Not Disturb), `session` (lock, suspend, log out, reboot, power off). The
-bar adds `workspaces`, `window`, `volume`, `tray` and `desktop` modules.
+bar adds `workspaces`, `window`, `volume`, `brightness` (backlight or DDC/CI screens), `tray` and `desktop` modules.
 `hyprdesk menu volume` opens any module menu from the keyboard.
 
 ## Configuration — `~/.config/hypr/hyprdesk.lua`

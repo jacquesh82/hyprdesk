@@ -2,6 +2,10 @@
 //! dans sysfs (`/sys/class/backlight`, `/sys/class/leds/*kbd_backlight*`),
 //! écriture par logind (`org.freedesktop.login1.Session.SetBrightness`), qui
 //! l'autorise à la session active.
+//!
+//! Écrans externes : DDC/CI par `ddcutil` (code VCP 0x10, luminosité), un
+//! bus I²C par écran. La détection est lente (quelques secondes) : faite
+//! une fois, puis seules les valeurs sont relues.
 
 use std::path::{Path, PathBuf};
 
@@ -102,6 +106,136 @@ pub async fn set(d: &Device, value: u32) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// Écran externe réglable par DDC/CI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Display {
+    /// Connecteur, au nom de Hyprland (`DP-1`, `HDMI-A-2`).
+    pub connector: String,
+    pub bus: u32,
+    pub current: u32,
+    pub max: u32,
+}
+
+impl Display {
+    pub fn level(&self) -> f32 {
+        if self.max == 0 {
+            0.0
+        } else {
+            self.current as f32 / self.max as f32
+        }
+    }
+}
+
+/// Écrans de `ddcutil detect --brief` : (bus I²C, connecteur sans `cardN-`).
+pub fn parse_detect(out: &str) -> Vec<(u32, String)> {
+    let mut list = Vec::new();
+    let mut bus = None;
+    for line in out.lines() {
+        let l = line.trim();
+        if l.starts_with("Display ") || l.starts_with("Invalid display") {
+            bus = None;
+            if l.starts_with("Invalid") {
+                continue;
+            }
+        }
+        if let Some(v) = l.strip_prefix("I2C bus:") {
+            bus = v.trim().rsplit('-').next().and_then(|n| n.parse().ok());
+        } else if let Some(v) = l.strip_prefix("DRM connector:")
+            && let Some(b) = bus.take()
+        {
+            let c = v.trim();
+            let c = c.split_once('-').map(|(_, r)| r).unwrap_or(c);
+            list.push((b, c.to_string()));
+        }
+    }
+    list
+}
+
+/// Valeur et maximum de `ddcutil getvcp 10 --brief` (`VCP 10 C 50 100`).
+pub fn parse_vcp(out: &str) -> Option<(u32, u32)> {
+    let mut it = out.split_whitespace();
+    while let Some(w) = it.next() {
+        if w == "VCP" {
+            let _code = it.next()?;
+            if it.next()? != "C" {
+                return None;
+            }
+            let cur = it.next()?.parse().ok()?;
+            let max: u32 = it.next()?.parse().ok()?;
+            return (max > 0).then_some((cur, max));
+        }
+    }
+    None
+}
+
+async fn ddcutil(args: &[String], timeout: u64) -> Option<String> {
+    let o = crate::processes::output(
+        tokio::process::Command::new("ddcutil").args(args),
+        std::time::Duration::from_secs(timeout),
+    )
+    .await
+    .ok()?;
+    o.status
+        .success()
+        .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// Écrans DDC/CI détectés (une fois par démon ; vide sans ddcutil).
+pub async fn ddc_buses() -> Vec<(u32, String)> {
+    static DETECTED: tokio::sync::OnceCell<Vec<(u32, String)>> = tokio::sync::OnceCell::const_new();
+    DETECTED
+        .get_or_init(|| async {
+            if !crate::launch::executable("ddcutil") {
+                return Vec::new();
+            }
+            ddcutil(&["detect".into(), "--brief".into()], 20)
+                .await
+                .map(|o| parse_detect(&o))
+                .unwrap_or_default()
+        })
+        .await
+        .clone()
+}
+
+/// Luminosité des écrans DDC/CI.
+pub async fn ddc_displays() -> Vec<Display> {
+    let mut out = Vec::new();
+    for (bus, connector) in ddc_buses().await {
+        let args = vec![
+            "--bus".into(),
+            bus.to_string(),
+            "getvcp".into(),
+            "10".into(),
+            "--brief".into(),
+        ];
+        if let Some((current, max)) = ddcutil(&args, 5).await.as_deref().and_then(parse_vcp) {
+            out.push(Display {
+                connector,
+                bus,
+                current,
+                max,
+            });
+        }
+    }
+    out
+}
+
+/// Règle la luminosité d'un écran DDC/CI (0..max).
+pub async fn ddc_set(bus: u32, value: u32) -> Result<(), String> {
+    let args = vec![
+        "--bus".into(),
+        bus.to_string(),
+        "--noverify".into(),
+        "setvcp".into(),
+        "10".into(),
+        value.to_string(),
+    ];
+    ddcutil(&args, 5)
+        .await
+        .map(|_| ())
+        .ok_or_else(|| crate::tr!("ddcutil : écran du bus {b} injoignable", b = bus))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +286,17 @@ mod tests {
             ("intel_backlight", 300, 1200)
         );
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn ecrans_ddc() {
+        let detect = "Display 1\n   I2C bus:          /dev/i2c-7\n   DRM connector:    card1-HDMI-A-2\n   Monitor:          HYC:PX7 Prime:\n\nInvalid display\n   I2C bus:          /dev/i2c-3\n\nDisplay 2\n   I2C bus:          /dev/i2c-12\n   DRM connector:    card1-DP-1\n";
+        assert_eq!(
+            parse_detect(detect),
+            vec![(7, "HDMI-A-2".to_string()), (12, "DP-1".to_string())]
+        );
+        assert_eq!(parse_vcp("VCP 10 C 50 100"), Some((50, 100)));
+        assert_eq!(parse_vcp("VCP 10 ERR"), None);
+        assert_eq!(parse_vcp("VCP 10 C 0 0"), None);
     }
 }

@@ -70,6 +70,7 @@ impl Default for BarSettings {
                     BarEntry::new("bluetooth"),
                     BarEntry::new("batterie"),
                     BarEntry::new("volume"),
+                    BarEntry::new("brightness"),
                     // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
                     BarEntry::new("clavier"),
                     BarEntry::new("nuit"),
@@ -192,6 +193,7 @@ impl BarSettings {
                         BarItem::Desktop => BarEntry::new("desktop"),
                         BarItem::Volume => BarEntry::new("volume"),
                         BarItem::Tray => BarEntry::new("tray"),
+                        BarItem::Brightness => BarEntry::new("brightness"),
                         BarItem::Widget(id) => match c.widgets.iter().find(|w| &w.id == id) {
                             Some(w) => BarEntry {
                                 type_id: w.type_id.clone(),

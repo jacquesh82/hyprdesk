@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 52] = [
+const SCENES: [&str; 53] = [
     "desktop",
     "typography",
     "icons",
@@ -76,6 +76,7 @@ const SCENES: [&str; 52] = [
     "menu-icone",
     "fenetres",
     "connexion",
+    "luminosite",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -272,7 +273,7 @@ impl Preview {
             zones: [
                 vec![BarItem::Workspaces, BarItem::Window],
                 vec![BarItem::Widget("barclock".into())],
-                vec![BarItem::Volume, BarItem::Desktop],
+                vec![BarItem::Brightness, BarItem::Volume, BarItem::Desktop],
             ],
             portrait: None,
             compact: Default::default(),
@@ -914,6 +915,33 @@ impl Preview {
             let _ = self
                 .app
                 .open_popover(self.bar, "volume".into(), popover::Kind::Volume);
+        }
+        // Module Luminosité : un portable (écran, clavier) et un écran externe.
+        if SCENES[self.scene] == "luminosite" {
+            use crate::brightness::{Device, Display};
+            self.app.light = super::bar::Light {
+                screen: Some(Device {
+                    subsystem: "backlight",
+                    name: "intel_backlight".into(),
+                    current: 720,
+                    max: 1200,
+                }),
+                kbd: Some(Device {
+                    subsystem: "leds",
+                    name: "kbd_backlight".into(),
+                    current: 1,
+                    max: 3,
+                }),
+                displays: vec![Display {
+                    connector: "DP-1".into(),
+                    bus: 12,
+                    current: 40,
+                    max: 100,
+                }],
+            };
+            let _ = self
+                .app
+                .open_popover(self.bar, "brightness".into(), popover::Kind::Brightness);
         }
         // Touche de volume : la carte d'affichage à l'écran.
         if SCENES[self.scene] == "osd" {

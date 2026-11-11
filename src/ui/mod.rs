@@ -117,6 +117,14 @@ pub enum Msg {
     VolumeStep(i32),
     VolumeSet(f32),
     VolumeValue(Option<(f32, bool)>),
+    /// Luminosité relue (rétroéclairage, écrans DDC/CI).
+    LightValue(bar::Light),
+    /// Molette sur le module : pas en pour cent.
+    LightStep(bar::LightTarget, i32),
+    /// Curseur déplacé (affichage seulement).
+    LightSet(bar::LightTarget, f32),
+    /// Curseur relâché : la valeur s'applique.
+    LightApply(bar::LightTarget),
     /// Micro coupé ou rétabli.
     MicMute,
     MicSet(f32),
@@ -376,6 +384,9 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Module Luminosité ; dernière relecture des écrans DDC/CI (lente).
+    light: bar::Light,
+    light_ddc_at: Option<Instant>,
     /// Micro et périphériques audio (menu Son).
     audio: bar::Audio,
     /// Bureau affiché SOUS les fenêtres, laissées en place : icônes, widgets
@@ -689,6 +700,8 @@ impl App {
             workspaces: Vec::new(),
             active_window: None,
             volume: None,
+            light: bar::Light::default(),
+            light_ddc_at: None,
             audio: bar::Audio::default(),
             with_windows: false,
             window_gaps: Vec::new(),
@@ -1336,6 +1349,9 @@ impl App {
             let req = match &it {
                 config::BarItem::Volume if kind == "volume" => {
                     Some(("volume".to_string(), popover::Request::Volume))
+                }
+                config::BarItem::Brightness if matches!(kind, "brightness" | "luminosite") => {
+                    Some(("brightness".to_string(), popover::Request::Brightness))
                 }
                 config::BarItem::Tray if kind == "tray" => self.tray.iter().find_map(|t| {
                     t.menu.clone().map(|m| {
@@ -2074,6 +2090,25 @@ impl App {
             self.pending_widgets.insert("bar:volume".into());
             self.last_poll.insert("bar:volume".into(), now);
             tasks.push(Task::perform(bar::read_volume(), Msg::VolumeValue));
+        }
+        if self.bar_has(&config::BarItem::Brightness)
+            && !self.pending_widgets.contains("bar:light")
+            && self
+                .last_poll
+                .get("bar:light")
+                .is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2))
+        {
+            self.pending_widgets.insert("bar:light".into());
+            self.last_poll.insert("bar:light".into(), now);
+            // Écrans DDC/CI : relus toutes les 30 s (ddcutil est lent).
+            let known = self
+                .light_ddc_at
+                .is_some_and(|t| now.duration_since(t) < Duration::from_secs(30))
+                .then(|| self.light.displays.clone());
+            if known.is_none() {
+                self.light_ddc_at = Some(now);
+            }
+            tasks.push(Task::perform(bar::read_light(known), Msg::LightValue));
         }
         if self.bar_has(&config::BarItem::Tray)
             && !self.pending_widgets.contains("bar:tray")
@@ -3147,6 +3182,12 @@ impl App {
                             ])
                         })
                     }
+                    popover::Request::Brightness => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Brightness,
+                    )),
                     popover::Request::Calendar => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,
@@ -3264,6 +3305,41 @@ impl App {
             Msg::Repoll(widget) => {
                 self.last_poll.remove(&widget);
                 self.poll()
+            }
+            Msg::LightValue(l) => {
+                self.pending_widgets.remove("bar:light");
+                self.light = l;
+                Task::none()
+            }
+            Msg::LightSet(t, v) => {
+                self.light.set_level(t, v);
+                Task::none()
+            }
+            Msg::LightApply(t) => {
+                let v = self.light.level(t).unwrap_or(0.0);
+                match self.light.set_level(t, v) {
+                    Some(raw) => Task::perform(
+                        bar::apply_light(self.light.clone(), t, raw),
+                        Msg::LightValue,
+                    ),
+                    None => Task::none(),
+                }
+            }
+            Msg::LightStep(t, d) => {
+                let v = self.light.level(t).unwrap_or(0.0) + d as f32 / 100.0;
+                // L'écran ne descend jamais au noir complet par la molette.
+                let floor = if t == bar::LightTarget::Kbd {
+                    0.0
+                } else {
+                    0.01
+                };
+                match self.light.set_level(t, v.max(floor)) {
+                    Some(raw) => Task::perform(
+                        bar::apply_light(self.light.clone(), t, raw),
+                        Msg::LightValue,
+                    ),
+                    None => Task::none(),
+                }
             }
             Msg::VolumeSet(v) => {
                 if let Some(cur) = self.volume.as_mut() {

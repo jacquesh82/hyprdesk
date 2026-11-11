@@ -1598,3 +1598,9 @@
 "Quitter la démo" = "Quit the demo"
 "Environnement" = "Environment"
 "Mot de passe :" = "Password:"
+
+# Module Luminosité (MLG-4).
+"Aucune luminosité réglable" = "No adjustable brightness"
+"ddcutil : écran du bus {b} injoignable" = "ddcutil: display on bus {b} unreachable"
+"luminosité : {e}" = "brightness: {e}"
+"Luminosité des écrans externes (DDC/CI)" = "External screen brightness (DDC/CI)"

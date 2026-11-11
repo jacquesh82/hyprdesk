@@ -519,6 +519,8 @@ pub enum BarItem {
     Volume,
     /// Zone de notification (StatusNotifierItem).
     Tray,
+    /// Luminosité : rétroéclairage (portable) ou écrans externes (DDC/CI).
+    Brightness,
     /// Widget (intégré ou plugin) affiché en version compacte.
     Widget(String),
 }
@@ -528,6 +530,7 @@ pub const BAR_ITEMS: &[(&str, &str)] = &[
     ("workspaces", "Workspaces"),
     ("window", "Fenêtre active"),
     ("volume", "Volume"),
+    ("brightness", "Luminosité"),
     ("tray", "Zone de notification"),
     ("desktop", "Bouton bureau"),
 ];
@@ -540,6 +543,7 @@ impl BarItem {
             "desktop" => BarItem::Desktop,
             "volume" => BarItem::Volume,
             "tray" => BarItem::Tray,
+            "brightness" | "luminosite" => BarItem::Brightness,
             _ => return None,
         })
     }

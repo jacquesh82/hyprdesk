@@ -29,6 +29,7 @@ const GAP: f32 = 6.0;
 #[derive(Debug, Clone)]
 pub enum Request {
     Volume,
+    Brightness,
     Calendar,
     /// Menu d'un widget Lua : sa fonction `menu`, et l'id du widget à rafraîchir après une action.
     LuaMenu {
@@ -51,6 +52,7 @@ pub enum MenuSource {
 #[derive(Debug, Clone)]
 pub enum Kind {
     Volume,
+    Brightness,
     Calendar,
     Menu {
         entries: Vec<MenuEntry>,
@@ -108,7 +110,12 @@ fn device_rows(list: &[super::bar::AudioDevice]) -> f32 {
     }
 }
 
-fn card_height(kind: &Kind, confirm: Option<usize>, audio: &super::bar::Audio) -> f32 {
+fn card_height(
+    kind: &Kind,
+    confirm: Option<usize>,
+    audio: &super::bar::Audio,
+    light: &super::bar::Light,
+) -> f32 {
     let inner = match kind {
         // Sortie, séparateur, micro (ou « aucun »), séparateur, réglages.
         Kind::Volume => {
@@ -118,6 +125,13 @@ fn card_height(kind: &Kind, confirm: Option<usize>, audio: &super::bar::Audio) -
                 26.0 + 30.0
             };
             AUDIO_SECTION + device_rows(&audio.outputs) + 11.0 + mic + 11.0 + 30.0 + 16.0
+        }
+        // Un curseur (titre + ligne) par rétroéclairage ou écran.
+        Kind::Brightness => {
+            let n = light.screen.is_some() as usize
+                + light.kbd.is_some() as usize
+                + light.displays.len();
+            n.max(1) as f32 * (26.0 + 32.0) + 16.0
         }
         // Six lignes au plus : on change de mois sans changer la taille de la carte.
         Kind::Calendar => 112.0 + 28.0 + 6.0 * 23.0,
@@ -162,7 +176,7 @@ impl App {
             return Task::batch(tasks);
         };
         let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(100.0);
-        let h = (card_height(&kind, None, &self.audio) + 2.0 * SHADOW).min(max_height);
+        let h = (card_height(&kind, None, &self.audio, &self.light) + 2.0 * SHADOW).min(max_height);
         let size = Size::new(WIDTH + 2.0 * SHADOW, h);
         // Centré sous le curseur (position demandée à Hyprland), sans déborder de l'écran.
         let cx = self
@@ -431,6 +445,7 @@ impl App {
         let fg = color(th.fg, 1.0);
         let content: Element<'_, Msg> = match &p.kind {
             Kind::Volume => self.pop_volume(),
+            Kind::Brightness => self.pop_brightness(),
             Kind::Calendar => self.pop_calendar(),
             Kind::Menu { entries, .. } => self.pop_menu(entries, p.confirm),
         };
@@ -735,6 +750,51 @@ impl App {
                 Some(Msg::Popover(PMsg::Spawn("pavucontrol".into()))),
             ))
             .into()
+    }
+
+    /// Menu Luminosité : un curseur par rétroéclairage et par écran DDC/CI.
+    fn pop_brightness(&self) -> Element<'_, Msg> {
+        use super::bar::LightTarget;
+        let l = &self.light;
+        let mut rows: Vec<(String, LightTarget)> = Vec::new();
+        if l.screen.is_some() {
+            rows.push((crate::i18n::tr("Écran").to_string(), LightTarget::Screen));
+        }
+        for d in &l.displays {
+            rows.push((d.connector.clone(), LightTarget::Ddc(d.bus)));
+        }
+        if l.kbd.is_some() {
+            rows.push((crate::i18n::tr("Clavier").to_string(), LightTarget::Kbd));
+        }
+        let mut col = column![];
+        if rows.is_empty() {
+            col = col.push(self.pop_header(crate::i18n::tr("Aucune luminosité réglable").into()));
+        }
+        for (title, t) in rows {
+            col = col.push(self.pop_header(title));
+            col = col.push(self.light_slider(t));
+        }
+        col.into()
+    }
+
+    fn light_slider(&self, t: super::bar::LightTarget) -> Element<'_, Msg> {
+        let v = self.light.level(t).unwrap_or(0.0);
+        row![
+            slider(0.0..=1.0f32, v, move |x| Msg::LightSet(t, x))
+                .on_release(Msg::LightApply(t))
+                .step(0.01f32)
+                .width(Length::Fill),
+            text(format!("{:.0} %", v * 100.0))
+                .size(12.5)
+                .font(self.ui_font(iced::font::Weight::Medium))
+                .width(40)
+                .align_x(Alignment::End),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .padding([6, 10])
+        .height(32)
+        .into()
     }
 
     /// Curseur de volume et interrupteur « Muet » d'un périphérique.

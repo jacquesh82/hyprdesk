@@ -83,6 +83,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "ddcutil",
+        probe: Probe::Program(&["ddcutil"]),
+        package: "ddcutil",
+        feature: "Luminosité des écrans externes (DDC/CI)",
+        essential: false,
+    },
+    Dep {
         name: "brightnessctl",
         probe: Probe::Program(&["brightnessctl"]),
         package: "brightnessctl",

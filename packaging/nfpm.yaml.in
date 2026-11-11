@@ -102,6 +102,7 @@ overrides:
       - cliphist
       - hyprsunset
       - udisks2
+      - ddcutil
       - slurp
       - wvkbd
       - fprintd
@@ -147,6 +148,7 @@ overrides:
       - cliphist
       - hyprsunset
       - udisks2
+      - ddcutil
       - slurp
       - wvkbd
       - fprintd
@@ -190,6 +192,7 @@ overrides:
       - "cliphist: historique du presse-papiers"
       - "hyprsunset: éclairage nocturne"
       - "udisks2: supports amovibles (montage, éjection)"
+      - "ddcutil: luminosité des écrans externes (DDC/CI)"
       - "slurp: capture ou enregistrement d'une zone"
       - "wvkbd: clavier virtuel"
       - "fprintd: empreinte digitale au verrouillage"

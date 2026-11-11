@@ -74,6 +74,7 @@ pub fn bar_item_key(item: &BarItem) -> &str {
         BarItem::Desktop => "desktop",
         BarItem::Volume => "volume",
         BarItem::Tray => "tray",
+        BarItem::Brightness => "brightness",
         BarItem::Widget(id) => id,
     }
 }
@@ -109,6 +110,111 @@ pub struct AudioDevice {
     pub name: String,
     /// Périphérique par défaut (celui que règlent le curseur et « muet »).
     pub default: bool,
+}
+
+/// Luminosité réglable : rétroéclairage (écran, clavier) et écrans DDC/CI.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Light {
+    pub screen: Option<crate::brightness::Device>,
+    pub kbd: Option<crate::brightness::Device>,
+    pub displays: Vec<crate::brightness::Display>,
+}
+
+/// Ce que règle un curseur de luminosité.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LightTarget {
+    Screen,
+    Kbd,
+    /// Écran DDC/CI, par son bus I²C.
+    Ddc(u32),
+}
+
+impl Light {
+    /// Niveau affiché dans la barre d'un écran : son rétroéclairage, sinon
+    /// l'écran DDC/CI de ce connecteur, sinon le premier.
+    pub fn level_for(&self, monitor: &str) -> Option<f32> {
+        self.screen.as_ref().map(|d| d.level()).or_else(|| {
+            self.displays
+                .iter()
+                .find(|d| d.connector == monitor)
+                .or(self.displays.first())
+                .map(|d| d.level())
+        })
+    }
+
+    /// Cible du défilement sur la barre d'un écran.
+    pub fn target_for(&self, monitor: &str) -> Option<LightTarget> {
+        if self.screen.is_some() {
+            return Some(LightTarget::Screen);
+        }
+        self.displays
+            .iter()
+            .find(|d| d.connector == monitor)
+            .or(self.displays.first())
+            .map(|d| LightTarget::Ddc(d.bus))
+    }
+
+    pub fn level(&self, t: LightTarget) -> Option<f32> {
+        match t {
+            LightTarget::Screen => self.screen.as_ref().map(|d| d.level()),
+            LightTarget::Kbd => self.kbd.as_ref().map(|d| d.level()),
+            LightTarget::Ddc(b) => self.displays.iter().find(|d| d.bus == b).map(|d| d.level()),
+        }
+    }
+
+    /// Note un niveau 0..1 (curseur) ; rend la valeur brute à appliquer.
+    pub fn set_level(&mut self, t: LightTarget, v: f32) -> Option<u32> {
+        let v = v.clamp(0.0, 1.0);
+        let raw = |max: u32, floor: u32| ((max as f32 * v).round() as u32).clamp(floor, max);
+        match t {
+            LightTarget::Screen => self.screen.as_mut().map(|d| {
+                d.current = raw(d.max, 1);
+                d.current
+            }),
+            LightTarget::Kbd => self.kbd.as_mut().map(|d| {
+                d.current = raw(d.max, 0);
+                d.current
+            }),
+            LightTarget::Ddc(b) => self.displays.iter_mut().find(|d| d.bus == b).map(|d| {
+                d.current = raw(d.max, 0);
+                d.current
+            }),
+        }
+    }
+}
+
+/// Relit la luminosité ; `displays` : valeurs DDC/CI connues (relues seulement si `None`).
+pub async fn read_light(displays: Option<Vec<crate::brightness::Display>>) -> Light {
+    let displays = match displays {
+        Some(d) => d,
+        None => crate::brightness::ddc_displays().await,
+    };
+    Light {
+        screen: crate::brightness::screen(),
+        kbd: crate::brightness::keyboard(),
+        displays,
+    }
+}
+
+/// Applique un niveau, puis relit (valeurs DDC/CI gardées : la relecture est lente).
+pub async fn apply_light(mut light: Light, t: LightTarget, raw: u32) -> Light {
+    let r = match t {
+        LightTarget::Screen => match light.screen.clone() {
+            Some(d) => crate::brightness::set(&d, raw).await,
+            None => Ok(()),
+        },
+        LightTarget::Kbd => match light.kbd.clone() {
+            Some(d) => crate::brightness::set(&d, raw).await,
+            None => Ok(()),
+        },
+        LightTarget::Ddc(b) => crate::brightness::ddc_set(b, raw).await,
+    };
+    if let Err(e) = r {
+        tracing::warn!("{}", crate::tr!("luminosité : {e}", e = e));
+    }
+    light.screen = crate::brightness::screen();
+    light.kbd = crate::brightness::keyboard();
+    light
 }
 
 /// Ce que le menu Son affiche en plus du volume de sortie.
@@ -737,6 +843,38 @@ impl App {
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
                     None,
                     self.popover.as_ref().is_some_and(|p| p.key == "volume"),
+                )
+            }
+            BarItem::Brightness => {
+                let Some(level) = self.light.level_for(&monitor) else {
+                    return Space::new().into();
+                };
+                let mut content = row![
+                    self.icon_named("display-brightness-symbolic", isz, fg)
+                        .unwrap_or_else(|| self.label("☀".to_string(), size, fg))
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center);
+                if !compact {
+                    content = content.push(self.label(format!("{:.0} %", level * 100.0), size, fg));
+                }
+                let target = self.light.target_for(&monitor);
+                self.module(
+                    bar,
+                    content.into(),
+                    Some(Msg::OpenPopover(
+                        bar_id,
+                        "brightness".into(),
+                        Request::Brightness,
+                    )),
+                    None,
+                    None,
+                    target.map(|t| {
+                        Box::new(move |d: i64| Msg::LightStep(t, d as i32 * 5))
+                            as Box<dyn Fn(i64) -> Msg>
+                    }),
+                    Some(crate::i18n::tr("Luminosité").to_string()),
+                    self.popover.as_ref().is_some_and(|p| p.key == "brightness"),
                 )
             }
             BarItem::Tray => {

@@ -12,7 +12,14 @@ use std::path::{Path, PathBuf};
 use crate::settings::{BarEntry, BarSettings, Settings};
 
 /// Modules proposés (dans l'ordre où ils s'ajoutent).
-pub const OFFERED: &[&str] = &["clavier", "nuit", "supports", "capture", "majs"];
+pub const OFFERED: &[&str] = &[
+    "brightness",
+    "clavier",
+    "nuit",
+    "supports",
+    "capture",
+    "majs",
+];
 
 /// Modules devant lesquels les nouveaux se placent (le premier trouvé).
 const BEFORE: &[&str] = &["notifications", "desktop", "session"];
@@ -110,7 +117,7 @@ mod tests {
         assert!(!insert(&mut bar, &["nuit"]));
         // Ce qui a déjà été proposé ne l'est plus (même retiré depuis).
         assert_eq!(
-            pending("clavier\nnuit\n"),
+            pending("brightness\nclavier\nnuit\n"),
             vec!["supports", "capture", "majs"]
         );
         assert!(pending(&OFFERED.join("\n")).is_empty());
