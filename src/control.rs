@@ -35,6 +35,8 @@ pub enum Command {
     Assistant,
     /// Ouvre les réglages sur la visite guidée.
     Tour,
+    /// Ouvre ou referme le lanceur avec recherche.
+    Search,
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
     /// `hyprdesk osd` une fois l'action faite.
     Osd(String),
@@ -57,6 +59,7 @@ impl Command {
             "quit" => Command::Quit,
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
+            "search" => Command::Search,
             "settings" => Command::Settings("desktop".into()),
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
@@ -95,6 +98,7 @@ impl Command {
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
+            Command::Search => "search",
             Command::Osd(_) => "osd-show",
             Command::Problem(_) => "problem",
         }

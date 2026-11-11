@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 40] = [
+const SCENES: [&str; 41] = [
     "desktop",
     "typography",
     "icons",
@@ -64,6 +64,7 @@ const SCENES: [&str; 40] = [
     "polkit",
     "notifications",
     "probleme",
+    "recherche",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -573,6 +574,45 @@ impl Preview {
         } else {
             self.app.problem = None;
         }
+        // Lanceur avec recherche : « fi » parmi quelques applications.
+        if SCENES[self.scene] == "recherche" {
+            let app = |id: &str, name: &str, icon: &str| crate::launch::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                icon: Some(icon.into()),
+                wm_class: None,
+                mime_types: Vec::new(),
+                categories: Vec::new(),
+                available: true,
+            };
+            self.app.apps = Arc::new(vec![
+                app("firefox", "Firefox", "firefox"),
+                app(
+                    "org.gnome.Nautilus",
+                    "Fichiers",
+                    "system-file-manager-symbolic",
+                ),
+                app("kitty", "Terminal", "utilities-terminal"),
+                app(
+                    "libreoffice-writer",
+                    "LibreOffice Writer",
+                    "libreoffice-writer",
+                ),
+                app(
+                    "org.gnome.Settings",
+                    "Paramètres du profil",
+                    "preferences-system-symbolic",
+                ),
+                app("filezilla", "FileZilla", "filezilla"),
+            ]);
+            self.app.search = None;
+            let _ = self.app.toggle_search();
+            let _ = self
+                .app
+                .search_update(super::search::SMsg::Query("fi".into()));
+        } else {
+            self.app.search = None;
+        }
         // La carte polkit n'appartient qu'à sa scène.
         if SCENES[self.scene] != "polkit" {
             self.app.polkit = None;
@@ -877,6 +917,16 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if self.app.search.is_some() {
+            layers.push(
+                container(self.app.view_search())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into(),
             );
         }
         if self.app.problem.is_some() {

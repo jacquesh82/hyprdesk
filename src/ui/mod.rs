@@ -23,6 +23,7 @@ mod polkit;
 mod popover;
 pub mod preview;
 mod problem;
+mod search;
 mod toasts;
 mod tour;
 mod widget_view;
@@ -176,6 +177,8 @@ pub enum Msg {
     Toasts(toasts::TMsg),
     /// Fenêtre de détail d'un problème.
     Problem(problem::PrMsg),
+    /// Lanceur avec recherche.
+    Search(search::SMsg),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -345,6 +348,8 @@ pub struct App {
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
     problem: Option<problem::Problem>,
+    /// Lanceur avec recherche ouvert.
+    search: Option<search::Search>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -653,6 +658,7 @@ impl App {
             polkit: None,
             toasts: Default::default(),
             problem: None,
+            search: None,
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -2451,6 +2457,7 @@ impl App {
                 control::Command::Menu(kind) => self.open_menu_by_type(&kind),
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
+                control::Command::Search => self.toggle_search(),
                 control::Command::Tour => {
                     let o = self.open_panel();
                     Task::batch([
@@ -2878,6 +2885,7 @@ impl App {
             Msg::Polkit(m) => self.polkit_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
+            Msg::Search(m) => self.search_update(m),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3160,6 +3168,10 @@ impl App {
                     self.problem = None;
                     return Task::none();
                 }
+                if self.search.as_ref().is_some_and(|s| s.win == id) {
+                    self.search = None;
+                    return Task::none();
+                }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.polkit.take() {
@@ -3244,6 +3256,16 @@ impl App {
                 None => Task::none(),
             },
             Msg::Key(id, key) => {
+                // Recherche ouverte : Échap la ferme, les flèches choisissent.
+                if self.search.is_some() {
+                    use keyboard::key::Named;
+                    return match key {
+                        keyboard::Key::Named(Named::Escape) => self.close_search(),
+                        keyboard::Key::Named(Named::ArrowDown) => self.search_move(true),
+                        keyboard::Key::Named(Named::ArrowUp) => self.search_move(false),
+                        _ => Task::none(),
+                    };
+                }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
                     if self.popover.is_some() {
                         self.menu_request += 1;
@@ -3482,6 +3504,9 @@ impl App {
         }
         if self.problem.as_ref().is_some_and(|p| p.win == id) {
             return self.view_problem();
+        }
+        if self.search.as_ref().is_some_and(|s| s.win == id) {
+            return self.view_search();
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3831,6 +3856,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Polkit(..) => "Polkit",
         Msg::Toasts(..) => "Toasts",
         Msg::Problem(..) => "Problem",
+        Msg::Search(..) => "Search",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",

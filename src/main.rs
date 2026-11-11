@@ -25,6 +25,7 @@ mod osd;
 mod polkit;
 mod processes;
 mod screens;
+mod search;
 mod session;
 mod settings;
 mod share;
@@ -58,6 +59,7 @@ Commandes :
   settings [paquet[/onglet]]
                     ouvre l'écran Réglages (ex. bureau/raccourcis), sans changer le mode
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
+  search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   tour              ouvre les réglages sur la visite guidée
                     (paquet : desktop, icons, launcher, wallpaper, widgets, bar,
                     screens, workspaces, effects, theme…)

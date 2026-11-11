@@ -1316,3 +1316,8 @@
 "hyprdesk : système à jour" = "hyprdesk: system up to date"
 "                    --upgrade : mise à jour non interactive (pkexec), échec confié au démon" = "                    --upgrade: non-interactive update (pkexec), failure handed to the daemon"
 "  updates [--upgrade | --refresh | --report]" = "  updates [--upgrade | --refresh | --report]"
+
+# Lanceur avec recherche (MLG-7).
+"Aucune application ne correspond." = "No matching application."
+"Rechercher une application…" = "Search for an application…"
+"  search            ouvre ou referme le lanceur avec recherche (toutes les applications)" = "  search            opens or closes the search launcher (all applications)"
