@@ -133,6 +133,36 @@ pub fn sessions() -> Vec<Session> {
     v
 }
 
+/// Shell de connexion d'un utilisateur (/etc/passwd), `/bin/sh` à défaut.
+pub fn login_shell(user: &str) -> String {
+    shell_in(
+        &std::fs::read_to_string("/etc/passwd").unwrap_or_default(),
+        user,
+    )
+}
+
+fn shell_in(passwd: &str, user: &str) -> String {
+    passwd
+        .lines()
+        .map(|l| l.split(':').collect::<Vec<_>>())
+        .find(|f| f.first() == Some(&user))
+        .and_then(|f| f.get(6).map(|s| s.trim().to_string()))
+        .filter(|s| s.starts_with('/') && !s.ends_with("nologin") && !s.ends_with("false"))
+        .unwrap_or_else(|| "/bin/sh".into())
+}
+
+/// Commande de la session : par le shell de connexion de l'utilisateur
+/// (`-l`), qui lit son profil (~/.bash_profile, ~/.profile : PATH,
+/// variables), comme GDM.
+pub fn session_cmd(shell: &str, exec: &str) -> Vec<String> {
+    vec![
+        shell.to_string(),
+        "-l".into(),
+        "-c".into(),
+        format!("exec {exec}"),
+    ]
+}
+
 /// Environnement de la session lancée.
 pub fn session_env(s: &Session) -> Vec<String> {
     let mut env = vec![format!(
@@ -300,6 +330,18 @@ pub fn run_tty() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_par_le_shell_de_connexion() {
+        let pw = "root:x:0:0::/root:/usr/bin/bash\njacques:x:1000:1000::/home/jacques:/usr/bin/zsh\nsvc:x:5:5::/:/usr/bin/nologin\n";
+        assert_eq!(shell_in(pw, "jacques"), "/usr/bin/zsh");
+        assert_eq!(shell_in(pw, "svc"), "/bin/sh");
+        assert_eq!(shell_in(pw, "inconnu"), "/bin/sh");
+        assert_eq!(
+            session_cmd("/usr/bin/bash", "start-hyprland"),
+            vec!["/usr/bin/bash", "-l", "-c", "exec start-hyprland"]
+        );
+    }
     use std::os::unix::net::UnixListener;
 
     #[test]

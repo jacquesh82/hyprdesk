@@ -1934,3 +1934,11 @@
 "                    --window : fenêtre ordinaire plein écran (cage, sans layer-shell)" = "                    --window: regular full-screen window (cage, no layer-shell)"
 # Écran de connexion : fond (MLG-43).
 "Aucun (couleur du thème)" = "None (theme color)"
+# Écran de connexion sous un Hyprland réduit (MLG-43).
+"Hyprland réduit qui affiche l'écran de connexion (cage en secours)" = "minimal Hyprland that shows the login screen (cage as a fallback)"
+"Les autres écrans restent noirs." = "The other screens stay black."
+"Ni Hyprland ni cage : rien pour afficher l'écran de connexion." = "Neither Hyprland nor cage: nothing to show the login screen."
+"aucune (LANG absent de la session)" = "none (LANG missing from the session)"
+"{l}, celle de la session" = "{l}, the session's"
+"Écran de la connexion" = "Login screen display"
+"Fond (écran vertical)" = "Background (vertical screen)"

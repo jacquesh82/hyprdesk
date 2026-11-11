@@ -238,10 +238,18 @@ unlock it:
 [greetd](https://sr.ht/~kennylevinsen/greetd/). It speaks greetd's IPC
 (length-prefixed JSON on `$GREETD_SOCK`) and lists the `wayland-sessions` and
 `xsessions` entries. It runs under the compositor greetd starts, for example
-`cage -s -- hyprdesk greeter --window`. cage is a kiosk compositor without
-layer-shell, so `--window` opens a regular full-screen window instead of a
-layer surface. Without `--window`, the greeter falls back to a window when
-layer-shell is missing. `--tty` runs it in a terminal and `--demo` runs it
+a minimal Hyprland that hyprdesk writes to
+`/etc/greetd/hyprdesk-hyprland.lua`. It uses your screen layout, keyboard and
+no animations. The greeter shows on one screen, chosen in Settings (the
+primary screen by default), and the other screens stay black. When the
+session opens, the greeter closes, Hyprland exits and greetd starts the
+session through your login shell (`$SHELL -l`), so `~/.profile` and
+`~/.bash_profile` are read, as with GDM. Without Hyprland, cage is used as a
+fallback: `cage -s -- hyprdesk greeter --window`, where `--window` opens a
+regular full-screen window because cage has no layer-shell. A background can
+be set for landscape screens and another one for a rotated (vertical) login
+screen. Without the myMFA module, `/etc/pam.d/greetd` gets
+`pam_gnome_keyring` so the keyring is unlocked at login, as with GDM. `--tty` runs it in a terminal and `--demo` runs it
 without greetd. It offers suspend, restart and shut down.
 
 **Settings → Login screen** sets it up in place of GDM (or SDDM, LightDM…).

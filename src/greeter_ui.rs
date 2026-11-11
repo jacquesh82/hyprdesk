@@ -143,9 +143,16 @@ impl Greeter {
         // l'utilisateur), et dernière connexion : identifiant et session.
         let profile = crate::greeter_setup::Profile::installed().unwrap_or_default();
         let theme = profile.theme();
-        let wallpaper = Some(profile.wallpaper)
-            .filter(|w| !w.is_empty() && std::path::Path::new(w).is_file())
-            .map(image::Handle::from_path);
+        // Fond : le vertical si l'écran de la connexion est pivoté (et qu'il
+        // y en a un), sinon le fond ordinaire.
+        let vertical = crate::greeter_setup::login_monitor(&profile).is_some_and(|m| m.vertical());
+        let usable = |w: &String| !w.is_empty() && std::path::Path::new(w).is_file();
+        let wallpaper = if vertical && usable(&profile.wallpaper_vertical) {
+            Some(profile.wallpaper_vertical.clone())
+        } else {
+            Some(profile.wallpaper.clone()).filter(usable)
+        }
+        .map(image::Handle::from_path);
         let last = read_last();
         let session = sessions
             .iter()
@@ -334,10 +341,13 @@ impl Greeter {
                     }
                     let (cmd, env) = match &s {
                         Some(s) => (
-                            vec!["sh".into(), "-c".into(), format!("exec {}", s.exec)],
+                            greeter::session_cmd(&greeter::login_shell(self.user.trim()), &s.exec),
                             greeter::session_env(s),
                         ),
-                        None => (vec!["sh".into()], Vec::new()),
+                        None => (
+                            vec![greeter::login_shell(self.user.trim()), "-l".into()],
+                            Vec::new(),
+                        ),
                     };
                     send(self.stream.clone(), Request::StartSession { cmd, env })
                 }

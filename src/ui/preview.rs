@@ -861,7 +861,9 @@ impl Preview {
                             variant: "azerty".into(),
                             ..Default::default()
                         },
+                        crate::greeter_setup::Compositor::Hyprland("start-hyprland"),
                     )),
+                    hyprland: true,
                     fprintd: true,
                     ours: true,
                     loaded: true,

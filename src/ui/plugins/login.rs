@@ -8,7 +8,7 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-use crate::greeter_setup::{self, Profile, Status, dm_label};
+use crate::greeter_setup::{self, MonitorRule, Profile, Status, dm_label};
 use crate::i18n::text;
 use iced::widget::{Space, button, column, container, pick_list, row, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
@@ -44,16 +44,29 @@ pub struct State {
     pub keyboard: (String, String, String),
     /// Fond de l'écran (image de la bibliothèque) ; aucun : couleur du thème.
     pub wallpaper: Option<PathBuf>,
+    /// Fond pour un écran de connexion vertical.
+    pub wallpaper_vertical: Option<PathBuf>,
     /// Images de la bibliothèque (~/.wallpapers).
     pub images: Vec<PathBuf>,
+    /// Disposition des écrans de la session, reprise par l'écran de connexion.
+    pub screens: Vec<MonitorRule>,
+    /// Écran qui porte la connexion (les autres restent noirs).
+    pub login_monitor: String,
     /// Empreinte digitale à la connexion (appliquée à l'écriture).
     pub fingerprint: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    Loaded(Box<Status>, (String, String, String), Vec<PathBuf>),
-    Wallpaper(WallChoice),
+    Loaded(
+        Box<Status>,
+        (String, String, String),
+        Vec<PathBuf>,
+        Vec<MonitorRule>,
+    ),
+    /// Fond (vertical : `true`).
+    Wallpaper(bool, WallChoice),
+    LoginMonitor(String),
     Fingerprint(bool),
     /// `packages`, `install`, `enable`, `restore`.
     Act(&'static str),
@@ -84,16 +97,20 @@ pub fn load() -> Task<UiMsg> {
                 let images = super::super::list_images(&super::wallpaper::expand(
                     &super::wallpaper::default_folder(),
                 ));
+                let screens = crate::screens::detect()
+                    .map(|l| l.iter().map(MonitorRule::from_screen).collect())
+                    .unwrap_or_default();
                 (
                     greeter_setup::status(),
                     (i.kb_layout, i.kb_variant, i.kb_options),
                     images,
+                    screens,
                 )
             })
             .await
             .unwrap_or_default()
         },
-        |(s, k, l)| wrap(Msg::Loaded(Box::new(s), k, l)),
+        |(s, k, l, m)| wrap(Msg::Loaded(Box::new(s), k, l, m)),
     )
 }
 
@@ -129,6 +146,15 @@ impl App {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             wallpaper: String::new(),
+            wallpaper_vertical_source: st
+                .wallpaper_vertical
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            wallpaper_vertical: String::new(),
+            lang: std::env::var("LANG").unwrap_or_default(),
+            monitors: st.screens.clone(),
+            login_monitor: st.login_monitor.clone(),
         }
     }
 
@@ -212,9 +238,16 @@ impl App {
             crate::i18n::tr("démon de connexion (paquet greetd)").to_string(),
         ));
         col = col.push(self.login_check(
-            s.cage,
-            "cage",
-            crate::i18n::tr("compositeur minimal qui affiche l'écran de connexion").to_string(),
+            s.hyprland || s.cage,
+            if s.hyprland { "Hyprland" } else { "cage" },
+            if s.hyprland {
+                crate::i18n::tr(
+                    "Hyprland réduit qui affiche l'écran de connexion (cage en secours)",
+                )
+                .to_string()
+            } else {
+                crate::i18n::tr("compositeur minimal qui affiche l'écran de connexion").to_string()
+            },
         ));
         col = col.push(
             self.login_check(
@@ -276,27 +309,67 @@ impl App {
                 .to_string(),
             ),
         );
-        let mut walls: Vec<WallChoice> = std::iter::once(WallChoice(None))
-            .chain(st.images.iter().map(|p| WallChoice(Some(p.clone()))))
-            .collect();
-        if let Some(w) = &st.wallpaper
-            && !st.images.contains(w)
-        {
-            walls.push(WallChoice(Some(w.clone())));
+        // Écran qui porte la connexion : le choisi, sinon le principal
+        // (Réglages → Écrans), sinon le premier ; les autres restent noirs.
+        if !st.screens.is_empty() {
+            let names: Vec<String> = st
+                .screens
+                .iter()
+                .filter(|m| m.enabled)
+                .map(|m| m.name.clone())
+                .collect();
+            let current = greeter_setup::login_monitor(&want).map(|m| m.name.clone());
+            col = col.push(
+                row![
+                    text("Écran de la connexion").font(self.font).size(13),
+                    pick_list(names, current, |n| wrap(Msg::LoginMonitor(n)))
+                        .font(self.font)
+                        .text_size(13)
+                        .width(Length::Fill),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+            col = col.push(small(
+                crate::i18n::tr("Les autres écrans restent noirs.").to_string(),
+                dim,
+            ));
         }
-        col = col.push(
-            row![
-                text("Fond d'écran").font(self.font).size(13),
-                pick_list(walls, Some(WallChoice(st.wallpaper.clone())), |c| {
-                    wrap(Msg::Wallpaper(c))
-                })
-                .font(self.font)
-                .text_size(13)
-                .width(Length::Fill),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-        );
+        for (vertical, label, chosen) in [
+            (false, "Fond d'écran", &st.wallpaper),
+            (true, "Fond (écran vertical)", &st.wallpaper_vertical),
+        ] {
+            let mut walls: Vec<WallChoice> = std::iter::once(WallChoice(None))
+                .chain(st.images.iter().map(|p| WallChoice(Some(p.clone()))))
+                .collect();
+            if let Some(w) = chosen
+                && !st.images.contains(w)
+            {
+                walls.push(WallChoice(Some(w.clone())));
+            }
+            col = col.push(
+                row![
+                    text(label).font(self.font).size(13),
+                    pick_list(walls, Some(WallChoice(chosen.clone())), move |c| {
+                        wrap(Msg::Wallpaper(vertical, c))
+                    })
+                    .font(self.font)
+                    .text_size(13)
+                    .width(Length::Fill),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
+        col = col.push(self.login_check(
+            !want.lang.is_empty(),
+            "Langue",
+            if want.lang.is_empty() {
+                crate::i18n::tr("aucune (LANG absent de la session)").to_string()
+            } else {
+                crate::tr!("{l}, celle de la session", l = want.lang)
+            },
+        ));
         col = col.push(
             toggler(st.fingerprint)
                 .label(crate::i18n::tr(
@@ -484,11 +557,23 @@ impl App {
             return Task::none();
         };
         match m {
-            Msg::Loaded(s, k, images) => {
+            Msg::Loaded(s, k, images, screens) => {
                 // Empreinte et fond : ceux du profil installé tant qu'on n'y a
                 // pas touché ; sans profil, le fond par défaut du bureau.
                 if !p.login.status.loaded {
                     p.login.fingerprint = s.profile.as_ref().is_some_and(|p| p.fingerprint);
+                    p.login.wallpaper_vertical = s
+                        .profile
+                        .as_ref()
+                        .map(|pr| PathBuf::from(&pr.wallpaper_vertical_source))
+                        .filter(|w| !w.as_os_str().is_empty());
+                    p.login.login_monitor = s
+                        .profile
+                        .as_ref()
+                        .map(|pr| pr.login_monitor.clone())
+                        .filter(|n| !n.is_empty())
+                        .or_else(|| self.cfg.general.primary.clone())
+                        .unwrap_or_default();
                     p.login.wallpaper = match &s.profile {
                         Some(pr) => Some(PathBuf::from(&pr.wallpaper_source))
                             .filter(|w| !w.as_os_str().is_empty()),
@@ -503,12 +588,21 @@ impl App {
                     };
                 }
                 p.login.images = images;
+                p.login.screens = screens;
                 p.login.status = *s;
                 p.login.keyboard = k;
                 Task::none()
             }
-            Msg::Wallpaper(WallChoice(w)) => {
-                p.login.wallpaper = w;
+            Msg::Wallpaper(vertical, WallChoice(w)) => {
+                if vertical {
+                    p.login.wallpaper_vertical = w;
+                } else {
+                    p.login.wallpaper = w;
+                }
+                Task::none()
+            }
+            Msg::LoginMonitor(n) => {
+                p.login.login_monitor = n;
                 Task::none()
             }
             Msg::Fingerprint(v) => {

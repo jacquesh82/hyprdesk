@@ -29,6 +29,10 @@ pub const PROFILE: &str = "/etc/greetd/hyprdesk.json";
 pub const PAM: &str = "/etc/pam.d/greetd";
 /// Fond de l'écran, copié (et réduit) depuis la bibliothèque de l'utilisateur.
 pub const WALLPAPER: &str = "/etc/greetd/hyprdesk-fond.jpg";
+/// Fond pour un écran de connexion vertical (écran pivoté).
+pub const WALLPAPER_VERTICAL: &str = "/etc/greetd/hyprdesk-fond-vertical.jpg";
+/// Configuration du Hyprland réduit qui porte l'écran de connexion.
+pub const HYPRLAND_CONFIG: &str = "/etc/greetd/hyprdesk-hyprland.lua";
 /// Dossier d'état du greeter (à l'utilisateur `greeter`) : dernier
 /// utilisateur et dernière session.
 pub const STATE_DIR: &str = "/var/lib/hyprdesk-greeter";
@@ -70,6 +74,98 @@ pub struct Profile {
     pub wallpaper_source: String,
     /// Sa copie lisible par le greeter (posée par `install`), vide : aucun fond.
     pub wallpaper: String,
+    /// Même chose pour un écran de connexion vertical.
+    pub wallpaper_vertical_source: String,
+    pub wallpaper_vertical: String,
+    /// Langue de l'écran (LANG de la session, « fr_FR.UTF-8 »).
+    pub lang: String,
+    /// Disposition des écrans de la session, reprise telle quelle.
+    pub monitors: Vec<MonitorRule>,
+    /// Écran qui porte la connexion (les autres restent noirs) ; vide : le
+    /// premier.
+    pub login_monitor: String,
+}
+
+/// Un écran de la disposition (mêmes valeurs que monitors.lua).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct MonitorRule {
+    pub name: String,
+    pub enabled: bool,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: f32,
+    pub x: i32,
+    pub y: i32,
+    pub scale: f32,
+    pub transform: u8,
+}
+
+impl MonitorRule {
+    pub fn from_screen(s: &crate::screens::Screen) -> Self {
+        MonitorRule {
+            name: s.name.clone(),
+            enabled: s.enabled,
+            width: s.width,
+            height: s.height,
+            refresh: s.refresh,
+            x: s.x,
+            y: s.y,
+            scale: s.scale,
+            transform: s.transform,
+        }
+    }
+
+    pub fn vertical(&self) -> bool {
+        self.transform % 2 == 1
+    }
+
+    /// Ligne `hl.monitor` (nom déjà vérifié par `name_ok`).
+    fn lua(&self) -> String {
+        if !self.enabled {
+            return format!(
+                "hl.monitor({{ output = \"{}\", disabled = true }})",
+                self.name
+            );
+        }
+        let scale = if self.scale > 0.0 { self.scale } else { 1.0 };
+        format!(
+            "hl.monitor({{ output = \"{}\", mode = \"{}x{}@{:.2}\", position = \"{}x{}\", \
+             scale = {}, transform = {} }})",
+            self.name,
+            self.width,
+            self.height,
+            self.refresh,
+            self.x,
+            self.y,
+            (scale * 1000.0).round() / 1000.0,
+            self.transform % 8
+        )
+    }
+}
+
+/// Nom d'écran sûr (connecteur : `DP-1`, `HDMI-A-2`, `eDP-1`).
+pub fn name_ok(v: &str) -> bool {
+    !v.is_empty()
+        && v.len() < 64
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+}
+
+/// Langue sûre (`fr_FR.UTF-8`, `C.UTF-8`).
+pub fn lang_ok(v: &str) -> bool {
+    v.len() < 64
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_.@-".contains(c))
+}
+
+/// Écran qui porte la connexion : celui choisi s'il est allumé, sinon le
+/// premier allumé.
+pub fn login_monitor(p: &Profile) -> Option<&MonitorRule> {
+    p.monitors
+        .iter()
+        .find(|m| m.enabled && m.name == p.login_monitor)
+        .or_else(|| p.monitors.iter().find(|m| m.enabled))
 }
 
 impl Profile {
@@ -90,6 +186,7 @@ impl Profile {
     pub fn same_settings(&self, other: &Profile) -> bool {
         let strip = |p: &Profile| Profile {
             wallpaper: String::new(),
+            wallpaper_vertical: String::new(),
             ..p.clone()
         };
         strip(self) == strip(other)
@@ -135,6 +232,11 @@ pub struct Status {
     pub pam_mymfa: bool,
     /// Module pam_mymfa.so installé (client Linux de myMFA).
     pub mymfa_module: bool,
+    /// gnome-keyring : ligne posée, module installé.
+    pub pam_keyring: bool,
+    pub keyring_module: bool,
+    /// Hyprland disponible pour porter l'écran (sinon cage).
+    pub hyprland: bool,
     pub fprintd: bool,
     pub loaded: bool,
 }
@@ -142,7 +244,11 @@ pub struct Status {
 impl Status {
     /// Tout est en place pour basculer sur greetd sans risque.
     pub fn ready(&self) -> bool {
-        self.greetd && self.cage && self.greeter_user && self.binary.is_some() && self.ours
+        self.greetd
+            && (self.hyprland || self.cage)
+            && self.greeter_user
+            && self.binary.is_some()
+            && self.ours
     }
 
     /// greetd tient (ou tiendra) l'écran de connexion.
@@ -183,40 +289,101 @@ pub fn parse_config(src: &str) -> (Option<String>, Option<i64>) {
 
 /// La commande lance l'écran de hyprdesk.
 pub fn is_ours(command: &str) -> bool {
-    command.contains("hyprdesk greeter")
+    command.contains("hyprdesk greeter") || command.contains(HYPRLAND_CONFIG)
 }
 
-/// Commande de greetd pour l'écran de hyprdesk, sous cage (`-s` : les
-/// changements de console restent possibles). La disposition du clavier
-/// passe à cage par l'environnement (XKB_DEFAULT_*), sinon le mot de passe
-/// se taperait en QWERTY.
-pub fn greeter_command(bin: &str, p: &Profile) -> String {
-    let mut env = Vec::new();
-    for (k, v) in [
-        ("XKB_DEFAULT_LAYOUT", &p.layout),
-        ("XKB_DEFAULT_VARIANT", &p.variant),
-        ("XKB_DEFAULT_OPTIONS", &p.options),
-    ] {
-        if !v.is_empty() && xkb_ok(v) {
-            env.push(format!("{k}={v}"));
+/// Compositeur qui porte l'écran de connexion.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Compositor {
+    /// Hyprland réduit (configuration HYPRLAND_CONFIG), lancé par ce
+    /// programme (`start-hyprland`, ou `Hyprland`).
+    Hyprland(&'static str),
+    /// cage, en secours sans Hyprland : pas de layer-shell (fenêtre
+    /// ordinaire) et tous les écrans à la fois.
+    Cage,
+}
+
+/// Commande de greetd. Environnement : `HOME` sur le dossier d'état du
+/// greeter (le sien, « / », n'est pas inscriptible), la langue de la
+/// session ; sous cage, la disposition du clavier (XKB_DEFAULT_*), sous
+/// Hyprland elle est dans sa configuration.
+pub fn greeter_command(bin: &str, p: &Profile, comp: Compositor) -> String {
+    let mut env = vec![format!("HOME={STATE_DIR}")];
+    if !p.lang.is_empty() && lang_ok(&p.lang) {
+        env.push(format!("LANG={}", p.lang));
+    }
+    let run = match comp {
+        Compositor::Hyprland(launcher) => {
+            let sep = if launcher == "start-hyprland" {
+                " --"
+            } else {
+                ""
+            };
+            format!("{launcher}{sep} --config {HYPRLAND_CONFIG}")
         }
+        Compositor::Cage => {
+            for (k, v) in [
+                ("XKB_DEFAULT_LAYOUT", &p.layout),
+                ("XKB_DEFAULT_VARIANT", &p.variant),
+                ("XKB_DEFAULT_OPTIONS", &p.options),
+            ] {
+                if !v.is_empty() && xkb_ok(v) {
+                    env.push(format!("{k}={v}"));
+                }
+            }
+            // cage n'offre pas layer-shell : fenêtre ordinaire, qu'il met en plein écran.
+            format!("cage -s -- {bin} greeter --window")
+        }
+    };
+    format!("env {} {run}", env.join(" "))
+}
+
+/// Configuration du Hyprland de connexion : disposition des écrans de la
+/// session, clavier, rien d'animé, fond noir (les écrans sans connexion
+/// restent noirs) ; au démarrage, focus sur l'écran de connexion puis
+/// l'écran lui-même ; quand il se ferme (session ouverte), Hyprland quitte
+/// et greetd lance la session.
+pub fn hyprland_lua(bin: &str, p: &Profile) -> String {
+    let q = |v: &str, ok: bool| if ok { v.to_string() } else { String::new() };
+    let mut out = format!(
+        "-- {}\n-- Hyprland de l'écran de connexion (greetd) ; réécrit à chaque enregistrement.\n\n",
+        HEADER.trim_start_matches("# ")
+    );
+    for m in p.monitors.iter().filter(|m| name_ok(&m.name)) {
+        out.push_str(&m.lua());
+        out.push('\n');
     }
-    // cage n'offre pas layer-shell : fenêtre ordinaire, qu'il met en plein écran.
-    let cage = format!("cage -s -- {bin} greeter --window");
-    if env.is_empty() {
-        cage
-    } else {
-        format!("env {} {cage}", env.join(" "))
+    out.push_str("hl.monitor({ output = \"\", mode = \"preferred\", position = \"auto\", scale = \"auto\" })\n\n");
+    out.push_str(&format!(
+        "hl.config({{\n    input = {{ kb_layout = \"{}\", kb_variant = \"{}\", kb_options = \"{}\" }},\n\
+         \x20   general = {{ border_size = 0, gaps_in = 0, gaps_out = 0 }},\n\
+         \x20   animations = {{ enabled = false }},\n\
+         \x20   misc = {{ disable_hyprland_logo = true, disable_splash_rendering = true, background_color = \"rgb(000000)\" }},\n}})\n\n",
+        q(&p.layout, xkb_ok(&p.layout)),
+        q(&p.variant, xkb_ok(&p.variant)),
+        q(&p.options, xkb_ok(&p.options)),
+    ));
+    out.push_str("hl.on(\"hyprland.start\", function()\n");
+    if let Some(m) = login_monitor(p).filter(|m| name_ok(&m.name)) {
+        out.push_str(&format!(
+            "    hl.dispatch(hl.dsp.focus({{ monitor = \"{}\" }}))\n",
+            m.name
+        ));
     }
+    out.push_str(&format!(
+        "    hl.exec_cmd(\"sh -c '{bin} greeter; hyprctl dispatch \\\"hl.dsp.exit()\\\"'\")\n"
+    ));
+    out.push_str("end)\n");
+    out
 }
 
 /// /etc/greetd/config.toml de hyprdesk (`vt` repris de l'ancien fichier).
-pub fn config_toml(bin: &str, vt: i64, p: &Profile) -> String {
+pub fn config_toml(bin: &str, vt: i64, p: &Profile, comp: Compositor) -> String {
     format!(
         "{HEADER}\n# Revenir en arrière : sudo hyprdesk greeter setup restore\n\n\
          [terminal]\nvt = {vt}\n\n\
          [default_session]\ncommand = \"{}\"\nuser = \"greeter\"\n",
-        greeter_command(bin, p)
+        greeter_command(bin, p, comp)
     )
 }
 
@@ -236,7 +403,7 @@ fn pam_kind(line: &str) -> Option<&str> {
 /// demandé ensuite), trousseau myMFA après l'authentification et après
 /// l'ouverture de session (`optional` : il ne bloque jamais la connexion).
 /// Les anciennes lignes de hyprdesk (repère + ligne suivante) sont retirées.
-pub fn pam_with(src: &str, fingerprint: bool, mymfa: bool) -> String {
+pub fn pam_with(src: &str, fingerprint: bool, mymfa: bool, keyring: bool) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut skip = false;
     for l in src.lines() {
@@ -269,11 +436,25 @@ pub fn pam_with(src: &str, fingerprint: bool, mymfa: bool) -> String {
         );
         lines.insert(j, mark("empreinte digitale"));
     }
-    if mymfa {
+    // Trousseau : myMFA s'il est installé, sinon gnome-keyring (déverrouillé
+    // par le mot de passe de connexion, comme sous GDM).
+    let module = if mymfa {
+        Some(("pam_mymfa.so", "", "trousseau myMFA"))
+    } else if keyring {
+        Some((
+            "pam_gnome_keyring.so",
+            " auto_start",
+            "trousseau gnome-keyring",
+        ))
+    } else {
+        None
+    };
+    if let Some((module, session_arg, what)) = module {
         for kind in ["auth", "session"] {
             if let Some(i) = lines.iter().rposition(|l| pam_kind(l) == Some(kind)) {
-                lines.insert(i + 1, format!("{kind:<10} optional     pam_mymfa.so"));
-                lines.insert(i + 1, mark("trousseau myMFA"));
+                let arg = if kind == "session" { session_arg } else { "" };
+                lines.insert(i + 1, format!("{kind:<10} optional     {module}{arg}"));
+                lines.insert(i + 1, mark(what));
             }
         }
     }
@@ -282,19 +463,20 @@ pub fn pam_with(src: &str, fingerprint: bool, mymfa: bool) -> String {
     out
 }
 
-/// Lignes de hyprdesk présentes : (empreinte, myMFA).
-pub fn pam_state(src: &str) -> (bool, bool) {
+/// Lignes de hyprdesk présentes : (empreinte, myMFA, gnome-keyring).
+pub fn pam_state(src: &str) -> (bool, bool, bool) {
     let mut it = src.lines().peekable();
-    let (mut f, mut m) = (false, false);
+    let (mut f, mut m, mut k) = (false, false, false);
     while let Some(l) = it.next() {
         if l.trim_start().starts_with(PAM_MARK)
             && let Some(next) = it.peek()
         {
             f |= next.contains("pam_fprintd");
             m |= next.contains("pam_mymfa");
+            k |= next.contains("pam_gnome_keyring");
         }
     }
-    (f, m)
+    (f, m, k)
 }
 
 fn unit_of_link(link: &Path) -> Option<String> {
@@ -344,6 +526,36 @@ fn mymfa_module() -> bool {
     MYMFA_PAM.iter().any(|p| Path::new(p).is_file())
 }
 
+/// Module PAM de gnome-keyring installé.
+fn keyring_module() -> bool {
+    MYMFA_PAM
+        .iter()
+        .map(|p| p.replace("pam_mymfa.so", "pam_gnome_keyring.so"))
+        .any(|p| Path::new(&p).is_file())
+}
+
+/// Compositeur disponible pour l'écran de connexion (Hyprland d'abord).
+pub fn compositor() -> Option<Compositor> {
+    if has_program("start-hyprland") {
+        Some(Compositor::Hyprland("start-hyprland"))
+    } else if has_program("Hyprland") {
+        Some(Compositor::Hyprland("Hyprland"))
+    } else if has_program("cage") {
+        Some(Compositor::Cage)
+    } else {
+        None
+    }
+}
+
+fn has_program(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .chain(["/usr/bin".into(), "/usr/local/bin".into()])
+        .any(|d| d.join(name).is_file())
+}
+
 pub fn status() -> Status {
     let dm = unit_of_link(Path::new(DM_LINK));
     let exe = current_exe();
@@ -356,7 +568,8 @@ pub fn status() -> Status {
             .as_deref()
             .is_some_and(|e| e != Path::new(SYSTEM_BIN) && stale(Path::new(SYSTEM_BIN), e));
     let (command, _) = parse_config(&std::fs::read_to_string(CONFIG).unwrap_or_default());
-    let (pam_fingerprint, pam_mymfa) = pam_state(&std::fs::read_to_string(PAM).unwrap_or_default());
+    let (pam_fingerprint, pam_mymfa, pam_keyring) =
+        pam_state(&std::fs::read_to_string(PAM).unwrap_or_default());
     Status {
         dm_active: dm.as_deref().is_some_and(is_active),
         dm,
@@ -374,7 +587,10 @@ pub fn status() -> Status {
         profile: Profile::installed(),
         pam_fingerprint,
         pam_mymfa,
+        pam_keyring,
         mymfa_module: mymfa_module(),
+        keyring_module: keyring_module(),
+        hyprland: matches!(compositor(), Some(Compositor::Hyprland(_))),
         fprintd: crate::doctor::has("fprintd"),
         loaded: true,
     }
@@ -502,23 +718,33 @@ fn read_profile(path: Option<&str>) -> Result<Profile, String> {
         .filter(|c| !c.is_control())
         .take(80)
         .collect();
-    if !Path::new(&p.wallpaper_source).is_absolute() {
-        p.wallpaper_source.clear();
+    for w in [&mut p.wallpaper_source, &mut p.wallpaper_vertical_source] {
+        if !Path::new(w.as_str()).is_absolute() {
+            w.clear();
+        }
     }
     p.wallpaper.clear();
+    p.wallpaper_vertical.clear();
+    if !lang_ok(&p.lang) {
+        p.lang.clear();
+    }
+    p.monitors.retain(|m| name_ok(&m.name));
+    if !name_ok(&p.login_monitor) {
+        p.login_monitor.clear();
+    }
     Ok(p)
 }
 
 /// Copie du fond pour le greeter : image décodée (seuls les formats connus
 /// passent), réduite à 3840 × 2160 au plus, enregistrée en JPEG.
-fn install_wallpaper(src: &str) -> Result<(), String> {
+fn install_wallpaper(src: &str, dest: &str) -> Result<(), String> {
     let img = ::image::open(src).map_err(|e| format!("{src} : {e}"))?;
     let img = if img.width() > 3840 || img.height() > 2160 {
         img.resize(3840, 2160, ::image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
-    let tmp = format!("{WALLPAPER}.nouveau");
+    let tmp = format!("{dest}.nouveau");
     let file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     let mut out = std::io::BufWriter::new(file);
     ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
@@ -528,7 +754,7 @@ fn install_wallpaper(src: &str) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))
         .map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, WALLPAPER).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, dest).map_err(|e| e.to_string())
 }
 
 /// Copie hyprdesk dans /usr/local/bin (sauf binaire du paquet), installe le
@@ -554,11 +780,27 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         SYSTEM_BIN
     };
     std::fs::create_dir_all("/etc/greetd").map_err(io)?;
-    if p.wallpaper_source.is_empty() {
-        let _ = std::fs::remove_file(WALLPAPER);
-    } else {
-        install_wallpaper(&p.wallpaper_source)?;
-        p.wallpaper = WALLPAPER.into();
+    for (src, dest, field) in [
+        (p.wallpaper_source.clone(), WALLPAPER, &mut p.wallpaper),
+        (
+            p.wallpaper_vertical_source.clone(),
+            WALLPAPER_VERTICAL,
+            &mut p.wallpaper_vertical,
+        ),
+    ] {
+        if src.is_empty() {
+            let _ = std::fs::remove_file(dest);
+        } else {
+            install_wallpaper(&src, dest)?;
+            *field = dest.into();
+        }
+    }
+    let comp = compositor().ok_or_else(|| {
+        crate::i18n::tr("Ni Hyprland ni cage : rien pour afficher l'écran de connexion.")
+            .to_string()
+    })?;
+    if matches!(comp, Compositor::Hyprland(_)) {
+        std::fs::write(HYPRLAND_CONFIG, hyprland_lua(bin, &p)).map_err(io)?;
     }
     std::fs::write(
         PROFILE,
@@ -571,11 +813,16 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         std::fs::write(&bak, &old).map_err(io)?;
     }
     let vt = parse_config(&old).1.unwrap_or(1);
-    std::fs::write(CONFIG, config_toml(bin, vt, &p)).map_err(io)?;
+    std::fs::write(CONFIG, config_toml(bin, vt, &p, comp)).map_err(io)?;
     // PAM : seulement si le paquet greetd a posé son fichier (sinon greetd
     // n'est pas installé, et un fichier inventé ici serait faux).
     if let Ok(src) = std::fs::read_to_string(PAM) {
-        let new = pam_with(&src, p.fingerprint && has("fprintd"), mymfa_module());
+        let new = pam_with(
+            &src,
+            p.fingerprint && has("fprintd"),
+            mymfa_module(),
+            keyring_module(),
+        );
         if new != src {
             std::fs::write(PAM, new).map_err(io)?;
         }
@@ -687,12 +934,19 @@ mod tests {
 
     #[test]
     fn config_ecrite_relue() {
-        let src = config_toml(SYSTEM_BIN, 1, &Profile::default());
+        let p = Profile {
+            lang: "fr_FR.UTF-8".into(),
+            ..Default::default()
+        };
+        let src = config_toml(SYSTEM_BIN, 1, &p, Compositor::Hyprland("start-hyprland"));
         assert!(src.starts_with(HEADER));
         let (cmd, vt) = parse_config(&src);
         assert_eq!(
             cmd.as_deref(),
-            Some("cage -s -- /usr/local/bin/hyprdesk greeter --window")
+            Some(
+                "env HOME=/var/lib/hyprdesk-greeter LANG=fr_FR.UTF-8 \
+                 start-hyprland -- --config /etc/greetd/hyprdesk-hyprland.lua"
+            )
         );
         assert_eq!(vt, Some(1));
         assert!(is_ours(&cmd.unwrap()));
@@ -701,11 +955,11 @@ mod tests {
 
     #[test]
     fn clavier_passe_a_cage() {
-        let (cmd, _) = parse_config(&config_toml(SYSTEM_BIN, 1, &fr()));
+        let (cmd, _) = parse_config(&config_toml(SYSTEM_BIN, 1, &fr(), Compositor::Cage));
         assert_eq!(
             cmd.as_deref(),
             Some(
-                "env XKB_DEFAULT_LAYOUT=fr XKB_DEFAULT_VARIANT=azerty \
+                "env HOME=/var/lib/hyprdesk-greeter XKB_DEFAULT_LAYOUT=fr XKB_DEFAULT_VARIANT=azerty \
                  cage -s -- /usr/local/bin/hyprdesk greeter --window"
             )
         );
@@ -714,13 +968,18 @@ mod tests {
             layout: "fr; rm -rf /".into(),
             ..Default::default()
         };
-        assert!(!greeter_command(SYSTEM_BIN, &p).contains("rm"));
+        assert!(!greeter_command(SYSTEM_BIN, &p, Compositor::Cage).contains("rm"));
+        let p = Profile {
+            lang: "fr; rm".into(),
+            ..Default::default()
+        };
+        assert!(!greeter_command(SYSTEM_BIN, &p, Compositor::Hyprland("Hyprland")).contains("rm"));
         assert!(xkb_ok("grp:alt_shift_toggle,caps:escape"));
     }
 
     #[test]
     fn lignes_pam_posees_et_retirees() {
-        let both = pam_with(ARCH_PAM, true, true);
+        let both = pam_with(ARCH_PAM, true, true, true);
         let lines: Vec<&str> = both.lines().collect();
         let fp = lines
             .iter()
@@ -745,11 +1004,76 @@ mod tests {
                 .iter()
                 .any(|l| l.starts_with("session") && l.contains("pam_mymfa"))
         );
-        assert_eq!(pam_state(&both), (true, true));
+        // myMFA remplace gnome-keyring : pas les deux.
+        assert_eq!(pam_state(&both), (true, true, false));
         // Rejouable, puis retirable sans trace.
-        assert_eq!(pam_with(&both, true, true), both);
-        assert_eq!(pam_with(&both, false, false), ARCH_PAM);
-        assert_eq!(pam_state(ARCH_PAM), (false, false));
+        assert_eq!(pam_with(&both, true, true, true), both);
+        assert_eq!(pam_with(&both, false, false, false), ARCH_PAM);
+        assert_eq!(pam_state(ARCH_PAM), (false, false, false));
+    }
+
+    #[test]
+    fn gnome_keyring_sans_mymfa() {
+        let k = pam_with(ARCH_PAM, false, false, true);
+        assert_eq!(pam_state(&k), (false, false, true));
+        let lines: Vec<&str> = k.lines().collect();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("auth") && l.ends_with("pam_gnome_keyring.so"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("session") && l.ends_with("pam_gnome_keyring.so auto_start"))
+        );
+        // La ligne de session vient après la pile (pam_systemd y crée /run/user).
+        let inc = lines
+            .iter()
+            .position(|l| l.starts_with("session") && l.contains("include"))
+            .unwrap();
+        let kr = lines
+            .iter()
+            .position(|l| l.starts_with("session") && l.contains("gnome_keyring"))
+            .unwrap();
+        assert!(kr > inc);
+        assert_eq!(pam_with(&k, false, false, false), ARCH_PAM);
+    }
+
+    #[test]
+    fn hyprland_de_connexion() {
+        let ecran = |name: &str, x: i32, y: i32, transform: u8| MonitorRule {
+            name: name.into(),
+            enabled: true,
+            width: 2560,
+            height: 1440,
+            refresh: 144.0,
+            x,
+            y,
+            scale: 1.0,
+            transform,
+        };
+        let mut p = Profile {
+            monitors: vec![ecran("DP-1", 0, 0, 0), ecran("HDMI-A-2", 2560, -560, 1)],
+            login_monitor: "HDMI-A-2".into(),
+            ..fr()
+        };
+        let lua = hyprland_lua(SYSTEM_BIN, &p);
+        assert!(lua.contains(
+            "hl.monitor({ output = \"HDMI-A-2\", mode = \"2560x1440@144.00\", position = \"2560x-560\", scale = 1, transform = 1 })"
+        ));
+        assert!(lua.contains("kb_layout = \"fr\", kb_variant = \"azerty\""));
+        assert!(lua.contains("hl.dsp.focus({ monitor = \"HDMI-A-2\" })"));
+        assert!(lua.contains(
+            "hl.exec_cmd(\"sh -c '/usr/local/bin/hyprdesk greeter; hyprctl dispatch \\\"hl.dsp.exit()\\\"'\")"
+        ));
+        assert!(login_monitor(&p).unwrap().vertical());
+        // Écran choisi absent ou éteint : le premier allumé.
+        p.login_monitor = "eDP-1".into();
+        assert_eq!(login_monitor(&p).unwrap().name, "DP-1");
+        // Nom douteux : écarté de la configuration.
+        p.monitors.push(ecran("X\"); os.exit(", 0, 0, 0));
+        assert!(!hyprland_lua(SYSTEM_BIN, &p).contains("os.exit"));
     }
 
     #[test]
