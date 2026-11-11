@@ -14,11 +14,15 @@ Type=simple
 # --replace : le service reprend la main sur une instance lancée à la main
 # (une seule instance par session, verrou $XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.lock).
 ExecStart=%h/.local/bin/hyprdesk daemon --replace
-# Relancé sur toute fin anormale : hyprdesk ne sort avec 0 que sur demande
-# (hyprdesk quit, SIGTERM de systemctl stop) ; une boucle d'affichage
-# terminée sans demande, une erreur Wayland ou D-Bus sortent en erreur.
-Restart=on-failure
+# Toujours relancé, sauf arrêt voulu : `systemctl --user stop` (jamais
+# relancé par systemd) et `hyprdesk quit`, qui sort avec le code 75, tenu
+# pour un succès à ne pas relancer. Une boucle d'affichage terminée sans
+# demande, une erreur Wayland ou D-Bus sortent en erreur : relance.
+# Surcharges locales : ~/.config/systemd/user/hyprdesk.service.d/*.conf
+Restart=always
 RestartSec=3
+SuccessExitStatus=75
+RestartPreventExitStatus=75
 Slice=session.slice
 
 [Install]

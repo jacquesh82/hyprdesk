@@ -4,7 +4,9 @@
 #   2. police Mindlog dans le dossier de polices utilisateur
 #   3. config d'exemple ~/.config/hypr/hyprdesk.lua si absente — jamais écrasée
 #   4. définitions LuaLS à côté (autocomplétion)
-#   5. unit systemd user (WAYLAND_DISPLAY détecté) + activation et redémarrage
+#   5. unit systemd user (WAYLAND_DISPLAY détecté), dossier de surcharges
+#      hyprdesk.service.d, activation, redémarrage, puis contrôle (état,
+#      relance, surcharges, hyprdesk status) : échec si le service ne tourne pas
 #   6. raccourci de verrouillage SUPER + L -> hyprdesk lock dans hyprland.lua :
 #      seule modification de hyprland.lua (copie de sauvegarde avant) ; le
 #      raccourci hyprlock y est remplacé, tout autre raccourci SUPER + L laissé.
@@ -48,11 +50,33 @@ WL_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 mkdir -p "$UNIT_DIR"
 sed "/^\[Service\]/a Environment=WAYLAND_DISPLAY=$WL_DISPLAY" \
     assets/hyprdesk.service > "$UNIT_DIR/hyprdesk.service"
+# Surcharges locales (relance, environnement…) : jamais écrasées ici.
+mkdir -p "$UNIT_DIR/hyprdesk.service.d"
+ls -la "$UNIT_DIR/hyprdesk.service.d"
 systemctl --user daemon-reload
 systemctl --user enable hyprdesk.service
 systemctl --user restart hyprdesk.service
-sleep 1
-systemctl --user --no-pager --lines=0 status hyprdesk.service || true
+
+echo "== contrôle du service"
+# Le démon répond à `status` une fois sa socket ouverte : quelques secondes.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    "$BIN_DIR/hyprdesk" status >/dev/null 2>&1 && break
+    sleep 0.5
+done
+systemctl --user show hyprdesk.service \
+    -p ActiveState,SubState,Restart,DropInPaths,MainPID,NRestarts --no-pager
+echo "--- status"
+"$BIN_DIR/hyprdesk" status 2>&1 | head -15 || true
+ACTIVE=$(systemctl --user show hyprdesk.service -p ActiveState --value)
+RESTART=$(systemctl --user show hyprdesk.service -p Restart --value)
+if [[ "$ACTIVE" != "active" ]]; then
+    echo "!! hyprdesk.service n'est pas actif ($ACTIVE) : journalctl --user -u hyprdesk -n 50" >&2
+    systemctl --user --no-pager --lines=20 status hyprdesk.service >&2 || true
+    exit 1
+fi
+if [[ "$RESTART" != "always" ]]; then
+    echo "!! Restart=$RESTART (attendu : always) — une surcharge de hyprdesk.service.d le change ?" >&2
+fi
 
 echo "== raccourci de verrouillage (SUPER + L)"
 HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"

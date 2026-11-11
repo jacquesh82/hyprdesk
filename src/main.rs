@@ -324,7 +324,13 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     match (r, reason) {
         (Ok(()), Some(why)) => {
             tracing::info!("{}", crate::tr!("hyprdesk s'arrête : {why}", why = why));
-            ExitCode::SUCCESS
+            // `hyprdesk quit` : code dédié, que systemd ne relance pas ;
+            // un signal (systemctl stop, Ctrl-C) : 0.
+            if control::QUIT_REQUESTED.load(std::sync::atomic::Ordering::Relaxed) {
+                ExitCode::from(control::QUIT_EXIT)
+            } else {
+                ExitCode::SUCCESS
+            }
         }
         // Fin sans demande d'arrêt : jamais un succès (systemd relance).
         (Ok(()), None) => {

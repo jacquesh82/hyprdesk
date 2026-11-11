@@ -153,6 +153,15 @@ impl Command {
 /// sans raison, la fin de la boucle d'affichage est une erreur.
 pub static EXIT_REASON: Mutex<Option<String>> = Mutex::new(None);
 
+/// Code de sortie de `hyprdesk quit` : l'unité systemd le tient pour un
+/// succès à ne pas relancer (`SuccessExitStatus`, `RestartPreventExitStatus`),
+/// alors qu'elle relance tout le reste (`Restart=always`).
+pub const QUIT_EXIT: u8 = 75;
+
+/// L'arrêt vient de la commande `quit` (et non d'un signal).
+pub static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn set_exit_reason(r: String) {
     if let Ok(mut e) = EXIT_REASON.lock() {
         e.get_or_insert(r);
@@ -274,6 +283,7 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                                     crate::tr!("arrêt demandé : {why}", why = why)
                                 );
                                 set_exit_reason(why);
+                                QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
                             } else {
                                 tracing::debug!("commande « {} » de {from}", c.as_str());
                             }
