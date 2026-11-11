@@ -70,6 +70,8 @@ Commandes :
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
   overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
+  notifications [list | dnd [on|off] | clear]
+                    notifications de hyprdesk : historique, Ne pas déranger
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
                     à la fenêtre suivante (prev : précédente)
   tour              ouvre les réglages sur la visite guidée
@@ -788,6 +790,59 @@ fn main() -> ExitCode {
                 Err(e) => {
                     eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
                     ExitCode::FAILURE
+                }
+            }
+        }
+        // Notifications affichées par hyprdesk : historique, Ne pas déranger.
+        "notifications" => {
+            let sub: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+            match sub.as_slice() {
+                [] | ["list"] => match std::fs::read_to_string(notifications::state_path()) {
+                    Ok(s) => {
+                        for line in s.lines() {
+                            if let Some(n) = line.strip_prefix("n=") {
+                                let mut f = n.splitn(3, '\t');
+                                let (app, title, body) = (
+                                    f.next().unwrap_or(""),
+                                    f.next().unwrap_or(""),
+                                    f.next().unwrap_or(""),
+                                );
+                                println!(
+                                    "{app} : {title}{}",
+                                    if body.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(" — {body}")
+                                    }
+                                );
+                            } else if line == "dnd=1" {
+                                println!("{}", crate::i18n::tr("Ne pas déranger : activé"));
+                            }
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "{}",
+                            crate::i18n::tr(
+                                "les notifications sont affichées par un autre démon (wayle, mako…), pas par hyprdesk"
+                            )
+                        );
+                        ExitCode::FAILURE
+                    }
+                },
+                ["dnd"] | ["dnd", "on" | "off"] | ["clear"] => {
+                    match control::send(control::Command::Notifications(sub.join(" "))) {
+                        Ok(_) => ExitCode::SUCCESS,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            ExitCode::FAILURE
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("usage : hyprdesk notifications [list | dnd [on|off] | clear]");
+                    ExitCode::from(2)
                 }
             }
         }

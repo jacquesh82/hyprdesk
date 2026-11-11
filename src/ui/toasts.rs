@@ -82,6 +82,7 @@ pub fn stream() -> impl Stream<Item = Event> {
                 "{}",
                 crate::i18n::tr("notifications affichées par hyprdesk")
             );
+            let _ = out.send(Event::Active).await;
             let (tx, mut cmds) = tokio::sync::mpsc::unbounded_channel();
             let _ = CMDS.set(tx);
             loop {
@@ -142,6 +143,46 @@ pub enum TMsg {
 pub struct Toasts {
     pub win: Option<Id>,
     pub list: Vec<Toast>,
+    /// hyprdesk tient le service (sinon wayle, mako… affichent).
+    pub active: bool,
+    /// Historique (les plus récentes d'abord), hors notifications `transient`.
+    pub history: Vec<Notification>,
+    /// Ne pas déranger : pas de bulle, sauf pour une notification critique.
+    pub dnd: bool,
+}
+
+impl Toasts {
+    /// Écrit l'état lu par le module de barre et `hyprdesk notifications`.
+    fn publish(&self) {
+        if self.active {
+            let _ = std::fs::write(
+                crate::notifications::state_path(),
+                crate::notifications::render_state(self.dnd, &self.history),
+            );
+        }
+    }
+
+    /// Applique une commande `hyprdesk notifications …` : `dnd [on|off]`, `clear`.
+    pub fn command(&mut self, cmd: &str) {
+        let mut it = cmd.split_whitespace();
+        match (it.next(), it.next()) {
+            (Some("dnd"), Some("on")) => self.dnd = true,
+            (Some("dnd"), Some("off")) => self.dnd = false,
+            (Some("dnd"), _) => self.dnd = !self.dnd,
+            (Some("clear"), _) => self.history.clear(),
+            _ => return,
+        }
+        let p = crate::notifications::dnd_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = if self.dnd {
+            std::fs::write(&p, "1\n")
+        } else {
+            std::fs::remove_file(&p)
+        };
+        self.publish();
+    }
 }
 
 fn height(n: usize) -> u32 {
@@ -152,7 +193,23 @@ fn height(n: usize) -> u32 {
 impl App {
     pub(super) fn toasts_update(&mut self, m: TMsg) -> Task<Msg> {
         match m {
+            TMsg::Event(Event::Active) => {
+                self.toasts.active = true;
+                self.toasts.dnd = crate::notifications::dnd_path().exists();
+                self.toasts.publish();
+                Task::none()
+            }
             TMsg::Event(Event::Shown(n)) => {
+                if !n.transient {
+                    self.toasts.history.retain(|h| h.id != n.id);
+                    self.toasts.history.insert(0, n.clone());
+                    self.toasts.history.truncate(crate::notifications::HISTORY);
+                    self.toasts.publish();
+                }
+                // Ne pas déranger : dans l'historique seulement, sauf critique.
+                if self.toasts.dnd && n.urgency != Urgency::Critical {
+                    return Task::none();
+                }
                 let t = Toast {
                     n,
                     since: Instant::now(),

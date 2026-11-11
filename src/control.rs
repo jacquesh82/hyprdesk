@@ -41,6 +41,8 @@ pub enum Command {
     Apps,
     /// Vue d'ensemble des fenêtres (plugin de Hyprland, sinon le sélecteur).
     Overview,
+    /// Notifications de hyprdesk : `dnd [on|off]`, `clear`.
+    Notifications(String),
     /// Sélecteur de fenêtres : ouvre, ou fenêtre suivante (`true` : précédente).
     Switch(bool),
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
@@ -80,6 +82,9 @@ impl Command {
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
             // Une requête tient sur une ligne : le texte voyage en chaîne JSON.
             m if m.starts_with("problem ") => Command::Problem(serde_json::from_str(&m[8..]).ok()?),
+            m if m.starts_with("notifications ") => {
+                Command::Notifications(m[14..].trim().to_string())
+            }
             m if m.starts_with("problem-show ") => {
                 Command::ProblemShow(serde_json::from_str(&m[13..]).ok()?)
             }
@@ -96,6 +101,7 @@ impl Command {
                 "problem {}",
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
             ),
+            Command::Notifications(a) => format!("notifications {a}"),
             Command::ProblemShow(t) => format!(
                 "problem-show {}",
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
@@ -122,6 +128,7 @@ impl Command {
             Command::Search => "search",
             Command::Apps => "apps",
             Command::Overview => "overview",
+            Command::Notifications(_) => "notifications",
             Command::Switch(false) => "switch",
             Command::Switch(true) => "switch prev",
             Command::Osd(_) => "osd-show",

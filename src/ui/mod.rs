@@ -2692,6 +2692,10 @@ impl App {
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
                 control::Command::Apps => self.toggle_apps(),
+                control::Command::Notifications(a) => {
+                    self.toasts.command(&a);
+                    Task::none()
+                }
                 control::Command::Overview => {
                     let cmd = self.cfg.general.overview_command.trim().to_string();
                     if cmd.is_empty() {

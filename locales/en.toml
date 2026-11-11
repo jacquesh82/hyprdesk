@@ -1684,3 +1684,10 @@
 "Vue d'ensemble des fenêtres" = "Window overview"
 "Vue d'ensemble par un plugin de Hyprland" = "Overview through a Hyprland plugin"
 "vide : le sélecteur de hyprdesk" = "empty: the hyprdesk switcher"
+
+# Notifications de hyprdesk (MLG-6).
+"                    notifications de hyprdesk : historique, Ne pas déranger" = "                    hyprdesk notifications: history, Do Not Disturb"
+"  notifications [list | dnd [on|off] | clear]" = "  notifications [list | dnd [on|off] | clear]"
+"Ne pas déranger : activé" = "Do Not Disturb: on"
+"Ne pas déranger et dernières notifications (wayle, sinon hyprdesk)." = "Do Not Disturb and recent notifications (wayle, otherwise hyprdesk)."
+"les notifications sont affichées par un autre démon (wayle, mako…), pas par hyprdesk" = "notifications are shown by another daemon (wayle, mako…), not by hyprdesk"

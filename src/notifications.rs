@@ -70,6 +70,45 @@ pub enum Event {
     Shown(Notification),
     /// Fermée par l'application (`CloseNotification`).
     Closed(u32),
+    /// hyprdesk tient le nom du service : c'est lui qui affiche.
+    Active,
+}
+
+/// État pour le module de barre et `hyprdesk notifications` :
+/// `$XDG_RUNTIME_DIR/hyprdesk-notifications.txt` — `dnd=0|1`, `count=N`,
+/// puis `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
+pub fn state_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("hyprdesk-notifications.txt")
+}
+
+/// « Ne pas déranger » gardé d'une session à l'autre.
+pub fn dnd_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join(".local/state")
+        })
+        .join("hyprdesk")
+        .join("dnd")
+}
+
+/// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
+pub fn render_state(dnd: bool, history: &[Notification]) -> String {
+    let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+    let mut out = format!("dnd={}\ncount={}\n", u8::from(dnd), history.len());
+    for n in history.iter().take(30) {
+        out.push_str(&format!(
+            "n={}\t{}\t{}\n",
+            clean(&n.app),
+            clean(&n.summary),
+            clean(&n.body)
+        ));
+    }
+    out
 }
 
 fn hint_str(h: &HashMap<String, OwnedValue>, k: &str) -> Option<String> {
@@ -485,5 +524,34 @@ mod tests {
         let _ = h.events.recv().await;
         h.invoke(id, "default").await.unwrap();
         assert!(h.store.lock().unwrap().list.is_empty());
+    }
+
+    #[test]
+    fn etat_pour_la_barre() {
+        let n = |id: u32, app: &str, s: &str, b: &str| Notification {
+            id,
+            app: app.into(),
+            icon: String::new(),
+            summary: s.into(),
+            body: b.into(),
+            actions: Vec::new(),
+            urgency: Urgency::Normal,
+            timeout_ms: -1,
+            resident: false,
+            transient: false,
+            desktop_entry: None,
+            category: None,
+        };
+        let out = render_state(
+            true,
+            &[
+                n(2, "kitty", "Fini", "cargo\ttest\nok"),
+                n(1, "hyprdesk", "Capture", ""),
+            ],
+        );
+        assert_eq!(
+            out,
+            "dnd=1\ncount=2\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
+        );
     }
 }
