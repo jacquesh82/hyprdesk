@@ -17,7 +17,7 @@ use iced_layershell::reexport::{
 use super::{App, Msg, color};
 
 pub const NAMESPACE: &str = "hyprdesk-search";
-const INPUT_ID: &str = "hyprdesk-search-input";
+pub(super) const INPUT_ID: &str = "hyprdesk-search-input";
 /// Résultats affichés.
 pub const SHOWN: usize = 8;
 const WIDTH: f32 = 620.0;
@@ -35,6 +35,10 @@ pub struct Search {
     pub selected: usize,
     /// Historique du presse-papiers, lu à l'entrée en mode `:clip`.
     pub clips: Option<Vec<crate::clipboard::Entry>>,
+    /// Grille plein écran des applications (`hyprdesk apps`, bouton du dock).
+    pub grid: bool,
+    /// Catégorie choisie dans la grille (indice dans `apps_grid::CATEGORIES`).
+    pub category: Option<usize>,
 }
 
 impl Search {
@@ -62,6 +66,8 @@ impl Search {
 #[derive(Debug, Clone)]
 pub enum SMsg {
     Query(String),
+    /// Grille : catégorie choisie (`None` : toutes).
+    Category(Option<usize>),
     Launch(usize),
     Resolved(String),
     Clips(Vec<crate::clipboard::Entry>),
@@ -84,7 +90,23 @@ impl App {
     }
 
     fn search_rank(&self, query: &str) -> Vec<usize> {
-        let cand = self.search_candidates();
+        self.search_rank_in(query, None, SHOWN)
+    }
+
+    /// Classement, limité à une catégorie de la grille, au plus `limit`.
+    pub(super) fn search_rank_in(
+        &self,
+        query: &str,
+        category: Option<usize>,
+        limit: usize,
+    ) -> Vec<usize> {
+        let cand: Vec<usize> = self
+            .search_candidates()
+            .into_iter()
+            .filter(|&i| {
+                category.is_none_or(|c| super::apps_grid::in_category(&self.apps[i].categories, c))
+            })
+            .collect();
         let names: Vec<&str> = cand.iter().map(|&i| self.apps[i].name.as_str()).collect();
         // Les applications souvent lancées d'ici passent devant.
         let usage = crate::search::load_usage();
@@ -101,10 +123,51 @@ impl App {
                     .unwrap_or(0)
             })
             .collect();
-        crate::search::rank_with(query, &names, &bonus, SHOWN)
+        crate::search::rank_with(query, &names, &bonus, limit)
             .into_iter()
             .map(|k| cand[k])
             .collect()
+    }
+
+    /// Ouvre la grille des applications, ou la referme.
+    pub(super) fn toggle_apps(&mut self) -> Task<Msg> {
+        if self.search.is_some() {
+            return self.close_search();
+        }
+        let win = Id::unique();
+        let results = self.search_rank_in("", None, super::apps_grid::LIMIT);
+        let icons: Vec<Task<Msg>> = results
+            .iter()
+            .filter_map(|&i| self.apps[i].icon.clone())
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|n| self.want_icon(n))
+            .collect();
+        self.search = Some(Search {
+            win,
+            query: String::new(),
+            results,
+            selected: 0,
+            clips: None,
+            grid: true,
+            category: None,
+        });
+        let mut tasks = vec![Task::done(Msg::NewLayerShell {
+            settings: NewLayerShellSettings {
+                size: Some((0, 0)),
+                layer: Layer::Overlay,
+                anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                exclusive_zone: Some(-1),
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                output_option: OutputOption::Active,
+                namespace: Some(NAMESPACE.into()),
+                ..Default::default()
+            },
+            id: win,
+        })];
+        tasks.extend(icons);
+        tasks.push(iced::widget::operation::focus(INPUT_ID));
+        Task::batch(tasks)
     }
 
     /// Ouvre la recherche, ou la referme si elle est ouverte.
@@ -127,6 +190,8 @@ impl App {
             results,
             selected: 0,
             clips: None,
+            grid: false,
+            category: None,
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -156,17 +221,25 @@ impl App {
         }
     }
 
-    /// Flèches : sélection suivante ou précédente (en boucle).
+    /// Flèches : sélection suivante ou précédente (en boucle) ; dans la
+    /// grille, haut et bas sautent d'une rangée.
     pub(super) fn search_move(&mut self, down: bool) -> Task<Msg> {
+        let step = self
+            .search
+            .as_ref()
+            .filter(|s| s.grid)
+            .map(|_| super::apps_grid::COLUMNS as i64)
+            .unwrap_or(1);
+        self.search_step(if down { step } else { -step })
+    }
+
+    /// Déplace la sélection de `d` (en boucle).
+    pub(super) fn search_step(&mut self, d: i64) -> Task<Msg> {
         if let Some(s) = self.search.as_mut()
             && !s.results.is_empty()
         {
-            let n = s.results.len();
-            s.selected = if down {
-                (s.selected + 1) % n
-            } else {
-                (s.selected + n - 1) % n
-            };
+            let n = s.results.len() as i64;
+            s.selected = (s.selected as i64 + d).rem_euclid(n) as usize;
         }
         Task::none()
     }
@@ -230,8 +303,35 @@ impl App {
                 );
                 Task::batch([close, copy])
             }
+            SMsg::Category(c) => {
+                let q = self
+                    .search
+                    .as_ref()
+                    .map(|s| s.query.clone())
+                    .unwrap_or_default();
+                let results = self.search_rank_in(&q, c, super::apps_grid::LIMIT);
+                let icons: Vec<String> = results
+                    .iter()
+                    .filter_map(|&i| self.apps[i].icon.clone())
+                    .collect();
+                if let Some(s) = self.search.as_mut() {
+                    s.category = c;
+                    s.results = results;
+                    s.selected = 0;
+                }
+                Task::batch(icons.iter().map(|n| self.want_icon(n)).collect::<Vec<_>>())
+            }
             SMsg::Query(q) => {
-                let results = self.search_rank(&q);
+                let (grid, cat) = self
+                    .search
+                    .as_ref()
+                    .map(|s| (s.grid, s.category))
+                    .unwrap_or_default();
+                let results = if grid {
+                    self.search_rank_in(&q, cat, super::apps_grid::LIMIT)
+                } else {
+                    self.search_rank(&q)
+                };
                 let icons: Vec<String> = results
                     .iter()
                     .filter_map(|&i| self.apps[i].icon.clone())
@@ -281,6 +381,9 @@ impl App {
         let Some(s) = &self.search else {
             return iced::widget::Space::new().into();
         };
+        if s.grid && s.clip_query().is_none() {
+            return self.view_apps_grid(s);
+        }
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
         let dim = Color { a: 0.6, ..fg };

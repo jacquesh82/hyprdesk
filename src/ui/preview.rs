@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 54] = [
+const SCENES: [&str; 55] = [
     "desktop",
     "typography",
     "icons",
@@ -78,6 +78,7 @@ const SCENES: [&str; 54] = [
     "connexion",
     "luminosite",
     "plugin-config",
+    "applications",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -605,8 +606,62 @@ impl Preview {
         } else {
             self.app.problem = None;
         }
-        // Lanceur avec recherche : « fi » parmi quelques applications.
-        if SCENES[self.scene] == "recherche" {
+        // Grille des applications : quelques applications, par catégorie.
+        if SCENES[self.scene] == "applications" {
+            let app = |id: &str, name: &str, icon: &str, cat: &str| crate::launch::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                icon: Some(icon.into()),
+                wm_class: None,
+                mime_types: Vec::new(),
+                categories: vec![cat.into()],
+                available: true,
+            };
+            self.app.apps = Arc::new(vec![
+                app("firefox", "Firefox", "firefox", "Network"),
+                app(
+                    "org.gnome.Nautilus",
+                    "Fichiers",
+                    "system-file-manager-symbolic",
+                    "FileManager",
+                ),
+                app(
+                    "kitty",
+                    "Terminal",
+                    "utilities-terminal",
+                    "TerminalEmulator",
+                ),
+                app(
+                    "libreoffice-writer",
+                    "LibreOffice Writer",
+                    "libreoffice-writer",
+                    "Office",
+                ),
+                app(
+                    "libreoffice-calc",
+                    "LibreOffice Calc",
+                    "libreoffice-calc",
+                    "Office",
+                ),
+                app("gimp", "GIMP", "gimp", "Graphics"),
+                app("inkscape", "Inkscape", "inkscape", "Graphics"),
+                app("vlc", "VLC", "vlc", "AudioVideo"),
+                app("code", "Visual Studio Code", "vscode", "Development"),
+                app("steam", "Steam", "steam", "Game"),
+                app(
+                    "org.gnome.Settings",
+                    "Paramètres",
+                    "preferences-system-symbolic",
+                    "Settings",
+                ),
+                app("filezilla", "FileZilla", "filezilla", "Network"),
+                app("thunderbird", "Thunderbird", "thunderbird", "Email"),
+                app("obs", "OBS Studio", "com.obsproject.Studio", "AudioVideo"),
+            ]);
+            self.app.search = None;
+            let _ = self.app.toggle_apps();
+        } else if SCENES[self.scene] == "recherche" {
+            // Lanceur avec recherche : « fi » parmi quelques applications.
             let app = |id: &str, name: &str, icon: &str| crate::launch::AppInfo {
                 id: id.into(),
                 name: name.into(),

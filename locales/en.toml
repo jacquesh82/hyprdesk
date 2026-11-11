@@ -1664,3 +1664,15 @@
 "« {v} » : un nombre est attendu" = "“{v}”: a number is expected"
 "Configurer" = "Configure"
 "aucune : comprise dans une autre étape" = "none: included in another step"
+
+# Grille des applications (MLG-32).
+"  apps              ouvre ou referme la grille des applications (plein écran, catégories)" = "  apps              opens or closes the application grid (full screen, categories)"
+"Entrée lance · flèches pour choisir · Échap ferme" = "Enter launches · arrows to choose · Escape closes"
+"Toutes les applications" = "All applications"
+"Internet" = "Internet"
+"Bureautique" = "Office"
+"Graphisme" = "Graphics"
+"Multimédia" = "Multimedia"
+"Développement" = "Development"
+"Jeux" = "Games"
+"Utilitaires" = "Utilities"

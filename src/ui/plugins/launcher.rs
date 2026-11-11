@@ -611,6 +611,27 @@ impl App {
                 .into(),
             );
         }
+        // Toutes les applications : la grille plein écran.
+        {
+            let glyph: Element<'a, UiMsg> = super::super::icons::get("view-app-grid")
+                .map(|h| {
+                    iced::widget::svg(h)
+                        .width(size * 0.55)
+                        .height(size * 0.55)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                        .into()
+                })
+                .unwrap_or_else(|| text("⋯").font(self.font).size(13).color(fg).into());
+            items.push(item(
+                items.len(),
+                "dock-btn:apps".into(),
+                glyph,
+                0,
+                false,
+                PopupContent::Label(crate::i18n::tr("Toutes les applications").into()),
+                UiMsg::Control(crate::control::Command::Apps),
+            ));
+        }
         if assistant {
             let glyph: Element<'a, UiMsg> = super::super::icons::get("ai-assistant")
                 .map(|h| {

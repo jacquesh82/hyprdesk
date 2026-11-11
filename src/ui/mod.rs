@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
+mod apps_grid;
 pub(crate) mod bar;
 mod chat;
 pub(crate) mod color_picker;
@@ -2687,6 +2688,7 @@ impl App {
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
+                control::Command::Apps => self.toggle_apps(),
                 control::Command::Switch(back) => self.switch_windows(back),
                 control::Command::Tour => {
                     let o = self.open_panel();
@@ -3616,6 +3618,18 @@ impl App {
                         keyboard::Key::Named(Named::Escape) => self.close_search(),
                         keyboard::Key::Named(Named::ArrowDown) => self.search_move(true),
                         keyboard::Key::Named(Named::ArrowUp) => self.search_move(false),
+                        // Grille : gauche et droite d'une tuile (le champ garde
+                        // ces touches quand on y tape).
+                        keyboard::Key::Named(Named::ArrowRight)
+                            if self.search.as_ref().is_some_and(|s| s.grid) =>
+                        {
+                            self.search_step(1)
+                        }
+                        keyboard::Key::Named(Named::ArrowLeft)
+                            if self.search.as_ref().is_some_and(|s| s.grid) =>
+                        {
+                            self.search_step(-1)
+                        }
                         _ => Task::none(),
                     };
                 }

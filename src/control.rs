@@ -37,6 +37,8 @@ pub enum Command {
     Tour,
     /// Ouvre ou referme le lanceur avec recherche.
     Search,
+    /// Ouvre ou referme la grille des applications (plein écran).
+    Apps,
     /// Sélecteur de fenêtres : ouvre, ou fenêtre suivante (`true` : précédente).
     Switch(bool),
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
@@ -66,6 +68,7 @@ impl Command {
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
             "search" => Command::Search,
+            "apps" => Command::Apps,
             "switch" | "switch next" => Command::Switch(false),
             "switch prev" | "switch-prev" => Command::Switch(true),
             "settings" => Command::Settings("desktop".into()),
@@ -114,6 +117,7 @@ impl Command {
             Command::Assistant => "assistant",
             Command::Tour => "tour",
             Command::Search => "search",
+            Command::Apps => "apps",
             Command::Switch(false) => "switch",
             Command::Switch(true) => "switch prev",
             Command::Osd(_) => "osd-show",
