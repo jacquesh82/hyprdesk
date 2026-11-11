@@ -64,9 +64,14 @@ scripts:
 # - chargées à l'exécution : Wayland, xkbcommon, Vulkan, et EGL + wayland-egl
 #   (rendu de secours sans pilote Vulkan) ; X11 seulement hors Wayland, non requis ;
 # - programmes : xdg-mime / xdg-open (applications par défaut, ouverture des
-#   fichiers), tar (partage, thèmes), systemctl / loginctl (session, veille),
-#   fc-list (polices) ; wl-copy / wl-paste (copier-coller) ;
-# - facultatifs : les outils orchestrés (hyprdesk doctor) et les renvois des menus.
+#   fichiers), tar (partage, thèmes), systemctl / loginctl / timedatectl
+#   (session, veille, date), fc-list (polices) ; wl-copy / wl-paste
+#   (copier-coller) ; notify-send (notifications des captures, de la batterie,
+#   de LYRA) ; xdg-user-dir (dossiers Images et Vidéos des captures) ;
+# - facultatifs : les outils orchestrés (hyprdesk doctor, Réglages → Bureau →
+#   Dépendances) et les renvois des menus : gio (corbeille), rfkill (mode
+#   avion), pkexec (mises à jour), checkupdates / flatpak (mises à jour).
+# Le binaire ne lie que glibc, libgcc et PAM (objdump -p : NEEDED).
 overrides:
   deb:
     depends:
@@ -86,6 +91,8 @@ overrides:
       - hypridle
       - wireplumber
       - wl-clipboard
+      - libnotify-bin
+      - xdg-user-dirs
       - mesa-vulkan-drivers
     suggests:
       - network-manager
@@ -95,6 +102,10 @@ overrides:
       - brightnessctl
       - power-profiles-daemon
       - polkitd
+      - pkexec
+      - libglib2.0-bin
+      - rfkill
+      - flatpak
       - xdg-desktop-portal-hyprland
       - xdg-desktop-portal-gtk
       - hyprshot
@@ -132,6 +143,8 @@ overrides:
       - hypridle
       - wireplumber
       - wl-clipboard
+      - libnotify
+      - xdg-user-dirs
       - mesa-vulkan-drivers
     suggests:
       - NetworkManager
@@ -141,6 +154,9 @@ overrides:
       - brightnessctl
       - power-profiles-daemon
       - polkit
+      - glib2
+      - util-linux
+      - flatpak
       - xdg-desktop-portal-hyprland
       - xdg-desktop-portal-gtk
       - hyprshot
@@ -178,13 +194,19 @@ overrides:
       - "hypridle: veille et verrouillage automatique"
       - "wireplumber: son (wpctl)"
       - "wl-clipboard: copier-coller (wl-copy, wl-paste)"
+      - "libnotify: notifications des captures, de la batterie, de LYRA (notify-send)"
+      - "xdg-user-dirs: dossiers Images et Vidéos des captures (xdg-user-dir)"
       - "networkmanager: réseau (nmcli)"
       - "nm-connection-editor: réglages réseau avancés"
       - "bluez-utils: Bluetooth (bluetoothctl)"
       - "blueman: réglages Bluetooth avancés"
       - "brightnessctl: assombrir l'écran à l'inactivité"
       - "power-profiles-daemon: profils d'énergie"
-      - "polkit: authentification administrateur"
+      - "polkit: authentification administrateur, mises à jour (pkexec)"
+      - "glib2: corbeille du bureau (gio)"
+      - "util-linux: mode avion (rfkill), supports amovibles (lsblk)"
+      - "pacman-contrib: paquets à mettre à jour (checkupdates)"
+      - "flatpak: mises à jour des applications Flatpak"
       - "xdg-desktop-portal-hyprland: partage d'écran"
       - "xdg-desktop-portal-gtk: sélecteur de fichiers"
       - "hyprshot: captures d'écran"
@@ -201,6 +223,6 @@ overrides:
       - "pavucontrol: réglages du son avancés"
       - "unzip: thèmes au format .zip"
       - "git: plugins depuis un dépôt git"
-      - "curl: widget météo d'exemple"
+      - "curl: widget météo d'exemple (hyprdesk.lua)"
       - "kitty: thème des applications (terminal)"
-      - "wayle: notifications (en attendant le démon intégré)"
+      - "wayle: notifications par wayle (sans lui, hyprdesk les affiche)"
