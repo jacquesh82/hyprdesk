@@ -76,6 +76,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "checkupdates",
+        probe: Probe::Program(&["checkupdates"]),
+        package: "pacman-contrib",
+        feature: "Mises à jour en attente (Arch)",
+        essential: false,
+    },
+    Dep {
         name: "brightnessctl",
         probe: Probe::Program(&["brightnessctl"]),
         package: "brightnessctl",

@@ -35,6 +35,7 @@ mod theme;
 mod tiling;
 mod tray;
 mod ui;
+mod updates;
 mod widgets;
 mod windows;
 
@@ -89,6 +90,9 @@ Commandes :
   media <play-pause|next|previous>
                     commande le lecteur en cours (MPRIS)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
+  updates [--upgrade]
+                    paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
+                    --upgrade : mise à jour non interactive (pkexec)
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -771,6 +775,47 @@ fn main() -> ExitCode {
             let _ = tokio::signal::ctrl_c().await;
             ExitCode::SUCCESS
         }),
+        // Mises à jour en attente, et mise à jour non interactive.
+        "updates" => {
+            let sources = updates::sources();
+            if sources.is_empty() {
+                eprintln!("{}", crate::i18n::tr("aucune source de paquets reconnue"));
+                return ExitCode::FAILURE;
+            }
+            if args.get(1).map(String::as_str) == Some("--upgrade") {
+                let steps = block_on(updates::upgrade(&sources));
+                for s in &steps {
+                    println!(
+                        "{} {} : {}",
+                        if s.ok { "✓" } else { "✗" },
+                        s.source,
+                        s.command
+                    );
+                }
+                return match steps.iter().find(|s| !s.ok) {
+                    Some(f) => {
+                        eprintln!("\n{}", updates::report(f));
+                        ExitCode::FAILURE
+                    }
+                    None => ExitCode::SUCCESS,
+                };
+            }
+            let pending = block_on(updates::check(&sources));
+            for p in &pending {
+                println!("{} : {}", crate::i18n::tr(p.label), p.packages.len());
+                for name in p.packages.iter().take(30) {
+                    println!("  {name}");
+                }
+            }
+            println!(
+                "{}",
+                crate::tr!(
+                    "{n} paquet(s) à mettre à jour",
+                    n = updates::total(&pending)
+                )
+            );
+            ExitCode::SUCCESS
+        }
         // Dépendances externes : présentes, absentes, et ce qui en dépend.
         "doctor" => {
             let list = doctor::check();

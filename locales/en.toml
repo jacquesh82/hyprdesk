@@ -1281,3 +1281,18 @@
 "notifications : un autre démon est en place, hyprdesk ne les affiche pas" = "notifications: another daemon is running, hyprdesk does not display them"
 "notifications : {e}" = "notifications: {e}"
 "notifications affichées par hyprdesk" = "notifications displayed by hyprdesk"
+
+# Mises à jour en attente (MLG-31).
+"APT" = "APT"
+"AUR" = "AUR"
+"DNF" = "DNF"
+"Dépôts Arch" = "Arch repositories"
+"Flatpak" = "Flatpak"
+"Zypper" = "Zypper"
+"La mise à jour du système a échoué ({os}).\n\nCommande : {cmd}\nCode de sortie : {code}\n\nFin du journal :\n{tail}\n\nQue s'est-il passé, et comment le corriger ?" = "The system update failed ({os}).\n\nCommand: {cmd}\nExit code: {code}\n\nEnd of the log:\n{tail}\n\nWhat happened, and how can it be fixed?"
+"aucune source de paquets reconnue" = "no known package source"
+"{n} paquet(s) à mettre à jour" = "{n} package(s) to update"
+"Mises à jour en attente (Arch)" = "Pending updates (Arch)"
+"                    --upgrade : mise à jour non interactive (pkexec)" = "                    --upgrade: non-interactive update (pkexec)"
+"                    paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;" = "                    packages to update (pacman, AUR, apt, dnf, zypper, flatpak);"
+"  updates [--upgrade]" = "  updates [--upgrade]"
