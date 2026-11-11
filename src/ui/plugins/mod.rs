@@ -24,6 +24,7 @@ pub mod desktop;
 pub mod effects;
 pub mod energy;
 pub mod icons;
+pub mod input;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
@@ -75,6 +76,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     network::INFO,
     bluetooth::INFO,
     datetime::INFO,
+    input::INFO,
     lock::INFO,
     share::INFO,
     plugins::INFO,
@@ -106,7 +108,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["sound", "network", "bt", "energy", "datetime"],
+        ids: &["sound", "network", "bt", "input", "energy", "datetime"],
     },
     Group {
         label: "Applications",
@@ -159,6 +161,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "animations" => animations::TABS,
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
+        "input" => input::TABS,
         _ => &[],
     }
 }
@@ -285,6 +288,8 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "bluetooth" => "bt",
         "energie" | "énergie" | "power" | "batterie" => "energy",
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
+        "clavier" | "souris" | "keyboard" | "mouse" | "touchpad" | "pave" | "pavé" | "entrees"
+        | "entrées" => "input",
         other => other,
     };
     BUILTIN.iter().find(|p| p.id == id)
@@ -313,6 +318,7 @@ pub enum PluginMsg {
     Network(network::Msg),
     Bluetooth(bluetooth::Msg),
     DateTime(datetime::Msg),
+    Input(input::Msg),
     Effects(effects::Msg),
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
@@ -340,6 +346,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Network(m) => app.network_update(m),
         PluginMsg::Bluetooth(m) => app.bluetooth_update(m),
         PluginMsg::DateTime(m) => app.datetime_update(m),
+        PluginMsg::Input(m) => app.input_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
@@ -367,6 +374,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "network" => app.network_page(),
         "bt" => app.bluetooth_page(),
         "datetime" => app.datetime_page(),
+        "input" => app.input_page(),
         "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
         "apptheme" => app.apptheme_page(),
@@ -392,6 +400,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "network" => network::load(),
         "bt" => bluetooth::load(),
         "datetime" => datetime::load(),
+        "input" => input::load(),
         "assistant" => assistant::load_status(),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées

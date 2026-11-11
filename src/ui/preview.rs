@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 56] = [
+const SCENES: [&str; 57] = [
     "desktop",
     "typography",
     "icons",
@@ -80,6 +80,7 @@ const SCENES: [&str; 56] = [
     "plugin-config",
     "applications",
     "lanceur-central",
+    "clavier-souris",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -512,6 +513,7 @@ impl Preview {
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
             "plugin-config" => Some("plugins"),
+            "clavier-souris" => Some("input"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -800,6 +802,25 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+        }
+        // Clavier et souris : la configuration de l'utilisateur (l'aperçu ne
+        // lit pas Hyprland) et les dispositions de xkeyboard-config.
+        if SCENES[self.scene] == "clavier-souris"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            let (layouts, variants) = crate::inputs::layouts();
+            p.input = super::plugins::input::State {
+                loaded: true,
+                cur: Some(crate::inputs::Inputs {
+                    kb_layout: "fr".into(),
+                    kb_variant: "azerty".into(),
+                    tp_natural_scroll: true,
+                    ..Default::default()
+                }),
+                layouts,
+                variants,
+                ..Default::default()
+            };
         }
         // Plugins → Mises à jour → Configurer : options et commandes d'exemple.
         if SCENES[self.scene] == "plugin-config" {

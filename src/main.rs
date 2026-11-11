@@ -24,6 +24,7 @@ mod greeter_ui;
 mod hypr;
 mod i18n;
 mod idle;
+mod inputs;
 mod launch;
 mod layout;
 mod lock;
