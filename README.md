@@ -51,7 +51,8 @@ restart.
   desktop has set aside. Picking one hides the desktop and brings it back.
   `SUPER + Tab` opens a window overview. It uses hyprexpo or Hyprspace if you
   have one, and hyprdesk's own switcher otherwise. While the desktop is shown,
-  the number row still switches workspaces, whatever your keyboard layout.
+  the number row still switches workspaces, whatever your keyboard layout,
+  and `SUPER + Left` / `SUPER + Right` go to the previous / next one.
 - **Widgets and Lua plugins.** Clock, calendar, system stats and media player
   come built in. To add your own widget, drop a Lua file in a folder. No
   recompiling.

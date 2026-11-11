@@ -131,8 +131,9 @@ to return to. The Alt+Tab switcher filters it out too.
 - The submap still lets you move around: the **number row** goes to
   workspaces 1 to 10, with the same modifier as your workspace bindings
   (`SUPER` by default). It matches physical key codes, so it works with
-  AZERTY, QWERTY and any other layout. The desktop follows, and the new
-  workspace's windows are set aside too. `keys.search` (or
+  AZERTY, QWERTY and any other layout. The left and right arrows, with
+  that modifier, go to the previous and next workspace. The desktop
+  follows, and the new workspace's windows are set aside too. `keys.search` (or
   `keys.search_desktop`), `keys.switch` and `keys.overview` also stay
   available.
 - **Shortcut conflicts.** hyprdesk compares its shortcuts with Hyprland's

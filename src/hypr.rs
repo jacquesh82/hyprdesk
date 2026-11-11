@@ -578,11 +578,22 @@ pub fn build_keys_lua(
     // chiffres (codes physiques 10 à 19, quelle que soit la disposition du
     // clavier) avec le modificateur des raccourcis de workspace de
     // hyprland.lua ; le bureau suit (fenêtres du nouveau workspace mises de côté).
+    // Les flèches gauche et droite, avec le même modificateur : workspace
+    // précédent et suivant.
     if !ws_mod.is_empty() {
         for n in 1..=10 {
             lua += &format!(
                 "  keep(hl.bind({}, hl.dsp.focus({{ workspace = {n} }}), {{ description = \"hyprdesk : workspace {n}\" }}))\n",
                 q(&format!("{ws_mod} + code:{}", 9 + n))
+            );
+        }
+        for (key, rel, desc) in [
+            ("Left", "-1", "workspace précédent"),
+            ("Right", "+1", "workspace suivant"),
+        ] {
+            lua += &format!(
+                "  keep(hl.bind({}, hl.dsp.focus({{ workspace = \"{rel}\" }}), {{ description = \"hyprdesk : {desc}\" }}))\n",
+                q(&format!("{ws_mod} + {key}"))
             );
         }
     }
@@ -1805,6 +1816,8 @@ mod tests {
         let sub = &lua[lua.find("hl.define_submap").unwrap()..];
         assert!(sub.contains(r#"hl.bind("SUPER + code:10", hl.dsp.focus({ workspace = 1 })"#));
         assert!(sub.contains(r#"hl.bind("SUPER + code:19", hl.dsp.focus({ workspace = 10 })"#));
+        assert!(sub.contains(r#"hl.bind("SUPER + Left", hl.dsp.focus({ workspace = "-1" })"#));
+        assert!(sub.contains(r#"hl.bind("SUPER + Right", hl.dsp.focus({ workspace = "+1" })"#));
         assert!(sub.contains("' search\""), "{sub}");
     }
 }
