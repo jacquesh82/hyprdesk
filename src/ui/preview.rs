@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 55] = [
+const SCENES: [&str; 56] = [
     "desktop",
     "typography",
     "icons",
@@ -79,6 +79,7 @@ const SCENES: [&str; 55] = [
     "luminosite",
     "plugin-config",
     "applications",
+    "lanceur-central",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -606,8 +607,10 @@ impl Preview {
         } else {
             self.app.problem = None;
         }
-        // Grille des applications : quelques applications, par catégorie.
-        if SCENES[self.scene] == "applications" {
+        // Lanceur : grande feuille (« applications ») ou carte centrée
+        // (« lanceur-central ») ; quelques applications, par catégorie, et
+        // des suggestions fixes (l'aperçu ne lit pas l'usage réel).
+        if matches!(SCENES[self.scene], "applications" | "lanceur-central") {
             let app = |id: &str, name: &str, icon: &str, cat: &str| crate::launch::AppInfo {
                 id: id.into(),
                 name: name.into(),
@@ -658,8 +661,17 @@ impl Preview {
                 app("thunderbird", "Thunderbird", "thunderbird", "Email"),
                 app("obs", "OBS Studio", "com.obsproject.Studio", "AudioVideo"),
             ]);
+            Arc::make_mut(&mut self.app.cfg).general.apps_launcher.style =
+                if SCENES[self.scene] == "applications" {
+                    crate::config::AppsStyle::Sheet
+                } else {
+                    crate::config::AppsStyle::Spotlight
+                };
             self.app.search = None;
             let _ = self.app.toggle_apps();
+            if let Some(s) = self.app.search.as_mut() {
+                s.suggested = vec![0, 2, 8, 4, 5, 7, 12, 1];
+            }
         } else if SCENES[self.scene] == "recherche" {
             // Lanceur avec recherche : « fi » parmi quelques applications.
             let app = |id: &str, name: &str, icon: &str| crate::launch::AppInfo {
@@ -691,6 +703,8 @@ impl Preview {
                 ),
                 app("filezilla", "FileZilla", "filezilla"),
             ]);
+            Arc::make_mut(&mut self.app.cfg).general.apps_launcher.style =
+                crate::config::AppsStyle::Spotlight;
             self.app.search = None;
             let _ = self.app.toggle_search();
             let _ = self

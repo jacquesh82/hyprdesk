@@ -29,6 +29,9 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
+---@field apps_style? "auto"|"plein"|"central" # application launcher: large sheet in full-desktop and centered card otherwise (auto), or always one of them
+---@field apps_suggestions? integer # most launched applications highlighted (0 to 16, 8 by default)
+---@field apps_categories? boolean # categories in the large sheet
 ---@field launcher_group? "none"|"app"|"workspace" # launcher: one entry per window, per application, or per workspace
 ---@field primary? string|false # primary screen (connector, e.g. "DP-1"): anchored at 0×0, desktop/bar/settings
 ---@field close_on_launch? boolean

@@ -29,6 +29,9 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
+---@field apps_style? "auto"|"plein"|"central" # lanceur d'applications : grande feuille en plein bureau et carte centrée sinon (auto), ou toujours l'une
+---@field apps_suggestions? integer # applications les plus lancées mises en avant (0 à 16, 8 par défaut)
+---@field apps_categories? boolean # catégories dans la grande feuille
 ---@field launcher_group? "none"|"app"|"workspace" # lanceur : une entrée par fenêtre, par application, ou par workspace
 ---@field primary? string|false # écran principal (connecteur, ex. "DP-1") : ancre en 0×0, bureau/barre/réglages
 ---@field close_on_launch? boolean

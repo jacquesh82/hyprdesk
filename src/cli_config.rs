@@ -341,6 +341,18 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.launcher.show_assistant),
         |s, v, c| { s.launcher_show_assistant = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_show_assistant = None;
+    "apps_style", "launcher", "auto | plein | central — lanceur d'applications : grande feuille en plein bureau et carte centrée sinon, ou toujours l'une",
+        |c| c.general.apps_launcher.style.as_str().to_string(),
+        |s, v, c| { s.apps_style = Some(crate::config::AppsStyle::parse(v.trim()).ok_or_else(|| crate::i18n::tr("auto, plein ou central attendu").to_string())?); Ok(()) },
+        |s| s.apps_style = None;
+    "apps_suggestions", "launcher", "0..16 — applications les plus lancées mises en avant",
+        |c| c.general.apps_launcher.suggestions.to_string(),
+        |s, v, c| { s.apps_suggestions = Some(number(v, 0u8, 16)?); Ok(()) },
+        |s| s.apps_suggestions = None;
+    "apps_categories", "launcher", "on | off — catégories dans la grande feuille",
+        |c| on_off(c.general.apps_launcher.categories),
+        |s, v, c| { s.apps_categories = Some(parse_bool(v)?); Ok(()) },
+        |s| s.apps_categories = None;
     "lock_blur", "lock", "on | off — fond flouté sur l'écran de verrouillage",
         |c| on_off(c.general.lock.blur),
         |s, v, c| { s.lock_blur = Some(parse_bool(v)?); Ok(()) },

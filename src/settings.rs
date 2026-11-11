@@ -127,6 +127,9 @@ pub struct Settings {
     pub launcher_pinned: Option<Vec<String>>,
     pub launcher_show_settings: Option<bool>,
     pub launcher_show_assistant: Option<bool>,
+    pub apps_style: Option<crate::config::AppsStyle>,
+    pub apps_suggestions: Option<u8>,
+    pub apps_categories: Option<bool>,
     pub lock_blur: Option<bool>,
     pub lock_dim: Option<f32>,
     pub lock_image: Option<PathBuf>,
@@ -323,6 +326,9 @@ impl Settings {
             idle_suspend: has("idle_suspend").then_some(g.idle.suspend),
             launcher_show_assistant: has("launcher_show_assistant")
                 .then_some(g.launcher.show_assistant),
+            apps_style: has("apps_style").then_some(g.apps_launcher.style),
+            apps_suggestions: has("apps_suggestions").then_some(g.apps_launcher.suggestions),
+            apps_categories: has("apps_categories").then_some(g.apps_launcher.categories),
             icon_theme: if has("icon_theme") {
                 g.icon_theme.clone()
             } else {
@@ -543,6 +549,17 @@ impl Settings {
         set!(launcher_group, "launcher_group", g.launcher_group);
         set!(launcher_position, "launcher_position", g.launcher.position);
         set!(launcher_size, "launcher_size", g.launcher.size);
+        set!(apps_style, "apps_style", g.apps_launcher.style);
+        set!(
+            apps_suggestions,
+            "apps_suggestions",
+            g.apps_launcher.suggestions
+        );
+        set!(
+            apps_categories,
+            "apps_categories",
+            g.apps_launcher.categories
+        );
         set!(launcher_pinned, "launcher_pinned", g.launcher.pinned);
         set!(
             launcher_show_settings,
@@ -1015,6 +1032,15 @@ impl Settings {
         }
         if let Some(v) = self.launcher_show_assistant {
             cfg.push(format!("launcher_show_assistant = {v}"));
+        }
+        if let Some(v) = self.apps_style {
+            cfg.push(format!("apps_style = {}", q(v.as_str())));
+        }
+        if let Some(v) = self.apps_suggestions {
+            cfg.push(format!("apps_suggestions = {v}"));
+        }
+        if let Some(v) = self.apps_categories {
+            cfg.push(format!("apps_categories = {v}"));
         }
         if let Some(v) = self.lock_blur {
             cfg.push(format!("lock_blur = {v}"));

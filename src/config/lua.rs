@@ -501,6 +501,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "launcher_pinned",
             "launcher_show_settings",
             "launcher_show_assistant",
+            "apps_style",
+            "apps_suggestions",
+            "apps_categories",
             "lock_blur",
             "lock_dim",
             "lock_image",
@@ -693,6 +696,21 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "launcher_show_settings", CTX)? {
         g.launcher.show_settings = v;
+    }
+    if let Some(s) = opt_string(t, "apps_style", CTX)? {
+        g.apps_launcher.style = crate::config::AppsStyle::parse(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : apps_style « {s} » inconnu (auto, plein, central)",
+                CTX = CTX,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(v) = opt_num(t, "apps_suggestions", CTX)? {
+        g.apps_launcher.suggestions = v.clamp(0.0, 16.0) as u8;
+    }
+    if let Some(v) = opt_bool(t, "apps_categories", CTX)? {
+        g.apps_launcher.categories = v;
     }
     if let Some(v) = opt_bool(t, "launcher_show_assistant", CTX)? {
         g.launcher.show_assistant = v;

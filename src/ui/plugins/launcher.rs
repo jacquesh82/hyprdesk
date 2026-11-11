@@ -31,7 +31,7 @@ pub const INFO: PluginInfo = PluginInfo {
     id: "launcher",
     label: "Lanceur",
     icon: "view-app-grid",
-    summary: "Dock du bureau : fenêtres affichées, regroupement, bouton des réglages.",
+    summary: "Dock du bureau et lanceur d'applications (grande feuille ou carte centrée, suggestions).",
     builtin: true,
 };
 
@@ -41,6 +41,7 @@ pub const TABS: &[super::SubTab] = &[
     ("contenu", "Contenu"),
     ("apparence", "Apparence"),
     ("epinglees", "Épinglées"),
+    ("applications", "Applications"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -63,6 +64,13 @@ pub enum Msg {
     MovePin(usize, i32),
     ShowSettings(bool),
     ShowAssistant(bool),
+    /// Lanceur d'applications : présentation, suggestions, catégories.
+    AppsStyle(crate::config::AppsStyle),
+    AppsSuggestions(u8),
+    AppsSuggestionsCommit,
+    AppsCategories(bool),
+    /// keys.search = SUPER + R (à la place d'un autre lanceur).
+    UseSuperR,
 }
 
 /// État d'écran : recherche d'une application à épingler.
@@ -1133,6 +1141,9 @@ impl App {
             })
             .font(self.font)
         };
+        if self.on_subtab(INFO.id, "applications") {
+            return self.launcher_apps_tab();
+        }
         if !self.on_subtab(INFO.id, "contenu") {
             return self.launcher_look();
         }
@@ -1178,6 +1189,122 @@ impl App {
     }
 
     /// Réglages d'apparence : bord, taille, applications épinglées, boutons.
+    /// Onglet Applications : le lanceur d'applications.
+    fn launcher_apps_tab(&self) -> Element<'_, UiMsg> {
+        use crate::config::AppsStyle;
+        let g = &self.cfg.general;
+        let a = g.apps_launcher;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let style = |label: &'static str, v: AppsStyle| {
+            radio(crate::i18n::tr(label), v, Some(a.style), |v| {
+                wrap(Msg::AppsStyle(v))
+            })
+            .font(self.font)
+        };
+        let key = if g.keys.search.is_empty() {
+            crate::i18n::tr("aucun").to_string()
+        } else {
+            g.keys.search.clone()
+        };
+        let mut col = column![
+            self.section("Lanceur d'applications"),
+            text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            self.field(
+                "Présentation",
+                "apps_style",
+                column![
+                    style("Selon le mode (feuille en plein bureau, carte sinon)", AppsStyle::Auto),
+                    style("Toujours la grande feuille", AppsStyle::Sheet),
+                    style("Toujours la carte centrée", AppsStyle::Spotlight),
+                ]
+                .spacing(6),
+            ),
+            self.field(
+                "Suggestions (les plus lancées)",
+                "apps_suggestions",
+                row![
+                    iced::widget::slider(0.0..=16.0, a.suggestions as f32, |v| wrap(
+                        Msg::AppsSuggestions(v.round() as u8)
+                    ))
+                    .step(1.0_f32)
+                    .on_release(wrap(Msg::AppsSuggestionsCommit))
+                    .width(220),
+                    text(a.suggestions.to_string()).font(self.font).size(13),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ),
+            self.field(
+                "Catégories dans la grande feuille",
+                "apps_categories",
+                iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
+            ),
+            self.section("Raccourci"),
+            text(crate::tr!(
+                "Ouverture : {k} (Réglages → Bureau → Raccourcis).",
+                k = key
+            ))
+            .font(self.font)
+            .size(13)
+            .color(fg),
+        ]
+        .spacing(12);
+        // Le raccourci est déjà pris par hyprland.lua (rofi sur SUPER + R…).
+        if let Some((k, what)) = self.key_conflicts.iter().find(|(k, _)| *k == g.keys.search) {
+            let prompt = crate::takeover::ask_prompt(
+                &crate::tr!("le raccourci {k} du lanceur d'applications", k = k),
+                &crate::tr!(
+                    "hyprland.lua, qui le lie à « {what} » (un autre lanceur)",
+                    what = what
+                ),
+            );
+            col = col.push(
+                row![
+                    text(crate::tr!(
+                        "{k} lance déjà « {what} » depuis hyprland.lua : hyprdesk ne le prend que bureau affiché. Retirez ce raccourci de hyprland.lua pour n'avoir qu'un lanceur.",
+                        k = k,
+                        what = what
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(warn)
+                    .width(Length::Fill),
+                    self.lyra_button(crate::i18n::tr("Lanceur d'applications"), prompt),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
+        let mut actions = row![
+            button(
+                text(crate::i18n::tr("Ouvrir le lanceur"))
+                    .font(self.font)
+                    .size(13)
+            )
+            .padding([6, 14])
+            .on_press(UiMsg::Control(crate::control::Command::Apps)),
+        ]
+        .spacing(10);
+        if g.keys.search != "SUPER + R" {
+            actions = actions.push(
+                button(
+                    text(crate::i18n::tr("Utiliser SUPER + R"))
+                        .font(self.font)
+                        .size(13),
+                )
+                .padding([6, 14])
+                .style(button::secondary)
+                .on_press(wrap(Msg::UseSuperR)),
+            );
+        }
+        col.push(actions).into()
+    }
+
     fn launcher_look(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let l = &g.launcher;
@@ -1344,6 +1471,23 @@ impl App {
             }
             Msg::ShowAssistant(v) => {
                 self.settings.launcher_show_assistant = Some(v);
+                self.commit()
+            }
+            Msg::AppsStyle(v) => {
+                self.settings.apps_style = Some(v);
+                self.commit()
+            }
+            Msg::AppsSuggestions(v) => {
+                self.settings.apps_suggestions = Some(v);
+                self.apply()
+            }
+            Msg::AppsSuggestionsCommit => self.commit(),
+            Msg::AppsCategories(v) => {
+                self.settings.apps_categories = Some(v);
+                self.commit()
+            }
+            Msg::UseSuperR => {
+                self.settings.key_search = Some("SUPER + R".into());
                 self.commit()
             }
             Msg::PinFilter(f) => {

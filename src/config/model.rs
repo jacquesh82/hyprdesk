@@ -255,6 +255,56 @@ pub struct LauncherCfg {
     pub show_assistant: bool,
 }
 
+/// Présentation du lanceur d'applications (`hyprdesk apps`, `search`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppsStyle {
+    /// Grande feuille en plein bureau, carte centrée dans les autres modes.
+    #[default]
+    Auto,
+    /// Toujours la grande feuille (façon Launchpad, tiroir One UI).
+    Sheet,
+    /// Toujours la carte centrée (façon Spotlight).
+    Spotlight,
+}
+
+impl AppsStyle {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "auto" => AppsStyle::Auto,
+            "plein" | "sheet" | "full" => AppsStyle::Sheet,
+            "central" | "spotlight" | "center" => AppsStyle::Spotlight,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AppsStyle::Auto => "auto",
+            AppsStyle::Sheet => "plein",
+            AppsStyle::Spotlight => "central",
+        }
+    }
+}
+
+/// Lanceur d'applications : présentation, suggestions, catégories.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AppsCfg {
+    pub style: AppsStyle,
+    /// Applications mises en avant (les plus lancées), 0 : aucune.
+    pub suggestions: u8,
+    pub categories: bool,
+}
+
+impl Default for AppsCfg {
+    fn default() -> Self {
+        AppsCfg {
+            style: AppsStyle::Auto,
+            suggestions: 8,
+            categories: true,
+        }
+    }
+}
+
 impl Default for LauncherCfg {
     fn default() -> Self {
         LauncherCfg {
@@ -725,6 +775,8 @@ pub struct General {
     pub launcher_group: LauncherGroup,
     /// Position, taille, applications épinglées, boutons du lanceur.
     pub launcher: LauncherCfg,
+    /// Lanceur d'applications (grille ou carte centrée).
+    pub apps_launcher: AppsCfg,
     /// Écran de verrouillage.
     pub lock: LockCfg,
     /// Inactivité et veille (hypridle orchestré).
@@ -810,6 +862,7 @@ impl Default for General {
             running_apps: RunningApps::Off,
             launcher_group: LauncherGroup::None,
             launcher: LauncherCfg::default(),
+            apps_launcher: AppsCfg::default(),
             lock: LockCfg::default(),
             idle: IdleCfg::default(),
             show_on: ShowOn::All,

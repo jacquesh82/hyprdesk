@@ -658,6 +658,9 @@ pub fn install_keys(
         &keys.hide,
         &keys.settings,
         &keys.leave,
+        &keys.search,
+        &keys.switch,
+        &keys.overview,
     ] {
         if !k.is_empty()
             && let Some(what) = conflicts_with(&binds, k)
