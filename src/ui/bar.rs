@@ -18,7 +18,7 @@ use iced_layershell::reexport::{
 
 use super::popover::Request;
 use super::{App, IconImg, Msg, color, format_now};
-use crate::config::{BarItem, BarPosition, RenderState, WidgetKind};
+use crate::config::{BarItem, BarPosition, RenderState, Rgba, WidgetKind};
 use crate::{control, hypr, widgets};
 
 pub const BAR_NAMESPACE: &str = "hyprdesk-bar";
@@ -52,6 +52,30 @@ pub struct BarSurface {
     pub monitor: String,
     pub position: BarPosition,
     pub height: u16,
+}
+
+/// Couleurs effectives de la barre.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BarPalette {
+    pub fg: Rgba,
+    pub bg: Rgba,
+    pub accent: Rgba,
+    pub warning: Rgba,
+    pub critical: Rgba,
+    /// Opacité du fond.
+    pub opacity: f32,
+}
+
+/// Clé d'un module propre à la barre (couleur par module, `module_colors`).
+pub fn bar_item_key(item: &BarItem) -> &str {
+    match item {
+        BarItem::Workspaces => "workspaces",
+        BarItem::Window => "window",
+        BarItem::Desktop => "desktop",
+        BarItem::Volume => "volume",
+        BarItem::Tray => "tray",
+        BarItem::Widget(id) => id,
+    }
 }
 
 pub(super) fn truncate(s: &str, n: usize) -> String {
@@ -334,13 +358,44 @@ impl App {
         )
     }
 
-    fn state_color(&self, s: RenderState) -> Color {
+    /// Couleurs de la barre : les siennes, sinon celles du thème.
+    pub(super) fn bar_palette(&self) -> BarPalette {
         let th = &self.cfg.general.theme;
+        let c = self.cfg.bar.as_ref().map(|b| &b.colors);
+        let pick =
+            |f: fn(&crate::config::BarColors) -> Option<Rgba>, d: Rgba| c.and_then(f).unwrap_or(d);
+        BarPalette {
+            fg: pick(|c| c.text, th.fg),
+            bg: pick(|c| c.background, th.bg),
+            accent: pick(|c| c.accent, th.accent),
+            warning: pick(|c| c.warning, crate::config::BarColors::WARNING),
+            critical: pick(|c| c.critical, crate::config::BarColors::CRITICAL),
+            opacity: c
+                .and_then(|c| c.opacity)
+                .unwrap_or_else(|| th.effect(crate::config::Place::Bar).opacity)
+                .clamp(0.0, 1.0),
+        }
+    }
+
+    /// Couleur propre d'un module (par son identifiant, puis par son type).
+    pub(super) fn bar_item_color(&self, item: &BarItem) -> Option<Rgba> {
+        let m = &self.cfg.bar.as_ref()?.colors.modules;
+        match item {
+            BarItem::Widget(id) => m.get(id).copied().or_else(|| {
+                let w = self.cfg.widgets.iter().find(|w| &w.id == id)?;
+                m.get(&w.type_id).copied()
+            }),
+            other => m.get(bar_item_key(other)).copied(),
+        }
+    }
+
+    fn state_color(&self, s: RenderState, normal: Color) -> Color {
+        let p = self.bar_palette();
         match s {
-            RenderState::Warning => Color::from_rgb8(0xff, 0xb8, 0x6c),
-            RenderState::Critical => Color::from_rgb8(0xff, 0x55, 0x55),
-            RenderState::Active => color(th.accent, 1.0),
-            _ => color(th.fg, 0.92),
+            RenderState::Warning => color(p.warning, 1.0),
+            RenderState::Critical => color(p.critical, 1.0),
+            RenderState::Active => color(p.accent, 1.0),
+            _ => normal,
         }
     }
 
@@ -348,9 +403,9 @@ impl App {
         let (Some(s), Some(bar)) = (self.bar_surfaces.get(&id), &self.cfg.bar) else {
             return Space::new().into();
         };
-        let th = &self.cfg.general.theme;
-        let bg = color(th.bg, th.effect(crate::config::Place::Bar).opacity);
-        let hair = color(th.fg, 0.07);
+        let pal = self.bar_palette();
+        let bg = color(pal.bg, pal.opacity);
+        let hair = color(pal.fg, 0.07 * pal.opacity.max(0.3));
         // Écran vertical : ses propres zones, si la barre en déclare.
         let zones = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
             (Some(p), true) => p,
@@ -447,8 +502,8 @@ impl App {
         tip: Option<String>,
         active: bool,
     ) -> Element<'a, Msg> {
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
+        let pal = self.bar_palette();
+        let fg = color(pal.fg, 1.0);
         let h = (bar.height as f32 - 8.0).max(16.0);
         let interactive = left.is_some() || right.is_some() || middle.is_some() || scroll.is_some();
         let b = button(
@@ -489,7 +544,7 @@ impl App {
         let el: Element<'a, Msg> = m.into();
         match tip {
             Some(t) if !t.is_empty() => {
-                let bg = color(th.bg, 0.95);
+                let bg = color(pal.bg, 0.95);
                 let edge = Color { a: 0.12, ..fg };
                 tooltip(
                     el,
@@ -536,9 +591,11 @@ impl App {
     }
 
     fn bar_item<'a>(&'a self, bar_id: Id, bar: &BarSurface, item: &'a BarItem) -> Element<'a, Msg> {
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 0.92);
-        let dim = color(th.fg, 0.5);
+        let pal = self.bar_palette();
+        // Couleur du module, sinon le texte de la barre.
+        let base = self.bar_item_color(item).unwrap_or(pal.fg);
+        let fg = color(base, 0.92);
+        let dim = color(base, 0.5);
         let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
         let isz = (size * 1.2).round();
         let monitor = bar.monitor.clone();
@@ -551,8 +608,8 @@ impl App {
                     .find(|m| m.name == monitor)
                     .map(|m| m.workspace.clone())
                     .unwrap_or_default();
-                let accent = color(th.accent, 1.0);
-                let on_accent = color(th.bg, 1.0);
+                let accent = color(pal.accent, 1.0);
+                let on_accent = color(pal.bg, 1.0);
                 let pills = self
                     .workspaces
                     .iter()
@@ -567,7 +624,7 @@ impl App {
                             (dim, None)
                         };
                         let h = (bar.height as f32 * 0.6).round();
-                        let fgc = color(th.fg, 1.0);
+                        let fgc = color(base, 1.0);
                         button(
                             container(self.label(w.name.clone(), size * 0.92, txt))
                                 .center_x(Length::Shrink)
@@ -875,7 +932,14 @@ impl App {
                         if r.state == RenderState::Hidden {
                             return Space::new().into();
                         }
-                        let tint = self.state_color(r.state);
+                        // État « actif » : la couleur choisie pour le module l'emporte
+                        // sur l'accent ; avertissement et critique restent visibles.
+                        let tint = match r.state {
+                            RenderState::Active if self.bar_item_color(item).is_some() => {
+                                color(base, 1.0)
+                            }
+                            s => self.state_color(s, fg),
+                        };
                         let mut content = row![].spacing(6).align_y(Alignment::Center);
                         let mut has_icon = false;
                         if let Some(icon) = r

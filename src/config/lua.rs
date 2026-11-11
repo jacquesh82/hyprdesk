@@ -1378,7 +1378,17 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
     check_keys(
         &t,
         &[
-            "monitor", "position", "height", "left", "center", "right", "portrait", "compact",
+            "monitor",
+            "position",
+            "height",
+            "left",
+            "center",
+            "right",
+            "portrait",
+            "compact",
+            "colors",
+            "module_colors",
+            "opacity",
         ],
         CTX,
     )?;
@@ -1406,6 +1416,29 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             ))
         })?,
     };
+    let mut colors = crate::config::BarColors::default();
+    if let Some(c) = t.get::<Option<Table>>("colors")? {
+        const C: &str = "hd.bar.colors";
+        let keys: Vec<&str> = crate::config::BAR_COLOR_SLOTS
+            .iter()
+            .map(|(k, _)| *k)
+            .collect();
+        check_keys(&c, &keys, C)?;
+        for k in keys {
+            colors.set_slot(k, opt_color(&c, k, C)?);
+        }
+    }
+    // Transparence du fond : 0 (transparent) à 1 (opaque).
+    colors.opacity = opt_num(&t, "opacity", CTX)?.map(|v| v.clamp(0.0, 1.0) as f32);
+    if let Some(m) = t.get::<Option<Table>>("module_colors")? {
+        const C: &str = "hd.bar.module_colors";
+        for pair in m.pairs::<String, Value>() {
+            let (k, _) = pair?;
+            if let Some(c) = opt_color(&m, &k, C)? {
+                colors.modules.insert(k, c);
+            }
+        }
+    }
     let zones = bar_zones(lua, b, &t, CTX, "")?;
     // Écrans verticaux : leurs propres zones.
     let portrait = match t.get::<Option<Table>>("portrait")? {
@@ -1423,6 +1456,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         zones,
         portrait,
         compact,
+        colors,
     });
     Ok(())
 }

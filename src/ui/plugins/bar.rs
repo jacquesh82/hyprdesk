@@ -3,8 +3,13 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, radio, row, slider, toggler};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::widget::{
+    Space, button, column, container, pick_list, radio, row, slider, toggler, tooltip,
+};
+use iced::{Alignment, Border, Color, Element, Length, Task};
+
+use crate::config::{BAR_COLOR_SLOTS, BarColors, Rgba};
+use crate::ui::color_picker::{Picker, PickerMsg};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -20,7 +25,11 @@ pub const INFO: PluginInfo = PluginInfo {
 
 /// Message de ce paquet, enveloppé pour l'application.
 /// Onglets du paquet.
-pub const TABS: &[super::SubTab] = &[("general", "Général"), ("modules", "Modules")];
+pub const TABS: &[super::SubTab] = &[
+    ("general", "Général"),
+    ("modules", "Modules"),
+    ("colors", "Couleurs"),
+];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Bar(m)))
@@ -49,12 +58,24 @@ pub enum Msg {
     EditPortrait(bool),
     /// Écrans verticaux : revenir aux mêmes modules que les autres.
     PortraitReset,
+    /// Couleur d'un emplacement (`text`, `background`…) ou d'un module
+    /// (`mod:clock`) ; `None` : celle du thème.
+    SetColor(String, Option<Rgba>),
+    /// Ouvre le sélecteur de couleur sous la ligne `clé` (le referme si déjà ouvert).
+    OpenPicker(String),
+    Picker(PickerMsg),
+    PickerApply,
+    PickerCancel,
+    /// Transparence du fond (glissé), `None` : celle du thème.
+    Opacity(Option<f32>),
 }
 
 /// État d'écran : quelles zones sont éditées.
 #[derive(Default)]
 pub struct State {
     pub portrait: bool,
+    /// Sélecteur de couleur ouvert (onglet Couleurs) : la clé qu'il règle.
+    pub picker: Option<(String, Picker)>,
 }
 
 /// Choix « ajouter un module » de la barre.
@@ -114,6 +135,16 @@ impl App {
                     }),
             )
             .collect();
+        if self.on_subtab(INFO.id, "colors") {
+            // Modules présents dans la barre (toutes zones), sans doublon.
+            let mut modules: Vec<(String, String)> = Vec::new();
+            for e in b.zones.iter().chain(b.portrait.iter().flatten()).flatten() {
+                if !modules.iter().any(|(k, _)| *k == e.type_id) {
+                    modules.push((e.type_id.clone(), label_of(&e.type_id)));
+                }
+            }
+            return self.bar_colors_page(&b, modules);
+        }
         let general = self.on_subtab(INFO.id, "general");
         let mut col = if general {
             column![
@@ -436,6 +467,324 @@ impl App {
                     .portrait = None;
                 self.commit_reload()
             }
+            Msg::SetColor(key, c) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.bar.picker = None;
+                }
+                self.set_bar_color(&key, c);
+                self.commit_reload()
+            }
+            Msg::OpenPicker(key) => {
+                let open = self
+                    .panel
+                    .as_ref()
+                    .and_then(|p| p.bar.picker.as_ref())
+                    .is_some_and(|(k, _)| *k == key);
+                let initial = self.bar_color_shown(&key);
+                if let Some(p) = self.panel.as_mut() {
+                    p.bar.picker = (!open).then(|| (key, Picker::new(initial)));
+                }
+                Task::none()
+            }
+            Msg::Picker(m) => {
+                if let Some((_, pk)) = self.panel.as_mut().and_then(|p| p.bar.picker.as_mut()) {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::PickerCancel => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.bar.picker = None;
+                }
+                Task::none()
+            }
+            Msg::PickerApply => {
+                let Some((key, pk)) = self.panel.as_mut().and_then(|p| p.bar.picker.take()) else {
+                    return Task::none();
+                };
+                self.set_bar_color(&key, Some(pk.color()));
+                self.commit_reload()
+            }
+            Msg::Opacity(o) => {
+                self.settings
+                    .bar
+                    .get_or_insert_with(Default::default)
+                    .colors
+                    .opacity = o;
+                // Glissé : enregistré au relâché (Commit) ; « Thème » : tout de suite.
+                if o.is_none() {
+                    self.commit_reload()
+                } else {
+                    Task::none()
+                }
+            }
         }
+    }
+
+    /// Couleur que la barre emploie pour cette clé : la sienne, sinon celle du thème.
+    fn bar_color_shown(&self, key: &str) -> Rgba {
+        let b = self
+            .settings
+            .bar
+            .clone()
+            .unwrap_or_else(|| crate::settings::BarSettings::from_config(&self.cfg));
+        let th = &self.cfg.general.theme;
+        match key.strip_prefix("mod:") {
+            Some(m) => b
+                .colors
+                .modules
+                .get(m)
+                .copied()
+                .or(b.colors.text)
+                .unwrap_or(th.fg),
+            None => b.colors.slot(key).unwrap_or(match key {
+                "background" => th.bg,
+                "accent" => th.accent,
+                "warning" => BarColors::WARNING,
+                "critical" => BarColors::CRITICAL,
+                _ => th.fg,
+            }),
+        }
+    }
+
+    fn set_bar_color(&mut self, key: &str, c: Option<Rgba>) {
+        let colors = &mut self
+            .settings
+            .bar
+            .get_or_insert_with(Default::default)
+            .colors;
+        match key.strip_prefix("mod:") {
+            Some(m) => match c {
+                Some(c) => {
+                    colors.modules.insert(m.to_string(), c);
+                }
+                None => {
+                    colors.modules.remove(m);
+                }
+            },
+            None => colors.set_slot(key, c),
+        }
+    }
+
+    /// Onglet Couleurs : couleurs de la barre et de chaque module, transparence.
+    fn bar_colors_page(
+        &self,
+        b: &crate::settings::BarSettings,
+        modules: Vec<(String, String)>,
+    ) -> Element<'_, UiMsg> {
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let font = self.font;
+        let st = self.panel.as_ref().map(|p| &p.bar);
+        let edge = Color { a: 0.3, ..fg };
+        let dot = move |c: Rgba, size: f32, selected: bool| {
+            let c = color(c, 1.0);
+            container(Space::new().width(size).height(size)).style(move |_| container::Style {
+                background: Some(c.into()),
+                border: Border::default()
+                    .rounded(size / 2.0)
+                    .width(if selected { 2.5 } else { 1.0 })
+                    .color(if selected { fg } else { edge }),
+                ..Default::default()
+            })
+        };
+        // Couleurs proposées : celles du thème en place (pas de palette figée).
+        let mut proposals: Vec<(Rgba, &'static str)> = Vec::new();
+        for (c, l) in [
+            (th.fg, "Texte du thème"),
+            (th.bg, "Fond du thème"),
+            (th.accent, "Accent du thème"),
+            (self.cfg.general.background, "Couleur de fond du bureau"),
+            (BarColors::WARNING, "Avertissement"),
+            (BarColors::CRITICAL, "Critique"),
+        ] {
+            if !proposals.iter().any(|(p, _)| *p == c) {
+                proposals.push((c, l));
+            }
+        }
+        let open = st.and_then(|s| s.picker.as_ref());
+        // Une ligne : couleurs du thème, couleur en place, sélecteur, retour au thème.
+        let line = |key: String, value: Option<Rgba>, default: Rgba| -> Element<'_, UiMsg> {
+            let shown = value.unwrap_or(default);
+            let chips = row(proposals.iter().map(|&(c, l)| {
+                let k = key.clone();
+                tooltip(
+                    button(dot(c, 20.0, value == Some(c)))
+                        .padding(0)
+                        .style(|_, _| button::Style::default())
+                        .on_press(wrap(Msg::SetColor(k, Some(c)))),
+                    container(
+                        text(format!(
+                            "{} — {}",
+                            crate::i18n::tr(l),
+                            crate::settings::hex(c)
+                        ))
+                        .font(font)
+                        .size(11),
+                    )
+                    .padding([4, 8])
+                    .style(container::rounded_box),
+                    tooltip::Position::Top,
+                )
+                .delay(std::time::Duration::from_millis(400))
+                .into()
+            }))
+            .spacing(6);
+            let is_open = open.is_some_and(|(k, _)| *k == key);
+            let reset: Element<'_, UiMsg> = if value.is_some() {
+                button(text(crate::i18n::tr("Thème")).font(font).size(12))
+                    .padding([3, 8])
+                    .on_press(wrap(Msg::SetColor(key.clone(), None)))
+                    .into()
+            } else {
+                text(crate::i18n::tr("thème"))
+                    .font(font)
+                    .size(12)
+                    .color(dim)
+                    .width(52)
+                    .into()
+            };
+            let mut c = column![
+                row![
+                    chips,
+                    Space::new().width(Length::Fill),
+                    dot(shown, 22.0, false),
+                    text(crate::settings::hex(shown))
+                        .font(font)
+                        .size(12)
+                        .color(if value.is_some() { fg } else { dim })
+                        .width(64),
+                    button(
+                        text(crate::i18n::tr(if is_open {
+                            "Fermer"
+                        } else {
+                            "Choisir…"
+                        }))
+                        .font(font)
+                        .size(12)
+                    )
+                    .padding([3, 8])
+                    .style(if is_open {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::OpenPicker(key.clone()))),
+                    reset,
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center)
+            ]
+            .spacing(8);
+            if let Some((_, pk)) = open.filter(|_| is_open) {
+                c = c.push(pk.view(
+                    font,
+                    fg,
+                    |m| wrap(Msg::Picker(m)),
+                    wrap(Msg::PickerApply),
+                    wrap(Msg::PickerCancel),
+                ));
+            }
+            c.into()
+        };
+        let pal = self.bar_palette();
+        let defaults = [
+            ("text", th.fg),
+            ("background", th.bg),
+            ("accent", th.accent),
+            ("warning", BarColors::WARNING),
+            ("critical", BarColors::CRITICAL),
+        ];
+        let mut col = column![
+            self.section("Couleurs de la barre"),
+            text(crate::i18n::tr(
+                "Sans couleur choisie, la barre suit le thème (et en change avec lui). Les pastilles proposent les couleurs du thème en place ; « Choisir… » ouvre le sélecteur."
+            ))
+            .font(font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(12);
+        for (k, label) in BAR_COLOR_SLOTS {
+            let d = defaults
+                .iter()
+                .find(|(d, _)| d == k)
+                .map_or(th.fg, |(_, c)| *c);
+            col = col.push(self.field(label, "", line(k.to_string(), b.colors.slot(k), d)));
+        }
+        // Transparence du fond.
+        let theme_opacity = th.effect(crate::config::Place::Bar).opacity;
+        let o = b.colors.opacity.unwrap_or(theme_opacity);
+        col = col.push(
+            self.field(
+                "Opacité du fond",
+                "",
+                row![
+                    slider(0..=100u32, (o * 100.0).round() as u32, |v| wrap(
+                        Msg::Opacity(Some(v as f32 / 100.0))
+                    ))
+                    .on_release(wrap(Msg::Commit))
+                    .width(Length::Fill),
+                    text(format!("{} %", (o * 100.0).round() as i32))
+                        .font(font)
+                        .size(13)
+                        .width(48),
+                    if b.colors.opacity.is_some() {
+                        Element::from(
+                            button(text(crate::i18n::tr("Thème")).font(font).size(12))
+                                .padding([3, 8])
+                                .on_press(wrap(Msg::Opacity(None))),
+                        )
+                    } else {
+                        text(crate::i18n::tr("thème"))
+                            .font(font)
+                            .size(12)
+                            .color(dim)
+                            .width(52)
+                            .into()
+                    },
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            ),
+        );
+        col = col.push(
+            text(crate::i18n::tr(
+                "0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Effets.",
+            ))
+            .font(font)
+            .size(12)
+            .color(dim),
+        );
+        // Couleur de chaque module.
+        col = col.push(self.section("Couleur de chaque module"));
+        col = col.push(
+            text(crate::i18n::tr(
+                "Texte et icônes du module, y compris quand il est actif ; avertissement et critique gardent leurs couleurs.",
+            ))
+            .font(font)
+            .size(12)
+            .color(dim),
+        );
+        if modules.is_empty() {
+            col = col.push(
+                text(crate::i18n::tr("Aucun module dans la barre."))
+                    .font(font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        for (k, label) in modules {
+            let v = b.colors.modules.get(&k).copied();
+            col = col.push(
+                column![
+                    text(label).font(self.title_font()).size(13),
+                    line(format!("mod:{k}"), v, pal.fg),
+                ]
+                .spacing(6),
+            );
+        }
+        col.into()
     }
 }

@@ -14,6 +14,7 @@ use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 pub(crate) mod bar;
 mod chat;
+pub(crate) mod color_picker;
 mod context;
 mod design;
 mod icons;
@@ -4337,6 +4338,7 @@ mod regression_tests {
             zones: Default::default(),
             portrait: None,
             compact: config::BarCompact::Auto,
+            colors: Default::default(),
         });
         assert!(app.bar_vertical("V") && !app.bar_vertical("H"));
         assert!(app.bar_compact("V") && !app.bar_compact("H"));

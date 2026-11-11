@@ -472,6 +472,13 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| b.compact.as_str().to_string()).unwrap_or_default(),
         |s, v, c| { bar(s, c).compact = choice(v, crate::config::BarCompact::parse, "auto, always, never")?; Ok(()) },
         |s| { if let Some(b) = s.bar.as_mut() { b.compact = Default::default(); } };
+    "bar.opacity", "bar", "0..1 | theme — opacité du fond de la barre (0 : transparente)",
+        |c| c.bar.as_ref().and_then(|b| b.colors.opacity).map(|o| format!("{}", (o * 100.0).round() / 100.0)).unwrap_or_else(|| "theme".into()),
+        |s, v, c| {
+            bar(s, c).colors.opacity = if matches!(v, "theme" | "none" | "") { None } else { Some(number(v, 0.0f32, 1.0)?) };
+            Ok(())
+        },
+        |s| { if let Some(b) = s.bar.as_mut() { b.colors.opacity = None; } };
     "primary", "screens", "<écran> | none — écran principal (ancre 0×0, bureau, barre, réglages)",
         |c| c.general.primary.clone().unwrap_or_default(),
         |s, v, c| { s.primary = (!matches!(v, "none" | "")).then(|| v.to_string()); Ok(()) },
@@ -549,9 +556,36 @@ fn effect_key(key: &str) -> Option<(Place, &str)> {
     matches!(field, "opacity" | "blur").then_some((place, field))
 }
 
+/// Couleur de la barre : `bar.color.<emplacement>` ou `bar.module_color.<module>`.
+enum BarColorKey<'a> {
+    Slot(&'a str),
+    Module(&'a str),
+}
+
+fn bar_color_key(key: &str) -> Option<BarColorKey<'_>> {
+    if let Some(k) = key.strip_prefix("bar.color.") {
+        return crate::config::BAR_COLOR_SLOTS
+            .iter()
+            .any(|(s, _)| *s == k)
+            .then_some(BarColorKey::Slot(k));
+    }
+    key.strip_prefix("bar.module_color.")
+        .filter(|m| !m.is_empty())
+        .map(BarColorKey::Module)
+}
+
 /// Clés dynamiques : `apps.<rôle>`, `assign.<app>` (workspaces), `widget.<type>`
-/// (widgets) et `theme.effects.<endroit>.<opacity|blur>` (thème).
+/// (widgets), `bar.color.<emplacement>`, `bar.module_color.<module>` (barre) et
+/// `theme.effects.<endroit>.<opacity|blur>` (thème).
 fn dynamic_get(key: &str, c: &Config) -> Option<String> {
+    if let Some(k) = bar_color_key(key) {
+        let colors = c.bar.as_ref().map(|b| &b.colors);
+        let v = match k {
+            BarColorKey::Slot(s) => colors.and_then(|c| c.slot(s)),
+            BarColorKey::Module(m) => colors.and_then(|c| c.modules.get(m).copied()),
+        };
+        return Some(v.map(hex).unwrap_or_else(|| "theme".into()));
+    }
     if let Some((place, field)) = effect_key(key) {
         let e = c.general.theme.effect(place);
         return Some(if field == "blur" {
@@ -626,6 +660,28 @@ fn dynamic_set(
     s: &mut Settings,
     c: &Config,
 ) -> Option<Result<(), String>> {
+    if let Some(k) = bar_color_key(key) {
+        let value = match v.map(str::trim) {
+            None | Some("theme" | "none" | "") => None,
+            Some(v) => match color_value(v) {
+                Ok(c) => Some(c),
+                Err(e) => return Some(Err(e)),
+            },
+        };
+        let colors = &mut bar(s, c).colors;
+        match k {
+            BarColorKey::Slot(slot) => colors.set_slot(slot, value),
+            BarColorKey::Module(m) => match value {
+                Some(v) => {
+                    colors.modules.insert(m.to_string(), v);
+                }
+                None => {
+                    colors.modules.remove(m);
+                }
+            },
+        }
+        return Some(Ok(()));
+    }
     if let Some((place, field)) = effect_key(key) {
         let Some(v) = v else {
             s.effects.remove(&place);
@@ -826,7 +882,8 @@ fn usage() -> String {
 
 const USAGE: &str =
     "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
-Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off";
+Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
+bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme";
 
 pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
     let full = || load_file(config_path).map(|l| l.config);
@@ -871,6 +928,17 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                     "apps" => crate::apps::ROLES
                         .iter()
                         .map(|r| format!("apps.{p0}", p0 = r.id))
+                        .collect(),
+                    // Couleurs de la barre, puis celles des modules déjà réglées.
+                    "bar" => crate::config::BAR_COLOR_SLOTS
+                        .iter()
+                        .map(|(k, _)| format!("bar.color.{k}"))
+                        .chain(
+                            c.bar
+                                .iter()
+                                .flat_map(|b| b.colors.modules.keys())
+                                .map(|m| format!("bar.module_color.{m}")),
+                        )
                         .collect(),
                     "theme" => Place::ALL
                         .iter()
@@ -1028,6 +1096,45 @@ mod tests {
         let list = run_s(&p, &["list"]).unwrap();
         assert!(list.contains("[launcher] Lanceur") && list.contains("launcher_group"));
         assert!(run_s(&p, &["list", "screens"]).unwrap().contains("primary"));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Couleurs et transparence de la barre en ligne de commande.
+    #[test]
+    fn couleurs_de_la_barre() {
+        let p = tmp();
+        assert_eq!(run_s(&p, &["get", "bar.opacity"]).unwrap(), "theme");
+        assert_eq!(run_s(&p, &["get", "bar.color.text"]).unwrap(), "theme");
+        // Couleurs d'une barre affichée (une barre coupée s'écrit `hd.bar(false)`).
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        run_s(&p, &["set", "bar.opacity", "0.4"]).unwrap();
+        run_s(&p, &["set", "bar.color.accent", "#ff80bf"]).unwrap();
+        run_s(&p, &["set", "bar.module_color.clock", "#8aff80"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.opacity"]).unwrap(), "0.4");
+        assert_eq!(run_s(&p, &["get", "bar.color.accent"]).unwrap(), "#ff80bf");
+        assert_eq!(
+            run_s(&p, &["get", "bar.module_color.clock"]).unwrap(),
+            "#8aff80"
+        );
+        assert!(
+            run_s(&p, &["list", "bar"])
+                .unwrap()
+                .contains("bar.module_color.clock")
+        );
+        // Refus : opacité hors bornes, couleur illisible, emplacement inconnu.
+        assert!(run_s(&p, &["set", "bar.opacity", "2"]).is_err());
+        assert!(run_s(&p, &["set", "bar.color.text", "rouge"]).is_err());
+        assert!(run_s(&p, &["set", "bar.color.texte", "#ffffff"]).is_err());
+        // Retour au thème.
+        run_s(&p, &["set", "bar.color.accent", "theme"]).unwrap();
+        run_s(&p, &["unset", "bar.module_color.clock"]).unwrap();
+        run_s(&p, &["unset", "bar.opacity"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.color.accent"]).unwrap(), "theme");
+        assert_eq!(
+            run_s(&p, &["get", "bar.module_color.clock"]).unwrap(),
+            "theme"
+        );
+        assert_eq!(run_s(&p, &["get", "bar.opacity"]).unwrap(), "theme");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

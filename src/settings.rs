@@ -46,6 +46,7 @@ pub struct BarSettings {
     /// Zones des écrans verticaux, si elles diffèrent.
     pub portrait: Option<[Vec<BarEntry>; 3]>,
     pub compact: crate::config::BarCompact,
+    pub colors: crate::config::BarColors,
 }
 
 impl Default for BarSettings {
@@ -77,6 +78,7 @@ impl Default for BarSettings {
             ],
             portrait: None,
             compact: Default::default(),
+            colors: Default::default(),
         }
     }
 }
@@ -208,6 +210,7 @@ impl BarSettings {
                 zones: entries(&b.zones),
                 portrait: b.portrait.as_ref().map(entries),
                 compact: b.compact,
+                colors: b.colors.clone(),
             },
         }
     }
@@ -1168,6 +1171,25 @@ impl Settings {
                 if b.compact != crate::config::BarCompact::Auto {
                     f.push(format!("compact = {}", q(b.compact.as_str())));
                 }
+                let slots: Vec<String> = crate::config::BAR_COLOR_SLOTS
+                    .iter()
+                    .filter_map(|(k, _)| Some(format!("{k} = {}", q(&hex(b.colors.slot(k)?)))))
+                    .collect();
+                if !slots.is_empty() {
+                    f.push(format!("colors = {{ {} }}", slots.join(", ")));
+                }
+                if let Some(o) = b.colors.opacity {
+                    f.push(format!("opacity = {:.2}", o.clamp(0.0, 1.0)));
+                }
+                if !b.colors.modules.is_empty() {
+                    let m: Vec<String> = b
+                        .colors
+                        .modules
+                        .iter()
+                        .map(|(k, c)| format!("[{}] = {}", q(k), q(&hex(*c))))
+                        .collect();
+                    f.push(format!("module_colors = {{ {} }}", m.join(", ")));
+                }
                 let _ = writeln!(o, "hd.bar({{\n    {},\n}})\n", f.join(",\n    "));
             } else {
                 let _ = writeln!(o, "hd.bar(false)\n");
@@ -1571,6 +1593,38 @@ mod tests {
         .unwrap_or_else(|e| panic!("{e}\n{lua}"))
         .config;
         assert_eq!(Settings::from_config(&cfg), s, "\n{lua}");
+    }
+
+    /// Couleurs et transparence de la barre : aller-retour par settings.lua.
+    #[test]
+    fn couleurs_de_la_barre() {
+        let mut s = Settings::default();
+        let b = s.bar.get_or_insert_with(BarSettings::default);
+        b.colors.text = Some(Rgba(0x80, 0xff, 0xea, 0xff));
+        b.colors.critical = Some(Rgba(0xff, 0, 0, 0xff));
+        b.colors.opacity = Some(0.35);
+        b.colors
+            .modules
+            .insert("clock".into(), Rgba(0xff, 0x80, 0xbf, 0xff));
+        let lua = s.to_lua();
+        assert!(lua.contains("opacity = 0.35"), "{lua}");
+        let cfg = load_chunks(
+            &[(lua.clone(), "settings.lua".into(), Origin::Settings)],
+            Path::new("/cfg"),
+        )
+        .unwrap_or_else(|e| panic!("{e}\n{lua}"))
+        .config;
+        let back = Settings::from_config(&cfg).bar.unwrap().colors;
+        assert_eq!(back, s.bar.unwrap().colors, "\n{lua}");
+        // Clé inconnue refusée.
+        let bad = "hd.bar({ colors = { texte = '#ffffff' } })";
+        assert!(
+            load_chunks(
+                &[(bad.into(), "x.lua".into(), Origin::User)],
+                Path::new("/cfg")
+            )
+            .is_err()
+        );
     }
 
     /// Fichier, dossier ou application déposés : l'icône qui convient, pas de doublon.

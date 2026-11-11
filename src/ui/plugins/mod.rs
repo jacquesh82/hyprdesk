@@ -442,6 +442,7 @@ mod tests {
             all.extend([w.name, w.description]);
         }
         all.extend(crate::config::BAR_ITEMS.iter().map(|(_, l)| *l));
+        all.extend(crate::config::BAR_COLOR_SLOTS.iter().map(|(_, l)| *l));
         all.extend(crate::tiling::ACTIONS.iter().map(|a| a.label));
         all.extend(
             crate::tiling::CUSTOM

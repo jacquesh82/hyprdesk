@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 50] = [
+const SCENES: [&str; 52] = [
     "desktop",
     "typography",
     "icons",
@@ -58,6 +58,8 @@ const SCENES: [&str; 50] = [
     "layouts",
     "tour",
     "veille",
+    "mode-launcher",
+    "mode-hidden",
     "osd",
     "animations",
     "animations-effets",
@@ -274,6 +276,7 @@ impl Preview {
             ],
             portrait: None,
             compact: Default::default(),
+            colors: Default::default(),
         });
         app.icons = cfg
             .icons
@@ -463,6 +466,17 @@ impl Preview {
                     });
                 }
             }
+        }
+        // Scènes des modes du bureau (captures) : fenêtres visibles, bureau masqué.
+        // Les champs sont posés directement : les transitions réelles font de l'IPC.
+        match SCENES[self.scene] {
+            "mode-launcher" => self.app.with_windows = true,
+            "mode-hidden" => {
+                self.app.visible = false;
+                self.app.with_windows = false;
+                self.app.raised.remove(&self.desktop);
+            }
+            _ => {}
         }
         let tab = match self.scene {
             1 => Some("theme"),
@@ -1045,8 +1059,11 @@ impl Preview {
                 .width(Length::Fill)
                 .into(),
         ];
-        // Le lanceur a sa propre surface : par-dessus le bureau.
-        if let Some(m) = self.app.monitors.first() {
+        // Le lanceur a sa propre surface : par-dessus le bureau, sous la barre.
+        // Bureau masqué : le dock n'existe plus.
+        if let Some(m) = self.app.monitors.first()
+            && SCENES[self.scene] != "mode-hidden"
+        {
             // Le compositeur tient compte de la barre avant de placer le dock.
             layers.insert(
                 1,
@@ -1059,6 +1076,10 @@ impl Preview {
                     })
                     .into(),
             );
+        }
+        // Les scènes de modes posent deux fenêtres fictives entre le bureau et le dock.
+        if matches!(SCENES[self.scene], "mode-launcher" | "mode-hidden") {
+            layers.insert(1, self.demo_windows());
         }
         // Les tiroirs ont leur propre surface : à droite, sous la barre.
         if self.app.chat.is_some() {
@@ -1200,5 +1221,81 @@ impl Preview {
             .height(Length::Fill)
             .into();
         view.map(|m| PreviewMsg::Ui(Box::new(m)))
+    }
+
+    /// Deux fenêtres fictives en mosaïque : illustrer les modes du bureau
+    /// (lanceur seul, bureau masqué) dans les captures de l'aperçu.
+    /// L'aperçu étant une seule surface, les vraies fenêtres ne peuvent pas
+    /// y apparaître ; celles-ci occupent la place qu'Hyprland leur laisse.
+    fn demo_windows(&self) -> Element<'_, Msg> {
+        let g = &self.app.cfg.general;
+        let fg = g.theme.fg;
+        let title_bg = color(fg, 0.06);
+        let placeholder = color(fg, 0.08);
+        let outline = color(fg, 0.14);
+        let card_bg = color(g.theme.bg, 1.0);
+        // La mosaïque laisse au dock la place que le compositeur lui réserve.
+        let bottom = plugins::launcher::thickness(g.launcher.size) as f32 + 16.0;
+        let card = move |title: &'static str| -> Element<'_, Msg> {
+            let mut body = column([]).spacing(10).width(Length::Fill);
+            for portion in [92u16, 68, 45] {
+                body = body.push(
+                    container(
+                        Space::new()
+                            .width(Length::FillPortion(portion))
+                            .height(Length::Fixed(10.0)),
+                    )
+                    .style(move |_| container::Style {
+                        background: Some(Background::Color(placeholder)),
+                        border: Border {
+                            color: Color::TRANSPARENT,
+                            width: 0.0,
+                            radius: 5.0.into(),
+                        },
+                        ..Default::default()
+                    }),
+                );
+            }
+            container(column(vec![
+                container(text(title).size(13))
+                    .padding(Padding {
+                        top: 9.0,
+                        left: 12.0,
+                        right: 12.0,
+                        bottom: 9.0,
+                    })
+                    .style(move |_| container::Style {
+                        background: Some(Background::Color(title_bg)),
+                        ..Default::default()
+                    })
+                    .into(),
+                body.padding(16).into(),
+            ]))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(card_bg)),
+                border: Border {
+                    color: outline,
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+        };
+        container(iced::widget::row(vec![
+            card(crate::i18n::tr("Mindlog · Notes du jour")),
+            card("hyprdesk.lua — kitty"),
+        ]))
+        .padding(Padding {
+            top: 44.0 + 12.0,
+            left: 12.0,
+            right: 12.0,
+            bottom,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 }

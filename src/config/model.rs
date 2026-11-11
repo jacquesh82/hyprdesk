@@ -556,6 +556,59 @@ pub struct BarDef {
     /// Modules des écrans verticaux (portrait), s'ils diffèrent.
     pub portrait: Option<[Vec<BarItem>; 3]>,
     pub compact: BarCompact,
+    /// Couleurs propres à la barre (sinon celles du thème).
+    pub colors: BarColors,
+}
+
+/// Couleurs de la barre : `None` = celle du thème ; et une couleur par
+/// module (`clock`, `workspaces`, `volume`…), pour son texte et ses icônes.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BarColors {
+    pub text: Option<Rgba>,
+    pub background: Option<Rgba>,
+    pub accent: Option<Rgba>,
+    pub warning: Option<Rgba>,
+    pub critical: Option<Rgba>,
+    /// Opacité du fond (0 transparent … 1 opaque) ; sinon l'effet « Barre » du thème.
+    pub opacity: Option<f32>,
+    pub modules: std::collections::BTreeMap<String, Rgba>,
+}
+
+/// Couleurs réglables de la barre : (clé Lua, libellé).
+pub const BAR_COLOR_SLOTS: &[(&str, &str)] = &[
+    ("text", "Texte et icônes"),
+    ("background", "Fond"),
+    ("accent", "Accent (workspace actif, module actif)"),
+    ("warning", "Avertissement"),
+    ("critical", "Critique"),
+];
+
+impl BarColors {
+    /// Avertissement et critique par défaut (le thème n'en déclare pas).
+    pub const WARNING: Rgba = Rgba(0xff, 0xb8, 0x6c, 0xff);
+    pub const CRITICAL: Rgba = Rgba(0xff, 0x55, 0x55, 0xff);
+
+    pub fn slot(&self, key: &str) -> Option<Rgba> {
+        match key {
+            "text" => self.text,
+            "background" => self.background,
+            "accent" => self.accent,
+            "warning" => self.warning,
+            "critical" => self.critical,
+            _ => None,
+        }
+    }
+
+    pub fn set_slot(&mut self, key: &str, c: Option<Rgba>) {
+        match key {
+            "text" => self.text = c,
+            "background" => self.background = c,
+            "accent" => self.accent = c,
+            "warning" => self.warning = c,
+            "critical" => self.critical = c,
+            _ => {}
+        }
+    }
 }
 
 /// Barre compacte : titres raccourcis, heure seule, icônes sans libellé.
