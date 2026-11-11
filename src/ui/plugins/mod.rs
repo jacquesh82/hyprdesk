@@ -18,6 +18,7 @@ pub mod apps;
 pub mod apptheme;
 pub mod assistant;
 pub mod bar;
+pub mod bluetooth;
 pub mod datetime;
 pub mod desktop;
 pub mod effects;
@@ -26,6 +27,7 @@ pub mod icons;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
+pub mod network;
 #[allow(clippy::module_inception)]
 pub mod plugins;
 pub mod screens;
@@ -70,6 +72,8 @@ pub const BUILTIN: &[PluginInfo] = &[
     animations::INFO,
     sound::INFO,
     energy::INFO,
+    network::INFO,
+    bluetooth::INFO,
     datetime::INFO,
     lock::INFO,
     share::INFO,
@@ -102,7 +106,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["sound", "energy", "datetime"],
+        ids: &["sound", "network", "bt", "energy", "datetime"],
     },
     Group {
         label: "Applications",
@@ -277,6 +281,11 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "ia" | "ai" | "lyra" => "assistant",
         "partage" | "export" | "import" => "share",
         "verrouillage" | "verrou" => "lock",
+        "son" | "audio" | "volume" => "sound",
+        "reseau" | "réseau" | "wifi" | "wi-fi" | "vpn" => "network",
+        "bluetooth" => "bt",
+        "energie" | "énergie" | "power" | "batterie" => "energy",
+        "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
         other => other,
     };
     BUILTIN.iter().find(|p| p.id == id)
@@ -302,6 +311,8 @@ pub enum PluginMsg {
     Animations(animations::Msg),
     Sound(sound::Msg),
     Energy(energy::Msg),
+    Network(network::Msg),
+    Bluetooth(bluetooth::Msg),
     DateTime(datetime::Msg),
     Effects(effects::Msg),
     Theme(theme::Msg),
@@ -327,6 +338,8 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Animations(m) => app.animations_update(m),
         PluginMsg::Sound(m) => app.sound_update(m),
         PluginMsg::Energy(m) => app.energy_update(m),
+        PluginMsg::Network(m) => app.network_update(m),
+        PluginMsg::Bluetooth(m) => app.bluetooth_update(m),
         PluginMsg::DateTime(m) => app.datetime_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
@@ -352,6 +365,8 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "animations" => app.animations_page(),
         "sound" => app.sound_page(),
         "energy" => app.energy_page(),
+        "network" => app.network_page(),
+        "bt" => app.bluetooth_page(),
         "datetime" => app.datetime_page(),
         "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
@@ -375,6 +390,8 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "animations" => animations::load_current(),
         "sound" => sound::load(),
         "energy" => energy::load(),
+        "network" => network::load(),
+        "bt" => bluetooth::load(),
         "datetime" => datetime::load(),
         "assistant" => assistant::load_status(),
         "theme" => theme::load_library(app.config_path.clone()),

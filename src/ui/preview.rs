@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 45] = [
+const SCENES: [&str; 47] = [
     "desktop",
     "typography",
     "icons",
@@ -69,6 +69,8 @@ const SCENES: [&str; 45] = [
     "son",
     "energie",
     "date-heure",
+    "reseau",
+    "bluetooth",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -486,6 +488,8 @@ impl Preview {
             "son" => Some("sound"),
             "energie" => Some("energy"),
             "date-heure" => Some("datetime"),
+            "reseau" => Some("network"),
+            "bluetooth" => Some("bt"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -761,6 +765,61 @@ impl Preview {
                 zones: vec!["Europe/London".into(), "Europe/Paris".into()],
                 loaded: true,
                 error: None,
+            };
+        }
+        // Réseau et Bluetooth : états d'exemple.
+        if SCENES[self.scene] == "reseau"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            use super::plugins::network::{Conn, Net, State};
+            let c = |name: &str, kind: &str, active: bool| Conn {
+                name: name.into(),
+                kind: kind.into(),
+                active,
+            };
+            let n = |ssid: &str, signal: u8, secure: bool, in_use: bool| Net {
+                ssid: ssid.into(),
+                signal,
+                secure,
+                in_use,
+            };
+            p.network = State {
+                wifi: true,
+                airplane: false,
+                conns: vec![
+                    c("Maison", "802-11-wireless", true),
+                    c("Bureau VPN", "vpn", false),
+                    c("Filaire", "802-3-ethernet", false),
+                ],
+                nets: vec![
+                    n("Maison", 82, true, true),
+                    n("Gare-Libre", 61, false, false),
+                    n("Voisin 5G", 44, true, false),
+                ],
+                loaded: true,
+                confirm: Some("Filaire".into()),
+                error: None,
+            };
+        }
+        if SCENES[self.scene] == "bluetooth"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            use super::plugins::bluetooth::{Device, State};
+            let d = |mac: &str, name: &str, connected: bool, battery: Option<u8>| Device {
+                mac: mac.into(),
+                name: name.into(),
+                connected,
+                battery,
+            };
+            p.bluetooth = State {
+                powered: Some(true),
+                paired: vec![
+                    d("AA:00:00:00:00:01", "MX Vertical", true, Some(85)),
+                    d("AA:00:00:00:00:02", "Air75", false, None),
+                ],
+                nearby: vec![d("AA:00:00:00:00:03", "JBL Flip 5", false, None)],
+                loaded: true,
+                ..Default::default()
             };
         }
         if SCENES[self.scene] == "tour"
