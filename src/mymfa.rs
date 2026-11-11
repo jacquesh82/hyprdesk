@@ -33,6 +33,24 @@ pub trait MyMfa1 {
     ) -> zbus::Result<Vec<(String, String, String, String, String)>>;
     fn copy_code(&self, id: &str) -> zbus::Result<()>;
     fn copy_login(&self, id: &str, field: &str) -> zbus::Result<()>;
+    /// Tout le contenu du coffre ouvert, sans aucun secret (MLG-46).
+    fn content(&self) -> zbus::Result<String>;
+    /// Opération JSON du web (add_account, update_login, next_hotp…) : applique
+    /// puis réécrit le coffre ; une opération refusée n'écrit rien.
+    fn apply(&self, operation: &str) -> zbus::Result<String>;
+    /// Aperçu d'un compte avant ajout : champs lus et code actuel. N'écrit rien.
+    fn preview(&self, account: &str) -> zbus::Result<String>;
+    /// Mot de passe d'un site, à la demande (comme « afficher » dans le web).
+    fn reveal_password(&self, id: &str) -> zbus::Result<String>;
+    /// Mot de passe généré : options `{"length","digits","symbols","words"}`.
+    fn generate(&self, options: &str) -> zbus::Result<String>;
+    /// Synchronisation Drive (LIN-06) : cycle immédiat et états.
+    fn sync_now(&self) -> zbus::Result<String>;
+    fn sync_status(&self) -> zbus::Result<String>;
+    fn sync_journal(&self) -> zbus::Result<String>;
+    fn drive_connect(&self) -> zbus::Result<String>;
+    fn drive_disconnect(&self) -> zbus::Result<()>;
+    fn restore_drive(&self, revision: &str, password: &str) -> zbus::Result<()>;
     #[zbus(property)]
     fn locked(&self) -> zbus::Result<bool>;
     #[zbus(property)]
@@ -47,6 +65,8 @@ pub trait MyMfa1 {
     fn state_changed(&self, locked: bool) -> zbus::Result<()>;
     #[zbus(signal)]
     fn unlock_requested(&self, application: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn content_changed(&self) -> zbus::Result<()>;
 }
 
 /// État du trousseau, tel que hyprdesk le montre.
@@ -310,6 +330,19 @@ pub async fn logins(q: String) -> Result<Vec<Login>, String> {
         .collect())
 }
 
+/// Codes en cours avec tous leurs champs (étiquette, période, favori) —
+/// la fenêtre myMFA filtre dessus (MLG-46).
+pub type CodeComplet = (String, String, String, String, String, u32, u32, bool);
+
+pub async fn codes_pleines() -> Result<Vec<CodeComplet>, String> {
+    proxy()
+        .await
+        .map_err(|e| error_text(&e))?
+        .codes()
+        .await
+        .map_err(|e| error_text(&e))
+}
+
 pub async fn copy_code(id: String) -> Result<(), String> {
     proxy()
         .await
@@ -327,6 +360,108 @@ pub async fn copy_login(id: String, field: &'static str) -> Result<(), String> {
         .copy_login(&id, field)
         .await
         .map_err(|e| error_text(&e))
+}
+
+/// Tout le contenu du coffre ouvert, en JSON, sans aucun secret. Verrouillé :
+/// `Err` (la fenêtre propose le déverrouillage).
+pub async fn content() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.content().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Applique une opération JSON du web (`{"op": "add_account", …}`) et rend la
+/// réponse (`{"id": …}`, `{"counter","code"}`…).
+pub async fn apply(operation: serde_json::Value) -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p
+        .apply(&operation.to_string())
+        .await
+        .map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Aperçu d'un compte avant ajout : champs lus et code actuel. N'écrit rien.
+pub async fn preview(account: serde_json::Value) -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p
+        .preview(&account.to_string())
+        .await
+        .map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Mot de passe d'un site (RevealPassword), à la demande.
+/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
+#[allow(dead_code)]
+pub async fn reveal_password(id: &str) -> Result<String, String> {
+    proxy()
+        .await
+        .map_err(|e| error_text(&e))?
+        .reveal_password(id)
+        .await
+        .map_err(|e| error_text(&e))
+}
+
+/// Mot de passe généré : `{"password", "strength": {"level","bits"}}`.
+/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
+#[allow(dead_code)]
+pub async fn generate(options: serde_json::Value) -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p
+        .generate(&options.to_string())
+        .await
+        .map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Statut de la synchronisation Drive.
+pub async fn sync_status() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.sync_status().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Lance un cycle de synchronisation maintenant, rend son statut.
+pub async fn sync_now() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.sync_now().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Journal de synchro (arrivées, départs, conflits, horloges suspectes).
+pub async fn sync_journal() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.sync_journal().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+/// Connecte Google Drive : le démon ouvre le navigateur (boucle locale + PKCE).
+pub async fn drive_connect() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.drive_connect().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
+pub async fn drive_disconnect() -> Result<(), String> {
+    proxy()
+        .await
+        .map_err(|e| error_text(&e))?
+        .drive_disconnect()
+        .await
+        .map_err(|e| error_text(&e))
+}
+
+/// Restaure une version gardée en point de restauration (mot de passe demandé).
+/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
+#[allow(dead_code)]
+pub async fn restore_drive(revision: &str, mut password: String) -> Result<(), String> {
+    let r = match proxy().await {
+        Ok(p) => p.restore_drive(revision, &password).await,
+        Err(e) => Err(e),
+    };
+    crate::lock::pam::wipe(&mut password);
+    r.map_err(|e| error_text(&e))
 }
 
 /// Fichier d'état lu par le module de barre : `$XDG_RUNTIME_DIR/hyprdesk/mymfa`.

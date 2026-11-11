@@ -58,6 +58,8 @@ pub enum Msg {
     Done(Result<String, String>),
     /// Lanceur ouvert en mode `:2fa` ou `:mdp`.
     Search(&'static str),
+    /// Fenêtre myMFA complète (MLG-46).
+    Fenetre,
     LoginScreen,
 }
 
@@ -190,6 +192,7 @@ impl App {
                     } else {
                         self.pw_button("Verrouiller", Some(Msg::Lock), st.busy)
                     },
+                    self.pw_button("Fenêtre myMFA…", Some(Msg::Fenetre), st.busy),
                     self.pw_button("Codes 2FA (:2fa)", Some(Msg::Search(":2fa ")), st.busy),
                     self.pw_button("Mots de passe (:mdp)", Some(Msg::Search(":mdp ")), st.busy),
                 ]
@@ -380,6 +383,7 @@ impl App {
                 }
                 Task::none()
             }
+            Msg::Fenetre => self.mfa_fenetre_open(),
             Msg::Unlock => self.mfa_update(MMsg::Ask),
             Msg::Lock => self.mfa_update(MMsg::Lock),
             Msg::Init(from) => self.mfa_update(MMsg::Setup(from)),

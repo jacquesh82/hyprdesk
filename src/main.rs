@@ -125,8 +125,8 @@ Commandes :
   greeter setup <status|packages|install|enable|restore>
                     met l'écran de hyprdesk à la place de GDM (en root ; Réglages →
                     Écran de connexion) ; restore : revient au gestionnaire d'avant
-  mymfa <unlock|setup|lock|codes|logins>
-                    trousseau myMFA : déverrouillage, création du coffre, verrouillage, lanceur sur
+  mymfa <open|unlock|setup|lock|codes|logins>
+                    trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]
