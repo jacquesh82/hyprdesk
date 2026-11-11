@@ -394,6 +394,8 @@ pub struct App {
     workspaces: Vec<hypr::Workspace>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Touches de modification tenues (Maj + Tab : champ précédent).
+    mods: keyboard::Modifiers,
     /// Module de barre en cours de déplacement : (zone, rang) d'origine, et
     /// place d'insertion survolée.
     bar_drag: Option<BarDrag>,
@@ -721,6 +723,7 @@ impl App {
             forced_key: None,
             forced_prev: None,
             bar_drag: None,
+            mods: keyboard::Modifiers::default(),
             light_ddc_at: None,
             audio: bar::Audio::default(),
             with_windows: false,
@@ -3166,6 +3169,7 @@ impl App {
                 Task::none()
             }
             Msg::Modifiers(m) => {
+                self.mods = m;
                 if self.switcher.as_ref().is_some_and(|s| !s.sticky)
                     && !m.alt()
                     && !m.logo()
@@ -3673,8 +3677,16 @@ impl App {
                     }
                     return self.hide();
                 }
-                // Le panneau a ses propres champs de saisie : pas de navigation dessous.
+                // Le panneau a ses propres champs de saisie : pas de navigation
+                // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
                 if self.panel.is_some() || self.chat_shown() {
+                    if key == keyboard::Key::Named(keyboard::key::Named::Tab) {
+                        return if self.mods.shift() {
+                            iced::widget::operation::focus_previous()
+                        } else {
+                            iced::widget::operation::focus_next()
+                        };
+                    }
                     return Task::none();
                 }
                 self.navigate(id, &key)

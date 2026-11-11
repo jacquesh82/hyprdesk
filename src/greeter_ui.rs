@@ -44,6 +44,8 @@ pub enum GMsg {
     Cancelled(String),
     /// Démo : Échap ou « Quitter la démo ».
     Quit,
+    /// Tab (Maj + Tab : `true`) : champ suivant ou précédent.
+    FocusNext(bool),
 }
 
 /// Entrée de la liste des sessions.
@@ -297,6 +299,13 @@ impl Greeter {
                 Step::Fail(m) => self.fail(m),
             },
             GMsg::Quit if self.demo => iced::exit(),
+            GMsg::FocusNext(back) => {
+                if back {
+                    iced::widget::operation::focus_previous()
+                } else {
+                    iced::widget::operation::focus_next()
+                }
+            }
             GMsg::Cancelled(m) => {
                 self.phase = Phase::User;
                 self.error = Some(m);
@@ -517,8 +526,16 @@ impl Greeter {
 
     fn subscription(&self) -> Subscription<GMsg> {
         let tick = iced::time::every(Duration::from_secs(1)).map(|_| GMsg::Tick);
+        let tab = iced::event::listen_with(|e, _, _| match e {
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab),
+                modifiers,
+                ..
+            }) => Some(GMsg::FocusNext(modifiers.shift())),
+            _ => None,
+        });
         if !self.demo {
-            return tick;
+            return Subscription::batch([tick, tab]);
         }
         let esc = iced::event::listen_with(|e, _, _| match e {
             iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
@@ -527,7 +544,7 @@ impl Greeter {
             }) => Some(GMsg::Quit),
             _ => None,
         });
-        Subscription::batch([tick, esc])
+        Subscription::batch([tick, tab, esc])
     }
 }
 
