@@ -1,0 +1,114 @@
+# Maintainer: Jacques HULLU
+#
+# PKGBUILD de l'AUR (https://aur.archlinux.org/packages/hyprdesk) : construit
+# depuis l'archive du tag v$pkgver, selon les Arch package guidelines et les
+# Rust package guidelines. Le paquet binaire de scripts/package.sh (nfpm) en
+# est la version précompilée, pour qui ne veut pas construire.
+
+pkgname=hyprdesk
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='On-demand desktop for Hyprland: per-workspace wallpaper, icons and widgets, bar, launcher, lock, Lua config'
+arch=('x86_64')
+url='https://github.com/jacquesh82/hyprdesk'
+# MIT pour le code, OFL-1.1 pour la police Mindlog embarquée.
+license=('MIT AND OFL-1.1')
+# Relevé de scripts/package.sh : liées (glibc, libgcc, PAM), chargées à
+# l'exécution (Wayland, xkbcommon, Vulkan, EGL), programmes appelés.
+depends=(
+  'cage'
+  'fontconfig'
+  'glibc'
+  'greetd'
+  'hyprland'
+  'libgcc'
+  'libglvnd'
+  'libxkbcommon'
+  'pam'
+  'systemd'
+  'tar'
+  'vulkan-icd-loader'
+  'wayland'
+  'xdg-utils'
+)
+makedepends=('cargo')
+optdepends=(
+  'hypridle: veille et verrouillage automatique'
+  'wireplumber: son (wpctl)'
+  'wl-clipboard: copier-coller (wl-copy, wl-paste)'
+  'libnotify: notifications des captures, de la batterie, de LYRA (notify-send)'
+  'xdg-user-dirs: dossiers Images et Vidéos des captures (xdg-user-dir)'
+  'networkmanager: réseau (nmcli)'
+  'nm-connection-editor: réglages réseau avancés'
+  'bluez-utils: Bluetooth (bluetoothctl)'
+  'blueman: réglages Bluetooth avancés'
+  "brightnessctl: assombrir l'écran à l'inactivité"
+  "power-profiles-daemon: profils d'énergie"
+  'polkit: authentification administrateur, mises à jour (pkexec)'
+  'glib2: corbeille du bureau (gio)'
+  'util-linux: mode avion (rfkill), supports amovibles (lsblk)'
+  'pacman-contrib: paquets à mettre à jour (checkupdates)'
+  'flatpak: mises à jour des applications Flatpak'
+  "xdg-desktop-portal-hyprland: partage d'écran"
+  'xdg-desktop-portal-gtk: sélecteur de fichiers'
+  "hyprshot: captures d'écran"
+  "wf-recorder: enregistrement de l'écran"
+  'cliphist: historique du presse-papiers'
+  'hyprsunset: éclairage nocturne'
+  'udisks2: supports amovibles (montage, éjection)'
+  'ddcutil: luminosité des écrans externes (DDC/CI)'
+  "slurp: capture ou enregistrement d'une zone"
+  'wvkbd: clavier virtuel'
+  'fprintd: empreinte digitale au verrouillage'
+  'pavucontrol: réglages du son avancés'
+  'unzip: thèmes au format .zip'
+  "git: plugins depuis un dépôt git"
+  "curl: widget météo d'exemple (hyprdesk.lua)"
+  'kitty: thème des applications (terminal)'
+  'wayle: notifications par wayle (AUR ; sans lui, hyprdesk les affiche)'
+)
+# Sans LTO : le -flto=auto de makepkg fait de la Lua compilée par mlua (C)
+# du bitcode GCC que rust-lld ne lit pas (undefined symbol: lua_rotate…).
+options=('!lto')
+install=hyprdesk.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
+
+  # Unit systemd utilisateur : celle du dépôt vise ~/.local/bin (scripts/install.sh).
+  sed -e 's#%h/\.local/bin/hyprdesk#/usr/bin/hyprdesk#' \
+      -e 's#déposée par scripts/install.sh#installée par le paquet hyprdesk#' \
+      -e 's#(qui précise WAYLAND_DISPLAY détecté)\.#(environnement de session : systemctl --user import-environment).#' \
+      assets/hyprdesk.service > hyprdesk.service
+  grep -q '^ExecStart=/usr/bin/hyprdesk ' hyprdesk.service
+  install -Dm0644 -t "$pkgdir/usr/lib/systemd/user/" hyprdesk.service
+
+  install -Dm0644 -t "$pkgdir/usr/share/fonts/$pkgname/Mindlog/" assets/fonts/mindlog/*.ttf
+  install -Dm0644 -t "$pkgdir/usr/share/doc/$pkgname/" \
+    README.md README.fr.md docs/PLUGINS.md docs/PLUGINS.en.md
+  install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+  install -Dm0644 assets/fonts/mindlog/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Mindlog.txt"
+}

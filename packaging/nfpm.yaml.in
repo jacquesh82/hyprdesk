@@ -13,7 +13,8 @@ description: |
   workspace, barre, lanceur, verrouillage, configuré en Lua.
 vendor: LeLab
 homepage: https://github.com/jacquesh82/hyprdesk
-license: MIT
+# MIT pour le code, OFL-1.1 pour la police Mindlog embarquée (SPDX).
+license: MIT AND OFL-1.1
 
 contents:
   - src: "@STAGE@/usr/bin/hyprdesk"
@@ -58,6 +59,10 @@ contents:
 
 scripts:
   postinstall: packaging/postinstall.sh
+
+# Arch : packager inscrit dans .PKGINFO (sinon « Unknown Packager »).
+archlinux:
+  packager: "@MAINTAINER@"
 
 # Relevé du binaire et du code (scripts/package.sh n'invente rien) :
 # - liées : glibc, PAM (verrouillage), libgcc ;
@@ -178,9 +183,15 @@ overrides:
       - curl
       - kitty
   archlinux:
+    # Sous Arch, fc-cache est lancé par le hook de fontconfig : pas de
+    # postinstall qui le refasse (Arch package guidelines).
+    scripts:
+      postinstall: packaging/arch/postinstall.sh
     depends:
       - "glibc>=@GLIBC@"
-      - gcc-libs
+      # gcc-libs est devenu un méta-paquet (Fortran, sanitizers…) : seul
+      # libgcc_s est lié.
+      - libgcc
       - pam
       - wayland
       - libxkbcommon
