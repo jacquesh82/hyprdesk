@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 38] = [
+const SCENES: [&str; 39] = [
     "desktop",
     "typography",
     "icons",
@@ -62,6 +62,7 @@ const SCENES: [&str; 38] = [
     "animations",
     "animations-effets",
     "polkit",
+    "notifications",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -512,6 +513,49 @@ impl Preview {
                 reply: Some(super::polkit::Responder::detached()),
             });
         }
+        // Bulles de notifications : une ordinaire, une critique avec actions.
+        if SCENES[self.scene] == "notifications" {
+            let mut crit = std::collections::HashMap::new();
+            crit.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
+            let acts: Vec<String> = ["default", "Ouvrir", "later", "Plus tard"]
+                .map(String::from)
+                .to_vec();
+            let _ = self
+                .app
+                .want_icon("preferences-system-notifications-symbolic");
+            self.app.toasts.list = vec![
+                super::toasts::Toast {
+                    n: crate::notifications::build(
+                        2,
+                        "Batterie",
+                        "",
+                        "Batterie faible : 9 %",
+                        "Branchez l'ordinateur pour continuer à travailler.",
+                        &acts,
+                        &crit,
+                        -1,
+                    ),
+                    since: std::time::Instant::now(),
+                },
+                super::toasts::Toast {
+                    n: crate::notifications::build(
+                        1,
+                        "Firefox",
+                        "",
+                        "Téléchargement terminé",
+                        "rapport-annuel.pdf (2,4 Mo)",
+                        &[],
+                        &Default::default(),
+                        -1,
+                    ),
+                    since: std::time::Instant::now(),
+                },
+            ];
+        }
+        // La carte polkit n'appartient qu'à sa scène.
+        if SCENES[self.scene] != "polkit" {
+            self.app.polkit = None;
+        }
         // L'affichage à l'écran n'appartient qu'à sa scène.
         if SCENES[self.scene] != "osd" {
             self.app.osd = None;
@@ -812,6 +856,18 @@ impl Preview {
                 .x(self.size.width - p.size.width - 18.0)
                 .y(44.0)
                 .into(),
+            );
+        }
+        if !self.app.toasts.list.is_empty() {
+            layers.push(
+                container(self.app.view_toasts())
+                    .width(Length::Fill)
+                    .align_x(iced::Alignment::End)
+                    .padding(Padding {
+                        top: 44.0,
+                        ..Padding::ZERO
+                    })
+                    .into(),
             );
         }
         if self.app.polkit.is_some() {

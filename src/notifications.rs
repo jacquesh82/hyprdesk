@@ -6,8 +6,9 @@
 //! Le nom n'est pris que s'il est libre (`DoNotQueue`) : un démon déjà en
 //! place (wayle, mako, dunst, swaync…) reste maître, hyprdesk n'insiste pas.
 //!
-//! Tranche A (MLG-6) : le serveur et son état ; l'interface (bulles, module
-//! de la barre, historique, « Ne pas déranger ») le branche à la tranche B.
+//! Affichage : bulles (`ui::toasts`). Historique, module de la barre et « Ne
+//! pas déranger » liront aussi `Store` et les champs gardés ici (icône,
+//! transient, desktop-entry, catégorie).
 #![allow(dead_code)]
 
 use std::collections::HashMap;

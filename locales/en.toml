@@ -1275,3 +1275,9 @@
 "agent polkit non enregistré ({e}) : un autre agent est sans doute en place" = "polkit agent not registered ({e}): another agent is probably running"
 "polkit : autorisé" = "polkit: authorized"
 "polkit : refusé ou annulé" = "polkit: denied or cancelled"
+
+# Bulles de notifications (MLG-6).
+"Notification" = "Notification"
+"notifications : un autre démon est en place, hyprdesk ne les affiche pas" = "notifications: another daemon is running, hyprdesk does not display them"
+"notifications : {e}" = "notifications: {e}"
+"notifications affichées par hyprdesk" = "notifications displayed by hyprdesk"

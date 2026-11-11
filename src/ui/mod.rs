@@ -22,6 +22,7 @@ pub(crate) mod plugins;
 mod polkit;
 mod popover;
 pub mod preview;
+mod toasts;
 mod tour;
 mod widget_view;
 
@@ -170,6 +171,8 @@ pub enum Msg {
     OsdTick,
     /// Agent polkit : demande de mot de passe, saisie, réponse.
     Polkit(polkit::PMsg),
+    /// Bulles de notifications.
+    Toasts(toasts::TMsg),
     Frame,
     Poll,
     WidgetValue(u64, String, widgets::Value),
@@ -335,6 +338,8 @@ pub struct App {
     osd: Option<osd::Osd>,
     /// Carte d'authentification polkit ouverte.
     polkit: Option<polkit::Dialog>,
+    /// Bulles de notifications (si hyprdesk tient le nom du démon).
+    toasts: toasts::Toasts,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
     workspaces: Vec<hypr::Workspace>,
@@ -641,6 +646,7 @@ impl App {
             desk_windows: HashSet::new(),
             osd: None,
             polkit: None,
+            toasts: Default::default(),
             bar_surfaces: HashMap::new(),
             workspaces: Vec::new(),
             active_window: None,
@@ -2863,6 +2869,7 @@ impl App {
             }
             Msg::OsdTick => self.osd_tick(),
             Msg::Polkit(m) => self.polkit_update(m),
+            Msg::Toasts(m) => self.toasts_update(m),
             Msg::Rotate => {
                 let now = Instant::now();
                 let cfg = self.cfg.clone();
@@ -3137,6 +3144,10 @@ impl App {
                     self.osd = None;
                     return Task::none();
                 }
+                if self.toasts.win == Some(id) {
+                    self.toasts.win = None;
+                    return Task::none();
+                }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.polkit.take() {
@@ -3323,6 +3334,8 @@ impl App {
             Subscription::run(control::server_stream).map(Msg::Control),
             // Agent polkit (fenêtre de saisie) ; inactif si un autre agent est en place.
             Subscription::run(polkit::stream).map(|e| Msg::Polkit(polkit::PMsg::Event(e))),
+            // Démon de notifications (bulles) ; inactif si un autre tient le nom.
+            Subscription::run(toasts::stream).map(|e| Msg::Toasts(toasts::TMsg::Event(e))),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {
@@ -3332,6 +3345,12 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        if !self.toasts.list.is_empty() {
+            subs.push(
+                iced::time::every(Duration::from_millis(500))
+                    .map(|_| Msg::Toasts(toasts::TMsg::Tick)),
+            );
+        }
         if self.osd.is_some() {
             subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
         }
@@ -3445,6 +3464,9 @@ impl App {
         }
         if self.polkit.as_ref().is_some_and(|d| d.win == id) {
             return self.view_polkit();
+        }
+        if self.toasts.win == Some(id) {
+            return self.view_toasts();
         }
         if let Some(p) = &self.popover {
             if p.win == id {
@@ -3792,6 +3814,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Rotate => "Rotate",
         Msg::OsdTick => "OsdTick",
         Msg::Polkit(..) => "Polkit",
+        Msg::Toasts(..) => "Toasts",
         Msg::WidgetValue(..) => "WidgetValue",
         Msg::Cursor(..) => "Cursor",
         Msg::Resized(..) => "Resized",
