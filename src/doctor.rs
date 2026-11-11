@@ -136,6 +136,13 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "slurp",
+        probe: Probe::Program(&["slurp"]),
+        package: "slurp",
+        feature: "Enregistrement d'une zone de l'écran",
+        essential: false,
+    },
+    Dep {
         name: "wl-paste",
         probe: Probe::Program(&["wl-paste"]),
         package: "wl-clipboard",

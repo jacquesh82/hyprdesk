@@ -7,6 +7,7 @@ mod apps;
 mod apptheme;
 mod assistant;
 mod brightness;
+mod capture;
 mod chat;
 mod cli_config;
 mod clipboard;
@@ -92,6 +93,11 @@ Commandes :
                     règle le son ou la luminosité (touches XF86, keys.media)
   media <play-pause|next|previous>
                     commande le lecteur en cours (MPRIS)
+  capture <zone|fenetre|ecran>
+                    capture d'écran (Images/Captures, copiée ; touches Impr)
+  capture enregistrer [zone] | capture arreter
+                    enregistre l'écran actif ou une zone (Vidéos/Enregistrements),
+                    ou arrête l'enregistrement en cours
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
@@ -752,6 +758,23 @@ fn main() -> ExitCode {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        // Captures et enregistrement de l'écran (hyprshot, wf-recorder).
+        "capture" => {
+            let action = match capture::parse(&args[1..]) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(2);
+                }
+            };
+            match capture::run(action) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk capture : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }

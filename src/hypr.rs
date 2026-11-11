@@ -457,6 +457,9 @@ pub const MEDIA_KEYS: &[(&str, &str, bool)] = &[
     ("XF86AudioPause", "media play-pause", false),
     ("XF86AudioNext", "media next", false),
     ("XF86AudioPrev", "media previous", false),
+    ("Print", "capture zone", false),
+    ("SHIFT + Print", "capture ecran", false),
+    ("ALT + Print", "capture fenetre", false),
 ];
 
 pub fn build_keys_lua(
@@ -1568,7 +1571,7 @@ mod tests {
         // submap, où les raccourcis de Hyprland sont suspendus.
         let (main, submap) = lua.split_once("hl.define_submap").unwrap();
         assert!(
-            !main.contains("SHIFT"),
+            !main.contains("SUPER + SHIFT + D"),
             "un raccourci en conflit n'est pas installé : {lua}"
         );
         assert!(

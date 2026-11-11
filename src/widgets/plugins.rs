@@ -30,6 +30,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/integres/batterie.lua"),
     ),
     (
+        "capture",
+        include_str!("../../assets/widgets/integres/capture.lua"),
+    ),
+    (
         "clavier",
         include_str!("../../assets/widgets/integres/clavier.lua"),
     ),

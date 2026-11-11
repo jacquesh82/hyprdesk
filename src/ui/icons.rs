@@ -103,6 +103,7 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "audio-volume-muted" => r#"<path d="m11 4-5 4H3v8h3l5 4ZM16 9l6 6m0-6-6 6"/>"#,
         "media-playback-start" => r#"<path d="m8 4 12 8-12 8Z"/>"#,
         "media-playback-pause" => r#"<path d="M8 4v16M16 4v16"/>"#,
+        "media-playback-stop" => r#"<rect x="6" y="6" width="12" height="12" rx="1.5"/>"#,
         "media-skip-backward" => r#"<path d="M5 4v16m15-16L8 12l12 8Z"/>"#,
         "media-skip-forward" => r#"<path d="M19 4v16M4 4l12 8-12 8Z"/>"#,
         "object-select" => r#"<path d="m5 12 4 4L19 6"/>"#,
@@ -164,6 +165,12 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Capture : un appareil photo.
+        "camera-photo" => {
+            r#"<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>"#
+        }
+        // Enregistrement : un disque plein.
+        "media-record" => r#"<circle cx="12" cy="12" r="6" fill="currentColor"/>"#,
         // Presse-papiers : une planchette et sa pince.
         "edit-paste" => {
             r#"<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>"#

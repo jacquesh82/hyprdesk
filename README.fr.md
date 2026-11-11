@@ -170,6 +170,7 @@ les remplace :
 | `reseau` | filaire et Wi-Fi, réseaux à proximité, connexion, activation du Wi-Fi |
 | `bluetooth` | activation, appareils appairés (connexion, déconnexion) |
 | `batterie` | batterie de l'ordinateur et des périphériques (souris, clavier) ; masqué s'il n'y en a pas |
+| `capture` | captures (zone, fenêtre, écran) et enregistrement de l'écran, indicateur rouge pendant l'enregistrement |
 | `clavier` | disposition du clavier active ; menu pour choisir, molette pour passer à la suivante |
 | `majs` | mises à jour en attente, mise à jour en un clic |
 | `notifications` | Ne pas déranger, dernières notifications, tout effacer (service de wayle) |
