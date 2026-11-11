@@ -890,6 +890,7 @@ impl Preview {
             p.passwords = super::plugins::passwords::State {
                 loaded: true,
                 gnome_keyring: true,
+                holder: Some(("gnome-keyring-daemon".into(), 1834)),
                 pam_mymfa: true,
                 mymfa_module: true,
                 confirm: true,

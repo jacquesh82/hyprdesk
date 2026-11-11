@@ -393,6 +393,49 @@ pub fn gnome_keyring_in_use() -> bool {
             .is_ok_and(|s| s.success())
 }
 
+/// Programme qui tient `org.freedesktop.secrets` : (nom, pid). Le nom de
+/// processus tronqué de gnome-keyring (`gnome-keyring-d`) est rendu entier.
+pub fn secret_service_holder() -> Option<(String, u32)> {
+    let out = std::process::Command::new("busctl")
+        .args(["--user", "status", "org.freedesktop.secrets"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let field = |k: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(k))
+            .map(|v| v.trim().to_string())
+    };
+    let pid = field("PID=")?.parse().ok()?;
+    let comm = field("Comm=")?;
+    let name = if comm == "gnome-keyring-d" {
+        "gnome-keyring-daemon".to_string()
+    } else {
+        comm
+    };
+    Some((name, pid))
+}
+
+/// Demande à LYRA : pourquoi `holder` tient le Secret Service à la place de
+/// myMFA, et comment le lui rendre sans perdre de secret.
+pub fn lyra_prompt(holder: &str, s: &State) -> String {
+    let vault = if !s.vault {
+        crate::i18n::tr("n'existe pas encore (hyprdesk propose de le créer)")
+    } else if s.locked {
+        crate::i18n::tr("existe mais est verrouillé")
+    } else {
+        crate::i18n::tr("existe et est ouvert")
+    };
+    crate::tr!(
+        "Dans ma session Hyprland, le trousseau des applications (org.freedesktop.secrets) est tenu par {holder} au lieu du démon myMFA (mymfa.service, client Linux de myMFA), qui attend en file. Le coffre myMFA {vault}. Trouve ce qui lance {holder} (socket et service systemd --user, PAM de l'écran de connexion /etc/pam.d/greetd, démarrage automatique XDG, hyprland.lua…) et explique-le-moi. Puis propose la bascule vers myMFA sans perdre de secret : coffre créé et ouvert, import des secrets existants (mymfa import-gnome-keyring), arrêt et masquage de {holder}, et vérification avec mymfa status. Demande-moi avant de modifier quoi que ce soit, et ne touche jamais à inputs.lua ni à monitors.lua.",
+        holder = holder,
+        vault = vault
+    )
+}
+
 /// Reprise de gnome-keyring : import de ses secrets (par le Secret
 /// Service, pendant qu'il le tient encore), puis arrêt et masquage de ses
 /// units ; le démon mymfa, en file, reprend aussitôt le nom.

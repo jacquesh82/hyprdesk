@@ -32,6 +32,8 @@ pub struct State {
     pub loaded: bool,
     /// gnome-keyring encore en service (socket systemd non masquée).
     pub gnome_keyring: bool,
+    /// Qui tient org.freedesktop.secrets : (programme, pid).
+    pub holder: Option<(String, u32)>,
     /// Lignes pam_mymfa posées dans /etc/pam.d/greetd.
     pub pam_mymfa: bool,
     pub mymfa_module: bool,
@@ -64,6 +66,7 @@ fn read() -> State {
     State {
         loaded: true,
         gnome_keyring: crate::mymfa::gnome_keyring_in_use(),
+        holder: crate::mymfa::secret_service_holder(),
         pam_mymfa: g.pam_mymfa,
         mymfa_module: g.mymfa_module,
         backup: crate::mymfa::find_backup(),
@@ -241,15 +244,64 @@ impl App {
                 crate::i18n::tr("tenu par un autre programme ; myMFA attend en file").to_string()
             },
         ));
+        // Pourquoi pas myMFA : qui tient le nom, et LYRA pour aider à corriger.
+        if !m.secret_service {
+            let holder = st
+                .holder
+                .as_ref()
+                .filter(|(name, _)| name != "mymfa")
+                .map(|(name, pid)| format!("{name} (pid {pid})"))
+                .unwrap_or_else(|| crate::i18n::tr("Un autre programme").to_string());
+            col = col.push(
+                row![
+                    text(crate::tr!(
+                        "{h} tient le nom org.freedesktop.secrets : myMFA ne le prend que lorsqu'il se libère, d'où l'attente. Le reprendre importe d'abord ses secrets, ce qui demande le coffre myMFA ouvert.",
+                        h = holder
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim)
+                    .width(Length::Fill),
+                    self.lyra_button(
+                        crate::i18n::tr("Trousseau des applications"),
+                        crate::mymfa::lyra_prompt(&holder, m),
+                    ),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
         if !m.secret_service && st.gnome_keyring {
-            if !m.vault || m.locked {
-                col = col.push(small(
-                    crate::i18n::tr(
-                        "Pour reprendre gnome-keyring, le coffre myMFA doit exister et être ouvert.",
-                    )
-                    .to_string(),
-                    warn,
-                ));
+            if !m.vault {
+                col = col.push(
+                    row![
+                        small(
+                            crate::i18n::tr(
+                                "D'abord le coffre : il recevra les secrets de gnome-keyring.",
+                            )
+                            .to_string(),
+                            warn,
+                        ),
+                        self.pw_button("Créer le coffre…", Some(Msg::Init(None)), st.busy),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            } else if m.locked {
+                col = col.push(
+                    row![
+                        small(
+                            crate::i18n::tr(
+                                "Pour reprendre gnome-keyring, le coffre myMFA doit être ouvert.",
+                            )
+                            .to_string(),
+                            warn,
+                        ),
+                        self.pw_button("Déverrouiller…", Some(Msg::Unlock), st.busy),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
             } else if st.confirm {
                 col = col.push(
                     container(
