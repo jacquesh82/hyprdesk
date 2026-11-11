@@ -19,6 +19,7 @@ local function read()
     for line in f:lines() do
         local k, v = line:match("^([a-z]+)=(.*)$")
         if k == "state" then s.state = v
+        elseif k == "pid" then s.pid = tonumber(v)
         elseif k == "checked" then s.checked = tonumber(v) or 0
         elseif k == "total" then s.total = tonumber(v) or 0
         elseif k == "source" then
@@ -31,6 +32,11 @@ local function read()
         end
     end
     f:close()
+    -- Tâche interrompue (processus disparu) : on ne reste pas « en cours ».
+    if (s.state == "running" or s.state == "checking") and s.pid then
+        local p = io.open("/proc/" .. s.pid .. "/stat", "r")
+        if p then p:close() else s.state = "idle"; s.checked = 0 end
+    end
     return s
 end
 
@@ -44,7 +50,8 @@ end
 return {
     name        = hd.t("Mises à jour"),
     description = hd.t("Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher)."),
-    interval    = 60,
+    -- Lecture d'un petit fichier : assez souvent pour voir la fin d'une mise à jour.
+    interval    = 5,
     anchor      = "top-right",
     options     = { texte = true, masquer_a_jour = false },
     render = function(o)

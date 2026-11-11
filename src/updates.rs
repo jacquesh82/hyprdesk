@@ -348,8 +348,26 @@ pub fn render_state(state: &str, checked: u64, pending: &[Pending]) -> String {
 /// État courant (`state=…`), s'il existe.
 pub fn current_state() -> Option<String> {
     let s = std::fs::read_to_string(state_path()).ok()?;
-    s.lines()
-        .find_map(|l| l.strip_prefix("state=").map(String::from))
+    effective_state(&s, |pid| {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    })
+}
+
+/// État lu, une tâche « checking » ou « running » dont le processus
+/// (`pid=`) n'existe plus comptant pour « idle » : une mise à jour
+/// interrompue ne bloque pas les suivantes.
+pub fn effective_state(s: &str, alive: impl Fn(u32) -> bool) -> Option<String> {
+    let state = s
+        .lines()
+        .find_map(|l| l.strip_prefix("state=").map(String::from))?;
+    let pid = s.lines().find_map(|l| {
+        l.strip_prefix("pid=")
+            .and_then(|p| p.trim().parse::<u32>().ok())
+    });
+    match (state.as_str(), pid) {
+        ("checking" | "running", Some(p)) if !alive(p) => Some("idle".into()),
+        _ => Some(state),
+    }
 }
 
 /// Remplace la ligne `state=` en gardant le reste (comptes affichés).
@@ -358,10 +376,14 @@ pub fn set_state(state: &str) {
     let old = std::fs::read_to_string(&path).unwrap_or_default();
     let mut lines: Vec<String> = old
         .lines()
-        .filter(|l| !l.starts_with("state="))
+        .filter(|l| !l.starts_with("state=") && !l.starts_with("pid="))
         .map(String::from)
         .collect();
     lines.insert(0, format!("state={state}"));
+    // Tâche en cours : son processus, pour reconnaître une tâche interrompue.
+    if matches!(state, "checking" | "running") {
+        lines.insert(1, format!("pid={}", std::process::id()));
+    }
     let _ = std::fs::write(&path, lines.join("\n") + "\n");
 }
 
@@ -542,6 +564,22 @@ mod tests {
         assert_eq!(
             shown(&flat.check),
             "flatpak remote-ls --updates --columns=application"
+        );
+    }
+
+    #[test]
+    fn tache_interrompue() {
+        let s = "state=running\npid=4242\nchecked=1\ntotal=3\n";
+        assert_eq!(effective_state(s, |_| true).as_deref(), Some("running"));
+        assert_eq!(effective_state(s, |_| false).as_deref(), Some("idle"));
+        assert_eq!(
+            effective_state("state=failed\n", |_| false).as_deref(),
+            Some("failed")
+        );
+        // Ancien fichier sans pid : tel quel.
+        assert_eq!(
+            effective_state("state=checking\n", |_| false).as_deref(),
+            Some("checking")
         );
     }
 }
