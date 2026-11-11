@@ -124,7 +124,6 @@ pub const ADVANCED_ONLY: &[&str] = &["effects", "share", "plugins"];
 /// Onglets affichés seulement en configuration avancée : (paquet, onglet).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "session"),
-    ("desktop", "dependances"),
     ("theme", "effets"),
     ("layouts", "custom"),
 ];
@@ -477,7 +476,7 @@ mod tests {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
         assert!(!visible("plugins", false) && visible("plugins", true));
-        assert_eq!(visible_tabs("desktop", false).len(), 3);
+        assert_eq!(visible_tabs("desktop", false).len(), 4);
         assert_eq!(visible_tabs("desktop", true).len(), 5);
     }
 

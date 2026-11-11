@@ -40,6 +40,7 @@ mod single;
 mod span;
 mod storage;
 mod switcher;
+mod takeover;
 mod theme;
 mod tiling;
 mod tray;
@@ -72,6 +73,8 @@ Commandes :
   overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
   notifications [list | dnd [on|off] | clear]
                     notifications de hyprdesk : historique, Ne pas déranger
+  ask <titre> <texte>
+                    demande à LYRA (nouvelle conversation, affichée)
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
                     à la fenêtre suivante (prev : précédente)
   tour              ouvre les réglages sur la visite guidée
@@ -789,6 +792,16 @@ fn main() -> ExitCode {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        // Demande à LYRA (plugins : « régler ce conflit »), affichée aussitôt.
+        "ask" if args.len() >= 3 => {
+            match control::send(control::Command::Ask(args[1].clone(), args[2..].join(" "))) {
+                Ok(_) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{e}");
                     ExitCode::FAILURE
                 }
             }

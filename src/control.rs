@@ -43,6 +43,8 @@ pub enum Command {
     Overview,
     /// Notifications de hyprdesk : `dnd [on|off]`, `clear`.
     Notifications(String),
+    /// Demande à LYRA (titre de la conversation, texte), affichée aussitôt.
+    Ask(String, String),
     /// Sélecteur de fenêtres : ouvre, ou fenêtre suivante (`true` : précédente).
     Switch(bool),
     /// Affichage à l'écran après une touche (`kind value muted`), envoyé par
@@ -82,6 +84,10 @@ impl Command {
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
             // Une requête tient sur une ligne : le texte voyage en chaîne JSON.
             m if m.starts_with("problem ") => Command::Problem(serde_json::from_str(&m[8..]).ok()?),
+            m if m.starts_with("ask ") => {
+                let (origin, text): (String, String) = serde_json::from_str(&m[4..]).ok()?;
+                Command::Ask(origin, text)
+            }
             m if m.starts_with("notifications ") => {
                 Command::Notifications(m[14..].trim().to_string())
             }
@@ -102,6 +108,10 @@ impl Command {
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
             ),
             Command::Notifications(a) => format!("notifications {a}"),
+            Command::Ask(o, t) => format!(
+                "ask {}",
+                serde_json::to_string(&(o, t)).unwrap_or_else(|_| "[\"\",\"\"]".into())
+            ),
             Command::ProblemShow(t) => format!(
                 "problem-show {}",
                 serde_json::to_string(t).unwrap_or_else(|_| "\"\"".into())
@@ -129,6 +139,7 @@ impl Command {
             Command::Apps => "apps",
             Command::Overview => "overview",
             Command::Notifications(_) => "notifications",
+            Command::Ask(..) => "ask",
             Command::Switch(false) => "switch",
             Command::Switch(true) => "switch prev",
             Command::Osd(_) => "osd-show",

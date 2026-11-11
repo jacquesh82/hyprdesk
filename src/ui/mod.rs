@@ -140,6 +140,8 @@ pub enum Msg {
     AudioValue(bar::Audio),
     /// Ouvre l'assistant IA (LYRA), sans changer le mode du bureau.
     OpenAssistant,
+    /// Demande à LYRA (titre de la conversation, texte) : régler un conflit.
+    AskLyra(String, String),
     /// Lanceur : survol d'une entrée (écran, clé, contenu de la bulle), ou sortie.
     LauncherHover(Option<(String, String, plugins::launcher::PopupContent, usize)>),
     /// Position relative dans le dock (écran, rang continu), ou sortie du dock.
@@ -2692,6 +2694,7 @@ impl App {
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
                 control::Command::Apps => self.toggle_apps(),
+                control::Command::Ask(origin, text) => self.show_problem_from(&origin, text, true),
                 control::Command::Notifications(a) => {
                     self.toasts.command(&a);
                     Task::none()
@@ -2814,6 +2817,14 @@ impl App {
             }
             Msg::LauncherApp(monitor, class) => self.launcher_focus_app(&monitor, &class),
             Msg::OpenAssistant => self.open_assistant(),
+            Msg::AskLyra(origin, text) => {
+                let close = if self.panel.is_some() {
+                    self.close_panel()
+                } else {
+                    Task::none()
+                };
+                Task::batch([close, self.show_problem_from(&origin, text, true)])
+            }
             Msg::LauncherHover(spec) => self.launcher_hover(spec),
             Msg::LauncherPointer(monitor, position) => self.launcher_pointer(&monitor, position),
             Msg::LauncherAnchor(monitor, key, bounds) => self.launcher_anchor(monitor, key, bounds),

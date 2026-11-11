@@ -336,7 +336,27 @@ impl App {
             col = col.push(text(e.clone()).font(self.font).size(12).color(warn));
         }
         for (k, what) in &self.key_conflicts {
-            col = col.push(text(crate::tr!("{k} est déjà lié à « {what} » dans hyprland.lua : hyprdesk ne l'installe que bureau affiché (raccourcis de Hyprland suspendus). Pour qu'il agisse partout, retirez-le de hyprland.lua ou choisissez-en un autre.", k = k, what = what)).font(self.font).size(12).color(warn));
+            let msg = crate::tr!(
+                "{k} est déjà lié à « {what} » dans hyprland.lua : hyprdesk ne l'installe que bureau affiché (raccourcis de Hyprland suspendus). Pour qu'il agisse partout, retirez-le de hyprland.lua ou choisissez-en un autre.",
+                k = k,
+                what = what
+            );
+            let prompt = crate::takeover::ask_prompt(
+                &crate::tr!("le raccourci {k}", k = k),
+                &crate::tr!("hyprland.lua, qui le lie à « {what} »", what = what),
+            );
+            col = col.push(
+                row![
+                    text(msg)
+                        .font(self.font)
+                        .size(12)
+                        .color(warn)
+                        .width(Length::Fill),
+                    self.lyra_button(crate::i18n::tr("Raccourcis"), prompt),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
         }
         col = col.push(
             text("Raccourcis de Hyprland actifs sur le bureau")
@@ -554,7 +574,42 @@ impl App {
         let dim = Color { a: 0.6, ..fg };
         let list = crate::doctor::cached();
         let present = list.iter().filter(|s| s.found.is_some()).count();
-        let mut col = column![self.section("Dépendances")].spacing(10);
+        let mut col = column![].spacing(10);
+        // Services qu'un autre programme tient déjà : LYRA peut aider à
+        // laisser la main à hyprdesk.
+        let conflicts = crate::takeover::cached(self.toasts.active, g.clipboard_history);
+        if !conflicts.is_empty() {
+            col = col.push(self.section("Tenu par un autre programme"));
+            col = col.push(
+                text("Ces fonctions restent assurées par un programme lancé par votre configuration ; hyprdesk ne prend pas sa place sans vous. Le bouton IA demande à LYRA de trouver d'où il est lancé et de proposer la modification.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
+            for c in conflicts {
+                let origin = crate::i18n::tr(c.feature).to_string();
+                col = col.push(
+                    row![
+                        column![
+                            text(origin.clone()).font(self.font).size(14).color(fg),
+                            text(crate::tr!(
+                                "tenu par {h} (pid {pid})",
+                                h = c.holder,
+                                pid = c.pid
+                            ))
+                            .font(self.font)
+                            .size(11)
+                            .color(dim),
+                        ]
+                        .width(Length::Fill),
+                        self.lyra_button(&origin, c.prompt()),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            }
+        }
+        col = col.push(self.section("Dépendances"));
         col = col.push(
             text("Outils auxquels hyprdesk confie ce qui ne se voit pas. Un outil absent rend seulement sa fonction inopérante ; hyprdesk doctor donne le même relevé.")
                 .font(self.font)

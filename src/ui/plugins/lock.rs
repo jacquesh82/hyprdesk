@@ -207,14 +207,24 @@ impl App {
             );
         }
         if let Some(pid) = crate::idle::foreign_cached() {
+            let feature = crate::i18n::tr("Veille et verrouillage automatique").to_string();
             col = col.push(
-                text(crate::tr!(
-                    "Un hypridle lancé hors de hyprdesk tourne déjà (pid {pid}). Pour que hyprdesk gère la veille, retirez son lancement de hyprland.lua : deux hypridle verrouilleraient deux fois.",
-                    pid = pid
-                ))
-                .font(self.font)
-                .size(12)
-                .color(if i.manage { warn } else { dim }),
+                row![
+                    text(crate::tr!(
+                        "Un hypridle lancé hors de hyprdesk tourne déjà (pid {pid}). Pour que hyprdesk gère la veille, retirez son lancement de hyprland.lua : deux hypridle verrouilleraient deux fois.",
+                        pid = pid
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(if i.manage { warn } else { dim })
+                    .width(iced::Length::Fill),
+                    self.lyra_button(
+                        &feature,
+                        crate::takeover::ask_prompt(&feature, &format!("hypridle (pid {pid})")),
+                    ),
+                ]
+                .spacing(10)
+                .align_y(iced::Alignment::Center),
             );
         }
         if !i.manage {

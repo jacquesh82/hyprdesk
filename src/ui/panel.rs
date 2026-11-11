@@ -250,6 +250,50 @@ impl App {
     /// Applique puis enregistre settings.lua (sans rechargement : la mémoire
     /// est déjà à jour ; un rechargement déclenché par la surveillance du
     /// fichier retombe sur la même config et ne change rien).
+    /// Petit bouton au logo IA : demande à LYRA de régler un problème
+    /// (`origin` : titre de la conversation). Rien sans assistant.
+    pub(in crate::ui) fn lyra_button(&self, origin: &str, prompt: String) -> Element<'_, Msg> {
+        if !self.cfg.plugin_on("assistant") || !crate::assistant::lyra_installed() {
+            return iced::widget::Space::new().into();
+        }
+        let fg = super::color(self.cfg.general.theme.fg, 1.0);
+        let accent = super::color(self.cfg.general.theme.accent, 1.0);
+        let glyph: Element<'_, Msg> = super::icons::get("ai-assistant")
+            .map(|h| {
+                iced::widget::svg(h)
+                    .width(16)
+                    .height(16)
+                    .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                    .into()
+            })
+            .unwrap_or_else(|| iced::widget::text("IA").size(11).into());
+        iced::widget::tooltip(
+            iced::widget::button(glyph)
+                .padding([4, 8])
+                .style(move |_, st| iced::widget::button::Style {
+                    background: Some(
+                        iced::Color {
+                            a: if matches!(st, iced::widget::button::Status::Hovered) {
+                                0.3
+                            } else {
+                                0.15
+                            },
+                            ..accent
+                        }
+                        .into(),
+                    ),
+                    border: iced::Border::default().rounded(8),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::AskLyra(origin.to_string(), prompt)),
+            crate::i18n::text(crate::i18n::tr("Demander à LYRA de régler le problème"))
+                .font(self.font),
+            iced::widget::tooltip::Position::Left,
+        )
+        .into()
+    }
+
     pub(in crate::ui) fn commit(&mut self) -> Task<Msg> {
         let applied = self.apply();
         Task::batch([applied, self.save()])

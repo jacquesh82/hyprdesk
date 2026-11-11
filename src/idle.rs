@@ -122,6 +122,10 @@ pub fn foreign_hypridle() -> Option<u32> {
         .find(|pid| {
             std::fs::read_to_string(format!("/proc/{pid}/comm"))
                 .is_ok_and(|c| c.trim() == "hypridle")
+                // Celui de hyprdesk se reconnaît aussi à sa configuration.
+                && !std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| {
+                    String::from_utf8_lossy(&c).contains("hyprdesk-hypridle")
+                })
         })
 }
 

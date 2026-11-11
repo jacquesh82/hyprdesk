@@ -34,7 +34,17 @@ impl App {
     /// Un problème arrive : à l'assistant s'il est là, sinon à la fenêtre.
     pub(super) fn show_problem(&mut self, text: String, show: bool) -> Task<Msg> {
         let origin = crate::i18n::tr("Mises à jour").to_string();
-        if let Some(t) = self.ask_assistant(text.clone(), &origin, show) {
+        self.show_problem_from(&origin, text, show)
+    }
+
+    /// Même chose, au nom de `origin` (titre de la conversation LYRA).
+    pub(super) fn show_problem_from(
+        &mut self,
+        origin: &str,
+        text: String,
+        show: bool,
+    ) -> Task<Msg> {
+        if let Some(t) = self.ask_assistant(text.clone(), origin, show) {
             return t;
         }
         if let Some(p) = self.problem.as_mut() {

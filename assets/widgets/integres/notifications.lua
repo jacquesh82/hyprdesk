@@ -73,6 +73,14 @@ return {
             m[#m + 1] = "-"
             m[#m + 1] = { label = hd.t("Tout effacer"), action = function() act(s, "clear") end }
         end
+        if s.source == "wayle" then
+            m[#m + 1] = "-"
+            m[#m + 1] = { label = hd.t("Demander à LYRA de laisser hyprdesk les afficher"), icon = "ai-assistant-symbolic",
+                          action = function()
+                              hd.spawn(string.format("%q ask %q %q", hd.exe, hd.t("Notifications"),
+                                  hd.t("Dans ma session Hyprland, hyprdesk ne peut pas prendre en charge « Notifications » : wayle le fait déjà. Trouve d'où il est lancé (hyprland.lua, exec-once, services systemd --user, ~/.config/autostart…), explique-moi, puis propose la modification qui laisse hyprdesk s'en charger sans rien casser. Demande-moi avant de modifier quoi que ce soit, et ne touche jamais à inputs.lua ni à monitors.lua.")))
+                          end }
+        end
         return m
     end,
 }

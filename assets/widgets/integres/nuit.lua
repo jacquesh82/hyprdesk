@@ -116,6 +116,11 @@ return {
         if other then
             m[#m + 1] = { label = string.format(hd.t("Géré par %s"), other),
                           detail = hd.t("à retirer de hyprland.lua pour laisser hyprdesk le gérer") }
+            m[#m + 1] = { label = hd.t("Demander à LYRA de régler le problème"), icon = "ai-assistant-symbolic",
+                          action = function()
+                              hd.spawn(string.format("%q ask %q %q", hd.exe, hd.t("Éclairage nocturne"),
+                                  string.format(hd.t("Dans ma session Hyprland, hyprdesk ne peut pas prendre en charge « Éclairage nocturne » : %s le fait déjà. Trouve d'où il est lancé (hyprland.lua, exec-once, services systemd --user, ~/.config/autostart…), explique-moi, puis propose la modification qui laisse hyprdesk s'en charger sans rien casser. Demande-moi avant de modifier quoi que ce soit, et ne touche jamais à inputs.lua ni à monitors.lua."), other)))
+                          end }
             if hd.exec("command -v hyprsunset") ~= "" then
                 m[#m + 1] = { label = hd.t("Laisser hyprdesk le gérer (cette session)"),
                               confirm = string.format(hd.t("Arrêter %s jusqu'à la prochaine session ?"), other),
