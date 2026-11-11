@@ -216,12 +216,12 @@ impl App {
         ));
         col = col.push(self.pw_check(
             m.sealed,
-            "Sceau",
+            "À la connexion",
             if m.sealed {
-                crate::i18n::tr("le coffre s'ouvre seul à la connexion").to_string()
+                crate::i18n::tr("le coffre s'ouvre à la connexion, sans saisie").to_string()
             } else {
                 crate::i18n::tr(
-                    "posé au premier déverrouillage après une connexion par l'écran de hyprdesk",
+                    "un mot de passe sera demandé une dernière fois à la prochaine connexion, puis plus jamais",
                 )
                 .to_string()
             },
