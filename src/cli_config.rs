@@ -276,6 +276,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.switch.clone(),
         |s, v, c| { s.key_switch = Some(combo(v)?); Ok(()) },
         |s| s.key_switch = None;
+    "keys.search", "desktop", "raccourci | none — lanceur avec recherche (toutes les applications)",
+        |c| c.general.keys.search.clone(),
+        |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
+        |s| s.key_search = None;
     "keys.leave", "desktop", "raccourci | none — sortie de secours",
         |c| c.general.keys.leave.clone(),
         |s, v, c| { s.key_leave = Some(combo(v)?); Ok(()) },

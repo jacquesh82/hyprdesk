@@ -38,7 +38,7 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub fonts: Vec<String>,
-    pub keys: [String; 6],
+    pub keys: [String; 8],
     pub key_error: Option<String>,
 }
 
@@ -270,6 +270,8 @@ impl App {
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
             key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
+            key_field(6, crate::i18n::tr("Recherche (toutes les applications)"), "keys.search"),
+            key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(5, crate::i18n::tr("Verrouiller la session"), "keys.lock"),
             text(
                 "Vide : celui de hyprland.lua (SUPER + L, posé à l'installation). \
@@ -566,6 +568,8 @@ impl App {
                     3 => self.settings.key_launcher = Some(v),
                     4 => self.settings.key_hide = Some(v),
                     5 => self.settings.key_lock = Some(v),
+                    6 => self.settings.key_search = Some(v),
+                    7 => self.settings.key_switch = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()

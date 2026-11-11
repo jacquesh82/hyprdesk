@@ -86,7 +86,22 @@ impl App {
     fn search_rank(&self, query: &str) -> Vec<usize> {
         let cand = self.search_candidates();
         let names: Vec<&str> = cand.iter().map(|&i| self.apps[i].name.as_str()).collect();
-        crate::search::rank(query, &names, SHOWN)
+        // Les applications souvent lancées d'ici passent devant.
+        let usage = crate::search::load_usage();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let bonus: Vec<i32> = cand
+            .iter()
+            .map(|&i| {
+                usage
+                    .get(&self.apps[i].id)
+                    .map(|&(n, t)| crate::search::usage_bonus(n, t, now))
+                    .unwrap_or(0)
+            })
+            .collect();
+        crate::search::rank_with(query, &names, &bonus, SHOWN)
             .into_iter()
             .map(|k| cand[k])
             .collect()
@@ -242,6 +257,8 @@ impl App {
                     pos: None,
                 };
                 let terminal = self.cfg.general.terminal.clone();
+                let id = self.apps[i].id.clone();
+                std::thread::spawn(move || crate::search::record_launch(&id));
                 let close = self.close_search();
                 let resolve = Task::perform(
                     async move {

@@ -1621,3 +1621,8 @@
 "▾ Masquer les détails ({n} étape(s))" = "▾ Hide the details ({n} step(s))"
 "Capture enregistrée" = "Screenshot saved"
 "{f} — copiée dans le presse-papiers" = "{f} — copied to the clipboard"
+
+# Raccourcis : recherche, fenêtres (MLG-7, MLG-22).
+"raccourci | none — lanceur avec recherche (toutes les applications)" = "shortcut | none — launcher with search (all applications)"
+"Recherche (toutes les applications)" = "Search (all applications)"
+"Fenêtres (Alt+Tab ; avec Maj : en arrière)" = "Windows (Alt+Tab; with Shift: backwards)"

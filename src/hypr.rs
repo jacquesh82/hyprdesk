@@ -513,6 +513,7 @@ pub fn build_keys_lua(
     for (k, arg, desc) in [
         (&keys.switch, "switch", "fenêtres"),
         (&switch_back, "switch prev", "fenêtres, en arrière"),
+        (&keys.search, "search", "recherche"),
     ] {
         if usable(k) {
             lua += &format!(
@@ -1570,6 +1571,7 @@ mod tests {
             lock: "SUPER + L".into(),
             leave: "SUPER + Escape".into(),
             switch: "ALT + Tab".into(),
+            search: "SUPER + Space".into(),
             media: true,
         };
         let lua = build_keys_lua(

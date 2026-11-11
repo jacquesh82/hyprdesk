@@ -524,6 +524,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             &k,
             &[
                 "toggle", "launcher", "hide", "settings", "lock", "leave", "media", "switch",
+                "search",
             ],
             C,
         )?;
@@ -538,6 +539,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("lock", &mut g.keys.lock),
             ("leave", &mut g.keys.leave),
             ("switch", &mut g.keys.switch),
+            ("search", &mut g.keys.search),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}

@@ -201,6 +201,8 @@ impl App {
             k.launcher.clone(),
             k.hide.clone(),
             k.lock.clone(),
+            k.search.clone(),
+            k.switch.clone(),
         ];
         self.panel = Some(p);
         let from = self
