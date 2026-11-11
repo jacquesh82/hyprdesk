@@ -143,6 +143,47 @@ pub fn session_env(s: &Session) -> Vec<String> {
     env
 }
 
+/// Une requête, sa réponse (bloquant).
+pub fn exchange(stream: &mut UnixStream, req: &Request) -> std::io::Result<Response> {
+    write_msg(stream, req)?;
+    read_msg(stream)
+}
+
+/// Suite à donner à une réponse de greetd (écran graphique, pas à pas).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// Question à poser (visible ou secrète).
+    Ask(AuthKind, String),
+    /// Message à montrer ; répondre sans texte pour continuer.
+    Show(AuthKind, String),
+    /// Authentifié : lancer la session.
+    Start,
+    /// Session lancée : le greeter quitte.
+    Done,
+    /// Échec (à annuler côté greetd) : le message.
+    Fail(String),
+}
+
+/// `started` : start_session déjà envoyé.
+pub fn step(started: bool, r: Response) -> Step {
+    match (started, r) {
+        (false, Response::Success) => Step::Start,
+        (true, Response::Success) => Step::Done,
+        (_, Response::Error { description, .. }) => Step::Fail(description),
+        (true, Response::AuthMessage { auth_message, .. }) => Step::Fail(auth_message),
+        (
+            false,
+            Response::AuthMessage {
+                auth_message_type: k,
+                auth_message: t,
+            },
+        ) => match k {
+            AuthKind::Visible | AuthKind::Secret => Step::Ask(k, t),
+            AuthKind::Info | AuthKind::Error => Step::Show(k, t),
+        },
+    }
+}
+
 /// Ce qui répond aux questions de greetd (écran, ou terminal).
 pub trait Conversation {
     /// Question : réponse, ou `None` pour abandonner.
@@ -388,6 +429,34 @@ mod tests {
         let r = login(&mut s, "x", vec!["sh".into()], vec![], &mut conv);
         h.join().unwrap();
         assert_eq!(r, Err("pam_authenticate: AUTH_ERR".into()));
+    }
+
+    #[test]
+    fn etapes() {
+        let ask = Response::AuthMessage {
+            auth_message_type: AuthKind::Secret,
+            auth_message: "Password:".into(),
+        };
+        assert_eq!(
+            step(false, ask.clone()),
+            Step::Ask(AuthKind::Secret, "Password:".into())
+        );
+        assert_eq!(step(true, ask), Step::Fail("Password:".into()));
+        assert_eq!(step(false, Response::Success), Step::Start);
+        assert_eq!(step(true, Response::Success), Step::Done);
+        let info = Response::AuthMessage {
+            auth_message_type: AuthKind::Info,
+            auth_message: "Touchez le lecteur".into(),
+        };
+        assert_eq!(
+            step(false, info),
+            Step::Show(AuthKind::Info, "Touchez le lecteur".into())
+        );
+        let err = Response::Error {
+            error_type: "auth_error".into(),
+            description: "refusé".into(),
+        };
+        assert_eq!(step(false, err), Step::Fail("refusé".into()));
     }
 
     #[test]

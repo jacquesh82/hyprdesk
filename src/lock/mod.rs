@@ -175,7 +175,7 @@ fn keyboard() -> Option<(String, bool)> {
 const INPUT_ID: &str = "hyprdesk-lock-password";
 
 /// Langue des dates (comme le bureau : `LC_TIME`, sinon `LANG`).
-fn locale() -> chrono::Locale {
+pub(crate) fn locale() -> chrono::Locale {
     crate::i18n::chrono_locale()
 }
 

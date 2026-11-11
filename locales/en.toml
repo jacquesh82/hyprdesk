@@ -1529,3 +1529,9 @@
 "Identifiant :" = "Username:"
 "hyprdesk greeter : {e}" = "hyprdesk greeter: {e}"
 "  greeter --tty     écran de connexion au terminal pour greetd (connexion, choix de session)" = "  greeter --tty     terminal login screen for greetd (login, session choice)"
+
+# Écran de connexion graphique (MLG-23).
+"greetd injoignable." = "greetd unreachable."
+"Identifiant" = "Username"
+"  greeter [--tty]   écran de connexion pour greetd (connexion, choix de session) ;" = "  greeter [--tty]   login screen for greetd (login, session choice);"
+"                    --tty : au terminal" = "                    --tty: in the terminal"

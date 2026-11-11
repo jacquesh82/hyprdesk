@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 49] = [
+const SCENES: [&str; 50] = [
     "desktop",
     "typography",
     "icons",
@@ -73,6 +73,7 @@ const SCENES: [&str; 49] = [
     "bluetooth",
     "menu-icone",
     "fenetres",
+    "connexion",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1103,6 +1104,10 @@ impl Preview {
                 .y(44.0)
                 .into(),
             );
+        }
+        // Écran de connexion (greetd), par-dessus tout : application à part.
+        if SCENES[self.scene] == "connexion" {
+            layers.push(crate::greeter_ui::preview_view().map(|_| Msg::Noop));
         }
         if self.app.switcher.is_some() {
             layers.push(
