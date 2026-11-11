@@ -20,6 +20,7 @@ mod idle;
 mod launch;
 mod layout;
 mod lock;
+mod notifications;
 mod osd;
 mod polkit;
 mod processes;
