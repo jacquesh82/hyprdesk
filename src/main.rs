@@ -24,6 +24,8 @@ mod greeter;
 mod greeter_setup;
 mod greeter_ui;
 mod hypr;
+mod hyprbars;
+mod hyprcheck;
 mod i18n;
 mod idle;
 mod inputs;

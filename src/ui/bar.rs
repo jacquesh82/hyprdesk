@@ -29,10 +29,14 @@ pub const PRIMARY: &str = "primary";
 /// Icône du bureau affiché avec les fenêtres (dessinée par hyprdesk).
 pub const DESKTOP_WINDOWS_ICON: &str = "hyprdesk-desktop-windows-symbolic";
 
+/// Icône du bureau masqué (no-desktop), dessinée par hyprdesk.
+pub const DESKTOP_OFF_ICON: &str = "hyprdesk-desktop-off-symbolic";
+
 /// Icônes symboliques demandées dès que la barre existe.
 pub const STATIC_ICONS: &[&str] = &[
     "user-desktop-symbolic",
     DESKTOP_WINDOWS_ICON,
+    DESKTOP_OFF_ICON,
     "audio-volume-muted-symbolic",
     "audio-volume-low-symbolic",
     "audio-volume-medium-symbolic",
@@ -847,35 +851,76 @@ impl App {
                 .padding([0, 8])
                 .into()
             }
-            // Trois modes, dans l'ordre des clics : no-desktop → launcher-only →
-            // full-desktop → no-desktop. Clic droit : no-desktop tout de suite.
+            // Interrupteur à trois états : no-desktop, launcher-only,
+            // full-desktop ; le mode en cours en couleur d'accent, un clic
+            // sur un autre y passe.
             BarItem::Desktop => {
+                use super::DesktopMode as M;
                 let mode = self.mode();
-                let icon = match mode {
-                    super::DesktopMode::LauncherOnly => DESKTOP_WINDOWS_ICON,
-                    _ => "user-desktop-symbolic",
+                let accent = color(pal.accent, 1.0);
+                let on_accent = color(pal.bg, 1.0);
+                let fgc = color(base, 1.0);
+                let h = (bar.height as f32 * 0.66).round();
+                let seg = |m: M, icon: &str, cmd: control::Command, tip: &'static str| {
+                    let active = mode == m;
+                    let tint = if active { on_accent } else { fg };
+                    let glyph = self
+                        .icon_named(icon, isz * 0.9, tint)
+                        .unwrap_or_else(|| self.label(m.as_str().chars().take(1).collect::<String>(), size, tint));
+                    iced::widget::tooltip(
+                        button(container(glyph).center_x(Length::Fill).center_y(Length::Fill))
+                            .width(h * 1.25)
+                            .height(h)
+                            .padding(0)
+                            .on_press(Msg::Control(cmd))
+                            .style(move |_, st| button::Style {
+                                background: if active {
+                                    Some(Background::Color(accent))
+                                } else if matches!(st, button::Status::Hovered) {
+                                    Some(Background::Color(Color { a: 0.14, ..fgc }))
+                                } else {
+                                    None
+                                },
+                                text_color: tint,
+                                border: Border::default().rounded(h / 2.0),
+                                ..Default::default()
+                            }),
+                        container(
+                            text(crate::tr!("{m} — {t}", m = m.as_str(), t = crate::i18n::tr(tip)))
+                                .font(self.font)
+                                .size(12),
+                        )
+                        .padding([4, 8])
+                        .style(move |_| container::Style {
+                            background: Some(Background::Color(color(pal.bg, 0.96))),
+                            border: Border::default().rounded(8),
+                            text_color: Some(fgc),
+                            ..Default::default()
+                        }),
+                        iced::widget::tooltip::Position::Bottom,
+                    )
                 };
-                let tip = crate::tr!(
-                    "{mode} — clic : {next}{right}",
-                    mode = mode.as_str(),
-                    next = mode.next().as_str(),
-                    right = if self.visible {
-                        crate::i18n::tr(" · clic droit : no-desktop")
-                    } else {
-                        ""
-                    }
-                );
-                self.module(
-                    bar,
-                    self.icon_named(icon, isz, fg)
-                        .unwrap_or_else(|| self.label(crate::i18n::tr("Bureau"), size, fg)),
-                    Some(Msg::Control(control::Command::Cycle)),
-                    self.visible.then_some(Msg::Control(control::Command::Hide)),
-                    None,
-                    None,
-                    Some(tip),
-                    self.visible,
+                container(
+                    row![
+                        seg(M::NoDesktop, DESKTOP_OFF_ICON, control::Command::Hide, "bureau masqué"),
+                        seg(
+                            M::LauncherOnly,
+                            DESKTOP_WINDOWS_ICON,
+                            control::Command::LauncherOnly,
+                            "fenêtres et lanceur"
+                        ),
+                        seg(M::FullDesktop, "user-desktop-symbolic", control::Command::Show, "bureau complet"),
+                    ]
+                    .spacing(2)
+                    .align_y(Alignment::Center),
                 )
+                .padding(2)
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(Color { a: 0.10, ..fgc })),
+                    border: Border::default().rounded(h / 2.0 + 2.0),
+                    ..Default::default()
+                })
+                .into()
             }
             BarItem::Volume => {
                 let label = match self.volume {

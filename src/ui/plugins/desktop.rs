@@ -45,10 +45,44 @@ pub struct State {
     pub overview_cmd: Option<String>,
     /// « Prendre la main » cliqué une fois : le pid à arrêter, à confirmer.
     pub takeover: Option<u32>,
+    /// Places de fenêtres choisies par l'utilisateur en plein bureau.
+    pub window_places: usize,
+    /// Hyprbars : chemin trouvé (relevé à l'arrivée sur la page).
+    pub hyprbars: Option<Option<std::path::PathBuf>>,
+}
+
+/// Hyprbars installé ? (relevé hors du fil de l'interface)
+pub fn load_hyprbars(custom: String) -> Task<UiMsg> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || crate::hyprbars::find(&custom))
+                .await
+                .unwrap_or(None)
+        },
+        |p| wrap(Msg::HyprbarsFound(p)),
+    )
+}
+
+/// Nombre de places de fenêtres choisies (lu hors du fil de l'interface).
+pub fn load_places() -> Task<UiMsg> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(crate::windows::places_count)
+                .await
+                .unwrap_or(0)
+        },
+        |n| wrap(Msg::WindowPlaces(n)),
+    )
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
+    WindowPlaces(usize),
+    Hyprbars(bool),
+    HyprbarsFound(Option<std::path::PathBuf>),
+    /// Oublier les places de fenêtres choisies.
+    ForgetWindowPlaces,
+    WindowPlacesForgotten(Result<(), String>),
     /// Langue de l'interface : `auto`, `fr`, `en`.
     Language(&'static str),
     ShowOn(ShowOn),
@@ -111,6 +145,8 @@ pub enum WsMode {
 
 impl App {
     pub(in crate::ui) fn tab_desktop(&self, ws: &str) -> Element<'_, UiMsg> {
+        let p_places = self.panel.as_ref().map_or(0, |p| p.desktop.window_places);
+        let hyprbars_found = self.panel.as_ref().and_then(|p| p.desktop.hyprbars.clone());
         let g = &self.cfg.general;
         let ws_mode = match self.settings.workspace_mode(ws) {
             None => WsMode::Default,
@@ -179,7 +215,33 @@ impl App {
                 "float_launched",
                 toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v))),
             ),
-            text("Bureau affiché, les fenêtres du workspace sont mises de côté ; celles qu'on ouvre depuis le bureau s'ouvrent dessus. Elles reviennent toutes quand on le masque.").font(self.font).size(12),
+            text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(12),
+            row![
+                text(match p_places {
+                    0 => crate::i18n::tr("Aucune place de fenêtre choisie pour l'instant.").to_string(),
+                    n => crate::tr!("{n} place(s) de fenêtre choisie(s) par vous.", n = n),
+                })
+                .font(self.font)
+                .size(12)
+                .width(Length::Fill),
+                button(text("Oublier ces places").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press_maybe((p_places > 0).then(|| wrap(Msg::ForgetWindowPlaces))),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+            self.field(
+                "Barres de titre Hyprbars en plein bureau (plugin Hyprland)",
+                "hyprbars",
+                toggler(g.hyprbars).on_toggle(|v| wrap(Msg::Hyprbars(v))),
+            ),
+            text(match hyprbars_found {
+                None => crate::i18n::tr("Recherche du plugin…").to_string(),
+                Some(Some(p)) => crate::tr!("Chargé en entrant en plein bureau, déchargé en sortant ({p}).", p = p.display()),
+                Some(None) => crate::i18n::tr("Hyprbars n'est pas installé : hyprpm add https://github.com/hyprwm/hyprland-plugins, puis hyprpm enable hyprbars (ou réglez hyprbars_path).").to_string(),
+            })
+            .font(self.font)
+            .size(12),
             self.section("Mode"),
             self.field(
                 "Mode par défaut",
@@ -794,6 +856,39 @@ impl App {
             Msg::GlassOpacity(v) => {
                 self.settings.glass_opacity = Some(v);
                 self.apply()
+            }
+            Msg::Hyprbars(v) => {
+                self.settings.hyprbars = Some(v);
+                self.commit()
+            }
+            Msg::HyprbarsFound(p) => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.desktop.hyprbars = Some(p);
+                }
+                Task::none()
+            }
+            Msg::WindowPlaces(n) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.desktop.window_places = n;
+                }
+                Task::none()
+            }
+            Msg::ForgetWindowPlaces => {
+                let reply = self.windows.forget();
+                Task::perform(
+                    async move {
+                        reply.await.unwrap_or_else(|_| {
+                            Err(crate::i18n::tr("gestionnaire de fenêtres arrêté").into())
+                        })
+                    },
+                    |r| wrap(Msg::WindowPlacesForgotten(r)),
+                )
+            }
+            Msg::WindowPlacesForgotten(r) => {
+                if let Err(e) = r {
+                    tracing::warn!("{}", crate::tr!("fenêtres : {e}", e = e));
+                }
+                load_places()
             }
             Msg::Language(l) => {
                 self.settings.language = Some(l.to_string());

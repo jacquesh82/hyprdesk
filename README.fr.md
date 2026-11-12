@@ -34,7 +34,8 @@ hyprdesk est la **racine** de la session graphique.
   sa zone réservée, dans tous les modes ; la configuration par défaut l'active.
   Les fenêtres et la grille du bureau se rangent à côté.
   - Ses modules sont des widgets : workspaces, fenêtre active, volume,
-    bouton bureau, et tout widget ou plugin en version compacte.
+    interrupteur de mode à trois états (no-desktop, launcher-only,
+    full-desktop), et tout widget ou plugin en version compacte.
   - Elle se règle aussi dans Réglages → Barre.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
   (un clic donne le focus à la fenêtre), puis les boutons Applications, LYRA
@@ -55,7 +56,7 @@ hyprdesk. Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
-| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
+| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; une fenêtre déplacée garde sa place (par workspace et par application, d'une session à l'autre), « Oublier ces places » ; barres de titre Hyprbars (plugin Hyprland) en plein bureau seulement ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
 | | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
 | | Icônes | portée : globales, par écran ou par workspace ; ouverture d'un double clic (un clic sélectionne) ou d'un clic ; clic droit : ouvrir, épingler au dock, renommer, retirer du bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran) ; raccourcis vers des applications installées ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; écran (le principal par défaut, un autre, tous ; s'il est débranché : sur le principal ou masqué) ; glisser-déposer sur le bureau, sans superposition |
@@ -64,7 +65,7 @@ hyprdesk. Il regroupe les réglages suivants :
 | | Effets * | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
 | | Animations | animations et effets de Hyprland (ouverture des fenêtres, workspaces, flou, arrondis…), en direct |
 | Barre et lanceur | Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) ; couleurs |
-| | Lanceur | fenêtres affichées dans le dock, regroupement ; apparence (dont les icônes SmartUI) ; applications épinglées |
+| | Lanceur | fenêtres affichées dans le dock (par défaut : celles du workspace), regroupement (par défaut : par application) ; apparence (dont les icônes SmartUI) ; applications épinglées |
 | Fenêtres et écrans | Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position, orientation, mode, fréquence, échelle, écran principal ; application à chaud, puis garde (écrit dans `monitors.lua`) ou retour seul au bout de 12 s |
 | | Workspaces | workspaces permanents ; écran de chaque workspace ; affectation d'une application à un workspace, avec ou sans y aller |
 | | Layouts | Dwindle, Master, Scrolling, Monocle — par défaut et par workspace, appliqués à chaud ; layouts personnalisés en Lua |
@@ -80,6 +81,7 @@ hyprdesk. Il regroupe les réglages suivants :
 | Système | Verrouillage | écran de verrouillage : fond, contenus affichés, verrouiller maintenant |
 | | Partage * | exporter/importer tout son setup, ou le thème seul |
 | | Plugins * | paquets intégrés et plugins Lua : état, activation, ajout d'un plugin tiers |
+| | Configuration de Hyprland | ménage de `hyprland.lua` : erreurs signalées par Hyprland, raccourcis en double, démarrages en double ou de programmes absents, programmes qui font doublon avec hyprdesk (fond, barre, notifications, veille, agent polkit, presse-papiers), `require` d'un fichier absent, lignes déjà coupées par hyprdesk, vieilles copies ; chaque point avec sa correction, « Tout ranger » pour les corrections sûres (copie de `hyprland.lua` d'abord), et LYRA pour le reste |
 | | À propos | version de hyprdesk, système, Hyprland, LYRA, fichiers de configuration, dépendances ; copie pour un rapport de bogue |
 
 \* Configuration avancée uniquement — derrière la bascule « Configuration
@@ -291,6 +293,15 @@ Les réglages sont enregistrés en Lua généré, dans
 `monitors.lua`. Ce fichier est chargé **avant** `hyprdesk.lua` : tout ce que vous
 écrivez à la main garde le dernier mot. Votre fichier n'est jamais réécrit, et le
 panneau signale les réglages que `hyprdesk.lua` surcharge.
+
+### Menus du bureau
+
+- Clic droit sur le fond du bureau : aligner les icônes, ajouter un widget,
+  changer de fond d'écran, réglages du bureau.
+- Réglages ouverts, clic droit sur un widget : le retirer du bureau, ses
+  réglages.
+- Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du
+  bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran).
 
 ## Installation
 

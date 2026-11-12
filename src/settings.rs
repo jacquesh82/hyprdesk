@@ -112,6 +112,8 @@ pub struct Settings {
     pub autostart: Option<bool>,
     pub desktop_files: Option<bool>,
     pub float_launched: Option<bool>,
+    pub hyprbars: Option<bool>,
+    pub hyprbars_path: Option<String>,
     pub show_on: Option<ShowOn>,
     pub mode: Option<Mode>,
     pub glass_opacity: Option<f32>,
@@ -305,6 +307,8 @@ impl Settings {
             autostart: has("autostart").then_some(g.autostart),
             desktop_files: has("desktop_files").then_some(g.desktop_files),
             float_launched: has("float_launched").then_some(g.float_launched),
+            hyprbars: has("hyprbars").then_some(g.hyprbars),
+            hyprbars_path: has("hyprbars_path").then(|| g.hyprbars_path.clone()),
             show_on: has("show_on").then_some(g.show_on),
             mode: has("mode").then_some(g.mode),
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
@@ -576,6 +580,12 @@ impl Settings {
         set!(autostart, "autostart", g.autostart);
         set!(desktop_files, "desktop_files", g.desktop_files);
         set!(float_launched, "float_launched", g.float_launched);
+        set!(hyprbars, "hyprbars", g.hyprbars);
+        if free("hyprbars_path")
+            && let Some(v) = &self.hyprbars_path
+        {
+            g.hyprbars_path = v.clone();
+        }
         set!(show_on, "show_on", g.show_on);
         set!(mode, "mode", g.mode);
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
@@ -1004,6 +1014,12 @@ impl Settings {
         }
         if let Some(v) = self.desktop_files {
             cfg.push(format!("desktop_files = {v}"));
+        }
+        if let Some(v) = self.hyprbars {
+            cfg.push(format!("hyprbars = {v}"));
+        }
+        if let Some(v) = self.hyprbars_path.as_ref().filter(|v| !v.is_empty()) {
+            cfg.push(format!("hyprbars_path = {}", q(v)));
         }
         if let Some(v) = self.float_launched {
             cfg.push(format!("float_launched = {v}"));

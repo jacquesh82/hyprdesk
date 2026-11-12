@@ -197,6 +197,10 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.icon_double_click),
         |s, v, c| { s.icon_double_click = Some(parse_bool(v)?); Ok(()) },
         |s| s.icon_double_click = None;
+    "hyprbars", "desktop", "on | off — barres de titre Hyprbars (plugin Hyprland) en plein bureau",
+        |c| on_off(c.general.hyprbars),
+        |s, v, c| { s.hyprbars = Some(parse_bool(v)?); Ok(()) },
+        |s| s.hyprbars = None;
     "float_launched", "desktop", "on | off — fenêtres ouvertes depuis le bureau : flottantes",
         |c| on_off(c.general.float_launched),
         |s, v, c| { s.float_launched = Some(parse_bool(v)?); Ok(()) },

@@ -848,6 +848,10 @@ pub struct General {
     /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
     /// le bureau autour d'elles.
     pub float_launched: bool,
+    /// Barres de titre Hyprbars (plugin de Hyprland) en plein bureau seulement.
+    pub hyprbars: bool,
+    /// Chemin de `hyprbars.so` ; vide : cherché aux emplacements connus.
+    pub hyprbars_path: String,
     pub mode: Mode,
     pub fade_ms: u64,
     pub transition: Transition,
@@ -947,12 +951,15 @@ impl Default for General {
             autostart: false,
             desktop_files: false,
             float_launched: true,
+            hyprbars: false,
+            hyprbars_path: String::new(),
             mode: Mode::Opaque,
             fade_ms: 150,
             transition: Transition::Fade,
             crossfade_ms: 700,
-            running_apps: RunningApps::Off,
-            launcher_group: LauncherGroup::None,
+            // Le dock montre les fenêtres du workspace, une entrée par application.
+            running_apps: RunningApps::Workspace,
+            launcher_group: LauncherGroup::App,
             launcher: LauncherCfg::default(),
             apps_launcher: AppsCfg::default(),
             lock: LockCfg::default(),

@@ -198,6 +198,7 @@ impl App {
                     }
                 }))
                 .on_press(Msg::WidgetPress(win, w.id.clone()))
+                .on_right_press(Msg::WidgetContext(win, w.id.clone()))
                 .interaction(mouse::Interaction::Grab)
                 .into()
             }

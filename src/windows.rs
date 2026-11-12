@@ -4,6 +4,12 @@
 //! organisées sur l'écran ou à la place qu'elles avaient la dernière fois
 //! sur ce workspace ; en quittant le mode, leurs positions sont mémorisées et
 //! elles reprennent leur configuration d'origine.
+//!
+//! Une fenêtre que l'utilisateur a déplacée ou redimensionnée (elle n'est
+//! plus là où hyprdesk l'a posée) n'est plus jamais réorganisée : sa place
+//! devient une préférence, par workspace et par application, gardée d'une
+//! session à l'autre (`~/.local/state/hyprdesk/window-places.json`) ;
+//! Réglages → Bureau permet de les oublier.
 use std::collections::{HashMap, HashSet};
 
 use crate::hypr;
@@ -31,6 +37,57 @@ enum Request {
     Release(oneshot::Sender<Result<(), String>>),
     /// Bureau affiché ou arrêt : elles reviennent.
     Unpark(oneshot::Sender<Result<(), String>>),
+    /// Oublie les places choisies par l'utilisateur (Réglages → Bureau).
+    Forget(oneshot::Sender<Result<(), String>>),
+}
+
+/// Fichier des places choisies par l'utilisateur en plein bureau.
+fn places_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join(".local/state")
+        })
+        .join("hyprdesk")
+        .join("window-places.json")
+}
+
+/// Places choisies : « workspace|classe » → (x, y, largeur, hauteur).
+pub fn load_places() -> HashMap<String, hypr::Rect> {
+    std::fs::read_to_string(places_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<HashMap<String, [i32; 4]>>(&s).ok())
+        .map(|m| m.into_iter().map(|(k, r)| (k, (r[0], r[1], r[2], r[3]))).collect())
+        .unwrap_or_default()
+}
+
+fn save_places(places: &HashMap<String, hypr::Rect>) {
+    let m: HashMap<&String, [i32; 4]> =
+        places.iter().map(|(k, r)| (k, [r.0, r.1, r.2, r.3])).collect();
+    let path = places_path();
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    if let Ok(s) = serde_json::to_string_pretty(&m) {
+        let _ = std::fs::write(path, s);
+    }
+}
+
+/// Nombre de places choisies mémorisées (Réglages → Bureau).
+pub fn places_count() -> usize {
+    load_places().len()
+}
+
+fn place_key(workspace: &str, class: &str) -> String {
+    format!("{workspace}|{class}")
+}
+
+/// Deux positions qui diffèrent assez pour venir de l'utilisateur
+/// (Hyprland arrondit et applique ses tailles minimales).
+fn moved(a: hypr::Rect, b: hypr::Rect) -> bool {
+    let d = |x: i32, y: i32| (x - y).abs() > 8;
+    d(a.0, b.0) || d(a.1, b.1) || d(a.2, b.2) || d(a.3, b.3)
 }
 
 pub struct WindowManager(std::sync::mpsc::SyncSender<Request>);
@@ -64,6 +121,9 @@ impl WindowManager {
                     }
                     Request::Unpark(reply) => {
                         let _ = reply.send(hypr::unpark_desk_windows());
+                    }
+                    Request::Forget(reply) => {
+                        let _ = reply.send(desk.forget());
                     }
                     Request::Submap(active, reply) => {
                         hypr::set_submap(active.then_some(hypr::SUBMAP));
@@ -112,7 +172,8 @@ impl WindowManager {
                 | Request::Float(_, _, _, reply)
                 | Request::Arrange(_, _, reply)
                 | Request::Release(reply)
-                | Request::Unpark(reply) => {
+                | Request::Unpark(reply)
+                | Request::Forget(reply) => {
                     let _ = reply.send(Err(crate::i18n::tr(
                         "gestionnaire de fenêtres occupé ou arrêté",
                     )
@@ -156,6 +217,11 @@ impl WindowManager {
         self.enqueue(Request::Unpark)
     }
 
+    /// Oublie les places choisies (fichier et mémoire de la session).
+    pub fn forget(&self) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(Request::Forget)
+    }
+
     pub fn submap(&self, active: bool) -> oneshot::Receiver<Result<(), String>> {
         self.enqueue(|reply| Request::Submap(active, reply))
     }
@@ -173,6 +239,13 @@ struct Floating {
     managed: HashMap<String, String>,
     /// Positions au moment de quitter le plein bureau, par workspace.
     memory: HashMap<String, HashMap<String, hypr::Rect>>,
+    /// Dernière place donnée par hyprdesk à chaque fenêtre : une fenêtre
+    /// ailleurs a été déplacée par l'utilisateur.
+    applied: HashMap<String, hypr::Rect>,
+    /// Fenêtres déplacées par l'utilisateur : plus jamais réorganisées.
+    touched: HashSet<String>,
+    /// Places choisies (fichier), lues au premier besoin.
+    places: Option<HashMap<String, hypr::Rect>>,
 }
 
 impl Floating {
@@ -189,8 +262,11 @@ impl Floating {
         launched: bool,
     ) -> Result<(), String> {
         let changed = hypr::float_windows(&addresses, size)?;
+        // Hyprland les centre un instant après : leur place réelle ensuite.
+        std::thread::sleep(std::time::Duration::from_millis(120));
         if let Ok(list) = Self::clients() {
             for g in list.into_iter().filter(|g| addresses.contains(&g.address)) {
+                self.applied.insert(g.address.clone(), g.rect);
                 self.managed.insert(g.address, g.workspace);
             }
         }
@@ -199,12 +275,47 @@ impl Floating {
         Ok(())
     }
 
+    /// Fenêtres qui ne sont plus là où hyprdesk les a posées : déplacées
+    /// par l'utilisateur. Plus jamais réorganisées ; leur place devient une
+    /// préférence (workspace, application).
+    fn note_user_moves(&mut self, list: &[hypr::Geometry]) {
+        let mut changed = false;
+        for g in list.iter().filter(|g| g.floating) {
+            let Some(was) = self.applied.get(&g.address) else {
+                continue;
+            };
+            if moved(*was, g.rect) {
+                self.touched.insert(g.address.clone());
+                self.applied.insert(g.address.clone(), g.rect);
+                self.places
+                    .get_or_insert_with(load_places)
+                    .insert(place_key(&g.workspace, &g.class), g.rect);
+                changed = true;
+            }
+        }
+        if changed && let Some(p) = &self.places {
+            save_places(p);
+        }
+    }
+
+
+    fn forget(&mut self) -> Result<(), String> {
+        self.touched.clear();
+        self.memory.clear();
+        self.places = Some(HashMap::new());
+        match std::fs::remove_file(places_path()) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     fn arrange(&mut self, workspace: &str, area: hypr::Rect) -> Result<(), String> {
-        let list: Vec<hypr::Geometry> = Self::clients()?
-            .into_iter()
-            .filter(|g| g.workspace == workspace)
-            .collect();
+        let all = Self::clients()?;
+        self.note_user_moves(&all);
+        let list: Vec<hypr::Geometry> = all.into_iter().filter(|g| g.workspace == workspace).collect();
         let remembered = self.memory.get(workspace).cloned().unwrap_or_default();
+        let places = self.places.get_or_insert_with(load_places).clone();
         let mut errors = Vec::new();
         let mut fresh = Vec::new();
         for g in &list {
@@ -216,21 +327,36 @@ impl Floating {
                 }
                 self.floated.insert(g.address.clone());
             }
-            match remembered.get(&g.address) {
+            // Déplacée par l'utilisateur : on n'y touche plus.
+            if self.touched.contains(&g.address) {
+                continue;
+            }
+            // Sa place choisie (workspace, application), sinon celle de la
+            // dernière fois, sinon l'organisation automatique.
+            let target = places
+                .get(&place_key(workspace, &g.class))
+                .or_else(|| remembered.get(&g.address))
+                .copied();
+            match target {
                 Some(rect) => {
-                    if let Err(e) = hypr::place(&g.address, *rect) {
+                    if let Err(e) = hypr::place(&g.address, rect) {
                         errors.push(e);
                     }
+                    self.applied.insert(g.address.clone(), rect);
                 }
-                // Déjà flottante sans place mémorisée : elle garde la sienne.
+                // Déjà flottante sans place connue : elle garde la sienne.
                 None if !g.floating => fresh.push(g.address.clone()),
-                None => {}
+                None => {
+                    self.applied.insert(g.address.clone(), g.rect);
+                }
             }
         }
         for (a, rect) in fresh.iter().zip(hypr::arrange(fresh.len(), area, GAP)) {
             if let Err(e) = hypr::place(a, rect) {
                 errors.push(e);
             }
+            // Place demandée (Hyprland l'applique un instant après).
+            self.applied.insert(a.clone(), rect);
         }
         if errors.is_empty() {
             Ok(())
@@ -241,6 +367,8 @@ impl Floating {
 
     fn release(&mut self) -> Result<(), String> {
         let list = Self::clients().unwrap_or_default();
+        // Déplacées depuis : préférences retenues avant de quitter.
+        self.note_user_moves(&list);
         // Positions mémorisées, par workspace, pour le prochain plein bureau.
         let managed = std::mem::take(&mut self.managed);
         for (address, workspace) in &managed {
@@ -261,5 +389,19 @@ impl Floating {
         self.memory.retain(|_, places| !places.is_empty());
         let floated: Vec<String> = self.floated.drain().collect();
         hypr::tile_windows(&floated)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deplacement_par_l_utilisateur() {
+        // Arrondis de Hyprland : pas un déplacement ; au-delà : oui.
+        assert!(!moved((100, 100, 800, 600), (104, 98, 803, 600)));
+        assert!(moved((100, 100, 800, 600), (300, 100, 800, 600)));
+        assert!(moved((100, 100, 800, 600), (100, 100, 1000, 600)));
+        assert_eq!(place_key("3", "kitty"), "3|kitty");
     }
 }

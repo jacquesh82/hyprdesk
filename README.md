@@ -111,6 +111,26 @@ and a right click offers open, pin to the dock, rename, remove from the
 desktop (plus parent folder, trash, copy path and wallpaper for files).
 Launching from the desktop, Alt+Tab or Escape never change the desktop mode.
 
+**Desktop menus.** Right-click the desktop background to align the icons, add
+a widget, change the wallpaper or open the desktop settings; with Settings
+open, right-click a widget to remove it or open its settings.
+
+**Full desktop.** Windows float, arranged on the screen; a window you move or
+resize keeps its place (per workspace and per application, across sessions)
+and is never rearranged again; Desktop → "Forget these positions" clears
+them. The bar's mode switch has three states (no-desktop, launcher-only,
+full-desktop). Optionally, Hyprbars (Hyprland plugin) adds title bars in full
+desktop only: loaded when entering it, unloaded when leaving.
+
+**Hyprland configuration** (System group) tidies up `hyprland.lua`: errors
+reported by Hyprland, duplicate shortcuts, duplicate startups or missing
+programs, programs that duplicate what hyprdesk does (wallpaper, bar,
+notifications, idle, polkit agent, clipboard), `require` of a missing file,
+lines hyprdesk already turned off, old backup copies. Each point comes with
+its fix; "Tidy everything" applies the safe ones (after copying
+`hyprland.lua`), and LYRA handles the rest. By default, the dock shows the
+windows of the current workspace, grouped by application.
+
 <table>
   <tr>
     <td width="50%" valign="top"><img src="assets/screenshots/settings-desktop.png" alt="Settings → Desktop"><br><sub><b>Desktop</b> — screens shown, desktop mode, shortcuts and their conflicts with hyprland.lua</sub></td>

@@ -1051,6 +1051,8 @@ pub type Rect = (i32, i32, i32, i32);
 pub struct Geometry {
     pub address: String,
     pub workspace: String,
+    /// Classe de la fenêtre (application).
+    pub class: String,
     pub floating: bool,
     pub rect: Rect,
 }
@@ -1069,6 +1071,7 @@ pub fn geometries(clients: &Value) -> Vec<Geometry> {
             Some(Geometry {
                 address: c["address"].as_str()?.to_string(),
                 workspace: c["workspace"]["name"].as_str()?.to_string(),
+                class: c["class"].as_str().unwrap_or_default().to_string(),
                 floating: c["floating"].as_bool().unwrap_or(false),
                 rect: (
                     n(&c["at"], 0),
@@ -1573,6 +1576,7 @@ mod tests {
             vec![Geometry {
                 address: "0x1".into(),
                 workspace: "2".into(),
+                class: String::new(),
                 floating: true,
                 rect: (10, 20, 300, 200)
             }]

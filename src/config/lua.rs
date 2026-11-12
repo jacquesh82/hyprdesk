@@ -579,6 +579,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "autostart",
             "desktop_files",
             "float_launched",
+            "hyprbars",
+            "hyprbars_path",
             "mode",
             "fade_ms",
             "transition",
@@ -671,6 +673,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "float_launched", CTX)? {
         g.float_launched = v;
+    }
+    if let Some(v) = opt_bool(t, "hyprbars", CTX)? {
+        g.hyprbars = v;
+    }
+    if let Some(v) = opt_string(t, "hyprbars_path", CTX)? {
+        g.hyprbars_path = v;
     }
     if let Some(k) = t.get::<Option<Table>>("keys")? {
         const C: &str = "hd.config.keys";

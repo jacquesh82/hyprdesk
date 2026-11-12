@@ -1239,6 +1239,7 @@ impl Preview {
         // Menu contextuel d'une icône (fichier du Bureau), corbeille à confirmer.
         if SCENES[self.scene] == "menu-icone" {
             self.app.icon_menu = Some(super::context::IconMenu {
+                target: super::context::MenuTarget::Icon,
                 win: iced::window::Id::unique(),
                 desk: iced::window::Id::unique(),
                 catcher: iced::window::Id::unique(),

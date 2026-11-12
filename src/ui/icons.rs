@@ -82,6 +82,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             owned = format!("{}<path d=\"M4 4l16 16\"/>", wifi(0));
             &owned
         }
+        // Bureau masqué (no-desktop) : l'écran, barré.
+        "hyprdesk-desktop-off" => {
+            r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4M4 5l16 11"/>"#
+        }
         "user-desktop" | "computer" => {
             r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4"/>"#
         }

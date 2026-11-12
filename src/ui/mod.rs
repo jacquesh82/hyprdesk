@@ -215,6 +215,9 @@ pub enum Msg {
     Search(search::SMsg),
     /// Clic droit sur une icône du bureau (surface, icône).
     IconContext(Id, usize),
+    /// Clic droit sur un widget (Réglages ouverts) ; sur le fond du bureau.
+    WidgetContext(Id, String),
+    DeskContext(Id),
     IconMenu(context::CMsg),
     Switcher(switcher::SwMsg),
     /// Calendrier : mois suivant (+1), précédent (-1), en cours (0).
@@ -352,6 +355,8 @@ pub struct App {
     selected: Option<(Id, usize)>,
     /// Dernier clic sur une icône (surface, icône, instant) : double clic.
     last_click: Option<(Id, usize, Instant)>,
+    /// Hyprbars chargé par hyprdesk (plein bureau, option `hyprbars`).
+    hyprbars_on: bool,
     hovered: Option<(Id, usize)>,
     cursor: HashMap<Id, Point>,
     drag: Option<Drag>,
@@ -711,6 +716,7 @@ impl App {
             layout: Layout::load(),
             selected: None,
             last_click: None,
+            hyprbars_on: false,
             hovered: None,
             cursor: HashMap::new(),
             drag: None,
@@ -1107,6 +1113,39 @@ impl App {
         }
         self.in_submap = want;
         Self::window_result(self.windows.submap(want))
+    }
+
+    /// Hyprbars : chargé en plein bureau si l'option est active, déchargé
+    /// sinon (hors du fil de l'interface).
+    fn sync_hyprbars(&mut self) -> Task<Msg> {
+        let want = self.cfg.general.hyprbars && self.mode() == DesktopMode::FullDesktop;
+        if want == self.hyprbars_on {
+            return Task::none();
+        }
+        self.hyprbars_on = want;
+        let custom = self.cfg.general.hyprbars_path.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let Some(path) = crate::hyprbars::find(&custom) else {
+                        return Err(crate::i18n::tr("Hyprbars introuvable (hyprpm add https://github.com/hyprwm/hyprland-plugins, puis hyprpm enable hyprbars)").to_string());
+                    };
+                    if want {
+                        crate::hyprbars::load(&path)
+                    } else {
+                        crate::hyprbars::unload(&path)
+                    }
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            |r| {
+                if let Err(e) = r {
+                    tracing::warn!("{}", e);
+                }
+                Msg::Noop
+            },
+        )
     }
 
     /// Écran où ouvrir les Réglages, LYRA ou le lanceur : celui du clic,
@@ -2822,6 +2861,7 @@ impl App {
         self.count_msg(&msg);
         let t = self.update_inner(msg);
         self.publish_status();
+        let t = Task::batch([t, self.sync_hyprbars()]);
         tracing::trace!(
             message = name,
             update_us = started.elapsed().as_micros() as u64,
@@ -3401,6 +3441,14 @@ impl App {
             Msg::IconContext(win, idx) => {
                 self.drag = None;
                 self.open_icon_menu(win, idx)
+            }
+            Msg::WidgetContext(win, id) => {
+                self.wdrag = None;
+                self.open_widget_menu(win, id)
+            }
+            Msg::DeskContext(win) => {
+                self.drag = None;
+                self.open_desk_menu(win)
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
             Msg::Switcher(m) => self.switcher_update(m),
@@ -4311,12 +4359,24 @@ impl App {
             // à côté et montre chaque réglage en direct.
             let (rl, rt, rr, rb) = self.reserved(id);
             let right = rr + if panel_here { self.panel_width() } else { 0.0 };
-            layers.push(
-                container(
+            // Clic droit sur le fond (pas sur une icône ni un widget, qui ont
+            // le leur) : menu du bureau.
+            let content: Element<'_, Msg> = if self.with_windows {
+                Stack::with_children(content)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            } else {
+                mouse_area(
                     Stack::with_children(content)
                         .width(Length::Fill)
                         .height(Length::Fill),
                 )
+                .on_right_press(Msg::DeskContext(id))
+                .into()
+            };
+            layers.push(
+                container(content)
                 .padding(Padding {
                     top: rt + shift,
                     right,
@@ -4609,6 +4669,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Problem(..) => "Problem",
         Msg::Search(..) => "Search",
         Msg::IconContext(..) => "IconContext",
+        Msg::WidgetContext(..) => "WidgetContext",
+        Msg::DeskContext(..) => "DeskContext",
         Msg::IconMenu(..) => "IconMenu",
         Msg::Switcher(..) => "Switcher",
         Msg::CalendarMonth(..) => "CalendarMonth",

@@ -27,6 +27,7 @@ pub mod energy;
 pub mod icons;
 pub mod input;
 pub mod autostart;
+pub mod hyprconfig;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
@@ -87,6 +88,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     passwords::INFO,
     share::INFO,
     plugins::INFO,
+    hyprconfig::INFO,
     about::INFO,
 ];
 
@@ -133,7 +135,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["lock", "share", "plugins", "about"],
+        ids: &["lock", "share", "plugins", "hyprconfig", "about"],
     },
 ];
 
@@ -298,6 +300,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
         "applications" | "defaults" => "apps",
+        "hyprland" | "hyprland.lua" | "menage" | "ménage" | "conflits" => "hyprconfig",
         "demarrage" | "démarrage" | "demarrage-automatique" | "démarrage-automatique"
         | "exec-once" | "startup" => "autostart",
         "extensions" | "paquets" => "plugins",
@@ -345,6 +348,7 @@ pub enum PluginMsg {
     DateTime(datetime::Msg),
     Input(input::Msg),
     Autostart(autostart::Msg),
+    HyprConfig(hyprconfig::Msg),
     Login(login::Msg),
     Passwords(passwords::Msg),
     Effects(effects::Msg),
@@ -377,6 +381,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::DateTime(m) => app.datetime_update(m),
         PluginMsg::Input(m) => app.input_update(m),
         PluginMsg::Autostart(m) => app.autostart_update(m),
+        PluginMsg::HyprConfig(m) => app.hyprconfig_update(m),
         PluginMsg::Login(m) => app.login_update(m),
         PluginMsg::Passwords(m) => app.passwords_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
@@ -410,6 +415,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "datetime" => app.datetime_page(),
         "input" => app.input_page(),
         "autostart" => app.autostart_page(),
+        "hyprconfig" => app.hyprconfig_page(),
         "login" => app.login_page(),
         "passwords" => app.passwords_page(),
         "effects" => app.tab_effects(),
@@ -425,6 +431,10 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
 /// Un paquet devient visible : de quoi se remplir (détection, vignettes…).
 pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
     match id {
+        "desktop" => Task::batch([
+            desktop::load_places(),
+            desktop::load_hyprbars(app.cfg.general.hyprbars_path.clone()),
+        ]),
         "screens" => App::detect_screens(),
         "layouts" => Task::batch([
             layouts::load_current(),
@@ -439,6 +449,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "datetime" => datetime::load(),
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
+        "hyprconfig" => hyprconfig::load(app),
         "login" => login::load(),
         "passwords" => passwords::load(),
         "assistant" => assistant::on_show(app),

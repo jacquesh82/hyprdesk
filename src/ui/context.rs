@@ -3,7 +3,11 @@
 //! fichier ou un dossier : ouvrir le dossier parent, renommer, mettre à la
 //! corbeille (`gio trash`, spécification freedesktop de la corbeille),
 //! copier le chemin ; icône ajoutée dans les Réglages : renommer, retirer du
-//! bureau (le fichier reste) ; réglages des icônes. Une carte du
+//! bureau (le fichier reste) ; réglages des icônes.
+//!
+//! Le même menu sert à un widget (Réglages ouverts : le retirer, ses
+//! réglages) et au fond du bureau (aligner les icônes, ajouter un widget,
+//! changer de fond d'écran, réglages du bureau). Une carte du
 //! thème au curseur, un capteur plein écran : un clic à côté ou Échap ferme.
 
 use std::path::{Path, PathBuf};
@@ -23,7 +27,16 @@ const ROW: f32 = 34.0;
 const SHADOW: f32 = 16.0;
 const INPUT_ID: &str = "hyprdesk-icon-rename";
 
+/// Ce que vise le menu.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuTarget {
+    Icon,
+    Widget(String),
+    Desktop,
+}
+
 pub struct IconMenu {
+    pub target: MenuTarget,
     pub win: Id,
     /// Surface du bureau où l'icône a été cliquée (son écran reçoit la fenêtre).
     pub desk: Id,
@@ -54,6 +67,14 @@ pub enum CMsg {
     CopyPath,
     /// Image : fond d'écran de tous les bureaux.
     Wallpaper,
+    /// Widget : retiré du bureau ; ses réglages.
+    RemoveWidget,
+    WidgetSettings,
+    /// Fond du bureau : icônes réalignées sur la grille ; un widget à ajouter ;
+    /// un autre fond d'écran.
+    AlignIcons,
+    AddWidget,
+    Wallpapers,
     /// Application : épinglée au dock, ou retirée.
     Pin,
     /// Icône des Réglages : retirée du bureau (le fichier, lui, reste).
@@ -116,6 +137,31 @@ fn reload_after(r: Result<(), String>) -> Msg {
 impl App {
     /// Entrées du menu pour l'icône (libellés, messages).
     fn icon_menu_entries(&self, m: &IconMenu) -> Vec<(&'static str, CMsg)> {
+        match &m.target {
+            MenuTarget::Widget(id) => {
+                let mut v = Vec::new();
+                if self.settings.widgets.iter().any(|w| &w.id == id) {
+                    v.push(("Retirer du bureau", CMsg::RemoveWidget));
+                }
+                v.push(("Réglages du widget…", CMsg::WidgetSettings));
+                return v;
+            }
+            MenuTarget::Desktop => {
+                let mut v = Vec::new();
+                if self.cfg.plugin_on("icons") {
+                    v.push(("Aligner les icônes", CMsg::AlignIcons));
+                }
+                if self.cfg.plugin_on("widgets") {
+                    v.push(("Ajouter un widget…", CMsg::AddWidget));
+                }
+                if self.cfg.plugin_on("wallpaper") {
+                    v.push(("Changer de fond d'écran…", CMsg::Wallpapers));
+                }
+                v.push(("Réglages du bureau…", CMsg::Settings));
+                return v;
+            }
+            MenuTarget::Icon => {}
+        }
         let mut v = vec![("Ouvrir", CMsg::Open)];
         if let Some(a) = &m.app
             && self.cfg.plugin_on("launcher")
@@ -149,6 +195,10 @@ impl App {
         v
     }
 
+    fn icon_menu_target(&self) -> Option<MenuTarget> {
+        self.icon_menu.as_ref().map(|m| m.target.clone())
+    }
+
     /// Applications épinglées au dock (réglage en cours, sinon la config).
     fn pinned(&self) -> Vec<String> {
         self.settings
@@ -164,26 +214,45 @@ impl App {
 
     /// Clic droit sur l'icône `idx` de la surface `desk`.
     pub(super) fn open_icon_menu(&mut self, desk: Id, idx: usize) -> Task<Msg> {
+        self.open_menu(desk, MenuTarget::Icon, idx)
+    }
+
+    /// Clic droit sur un widget (Réglages ouverts).
+    pub(super) fn open_widget_menu(&mut self, desk: Id, id: String) -> Task<Msg> {
+        self.open_menu(desk, MenuTarget::Widget(id), usize::MAX)
+    }
+
+    /// Clic droit sur le fond du bureau.
+    pub(super) fn open_desk_menu(&mut self, desk: Id) -> Task<Msg> {
+        self.open_menu(desk, MenuTarget::Desktop, usize::MAX)
+    }
+
+    fn open_menu(&mut self, desk: Id, target: MenuTarget, idx: usize) -> Task<Msg> {
         let mut tasks = vec![self.close_icon_menu()];
         let Some(monitor) = self.surfaces.get(&desk).cloned() else {
             return Task::batch(tasks);
         };
-        let Some(def) = self.cfg.icons.get(idx) else {
-            return Task::batch(tasks);
+        let def = match target {
+            MenuTarget::Icon => match self.cfg.icons.get(idx) {
+                Some(d) => Some(d),
+                None => return Task::batch(tasks),
+            },
+            _ => None,
         };
-        let path = match &def.kind {
+        let path = def.and_then(|d| match &d.kind {
             IconKind::Path(p) => Some(p.clone()),
             _ => None,
-        };
-        let app = match &def.kind {
+        });
+        let app = def.and_then(|d| match &d.kind {
             IconKind::App(a) => Some(a.clone()),
             _ => None,
-        };
-        let own = self
-            .settings
-            .icons
-            .iter()
-            .position(|i| i.id == def.id && i.sel == def.sel);
+        });
+        let own = def.and_then(|def| {
+            self.settings
+                .icons
+                .iter()
+                .position(|i| i.id == def.id && i.sel == def.sel)
+        });
         let at = self
             .cursor
             .get(&desk)
@@ -192,6 +261,7 @@ impl App {
         let size = self.sizes.get(&desk).copied();
         let (catcher, win) = (Id::unique(), Id::unique());
         let menu = IconMenu {
+            target,
             win,
             desk,
             catcher,
@@ -388,6 +458,64 @@ impl App {
                 self.settings.launcher_pinned = Some(l);
                 Task::batch([close, self.commit()])
             }
+            CMsg::RemoveWidget => {
+                let target = self.icon_menu_target();
+                let close = self.close_icon_menu();
+                let Some(MenuTarget::Widget(id)) = target else {
+                    return close;
+                };
+                if let Some(p) = self.panel.as_mut()
+                    && p.widgets.widget_sel.as_deref() == Some(id.as_str())
+                {
+                    p.widgets.widget_sel = None;
+                }
+                self.settings.remove_widget(&id);
+                Task::batch([close, self.commit()])
+            }
+            CMsg::WidgetSettings => {
+                let target = self.icon_menu_target();
+                let close = self.close_icon_menu();
+                if let Some(MenuTarget::Widget(id)) = target
+                    && let Some(p) = self.panel.as_mut()
+                {
+                    p.select_widget(&id);
+                }
+                Task::batch([
+                    close,
+                    Task::done(Msg::Control(super::control::Command::Settings(
+                        "widgets/bureau".into(),
+                    ))),
+                ])
+            }
+            CMsg::AlignIcons => {
+                // Positions mémorisées de ce bureau oubliées : les icônes
+                // reprennent la grille, dans l'ordre.
+                let desk = self.icon_menu.as_ref().map(|m| m.desk);
+                let close = self.close_icon_menu();
+                if let Some(m) = desk.and_then(|d| self.monitor(d)).cloned() {
+                    self.layout.clear_desktop(&m.name, &m.workspace);
+                    self.layout.save();
+                }
+                close
+            }
+            CMsg::AddWidget => {
+                let close = self.close_icon_menu();
+                Task::batch([
+                    close,
+                    Task::done(Msg::Control(super::control::Command::Settings(
+                        "widgets/disponibles".into(),
+                    ))),
+                ])
+            }
+            CMsg::Wallpapers => {
+                let close = self.close_icon_menu();
+                Task::batch([
+                    close,
+                    Task::done(Msg::Control(super::control::Command::Settings(
+                        "wallpaper".into(),
+                    ))),
+                ])
+            }
             CMsg::Remove => {
                 let close = self.close_icon_menu();
                 let Some(i) = own else {
@@ -398,12 +526,14 @@ impl App {
                 Task::batch([close, self.commit()])
             }
             CMsg::Settings => {
+                let page = match self.icon_menu_target() {
+                    Some(MenuTarget::Desktop) => "desktop",
+                    _ => "icons",
+                };
                 let close = self.close_icon_menu();
                 Task::batch([
                     close,
-                    Task::done(Msg::Control(super::control::Command::Settings(
-                        "icons".into(),
-                    ))),
+                    Task::done(Msg::Control(super::control::Command::Settings(page.into()))),
                 ])
             }
             CMsg::Close => self.close_icon_menu(),
@@ -440,11 +570,35 @@ impl App {
             th.bg,
             th.effect(crate::config::Place::Menus).opacity.max(0.97),
         );
-        let name = self
-            .icons
-            .get(m.icon)
-            .map(|r| r.label.clone())
-            .unwrap_or_default();
+        let name = match &m.target {
+            MenuTarget::Icon => self
+                .icons
+                .get(m.icon)
+                .map(|r| r.label.clone())
+                .unwrap_or_default(),
+            MenuTarget::Widget(id) => {
+                let ty = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| &w.id == id)
+                    .map(|w| w.type_id.clone())
+                    .unwrap_or_default();
+                let name = self
+                    .cfg
+                    .catalog
+                    .iter()
+                    .find(|t| t.id == ty)
+                    .map(|t| t.name.clone())
+                    .unwrap_or(ty);
+                if self.settings.widgets.iter().any(|w| &w.id == id) {
+                    name
+                } else {
+                    crate::tr!("{n} — déclaré dans hyprdesk.lua", n = name)
+                }
+            }
+            MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
+        };
         let mut col =
             column![text(name).font(self.font).size(12).color(dim).height(ROW)].spacing(0);
         for (label, msg) in self.icon_menu_entries(m) {

@@ -19,7 +19,8 @@ hd.config({
     -- float_launched  = true,       -- opened from the shown desktop: floating and centered
     -- mode            = "opaque",   -- "opaque" (wallpaper) or "glass" (blurred windows)
     -- show_on         = "all",      -- "all" or "focused"
-    -- running_apps    = "off",      -- dock of open windows: "off", "workspace", "all"
+    -- running_apps    = "workspace", -- dock of open windows: "off", "workspace", "all"
+    -- launcher_group  = "app",       -- one entry per application ("none": per window, "workspace")
     -- transition      = "fade",     -- "fade", "slide", "none"
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
