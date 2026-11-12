@@ -298,11 +298,14 @@ Il faut Hyprland 0.57+ et un pilote Vulkan ou GL. Pour le reste, le script
 installe ce qui manque.
 
 ```bash
-./scripts/installer.sh            # assistant : langue, clavier, options, puis bilan vérifié
-./scripts/install.sh --help       # la même chose sans questions (--lang, --keyboard fr:azerty, --greeter…)
+./scripts/install.sh              # assistant : langue, clavier, options, puis bilan vérifié
+./scripts/install.sh --help       # la même chose sans questions (--defaults, --lang, --keyboard fr:azerty, --greeter…)
 scripts/deps.sh --dry-run         # voir seulement ce qui manque
 ```
 
+Lancé sans option dans un terminal, le script ouvre l'assistant (whiptail
+s'il est là, sinon questions au terminal) ; avec des options, ou sans
+terminal, il installe directement (`--defaults` : les choix par défaut).
 L'assistant demande la langue, puis vérifie les critères de base avant de
 toucher à quoi que ce soit, et s'arrête avec la marche à suivre si l'un manque :
 pas en root, x86_64 ou aarch64, systemd utilisateur, Hyprland 0.57 ou plus

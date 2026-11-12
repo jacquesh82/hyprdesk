@@ -241,10 +241,13 @@ what is missing; `--no-deps` skips it all.
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
-./scripts/installer.sh    # guided install: language, keyboard, options, then a verified report
+./scripts/install.sh      # guided install: language, keyboard, options, then a verified report
 ```
 
-The installer asks for the language, then checks the basics before changing
+Run without options in a terminal, the script opens the setup assistant
+(whiptail if present, otherwise questions in the terminal). With options, or
+without a terminal, it installs straight away (`--defaults` for the default
+choices; `./scripts/install.sh --help`). The assistant asks for the language, then checks the basics before changing
 anything, and stops with what to do if one fails: not run as root, x86_64 or
 aarch64, systemd user manager, Hyprland 0.57 or newer (installed and running;
 if it is older, it offers to update it, then you log back in), a known package

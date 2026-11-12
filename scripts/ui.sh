@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Habillage des scripts d'installation : couleurs, icônes, étapes numérotées,
 # attente animée des commandes longues, erreurs et pistes de correction.
-# Sourcé par deps.sh, install.sh et installer.sh.
+# Sourcé par deps.sh, install.sh et wizard.sh (l'assistant).
 #
 #   HYPRDESK_COLOR=0|1   sans / avec couleurs (sinon : selon le terminal et NO_COLOR)
 #   HYPRDESK_ASCII=1     icônes ASCII (terminal sans UTF-8 ni emoji)

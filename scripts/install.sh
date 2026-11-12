@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Installation de hyprdesk sur la machine locale (assistant : scripts/installer.sh).
+# Installation de hyprdesk sur la machine locale.
 #
+#   ./scripts/install.sh               au terminal : l'assistant (langue, contrôles
+#                                      préalables, clavier, options, récapitulatif),
+#                                      puis l'installation avec les choix faits
+#   ./scripts/install.sh [options]     installation directe, sans assistant (aussi
+#                                      sans terminal : scripts, conteneurs)
+#
+#   --defaults               choix par défaut, sans assistant
 #   --lang fr|en|auto        langue de hyprdesk et de ces messages (sans : la langue
 #                            de hyprdesk ne change pas, messages dans celle du système)
 #   --keyboard L[:V[:O]]     clavier de la session (inputs.lua), ex. fr:azerty
@@ -43,8 +50,10 @@ REMOVE_HYPRPAPER=0
 GREETER=ask
 OPT_DEPS=""
 LYRA=1
+ARGC=$#
 while [ $# -gt 0 ]; do
     case "$1" in
+        --defaults) ;;
         --lang) LANG_CHOICE="${2:?--lang fr|en|auto}"; shift ;;
         --keyboard) KEYBOARD="${2:?--keyboard disposition[:variante[:options]]}"; shift ;;
         --system-keyboard) SYSTEM_KEYBOARD=1 ;;
@@ -57,12 +66,18 @@ while [ $# -gt 0 ]; do
         --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
         --no-lyra) LYRA=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
 done
 case "$LANG_CHOICE" in ""|fr|en|auto) ;; *) echo "--lang : fr, en ou auto" >&2; exit 2 ;; esac
+# Sans option, au terminal : l'assistant pose les questions, puis relance
+# ce script avec les options choisies (scripts/wizard.sh, qui ne revient pas).
+if [[ "$ARGC" == 0 ]] && [[ -t 0 && -t 1 ]] && [[ "${HYPRDESK_WIZARD:-1}" != 0 ]]; then
+    # shellcheck source=wizard.sh
+    source scripts/wizard.sh
+fi
 case "$OPT_DEPS" in ""|ask|all|none) ;; *) echo "--optional-deps : ask, all ou none" >&2; exit 2 ;; esac
 # Sans choix : proposées au terminal, laissées de côté sans terminal.
 if [[ -z "$OPT_DEPS" ]]; then [[ -t 0 ]] && OPT_DEPS=ask || OPT_DEPS=none; fi
@@ -134,7 +149,7 @@ on_error() {
     lines+=(
         "$C_YELLOW$I_HINT$C_RESET $(t "journal complet :" "full log:") $C_BOLD$HD_LOG$C_RESET"
         "$C_YELLOW$I_HINT$C_RESET $(t "après correction, relancez : les étapes déjà faites sont refaites sans dommage" "once fixed, run again: steps already done are safely redone")"
-        "   $C_BOLD./scripts/installer.sh$C_RESET"
+        "   $C_BOLD./scripts/install.sh$C_RESET"
     )
     ((${#BACKUPS[@]} > 0)) && lines+=("$C_GREY$(t "hyprland.lua sauvegardé avant modification :" "hyprland.lua backed up before changes:") ${BACKUPS[*]}$C_RESET")
     hd_panel "$C_RED" "${lines[@]}" >&2

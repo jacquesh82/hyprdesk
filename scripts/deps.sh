@@ -200,7 +200,7 @@ hyprdesk_preflight() {
         hd_panel "$C_RED" \
             "$C_RED$C_BOLD$I_KO $(hyprdesk_t "Installation arrêtée avant toute modification" "Install stopped before changing anything")$C_RESET" \
             "$(hyprdesk_t "$fails critère(s) non rempli(s) : suivez les ➜ ci-dessus, puis relancez" "$fails check(s) failed: follow the ➜ above, then run again")" \
-            "$C_BOLD./scripts/installer.sh$C_RESET"
+            "$C_BOLD./scripts/install.sh$C_RESET"
         [ "$only_hypr" = 1 ] && return 3
         return 1
     fi
