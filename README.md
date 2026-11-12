@@ -235,67 +235,151 @@ as examples to start from.
 **Make your own** by dropping a Lua file in a folder. No recompiling: see
 [Writing a plugin](docs/WRITING_PLUGINS.md).
 
-## Quick start
+## Installation
 
-You need Hyprland 0.57 or later and a Vulkan or GL driver. The install
-script takes care of the rest: missing distribution packages (C compiler,
-pkg-config, PAM headers, Wayland, xkbcommon, Vulkan, EGL… through pacman,
-apt, dnf or zypper, with sudo), and Rust 1.99 or later. If the machine's Rust
-is older, rustup installs the latest stable in `~/.cargo`, without sudo and
-without touching the distribution's Rust. `scripts/deps.sh --dry-run` shows
-what is missing; `--no-deps` skips it all.
+### Requirements
+
+- Linux on x86_64 or aarch64, with systemd (a logged-in user session, not
+  `su` or `sudo -i`);
+- **Hyprland 0.57 or newer**, installed and running (if it is older, the
+  install updates it; you then log back in);
+- a Vulkan or GL driver;
+- a known package manager: pacman (Arch), apt (Debian, Ubuntu), dnf (Fedora)
+  or zypper (openSUSE), and `sudo` rights;
+- about 4 GiB free to build (8 GiB when LYRA has to be built), and access to
+  GitHub and crates.io.
+
+Everything else (compiler, libraries, a recent Rust…) is installed by the
+script. There is nothing to prepare by hand.
+
+### Install
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
-./scripts/install.sh      # guided install: language, keyboard, options, then a verified report
-./scripts/update.sh       # update: what changed (hyprdesk, LYRA, myMFA), then apply it (--check: report only)
+./scripts/install.sh
 ```
 
-Run without options in a terminal, the script opens the setup assistant
-(whiptail if present, otherwise questions in the terminal). With options, or
-without a terminal, it installs straight away (`--defaults` for the default
-choices; `./scripts/install.sh --help`). The install also builds LYRA and installs the myMFA keyring (Linux client,
-daemon, PAM module that opens the vault at login) when its repository,
-which is private, is reachable (the machine's SSH key, or
-`HYPRDESK_MYMFA_SRC`); otherwise the step is skipped without blocking
-anything (`--no-lyra`, `--no-mymfa`). Settings → Application theme applies
-the hyprdesk theme to kitty and Thunar (Thunar only, not other GTK apps); each
-application's files and reload command are configurable, and a failure can be
-handed to LYRA. The assistant asks for the language, then checks the basics before changing
-anything, and stops with what to do if one fails: not run as root, x86_64 or
-aarch64, systemd user manager, Hyprland 0.57 or newer (installed and running;
-if it is older, it offers to update it, then you log back in), a known package
-manager, 4 GiB free to build, network access to crates.io and GitHub. It then
-asks for the keyboard (the current one comes first), then the options to enable: missing prerequisites, start at login,
-`SUPER + L` lock, removing hyprpaper, the same keyboard system-wide, and
-replacing GDM (or SDDM, LightDM) with the hyprdesk login screen (hyprdesk
-logo, and its own wallpaper, landscape or portrait to match the screen, unless
-you pick one in Settings → Login screen). Nothing
-changes before you confirm the summary; `hyprland.lua` is backed up before
-each edit. The install then runs in numbered steps with a progress bar,
-colours and icons; long commands (build, packages) show a spinner with their
-last output line, and their full output goes to
-`~/.local/state/hyprdesk/install-<date>.log`. If a step fails, the install
-stops and says which step, the last lines of the error, how to fix it, and
-that running it again is safe. The optional dependencies step lists what is
-missing (idle, screenshots, Bluetooth, login screen…), offers to install
-those available in the distribution's repositories (all, none, or by
-number; `--optional-deps ask|all|none`), shows the others with their AUR
-command, and says what follows: the hyprdesk login screen is only offered
-when greetd and cage are present or installable, and the question says it
-will install them. It ends with a report checked point by point
-(binary, service, Hyprland config without errors, start at login, keyboard,
-language, login screen), then **what is left to do** for hyprdesk to run (log
-in to Hyprland, log back in after an update, reboot for the login screen…),
-each with the command to type, the optional extras (missing optional
-packages, `~/.local/bin` in `PATH`), and a verdict: running, installed with
-actions left, or not working yet. `--verbose` shows the full output instead
-of the log; `NO_COLOR=1` or `HYPRDESK_COLOR=0` turns colours off,
-`HYPRDESK_ASCII=1` uses ASCII icons. Without questions: `./scripts/install.sh --help` lists the same
-options (`--lang`, `--keyboard fr:azerty`, `--greeter`…).
+In a terminal and without options, the script opens the **setup assistant**
+(whiptail windows if present, otherwise questions in the terminal), in 5
+steps:
 
-The default configuration shows the bar at the top in every mode. Then press
-`SUPER + D`. The default shortcuts are:
+1. **Language** of hyprdesk and of the messages.
+2. **Preflight checks**: the requirements above. If one is missing, the
+   install stops **before changing anything**, with what to do; if only
+   Hyprland is too old, the assistant offers to update it.
+3. **Keyboard** of the session (the current one first).
+4. **Options** to tick: LYRA, myMFA, missing prerequisites, start at login,
+   `SUPER + L` to lock, removing hyprpaper, the same keyboard system-wide, the
+   hyprdesk login screen instead of GDM (SDDM, LightDM) — offered only when
+   greetd and cage are present or installable.
+5. **Summary**: nothing changes before you confirm.
+
+### Install steps
+
+The install then runs in numbered steps with a progress bar. Long commands
+show a spinner, their last output line and the elapsed time; their full
+output goes to `~/.local/state/hyprdesk/install-<date>.log`.
+
+| Step | What happens |
+|---|---|
+| 🔎 Preflight checks | the basic criteria, checked before anything is touched |
+| 📦 Build prerequisites | missing distribution packages (with `sudo`), Hyprland 0.57+, Rust: if the machine's one is too old, rustup installs the latest stable in `~/.cargo`, without touching the distribution's |
+| 🦀 Build | `cargo build --release` (3 to 10 min the first time) |
+| 🔤 Font · 📥 Binary · 🛠 Configuration | Mindlog font, `hyprdesk` in `~/.local/bin`, `~/.config/hypr/hyprdesk.lua` if missing (an existing configuration is kept) |
+| 🤖 LYRA | the AI assistant, built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools), with her service, which starts with hyprdesk; already installed: kept |
+| 🔑 myMFA | the keyring (passwords, 2FA codes): daemon, Secret Service, PAM module that opens the vault at login. Its repository is **private**: without access (the machine's SSH key, or `HYPRDESK_MYMFA_SRC`), the step is skipped without blocking anything |
+| 🌍 Language · ⌨ Keyboard | if chosen: hyprdesk's language, keyboard in `inputs.lua` (and system-wide with `localectl`) |
+| 🩺 Optional dependencies | the missing ones (idle, screenshots, Bluetooth, login screen…): those in the repositories are offered (all, none, or by number), the others are shown with their AUR command |
+| 🔁 Service | systemd user service, started right away in a Hyprland session |
+| 🚀 Start at login | one line in `hl.on("hyprland.start")` of `hyprland.lua`: hyprdesk starts even when the distribution does not activate `graphical-session.target` |
+| 🔐 `SUPER + L` · 🖼 hyprpaper | if chosen: lock with hyprdesk; hyprpaper removed from autostart |
+| 🚪 Login screen | if chosen: greetd and the hyprdesk screen (the session's keyboard, theme and screens; its logo and wallpaper, landscape or portrait to match the screen) |
+
+`hyprland.lua` is backed up before each change
+(`hyprland.lua.avant-hyprdesk-*.bak`). Running the install again is safe:
+what is already in place is recognised and left alone.
+
+### At the end
+
+- a **report checked point by point**: binary, configuration, service,
+  running Hyprland version, hyprdesk answering, Hyprland configuration
+  without errors, start at login, LYRA, myMFA, keyboard, language, login
+  screen;
+- **what is left to do** for hyprdesk to run, each with its command: log in
+  to Hyprland, log back in after a Hyprland update, reboot for the login
+  screen… then the optional extras (missing packages, `~/.local/bin` in
+  `PATH`, a subscription for LYRA, a myMFA vault to create);
+- a **verdict**: running, installed with actions left, or not working yet.
+
+On first start, Settings open by themselves. The default configuration shows
+the bar at the top, in every mode.
+
+### Without questions
+
+With options, or without a terminal (scripts, containers), the script
+installs straight away. `./scripts/install.sh --help` lists them:
+
+| Option | Effect |
+|---|---|
+| `--defaults` | default choices, no assistant |
+| `--lang fr\|en\|auto` | language of hyprdesk and of the messages |
+| `--keyboard fr:azerty` | session keyboard (`layout[:variant[:options]]`) |
+| `--system-keyboard` | the same keyboard system-wide (TTY, other login screens) |
+| `--greeter` / `--no-greeter` | replace GDM with the hyprdesk login screen, or not (otherwise: asked) |
+| `--optional-deps ask\|all\|none` | optional dependencies: offered, all installed, or none |
+| `--no-lyra` · `--no-mymfa` | without LYRA, without myMFA |
+| `--no-deps` | do not install prerequisites (by hand; `scripts/deps.sh --dry-run` shows what is missing) |
+| `--no-autostart` · `--no-lock-key` · `--remove-hyprpaper` | start at login, `SUPER + L`, hyprpaper |
+| `--verbose` | full command output on screen |
+
+Useful variables: `HYPRDESK_LYRA_REF` (LYRA's branch, by default the one with
+the `serve` mode the drawer needs), `HYPRDESK_LYRA_SRC` and
+`HYPRDESK_MYMFA_SRC` (local copies), `HYPRDESK_INSTALLER_TUI=0` (terminal
+assistant even with whiptail), `NO_COLOR=1` or `HYPRDESK_COLOR=0` (no
+colours), `HYPRDESK_ASCII=1` (ASCII icons).
+
+### Update
+
+```bash
+./scripts/update.sh             # what changed, then the update after confirmation
+./scripts/update.sh --check     # the report only (exit code 10: update available)
+./scripts/update.sh --yes       # no question
+```
+
+The report shows the commits to pull and the areas they touch (code,
+scripts, assets, translations, documentation), an installed version behind
+the repository, LYRA and myMFA if they changed, and the copy of hyprdesk used
+by the login screen. The update pulls the commits (not when there are local
+changes: nothing is overwritten), reinstalls with the options of the last
+install, rebuilds LYRA and myMFA when needed, and refreshes the login screen.
+
+### Troubleshooting
+
+- A failing step stops the install and says which one, the last lines of the
+  error and how to fix it; the full log is in
+  `~/.local/state/hyprdesk/install-<date>.log`. Fix it, then run again.
+- hyprdesk does not start: `journalctl --user -u hyprdesk -n 50`;
+  `hyprdesk doctor` lists the dependencies and what relies on them.
+- In Settings, the "Ask LYRA" buttons hand a problem to the assistant (she
+  asks before changing anything).
+- Back to the previous login screen: `sudo hyprdesk greeter setup restore`.
+
+### Uninstall
+
+```bash
+systemctl --user disable --now hyprdesk.service
+sudo hyprdesk greeter setup restore      # if the hyprdesk login screen is in place
+rm ~/.local/bin/hyprdesk
+```
+
+Then remove the lines marked "hyprdesk" from `hyprland.lua` (start at login,
+`SUPER + L`, `require("autostart")`), or restore a
+`hyprland.lua.avant-hyprdesk-*.bak` copy. Your configuration
+(`~/.config/hypr/hyprdesk.lua`, `settings.lua`) stays in place.
+
+## Quick start
+
+Press `SUPER + D`. The default shortcuts are:
 
 | Shortcut | Action |
 |---|---|
