@@ -1243,6 +1243,8 @@ impl Preview {
                 catcher: iced::window::Id::unique(),
                 icon: 1,
                 path: Some("/home/u/Bureau/Rapport.pdf".into()),
+                app: None,
+                own: None,
                 rename: None,
                 confirm: true,
                 error: None,

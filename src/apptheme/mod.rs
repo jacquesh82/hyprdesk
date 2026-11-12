@@ -14,17 +14,62 @@
 //! sa config. Couper une cible vide son fichier sans le supprimer (l'inclusion
 //! reste valide) : le thème d'avant reprend la main.
 //!
+//! Chaque cible déclare ses options (fichiers, rechargement) : le paquet est
+//! un plugin configurable, réglé dans Réglages → Thème des applications ou
+//! Réglages → Plugins → Configurer ; les valeurs vivent dans
+//! `plugin_options["apptheme"]` (clés `<cible>.<option>`).
+//!
 //! Ajouter une application : un fichier `<id>.rs` sur le modèle de
-//! [`kitty`], un `pub mod <id>;` ci-dessous, une ligne dans [`TARGETS`], les
+//! [`kitty`] (ou [`thunar`] pour une feuille GTK), un `pub mod <id>;` ci-dessous, une ligne dans [`TARGETS`], les
 //! textes dans `locales/en.toml`, et l'outil de rechargement éventuel dans
 //! `doctor::DEPS`.
 
 pub mod kitty;
+pub mod thunar;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::config::{Rgba, Theme};
+
+/// Identifiant du paquet, clé de ses options dans `plugin_options`.
+pub const PLUGIN: &str = "apptheme";
+
+/// Réglage d'une cible : clé (`file`, `conf`…), libellé, aide, valeur par défaut.
+pub struct Opt {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub help: &'static str,
+    pub default: fn() -> String,
+}
+
+/// Valeurs réglées : `<cible>.<option>` → texte (absente : valeur par défaut).
+pub type Opts = std::collections::BTreeMap<String, String>;
+
+/// Options réglées du paquet, d'après la config.
+pub fn options(g: &crate::config::General) -> Opts {
+    g.plugin_options
+        .get(PLUGIN)
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.display())).collect())
+        .unwrap_or_default()
+}
+
+/// Valeur d'une option de `target` : réglée, sinon par défaut ; `~/` développé.
+pub fn opt(o: &Opts, target: &str, opt: &Opt) -> String {
+    let v = o
+        .get(&format!("{target}.{}", opt.key))
+        .cloned()
+        .unwrap_or_else(opt.default);
+    expand_home(v.trim())
+}
+
+/// `~/…` → dossier personnel.
+pub fn expand_home(p: &str) -> String {
+    match p.strip_prefix("~/") {
+        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_default()),
+        None => p.to_string(),
+    }
+}
 
 /// Application qui peut prendre le thème de hyprdesk.
 pub struct Target {
@@ -34,16 +79,20 @@ pub struct Target {
     pub summary: &'static str,
     /// Le logiciel est présent.
     pub installed: fn() -> bool,
+    /// Ses réglages (fichiers, rechargement).
+    pub options: &'static [Opt],
     /// Fichier de couleurs écrit par hyprdesk.
-    pub file: fn() -> PathBuf,
+    pub file: fn(&Opts) -> PathBuf,
+    /// Fichiers en jeu, pour un diagnostic (couleurs, configuration…).
+    pub files: fn(&Opts) -> Vec<PathBuf>,
     /// Écrit et applique le thème ; rend un compte rendu.
-    pub apply: fn(&Theme) -> Result<String, String>,
+    pub apply: fn(&Theme, &Opts) -> Result<String, String>,
     /// Retire le thème (fichier vidé, logiciel rechargé).
-    pub clear: fn() -> Result<(), String>,
+    pub clear: fn(&Opts) -> Result<(), String>,
 }
 
 /// Registre des applications qui peuvent prendre le thème.
-pub const TARGETS: &[Target] = &[kitty::TARGET];
+pub const TARGETS: &[Target] = &[kitty::TARGET, thunar::TARGET];
 
 pub fn target(id: &str) -> Option<&'static Target> {
     TARGETS.iter().find(|t| t.id == id)
@@ -51,14 +100,18 @@ pub fn target(id: &str) -> Option<&'static Target> {
 
 /// Applique le thème aux cibles choisies et le retire des autres (celles où
 /// hyprdesk l'avait posé). Rend un compte rendu par cible.
-pub fn sync(enabled: &BTreeSet<String>, theme: &Theme) -> Vec<(String, Result<String, String>)> {
+pub fn sync(
+    enabled: &BTreeSet<String>,
+    theme: &Theme,
+    opts: &Opts,
+) -> Vec<(String, Result<String, String>)> {
     let mut out = Vec::new();
     for t in TARGETS {
         if enabled.contains(t.id) {
             if (t.installed)() {
-                out.push((t.id.to_string(), (t.apply)(theme)));
+                out.push((t.id.to_string(), (t.apply)(theme, opts)));
             }
-        } else if let Err(e) = (t.clear)() {
+        } else if let Err(e) = (t.clear)(opts) {
             out.push((t.id.to_string(), Err(e)));
         }
     }
@@ -74,6 +127,35 @@ pub(crate) fn config_dir(app: &str) -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config"))
         .join(app)
+}
+
+/// Lance la commande de rechargement d'une cible (vide : rien), sans attendre
+/// son résultat.
+pub(crate) fn run_reload(cmd: &str) {
+    if cmd.trim().is_empty() {
+        return;
+    }
+    let _ = std::process::Command::new("sh").args(["-c", cmd]).status();
+}
+
+/// Invite pour LYRA quand une cible échoue : l'erreur, les fichiers en jeu,
+/// et ce qu'on attend d'elle.
+pub fn lyra_prompt(t: &Target, opts: &Opts, error: &str) -> String {
+    let files: Vec<String> = (t.files)(opts)
+        .iter()
+        .map(|f| {
+            let link = std::fs::read_link(f)
+                .map(|to| crate::tr!(" (lien vers {t})", t = to.display()))
+                .unwrap_or_default();
+            format!("- {}{link}", f.display())
+        })
+        .collect();
+    crate::tr!(
+        "Dans Réglages → Thème des applications, hyprdesk n'arrive pas à appliquer son thème à {app} :\n{error}\n\nFichiers en jeu :\n{files}\n\nRegarde ces fichiers (liens symboliques et leurs cibles compris), explique-moi la cause, puis propose la correction la plus simple : rétablir la cible d'un lien, remplacer le lien par un fichier, ou indiquer d'autres chemins dans Réglages → Thème des applications → Réglages de {app}. Demande-moi avant de modifier quoi que ce soit.",
+        app = t.label,
+        error = error,
+        files = files.join("\n")
+    )
 }
 
 /// L'exécutable `bin` est dans le `PATH`.
@@ -153,6 +235,38 @@ pub(crate) fn include_once(
         next.push('\n');
     }
     next += &format!("\n{comment}\n{line}\n");
+    write_if_changed(conf, &next)
+}
+
+/// Comme [`include_once`], mais la ligne va en tête du fichier (feuilles
+/// CSS de GTK : un `@import` placé après d'autres règles est ignoré).
+pub(crate) fn include_first(
+    conf: &Path,
+    line: &str,
+    already: &[&str],
+    comment: &str,
+) -> Result<bool, String> {
+    if let Some(e) = dangling(conf) {
+        return Err(e);
+    }
+    let current = std::fs::read_to_string(conf).unwrap_or_default();
+    if current
+        .lines()
+        .any(|l| l.trim() == line || already.contains(&l.trim()))
+    {
+        return Ok(false);
+    }
+    if conf.is_file() {
+        let bak = backup_path(conf);
+        if !bak.exists() {
+            std::fs::copy(conf, &bak).map_err(|e| fs_err(&bak, e))?;
+        }
+    }
+    let next = if current.is_empty() {
+        format!("{comment}\n{line}\n")
+    } else {
+        format!("{comment}\n{line}\n\n{current}")
+    };
     write_if_changed(conf, &next)
 }
 

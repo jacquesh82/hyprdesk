@@ -117,18 +117,15 @@ impl App {
         let Some((a, stashed)) = chosen else {
             return close;
         };
-        let leave = self.mode() == super::DesktopMode::FullDesktop
-            && (stashed || !self.session_windows.contains(&a));
+        // Le bureau garde son mode : la fenêtre choisie prend le focus (sur
+        // un autre workspace, celui-ci s'affiche, ses fenêtres flottent).
+        let _ = stashed;
         let focus = Task::perform(
             async move {
                 let _ = tokio::task::spawn_blocking(move || crate::hypr::focus_window(&a)).await;
             },
             |_| Msg::Noop,
         );
-        if leave {
-            // Le bureau se masque (fenêtres rendues), puis le focus.
-            return Task::batch([close, self.hide().chain(focus)]);
-        }
         Task::batch([close, focus])
     }
 

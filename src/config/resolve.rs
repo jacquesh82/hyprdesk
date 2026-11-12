@@ -59,7 +59,18 @@ pub fn resolve<'a>(cfg: &'a Config, monitor: &str, workspace: &str) -> Desktop<'
         mode,
         wallpaper: wall.map(|(_, w)| w),
         wallpaper_idx: wall.map(|(i, _)| i),
-        icons: cfg.icons.iter().filter(|i| keep(&i.sel)).collect(),
+        // Icônes des Réglages : selon la portée choisie ; celles de
+        // hyprdesk.lua : leur propre sélecteur.
+        icons: cfg
+            .icons
+            .iter()
+            .filter(|i| match i.origin {
+                crate::config::Origin::Settings => {
+                    cfg.general.icon_scope.keeps(&i.sel, monitor, workspace)
+                }
+                crate::config::Origin::User => keep(&i.sel),
+            })
+            .collect(),
         widgets: cfg
             .widgets
             .iter()

@@ -106,7 +106,7 @@ Keys per package:
 
 | Package | Keys |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `close_on_launch`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
 | `wallpaper` | `wallpaper` (image or `#couleur`, all desktops), `wallpaper.fit`, `wallpaper.span` (`on`: spread across all screens) |

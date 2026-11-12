@@ -608,6 +608,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "idle_suspend",
             "show_on",
             "close_on_launch",
+            "icon_scope",
+            "icon_double_click",
             "advanced_settings",
             "tour_seen",
             "app_themes",
@@ -889,6 +891,18 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "close_on_launch", CTX)? {
         g.close_on_launch = v;
+    }
+    if let Some(s) = opt_string(t, "icon_scope", CTX)? {
+        g.icon_scope = crate::config::IconScope::parse(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : icon_scope « {s} » inconnu (global, screen, workspace)",
+                CTX = CTX,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(v) = opt_bool(t, "icon_double_click", CTX)? {
+        g.icon_double_click = v;
     }
     if let Some(v) = opt_bool(t, "advanced_settings", CTX)? {
         g.advanced_settings = v;

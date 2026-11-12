@@ -3,13 +3,13 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, row, slider, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, slider, text_input, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
-use crate::config::Origin;
+use crate::config::{IconScope, Origin};
 use crate::launch::AppInfo;
 
 pub const INFO: PluginInfo = PluginInfo {
@@ -29,7 +29,6 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub app_filter: String,
-    pub add_to_workspace: bool,
     pub themes: Vec<String>,
 }
 
@@ -40,7 +39,8 @@ pub enum Msg {
     Theme(String),
     Themes(Vec<String>),
     AppFilter(String),
-    AddToWorkspace(bool),
+    Scope(IconScope),
+    DoubleClick(bool),
     AddApp(String),
     RemoveIcon(usize),
     ResetLayout,
@@ -72,9 +72,14 @@ impl App {
                 crate::config::IconKind::Path(p) => p.display().to_string(),
                 crate::config::IconKind::Exec { cmd, .. } => cmd.clone(),
             };
-            let scope = match &ic.sel.workspaces {
-                None => crate::i18n::tr("tous les bureaux").to_string(),
-                Some(w) => crate::tr!("workspace {list}", list = w.join(", ")),
+            let scope = match (&ic.sel.monitors, &ic.sel.workspaces) {
+                (Some(m), _) if g.icon_scope == IconScope::Screen => {
+                    crate::tr!("écran {list}", list = m.join(", "))
+                }
+                (_, Some(w)) if g.icon_scope == IconScope::Workspace => {
+                    crate::tr!("workspace {list}", list = w.join(", "))
+                }
+                _ => crate::i18n::tr("tous les bureaux").to_string(),
             };
             shortcuts = shortcuts.push(
                 row![
@@ -138,7 +143,39 @@ impl App {
                 );
             }
         }
+        let scope_radio = |label: &'static str, v: IconScope| {
+            radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| wrap(Msg::Scope(v)))
+                .font(self.font)
+        };
         column![
+            self.section("Comportement"),
+            self.field(
+                "Portée des icônes",
+                "icon_scope",
+                column![
+                    scope_radio("Globales — les mêmes icônes partout", IconScope::Global),
+                    scope_radio("Par écran — chaque écran a les siennes", IconScope::Screen),
+                    scope_radio("Par workspace — chaque workspace a les siennes", IconScope::Workspace),
+                    text(crate::i18n::tr(
+                        "Une icône ajoutée (ici ou en déposant un fichier sur le bureau) va sur l'écran ou le workspace en cours ; celles d'avant restent où elles étaient."
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+                ]
+                .spacing(8),
+            ),
+            self.field(
+                "Ouvrir d'un double clic (un clic sélectionne)",
+                "icon_double_click",
+                toggler(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v))),
+            ),
+            text(crate::i18n::tr(
+                "Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du bureau… Échap retire la sélection, Entrée ouvre l'icône sélectionnée."
+            ))
+            .font(self.font)
+            .size(12)
+            .color(dim),
             self.section("Raccourcis"),
             shortcuts,
             text(crate::tr!(
@@ -159,9 +196,6 @@ impl App {
                     .font(self.font)
                     .on_input(|s| wrap(Msg::AppFilter(s)))
                     .padding(8),
-                    toggler(p.icons.add_to_workspace)
-                        .label(crate::i18n::tr("Seulement sur ce workspace"))
-                        .on_toggle(|v| wrap(Msg::AddToWorkspace(v))),
                     picker,
                 ]
                 .spacing(8),
@@ -236,17 +270,18 @@ impl App {
                 panel.icons.app_filter = f;
                 Task::none()
             }
-            Msg::AddToWorkspace(v) => {
-                panel.icons.add_to_workspace = v;
-                Task::none()
+            Msg::Scope(v) => {
+                self.settings.icon_scope = Some(v);
+                self.commit()
+            }
+            Msg::DoubleClick(v) => {
+                self.settings.icon_double_click = Some(v);
+                self.commit()
             }
             Msg::AddApp(id) => {
-                let ws = panel
-                    .icons
-                    .add_to_workspace
-                    .then(|| self.panel_ctx().map(|c| c.1))
-                    .flatten();
-                self.settings.add_app(&id, ws.as_deref());
+                let (mon, ws) = self.panel_ctx().unwrap_or_default();
+                let sel = self.cfg.general.icon_scope.selector(&mon, &ws);
+                self.settings.add_app(&id, sel);
                 if let Some(p) = self.panel.as_mut() {
                     p.icons.app_filter.clear();
                 }

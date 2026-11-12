@@ -314,8 +314,16 @@ if command -v hyprpanel-chat >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/hyprpane
     LYRA_ITEM=()
     LYRA_STATE="$(t "déjà installée" "already installed")"
 fi
+# myMFA : proposé (coché) s'il n'est pas déjà là.
+MYMFA_ITEM=(mymfa "$(t "Installer myMFA, le trousseau (mots de passe, codes 2FA ; dépôt privé, accès SSH)" "Install myMFA, the keyring (passwords, 2FA codes; private repository, SSH access)")" on)
+MYMFA_STATE=""
+if command -v mymfa >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/mymfa" ]]; then
+    MYMFA_ITEM=()
+    MYMFA_STATE="$(t "déjà installé" "already installed")"
+fi
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher, Entrée : suivant)" "Options to enable (space: toggle, Enter: next)")" \
     "${LYRA_ITEM[@]}" \
+    "${MYMFA_ITEM[@]}" \
     deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
     autostart "$(t "Démarrer hyprdesk à la connexion" "Start hyprdesk at login")" on \
     lockkey "$(t "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk")" on \
@@ -335,12 +343,14 @@ has hyprpaper && ARGS+=(--remove-hyprpaper)
 has syskb && ARGS+=(--system-keyboard)
 if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
 [[ ${#LYRA_ITEM[@]} -eq 0 ]] || has lyra || ARGS+=(--no-lyra)
+[[ ${#MYMFA_ITEM[@]} -eq 0 ]] || has mymfa || ARGS+=(--no-mymfa)
 # Colonnes alignées en caractères (printf et ${#x} peuvent compter des octets).
 row() { local n=$((28 - $(hd_strlen "$1"))); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }
 SUMMARY="$(t "Contrôles préalables : tout est en ordre ✔" "Preflight checks: all good ✔")
 
 $(row "$(t "Langue" "Language")" "$LANG_CHOICE")
 $(row "LYRA" "$( [[ ${#LYRA_ITEM[@]} -eq 0 ]] && echo "$LYRA_STATE" || yes_no lyra)")
+$(row "myMFA" "$( [[ ${#MYMFA_ITEM[@]} -eq 0 ]] && echo "$MYMFA_STATE" || yes_no mymfa)")
 $(row "$(t "Clavier" "Keyboard")" "$KEYBOARD")
 $(row "$(t "Prérequis manquants" "Missing prerequisites")" "$(yes_no deps)")
 $(row "$(t "Démarrage à la connexion" "Start at login")" "$(yes_no autostart)")

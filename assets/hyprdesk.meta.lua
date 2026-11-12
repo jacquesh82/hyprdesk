@@ -36,6 +36,8 @@
 ---@field launcher_group? "none"|"app"|"workspace" # lanceur : une entrée par fenêtre, par application, ou par workspace
 ---@field primary? string|false # écran principal (connecteur, ex. "DP-1") : ancre en 0×0, bureau/barre/réglages
 ---@field close_on_launch? boolean
+---@field icon_scope? "global"|"screen"|"workspace"
+---@field icon_double_click? boolean
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" par défaut (embarquée), ou une famille installée
 ---@field font_size? number

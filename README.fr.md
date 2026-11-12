@@ -55,12 +55,12 @@ hyprdesk. Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
-| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
+| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
 | | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
-| | Icônes | raccourcis vers des applications installées, partout ou sur ce workspace ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
+| | Icônes | portée : globales, par écran ou par workspace ; ouverture d'un double clic (un clic sélectionne) ou d'un clic ; clic droit : ouvrir, épingler au dock, renommer, retirer du bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran) ; raccourcis vers des applications installées ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; écran (le principal par défaut, un autre, tous ; s'il est débranché : sur le principal ou masqué) ; glisser-déposer sur le bureau, sans superposition |
 | Apparence | Thème | thèmes livrés (Ardoise, Glass, Encre, Forêt, Ambre, Clair) et thèmes créés depuis une image ; couleurs ; texte ; effets par endroit |
-| | Thème des applications | le thème de hyprdesk appliqué à d'autres logiciels (kitty pour commencer) |
+| | Thème des applications | le thème de hyprdesk appliqué à d'autres logiciels : kitty, Thunar (règles limitées à Thunar, les autres applications GTK ne changent pas) ; plugin configurable : pour chaque application, fichier de couleurs, configuration qui l'inclut (vide : n'y pas toucher) et commande de rechargement ; un échec se propose à LYRA |
 | | Effets * | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
 | | Animations | animations et effets de Hyprland (ouverture des fenêtres, workspaces, flou, arrondis…), en direct |
 | Barre et lanceur | Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) ; couleurs |
@@ -300,12 +300,18 @@ installe ce qui manque.
 ```bash
 ./scripts/install.sh              # assistant : langue, clavier, options, puis bilan vérifié
 ./scripts/install.sh --help       # la même chose sans questions (--defaults, --lang, --keyboard fr:azerty, --greeter…)
+./scripts/update.sh               # mise à jour : ce qui a changé (hyprdesk, LYRA, myMFA), puis l'appliquer
+./scripts/update.sh --check       # le relevé seulement (code 10 : mise à jour disponible)
 scripts/deps.sh --dry-run         # voir seulement ce qui manque
 ```
 
 Lancé sans option dans un terminal, le script ouvre l'assistant (whiptail
 s'il est là, sinon questions au terminal) ; avec des options, ou sans
 terminal, il installe directement (`--defaults` : les choix par défaut).
+L'installation compile aussi LYRA et installe le trousseau myMFA (client
+Linux, démon, module PAM pour ouvrir le coffre à la connexion) quand son
+dépôt, privé, est accessible (clé SSH du poste, ou `HYPRDESK_MYMFA_SRC`) ;
+sinon l'étape est sautée sans rien bloquer (`--no-lyra`, `--no-mymfa`).
 L'assistant demande la langue, puis vérifie les critères de base avant de
 toucher à quoi que ce soit, et s'arrête avec la marche à suivre si l'un manque :
 pas en root, x86_64 ou aarch64, systemd utilisateur, Hyprland 0.57 ou plus

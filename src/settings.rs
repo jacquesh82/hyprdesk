@@ -116,6 +116,8 @@ pub struct Settings {
     pub mode: Option<Mode>,
     pub glass_opacity: Option<f32>,
     pub close_on_launch: Option<bool>,
+    pub icon_scope: Option<crate::config::IconScope>,
+    pub icon_double_click: Option<bool>,
     pub advanced_settings: Option<bool>,
     pub tour_seen: Option<bool>,
     pub app_themes: Option<std::collections::BTreeSet<String>>,
@@ -307,6 +309,8 @@ impl Settings {
             mode: has("mode").then_some(g.mode),
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
             close_on_launch: has("close_on_launch").then_some(g.close_on_launch),
+            icon_scope: has("icon_scope").then_some(g.icon_scope),
+            icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
             tour_seen: has("tour_seen").then_some(g.tour_seen),
             app_themes: has("app_themes").then(|| g.app_themes.clone()),
@@ -576,6 +580,8 @@ impl Settings {
         set!(mode, "mode", g.mode);
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
         set!(close_on_launch, "close_on_launch", g.close_on_launch);
+        set!(icon_scope, "icon_scope", g.icon_scope);
+        set!(icon_double_click, "icon_double_click", g.icon_double_click);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
         set!(tour_seen, "tour_seen", g.tour_seen);
         set!(app_themes, "app_themes", g.app_themes);
@@ -855,11 +861,9 @@ impl Settings {
         }
     }
 
-    pub fn add_app(&mut self, app: &str, workspace: Option<&str>) {
-        let sel = Selector {
-            workspaces: workspace.map(|w| vec![w.to_string()]),
-            monitors: None,
-        };
+    /// Icône d'application ; `sel` : selon la portée des icônes (écran,
+    /// workspace, ou partout).
+    pub fn add_app(&mut self, app: &str, sel: Selector) {
         let id = format!("app:{app}");
         if self.icons.iter().any(|i| i.id == id && i.sel == sel) {
             return;
@@ -879,7 +883,7 @@ impl Settings {
     /// application (`.desktop` des dossiers d'applications) devient une icône
     /// d'application. Rend son identifiant (pour la placer), ou `None` si elle
     /// existe déjà.
-    pub fn add_dropped(&mut self, path: &std::path::Path) -> Option<String> {
+    pub fn add_dropped(&mut self, path: &std::path::Path, sel: Selector) -> Option<String> {
         let app = path
             .extension()
             .is_some_and(|e| e == "desktop")
@@ -923,12 +927,12 @@ impl Settings {
                 )
             }
         };
-        if self.icons.iter().any(|i| i.id == id) {
+        if self.icons.iter().any(|i| i.id == id && i.sel == sel) {
             return None;
         }
         self.icons.push(IconDef {
             origin: Origin::Settings,
-            sel: Selector::default(),
+            sel,
             id: id.clone(),
             label,
             kind,
@@ -1012,6 +1016,12 @@ impl Settings {
         }
         if let Some(v) = self.glass_opacity {
             cfg.push(format!("glass_opacity = {}", num(v)));
+        }
+        if let Some(v) = self.icon_scope {
+            cfg.push(format!("icon_scope = {}", q(v.as_str())));
+        }
+        if let Some(v) = self.icon_double_click {
+            cfg.push(format!("icon_double_click = {v}"));
         }
         if let Some(v) = self.close_on_launch {
             cfg.push(format!("close_on_launch = {v}"));
@@ -1873,9 +1883,9 @@ mod tests {
             Fit::Cover,
         );
         s.set_workspace_mode("4", Some(Mode::Opaque));
-        s.add_app("firefox", None);
-        s.add_app("code", Some("2"));
-        s.add_app("firefox", None); // doublon ignoré
+        s.add_app("firefox", Selector::default());
+        s.add_app("code", Selector { workspaces: Some(vec!["2".into()]), monitors: None });
+        s.add_app("firefox", Selector::default()); // doublon ignoré
         s.workspaces = Some(7);
         s.workspace_monitors = Some(BTreeMap::from([
             ("HDMI-A-2".to_string(), vec!["1".into(), "2".into()]),
@@ -1960,13 +1970,13 @@ mod tests {
         let mut s = Settings::default();
         let dir = std::env::temp_dir();
         assert_eq!(
-            s.add_dropped(&dir).as_deref(),
+            s.add_dropped(&dir, Selector::default()).as_deref(),
             Some(format!("path:{}", tilde(&dir)).as_str())
         );
         assert_eq!(s.icons[0].icon.as_deref(), Some("folder"));
-        assert_eq!(s.add_dropped(&dir), None, "pas de doublon");
+        assert_eq!(s.add_dropped(&dir, Selector::default()), None, "pas de doublon");
         let id = s
-            .add_dropped(std::path::Path::new("/home/moi/photo.JPG"))
+            .add_dropped(std::path::Path::new("/home/moi/photo.JPG"), Selector::default())
             .unwrap();
         let i = s.icons.iter().find(|i| i.id == id).unwrap();
         assert_eq!(i.icon.as_deref(), Some("image-x-generic"));
@@ -1974,13 +1984,13 @@ mod tests {
         let id = s
             .add_dropped(std::path::Path::new(
                 "/usr/share/applications/firefox.desktop",
-            ))
+            ), Selector::default())
             .unwrap();
         assert_eq!(id, "app:firefox");
         assert!(matches!(&s.icons.last().unwrap().kind, IconKind::App(a) if a == "firefox"));
         // Un .desktop hors des dossiers d'applications reste un fichier.
         let id = s
-            .add_dropped(std::path::Path::new("/tmp/lanceur.desktop"))
+            .add_dropped(std::path::Path::new("/tmp/lanceur.desktop"), Selector::default())
             .unwrap();
         assert!(id.starts_with("path:"));
         // Aller-retour par settings.lua.
@@ -2309,7 +2319,7 @@ mod tests {
             WallSource::Color(Rgba(1, 1, 1, 255)),
             Fit::Cover,
         );
-        new.add_app("firefox", None);
+        new.add_app("firefox", Selector::default());
         let live = new.apply_to(&base);
         let reloaded = load_chunks(
             &[

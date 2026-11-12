@@ -54,7 +54,6 @@ pub enum Msg {
     ShowOn(ShowOn),
     Mode(Mode),
     GlassOpacity(f32),
-    CloseOnLaunch(bool),
     WorkspaceMode(WsMode),
     Font(String),
     FontSize(f32),
@@ -174,11 +173,6 @@ impl App {
                 "Fichiers du dossier Bureau et Corbeille",
                 "desktop_files",
                 toggler(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v))),
-            ),
-            self.field(
-                "Fermer après un lancement",
-                "close_on_launch",
-                toggler(g.close_on_launch).on_toggle(|v| wrap(Msg::CloseOnLaunch(v))),
             ),
             self.field(
                 "Bureau resté affiché : fenêtres ouvertes flottantes et centrées",
@@ -800,10 +794,6 @@ impl App {
             Msg::GlassOpacity(v) => {
                 self.settings.glass_opacity = Some(v);
                 self.apply()
-            }
-            Msg::CloseOnLaunch(v) => {
-                self.settings.close_on_launch = Some(v);
-                self.commit()
             }
             Msg::Language(l) => {
                 self.settings.language = Some(l.to_string());

@@ -104,7 +104,7 @@ Clés par paquet :
 
 | Paquet | Clés |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `close_on_launch`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
 | `wallpaper` | `wallpaper` (image ou `#couleur`, tous les bureaux), `wallpaper.fit`, `wallpaper.span` (`on` : étalée sur tous les écrans) |

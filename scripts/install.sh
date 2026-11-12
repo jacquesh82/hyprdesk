@@ -25,6 +25,9 @@
 #   --no-lyra                ne pas installer LYRA, l'assistante IA (installée par
 #                            défaut : compilée depuis mindlog.hyprland_tools ; dépôt,
 #                            branche et dossier : HYPRDESK_LYRA_REPO, _REF, _SRC)
+#   --no-mymfa               ne pas installer myMFA, le trousseau (mots de passe,
+#                            codes 2FA ; installé par défaut si son dépôt, privé,
+#                            est accessible : HYPRDESK_MYMFA_REPO, _SRC)
 #   --verbose                sortie complète des commandes (sinon : journal)
 #
 # Étapes numérotées : contrôles préalables (arrêt avant toute modification si un
@@ -50,7 +53,9 @@ REMOVE_HYPRPAPER=0
 GREETER=ask
 OPT_DEPS=""
 LYRA=1
+MYMFA=1
 ARGC=$#
+ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
         --defaults) ;;
@@ -65,8 +70,9 @@ while [ $# -gt 0 ]; do
         --no-greeter) GREETER=no ;;
         --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
         --no-lyra) LYRA=0 ;;
+        --no-mymfa) MYMFA=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
@@ -117,6 +123,7 @@ HD_STEP_TOTAL=10
 [[ "$LOCK_KEY" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$REMOVE_HYPRPAPER" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$LYRA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
+[[ "$MYMFA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 
 # LYRA : sources, et place à prévoir pour la compiler si elle manque.
 LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
@@ -263,6 +270,86 @@ if [[ "$LYRA" == 1 ]]; then
     fi
     if ! command -v claude >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1 && ! command -v zcode >/dev/null 2>&1; then
         hd_warn "$(t "aucun abonnement trouvé (Claude Code, Codex ou Zcode) : LYRA en a besoin pour répondre" "no subscription found (Claude Code, Codex or Zcode): LYRA needs one to answer")"
+    fi
+fi
+
+# -- myMFA ---------------------------------------------------------------------------
+# Trousseau myMFA : client Linux (démon, Secret Service, module PAM) du dépôt
+# mindlog.mymfa.clients, privé : sans accès, l'étape est sautée, rien ne bloque.
+MYMFA_SRC="${HYPRDESK_MYMFA_SRC:-${XDG_DATA_HOME:-$HOME/.local/share}/hyprdesk/src/mindlog.mymfa.clients}"
+MYMFA_NEW=0
+mymfa_bin() {
+    command -v mymfa 2>/dev/null || { [[ -x "$BIN_DIR/mymfa" ]] && echo "$BIN_DIR/mymfa"; } || true
+}
+# Dossier des modules PAM de la distribution (Arch, Fedora, Debian multiarch).
+pam_dir() {
+    local d
+    for d in /usr/lib/security /usr/lib64/security "/usr/lib/$(uname -m)-linux-gnu/security" "/lib/$(uname -m)-linux-gnu/security"; do
+        [[ -f "$d/pam_unix.so" ]] && { echo "$d"; return; }
+    done
+    echo /usr/lib/security
+}
+if [[ "$MYMFA" == 1 ]]; then
+    hd_step "🔑" "myMFA, le trousseau" "myMFA, the keyring" \
+        "Mots de passe et codes 2FA dans le lanceur (:mdp, :2fa), coffre ouvert à la connexion." \
+        "Passwords and 2FA codes in the launcher (:mdp, :2fa), vault opened at login."
+    if [[ -n "$(mymfa_bin)" ]]; then
+        hd_ok "$(t "déjà installé :" "already installed:") $(mymfa_bin)"
+    else
+        MYMFA_OK=0
+        if [[ -n "${HYPRDESK_MYMFA_SRC:-}" ]] && [[ -d "$MYMFA_SRC/linux" ]]; then
+            hd_ok "$(t "sources locales :" "local sources:") $MYMFA_SRC"
+            MYMFA_OK=1
+        elif [[ -d "$MYMFA_SRC/.git" ]]; then
+            if hd_run "$(t "mise à jour des sources" "updating the sources")" git -C "$MYMFA_SRC" pull -q --ff-only; then
+                MYMFA_OK=1
+            fi
+        else
+            # Dépôt privé : la première adresse accessible (clé SSH du poste).
+            MYMFA_REPO=""
+            for r in ${HYPRDESK_MYMFA_REPO:-} git@github-lelab:lelabnet-creator/mindlog.mymfa.clients.git \
+                     git@github.com:lelabnet-creator/mindlog.mymfa.clients.git; do
+                if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" \
+                    git ls-remote --heads "$r" >/dev/null 2>&1; then
+                    MYMFA_REPO="$r"
+                    break
+                fi
+            done
+            if [[ -n "$MYMFA_REPO" ]]; then
+                mkdir -p "$(dirname "$MYMFA_SRC")"
+                if hd_run "$(t "téléchargement des sources" "downloading the sources")" \
+                    env GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -q --depth 1 "$MYMFA_REPO" "$MYMFA_SRC"; then
+                    MYMFA_OK=1
+                fi
+            else
+                hd_warn "$(t "dépôt de myMFA inaccessible (privé) : étape sautée" "myMFA repository unreachable (private): step skipped")"
+                hd_hint "$(t "avec un accès : clé SSH du dépôt, ou HYPRDESK_MYMFA_SRC=<copie locale>, puis relancer" "with access: the repository's SSH key, or HYPRDESK_MYMFA_SRC=<local copy>, then run again")"
+            fi
+        fi
+        if [[ "$MYMFA_OK" == 1 ]]; then
+            # Son propre script : compilation, binaire, unit, activation D-Bus, démon.
+            if hd_run "$(t "compilation et installation de myMFA" "building and installing myMFA")" \
+                bash "$MYMFA_SRC/linux/scripts/installer.sh"; then
+                MYMFA_NEW=1
+                hd_ok "$(t "installé :" "installed:") $BIN_DIR/mymfa"
+            else
+                hd_warn "$(t "myMFA ne s'est pas installé : le reste continue sans lui" "myMFA did not install: the rest goes on without it")"
+            fi
+        fi
+    fi
+    # Module PAM : le coffre s'ouvre à la connexion (l'écran de connexion de
+    # hyprdesk pose ses lignes dans /etc/pam.d/greetd quand il le trouve).
+    PAM_LIB="$MYMFA_SRC/linux/target/release/libpam_mymfa.so"
+    PAM_DEST="$(pam_dir)/pam_mymfa.so"
+    if [[ -n "$(mymfa_bin)" ]] && [[ -f "$PAM_LIB" ]] && ! cmp -s "$PAM_LIB" "$PAM_DEST"; then
+        if hd_sudo_ready "$(t "installer le module PAM de myMFA" "install the myMFA PAM module")" \
+            && hd_run "$(t "module PAM" "PAM module") ($PAM_DEST)" hyprdesk_root install -Dm0755 "$PAM_LIB" "$PAM_DEST"; then
+            hd_ok "$(t "coffre ouvert à la connexion (avec l'écran de connexion de hyprdesk)" "vault opened at login (with the hyprdesk login screen)")"
+        else
+            hd_warn "$(t "module PAM non installé : le coffre se déverrouillera à la main" "PAM module not installed: the vault will be unlocked by hand")"
+        fi
+    elif [[ -f "$PAM_DEST" ]]; then
+        hd_ok "$(t "module PAM en place :" "PAM module in place:") $PAM_DEST"
     fi
 fi
 
@@ -649,6 +736,11 @@ if [[ "$LYRA" == 1 ]]; then
             systemctl --user is-active hyprpanel.service
     fi
 fi
+if [[ "$MYMFA" == 1 ]] && [[ -n "$(mymfa_bin)" ]]; then
+    check 0 "myMFA, le trousseau, répond" "myMFA, the keyring, answers" \
+        "voir pourquoi : journalctl --user -u mymfa -n 50" "see why: journalctl --user -u mymfa -n 50" \
+        "$(mymfa_bin)" status
+fi
 if [[ "$GREETER" == yes ]] || greeter_ours; then
     check 0 "écran de connexion de hyprdesk (greetd)" "hyprdesk login screen (greetd)" \
         "réessayez : sudo hyprdesk greeter setup enable" "try again: sudo hyprdesk greeter setup enable" greeter_ours
@@ -696,6 +788,12 @@ fi
 if [[ "$LYRA" == 1 ]] && ! command -v claude >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1 && ! command -v zcode >/dev/null 2>&1; then
     optional "$(t "LYRA : un abonnement Claude Code, Codex ou Zcode, puis Réglages → IA" "LYRA: a Claude Code, Codex or Zcode subscription, then Settings → AI")" "npm install -g @anthropic-ai/claude-code && claude"
 fi
+if [[ "$MYMFA" == 1 ]] && [[ -n "$(mymfa_bin)" ]] && [[ "$("$(mymfa_bin)" status 2>/dev/null)" == *absent* ]]; then
+    optional "$(t "myMFA : créer le coffre, ou reprendre la sauvegarde du web" "myMFA: create the vault, or restore the web backup")" "hyprdesk settings mots-de-passe"
+fi
+if [[ "$MYMFA" == 1 ]] && [[ -z "$(mymfa_bin)" ]]; then
+    optional "$(t "myMFA : dépôt privé, à installer avec un accès (clé SSH ou HYPRDESK_MYMFA_SRC)" "myMFA: private repository, install it with access (SSH key or HYPRDESK_MYMFA_SRC)")" "./scripts/install.sh --defaults"
+fi
 optional "$(t "lignes conseillées pour hyprland.lua (raccourcis, règles)" "suggested hyprland.lua lines (shortcuts, rules)")" "hyprdesk snippet"
 
 print_list() { # print_list <élément…>
@@ -724,6 +822,12 @@ key "SUPER + D" "$(t "bureau (widgets, fond)" "desktop (widgets, wallpaper)")"
 key "SUPER + R" "$(t "lanceur d'applications" "application launcher")"
 key "SUPER + SHIFT + D" "$(t "Réglages" "Settings")"
 [[ "$LOCK_KEY" == 1 ]] && key "SUPER + L" "$(t "verrouiller" "lock")"
+
+# Pour scripts/update.sh : commit installé et options de cette installation.
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk"
+mkdir -p "$STATE_DIR"
+git rev-parse HEAD > "$STATE_DIR/installed-commit" 2>/dev/null || rm -f "$STATE_DIR/installed-commit"
+printf '%s\n' "${ORIG_ARGS[@]}" > "$STATE_DIR/install-options"
 
 # Verdict.
 if ((FAILED > 0)); then

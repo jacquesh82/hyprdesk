@@ -48,10 +48,15 @@ const HEADER: &str = "# Écrit par hyprdesk (Réglages → Écran de connexion).
 /// Repère des lignes PAM de hyprdesk : la ligne qui le suit est à lui.
 const PAM_MARK: &str = "# hyprdesk (Réglages → Écran de connexion) :";
 /// Module PAM du trousseau myMFA (client Linux, ticket MFA LIN-03).
-const MYMFA_PAM: [&str; 3] = [
+const MYMFA_PAM: [&str; 7] = [
     "/usr/lib/security/pam_mymfa.so",
     "/lib/security/pam_mymfa.so",
     "/usr/lib64/security/pam_mymfa.so",
+    // Debian, Ubuntu (multiarch).
+    "/usr/lib/x86_64-linux-gnu/security/pam_mymfa.so",
+    "/lib/x86_64-linux-gnu/security/pam_mymfa.so",
+    "/usr/lib/aarch64-linux-gnu/security/pam_mymfa.so",
+    "/lib/aarch64-linux-gnu/security/pam_mymfa.so",
 ];
 
 /// Profil de l'écran de connexion, repris des réglages de l'utilisateur.
@@ -794,6 +799,10 @@ fn install(profile: Option<&str>) -> Result<(), String> {
     ] {
         if src.is_empty() {
             let _ = std::fs::remove_file(dest);
+        } else if !Path::new(&src).is_file() && Path::new(dest).is_file() {
+            // Image d'origine retirée depuis (mise à jour, autre machine) :
+            // la copie déjà installée reste.
+            *field = dest.into();
         } else {
             install_wallpaper(&src, dest)?;
             *field = dest.into();

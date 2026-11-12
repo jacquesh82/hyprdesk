@@ -189,10 +189,14 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.advanced_settings),
         |s, v, c| { s.advanced_settings = Some(parse_bool(v)?); Ok(()) },
         |s| s.advanced_settings = None;
-    "close_on_launch", "desktop", "on | off — masquer le bureau après un lancement",
-        |c| on_off(c.general.close_on_launch),
-        |s, v, c| { s.close_on_launch = Some(parse_bool(v)?); Ok(()) },
-        |s| s.close_on_launch = None;
+    "icon_scope", "desktop", "global | screen | workspace — icônes partout, par écran ou par workspace",
+        |c| c.general.icon_scope.as_str().into(),
+        |s, v, c| { s.icon_scope = Some(choice(v, crate::config::IconScope::parse, "global, screen, workspace")?); Ok(()) },
+        |s| s.icon_scope = None;
+    "icon_double_click", "desktop", "on | off — icônes ouvertes d'un double clic (un clic : sélection)",
+        |c| on_off(c.general.icon_double_click),
+        |s, v, c| { s.icon_double_click = Some(parse_bool(v)?); Ok(()) },
+        |s| s.icon_double_click = None;
     "float_launched", "desktop", "on | off — fenêtres ouvertes depuis le bureau : flottantes",
         |c| on_off(c.general.float_launched),
         |s, v, c| { s.float_launched = Some(parse_bool(v)?); Ok(()) },

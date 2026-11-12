@@ -63,6 +63,65 @@ impl ShowOn {
     }
 }
 
+/// Portée des icônes ajoutées depuis Réglages ou déposées sur le bureau.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IconScope {
+    /// Les mêmes icônes partout.
+    #[default]
+    Global,
+    /// Chaque écran a les siennes.
+    Screen,
+    /// Chaque workspace a les siennes.
+    Workspace,
+}
+
+impl IconScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IconScope::Global => "global",
+            IconScope::Screen => "screen",
+            IconScope::Workspace => "workspace",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "global" => IconScope::Global,
+            "screen" => IconScope::Screen,
+            "workspace" => IconScope::Workspace,
+            _ => return None,
+        })
+    }
+
+    /// Filtre d'une icône des Réglages : la portée décide de la part du
+    /// sélecteur qui compte (aucune, l'écran, le workspace).
+    pub fn keeps(self, sel: &Selector, monitor: &str, workspace: &str) -> bool {
+        let ok = |list: &Option<Vec<String>>, v: &str| {
+            list.as_ref().is_none_or(|l| l.iter().any(|x| x == v))
+        };
+        match self {
+            IconScope::Global => true,
+            IconScope::Screen => ok(&sel.monitors, monitor),
+            IconScope::Workspace => ok(&sel.workspaces, workspace),
+        }
+    }
+
+    /// Sélecteur d'une icône ajoutée maintenant sur cet écran et ce workspace.
+    pub fn selector(self, monitor: &str, workspace: &str) -> Selector {
+        match self {
+            IconScope::Global => Selector::default(),
+            IconScope::Screen => Selector {
+                monitors: Some(vec![monitor.to_string()]),
+                workspaces: None,
+            },
+            IconScope::Workspace => Selector {
+                workspaces: Some(vec![workspace.to_string()]),
+                monitors: None,
+            },
+        }
+    }
+}
+
 /// Animation d'apparition du bureau.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Transition {
@@ -806,7 +865,13 @@ pub struct General {
     /// Inactivité et veille (hypridle orchestré).
     pub idle: IdleCfg,
     pub show_on: ShowOn,
+    /// Obsolète : lancer depuis le bureau ne change jamais de mode (clé lue,
+    /// sans effet).
     pub close_on_launch: bool,
+    /// Portée des icônes : globales, par écran ou par workspace.
+    pub icon_scope: IconScope,
+    /// Icônes ouvertes d'un double clic (un clic : sélection) ; sinon un clic.
+    pub icon_double_click: bool,
     /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
     pub advanced_settings: bool,
     /// Visite guidée faite ou écartée : plus proposée à l'ouverture des Réglages.
@@ -894,6 +959,8 @@ impl Default for General {
             idle: IdleCfg::default(),
             show_on: ShowOn::All,
             close_on_launch: true,
+            icon_scope: IconScope::Global,
+            icon_double_click: true,
             advanced_settings: false,
             tour_seen: false,
             app_themes: Default::default(),

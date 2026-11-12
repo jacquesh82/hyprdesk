@@ -105,6 +105,12 @@ of `hyprland.lua`, turned off or back on by commenting them (the lines that
 prepare the session stay locked; `hyprland.lua` is backed up first), and the
 XDG applications (`~/.config/autostart`). "Run" tries a command right away.
 
+**Desktop icons** (Desktop → Icons) are global, per screen or per workspace;
+one click selects, a double click opens (or a single click, as you prefer),
+and a right click offers open, pin to the dock, rename, remove from the
+desktop (plus parent folder, trash, copy path and wallpaper for files).
+Launching from the desktop, Alt+Tab or Escape never change the desktop mode.
+
 <table>
   <tr>
     <td width="50%" valign="top"><img src="assets/screenshots/settings-desktop.png" alt="Settings → Desktop"><br><sub><b>Desktop</b> — screens shown, desktop mode, shortcuts and their conflicts with hyprland.lua</sub></td>
@@ -242,12 +248,20 @@ what is missing; `--no-deps` skips it all.
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
 ./scripts/install.sh      # guided install: language, keyboard, options, then a verified report
+./scripts/update.sh       # update: what changed (hyprdesk, LYRA, myMFA), then apply it (--check: report only)
 ```
 
 Run without options in a terminal, the script opens the setup assistant
 (whiptail if present, otherwise questions in the terminal). With options, or
 without a terminal, it installs straight away (`--defaults` for the default
-choices; `./scripts/install.sh --help`). The assistant asks for the language, then checks the basics before changing
+choices; `./scripts/install.sh --help`). The install also builds LYRA and installs the myMFA keyring (Linux client,
+daemon, PAM module that opens the vault at login) when its repository,
+which is private, is reachable (the machine's SSH key, or
+`HYPRDESK_MYMFA_SRC`); otherwise the step is skipped without blocking
+anything (`--no-lyra`, `--no-mymfa`). Settings → Application theme applies
+the hyprdesk theme to kitty and Thunar (Thunar only, not other GTK apps); each
+application's files and reload command are configurable, and a failure can be
+handed to LYRA. The assistant asks for the language, then checks the basics before changing
 anything, and stops with what to do if one fails: not run as root, x86_64 or
 aarch64, systemd user manager, Hyprland 0.57 or newer (installed and running;
 if it is older, it offers to update it, then you log back in), a known package

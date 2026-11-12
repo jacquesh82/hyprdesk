@@ -64,6 +64,8 @@ use panel::{Panel, PanelMsg};
 
 const NAMESPACE: &str = "hyprdesk";
 const DRAG_THRESHOLD: f32 = 6.0;
+/// Deux clics sur la même icône dans ce délai : double clic.
+const DOUBLE_CLICK: Duration = Duration::from_millis(450);
 /// Icônes de l'interface, dans l'ordre de `App::ui_imgs` : commandes média, puis réglages.
 const UI_ICONS: [&str; 10] = [
     "media-skip-backward",
@@ -348,6 +350,8 @@ pub struct App {
     widget_generation: u64,
     layout: Layout,
     selected: Option<(Id, usize)>,
+    /// Dernier clic sur une icône (surface, icône, instant) : double clic.
+    last_click: Option<(Id, usize, Instant)>,
     hovered: Option<(Id, usize)>,
     cursor: HashMap<Id, Point>,
     drag: Option<Drag>,
@@ -706,6 +710,7 @@ impl App {
             widget_generation: 0,
             layout: Layout::load(),
             selected: None,
+            last_click: None,
             hovered: None,
             cursor: HashMap::new(),
             drag: None,
@@ -983,6 +988,8 @@ impl App {
         tasks.push(self.sync_lyra_drawer());
         // Thème appliqué aux autres applications (kitty…), à chaque changement.
         if plugins::apptheme::effective(&old) != plugins::apptheme::effective(&self.cfg)
+            || (crate::apptheme::options(&old.general) != crate::apptheme::options(&self.cfg.general)
+                && !plugins::apptheme::effective(&self.cfg).is_empty())
             || (old.general.theme != self.cfg.general.theme
                 && !plugins::apptheme::effective(&self.cfg).is_empty())
         {
@@ -2568,14 +2575,9 @@ impl App {
         let Some(r) = self.icons.get(idx) else {
             return Task::none();
         };
+        // Le bureau reste dans son mode : lancer n'en change jamais.
         let cmd = r.command.clone();
-        let stays = !self.cfg.general.close_on_launch;
-        let t = self.run_from_desktop(cmd, stays);
-        if stays {
-            t
-        } else {
-            Task::batch([t, self.hide()])
-        }
+        self.run_from_desktop(cmd, true)
     }
 
     /// Lance une commande depuis le bureau. S'il reste affiché, la fenêtre
@@ -2690,7 +2692,11 @@ impl App {
                 if !self.surfaces.contains_key(&win) || !self.cfg.plugin_on("icons") {
                     return Task::none();
                 }
-                let Some(id) = self.settings.add_dropped(&path) else {
+                let sel = self
+                    .monitor(win)
+                    .map(|m| self.cfg.general.icon_scope.selector(&m.name, &m.workspace))
+                    .unwrap_or_default();
+                let Some(id) = self.settings.add_dropped(&path, sel) else {
                     return Task::none();
                 };
                 tracing::info!(
@@ -3830,8 +3836,26 @@ impl App {
                     self.drop_icon(d.win, d.icon);
                     Task::none()
                 }
-                Some(d) => self.launch(d.icon),
-                None => Task::none(),
+                // Comme sur un bureau classique : un clic sélectionne, un
+                // double clic ouvre (ou un clic, selon `icon_double_click`).
+                Some(d) => {
+                    let now = Instant::now();
+                    let double = self.last_click.is_some_and(|(w, i, at)| {
+                        w == d.win && i == d.icon && now.duration_since(at) < DOUBLE_CLICK
+                    });
+                    if !self.cfg.general.icon_double_click || double {
+                        self.last_click = None;
+                        self.launch(d.icon)
+                    } else {
+                        self.last_click = Some((d.win, d.icon, now));
+                        Task::none()
+                    }
+                }
+                // Clic ailleurs que sur une icône : plus de sélection.
+                None => {
+                    self.selected = None;
+                    Task::none()
+                }
             },
             Msg::Key(id, key) => {
                 // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt » ; Tab
@@ -3908,7 +3932,9 @@ impl App {
                     if self.chat_shown() {
                         return self.close_chat();
                     }
-                    return self.hide();
+                    // Échap ne change pas de mode : il retire la sélection.
+                    self.selected = None;
+                    return Task::none();
                 }
                 // Le panneau a ses propres champs de saisie : pas de navigation
                 // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
@@ -4691,10 +4717,11 @@ mod regression_tests {
         assert_eq!(app.mode(), DesktopMode::FullDesktop, "fenêtre du bureau");
         open(&mut app, vec![w("0x1", true)]);
         let _ = app.switcher_commit();
+        // Aucun changement de mode demandé : le bureau reste affiché.
         assert_eq!(
             app.mode(),
-            DesktopMode::NoDesktop,
-            "fenêtre cachée : bureau masqué"
+            DesktopMode::FullDesktop,
+            "fenêtre hors du bureau : le mode ne change pas"
         );
     }
 

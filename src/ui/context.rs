@@ -1,7 +1,9 @@
 //! Menu contextuel des icônes du bureau (MLG-19) : clic droit sur une icône.
-//! Ouvrir ; pour un fichier ou un dossier : ouvrir le dossier parent,
-//! renommer, mettre à la corbeille (`gio trash`, spécification freedesktop
-//! de la corbeille), copier le chemin ; réglages du bureau. Une carte du
+//! Ouvrir ; application : épingler au dock (ou l'en retirer) ; pour un
+//! fichier ou un dossier : ouvrir le dossier parent, renommer, mettre à la
+//! corbeille (`gio trash`, spécification freedesktop de la corbeille),
+//! copier le chemin ; icône ajoutée dans les Réglages : renommer, retirer du
+//! bureau (le fichier reste) ; réglages des icônes. Une carte du
 //! thème au curseur, un capteur plein écran : un clic à côté ou Échap ferme.
 
 use std::path::{Path, PathBuf};
@@ -27,6 +29,11 @@ pub struct IconMenu {
     pub icon: usize,
     /// Fichier ou dossier de l'icône (sinon : application ou commande).
     pub path: Option<PathBuf>,
+    /// Application (`.desktop`) de l'icône.
+    pub app: Option<String>,
+    /// Rang de l'icône parmi celles des Réglages (sinon : hyprdesk.lua,
+    /// dossier Bureau…, qu'on ne retire ni ne renomme d'ici).
+    pub own: Option<usize>,
     /// Renommage en cours : le nom saisi.
     pub rename: Option<String>,
     /// « Mettre à la corbeille » cliqué une fois : attend la confirmation.
@@ -45,6 +52,10 @@ pub enum CMsg {
     CopyPath,
     /// Image : fond d'écran de tous les bureaux.
     Wallpaper,
+    /// Application : épinglée au dock, ou retirée.
+    Pin,
+    /// Icône des Réglages : retirée du bureau (le fichier, lui, reste).
+    Remove,
     Settings,
     Close,
     Done(Result<(), String>),
@@ -104,6 +115,18 @@ impl App {
     /// Entrées du menu pour l'icône (libellés, messages).
     fn icon_menu_entries(&self, m: &IconMenu) -> Vec<(&'static str, CMsg)> {
         let mut v = vec![("Ouvrir", CMsg::Open)];
+        if let Some(a) = &m.app
+            && self.cfg.plugin_on("launcher")
+        {
+            v.push(if self.pinned().contains(a) {
+                ("Retirer du dock", CMsg::Pin)
+            } else {
+                ("Épingler au dock", CMsg::Pin)
+            });
+        }
+        if m.path.is_none() && m.own.is_some() {
+            v.push(("Renommer…", CMsg::Rename));
+        }
         if m.path.is_some() {
             v.push(("Ouvrir le dossier", CMsg::OpenFolder));
             v.push(("Renommer…", CMsg::Rename));
@@ -117,8 +140,19 @@ impl App {
                 v.push(("Définir comme fond d'écran", CMsg::Wallpaper));
             }
         }
-        v.push(("Réglages du bureau…", CMsg::Settings));
+        if m.own.is_some() {
+            v.push(("Retirer du bureau", CMsg::Remove));
+        }
+        v.push(("Réglages des icônes…", CMsg::Settings));
         v
+    }
+
+    /// Applications épinglées au dock (réglage en cours, sinon la config).
+    fn pinned(&self) -> Vec<String> {
+        self.settings
+            .launcher_pinned
+            .clone()
+            .unwrap_or_else(|| self.cfg.general.launcher.pinned.clone())
     }
 
     fn icon_menu_height(&self, m: &IconMenu) -> f32 {
@@ -139,6 +173,15 @@ impl App {
             IconKind::Path(p) => Some(p.clone()),
             _ => None,
         };
+        let app = match &def.kind {
+            IconKind::App(a) => Some(a.clone()),
+            _ => None,
+        };
+        let own = self
+            .settings
+            .icons
+            .iter()
+            .position(|i| i.id == def.id && i.sel == def.sel);
         let at = self
             .cursor
             .get(&desk)
@@ -151,6 +194,8 @@ impl App {
             catcher,
             icon: idx,
             path,
+            app,
+            own,
             rename: None,
             confirm: false,
             error: None,
@@ -207,6 +252,7 @@ impl App {
         };
         let path = menu.path.clone();
         let idx = menu.icon;
+        let own = menu.own;
         match m {
             CMsg::Open => {
                 let close = self.close_icon_menu();
@@ -231,11 +277,16 @@ impl App {
                 Task::batch([close, open])
             }
             CMsg::Rename => {
+                // Fichier : son nom ; autre icône : son libellé affiché.
+                let label = self.icons.get(idx).map(|r| r.label.clone()).unwrap_or_default();
+                let Some(menu) = self.icon_menu.as_mut() else {
+                    return Task::none();
+                };
                 menu.rename = Some(
                     path.as_deref()
                         .and_then(Path::file_name)
                         .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
+                        .unwrap_or(label),
                 );
                 menu.confirm = false;
                 iced::widget::operation::focus(INPUT_ID)
@@ -246,6 +297,18 @@ impl App {
                 Task::none()
             }
             CMsg::RenameSubmit => {
+                // Icône des Réglages (application, commande) : son libellé.
+                if path.is_none() {
+                    let (Some(i), Some(name)) = (own, menu.rename.clone()) else {
+                        return Task::none();
+                    };
+                    let name = name.trim().to_string();
+                    if let Some(ic) = self.settings.icons.get_mut(i) {
+                        ic.label = (!name.is_empty()).then_some(name);
+                    }
+                    let close = self.close_icon_menu();
+                    return Task::batch([close, self.commit()]);
+                }
                 let (Some(p), Some(name)) = (path, menu.rename.clone()) else {
                     return Task::none();
                 };
@@ -304,12 +367,38 @@ impl App {
                     .set_wallpaper(sel, crate::config::WallSource::Path(p), fit);
                 Task::batch([close, self.commit()])
             }
+            CMsg::Pin => {
+                let close = self.close_icon_menu();
+                let Some(a) = self.cfg.icons.get(idx).and_then(|d| match &d.kind {
+                    IconKind::App(a) => Some(a.clone()),
+                    _ => None,
+                }) else {
+                    return close;
+                };
+                let mut l = self.pinned();
+                if let Some(at) = l.iter().position(|x| x == &a) {
+                    l.remove(at);
+                } else {
+                    l.push(a);
+                }
+                self.settings.launcher_pinned = Some(l);
+                Task::batch([close, self.commit()])
+            }
+            CMsg::Remove => {
+                let close = self.close_icon_menu();
+                let Some(i) = own else {
+                    return close;
+                };
+                self.settings.remove_icon(i);
+                self.selected = None;
+                Task::batch([close, self.commit()])
+            }
             CMsg::Settings => {
                 let close = self.close_icon_menu();
                 Task::batch([
                     close,
                     Task::done(Msg::Control(super::control::Command::Settings(
-                        "desktop".into(),
+                        "icons".into(),
                     ))),
                 ])
             }

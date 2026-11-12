@@ -23,7 +23,8 @@ hd.config({
     -- transition      = "fade",     -- "fade", "slide", "none"
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
-    -- close_on_launch = true,
+    -- icon_scope      = "global",   -- icônes : "global", "screen" (par écran) ou "workspace"
+    -- icon_double_click = true,    -- double clic pour ouvrir (un clic sélectionne)
     -- icon_theme      = "Papirus-Dark",
     -- font            = "Mindlog",   -- police embarquée par défaut, ou une famille installée
     -- font_size       = 14,

@@ -36,6 +36,8 @@
 ---@field launcher_group? "none"|"app"|"workspace" # launcher: one entry per window, per application, or per workspace
 ---@field primary? string|false # primary screen (connector, e.g. "DP-1"): anchored at 0×0, desktop/bar/settings
 ---@field close_on_launch? boolean
+---@field icon_scope? "global"|"screen"|"workspace"
+---@field icon_double_click? boolean
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" by default (embedded), or an installed family
 ---@field font_size? number

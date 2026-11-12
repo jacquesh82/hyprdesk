@@ -134,6 +134,16 @@ impl App {
                     .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
                     .into()
             };
+            // Paquet configurable : « Configurer » ouvre sa page de réglages.
+            let configure: Element<'_, UiMsg> = if info.id == crate::apptheme::PLUGIN && on {
+                button(text("Configurer").font(self.font).size(12))
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(UiMsg::Control(crate::control::Command::Settings(info.id.into())))
+                    .into()
+            } else {
+                iced::widget::Space::new().into()
+            };
             packages = packages.push(
                 row![
                     column![
@@ -155,6 +165,7 @@ impl App {
                     ]
                     .spacing(3)
                     .width(Length::Fill),
+                    configure,
                     switch,
                 ]
                 .spacing(12)
