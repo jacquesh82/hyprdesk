@@ -120,7 +120,7 @@ Keys per package:
 | `theme` | `theme.preset` (shipped theme), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (places: `bar`, `menus`, `launcher`, `settings`, `widgets` — no blur) |
 | `launcher` (appearance) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<rôle>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
-| `assistant` | `assistant_mode` (`window`, `terminal`) |
+| `assistant` | `assistant_mode` (`window`, `terminal`), `ai_services`, `ai_use` |
 | `plugins` | `plugin.<id>` (`on` / `off`) |
 
 The screen layout (position, rotation, mode) stays in the Settings
@@ -196,9 +196,10 @@ each CLI key points to an existing package.
 | `layouts` | Layouts | default and per-workspace layout, Dwindle, Master, Scrolling options, custom layouts (`lua:<name>`), each layout's shortcuts | `tiling.rs` |
 | `effects` | Effects | transitions, crossfade between wallpapers | `config::General` |
 | `apps` | Applications | default applications (browser, terminal, files, editor, images, video, audio, PDF, mail, AI), applied to the system (`xdg-mime`); only installed applications are offered (`TryExec` / `Exec` program present), recognized by the role's file type or by their freedesktop category (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`); a choice that has gone missing is flagged “not installed” | `apps.rs` |
-| `assistant` | AI assistant | LYRA (mindlog.hyprland_tools) with Claude Code, Codex or Zcode, and hyprdesk's context | `assistant.rs` |
+| `assistant` | AI | tabs Assistant (LYRA, mindlog.hyprland_tools, with Claude Code, Codex or Zcode, and hyprdesk's context), Other AI services (providers, the provider of each feature, keys in the keyring) and SmartUI design (icons redrawn by AI, `hyprdesk-smartui` theme, automatic generation) | `assistant.rs`, `ai_services.rs`, `smartui.rs` |
 | `share` | Sharing | export / import of a setup or of the theme alone (archive) | `share.rs` |
 | `plugins` | Plugins | state and activation of packages, Lua plugins: active, third-party, adding, removing | `widgets/plugins.rs` |
+| `about` | About | version, system, Hyprland, LYRA, configuration files, dependencies, SmartUI theme; copy for a bug report | `doctor.rs` |
 
 The **domain** (model, Lua, Hyprland rules, `monitors.lua`) does not depend on
 the UI. The package bridges the two. This is what will later make it

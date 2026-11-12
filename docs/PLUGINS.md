@@ -194,9 +194,10 @@ chaque clé CLI pointe vers un paquet existant.
 | `layouts` | Layouts | layout par défaut et par workspace, options de Dwindle, Master, Scrolling, layouts personnalisés (`lua:<nom>`), raccourcis de chaque layout | `tiling.rs` |
 | `effects` | Effets | transitions, fondu entre fonds | `config::General` |
 | `apps` | Applications | applications par défaut (navigateur, terminal, fichiers, éditeur, images, vidéo, audio, PDF, mail, IA), appliquées au système (`xdg-mime`) ; seules les applications installées sont proposées (programme de `TryExec` / `Exec` présent), reconnues au type de fichier du rôle ou à leur catégorie freedesktop (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`), un choix devenu absent est signalé « non installée » | `apps.rs` |
-| `assistant` | Assistant IA | LYRA (mindlog.hyprland_tools) avec Claude Code, Codex ou Zcode, et le contexte de hyprdesk | `assistant.rs` |
+| `assistant` | IA | onglets Assistant (LYRA, mindlog.hyprland_tools, avec Claude Code, Codex ou Zcode, et le contexte de hyprdesk), Autres services IA (fournisseurs, fournisseur de chaque fonction, clés au trousseau) et SmartUI design (icônes redessinées par l'IA, thème `hyprdesk-smartui`, génération automatique) | `assistant.rs`, `ai_services.rs`, `smartui.rs` |
 | `share` | Partage | export / import d'un setup ou du thème seul (archive) | `share.rs` |
 | `plugins` | Plugins | état et activation des paquets, plugins Lua : actifs, tiers, ajout, retrait | `widgets/plugins.rs` |
+| `about` | À propos | version, système, Hyprland, LYRA, fichiers de configuration, dépendances, thème SmartUI ; copie pour un rapport de bogue | `doctor.rs` |
 
 Le **domaine** (modèle, Lua, règles Hyprland, `monitors.lua`) ne dépend pas de
 l'interface. Le paquet fait le lien entre les deux. C'est ce qui permettra plus

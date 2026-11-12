@@ -6,8 +6,8 @@
 ![Hyprland](https://img.shields.io/badge/Hyprland-%E2%89%A5%200.57-58e1ff)
 ![Rust](https://img.shields.io/badge/Rust-%E2%89%A5%201.99-dea584)
 
-**An on-demand desktop for [Hyprland](https://hyprland.org), and a simple way
-to configure it, live.**
+**An on-demand desktop for [Hyprland](https://hyprland.org), a simple way
+to configure it live, and LYRA, the AI built right into the desktop.**
 
 With tiling, windows cover the whole screen and the desktop disappears.
 hyprdesk brings it back with a single key: wallpaper, icons and widgets,
@@ -20,12 +20,29 @@ passwords with the myMFA keyring)
 without editing config files by hand. **Every change applies live**, with no reload and no
 restart.
 
+And it ships with **LYRA, an AI that lives in your desktop**. One click on the
+dock opens her drawer: she already knows your screens, workspaces, shortcuts
+and settings, explains what is going on, and fixes it with you. She shows
+every command and every change before anything happens. LYRA runs on the
+subscription you already have (Claude Code, Codex or Zcode): no API key to
+manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
+
 <p align="center">
   <img src="assets/screenshots/desktop.png" width="880" alt="hyprdesk desktop: bar on top, icon column, clock, calendar and system widgets, dock at the bottom">
 </p>
 
 ## Features
 
+- **LYRA, the built-in AI.** A chat drawer one click away on the dock, that
+  knows your whole setup. It explains, proposes changes with a live preview
+  and runs nothing until you accept. "Ask LYRA" buttons sit wherever
+  something needs sorting out (shortcut conflicts, a service held by another
+  program, a failed update…). LYRA also powers hyprdesk's other AI features,
+  such as SmartUI design.
+- **SmartUI design.** Your app icons redrawn by the AI in one consistent
+  style (iOS/macOS-like by default, or your own prompt). They form a real
+  icon theme, used everywhere: dock, desktop, `SUPER + R`, bar and
+  notifications. New apps get their icon automatically.
 - **Hyprland made simple, applied live.** One settings drawer handles screens
   (position, rotation, scale, refresh rate), keyboard (layouts and variants,
   key repeat, Num Lock, with a test area), mouse and touchpad (speed,
@@ -43,7 +60,8 @@ restart.
 - **Wallpapers for each workspace and screen**, with crossfades and
   slideshows. hyprdesk replaces hyprpaper.
 - **A bar and a dock.** Workspaces, tray, volume, brightness and any plugin.
-  You rearrange bar modules by dragging them.
+  You rearrange bar modules by dragging them. The dock's Apps, LYRA and
+  Settings buttons open and close with one click, and light up while open.
 - **One app launcher** (`SUPER + R`, in every mode). On the full desktop it opens as a
   large sheet with categories. In the other modes it opens as a centered
   search card. The fuzzy search finds Firefox when you type "ffx". Your most
@@ -63,11 +81,80 @@ restart.
 - **Session essentials.** Lock screen (with fingerprint support), greetd login
   screen, polkit agent, notifications with history and Do Not Disturb,
   screenshots and screen recording, clipboard history, pending updates.
-- **AI assistant (optional).** A chat drawer that already knows your setup.
-  It proposes changes with a live preview, and nothing runs until you accept.
-  It is powered by **LYRA**, from
-  [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools):
-  bring your own Claude Code, Codex or Zcode subscription.
+
+## Settings
+
+The gear on the dock, `SUPER + SHIFT + D` or `hyprdesk settings <page>` opens
+the settings drawer on the right of the screen, over the desktop, which stays
+usable next to it. Pages are grouped (Desktop, Appearance, Bar and launcher,
+Windows and screens, System, Apps and AI); every change **applies live and
+saves on its own**. The header has a guided tour and an "Advanced
+configuration" switch that reveals the expert pages. "Ask LYRA" buttons appear
+wherever something needs sorting out.
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-desktop.png" alt="Settings → Desktop"><br><sub><b>Desktop</b> — screens shown, desktop mode, shortcuts and their conflicts with hyprland.lua</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-launcher.png" alt="Settings → Launcher"><br><sub><b>Launcher</b> — dock windows, grouping, look, pinned apps, SmartUI icons</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/screens.png" alt="Settings → Screens"><br><sub><b>Screens</b> — layout on a scaled plan, mode, rotation, scale; reverts after 12 s unless kept</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-input.png" alt="Settings → Keyboard and mouse"><br><sub><b>Keyboard and mouse</b> — layouts and variants, key repeat, touchpad, test area</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/layouts.png" alt="Settings → Layouts"><br><sub><b>Layouts</b> — Dwindle, Master, Scrolling, Monocle, per workspace</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-animations.png" alt="Settings → Animations"><br><sub><b>Animations</b> — Hyprland animations and effects, live</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/theme.png" alt="Settings → Theme"><br><sub><b>Theme</b> — bundled themes, themes built from an image, colors and effects</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/assistant-settings.png" alt="Settings → AI → Assistant"><br><sub><b>AI → Assistant</b> — LYRA, her subscription and what she knows</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-ai-services.png" alt="Settings → AI → Other AI services"><br><sub><b>AI → Other AI services</b> — providers and the provider of each feature; keys in the keyring</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-smartui.png" alt="Settings → AI → SmartUI design"><br><sub><b>AI → SmartUI design</b> — icons redrawn by AI, approved or generated automatically</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-about.png" alt="Settings → About"><br><sub><b>About</b> — version, system, Hyprland, LYRA; copy for a bug report</sub></td>
+  </tr>
+</table>
+
+## LYRA, the AI in your desktop
+
+LYRA is the assistant of the Linux desktop: hyprdesk embeds her and gives her
+everything she needs to help.
+
+- **One click away.** The LYRA button of the dock (or `hyprdesk assistant`)
+  opens her drawer next to your windows, without changing the desktop mode;
+  the same click closes it. Several conversations can run side by side.
+- **She knows your desktop.** hyprdesk describes its whole environment to her
+  (modes, settings, apps, screens, workspaces, widgets, files, commands):
+  `hyprdesk context` prints exactly what she receives.
+- **Nothing happens behind your back.** Answers come as typed cards: tool runs
+  with their result, commands to accept or refuse with their reason and risk,
+  and choices with a live preview that is only kept once you accept.
+- **Help where you need it.** "Ask LYRA" buttons in Settings open a
+  conversation already filled with the problem: a shortcut conflict, a
+  service held by another program, a locked keyring, a failed update.
+  `hyprdesk ask <title> <text>` does the same from a script.
+- **Your subscription, no API key.** LYRA works with Claude Code, Codex or
+  Zcode, picked in Settings → AI → Assistant.
+- **The AI for the whole desktop.** Other AI features go through LYRA by
+  default. Settings → AI → Other AI services also lets you add providers
+  (Anthropic, OpenAI, Z.ai, any OpenAI-compatible endpoint such as Ollama) and
+  choose one per feature; API keys stay in the session keyring, never in a
+  config file.
+- **SmartUI design** (Settings → AI → SmartUI design): app icons redrawn by
+  the AI in one style. Approved icons form the `hyprdesk-smartui` icon theme
+  (in `~/.local/share/icons`, inheriting your theme), used everywhere in
+  hyprdesk. Automatic generation is on by default when LYRA is installed.
+
+<p align="center">
+  <img src="assets/screenshots/assistant-chat.png" width="760" alt="LYRA's drawer: a suggestion with live preview, and an hyprctl command to accept or refuse">
+</p>
+
+LYRA herself (`hyprpanel-chat`) comes from
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
+Without her, hyprdesk works the same; only the AI features stay off.
 
 ## Widgets and plugins
 
@@ -170,6 +257,8 @@ soon as you save them. If you make a mistake, a notification points to
 - [Plugins, widgets and the launcher](docs/PLUGINS.en.md): internal design
 - `hyprdesk --help` lists every command
 - `hyprdesk doctor` shows which optional dependencies are present or missing
+- Settings → About shows the version, the system, Hyprland and LYRA, and
+  copies them for a bug report
 
 ## Credits
 
@@ -177,8 +266,8 @@ soon as you save them. If you make a mistake, a notification points to
   you see everywhere in hyprdesk. It comes bundled, so it works out of the
   box, and it is under [SIL OFL 1.1](assets/fonts/mindlog/OFL.txt).
 - **[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)**:
-  home of LYRA, the AI assistant, and of `hyprpanel-core`, the Hyprland IPC
-  that hyprdesk is built on.
+  home of LYRA, the AI built into hyprdesk, and of `hyprpanel-core`, the
+  Hyprland IPC that hyprdesk is built on.
 
 ## License
 

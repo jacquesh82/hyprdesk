@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9733F"/>
+      <stop offset="0.55" stop-color="#9C4A22"/>
+      <stop offset="1" stop-color="#6E2C12"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.6">
+      <stop offset="0" stop-color="#FFD2A8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFD2A8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spec" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FBE3CE"/>
+    </linearGradient>
+    <linearGradient id="glyphHi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.4" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="prompt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7A3416"/>
+      <stop offset="1" stop-color="#4E1E0A"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="20"/>
+      <feOffset dy="18" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.32"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <clipPath id="sq">
+      <path d="M512,0 C816,0 900,0 962,62 C1024,124 1024,208 1024,512 C1024,816 1024,900 962,962 C900,1024 816,1024 512,1024 C208,1024 124,1024 62,962 C0,900 0,816 0,512 C0,208 0,124 62,62 C124,0 208,0 512,0 Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <ellipse cx="512" cy="40" rx="470" ry="150" fill="url(#spec)" filter="url(#soft)"/>
+    <g filter="url(#shadow)">
+      <path d="M300,300 C300,262 336,244 366,264 L452,326 C472,320 492,318 512,318 C532,318 552,320 572,326 L658,264 C688,244 724,262 724,300 L728,440 C770,490 792,550 792,610 C792,730 670,800 512,800 C354,800 232,730 232,610 C232,550 254,490 296,440 Z" fill="url(#glyph)" stroke="url(#glyph)" stroke-width="28" stroke-linejoin="round"/>
+    </g>
+    <path d="M300,300 C300,262 336,244 366,264 L452,326 C472,320 492,318 512,318 C532,318 552,320 572,326 L658,264 C688,244 724,262 724,300 L728,440 C770,490 792,550 792,610 C792,730 670,800 512,800 C354,800 232,730 232,610 C232,550 254,490 296,440 Z" fill="url(#glyphHi)" opacity="0.6"/>
+    <g fill="none" stroke="url(#prompt)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M400,520 L468,578 L400,636"/>
+      <path d="M512,646 L622,646"/>
+    </g>
+    <path d="M512,1.5 C816,1.5 899,1.5 961,63 C1022.5,125 1022.5,208 1022.5,512" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="3"/>
+    <path d="M512,1.5 C208,1.5 125,1.5 63,63 C1.5,125 1.5,208 1.5,512" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="3"/>
+  </g>
+</svg>

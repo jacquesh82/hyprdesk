@@ -51,6 +51,19 @@ pub enum Msg {
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
+/// Chemin affiché, le dossier personnel abrégé en `~` (rien de personnel
+/// dans une capture ou un rapport de bogue).
+fn tilde(p: impl AsRef<std::path::Path>) -> String {
+    let p = p.as_ref();
+    match std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        Some(h) if !h.as_os_str().is_empty() => match p.strip_prefix(&h) {
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => p.display().to_string(),
+        },
+        _ => p.display().to_string(),
+    }
+}
+
 pub fn load() -> Task<UiMsg> {
     Task::perform(
         async { tokio::task::spawn_blocking(facts).await.unwrap_or_default() },
@@ -94,7 +107,7 @@ fn facts() -> Facts {
         os,
         kernel,
         hyprland,
-        lyra: crate::assistant::lyra().map(|p| p.display().to_string()),
+        lyra: crate::assistant::lyra().map(tilde),
         deps,
         smartui_icons,
     }
@@ -138,9 +151,9 @@ impl App {
             format!(
                 "{} : {}",
                 crate::i18n::tr("Configuration"),
-                self.config_path.display()
+                tilde(&self.config_path)
             ),
-            format!("{} : {}", crate::i18n::tr("Réglages"), settings.display()),
+            format!("{} : {}", crate::i18n::tr("Réglages"), tilde(&settings)),
             crate::tr!(
                 "Dépendances : {n}/{m} présentes",
                 n = f.deps.0.to_string(),
@@ -149,7 +162,7 @@ impl App {
             crate::tr!(
                 "Thème SmartUI : {n} icône(s), {dir}",
                 n = f.smartui_icons.to_string(),
-                dir = crate::smartui::theme_dir().display().to_string()
+                dir = tilde(crate::smartui::theme_dir())
             ),
         ]
         .join("\n")

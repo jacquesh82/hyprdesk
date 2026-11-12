@@ -217,11 +217,17 @@ fn migrate(old: PathBuf) {
 /// Icône SmartUI d'un nom d'icône, quand l'option est active (recherche de
 /// hyprdesk, `launch::lookup_icon`).
 pub fn themed(name: &str) -> Option<PathBuf> {
-    if !enabled() || BYPASS.with(Cell::get) || name.is_empty() {
+    // Icônes symboliques (monochromes, de barre) : jamais remplacées.
+    if !enabled() || BYPASS.with(Cell::get) || name.is_empty() || is_symbolic(name) {
         return None;
     }
     let p = valid_path(&key_of(name));
     p.is_file().then_some(p)
+}
+
+/// Nom d'icône symbolique (`…-symbolic`) : hors de SmartUI.
+pub fn is_symbolic(name: &str) -> bool {
+    key_of(name).ends_with("-symbolic")
 }
 
 /// Icône d'origine d'une application (celle du thème choisi, jamais SmartUI).
@@ -460,6 +466,8 @@ mod tests {
         assert_eq!(themed("kitty"), validated("kitty"));
         assert_eq!(themed("/opt/kitty/kitty.png"), validated("kitty"));
         assert!(themed("firefox").is_none());
+        std::fs::write(apps_dir().join("audio-volume-high-symbolic.svg"), "<svg/>").unwrap();
+        assert!(themed("audio-volume-high-symbolic").is_none(), "symbolique");
         configure(false, None);
         assert!(themed("kitty").is_none(), "option coupée");
         let _ = std::fs::remove_dir_all(&d);

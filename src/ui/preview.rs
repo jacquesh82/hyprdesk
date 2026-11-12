@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 66] = [
+const SCENES: [&str; 69] = [
     "desktop",
     "typography",
     "icons",
@@ -90,6 +90,9 @@ const SCENES: [&str; 66] = [
     "mymfa-fenetre",
     "mymfa-mots-de-passe",
     "mymfa-activite",
+    "ia-services",
+    "smartui",
+    "a-propos",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -532,6 +535,8 @@ impl Preview {
             "clavier-souris" => Some("input"),
             "ecran-connexion" => Some("login"),
             "mots-de-passe" => Some("passwords"),
+            "ia-services" | "smartui" => Some("assistant"),
+            "a-propos" => Some("about"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -865,6 +870,44 @@ impl Preview {
                 crate::tiling::OptValue::Num(12.0),
             );
         }
+        // IA → Assistant : l'abonnement Claude Code choisi.
+        if SCENES[self.scene] == "assistant" {
+            Arc::make_mut(&mut self.app.cfg)
+                .general
+                .apps
+                .insert("ai".into(), "claude".into());
+        }
+        // IA : deux fournisseurs ajoutés, SmartUI par LYRA (par défaut).
+        if matches!(SCENES[self.scene], "ia-services" | "smartui") {
+            use crate::ai_services::{Provider, Service};
+            let g = &mut Arc::make_mut(&mut self.app.cfg).general;
+            g.ai.services = vec![
+                Service {
+                    id: "anthropic".into(),
+                    name: "Claude (perso)".into(),
+                    kind: Provider::Anthropic,
+                    endpoint: String::new(),
+                    model: String::new(),
+                },
+                Service {
+                    id: "compatible".into(),
+                    name: "Ollama (ce poste)".into(),
+                    kind: Provider::Compatible,
+                    endpoint: String::new(),
+                    model: "qwen2.5-vl".into(),
+                },
+            ];
+            g.launcher.smartui = true;
+            g.launcher.smartui_auto = Some(true);
+            self.app.subtabs.insert(
+                "assistant",
+                if SCENES[self.scene] == "smartui" {
+                    "smartui"
+                } else {
+                    "services"
+                },
+            );
+        }
         if SCENES[self.scene] == "veille" {
             self.app.subtabs.insert("lock", "veille");
             Arc::make_mut(&mut self.app.cfg).general.idle.manage = true;
@@ -911,6 +954,75 @@ impl Preview {
                 variants,
                 ..Default::default()
             };
+        }
+        // IA → Assistant : LYRA installée, service actif (l'aperçu ne sonde rien).
+        if SCENES[self.scene] == "assistant"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.assistant.status = Some(super::plugins::assistant::Status {
+                installed: true,
+                service: true,
+                provider_flag: true,
+                context_dir: true,
+            });
+        }
+        // Autres services IA : clé Anthropic au trousseau, Ollama sans clé.
+        if SCENES[self.scene] == "ia-services"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            use crate::ai_services::KeySource;
+            let keys = &mut p.assistant.services.providers.keys;
+            keys.insert("anthropic".into(), KeySource::Keyring);
+            keys.insert("compatible".into(), KeySource::Missing);
+        }
+        // SmartUI design : icônes du dépôt (assets/preview/smartui), une
+        // proposition à valider, une génération en cours.
+        if SCENES[self.scene] == "smartui"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            use super::plugins::assistant::services::Row;
+            let demo = |key: &str| {
+                std::fs::read(format!(
+                    "{}/assets/preview/smartui/{key}.svg",
+                    env!("CARGO_MANIFEST_DIR")
+                ))
+                .ok()
+                .map(iced::widget::svg::Handle::from_memory)
+            };
+            let row = |key: &str, class: &str, name: &str, state: u8| {
+                let icon = demo(key);
+                Row {
+                    key: key.into(),
+                    class: class.into(),
+                    name: name.into(),
+                    original: crate::smartui::original_icon(class, &[], None),
+                    proposal: if state == 1 { icon.clone() } else { None },
+                    validated: if state == 0 { icon } else { None },
+                }
+            };
+            let s = &mut p.assistant.services;
+            s.rows = vec![
+                row("firefox", "firefox", "Firefox", 0),
+                row("kitty", "kitty", "kitty", 0),
+                row("org.xfce.thunar", "thunar", "Thunar", 0),
+                row("zcode", "zcode", "Zcode", 0),
+                row("brave-desktop", "brave-browser", "Brave", 1),
+                row("marktext", "marktext", "MarkText", 2),
+            ];
+            s.busy = Some("marktext".into());
+        }
+        // À propos : un poste de démonstration.
+        if SCENES[self.scene] == "a-propos"
+            && let Some(p) = self.app.panel.as_mut()
+        {
+            p.about.facts = Some(super::plugins::about::Facts {
+                os: "Arch Linux".into(),
+                kernel: "7.2.15-arch1-1".into(),
+                hyprland: "v0.57.0 (3f1a2c4)".into(),
+                lyra: Some("~/.local/bin/hyprpanel-chat".into()),
+                deps: (21, 23),
+                smartui_icons: 6,
+            });
         }
         // Mots de passe : coffre ouvert, gnome-keyring encore là, reprise à confirmer.
         if SCENES[self.scene] == "mots-de-passe"

@@ -110,7 +110,9 @@ impl App {
                         .into_iter()
                         // Deux classes, une même icône : une seule ligne.
                         .map(|class| (crate::smartui::key_for(&class, &apps), class))
-                        .filter(|(key, _)| keys.insert(key.clone()))
+                        .filter(|(key, _)| {
+                            !crate::smartui::is_symbolic(key) && keys.insert(key.clone())
+                        })
                         .map(|(key, class)| {
                             let lc = class.to_lowercase();
                             let name = apps
@@ -196,7 +198,10 @@ impl App {
             async move {
                 tokio::task::spawn_blocking(move || -> Result<Option<String>, String> {
                     let key = crate::smartui::key_for(&class, &apps);
-                    if crate::smartui::validated(&key).is_some() {
+                    // Déjà dans le thème, ou icône symbolique (jamais remplacée).
+                    if crate::smartui::validated(&key).is_some()
+                        || crate::smartui::is_symbolic(&key)
+                    {
                         return Ok(None);
                     }
                     let theme = cfg.general.icon_theme.as_deref();
@@ -687,6 +692,37 @@ impl App {
             .size(12)
             .color(accent),
             self.smartui_auto_line(),
+            row![
+                button(
+                    text(crate::tr!(
+                        "Générer les icônes manquantes ({n})",
+                        n = missing.to_string()
+                    ))
+                    .font(self.font)
+                    .size(13)
+                )
+                .padding([6, 14])
+                .on_press_maybe((missing > 0).then(|| wrap(Msg::SmartGenerateMissing))),
+                button(
+                    text(if s.clear_armed {
+                        crate::i18n::tr("Vider le cache ?")
+                    } else {
+                        crate::i18n::tr("Vider le cache")
+                    })
+                    .font(self.font)
+                    .size(13)
+                )
+                .padding([6, 14])
+                .style(if s.clear_armed {
+                    button::danger
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::SmartClear)),
+            ]
+            .spacing(10),
+            text(summary).font(self.font).size(12).color(accent),
+            list,
             self.field(
                 "Style",
                 "smartui_style",
@@ -723,37 +759,6 @@ impl App {
                 ]
                 .spacing(6),
             ),
-            row![
-                button(
-                    text(crate::tr!(
-                        "Générer les icônes manquantes ({n})",
-                        n = missing.to_string()
-                    ))
-                    .font(self.font)
-                    .size(13)
-                )
-                .padding([6, 14])
-                .on_press_maybe((missing > 0).then(|| wrap(Msg::SmartGenerateMissing))),
-                button(
-                    text(if s.clear_armed {
-                        crate::i18n::tr("Vider le cache ?")
-                    } else {
-                        crate::i18n::tr("Vider le cache")
-                    })
-                    .font(self.font)
-                    .size(13)
-                )
-                .padding([6, 14])
-                .style(if s.clear_armed {
-                    button::danger
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::SmartClear)),
-            ]
-            .spacing(10),
-            text(summary).font(self.font).size(12).color(accent),
-            list,
         ]
         .spacing(14)
         .into()

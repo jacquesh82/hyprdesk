@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5562E"/>
+      <stop offset="0.55" stop-color="#E84825"/>
+      <stop offset="1" stop-color="#D2361A"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFF1EA"/>
+    </linearGradient>
+    <linearGradient id="feat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E5401F"/>
+      <stop offset="1" stop-color="#CF3517"/>
+    </linearGradient>
+    <linearGradient id="spec" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.6">
+      <stop offset="0" stop-color="#FF8A5C" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FF8A5C" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0.25" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+    <clipPath id="sq">
+      <path d="M350 0H674C920 0 1024 104 1024 350V674C1024 920 920 1024 674 1024H350C104 1024 0 920 0 674V350C0 104 104 0 350 0Z"/>
+    </clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="20"/>
+      <feOffset dy="16" result="b"/>
+      <feFlood flood-color="#7A1A08" flood-opacity="0.32"/>
+      <feComposite in2="b" operator="in" result="s"/>
+      <feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <path d="M60 40Q512 -30 964 40Q980 180 900 230Q512 160 124 230Q44 180 60 40Z" fill="url(#spec)" filter="url(#soft)"/>
+  </g>
+  <path d="M350 0H674C920 0 1024 104 1024 350V674C1024 920 920 1024 674 1024H350C104 1024 0 920 0 674V350C0 104 104 0 350 0Z" fill="none" stroke="url(#rim)" stroke-width="6"/>
+  <g filter="url(#shadow)">
+    <path d="M360 214L664 214L732 292L792 304L766 520L698 734L562 818Q512 842 462 818L326 734L258 520L232 304L292 292Z" fill="url(#glyph)" stroke="url(#glyph)" stroke-width="44" stroke-linejoin="round"/>
+    <path d="M372 236L652 236L700 290Q512 262 324 290Z" fill="#FFFFFF" opacity="0.7"/>
+    <path d="M338 424Q424 420 474 474Q412 506 360 474Z" fill="url(#feat)" stroke="url(#feat)" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M686 424Q600 420 550 474Q612 506 664 474Z" fill="url(#feat)" stroke="url(#feat)" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M452 598L572 598Q588 600 578 614L526 668Q512 682 498 668L446 614Q436 600 452 598Z" fill="url(#feat)"/>
+    <path d="M512 676V714M444 722Q512 774 580 722" fill="none" stroke="url(#feat)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

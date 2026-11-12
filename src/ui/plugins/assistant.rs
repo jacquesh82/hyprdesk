@@ -6,8 +6,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-mod providers;
-mod services;
+pub(in crate::ui) mod providers;
+pub(in crate::ui) mod services;
 
 use crate::i18n::text;
 use iced::widget::{button, column, container, radio, row, scrollable};

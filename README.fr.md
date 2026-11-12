@@ -7,6 +7,13 @@ avec un fond d'écran, des icônes et des widgets. Chaque workspace
 peut avoir son propre bureau. La configuration est en Lua, dans le style de
 `hyprland.lua` (Hyprland ≥ 0.57).
 
+Et il embarque **LYRA, l'IA du bureau** : un clic sur le dock ouvre son
+tiroir. Elle connaît déjà vos écrans, workspaces, raccourcis et réglages,
+explique ce qui se passe et le règle avec vous, en montrant chaque commande et
+chaque changement avant qu'il ait lieu. Elle passe par l'abonnement que vous
+avez déjà (Claude Code, Codex ou Zcode) : aucune clé API à gérer. Voir
+[LYRA, IA embarquée](#lyra-ia-embarquée).
+
 hyprdesk est la **racine** de la session graphique.
 - **Racine visuelle.** Le bureau est toujours *sous* toutes les fenêtres,
   jamais par-dessus.
@@ -25,7 +32,9 @@ hyprdesk est la **racine** de la session graphique.
     bouton bureau, et tout widget ou plugin en version compacte.
   - Elle se règle aussi dans Réglages → Barre.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
-  (un clic donne le focus à la fenêtre), puis le bouton ⚙ des réglages.
+  (un clic donne le focus à la fenêtre), puis les boutons Applications, LYRA
+  et Réglages. Chacun ouvre puis referme d'un clic, et s'allume tant que ce
+  qu'il ouvre est affiché. Le dock se pilote aussi au clavier.
 
 ## Réglages (⚙)
 
@@ -45,16 +54,24 @@ un panneau par-dessus le bureau, sur l'écran actif. Il regroupe les réglages s
 | Apparence | Thème | thèmes livrés (Ardoise, Glass, Encre, Forêt, Ambre, Clair) et thèmes créés depuis une image ; couleurs ; texte ; effets par endroit |
 | | Thème des applications | le thème de hyprdesk appliqué à d'autres logiciels (kitty pour commencer) |
 | | Effets * | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
+| | Animations | animations et effets de Hyprland (ouverture des fenêtres, workspaces, flou, arrondis…), en direct |
 | Barre et lanceur | Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) ; couleurs |
-| | Lanceur | fenêtres affichées dans le dock, regroupement ; apparence ; applications épinglées |
+| | Lanceur | fenêtres affichées dans le dock, regroupement ; apparence (dont les icônes SmartUI) ; applications épinglées |
 | Fenêtres et écrans | Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position, orientation, mode, fréquence, échelle, écran principal ; application à chaud, puis garde (écrit dans `monitors.lua`) ou retour seul au bout de 12 s |
 | | Workspaces | workspaces permanents ; écran de chaque workspace ; affectation d'une application à un workspace, avec ou sans y aller |
 | | Layouts | Dwindle, Master, Scrolling, Monocle — par défaut et par workspace, appliqués à chaud ; layouts personnalisés en Lua |
+| Système | Son | sorties et entrées, volume, périphérique par défaut |
+| | Réseau · Bluetooth | Wi-Fi, Ethernet, VPN, mode avion ; appareils Bluetooth |
+| | Clavier et souris | dispositions et variantes, répétition, Verr. Num., souris et pavé tactile, zone d'essai (écrit dans `inputs.lua`) |
+| | Énergie · Date et heure | profils d'énergie, veille ; fuseau, format, synchronisation |
+| | Écran de connexion | greetd et l'écran de connexion de hyprdesk à la place de GDM |
+| | Mots de passe | trousseau myMFA (codes 2FA, mots de passe), reprise de gnome-keyring |
 | Applications | Applications | application par défaut d'un rôle (navigateur, terminal, images, vidéo, assistant IA…) |
-| | Assistant IA | fournisseur, ouverture, contexte — voir [Assistant IA](#assistant-ia) |
+| | IA | **Assistant** (LYRA : abonnement, ouverture, contexte) ; **Autres services IA** (fournisseurs, et le fournisseur de chaque fonction) ; **SmartUI design** (icônes unifiées par l'IA) — voir [LYRA, IA embarquée](#lyra-ia-embarquée) |
 | Système | Verrouillage | écran de verrouillage : fond, contenus affichés, verrouiller maintenant |
 | | Partage * | exporter/importer tout son setup, ou le thème seul |
 | | Plugins * | paquets intégrés et plugins Lua : état, activation, ajout d'un plugin tiers |
+| | À propos | version de hyprdesk, système, Hyprland, LYRA, fichiers de configuration, dépendances ; copie pour un rapport de bogue |
 
 \* Configuration avancée uniquement — derrière la bascule « Configuration
 avancée » de l'en-tête du panneau, comme les onglets Session et Dépendances
@@ -64,48 +81,82 @@ depuis l'en-tête, et chaque changement est enregistré automatiquement.
 Tout s'applique **en direct**. Le panneau est un tiroir à droite, et le bureau
 reste visible et utilisable à côté.
 
-## Assistant IA
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-desktop.png" alt="Réglages → Bureau"><br><sub><b>Bureau</b> — écrans affichés, mode du bureau, raccourcis et leurs conflits avec hyprland.lua</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-launcher.png" alt="Réglages → Lanceur"><br><sub><b>Lanceur</b> — fenêtres du dock, regroupement, apparence, épinglées, icônes SmartUI</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/screens.png" alt="Réglages → Écrans"><br><sub><b>Écrans</b> — disposition sur un plan à l'échelle, mode, rotation, échelle ; retour seul au bout de 12 s</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-input.png" alt="Réglages → Clavier et souris"><br><sub><b>Clavier et souris</b> — dispositions et variantes, répétition, pavé tactile, zone d'essai</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/layouts.png" alt="Réglages → Layouts"><br><sub><b>Layouts</b> — Dwindle, Master, Scrolling, Monocle, par workspace</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-animations.png" alt="Réglages → Animations"><br><sub><b>Animations</b> — animations et effets de Hyprland, en direct</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/theme.png" alt="Réglages → Thème"><br><sub><b>Thème</b> — thèmes livrés, thèmes créés depuis une image, couleurs et effets</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/assistant-settings.png" alt="Réglages → IA → Assistant"><br><sub><b>IA → Assistant</b> — LYRA, son abonnement et ce qu'elle sait</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-ai-services.png" alt="Réglages → IA → Autres services IA"><br><sub><b>IA → Autres services IA</b> — fournisseurs, et le fournisseur de chaque fonction ; clés au trousseau</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-smartui.png" alt="Réglages → IA → SmartUI design"><br><sub><b>IA → SmartUI design</b> — icônes redessinées par l'IA, validées ou générées automatiquement</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/settings-about.png" alt="Réglages → À propos"><br><sub><b>À propos</b> — version, système, Hyprland, LYRA ; copie pour un rapport de bogue</sub></td>
+  </tr>
+</table>
 
-hyprdesk intègre un tiroir d'assistant par-dessus le bureau : il discute de
-votre session, propose des changements avec aperçu en direct, et montre chaque
-commande à accepter ou refuser avant qu'elle s'exécute. Ce que contient
-l'intégration :
+## LYRA, IA embarquée
 
-- **Le tiroir de conversation** — `hyprdesk assistant`, sans changer le mode
-  du bureau : messages avec images collées, réponses rendues en Markdown avec
-  blocs de code copiables et liens, bouton Nouvelle conversation, sélecteur
-  de moteur dans l'en-tête. Le moteur est un processus enfant qui parle le
-  protocole `serve` ; il ne vit que tiroir ouvert.
-- **Des réponses typées, pas seulement du texte** — exécutions d'outils avec
-  leur état et leur résultat ; **cartes de confirmation** montrant la
-  commande, sa raison et son risque avant de l'accepter ou de la refuser ;
-  **cartes de choix avec aperçu en direct** (une couleur, une taille
-  d'écart…) appliqué seulement une fois accepté, jamais enregistré en silence.
-- **Fournisseur** — Claude Code, Codex ou Zcode, choisi dans l'en-tête du
-  tiroir ou dans les Réglages et transmis à l'assistant ; sans prise en charge
-  de l'option fournisseur, il garde son propre choix.
-- **Contexte** — hyprdesk décrit tout son environnement en Markdown — modes,
-  paquets de réglages, applications, écrans, workspaces, widgets, fichiers,
-  commandes — écrit dans le dossier de contexte de l'assistant
-  (`~/.config/hyprpanel/context.d/hyprdesk.md`) et imprimable avec
-  `hyprdesk context` : l'assistant connaît votre bureau avant d'agir.
-- **Ouvertures** — le tiroir, la fenêtre de l'assistant, ou le terminal ;
-  aussi le bouton de l'assistant dans le lanceur et le raccourci
-  `hyprdesk open ai`.
-- **Une page de réglages** — assistant et service installés et actifs ou non,
-  prise en charge de l'option fournisseur et du dossier de contexte, et ce
-  qui est exactement envoyé — consultable avec « Voir le contexte transmis ».
+LYRA est l'assistante du bureau Linux : hyprdesk l'embarque et lui donne tout
+ce qu'il faut pour aider. Sans elle, hyprdesk fonctionne pareil ; seules les
+fonctions IA restent éteintes.
+
+- **À un clic** — le bouton LYRA du dock, ou `hyprdesk assistant`, ouvre son
+  tiroir à côté des fenêtres, sans changer le mode du bureau ; le même clic
+  le referme. Plusieurs conversations peuvent tourner en même temps (chacune
+  avec son moteur), avec images collées, réponses en Markdown, blocs de code
+  copiables et liens.
+- **Elle connaît votre bureau** — hyprdesk décrit tout son environnement en
+  Markdown (modes, paquets de réglages, applications, écrans, workspaces,
+  widgets, fichiers, commandes) dans le dossier de contexte de LYRA
+  (`~/.config/hyprpanel/context.d/hyprdesk.md`) ; `hyprdesk context`
+  l'imprime, et « Voir le contexte transmis » le montre dans les Réglages.
+- **Rien dans votre dos** — des réponses typées, pas seulement du texte :
+  exécutions d'outils avec leur état et leur résultat ; **cartes de
+  confirmation** montrant la commande, sa raison et son risque avant de
+  l'accepter ou de la refuser ; **cartes de choix avec aperçu en direct**
+  (une couleur, un écart…) appliqué seulement une fois accepté.
+- **De l'aide là où il en faut** — des boutons « Demander à LYRA » dans les
+  Réglages ouvrent une conversation déjà remplie avec le problème : conflit
+  de raccourcis, service tenu par un autre programme, trousseau, mise à jour
+  en échec. `hyprdesk ask <titre> <texte>` fait de même depuis un script.
+- **Votre abonnement, sans clé API** — Claude Code, Codex ou Zcode, choisi
+  dans Réglages → IA → Assistant ou dans l'en-tête du tiroir.
+- **L'IA de tout le bureau** — les autres fonctions IA de hyprdesk passent
+  par LYRA par défaut. Réglages → IA → Autres services IA permet aussi
+  d'ajouter des fournisseurs (Anthropic, OpenAI, Z.ai, tout endpoint
+  compatible OpenAI comme Ollama) et d'en choisir un par fonction (`ai_services`,
+  `ai_use`) ; les clés API restent dans le trousseau de la session, jamais
+  dans un fichier de configuration.
+- **SmartUI design** — Réglages → IA → SmartUI design : les icônes des
+  applications redessinées par l'IA dans un même style (façon iOS/macOS par
+  défaut, ou votre propre consigne). Les icônes validées forment le thème
+  d'icônes `hyprdesk-smartui` (`~/.local/share/icons`, hérite de votre
+  thème), utilisé partout : dock, bureau, `SUPER + R`, barre et
+  notifications. La génération automatique, active par défaut quand LYRA est
+  installée, donne son icône à chaque nouvelle application du lanceur.
 
 <p align="center">
   <img src="assets/screenshots/assistant-chat.png" width="760" alt="Tiroir de l'assistant : suggestion avec aperçu en direct, et commande hyprctl à accepter ou refuser">
 </p>
 
-L'assistant lui-même est **LYRA** (`hyprpanel-chat`), de
-[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools) —
-référencé ici ; il ne fait pas partie de hyprdesk.
+LYRA elle-même (`hyprpanel-chat`) vient de
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
 
 <p align="center">
-  <img src="assets/screenshots/assistant-settings.png" width="480" alt="Tiroir des réglages sur l'onglet Assistant IA : fournisseur (Claude Code, Codex, Zcode), ouverture, contexte">
+  <img src="assets/screenshots/assistant-settings.png" width="480" alt="Réglages → IA → Assistant : abonnement de LYRA (Claude Code, Codex, Zcode), ouverture, contexte">
 </p>
 
 ## Widgets plug-n-play
