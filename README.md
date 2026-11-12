@@ -53,30 +53,34 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
   instantly. Screen changes revert on their own after 12 s unless you keep
   them. hyprdesk only touches what you change: the rest stays in
   `hyprland.lua`.
-- **Three desktop modes.** `SUPER + D` sets the windows aside and shows the
-  desktop; windows opened from it, or brought back from the dock, float on top
-  of it and return to their original layout when you leave. `SUPER + ALT + D` leaves the windows where they are and shows only
+- **Three desktop modes.** `SUPER + D` shows the desktop with the
+  workspace's windows floating on top of it, arranged on the screen, or where
+  you left them the last time on that workspace. Windows opened from the
+  desktop or brought back from the dock float too. When you leave, they
+  return to their original tiled layout and their positions are remembered
+  per workspace. `SUPER + ALT + D` leaves the windows where they are and shows only
   the dock. A third mode hides the desktop entirely. You can also force a mode
   on a screen or a workspace.
 - **Wallpapers for each workspace and screen**, with crossfades and
   slideshows. hyprdesk replaces hyprpaper.
 - **A bar and a dock.** Workspaces, tray, volume, brightness and any plugin.
   You rearrange bar modules by dragging them. The dock's Apps, LYRA and
-  Settings buttons open and close with one click, and light up while open.
+  Settings buttons open and close with one click, light up while open, and
+  open on the screen you clicked.
 - **One app launcher** (`SUPER + R`, in every mode). On the full desktop it opens as a
   large sheet with categories. In the other modes it opens as a centered
   search card. The fuzzy search finds Firefox when you type "ffx". Your most
   launched apps come first as suggestions, and `:clip` searches your
   clipboard history.
-- **Window navigation.** The `ALT + Tab` switcher also offers the windows the
-  desktop has set aside. Picking one hides the desktop and brings it back.
-  `SUPER + Tab` opens a window overview. It uses hyprexpo or Hyprspace if you
+- **Window navigation.** `ALT + Tab` switches windows, and `SUPER + Tab`
+  opens a window overview. It uses hyprexpo or Hyprspace if you
   have one, and hyprdesk's own switcher otherwise. While the desktop is shown,
   the number row still switches workspaces, whatever your keyboard layout,
   and `SUPER + Left` / `SUPER + Right` go to the previous / next one.
 - **Widgets and Lua plugins.** Clock, calendar, system stats and media player
   come built in. To add your own widget, drop a Lua file in a folder. No
-  recompiling.
+  recompiling. With several screens, each widget goes on one screen (the
+  primary one by default), and widgets never overlap.
 - **Themes and default apps.** Bundled themes, or themes built from an image,
   and one default application per role (browser, terminal, files…).
 - **Session essentials.** Lock screen (with fingerprint support), greetd login
@@ -86,8 +90,8 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
 ## Settings
 
 The gear on the dock, `SUPER + SHIFT + D` or `hyprdesk settings <page>` opens
-the settings drawer on the right of the screen, over the desktop, which stays
-usable next to it. Pages are grouped (Desktop, Appearance, Bar and launcher,
+the settings drawer on the right of the screen you clicked (or the active
+one), over the desktop, which stays usable next to it. Pages are grouped (Desktop, Appearance, Bar and launcher,
 Windows and screens, System, Apps and AI); every change **applies live and
 saves on its own**. The header has a guided tour and an "Advanced
 configuration" switch that reveals the expert pages. "Ask LYRA" buttons appear
@@ -163,6 +167,18 @@ Everything below goes on the desktop (`hd.widget("<name>")`), in the bar
 (`hd.bar({ right = { "<name>" } })`), or both. You can also turn it on with a
 click in Settings → Widgets.
 
+**Several screens.** A desktop widget is shown on one screen only: the
+primary one by default. Settings → Widgets → Screen (or `screen = …`) picks
+another screen, or all of them, and what happens when that screen is
+unplugged: the widget moves to the primary screen, or hides. Widgets never
+overlap: one that would cover another slides below it (above it for bottom
+anchors), or beside it when the column is full.
+
+```lua
+hd.widget("clock",    { screen = "DP-2", if_missing = "primary" }) -- "primary" (default), "all", or a screen name
+hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
+```
+
 **Built-in widgets**
 
 | Name | What it shows |
@@ -205,8 +221,13 @@ as examples to start from.
 
 ## Quick start
 
-You need Hyprland 0.57 or later, Rust 1.99 or later, and a Vulkan or GL
-driver.
+You need Hyprland 0.57 or later and a Vulkan or GL driver. The install
+script takes care of the rest: missing distribution packages (C compiler,
+pkg-config, PAM headers, Wayland, xkbcommon, Vulkan, EGL… through pacman,
+apt, dnf or zypper, with sudo), and Rust 1.99 or later. If the machine's Rust
+is older, rustup installs the latest stable in `~/.cargo`, without sudo and
+without touching the distribution's Rust. `scripts/deps.sh --dry-run` shows
+what is missing; `--no-deps` skips it all.
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk

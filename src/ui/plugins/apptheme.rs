@@ -77,7 +77,7 @@ impl App {
     pub(in crate::ui) fn apptheme_page(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let on = self
@@ -111,7 +111,7 @@ impl App {
                             column![
                                 row![
                                     text(t.label).font(self.title_font()).size(14),
-                                    status.font(self.font).size(11),
+                                    status.font(self.font).size(12),
                                 ]
                                 .spacing(8)
                                 .align_y(Alignment::Center),
@@ -131,7 +131,7 @@ impl App {
                             path = (t.file)().display().to_string()
                         ))
                         .font(self.font)
-                        .size(11)
+                        .size(12)
                         .color(dim),
                     ]
                     .spacing(8),

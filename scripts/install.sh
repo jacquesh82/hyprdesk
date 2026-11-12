@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Installation de hyprdesk sur la machine locale :
+#   0. prérequis manquants installés (scripts/deps.sh : paquets de la
+#      distribution, Rust récente par rustup) ; --no-deps pour s'en passer
 #   1. build release + binaire dans ~/.local/bin
 #   2. police Mindlog dans le dossier de polices utilisateur
 #   3. config d'exemple ~/.config/hypr/hyprdesk.lua si absente — jamais écrasée
@@ -13,6 +15,20 @@
 # Le reste de hyprland.lua n'est pas touché : les lignes à ajouter sont affichées à la fin.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Prérequis (paquets système, Rust assez récente) : installés s'ils manquent.
+# --no-deps (ou HYPRDESK_NO_DEPS=1) : ne rien vérifier ni installer.
+for a in "$@"; do
+    case "$a" in
+        --no-deps) export HYPRDESK_NO_DEPS=1 ;;
+        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "argument inconnu : $a (--no-deps)" >&2; exit 2 ;;
+    esac
+done
+HYPRDESK_ROOT="$PWD"
+# shellcheck source=deps.sh
+source scripts/deps.sh
+hyprdesk_deps
 
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="$HOME/.config/systemd/user"

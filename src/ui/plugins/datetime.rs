@@ -9,7 +9,7 @@ use iced::widget::{button, column, pick_list, row, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
-use super::super::{App, Msg as UiMsg, color};
+use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 
 pub const INFO: PluginInfo = PluginInfo {
@@ -116,8 +116,7 @@ fn run(args: Vec<String>) -> Task<UiMsg> {
 
 impl App {
     pub(in crate::ui) fn datetime_page(&self) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let Some(s) = self
             .panel
             .as_ref()

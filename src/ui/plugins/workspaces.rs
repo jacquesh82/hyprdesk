@@ -83,8 +83,7 @@ impl App {
     /// Écran de chaque workspace : automatique, l'écran principal, ou un écran.
     fn workspace_screens(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let mut choices = vec![
             ScreenChoice {
                 value: None,
@@ -176,7 +175,7 @@ impl App {
         use crate::config::{AppMatch, MAX_WORKSPACES};
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let small = |s: String| text(s).font(self.font).size(12).color(dim);
 
         // Nombre de workspaces : interrupteur, puis − N +.
@@ -254,7 +253,7 @@ impl App {
                 name = name.push(
                     text("surchargée dans hyprdesk.lua — sans effet ici")
                         .font(self.font)
-                        .size(11)
+                        .size(12)
                         .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
                 );
             }
@@ -300,7 +299,7 @@ impl App {
                 button(
                     row![
                         text(label).font(self.font).size(14).width(Length::Fill),
-                        text(detail).font(self.font).size(11).color(dim)
+                        text(detail).font(self.font).size(12).color(dim)
                     ]
                     .spacing(8),
                 )

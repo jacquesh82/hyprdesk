@@ -477,8 +477,7 @@ impl App {
 
     /// Génération automatique : interrupteur et état de la file.
     fn smartui_auto_line(&self) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0x95, 0x80);
         let on = crate::smartui::auto_on(&self.cfg);
         let (status, c) = {
@@ -514,12 +513,12 @@ impl App {
                 crate::i18n::tr("Chaque nouvelle application du lanceur reçoit son icône.")
             })
             .font(self.font)
-            .size(11)
+            .size(12)
             .color(dim),
         ]
         .spacing(4);
         if !status.is_empty() {
-            col = col.push(text(status).font(self.font).size(11).color(c));
+            col = col.push(text(status).font(self.font).size(12).color(c));
         }
         col.into()
     }
@@ -544,7 +543,7 @@ impl App {
         let g = &self.cfg.general;
         let th = &g.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0x95, 0x80);
         let l = &g.launcher;
         let waiting = s.rows.iter().filter(|r| r.proposal.is_some()).count();
@@ -642,11 +641,11 @@ impl App {
             };
             let mut info = column![
                 text(&r.name).font(self.font).size(14).color(fg),
-                text(state).font(self.font).size(11).color(dim),
+                text(state).font(self.font).size(12).color(dim),
             ]
             .spacing(2);
             if let Some(e) = s.errors.get(&r.key) {
-                info = info.push(text(e).font(self.font).size(11).color(warn));
+                info = info.push(text(e).font(self.font).size(12).color(warn));
             }
             list = list.push(
                 row![
@@ -751,7 +750,7 @@ impl App {
                             ""
                         })
                         .font(self.font)
-                        .size(11)
+                        .size(12)
                         .color(dim),
                     ]
                     .spacing(8)

@@ -221,7 +221,7 @@ impl App {
 
     pub(in crate::ui) fn sound_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let Some(s) = self.sound_state().filter(|s| s.loaded) else {
             return text("Lecture des appareils…")
                 .font(self.font)

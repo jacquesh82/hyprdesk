@@ -141,26 +141,24 @@ impl App {
     /// Ouvre le tiroir des réglages sur l'écran principal, dans sa propre
     /// surface au-dessus des fenêtres : le mode du bureau ne change pas.
     pub(super) fn open_panel(&mut self) -> Task<Msg> {
-        // Déjà ouvert : rien à refaire (un nouvel appel ne doit pas le dupliquer).
-        if self.panel_open() {
+        // Sur l'écran du clic (sinon l'écran actif) ; déjà ouvert sur cet
+        // écran : rien à refaire (un nouvel appel ne doit pas le dupliquer).
+        let Some((win, _)) = self.target_surface() else {
+            return Task::none();
+        };
+        if self.panel_open() && self.panel.as_ref().is_some_and(|p| p.win == win) {
             return Task::none();
         }
-        let primary = self.primary_monitor();
-        let win = self
-            .surfaces
-            .iter()
-            .find(|(_, n)| Some(*n) == primary.as_ref())
-            .or_else(|| self.surfaces.iter().next())
-            .map(|(id, _)| *id);
-        let Some(win) = win else { return Task::none() };
         // Un seul tiroir à la fois : l'assistant laisse la place aux réglages.
         let chat = self.close_chat();
         Task::batch([chat, self.open_panel_at(win)])
     }
 
-    /// Bouton Réglages du lanceur : ouvre le tiroir, ou le ferme s'il est affiché.
+    /// Bouton Réglages du lanceur : ouvre le tiroir sur l'écran du clic, le
+    /// ferme s'il y est déjà affiché, l'y amène s'il est sur un autre écran.
     pub(super) fn toggle_panel(&mut self) -> Task<Msg> {
-        if self.panel_open() {
+        let here = self.target_surface().map(|(id, _)| id);
+        if self.panel_open() && self.panel.as_ref().map(|p| p.win) == here {
             self.close_panel()
         } else {
             self.open_panel()
@@ -289,7 +287,7 @@ impl App {
                     .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
                     .into()
             })
-            .unwrap_or_else(|| iced::widget::text("IA").size(11).into());
+            .unwrap_or_else(|| iced::widget::text("IA").size(12).into());
         iced::widget::tooltip(
             iced::widget::button(glyph)
                 .padding([4, 8])
@@ -431,7 +429,7 @@ impl App {
                 text(label)
                     .font(if active { self.title_font() } else { self.font })
                     .size(13)
-                    .color(if active { fg } else { Color { a: 0.72, ..fg } }),
+                    .color(if active { fg } else { self.ink().dim }),
             )
             .padding([6, 14])
             .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
@@ -472,7 +470,8 @@ impl App {
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let wide = self.panel_width() >= 640.0;
         let adv = self.advanced();
-        let dim = Color { a: 0.5, ..fg };
+        let ink = self.ink();
+        let dim = ink.dim;
         // Entrée d'un paquet.
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
@@ -508,7 +507,9 @@ impl App {
                     } else {
                         None
                     },
-                    text_color: if active { accent } else { fg },
+                    // Choisi : icône en accent, texte plein (l'accent sur son
+                    // propre fond teinté se lit mal).
+                    text_color: if active { ink.fg } else { fg },
                     border: Border::default().rounded(11),
                     ..Default::default()
                 })
@@ -534,7 +535,7 @@ impl App {
                     container(
                         text(crate::i18n::tr(g.label).to_uppercase())
                             .font(self.title_font())
-                            .size(10)
+                            .size(12)
                             .color(dim),
                     )
                     .padding(iced::Padding {
@@ -577,11 +578,7 @@ impl App {
                                 } else {
                                     None
                                 },
-                                text_color: if active {
-                                    accent
-                                } else {
-                                    Color { a: 0.75, ..fg }
-                                },
+                                text_color: if active { ink.accent } else { ink.dim },
                                 border: Border::default().rounded(8),
                                 ..Default::default()
                             }),
@@ -617,8 +614,8 @@ impl App {
             column![
                 text("HYPRDESK")
                     .font(self.font)
-                    .size(10)
-                    .color(Color { a: 0.55, ..fg })
+                    .size(11)
+                    .color(self.ink().dim)
                     .font(self.title_font()),
                 text("Réglages")
                     .font(self.font)
@@ -659,7 +656,7 @@ impl App {
                 }),
                 text("Modifications enregistrées automatiquement")
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(Color { a: 0.6, ..fg })
             ]
             .spacing(7)
@@ -729,11 +726,26 @@ impl App {
             head = head.push(
                 text("surchargé dans hyprdesk.lua — sans effet ici")
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
             );
         }
         column![head, control.into()].spacing(6).into()
+    }
+
+    /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,
+    /// texte secondaire (aides, comptes, états) et accent utilisé en texte.
+    pub(in crate::ui) fn ink(&self) -> Ink {
+        let th = &self.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        Ink {
+            fg: color(r.fg, 1.0),
+            dim: color(r.dim, 1.0),
+            accent: color(
+                crate::theme::ensure_contrast(th.accent, th.bg, r.fg, 4.5),
+                1.0,
+            ),
+        }
     }
 
     pub(in crate::ui) fn section<'a>(&self, title: &'a str) -> Element<'a, Msg> {
@@ -748,4 +760,14 @@ impl App {
         ]
         .into()
     }
+}
+
+/// Couleurs de texte du tiroir des réglages (voir `App::ink`).
+#[derive(Debug, Clone, Copy)]
+pub(in crate::ui) struct Ink {
+    pub fg: Color,
+    /// Texte secondaire, au moins 4,5:1 sur le fond du tiroir.
+    pub dim: Color,
+    /// Accent lisible en texte (onglet choisi, liens).
+    pub accent: Color,
 }

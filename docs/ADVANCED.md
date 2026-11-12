@@ -125,8 +125,10 @@ to return to. The Alt+Tab switcher filters it out too.
   every `hyprctl reload`. It **never overrides** a binding that
   `hyprland.lua` already owns. Conflicts show up in Settings → Desktop →
   Shortcuts.
-- While the desktop is shown, hyprdesk enters a **submap**, so `SUPER + Q`,
-  `SUPER + F` and the like no longer act on the hidden windows. Bindings
+- While the desktop is shown with no window on it (an empty workspace),
+  hyprdesk enters a **submap**, so `SUPER + Q`, `SUPER + F` and the like do
+  nothing behind it. As soon as windows float on the desktop, your usual
+  bindings act on them again. Bindings
   marked `{ submap_universal = true }` in `hyprland.lua` (typically workspace
   switching and screenshots) stay active, and the desktop follows them.
 - The submap still lets you move around: the **number row** goes to
@@ -134,7 +136,7 @@ to return to. The Alt+Tab switcher filters it out too.
   (`SUPER` by default). It matches physical key codes, so it works with
   AZERTY, QWERTY and any other layout. The left and right arrows, with
   that modifier, go to the previous and next workspace. The desktop
-  follows, and the new workspace's windows are set aside too. `keys.search` (or
+  follows, and the new workspace's windows float on it too. `keys.search` (or
   `keys.search_desktop`), `keys.switch` and `keys.overview` also stay
   available.
 - **Shortcut conflicts.** hyprdesk compares its shortcuts with Hyprland's
@@ -146,9 +148,8 @@ to return to. The Alt+Tab switcher filters it out too.
   (media keys included). Settings → Desktop → Shortcuts lists them first,
   with "hyprdesk takes it" (`keys.take`) and a LYRA button; `hyprdesk keys`
   prints the same report and exits with 1 if there is a conflict.
-- **Alt+Tab on the full desktop** also offers the windows the desktop has
-  set aside, labelled as such. Picking one, or a window from another
-  workspace, hides the desktop and focuses it. A window opened from the
+- **Alt+Tab on the full desktop** lists the windows floating on it. Picking
+  a window from another workspace hides the desktop and focuses it. A window opened from the
   desktop takes focus without leaving it.
 - The submap gives control back to Hyprland *before* calling hyprdesk. If the
   daemon dies mid-way, you are never stuck, and a submap left open is closed

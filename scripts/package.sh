@@ -47,6 +47,11 @@ esac
 MAINTAINER="${MAINTAINER:-$(git config user.name 2>/dev/null || echo hyprdesk) <$(git config user.email 2>/dev/null || echo hyprdesk@localhost)>}"
 
 if [ "$BUILD" = 1 ]; then
+    # Prérequis manquants (paquets, Rust assez récente) : installés d'abord.
+    HYPRDESK_ROOT="$PWD"
+    # shellcheck source=deps.sh
+    source scripts/deps.sh
+    hyprdesk_deps
     echo "== build release"
     cargo build --release --locked
 fi

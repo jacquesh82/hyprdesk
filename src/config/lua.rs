@@ -97,6 +97,18 @@ struct PlacePatch {
     y: Option<f32>,
     size: Option<f32>,
     card: Option<bool>,
+    screen: Option<WidgetScreen>,
+    if_missing: Option<IfMissing>,
+}
+
+fn parse_if_missing(s: &str, ctx: &str) -> mlua::Result<IfMissing> {
+    IfMissing::parse(s).ok_or_else(|| {
+        err(crate::tr!(
+            "{ctx} : if_missing « {s} » inconnu (primary, hide)",
+            ctx = ctx,
+            s = s
+        ))
+    })
 }
 
 fn parse_anchor(s: &str, ctx: &str) -> mlua::Result<Anchor> {
@@ -1574,6 +1586,13 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
         interval: Duration::from_secs_f64(interval),
         card: opt_bool(t, "card", ctx)?.unwrap_or(true),
         in_bar,
+        screen: opt_string(t, "screen", ctx)?
+            .map(|s| WidgetScreen::parse(&s))
+            .unwrap_or_default(),
+        if_missing: opt_string(t, "if_missing", ctx)?
+            .map(|s| parse_if_missing(&s, ctx))
+            .transpose()?
+            .unwrap_or_default(),
     });
     Ok(())
 }
@@ -1763,7 +1782,11 @@ fn hd_component(b: &mut Builder, name: &str, t: &Table) -> mlua::Result<()> {
 fn hd_place(b: &mut Builder, id: &str, t: &Table) -> mlua::Result<()> {
     let ctx = format!("hd.place(\"{id}\")");
     let ctx = ctx.as_str();
-    check_keys(t, &["anchor", "x", "y", "size", "card"], ctx)?;
+    check_keys(
+        t,
+        &["anchor", "x", "y", "size", "card", "screen", "if_missing"],
+        ctx,
+    )?;
     let patch = PlacePatch {
         anchor: opt_string(t, "anchor", ctx)?
             .map(|a| parse_anchor(&a, ctx))
@@ -1772,6 +1795,10 @@ fn hd_place(b: &mut Builder, id: &str, t: &Table) -> mlua::Result<()> {
         y: opt_num(t, "y", ctx)?.map(|v| v as f32),
         size: opt_num(t, "size", ctx)?.map(|v| v.clamp(0.0, 400.0) as f32),
         card: opt_bool(t, "card", ctx)?,
+        screen: opt_string(t, "screen", ctx)?.map(|s| WidgetScreen::parse(&s)),
+        if_missing: opt_string(t, "if_missing", ctx)?
+            .map(|s| parse_if_missing(&s, ctx))
+            .transpose()?,
     };
     b.places.push((b.origin, id.to_string(), patch));
     Ok(())
@@ -1792,6 +1819,8 @@ fn apply_places(b: &mut Builder) {
                         y: p.y.unwrap_or(0.0),
                         size: p.size.unwrap_or(0.0),
                         card: p.card.unwrap_or(true),
+                        screen: p.screen.clone().unwrap_or_default(),
+                        if_missing: p.if_missing.unwrap_or_default(),
                     },
                 );
             } else {
@@ -1816,6 +1845,12 @@ fn apply_places(b: &mut Builder) {
         }
         if let Some(v) = p.card {
             w.card = v;
+        }
+        if let Some(v) = p.screen {
+            w.screen = v;
+        }
+        if let Some(v) = p.if_missing {
+            w.if_missing = v;
         }
         if origin == Origin::Settings {
             b.config.placements.insert(id, w.placement());

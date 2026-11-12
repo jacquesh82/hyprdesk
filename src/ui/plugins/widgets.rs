@@ -49,6 +49,9 @@ pub enum Msg {
     WidgetY(f32),
     WidgetSize(f32),
     WidgetCard(bool),
+    /// Écran du widget, et que faire s'il est débranché.
+    WidgetScreen(crate::config::WidgetScreen),
+    WidgetIfMissing(crate::config::IfMissing),
     WidgetReset,
     /// Supprime un widget placé dans les réglages (premier appui : arme ; second : confirme).
     DeleteWidget(String),
@@ -58,7 +61,7 @@ impl App {
     pub(in crate::ui) fn tab_widgets<'a>(&'a self, p: &'a Panel) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let plugin_dir = crate::widgets::plugins::dirs(
@@ -97,7 +100,7 @@ impl App {
             let mut info = column![
                 row![
                     text(t.name.clone()).font(self.font).size(15).color(fg),
-                    text(source).font(self.font).size(11).color(dim)
+                    text(source).font(self.font).size(12).color(dim)
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -119,7 +122,7 @@ impl App {
                         in_user = in_user
                     ))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim),
                 );
             }
@@ -130,7 +133,7 @@ impl App {
                         disabled = disabled
                     ))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim),
                 );
             }
@@ -158,7 +161,7 @@ impl App {
             } else {
                 text("dans hyprdesk.lua")
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim)
                     .into()
             };
@@ -166,7 +169,8 @@ impl App {
         }
 
         // -- Widgets de ce bureau ---------------------------------------------
-        let desk = resolve(&self.cfg, &mon, &ws);
+        let mut desk = resolve(&self.cfg, &mon, &ws);
+        self.keep_widgets_of(&mon, &mut desk);
         let mut active = column![].spacing(4);
         if desk.widgets.is_empty() {
             active = active.push(
@@ -206,7 +210,7 @@ impl App {
                             text(name).font(self.font).size(14).width(Length::Fill),
                             text(format!("{} · {from}", w.id))
                                 .font(self.font)
-                                .size(11)
+                                .size(12)
                                 .color(dim)
                         ]
                         .spacing(8),
@@ -344,13 +348,14 @@ impl App {
                         "",
                         toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
                     ),
+                    self.widget_screen_field(&pl),
                     button(text("Réinitialiser la position").font(self.font).size(13))
                         .padding([6, 12])
                         .on_press(wrap(Msg::WidgetReset)),
                 ]
                 .spacing(12);
                 if user_widget {
-                    c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(11).color(dim));
+                    c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(12).color(dim));
                 }
                 c.into()
             }
@@ -394,12 +399,75 @@ impl App {
                 dir = plugin_dir.display()
             ))
             .font(self.font)
-            .size(11)
+            .size(12)
             .color(dim),
         ]
         .spacing(14)
         .into()
     }
+    /// Écran du widget sélectionné : principal, tous, ou un écran nommé ; et,
+    /// pour un écran nommé, ce qui se passe quand il est débranché.
+    fn widget_screen_field<'a>(&'a self, pl: &Placement) -> Element<'a, UiMsg> {
+        use crate::config::{IfMissing, WidgetScreen};
+        #[derive(Debug, Clone, PartialEq)]
+        struct Choice(WidgetScreen, String);
+        impl std::fmt::Display for Choice {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.1)
+            }
+        }
+        let primary = self.primary_monitor().unwrap_or_default();
+        let mut choices = vec![
+            Choice(
+                WidgetScreen::Primary,
+                crate::tr!("Écran principal ({name})", name = primary.clone()),
+            ),
+            Choice(WidgetScreen::All, crate::i18n::tr("Tous les écrans").into()),
+        ];
+        for m in &self.monitors {
+            choices.push(Choice(WidgetScreen::Named(m.name.clone()), m.name.clone()));
+        }
+        if let WidgetScreen::Named(n) = &pl.screen
+            && !self.monitors.iter().any(|m| &m.name == n)
+        {
+            choices.push(Choice(
+                pl.screen.clone(),
+                crate::tr!("{name} (débranché)", name = n.clone()),
+            ));
+        }
+        let selected = choices.iter().find(|c| c.0 == pl.screen).cloned();
+        let mut col = column![
+            iced::widget::pick_list(choices, selected, |c: Choice| wrap(Msg::WidgetScreen(c.0)))
+                .font(self.font)
+                .text_size(13)
+                .width(260)
+        ]
+        .spacing(8);
+        if matches!(pl.screen, WidgetScreen::Named(_)) {
+            let missing = |label: &'static str, v: IfMissing| {
+                iced::widget::radio(crate::i18n::tr(label), v, Some(pl.if_missing), |v| {
+                    wrap(Msg::WidgetIfMissing(v))
+                })
+                .font(self.font)
+                .size(14)
+            };
+            col = col.push(
+                column![
+                    text("Si cet écran est débranché :")
+                        .font(self.font)
+                        .size(12),
+                    row![
+                        missing("sur l'écran principal", IfMissing::Primary),
+                        missing("masqué", IfMissing::Hide),
+                    ]
+                    .spacing(16),
+                ]
+                .spacing(6),
+            );
+        }
+        self.field("Écran", "", col)
+    }
+
     pub(in crate::ui) fn selected_placement(&self) -> Option<(String, Placement)> {
         let id = self.panel.as_ref()?.widgets.widget_sel.clone()?;
         let w = self.cfg.widgets.iter().find(|w| w.id == id)?;
@@ -485,6 +553,14 @@ impl App {
                 let t = self.edit_placement(|p| p.card = v);
                 Task::batch([t, self.save()])
             }
+            Msg::WidgetScreen(v) => {
+                let t = self.edit_placement(|p| p.screen = v);
+                Task::batch([t, self.save()])
+            }
+            Msg::WidgetIfMissing(v) => {
+                let t = self.edit_placement(|p| p.if_missing = v);
+                Task::batch([t, self.save()])
+            }
             Msg::DeleteWidget(id) => {
                 let Some(p) = self.panel.as_mut() else {
                     return Task::none();
@@ -512,12 +588,16 @@ impl App {
                         .find(|t| t.id == w.type_id)
                         .map(|t| t.anchor)
                         .unwrap_or_default();
+                    // Position remise à zéro ; l'écran choisi reste.
+                    let (screen, if_missing) = (w.screen.clone(), w.if_missing);
                     w.set_placement(&Placement {
                         anchor,
                         x: 0.0,
                         y: 0.0,
                         size: 0.0,
                         card: true,
+                        screen,
+                        if_missing,
                     });
                 } else {
                     self.settings.placements.remove(&id);

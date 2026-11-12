@@ -166,6 +166,8 @@ fn widget(id: &str, kind: WidgetKind, anchor: Anchor) -> WidgetDef {
         interval: Duration::from_secs(1),
         card: true,
         in_bar: false,
+        screen: Default::default(),
+        if_missing: Default::default(),
     }
 }
 

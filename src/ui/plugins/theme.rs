@@ -168,7 +168,7 @@ impl App {
         let g = &self.cfg.general;
         let th = &g.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let font = self.font;
 

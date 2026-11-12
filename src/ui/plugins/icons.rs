@@ -50,7 +50,7 @@ impl App {
     pub(in crate::ui) fn tab_icons<'a>(&'a self, p: &'a Panel) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let themes: Vec<String> = p.icons.themes.clone();
         let mut shortcuts = column![].spacing(6);
         if self.settings.icons.is_empty() {
@@ -121,7 +121,7 @@ impl App {
                                 .font(self.font)
                                 .size(14)
                                 .width(Length::Fill),
-                            text(a.id.clone()).font(self.font).size(11).color(dim)
+                            text(a.id.clone()).font(self.font).size(12).color(dim)
                         ]
                         .spacing(8),
                     )

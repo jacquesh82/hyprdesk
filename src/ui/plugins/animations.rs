@@ -130,9 +130,9 @@ impl App {
             row![
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(color(self.cfg.general.theme.accent, 1.0)),
-                button(text(crate::i18n::tr("Rétablir")).font(self.font).size(11))
+                button(text(crate::i18n::tr("Rétablir")).font(self.font).size(12))
                     .padding([2, 8])
                     .style(button::text)
                     .on_press(reset),
@@ -143,7 +143,7 @@ impl App {
         } else {
             text(crate::i18n::tr("hyprland.lua"))
                 .font(self.font)
-                .size(11)
+                .size(12)
                 .color(Color { a: 0.6, ..fg })
                 .into()
         }
@@ -250,8 +250,7 @@ impl App {
     }
 
     fn fx_animations(&self) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let set = &self.cfg.general.fx.anims;
         let mut col = column![
             self.fx_option("animations.enabled"),

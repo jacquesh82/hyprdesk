@@ -209,8 +209,7 @@ impl App {
 
     fn layouts_general(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let small = |s: String| text(s).font(self.font).size(12).color(dim);
         let t = &g.tiling;
         let current = self
@@ -294,8 +293,7 @@ impl App {
 
     fn layouts_options(&self, section: &'static str) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
         let set = &g.tiling.options;
         let current = self.panel.as_ref().map(|p| &p.layouts.current);
@@ -417,9 +415,9 @@ impl App {
                 row![
                     text(crate::i18n::tr("réglé ici"))
                         .font(self.font)
-                        .size(11)
+                        .size(12)
                         .color(accent),
-                    button(text(crate::i18n::tr("Rétablir")).font(self.font).size(11))
+                    button(text(crate::i18n::tr("Rétablir")).font(self.font).size(12))
                         .padding([2, 8])
                         .style(button::text)
                         .on_press(wrap(Msg::Opt(p, None))),
@@ -430,7 +428,7 @@ impl App {
             } else {
                 text(crate::i18n::tr("hyprland.lua"))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim)
                     .into()
             };
@@ -450,7 +448,7 @@ impl App {
     fn layouts_custom(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
         let mut col = column![
             self.section("Layouts de hyprdesk"),
@@ -525,7 +523,7 @@ impl App {
     fn layout_keys(&self, layout: &str) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let binds = self
@@ -587,12 +585,12 @@ impl App {
                         crate::i18n::tr("proposé, déjà pris")
                     })
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(if free { dim } else { warn }),
                 );
                 if let Some(lua) = l.lua.clone() {
                     keys = keys.push(
-                        button(text(crate::i18n::tr("Copier")).font(self.font).size(11))
+                        button(text(crate::i18n::tr("Copier")).font(self.font).size(12))
                             .padding([2, 8])
                             .style(button::text)
                             .on_press(wrap(Msg::Copy(lua))),

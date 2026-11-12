@@ -172,7 +172,7 @@ impl App {
     pub(in crate::ui) fn tab_wallpaper<'a>(&'a self, p: &'a Panel) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let scope = self.wall_scope();

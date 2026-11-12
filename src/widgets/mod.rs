@@ -66,6 +66,8 @@ pub struct Builtin {
 pub const COMMON_OPTIONS: &[&str] = &[
     "workspace",
     "monitor",
+    "screen",
+    "if_missing",
     "id",
     "anchor",
     "x",

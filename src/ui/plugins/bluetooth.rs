@@ -178,7 +178,7 @@ fn step(a: &[&str]) -> Vec<String> {
 impl App {
     pub(in crate::ui) fn bluetooth_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let Some(s) = self
             .panel
             .as_ref()
@@ -231,7 +231,7 @@ impl App {
                 row![
                     column![
                         text(d.name.clone()).font(self.font).size(13).color(fg),
-                        text(detail).font(self.font).size(11).color(dim)
+                        text(detail).font(self.font).size(12).color(dim)
                     ]
                     .width(Length::Fill),
                     if d.connected {

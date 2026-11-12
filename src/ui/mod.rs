@@ -18,6 +18,7 @@ mod chat;
 pub(crate) mod color_picker;
 mod context;
 mod design;
+mod desk_layout;
 mod icons;
 mod mymfa;
 mod mymfa_fenetre;
@@ -108,6 +109,9 @@ pub enum Msg {
     ClassIcons(u64, Vec<(String, Option<PathBuf>)>),
     FocusWindow(String),
     OpenPanel,
+    /// Message venu d'un clic sur un écran (dock, barre) : ce qu'il ouvre
+    /// s'ouvre sur cet écran.
+    On(String, Box<Msg>),
     Panel(PanelMsg),
     /// Tiroir de l'assistant (LYRA, protocole serve).
     Chat(chat::ChatMsg),
@@ -431,6 +435,8 @@ pub struct App {
     /// Marges posées dans Hyprland pour dégager les contrôles du bureau, par
     /// écran (haut, droite, bas, gauche) : vide hors du bureau avec les fenêtres.
     window_gaps: Vec<(String, [i32; 4])>,
+    /// Écran du clic en cours de traitement (`Msg::On`).
+    click_monitor: Option<String>,
     /// Règle Hyprland posée pour LYRA (rectangle du tiroir), si elle l'est.
     lyra_rule: Option<(i32, i32, i32, i32)>,
     /// Cartes d'identification des écrans (surface, « numéro\nnom\nmodèle »).
@@ -748,6 +754,7 @@ impl App {
             audio: bar::Audio::default(),
             with_windows: false,
             window_gaps: Vec::new(),
+            click_monitor: None,
             launcher_cycle: HashMap::new(),
             lyra_rule: None,
             identify: Vec::new(),
@@ -1081,6 +1088,31 @@ impl App {
         }
         self.in_submap = want;
         Self::window_result(self.windows.submap(want))
+    }
+
+    /// Écran où ouvrir les Réglages, LYRA ou le lanceur : celui du clic,
+    /// sinon l'écran actif, sinon le principal.
+    pub(super) fn target_monitor(&self) -> Option<String> {
+        self.click_monitor
+            .clone()
+            .filter(|n| self.monitors.iter().any(|m| &m.name == n))
+            .or_else(|| {
+                self.monitors
+                    .iter()
+                    .find(|m| m.focused)
+                    .map(|m| m.name.clone())
+            })
+            .or_else(|| self.primary_monitor())
+    }
+
+    /// Surface du bureau sur l'écran cible (la première à défaut).
+    pub(super) fn target_surface(&self) -> Option<(Id, String)> {
+        let target = self.target_monitor();
+        self.surfaces
+            .iter()
+            .find(|(_, n)| Some(*n) == target.as_ref())
+            .or_else(|| self.surfaces.iter().next())
+            .map(|(id, n)| (*id, n.clone()))
     }
 
     /// Écran principal effectif : celui réglé s'il est branché, sinon celui
@@ -1536,7 +1568,18 @@ impl App {
 
     fn desktop_of(&self, id: Id) -> Option<(&Monitor, Desktop<'_>)> {
         let m = self.monitor(id)?;
-        Some((m, resolve(&self.cfg, &m.name, &m.workspace)))
+        let mut d = resolve(&self.cfg, &m.name, &m.workspace);
+        self.keep_widgets_of(&m.name, &mut d);
+        Some((m, d))
+    }
+
+    /// Plusieurs écrans : chaque widget sur son écran (principal par défaut,
+    /// ou l'écran choisi, et l'écran principal ou rien s'il est débranché).
+    fn keep_widgets_of(&self, monitor: &str, d: &mut Desktop<'_>) {
+        let primary = self.primary_monitor();
+        let connected: Vec<&str> = self.monitors.iter().map(|m| m.name.as_str()).collect();
+        d.widgets
+            .retain(|w| w.on_screen(monitor, primary.as_deref(), &connected));
     }
 
     /// Taille de la zone de contenu du bureau : la surface moins la zone réservée.
@@ -2220,7 +2263,9 @@ impl App {
         let mut todo: Vec<&config::WidgetDef> = Vec::new();
         for id in raised {
             let Some(m) = self.monitor(id) else { continue };
-            todo.extend(resolve(&cfg, &m.name, &m.workspace).widgets);
+            let mut d = resolve(&cfg, &m.name, &m.workspace);
+            self.keep_widgets_of(&m.name, &mut d);
+            todo.extend(d.widgets);
         }
         let bar_ids = self.bar_widget_ids();
         todo.extend(cfg.widgets.iter().filter(|w| bar_ids.contains(&w.id)));
@@ -3160,6 +3205,12 @@ impl App {
             }
             // Les réglages s'ouvrent sans changer le mode du bureau.
             Msg::OpenPanel => self.toggle_panel(),
+            Msg::On(monitor, inner) => {
+                self.click_monitor = Some(monitor);
+                let t = self.update_inner(*inner);
+                self.click_monitor = None;
+                t
+            }
             Msg::Panel(m) => self.panel_update(m),
             Msg::Chat(m) => self.chat_update(m),
             Msg::SettingsLoaded(revision, s) => {
@@ -3735,7 +3786,7 @@ impl App {
                     let (dx, dy) = (p.x - d.start.x, p.y - d.start.y);
                     if d.moved || dx.abs() + dy.abs() > DRAG_THRESHOLD {
                         d.moved = true;
-                        let mut np = d.from;
+                        let mut np = d.from.clone();
                         np.x = (d.from.x + dx).round();
                         np.y = (d.from.y + dy).round();
                         let wid = d.id.clone();
@@ -4150,8 +4201,14 @@ impl App {
                 if self.cfg.plugin_on("icons") {
                     content.push(self.view_icons(id, t));
                 }
-                for w in d.widgets.iter().filter(|_| self.cfg.plugin_on("widgets")) {
-                    content.push(self.view_widget(id, w, t));
+                if self.cfg.plugin_on("widgets") && !d.widgets.is_empty() {
+                    // Sans superposition : chaque widget écarté de ceux déjà posés.
+                    content.push(desk_layout::desk(
+                        d.widgets
+                            .iter()
+                            .map(|w| self.view_widget(id, w, t))
+                            .collect(),
+                    ));
                 }
             }
             // Le lanceur a sa propre surface, au-dessus des fenêtres.
@@ -4834,6 +4891,8 @@ mod regression_tests {
                 interval: Duration::from_secs(60),
                 card: true,
                 in_bar: false,
+                screen: Default::default(),
+                if_missing: Default::default(),
             });
         }
         let _ = app.update_inner(Msg::Control(control::Command::LauncherOnly));

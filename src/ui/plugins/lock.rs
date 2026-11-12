@@ -61,8 +61,7 @@ impl App {
         }
         let g = &self.cfg.general;
         let l = &g.lock;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         // D'où vient le fond du verrouillage : image propre, ou celle du bureau
         // (donc du thème), scène étalée comprise.
         let origin = match &l.image {
@@ -182,8 +181,7 @@ impl App {
     fn idle_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let i = &g.idle;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = color(g.theme.accent, 1.0);
         let mut col = column![
             self.section("Veille"),

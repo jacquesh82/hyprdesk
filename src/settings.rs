@@ -451,7 +451,7 @@ impl Settings {
                         .iter()
                         .any(|w| &w.id == *id && w.origin == Origin::Settings)
                 })
-                .map(|(k, v)| (k.clone(), *v))
+                .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
             disabled: c.disabled.clone(),
         }
@@ -512,6 +512,8 @@ impl Settings {
             interval: std::time::Duration::from_secs(60),
             card: true,
             in_bar: false,
+            screen: Default::default(),
+            if_missing: Default::default(),
         });
         id
     }
@@ -756,7 +758,7 @@ impl Settings {
                     .iter()
                     .find(|s| s.id == w.id)
                     .map(|s| s.placement()),
-                Origin::User => self.placements.get(&w.id).copied(),
+                Origin::User => self.placements.get(&w.id).cloned(),
             };
             if let Some(p) = p {
                 w.set_placement(&p);
@@ -1482,13 +1484,21 @@ fn widget_fields(k: &WidgetKind) -> Vec<String> {
 }
 
 fn placement_fields(p: &Placement) -> Vec<String> {
-    vec![
+    let mut f = vec![
         format!("anchor = {}", q(anchor_str(p.anchor))),
         format!("x = {}", num(p.x)),
         format!("y = {}", num(p.y)),
         format!("size = {}", num(p.size)),
         format!("card = {}", p.card),
-    ]
+    ];
+    // Écran : écrit seulement s'il diffère du défaut (l'écran principal).
+    if p.screen != crate::config::WidgetScreen::Primary {
+        f.push(format!("screen = {}", q(p.screen.as_str())));
+    }
+    if p.if_missing != crate::config::IfMissing::Primary {
+        f.push(format!("if_missing = {}", q(p.if_missing.as_str())));
+    }
+    f
 }
 
 pub fn anchor_str(a: Anchor) -> &'static str {
@@ -1742,6 +1752,64 @@ mod tests {
         }
     }
 
+    /// Écran des widgets : principal par défaut, un écran nommé, tous ;
+    /// écran débranché → principal ou masqué. Aller-retour par settings.lua,
+    /// widget des réglages comme widget de hyprdesk.lua (hd.place).
+    #[test]
+    fn ecran_des_widgets() {
+        use crate::config::{IfMissing, WidgetScreen};
+        let load = |chunks: &[(String, &str, Origin)]| {
+            let c: Vec<(String, String, Origin)> = chunks
+                .iter()
+                .map(|(l, n, o)| (l.clone(), n.to_string(), *o))
+                .collect();
+            load_chunks(&c, Path::new("/cfg")).unwrap().config
+        };
+        let user =
+            r#"hd.widget("clock") hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })"#;
+        let cfg = load(&[(user.into(), "hyprdesk.lua", Origin::User)]);
+        let clock = cfg.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        let cal = cfg
+            .widgets
+            .iter()
+            .find(|w| w.type_id == "calendar")
+            .unwrap();
+        assert_eq!(clock.screen, WidgetScreen::Primary);
+        assert_eq!(
+            (cal.screen.clone(), cal.if_missing),
+            (WidgetScreen::Named("DP-2".into()), IfMissing::Hide)
+        );
+        let both = ["DP-1", "DP-2"];
+        assert!(
+            clock.on_screen("DP-1", Some("DP-1"), &both)
+                && !clock.on_screen("DP-2", Some("DP-1"), &both)
+        );
+        assert!(
+            cal.on_screen("DP-2", Some("DP-1"), &both)
+                && !cal.on_screen("DP-1", Some("DP-1"), &both)
+        );
+        // DP-2 débranché : masqué ; avec if_missing = primary, sur l'écran principal.
+        assert!(!cal.on_screen("DP-1", Some("DP-1"), &["DP-1"]));
+        let mut c2 = cal.clone();
+        c2.if_missing = IfMissing::Primary;
+        assert!(c2.on_screen("DP-1", Some("DP-1"), &["DP-1"]));
+        c2.screen = WidgetScreen::All;
+        assert!(c2.on_screen("DP-2", Some("DP-1"), &both));
+        // Réglages : l'horloge (hyprdesk.lua) passe sur tous les écrans → hd.place.
+        let mut s = Settings::from_config(&cfg);
+        let mut p = clock.placement();
+        p.screen = WidgetScreen::All;
+        s.place_widget(&clock.id, p);
+        let lua = s.to_lua();
+        assert!(lua.contains("screen = \"all\""), "{lua}");
+        let again = load(&[
+            (lua, "settings.lua", Origin::Settings),
+            (user.into(), "hyprdesk.lua", Origin::User),
+        ]);
+        let clock2 = again.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        assert_eq!(clock2.screen, WidgetScreen::All);
+    }
+
     #[test]
     fn aller_retour_lua() {
         let mut s = Settings {
@@ -1942,6 +2010,8 @@ mod tests {
                 y: -40.0,
                 size: 18.0,
                 card: false,
+                screen: Default::default(),
+                if_missing: Default::default(),
             },
         );
         s.place_widget(
@@ -1952,6 +2022,8 @@ mod tests {
                 y: 8.0,
                 size: 0.0,
                 card: true,
+                screen: Default::default(),
+                if_missing: Default::default(),
             },
         );
         let lua = s.to_lua();
@@ -1984,6 +2056,8 @@ mod tests {
                 y: 4.0,
                 size: 30.0,
                 card: false,
+                screen: Default::default(),
+                if_missing: Default::default(),
             },
         );
         let live = moved.apply_to(&cfg);

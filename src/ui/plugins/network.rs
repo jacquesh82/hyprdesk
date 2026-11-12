@@ -217,7 +217,7 @@ fn run(prog: &'static str, args: Vec<String>) -> Task<UiMsg> {
 impl App {
     pub(in crate::ui) fn network_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.network).filter(|s| s.loaded) else {
             return text("Lecture…").font(self.font).size(13).color(dim).into();
         };
@@ -281,7 +281,7 @@ impl App {
                         }
                     ))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim)
                 ]
                 .width(Length::Fill),
@@ -336,7 +336,7 @@ impl App {
                             }
                         ))
                         .font(self.font)
-                        .size(11)
+                        .size(12)
                         .color(dim)
                     ]
                     .width(Length::Fill),
@@ -350,7 +350,7 @@ impl App {
                         line.push(
                             text("mot de passe : menu Réseau de la barre")
                                 .font(self.font)
-                                .size(11)
+                                .size(12)
                                 .color(dim),
                         )
                     };

@@ -403,14 +403,10 @@ impl App {
         self.chat.as_ref().is_some_and(|c| c.surface.is_some())
     }
 
-    /// Surface de bureau et écran du tiroir (l'écran principal).
+    /// Surface de bureau et écran du tiroir (celui du clic, sinon l'écran actif).
     fn chat_target(&self) -> Option<(Id, String)> {
-        let primary = self.primary_monitor();
-        self.surfaces
-            .iter()
-            .find(|(_, n)| Some(*n) == primary.as_ref())
-            .or_else(|| self.surfaces.iter().next())
-            .map(|(id, n)| (*id, n.clone()))
+        // L'écran du clic, sinon l'écran actif.
+        self.target_surface()
     }
 
     /// Ouvre le tiroir (une première conversation s'il n'y en a pas).

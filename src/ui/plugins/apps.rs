@@ -9,10 +9,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::i18n::text;
 use iced::widget::{button, column, pick_list, row, text_input};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
-use super::super::{App, Msg as UiMsg, color};
+use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::apps::{self, ROLES};
 
@@ -81,8 +81,7 @@ impl App {
         let Some(p) = &self.panel else {
             return text("").into();
         };
-        let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let mut col = column![
             self.section("Applications par défaut"),
             text(
@@ -167,7 +166,7 @@ impl App {
                 self.field(
                     r.label,
                     "",
-                    column![controls, text(status).font(self.font).size(11).color(dim)]
+                    column![controls, text(status).font(self.font).size(12).color(dim)]
                         .spacing(4)
                         .width(Length::Fill),
                 ),

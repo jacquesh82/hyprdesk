@@ -122,9 +122,18 @@ impl App {
     /// Ouvre l'assistant : LYRA si elle est là, sinon l'outil IA choisi, dans
     /// le terminal. Comme le lanceur, ne change pas le mode du bureau.
     pub(in crate::ui) fn open_assistant(&mut self) -> Task<UiMsg> {
-        // Tiroir affiché : le même geste le cache (la session continue).
+        // Tiroir affiché sur cet écran : le même geste le cache (la session
+        // continue) ; sur un autre écran : il vient sur celui du clic.
         if self.chat_shown() {
-            return self.close_chat();
+            let here = self.target_surface().map(|(id, _)| id);
+            let close = self.close_chat();
+            if self.chat.as_ref().map(|c| c.win) == here {
+                return close;
+            }
+            if let Some(engine) = assistant::serve_command(&self.cfg) {
+                return close.chain(self.open_chat(engine));
+            }
+            return close;
         }
         // LYRA sait se faire dessiner par hyprdesk : son tiroir, au format des Réglages.
         if let Some(engine) = assistant::serve_command(&self.cfg) {
@@ -241,7 +250,7 @@ impl App {
         }
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let g = &self.cfg.general;
         let line = |ok: bool, yes: &str, no: &str| {

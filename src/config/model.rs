@@ -1134,6 +1134,9 @@ pub struct WidgetDef {
     pub card: bool,
     /// Module de la barre : jamais affiché sur le bureau.
     pub in_bar: bool,
+    /// Écran du widget, et que faire si cet écran est débranché.
+    pub screen: WidgetScreen,
+    pub if_missing: IfMissing,
 }
 
 impl WidgetDef {
@@ -1144,6 +1147,24 @@ impl WidgetDef {
             y: self.y,
             size: self.size,
             card: self.card,
+            screen: self.screen.clone(),
+            if_missing: self.if_missing,
+        }
+    }
+
+    /// Le widget s'affiche-t-il sur cet écran ? Un écran nommé par le
+    /// sélecteur Lua (`monitor = …`) décide seul ; sinon l'écran du widget
+    /// (principal par défaut), et, s'il est débranché, l'écran principal ou rien.
+    pub fn on_screen(&self, monitor: &str, primary: Option<&str>, connected: &[&str]) -> bool {
+        if self.sel.monitors.is_some() {
+            return true;
+        }
+        let primary_here = primary.is_none_or(|p| p == monitor);
+        match &self.screen {
+            WidgetScreen::All => true,
+            WidgetScreen::Primary => primary_here,
+            WidgetScreen::Named(n) if connected.contains(&n.as_str()) => n == monitor,
+            WidgetScreen::Named(_) => self.if_missing == IfMissing::Primary && primary_here,
         }
     }
 
@@ -1153,6 +1174,8 @@ impl WidgetDef {
         self.y = p.y;
         self.size = p.size;
         self.card = p.card;
+        self.screen = p.screen.clone();
+        self.if_missing = p.if_missing;
     }
 
     /// Même widget, en ignorant sa position : un déplacement ne doit pas
@@ -1167,7 +1190,7 @@ impl WidgetDef {
 }
 
 /// Position d'un widget à l'écran (`hd.place`, ou glissé dans les réglages).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Placement {
     pub anchor: Anchor,
     pub x: f32,
@@ -1175,6 +1198,64 @@ pub struct Placement {
     /// 0 = taille par défaut du widget.
     pub size: f32,
     pub card: bool,
+    pub screen: WidgetScreen,
+    pub if_missing: IfMissing,
+}
+
+/// Écran d'un widget du bureau (plusieurs écrans : un widget n'est pas
+/// répété sur chacun).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum WidgetScreen {
+    /// L'écran principal (défaut).
+    #[default]
+    Primary,
+    /// Tous les écrans.
+    All,
+    /// Un écran par son nom (`DP-1`).
+    Named(String),
+}
+
+impl WidgetScreen {
+    pub fn parse(s: &str) -> Self {
+        match s.trim() {
+            "" | "primary" | "principal" => WidgetScreen::Primary,
+            "all" | "*" | "tous" => WidgetScreen::All,
+            name => WidgetScreen::Named(name.to_string()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            WidgetScreen::Primary => "primary",
+            WidgetScreen::All => "all",
+            WidgetScreen::Named(n) => n,
+        }
+    }
+}
+
+/// Écran du widget débranché : le widget se montre sur l'écran principal, ou se masque.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IfMissing {
+    #[default]
+    Primary,
+    Hide,
+}
+
+impl IfMissing {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "primary" | "principal" => IfMissing::Primary,
+            "hide" | "masquer" => IfMissing::Hide,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IfMissing::Primary => "primary",
+            IfMissing::Hide => "hide",
+        }
+    }
 }
 
 /// D'où vient un type de widget.

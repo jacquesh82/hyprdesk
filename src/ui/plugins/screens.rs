@@ -87,7 +87,7 @@ impl App {
     pub(in crate::ui) fn tab_screens(&self) -> Element<'_, UiMsg> {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let small = |s: String| text(s).font(self.font).size(12).color(dim);
         let l = &self.screens;
         if l.is_empty() {
@@ -171,7 +171,7 @@ impl App {
                 .align_x(Alignment::Center)
                 .spacing(2);
                 if main {
-                    label = label.push(text("★ principal").font(self.font).size(11).color(accent));
+                    label = label.push(text("★ principal").font(self.font).size(12).color(accent));
                 }
                 // Cotes de l'écran : pixels dans son sens d'affichage (la taille
                 // d'image à préparer), échelle, position dans la disposition.
@@ -189,14 +189,14 @@ impl App {
                     .push(
                         text(format!("{pw} × {ph}{scale}"))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim),
                     )
                     .push(
                         text(format!("{}, {}", s.x, s.y))
                             .font(self.font)
-                            .size(10)
-                            .color(Color { a: 0.45, ..fg }),
+                            .size(12)
+                            .color(dim),
                     );
                 let tile = button(container(label).center(Length::Fill))
                     .width((w * k - 4.0).max(24.0))
@@ -263,7 +263,7 @@ impl App {
                 bar(Length::Fill, Length::Fixed(1.0)),
                 text(format!("{} px", span_w.round() as i32))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim),
                 bar(Length::Fill, Length::Fixed(1.0)),
                 bar(Length::Fixed(1.0), Length::Fixed(9.0)),
@@ -282,7 +282,7 @@ impl App {
                 bar(Length::Fixed(1.0), Length::Fill),
                 text(format!("{} px", span_h.round() as i32))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim)
                     .wrapping(iced::widget::text::Wrapping::None),
                 bar(Length::Fixed(1.0), Length::Fill),
@@ -300,9 +300,9 @@ impl App {
         let map = column![
             row![map, vdim].spacing(8),
             hdim,
+            // Deux lignes : les mesures, puis la légende du plan.
             text(crate::tr!(
-                "Ensemble : {w} × {h} px logiques, de ({x0}, {y0}) à ({x1}, {y1}). \
-                 Sous chaque écran : sa taille d'image et sa position.",
+                "Ensemble : {w} × {h} px logiques, de ({x0}, {y0}) à ({x1}, {y1}).",
                 w = span_w.round() as i32,
                 h = span_h.round() as i32,
                 x0 = x0.round() as i32,
@@ -311,8 +311,12 @@ impl App {
                 y1 = y1.round() as i32
             ))
             .font(self.font)
-            .size(12)
-            .color(dim),
+            .size(13)
+            .color(self.ink().fg),
+            text("Sous chaque écran : sa taille d'image et sa position.")
+                .font(self.font)
+                .size(13)
+                .color(dim),
         ]
         .spacing(6);
         let off: Vec<String> = l

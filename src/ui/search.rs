@@ -300,7 +300,11 @@ impl App {
                 },
                 exclusive_zone: Some(-1),
                 keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                output_option: OutputOption::Active,
+                // Sur l'écran du clic (bouton du dock), sinon l'écran actif.
+                output_option: self
+                    .click_monitor
+                    .clone()
+                    .map_or(OutputOption::Active, OutputOption::OutputName),
                 namespace: Some(NAMESPACE.into()),
                 ..Default::default()
             },

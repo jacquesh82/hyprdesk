@@ -811,7 +811,11 @@ impl App {
             badge: usize::from(apps_open),
             active: apps_open,
             popup: PopupContent::Label(crate::i18n::tr("Toutes les applications").into()),
-            msg: UiMsg::Control(crate::control::Command::Apps),
+            // Ouvert sur l'écran de ce dock.
+            msg: UiMsg::On(
+                m.name.clone(),
+                Box::new(UiMsg::Control(crate::control::Command::Apps)),
+            ),
         })));
         if assistant {
             slots.push(Slot::Item(Box::new(DockItem {
@@ -820,7 +824,7 @@ impl App {
                 badge: usize::from(assistant_open),
                 active: assistant_open,
                 popup: PopupContent::Label("Assistant IA (LYRA)".into()),
-                msg: UiMsg::OpenAssistant,
+                msg: UiMsg::On(m.name.clone(), Box::new(UiMsg::OpenAssistant)),
             })));
         }
         if l.show_settings {
@@ -830,7 +834,7 @@ impl App {
                 badge: usize::from(settings_open),
                 active: settings_open,
                 popup: PopupContent::Label(crate::i18n::tr("Réglages").into()),
-                msg: UiMsg::OpenPanel,
+                msg: UiMsg::On(m.name.clone(), Box::new(UiMsg::OpenPanel)),
             })));
         }
         slots
@@ -1082,7 +1086,7 @@ impl App {
                                 .width(Length::Fill),
                             text(format!("ws {}", c.workspace))
                                 .font(self.font)
-                                .size(11)
+                                .size(12)
                                 .color(dim),
                         ]
                         .spacing(10)
@@ -1219,8 +1223,7 @@ impl App {
 
     pub(in crate::ui) fn launcher_page(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let running = |label: &'static str, v: RunningApps| {
             radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
                 wrap(Msg::Running(v))
@@ -1325,7 +1328,7 @@ impl App {
         let g = &self.cfg.general;
         let a = g.apps_launcher;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let style = |label: &'static str, v: AppsStyle| {
             radio(crate::i18n::tr(label), v, Some(a.style), |v| {
@@ -1395,7 +1398,7 @@ impl App {
             ),
             text("Les autres raccourcis, et tous les conflits : Réglages → Bureau → Raccourcis.")
                 .font(self.font)
-                .size(11)
+                .size(12)
                 .color(dim),
         ]
         .spacing(12);
@@ -1468,8 +1471,7 @@ impl App {
     fn launcher_look(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let l = &g.launcher;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let filter = self
             .panel
             .as_ref()
@@ -1533,7 +1535,7 @@ impl App {
                                 .font(self.font)
                                 .size(14)
                                 .width(Length::Fill),
-                            text(a.id.clone()).font(self.font).size(11).color(dim),
+                            text(a.id.clone()).font(self.font).size(12).color(dim),
                         ]
                         .spacing(8),
                     )

@@ -102,13 +102,13 @@ impl App {
         };
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let badge = move |label: &'static str, on: bool| {
             container(
                 text(label)
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(if on { accent } else { dim }),
             )
             .padding([2, 8])
@@ -180,7 +180,7 @@ impl App {
             .spacing(8)
             .align_y(Alignment::Center);
             if t.error.is_some() {
-                head = head.push(text("en erreur").font(self.font).size(11).color(warn));
+                head = head.push(text("en erreur").font(self.font).size(12).color(warn));
             }
             let mut info = column![head].spacing(3).width(Length::Fill);
             let detail = match (&t.error, &path) {
@@ -353,7 +353,7 @@ impl App {
             return column![].into();
         };
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let set = self.cfg.general.plugin_options.get(&t.id);
         let mut col = column![].spacing(8);
         for (k, default) in &t.options {
@@ -398,10 +398,10 @@ impl App {
                          instance du plugin, sauf les options écrites dans hyprdesk.lua."
                     ))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim)
                     .width(Length::Fill),
-                    button(text("Valeurs du plugin").font(self.font).size(11))
+                    button(text("Valeurs du plugin").font(self.font).size(12))
                         .padding([3, 8])
                         .style(button::text)
                         .on_press(wrap(Msg::OptReset(t.id.clone()))),
@@ -423,7 +423,7 @@ impl App {
                      ~/.local/state/hyprdesk/updates.log.",
                 ))
                 .font(self.font)
-                .size(11)
+                .size(12)
                 .color(dim),
             );
             let over = &self.cfg.general.update_commands;
@@ -456,7 +456,7 @@ impl App {
                             .font(self.font)
                             .size(13)
                             .width(Length::Fill),
-                        button(text("Commandes de hyprdesk").font(self.font).size(11))
+                        button(text("Commandes de hyprdesk").font(self.font).size(12))
                             .padding([3, 8])
                             .style(button::text)
                             .on_press(wrap(Msg::UpdReset(id.clone()))),

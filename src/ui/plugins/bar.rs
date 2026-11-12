@@ -95,8 +95,7 @@ impl App {
     pub(in crate::ui) fn tab_bar(&self) -> Element<'_, UiMsg> {
         use crate::config::BarPosition;
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let (mon, _) = self.panel_ctx().unwrap_or_default();
         let b = self
@@ -574,7 +573,7 @@ impl App {
     ) -> Element<'_, UiMsg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let font = self.font;
         let st = self.panel.as_ref().map(|p| &p.bar);
         let edge = Color { a: 0.3, ..fg };
@@ -621,7 +620,7 @@ impl App {
                             crate::settings::hex(c)
                         ))
                         .font(font)
-                        .size(11),
+                        .size(12),
                     )
                     .padding([4, 8])
                     .style(container::rounded_box),

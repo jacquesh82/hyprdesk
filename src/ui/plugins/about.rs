@@ -174,7 +174,7 @@ impl App {
         };
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let head = column![
             text("hyprdesk").font(self.title_font()).size(28).color(fg),
             text(format!(

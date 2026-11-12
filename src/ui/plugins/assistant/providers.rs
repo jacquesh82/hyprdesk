@@ -304,7 +304,7 @@ impl App {
         let g = &self.cfg.general;
         let th = &g.theme;
         let fg = color(th.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let small = |t: String, c: Color| -> Element<'a, UiMsg> {
             text(t).font(self.font).size(12).color(c).into()
@@ -476,7 +476,7 @@ impl App {
     /// Fiche d'un fournisseur : nom, endpoint, modèle, clé.
     fn draft_form<'a>(&'a self, d: &'a Draft, key: Option<&'a KeySource>) -> Element<'a, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0x95, 0x80);
         let input = |placeholder: &str, value: &'a str, f: DraftField| {
             text_input(placeholder, value)
@@ -522,7 +522,7 @@ impl App {
                     v = v.to_string()
                 ))
                 .font(self.font)
-                .size(11)
+                .size(12)
                 .color(dim),
             );
         }
@@ -564,7 +564,7 @@ impl App {
                 Space::new().width(Length::Fill),
                 text(format!("id : {}", d.id))
                     .font(self.font)
-                    .size(11)
+                    .size(12)
                     .color(dim),
             ]
             .spacing(10)
@@ -577,7 +577,7 @@ impl App {
     pub(in crate::ui) fn uses_section(&self) -> Element<'_, UiMsg> {
         let ai = &self.cfg.general.ai;
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let choices: Vec<Choice> = ai
             .all()
             .into_iter()
@@ -607,7 +607,7 @@ impl App {
                             .color(fg),
                         text(crate::i18n::tr(c.summary))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim),
                     ]
                     .spacing(2)

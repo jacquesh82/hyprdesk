@@ -6,19 +6,21 @@
 use crate::i18n::text;
 use chrono::{Datelike, Local};
 use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row};
-use iced::{Alignment, Background, Border, Color, Element, Length, Padding, mouse};
+use iced::{Alignment, Background, Border, Color, Element, Length, mouse};
 
 use super::{App, IconImg, Msg, chrono_locale, color, format_now};
 use crate::config::{Anchor, WidgetDef, WidgetKind};
 use crate::widgets;
 
 impl App {
+    /// Un widget du bureau : sa boîte, et où la poser (`desk_layout` la place
+    /// sans recouvrir les autres).
     pub(super) fn view_widget(
         &self,
         win: iced::window::Id,
         w: &WidgetDef,
         t: f32,
-    ) -> Element<'_, Msg> {
+    ) -> (super::desk_layout::Spot, Element<'_, Msg>) {
         let g = &self.cfg.general;
         let th = &g.theme;
         let fg = color(th.fg, t);
@@ -223,18 +225,14 @@ impl App {
         };
         let (left, right) = axis(ax, w.x, margin);
         let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { 120.0 } else { margin });
-        container(boxed)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(ax)
-            .align_y(ay)
-            .padding(Padding {
-                top,
-                right,
-                bottom,
-                left,
-            })
-            .into()
+        (
+            super::desk_layout::Spot {
+                x: ax,
+                y: ay,
+                pad: [top, right, bottom, left],
+            },
+            boxed,
+        )
     }
 
     fn view_value(

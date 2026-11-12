@@ -283,7 +283,7 @@ impl App {
         };
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let key_field = |i: usize, label: &'static str, cfg_key: &'static str| {
             self.field(
@@ -336,10 +336,10 @@ impl App {
                  Réglé ici, hyprdesk le remplace."
             )
             .font(self.font)
-            .size(11)
+            .size(12)
             .color(dim),
             self.adv(key_field(2, crate::i18n::tr("Sortie de secours (bureau affiché)"), "keys.leave")),
-            text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(11).color(dim),
+            text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(12).color(dim),
         ]
         .spacing(10);
         if let Some(e) = &p.desktop.key_error {
@@ -369,7 +369,7 @@ impl App {
     pub(in crate::ui) fn key_conflicts_view(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let r = &self.key_report;
         let mut col = column![].spacing(10);
@@ -473,8 +473,7 @@ impl App {
     /// Modes imposés : par écran, puis par workspace.
     pub(in crate::ui) fn forced_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let current = |key: &str| {
             let v = g.forced_modes.get(key).map(String::as_str);
             FORCED_CHOICES
@@ -554,7 +553,7 @@ impl App {
     pub(in crate::ui) fn session_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let mut col = column![self.section("Session")].spacing(10);
         col = col.push(
             text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).").font(self.font)
@@ -602,7 +601,7 @@ impl App {
                         text(e.name.clone()).font(self.font).size(13).color(fg),
                         text(format!("{state} — {}", e.exec))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim)
                     ]
                     .width(Length::Fill),
@@ -644,7 +643,7 @@ impl App {
                         text(d.name.clone()).font(self.font).size(14).color(fg),
                         text(format!("{} — {state}{extra}", d.exec))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim)
                     ]
                     .width(Length::Fill),
@@ -663,7 +662,7 @@ impl App {
     pub(in crate::ui) fn deps_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let list = crate::doctor::cached();
         let present = list.iter().filter(|s| s.found.is_some()).count();
         let mut col = column![].spacing(10);
@@ -716,7 +715,7 @@ impl App {
                                 pid = c.pid
                             ))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim),
                         ]
                         .width(Length::Fill),
@@ -758,7 +757,7 @@ impl App {
                         text(s.dep.name).font(self.font).size(14).color(fg),
                         text(format!("{} · {detail}", crate::i18n::tr(s.dep.feature)))
                             .font(self.font)
-                            .size(11)
+                            .size(12)
                             .color(dim),
                     ]
                     .width(Length::Fill),

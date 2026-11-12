@@ -83,8 +83,8 @@ impl App {
             return text("").into();
         };
         let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let accent = color(th.accent, 1.0);
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let s = &p.share;
         let scope_radios = |current: Scope, msg: fn(Scope) -> Msg| {

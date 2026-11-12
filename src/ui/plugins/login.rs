@@ -162,7 +162,7 @@ impl App {
     /// Ligne d'état : pastille verte ou orange, libellé, détail.
     fn login_check<'a>(&self, ok: bool, label: &'a str, detail: String) -> Element<'a, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let mark = if ok {
             Color::from_rgb8(0x50, 0xfa, 0x7b)
         } else {
@@ -188,7 +188,7 @@ impl App {
 
     pub(in crate::ui) fn login_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let Some(st) = self
             .panel

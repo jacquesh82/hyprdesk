@@ -6,7 +6,7 @@
 
 use crate::i18n::text;
 use iced::widget::{button, column, radio};
-use iced::{Color, Element, Task};
+use iced::{Element, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -136,7 +136,7 @@ fn delay(s: u32) -> String {
 impl App {
     pub(in crate::ui) fn energy_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
+        let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.energy).filter(|s| s.loaded) else {
             return text("Lecture…").font(self.font).size(13).color(dim).into();
         };

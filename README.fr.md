@@ -19,12 +19,14 @@ hyprdesk est la **racine** de la session graphique.
   jamais par-dessus.
   - Au repos, il dessine le fond d'écran du workspace affiché, et remplace
     hyprpaper.
-  - Appelé (SUPER + D), il met de côté les fenêtres du workspace
-    (`special:hyprdesk`) et apparaît avec ses icônes et ses widgets. Ce
-    qu'on ouvre depuis lui s'ouvre **dessus**, flottant et centré, comme une
-    fenêtre ramenée depuis le dock. En quittant le plein bureau, ces fenêtres
-    retrouvent leur configuration d'origine (en mosaïque sur leur workspace).
-  - Masqué, il rend les fenêtres mises de côté.
+  - Appelé (SUPER + D), il apparaît avec ses icônes et ses widgets, et les
+    fenêtres du workspace passent en flottant **par-dessus**, organisées sur
+    l'écran, ou à la place qu'elles avaient la dernière fois sur ce
+    workspace. Ce qu'on ouvre depuis lui, ou qu'on ramène depuis le dock,
+    flotte aussi.
+  - En quittant le plein bureau, ces fenêtres retrouvent leur configuration
+    d'origine (en mosaïque sur leur workspace), et leurs positions sont
+    mémorisées par workspace pour le prochain plein bureau.
   - Le mode `glass` est un effet sur le fond : fond d'écran flouté et teinté.
 - **Racine de session.** hyprdesk lance et supervise les composants déclarés
   avec `hd.component`. Il les relance s'ils plantent et les arrête avec lui.
@@ -35,8 +37,9 @@ hyprdesk est la **racine** de la session graphique.
   - Elle se règle aussi dans Réglages → Barre.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
   (un clic donne le focus à la fenêtre), puis les boutons Applications, LYRA
-  et Réglages. Chacun ouvre puis referme d'un clic, et s'allume tant que ce
-  qu'il ouvre est affiché. Le dock se pilote aussi au clavier.
+  et Réglages. Chacun ouvre puis referme d'un clic, sur l'écran du clic, et
+  s'allume tant que ce qu'il ouvre est affiché. Le dock se pilote aussi au
+  clavier.
 
 ## Réglages (⚙)
 
@@ -45,14 +48,15 @@ Chaque entrée des réglages est un **paquet intégré** (manifeste, messages,
 [`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 Le bouton ⚙ du dock, ou `hyprdesk settings [bureau|icones|fond|effets]`, ouvre
-un panneau par-dessus le bureau, sur l'écran actif. Il regroupe les réglages suivants :
+un panneau par-dessus le bureau, sur l'écran du clic (l'écran actif pour un
+raccourci ou une commande). Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
 | Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fermer après un lancement ; fenêtres ouvertes flottantes ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
 | | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
 | | Icônes | raccourcis vers des applications installées, partout ou sur ce workspace ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
-| | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; glisser-déposer sur le bureau |
+| | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; écran (le principal par défaut, un autre, tous ; s'il est débranché : sur le principal ou masqué) ; glisser-déposer sur le bureau, sans superposition |
 | Apparence | Thème | thèmes livrés (Ardoise, Glass, Encre, Forêt, Ambre, Clair) et thèmes créés depuis une image ; couleurs ; texte ; effets par endroit |
 | | Thème des applications | le thème de hyprdesk appliqué à d'autres logiciels (kitty pour commencer) |
 | | Effets * | transition (fondu, glissement, aucune) et sa durée ; fondu entre deux fonds ; couleur d'accent |
@@ -263,6 +267,20 @@ Pour repositionner un widget déclaré dans `hyprdesk.lua`, on utilise
 `hd.place("clock#0", { anchor = "top", y = 20 })`. Quand on le déplace depuis
 les réglages, c'est ce `hd.place` qui est écrit dans `settings.lua`.
 
+**Plusieurs écrans.** Un widget du bureau ne s'affiche que sur un écran :
+l'écran principal par défaut. Réglages → Widgets → Écran (ou `screen = …`)
+en choisit un autre, ou tous, et ce qui se passe quand cet écran est
+débranché : le widget passe sur l'écran principal, ou se masque. Les widgets
+ne se superposent jamais : celui qui en recouvrirait un autre glisse en
+dessous (au-dessus pour un ancrage en bas), ou à côté quand la colonne est
+pleine.
+
+```lua
+hd.widget("clock",    { screen = "DP-2", if_missing = "primary" }) -- "primary" (défaut), "all", ou un nom d'écran
+hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
+hd.place("clock#0",   { screen = "all" })                           -- un widget de hyprdesk.lua sur tous les écrans
+```
+
 Les réglages sont enregistrés en Lua généré, dans
 `~/.config/hypr/hyprdesk/settings.lua`, comme le fait hyprdmc pour
 `monitors.lua`. Ce fichier est chargé **avant** `hyprdesk.lua` : tout ce que vous
@@ -271,19 +289,32 @@ panneau signale les réglages que `hyprdesk.lua` surcharge.
 
 ## Installation
 
-Il faut Rust 1.99+ (édition 2024), Hyprland 0.57+ et un pilote Vulkan ou GL.
+Il faut Hyprland 0.57+ et un pilote Vulkan ou GL. Pour le reste, le script
+installe ce qui manque.
 
 ```bash
-./scripts/install.sh
+./scripts/install.sh              # --no-deps : ne rien installer d'autre que hyprdesk
+scripts/deps.sh --dry-run         # voir seulement ce qui manque
 ```
 
 Le script :
+- installe les prérequis absents (`scripts/deps.sh`) :
+  - les paquets de la distribution, avec `sudo` : compilateur C, `pkg-config`,
+    PAM de développement, bibliothèques Wayland, xkbcommon, Vulkan, EGL,
+    fontconfig, xdg-utils (et leurs paquets de développement quand la
+    compilation en a besoin). Il reconnaît pacman (Arch), apt (Debian, Ubuntu),
+    dnf (Fedora) et zypper (openSUSE), et n'installe que ce qui manque ;
+  - Rust : la version demandée par `Cargo.toml` (1.99+, édition 2024). Si
+    celle du poste est plus ancienne, rustup installe la dernière stable dans
+    `~/.cargo`, sans sudo et sans toucher à la Rust de la distribution, et la
+    construction l'utilise ;
 - compile `hyprdesk` et le place dans `~/.local/bin` ;
 - écrit `~/.config/hypr/hyprdesk.lua` s'il n'existe pas, ainsi que les
   définitions LuaLS ;
 - active le service systemd utilisateur.
 
-Il ne modifie pas `hyprland.lua`. Les lignes recommandées s'obtiennent avec
+De `hyprland.lua`, il ne touche que le raccourci de verrouillage `SUPER + L`
+(copie de sauvegarde avant). Les autres lignes recommandées s'obtiennent avec
 `hyprdesk snippet` : le marquage `submap_universal` des raccourcis à garder
 sur le bureau (voir ci-dessous), et le flou derrière la barre.
 
@@ -336,7 +367,8 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 - **Remplacement** : `hyprdesk daemon --replace` remplace proprement
   l'instance en place. Le service systemd démarre ainsi.
 - **Arrêt propre** : sur `SIGTERM` (`systemctl --user stop`) ou `SIGINT`,
-  hyprdesk rend les fenêtres mises de côté et retire ses raccourcis.
+  hyprdesk rend leur configuration d'origine aux fenêtres du plein bureau et
+  retire ses raccourcis.
 - **Arrêt brutal** : le noyau libère le verrou ; au démarrage suivant,
   hyprdesk rend les fenêtres restées de côté.
 
@@ -346,7 +378,7 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 |---|---|
 | `hyprdesk` / `hyprdesk daemon` | lance le démon (une seule instance par session) |
 | `hyprdesk daemon --replace` | remplace proprement l'instance en place |
-| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres mises de côté), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué |
+| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres flottantes par-dessus, organisées), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué |
 | `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, ou no-desktop si on y est déjà (raccourcis SUPER + D, SUPER + ALT + D ; SUPER + CTRL + D : no-desktop) |
 | `hyprdesk cycle` | mode suivant : no-desktop → launcher-only → full-desktop → no-desktop (bouton Bureau de la barre ; clic droit : no-desktop) |
 | `hyprdesk settings [paquet]` | ouvre les réglages sans changer le mode du bureau (`desktop`, `launcher`, `screens`, `fond`…) |
@@ -426,7 +458,8 @@ nombre, une liste, ou `"*"`). Les règles se combinent ainsi :
 - pour le fond d'écran et le mode, la règle la plus précise l'emporte
   (workspace + écran > workspace > écran > tous) ; à égalité, la dernière
   déclarée gagne ;
-- les icônes et les widgets s'additionnent.
+- les icônes et les widgets s'additionnent ; un widget sans `monitor` ne
+  s'affiche que sur son écran (`screen`, l'écran principal par défaut).
 
 **Erreurs.** Hyprdesk réagit comme Hyprland face à une erreur :
 - un champ inconnu, une valeur invalide ou une erreur Lua produisent une
