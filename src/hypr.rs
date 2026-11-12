@@ -1426,6 +1426,26 @@ pub fn restore_leftover_stash() {
 
 /// Lance une commande par Hyprland (`hl.dsp.exec_cmd`) : le processus est un
 /// enfant du compositeur, pas de hyprdesk, et les règles d'exec s'appliquent.
+/// Lance sur un workspace donné (celui de l'écran où l'on a cliqué).
+pub fn exec_on(cmd: &str, workspace: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.exec_cmd(\"{}\", {{ workspace = \"{}\" }})",
+        ipc::lua_escape(cmd),
+        ipc::lua_escape(workspace)
+    ))?;
+    if r.trim() != "ok" {
+        tracing::warn!(
+            "{}",
+            crate::tr!(
+                "exec « {cmd} » : réponse inattendue de Hyprland : {r}",
+                cmd = cmd,
+                r = r
+            )
+        );
+    }
+    Ok(())
+}
+
 pub fn exec(cmd: &str) -> Result<(), ipc::IpcError> {
     let r = ipc::dispatch(&format!("hl.dsp.exec_cmd(\"{}\")", ipc::lua_escape(cmd)))?;
     if r.trim() != "ok" {
@@ -1443,9 +1463,19 @@ pub fn exec(cmd: &str) -> Result<(), ipc::IpcError> {
 
 /// Lance une commande dont la fenêtre s'ouvre flottante et centrée, de la
 /// taille donnée : le bureau reste visible autour.
-pub fn exec_floating(cmd: &str, w: u32, h: u32) -> Result<(), ipc::IpcError> {
+/// Lance flottant et centré ; `workspace` : celui où la fenêtre s'ouvre
+/// (sinon celui qui a le focus).
+pub fn exec_floating(
+    cmd: &str,
+    w: u32,
+    h: u32,
+    workspace: Option<&str>,
+) -> Result<(), ipc::IpcError> {
+    let ws = workspace
+        .map(|w| format!("workspace = \"{}\", ", ipc::lua_escape(w)))
+        .unwrap_or_default();
     let r = ipc::dispatch(&format!(
-        "hl.dsp.exec_cmd(\"{}\", {{ float = true, center = true, size = \"{w} {h}\" }})",
+        "hl.dsp.exec_cmd(\"{}\", {{ {ws}float = true, center = true, size = \"{w} {h}\" }})",
         ipc::lua_escape(cmd)
     ))?;
     if r.trim() != "ok" {

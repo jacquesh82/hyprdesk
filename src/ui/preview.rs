@@ -1240,6 +1240,7 @@ impl Preview {
         if SCENES[self.scene] == "menu-icone" {
             self.app.icon_menu = Some(super::context::IconMenu {
                 win: iced::window::Id::unique(),
+                desk: iced::window::Id::unique(),
                 catcher: iced::window::Id::unique(),
                 icon: 1,
                 path: Some("/home/u/Bureau/Rapport.pdf".into()),

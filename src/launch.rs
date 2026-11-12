@@ -393,7 +393,8 @@ pub fn lookup_icon(name: &str, theme: Option<&str>, size: u16) -> Option<PathBuf
     q.find()
 }
 
-fn path_icon_name(p: &Path) -> &'static str {
+/// Nom d'icône d'un fichier ou d'un dossier (dossier personnel, dossier, type).
+pub fn path_icon_name(p: &Path) -> &'static str {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if home.as_deref() == Some(p) {
         return "user-home";

@@ -1545,6 +1545,31 @@ impl App {
 
     /// Relit toutes les icônes (bureau, barre, lanceur, notifications) :
     /// thème changé, SmartUI activé, ou une icône SmartUI ajoutée.
+    /// Icônes du bureau, pour SmartUI : identifiant `.desktop` d'une
+    /// application, nom d'icône d'une commande, d'un fichier ou d'un dossier
+    /// (dossier personnel, dossier, type de fichier) : tout le bureau au même style.
+    pub(super) fn smartui_desktop_names(&self) -> Vec<String> {
+        self.cfg
+            .icons
+            .iter()
+            .filter_map(|d| match &d.kind {
+                crate::config::IconKind::App(id) => Some(id.clone()),
+                crate::config::IconKind::Exec { .. } => d
+                    .icon
+                    .clone()
+                    .filter(|n| !n.contains('/') && !crate::smartui::is_symbolic(n)),
+                crate::config::IconKind::Path(p) => Some(
+                    d.icon
+                        .clone()
+                        .unwrap_or_else(|| launch::path_icon_name(p).to_string()),
+                )
+                .filter(|n| !n.contains('/') && !crate::smartui::is_symbolic(n)),
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
     pub(super) fn reload_icons(&mut self) -> Task<Msg> {
         self.icons.clear();
         self.icon_imgs.clear();
@@ -2572,12 +2597,19 @@ impl App {
     }
 
     fn launch(&mut self, idx: usize) -> Task<Msg> {
+        self.launch_from(None, idx)
+    }
+
+    /// Lance l'icône `idx` du bureau `desk` : la fenêtre s'ouvre sur le
+    /// workspace de cet écran (pas sur celui qui a le focus, souvent
+    /// l'autre écran), donc dans son dock. Le bureau garde son mode.
+    pub(super) fn launch_from(&mut self, desk: Option<Id>, idx: usize) -> Task<Msg> {
         let Some(r) = self.icons.get(idx) else {
             return Task::none();
         };
-        // Le bureau reste dans son mode : lancer n'en change jamais.
         let cmd = r.command.clone();
-        self.run_from_desktop(cmd, true)
+        let target = desk.and_then(|d| self.monitor(d)).cloned();
+        self.run_from_desktop_on(cmd, true, target.as_ref(), |_| Msg::Noop)
     }
 
     /// Lance une commande depuis le bureau. S'il reste affiché, la fenêtre
@@ -2593,9 +2625,22 @@ impl App {
         stays: bool,
         then: impl FnOnce(bool) -> Msg + Send + 'static,
     ) -> Task<Msg> {
+        self.run_from_desktop_on(cmd, stays, None, then)
+    }
+
+    /// `target` : écran du bureau d'où l'on lance (son workspace reçoit la
+    /// fenêtre, sa taille la dimensionne) ; sinon l'écran qui a le focus.
+    pub(super) fn run_from_desktop_on(
+        &self,
+        cmd: String,
+        stays: bool,
+        target: Option<&Monitor>,
+        then: impl FnOnce(bool) -> Msg + Send + 'static,
+    ) -> Task<Msg> {
+        let screen = target.or_else(|| self.monitors.iter().find(|m| m.focused));
         let size = (stays && self.cfg.general.float_launched)
             .then(|| {
-                self.monitors.iter().find(|m| m.focused).map(|m| {
+                screen.map(|m| {
                     (
                         (m.width as f32 * 0.6) as u32,
                         (m.height as f32 * 0.7) as u32,
@@ -2603,12 +2648,14 @@ impl App {
                 })
             })
             .flatten();
+        let ws = target.map(|m| m.workspace.clone());
         tracing::info!("{}", crate::tr!("lancement : {cmd}", cmd = cmd));
         Task::perform(
             async move {
-                let r = tokio::task::spawn_blocking(move || match size {
-                    Some((w, h)) => hypr::exec_floating(&cmd, w, h),
-                    None => hypr::exec(&cmd),
+                let r = tokio::task::spawn_blocking(move || match (size, ws) {
+                    (Some((w, h)), ws) => hypr::exec_floating(&cmd, w, h, ws.as_deref()),
+                    (None, Some(ws)) => hypr::exec_on(&cmd, &ws),
+                    (None, None) => hypr::exec(&cmd),
                 })
                 .await;
                 match r {
@@ -2645,7 +2692,7 @@ impl App {
                 .map(|(_, i)| i)
         };
         let next = match (key, cur) {
-            (keyboard::Key::Named(Named::Enter), Some((i, _))) => return self.launch(i),
+            (keyboard::Key::Named(Named::Enter), Some((i, _))) => return self.launch_from(Some(id), i),
             (keyboard::Key::Named(Named::Enter), None) => None,
             (_, None) => placed
                 .iter()
@@ -3291,6 +3338,10 @@ impl App {
                     })
                     .collect();
                 self.icons = list;
+                // SmartUI design : les applications du bureau reçoivent aussi leur
+                // icône (chacune essayée une fois par session).
+                let desk_apps = self.smartui_desktop_names();
+                let smart = self.smartui_auto(desk_apps);
                 // Les poignées des fenêtres et des icônes nommées vivaient dans les vecteurs vidés plus haut.
                 self.class_imgs.clear();
                 self.class_pending.clear();
@@ -3316,6 +3367,7 @@ impl App {
                     again.push(self.want_icon(&n));
                 }
                 again.push(self.resolve_class_icons());
+                again.push(smart);
                 Task::batch(again)
             }
             Msg::WallLoaded(key, r) => {
@@ -3845,7 +3897,7 @@ impl App {
                     });
                     if !self.cfg.general.icon_double_click || double {
                         self.last_click = None;
-                        self.launch(d.icon)
+                        self.launch_from(Some(d.win), d.icon)
                     } else {
                         self.last_click = Some((d.win, d.icon, now));
                         Task::none()

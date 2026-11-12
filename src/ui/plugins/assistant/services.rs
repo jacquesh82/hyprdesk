@@ -94,6 +94,8 @@ impl App {
                     .filter(|_| g.running_apps != crate::config::RunningApps::Off)
                     .map(|c| c.class.clone()),
             )
+            // Et les applications des icônes du bureau.
+            .chain(self.smartui_desktop_names())
             .filter(|c| !c.is_empty() && seen.insert(c.to_lowercase()))
             .collect()
     }

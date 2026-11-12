@@ -25,6 +25,8 @@ const INPUT_ID: &str = "hyprdesk-icon-rename";
 
 pub struct IconMenu {
     pub win: Id,
+    /// Surface du bureau où l'icône a été cliquée (son écran reçoit la fenêtre).
+    pub desk: Id,
     pub catcher: Id,
     pub icon: usize,
     /// Fichier ou dossier de l'icône (sinon : application ou commande).
@@ -191,6 +193,7 @@ impl App {
         let (catcher, win) = (Id::unique(), Id::unique());
         let menu = IconMenu {
             win,
+            desk,
             catcher,
             icon: idx,
             path,
@@ -255,8 +258,9 @@ impl App {
         let own = menu.own;
         match m {
             CMsg::Open => {
+                let desk = self.icon_menu.as_ref().map(|m| m.desk);
                 let close = self.close_icon_menu();
-                Task::batch([close, self.launch(idx)])
+                Task::batch([close, self.launch_from(desk, idx)])
             }
             CMsg::OpenFolder => {
                 let close = self.close_icon_menu();
