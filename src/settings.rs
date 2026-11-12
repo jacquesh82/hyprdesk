@@ -167,6 +167,8 @@ pub struct Settings {
     /// Workspaces de chaque écran.
     pub workspace_monitors: Option<BTreeMap<String, Vec<String>>>,
     pub forced_modes: Option<BTreeMap<String, String>>,
+    /// Couleurs de chaque écran.
+    pub screen_colors: Option<BTreeMap<String, crate::colors::Adjust>>,
     pub plugin_options: Option<BTreeMap<String, BTreeMap<String, crate::tiling::OptValue>>>,
     pub update_commands: Option<BTreeMap<String, (String, String)>>,
     /// Écrans dédiés.
@@ -372,6 +374,7 @@ impl Settings {
             workspace_monitors: has("workspace_monitors")
                 .then(|| g.workspace_monitors_declared.clone()),
             forced_modes: has("forced_modes").then(|| g.forced_modes.clone()),
+            screen_colors: has("screen_colors").then(|| g.screen_colors.clone()),
             plugin_options: has("plugin_options").then(|| g.plugin_options.clone()),
             update_commands: has("update_commands").then(|| g.update_commands.clone()),
             workspace_dedicated: has("workspace_dedicated").then(|| g.workspace_dedicated.clone()),
@@ -707,6 +710,9 @@ impl Settings {
         }
         if free("forced_modes") {
             g.forced_modes = self.forced_modes.clone().unwrap_or_default();
+        }
+        if free("screen_colors") {
+            g.screen_colors = self.screen_colors.clone().unwrap_or_default();
         }
         if free("plugin_options") {
             g.plugin_options = self.plugin_options.clone().unwrap_or_default();
@@ -1268,6 +1274,28 @@ impl Settings {
                 })
                 .collect();
             cfg.push(format!("update_commands = {{ {} }}", f.join(", ")));
+        }
+        if let Some(m) = self.screen_colors.as_ref() {
+            let f: Vec<String> = m
+                .iter()
+                .filter(|(_, a)| !a.is_default())
+                .map(|(k, a)| {
+                    let mut v: Vec<String> = crate::colors::FIELDS
+                        .iter()
+                        .filter_map(|(key, _, _, _, n)| {
+                            let x = a.get(key)?;
+                            ((x - n).abs() >= 1e-3).then(|| format!("{key} = {}", (x * 1000.0).round() / 1000.0))
+                        })
+                        .collect();
+                    if !a.calibration.trim().is_empty() {
+                        v.push(format!("calibration = {}", q(a.calibration.trim())));
+                    }
+                    format!("[{}] = {{ {} }}", q(k), v.join(", "))
+                })
+                .collect();
+            if !f.is_empty() {
+                cfg.push(format!("screen_colors = {{ {} }}", f.join(", ")));
+            }
         }
         if let Some(m) = self.forced_modes.as_ref().filter(|m| !m.is_empty()) {
             let f: Vec<String> = m

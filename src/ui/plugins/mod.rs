@@ -27,6 +27,7 @@ pub mod energy;
 pub mod icons;
 pub mod input;
 pub mod autostart;
+pub mod colors;
 pub mod hyprconfig;
 pub mod launcher;
 pub mod layouts;
@@ -73,6 +74,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     widgets::INFO,
     bar::INFO,
     screens::INFO,
+    colors::INFO,
     workspaces::INFO,
     layouts::INFO,
     effects::INFO,
@@ -114,7 +116,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Fenêtres et écrans",
-        ids: &["screens", "workspaces", "layouts"],
+        ids: &["screens", "colors", "workspaces", "layouts"],
     },
     Group {
         label: "Système",
@@ -296,6 +298,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "thème" | "themes" | "thèmes" | "couleurs" | "apparence" => "theme",
         "kitty" | "theme-apps" | "thème-applications" => "apptheme",
         "ecrans" | "écrans" => "screens",
+        "couleurs-ecrans" | "couleurs-écrans" | "calibration" | "gamma" | "icc" | "mire" => "colors",
         "lanceur" | "dock" => "launcher",
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
@@ -349,6 +352,7 @@ pub enum PluginMsg {
     Input(input::Msg),
     Autostart(autostart::Msg),
     HyprConfig(hyprconfig::Msg),
+    Colors(colors::Msg),
     Login(login::Msg),
     Passwords(passwords::Msg),
     Effects(effects::Msg),
@@ -382,6 +386,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Input(m) => app.input_update(m),
         PluginMsg::Autostart(m) => app.autostart_update(m),
         PluginMsg::HyprConfig(m) => app.hyprconfig_update(m),
+        PluginMsg::Colors(m) => app.colors_update(m),
         PluginMsg::Login(m) => app.login_update(m),
         PluginMsg::Passwords(m) => app.passwords_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
@@ -416,6 +421,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "input" => app.input_page(),
         "autostart" => app.autostart_page(),
         "hyprconfig" => app.hyprconfig_page(),
+        "colors" => app.colors_page(),
         "login" => app.login_page(),
         "passwords" => app.passwords_page(),
         "effects" => app.tab_effects(),
@@ -450,6 +456,8 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
         "hyprconfig" => hyprconfig::load(app),
+        "colors" => colors::load(),
+        "workspaces" => workspaces::load_foreign(app.config_path.clone()),
         "login" => login::load(),
         "passwords" => passwords::load(),
         "assistant" => assistant::on_show(app),

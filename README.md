@@ -122,6 +122,14 @@ them. The bar's mode switch has three states (no-desktop, launcher-only,
 full-desktop). Optionally, Hyprbars (Hyprland plugin) adds title bars in full
 desktop only: loaded when entering it, unloaded when leaving.
 
+**Screen colours** (Windows and screens → Screen colours): per screen,
+brightness, contrast, gamma, and the gain and gamma of each channel (curves),
+applied live through a gamma table; a `.cal` calibration file (ArgyllCMS) adds
+its curves, an `.icc`/`.icm` profile is handed to Hyprland (`monitors.lua`).
+A reference image helps judge; the full-screen test pattern spreads across all
+active screens, with each screen's controls on it to compare them
+(`hyprdesk color-test`, `hyprdesk colors …`).
+
 **Hyprland configuration** (System group) tidies up `hyprland.lua`: errors
 reported by Hyprland, duplicate shortcuts, duplicate startups or missing
 programs, programs that duplicate what hyprdesk does (wallpaper, bar,
@@ -130,6 +138,12 @@ lines hyprdesk already turned off, old backup copies. Each point comes with
 its fix; "Tidy everything" applies the safe ones (after copying
 `hyprland.lua`), and LYRA handles the rest. By default, the dock shows the
 windows of the current workspace, grouped by application.
+
+**Back to defaults.** Settings → About → "Restore the default configuration"
+(or `hyprdesk config reset --yes`) puts back the example `hyprdesk.lua` and
+clears every setting made in Settings; a copy of both is kept in
+`~/.config/hypr/hyprdesk/sauvegardes/<date>/`. The Hyprland files (keyboard,
+screens, autostart), your themes and widgets stay as they are.
 
 <table>
   <tr>

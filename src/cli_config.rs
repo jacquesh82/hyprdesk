@@ -1056,7 +1056,7 @@ fn usage() -> String {
 }
 
 const USAGE: &str =
-    "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
+    "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé> | reset --yes
 Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
 bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
 fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
@@ -1114,6 +1114,20 @@ fn parse_anim(leaf: &crate::fx::Leaf, raw: &str) -> Result<crate::fx::Anim, Stri
 pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
     let full = || load_file(config_path).map(|l| l.config);
     match args.first().map(String::as_str).unwrap_or("list") {
+        // Configuration par défaut (copie des fichiers d'abord) ; --yes exigé.
+        "reset" => {
+            if args.get(1).map(String::as_str) != Some("--yes") {
+                return Err(crate::i18n::tr(
+                    "hyprdesk config reset --yes : remet hyprdesk.lua et les réglages par défaut (une copie est gardée)",
+                )
+                .to_string());
+            }
+            let backup = crate::config::reset_to_defaults(config_path).map_err(|e| e.to_string())?;
+            Ok(crate::tr!(
+                "configuration par défaut remise ; copie de l'ancienne : {b}",
+                b = backup.display()
+            ))
+        }
         "list" | "ls" => {
             let c = full()?;
             let only = args.get(1).map(String::as_str);

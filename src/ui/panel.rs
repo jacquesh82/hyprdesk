@@ -38,6 +38,13 @@ pub enum PanelMsg {
     Commit,
     /// Message d'un paquet de réglages.
     Plugin(PluginMsg),
+    /// Recherche d'un réglage (texte tapé).
+    Search(String),
+    /// Résultat choisi : paquet et onglet.
+    SearchOpen(Tab, Option<&'static str>),
+    /// Retour à la liste des résultats.
+    SearchBack,
+    SearchClear,
 }
 
 pub struct Panel {
@@ -65,6 +72,11 @@ pub struct Panel {
     pub input: plugins::input::State,
     pub autostart: plugins::autostart::State,
     pub hyprconfig: plugins::hyprconfig::State,
+    /// Recherche d'un réglage ; `search_list` : liste des résultats affichée
+    /// (sinon la page choisie, correspondances surlignées).
+    pub search: String,
+    pub search_list: bool,
+    pub colors: plugins::colors::State,
     pub login: plugins::login::State,
     pub passwords: plugins::passwords::State,
     pub apps: plugins::apps::State,
@@ -120,6 +132,9 @@ impl Panel {
             input: Default::default(),
             autostart: Default::default(),
             hyprconfig: Default::default(),
+            search: String::new(),
+            search_list: false,
+            colors: Default::default(),
             login: Default::default(),
             passwords: Default::default(),
             apps: Default::default(),
@@ -377,6 +392,37 @@ impl App {
                 self.subtabs.insert(pkg, tab);
                 Task::none()
             }
+            PanelMsg::Search(q) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.search_list = !q.trim().is_empty();
+                    p.search = q;
+                }
+                Task::none()
+            }
+            PanelMsg::SearchOpen(pkg, tab) => {
+                if let Some(t) = tab {
+                    self.subtabs.insert(pkg, t);
+                }
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                p.search_list = false;
+                p.tab = pkg;
+                plugins::on_show(self, pkg)
+            }
+            PanelMsg::SearchBack => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.search_list = !p.search.trim().is_empty();
+                }
+                Task::none()
+            }
+            PanelMsg::SearchClear => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.search.clear();
+                    p.search_list = false;
+                }
+                Task::none()
+            }
             PanelMsg::Tour(m) => self.tour_update(m),
             PanelMsg::Advanced(v) => {
                 self.settings.advanced_settings = Some(v);
@@ -477,8 +523,18 @@ impl App {
         let ink = self.ink();
         let dim = ink.dim;
         // Entrée d'un paquet.
+        // Recherche en cours : résultats, et leur nombre par paquet.
+        let query = p.search.trim().to_string();
+        let found = super::settings_search::search(&query, |id| {
+            self.cfg.plugin_on(id) && plugins::visible(id, adv)
+        });
+        let count = |id: &str| found.iter().filter(|e| e.page == id).count();
+        let searching = !query.is_empty();
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
+            let n = count(tab);
+            // Recherche : les paquets sans correspondance s'effacent.
+            let fg = if searching && n == 0 { Color { a: 0.35, ..fg } } else { fg };
             let glyph: Element<'_, Msg> = super::icons::get(icon)
                 .map(|handle| {
                     iced::widget::svg(handle)
@@ -496,8 +552,25 @@ impl App {
                     text(label)
                         .font(self.font)
                         .size(13)
-                        .font(self.ui_font(iced::font::Weight::Medium)),
+                        .font(self.ui_font(iced::font::Weight::Medium))
+                        .width(Length::Fill),
                 );
+                if searching && n > 0 {
+                    content = content.push(
+                        container(
+                            iced::widget::text(n.to_string())
+                                .font(self.title_font())
+                                .size(11)
+                                .color(ink.fg),
+                        )
+                        .padding([1, 7])
+                        .style(move |_| container::Style {
+                            background: Some(Color { a: 0.45, ..accent }.into()),
+                            border: Border::default().rounded(999),
+                            ..Default::default()
+                        }),
+                    );
+                }
             }
             button(content)
                 .width(Length::Fill)
@@ -633,6 +706,16 @@ impl App {
             ]
             .spacing(5)
             .width(Length::Fill),
+            iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
+                .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
+                .on_submit(match found.first() {
+                    Some(e) => Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)),
+                    None => Msg::Noop,
+                })
+                .padding([6, 10])
+                .size(13)
+                .font(self.font)
+                .width(if wide { 230 } else { 150 }),
             button(
                 text(crate::i18n::tr("Visite guidée"))
                     .font(self.font)
@@ -650,7 +733,15 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        let content = plugins::view(self, p, p.tab);
+        let content: Element<'_, Msg> = if searching && p.search_list {
+            self.search_results(&query, &found)
+        } else if searching {
+            column![self.search_banner(&query, count(p.tab)), plugins::view(self, p, p.tab)]
+                .spacing(14)
+                .into()
+        } else {
+            plugins::view(self, p, p.tab)
+        };
         let detail = column![
             row![
                 container(Space::new().width(5).height(5)).style(move |_| container::Style {
@@ -718,12 +809,7 @@ impl App {
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let mut head = row![
-            text(label)
-                .font(self.font)
-                .size(14)
-                .color(Color { a: 0.85, ..fg })
-        ]
+        let mut head = row![self.marked(crate::i18n::tr(label), 14, Color { a: 0.85, ..fg }, self.font)]
         .spacing(10)
         .align_y(Alignment::Center);
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
@@ -756,13 +842,162 @@ impl App {
         let accent = color(self.cfg.general.theme.accent, 1.0);
         column![
             Space::new().height(8),
-            text(title)
-                .font(self.font)
-                .size(16)
-                .font(self.title_font())
-                .color(accent)
+            self.marked(crate::i18n::tr(title), 16, accent, self.title_font()),
         ]
         .into()
+    }
+
+    /// Recherche en cours dans les Réglages (vide sinon).
+    fn search_query(&self) -> &str {
+        self.panel.as_ref().map(|p| p.search.trim()).unwrap_or("")
+    }
+
+    /// Texte dont les mots recherchés sont surlignés.
+    pub(in crate::ui) fn marked<'a>(&self, s: &str, size: u32, c: Color, font: iced::Font) -> Element<'a, Msg> {
+        let q = self.search_query();
+        let hits = if q.is_empty() {
+            Vec::new()
+        } else {
+            super::settings_search::ranges(s, q)
+        };
+        if hits.is_empty() {
+            return iced::widget::text(s.to_string()).font(font).size(size).color(c).into();
+        }
+        let accent = color(self.cfg.general.theme.accent, 1.0);
+        let fg = self.ink().fg;
+        let mut spans: Vec<iced::widget::text::Span<'a, (), iced::Font>> = Vec::new();
+        let mut at = 0;
+        for (a, b) in hits {
+            if a > at {
+                spans.push(iced::widget::span(s[at..a].to_string()).font(font).size(size).color(c));
+            }
+            spans.push(
+                iced::widget::span(s[a..b].to_string())
+                    .font(self.title_font())
+                    .size(size)
+                    .color(fg)
+                    .background(Color { a: 0.45, ..accent })
+                    .border(Border::default().rounded(4))
+                    .padding([0, 2]),
+            );
+            at = b;
+        }
+        if at < s.len() {
+            spans.push(iced::widget::span(s[at..].to_string()).font(font).size(size).color(c));
+        }
+        iced::widget::rich_text(spans).into()
+    }
+
+    /// Bandeau au-dessus d'une page ouverte depuis la recherche.
+    fn search_banner(&self, query: &str, here: usize) -> Element<'_, Msg> {
+        let ink = self.ink();
+        let accent = color(self.cfg.general.theme.accent, 1.0);
+        container(
+            row![
+                iced::widget::text(crate::tr!(
+                    "« {q} » : {n} correspondance(s) sur cette page, surlignée(s)",
+                    q = query,
+                    n = here
+                ))
+                .font(self.font)
+                .size(12)
+                .color(ink.fg)
+                .width(Length::Fill),
+                button(text("Résultats").font(self.font).size(12))
+                    .padding([3, 10])
+                    .style(button::secondary)
+                    .on_press(Msg::Panel(PanelMsg::SearchBack)),
+                button(text("Effacer").font(self.font).size(12))
+                    .padding([3, 10])
+                    .style(button::text)
+                    .on_press(Msg::Panel(PanelMsg::SearchClear)),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 10])
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.12, ..accent }.into()),
+            border: Border::default().rounded(10).width(1).color(Color { a: 0.35, ..accent }),
+            ..Default::default()
+        })
+        .into()
+    }
+
+    /// Liste des résultats, par paquet : libellé surligné, puis « Paquet › Onglet ».
+    fn search_results(
+        &self,
+        query: &str,
+        found: &[&'static super::settings_search::Entry],
+    ) -> Element<'_, Msg> {
+        let ink = self.ink();
+        let fg = ink.fg;
+        if found.is_empty() {
+            return iced::widget::text(crate::tr!("Aucun réglage ne correspond à « {q} ».", q = query))
+                .font(self.font)
+                .size(13)
+                .color(ink.dim)
+                .into();
+        }
+        let mut col = column![
+            iced::widget::text(crate::tr!(
+                "{n} réglage(s) pour « {q} » — Entrée ouvre le premier.",
+                n = found.len(),
+                q = query
+            ))
+            .font(self.font)
+            .size(12)
+            .color(ink.dim)
+        ]
+        .spacing(4);
+        let mut last = "";
+        for e in found.iter().take(120) {
+            let Some(info) = plugins::BUILTIN.iter().find(|i| i.id == e.page) else {
+                continue;
+            };
+            if e.page != last {
+                col = col.push(self.section(info.label));
+                last = e.page;
+            }
+            let tab_label = e
+                .tab
+                .and_then(|t| plugins::tabs(e.page).iter().find(|x| x.0 == t))
+                .map(|x| crate::i18n::tr(x.1));
+            let place = match tab_label {
+                Some(t) => format!("{} › {t}", crate::i18n::tr(info.label)),
+                None => crate::i18n::tr(info.label).to_string(),
+            };
+            let size = if e.kind == super::settings_search::Kind::Help { 12 } else { 14 };
+            let label_color = if e.kind == super::settings_search::Kind::Help { ink.dim } else { fg };
+            col = col.push(
+                button(
+                    column![
+                        self.marked(crate::i18n::tr(&e.text), size, label_color, self.font),
+                        iced::widget::text(place).font(self.font).size(11).color(ink.dim),
+                    ]
+                    .spacing(2),
+                )
+                .width(Length::Fill)
+                .padding([6, 10])
+                .on_press(Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)))
+                .style(move |_, st| button::Style {
+                    background: matches!(st, button::Status::Hovered | button::Status::Pressed)
+                        .then(|| Color { a: 0.07, ..fg }.into()),
+                    text_color: fg,
+                    border: Border::default().rounded(10),
+                    ..Default::default()
+                }),
+            );
+        }
+        if found.len() > 120 {
+            col = col.push(
+                iced::widget::text(crate::tr!("… et {n} autres : précisez la recherche.", n = found.len() - 120))
+                    .font(self.font)
+                    .size(12)
+                    .color(ink.dim),
+            );
+        }
+        col.into()
     }
 }
 

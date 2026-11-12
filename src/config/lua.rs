@@ -627,6 +627,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspace_monitors",
             "workspace_dedicated",
             "forced_modes",
+            "screen_colors",
             "overview_command",
             "plugin_options",
             "update_commands",
@@ -1086,6 +1087,49 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 )));
             }
             g.forced_modes.insert(k.to_str()?.to_string(), v);
+        }
+    }
+    if let Some(map) = t.get::<Option<Table>>("screen_colors")? {
+        const C: &str = "hd.config.screen_colors";
+        g.screen_colors.clear();
+        for pair in map.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            let (Value::String(k), Value::Table(v)) = (k, v) else {
+                return Err(err(crate::tr!(
+                    "{C} : [\"DP-1\"] = {{ brightness = 0, contrast = 1, gamma = 1, … }}",
+                    C = C
+                )));
+            };
+            let mut a = crate::colors::Adjust::default();
+            for f in v.pairs::<String, Value>() {
+                let (key, val) = f?;
+                if key == "calibration" {
+                    let Value::String(p) = val else {
+                        return Err(err(crate::tr!("{C} : calibration attend un chemin de fichier", C = C)));
+                    };
+                    a.calibration = p.to_str()?.to_string();
+                    continue;
+                }
+                let n = match val {
+                    Value::Number(n) => n as f32,
+                    Value::Integer(n) => n as f32,
+                    _ => {
+                        return Err(err(crate::tr!(
+                            "{C} : « {key} » attend un nombre",
+                            C = C,
+                            key = key
+                        )));
+                    }
+                };
+                if !a.set(&key, n) {
+                    return Err(err(crate::tr!(
+                        "{C} : « {key} » inconnu (brightness, contrast, gamma, red, green, blue, gamma_red, gamma_green, gamma_blue, calibration)",
+                        C = C,
+                        key = key
+                    )));
+                }
+            }
+            g.screen_colors.insert(k.to_str()?.to_string(), a);
         }
     }
     if let Some(map) = t.get::<Option<Table>>("workspace_monitors")? {

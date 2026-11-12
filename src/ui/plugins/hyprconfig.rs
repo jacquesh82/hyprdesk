@@ -56,9 +56,13 @@ pub fn load(app: &App) -> Task<UiMsg> {
         cfg.general.idle.manage,
         cfg.general.clipboard_history,
     );
+    let session = crate::hyprcheck::Session {
+        monitors: app.monitors.iter().map(|m| m.name.clone()).collect(),
+        workspaces: cfg.plugin_on("workspaces"),
+    };
     Task::perform(
         async move {
-            tokio::task::spawn_blocking(move || crate::hyprcheck::full(&path, &managed))
+            tokio::task::spawn_blocking(move || crate::hyprcheck::full(&path, &managed, &session))
                 .await
                 .unwrap_or_default()
         },

@@ -67,6 +67,7 @@ hyprdesk. Il regroupe les réglages suivants :
 | Barre et lanceur | Barre | afficher, position, hauteur, écrans ; modules par zone (gauche, centre, droite) ; couleurs |
 | | Lanceur | fenêtres affichées dans le dock (par défaut : celles du workspace), regroupement (par défaut : par application) ; apparence (dont les icônes SmartUI) ; applications épinglées |
 | Fenêtres et écrans | Écrans | écrans détectés (désactivés compris) sur un plan à l'échelle ; position, orientation, mode, fréquence, échelle, écran principal ; application à chaud, puis garde (écrit dans `monitors.lua`) ou retour seul au bout de 12 s |
+| Fenêtres et écrans | Couleurs des écrans | par écran : luminosité, contraste, gamma, gain et gamma de chaque canal (courbes), fichier de calibration `.cal` (ArgyllCMS) ou profil `.icc`/`.icm` (confié à Hyprland) ; image de référence, mire plein écran étalée sur tous les écrans avec les réglages de chacun pour comparer (`hyprdesk color-test`, `hyprdesk colors …`) |
 | | Workspaces | workspaces permanents ; écran de chaque workspace ; affectation d'une application à un workspace, avec ou sans y aller |
 | | Layouts | Dwindle, Master, Scrolling, Monocle — par défaut et par workspace, appliqués à chaud ; layouts personnalisés en Lua |
 | Système | Son | sorties et entrées, volume, périphérique par défaut |
@@ -82,7 +83,7 @@ hyprdesk. Il regroupe les réglages suivants :
 | | Partage * | exporter/importer tout son setup, ou le thème seul |
 | | Plugins * | paquets intégrés et plugins Lua : état, activation, ajout d'un plugin tiers |
 | | Configuration de Hyprland | ménage de `hyprland.lua` : erreurs signalées par Hyprland, raccourcis en double, démarrages en double ou de programmes absents, programmes qui font doublon avec hyprdesk (fond, barre, notifications, veille, agent polkit, presse-papiers), `require` d'un fichier absent, lignes déjà coupées par hyprdesk, vieilles copies ; chaque point avec sa correction, « Tout ranger » pour les corrections sûres (copie de `hyprland.lua` d'abord), et LYRA pour le reste |
-| | À propos | version de hyprdesk, système, Hyprland, LYRA, fichiers de configuration, dépendances ; copie pour un rapport de bogue |
+| | À propos | version de hyprdesk, système, Hyprland, LYRA, fichiers de configuration, dépendances ; copie pour un rapport de bogue ; **retour à la configuration par défaut** (`hyprdesk.lua` d'exemple, réglages effacés, copie de l'ancienne dans `~/.config/hypr/hyprdesk/sauvegardes` ; aussi `hyprdesk config reset --yes`) |
 
 \* Configuration avancée uniquement — derrière la bascule « Configuration
 avancée » de l'en-tête du panneau, comme les onglets Session et Dépendances

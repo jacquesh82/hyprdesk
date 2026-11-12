@@ -30,6 +30,7 @@ mod popover;
 pub mod preview;
 mod problem;
 mod search;
+mod settings_search;
 mod switcher;
 mod toasts;
 mod tour;
@@ -450,6 +451,12 @@ pub struct App {
     lyra_rule: Option<(i32, i32, i32, i32)>,
     /// Cartes d'identification des écrans (surface, « numéro\nnom\nmodèle »).
     identify: Vec<(Id, String)>,
+    /// Tables gamma des écrans (Réglages → Couleurs des écrans).
+    gamma: crate::colors::Gamma,
+    /// Réglages de couleur envoyés en dernier (None : rien encore).
+    colors_applied: Option<crate::colors::Wanted>,
+    /// Mire plein écran sur tous les écrans.
+    color_test: plugins::colors::ColorTest,
     identify_gen: u64,
     /// Surfaces du lanceur, une par écran où le bureau est affiché.
     launcher_surfaces: HashMap<Id, plugins::launcher::LauncherSurface>,
@@ -773,6 +780,13 @@ impl App {
             launcher_cycle: HashMap::new(),
             lyra_rule: None,
             identify: Vec::new(),
+            gamma: if preview {
+                crate::colors::Gamma::disabled()
+            } else {
+                crate::colors::Gamma::spawn()
+            },
+            colors_applied: None,
+            color_test: Default::default(),
             identify_gen: 0,
             launcher_surfaces: HashMap::new(),
             launcher_runtime: plugins::launcher::Runtime::default(),
@@ -878,6 +892,7 @@ impl App {
             self.rot.clear();
         }
         let mut tasks = Vec::new();
+        tasks.push(self.apply_screen_colors());
         let widgets_changed = old.widgets.len() != self.cfg.widgets.len()
             || old
                 .widgets
@@ -1092,6 +1107,12 @@ impl App {
             } else {
                 mon.clone()
             };
+            // Écran absent (configuration d'un autre poste, écran débranché) :
+            // ses workspaces restent libres plutôt qu'invisibles. Les règles
+            // sont reposées quand les écrans changent.
+            if !self.monitors.is_empty() && !self.monitors.iter().any(|m| m.name == mon) {
+                continue;
+            }
             for (i, ws) in list.iter().enumerate() {
                 out.push((ws.clone(), mon.clone(), i == 0));
             }
@@ -2924,6 +2945,12 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                control::Command::ColorTest => self.colors_update(if self.color_test.wins.is_empty() {
+                    plugins::colors::Msg::TestOpen
+                } else {
+                    plugins::colors::Msg::TestClose
+                }),
+                control::Command::ForgetWindowPlaces => Self::window_result(self.windows.forget()),
                 control::Command::Problem(t) => self.show_problem(t, false),
                 control::Command::ProblemShow(t) => self.show_problem(t, true),
                 control::Command::Osd(line) => match osd::parse(&line) {
@@ -2977,6 +3004,12 @@ impl App {
                     ])
                 }
                 // Les réglages s'ouvrent sans changer le mode du bureau.
+                control::Command::Settings(tab) if tab.starts_with('?') => {
+                    // « ?mots » : Réglages ouverts sur la recherche.
+                    let o = self.open_panel();
+                    let q = tab[1..].trim().to_string();
+                    Task::batch([o, Task::done(Msg::Panel(PanelMsg::Search(q)))])
+                }
                 control::Command::Settings(tab) => {
                     let s = Task::none();
                     let o = self.open_panel();
@@ -4252,6 +4285,9 @@ impl App {
         }
         if let Some((_, label)) = self.identify.iter().find(|(i, _)| *i == id) {
             return self.view_identify(label);
+        }
+        if let Some((mon, img)) = self.color_test_of(id) {
+            return self.view_color_test(mon, img);
         }
         if let Some(s) = self.launcher_surfaces.get(&id) {
             let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor) else {

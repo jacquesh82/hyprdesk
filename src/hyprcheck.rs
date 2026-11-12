@@ -3,6 +3,8 @@
 //! correction quand elle est sûre.
 //!
 //! - erreurs signalées par Hyprland (`hyprctl configerrors`) ;
+//! - règles de workspace de hyprland.lua : écran absent (le workspace ne
+//!   s'affiche pas), ou en conflit avec Réglages → Workspaces ;
 //! - raccourcis en double (même combinaison sur deux lignes actives) ;
 //! - démarrages en double, ou d'un programme absent ;
 //! - programmes en doublon avec ce que hyprdesk fait lui-même (fond d'écran,
@@ -21,6 +23,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
     Error,
+    WorkspaceRule,
     DuplicateBind,
     DuplicateStart,
     MissingProgram,
@@ -34,6 +37,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Kind::Error => "Erreur de configuration",
+            Kind::WorkspaceRule => "Règle de workspace",
             Kind::DuplicateBind => "Raccourci en double",
             Kind::DuplicateStart => "Démarrage en double",
             Kind::MissingProgram => "Programme absent",
@@ -140,14 +144,73 @@ fn hyprdesk_comment(line: &str) -> bool {
 
 /// Analyse de hyprland.lua : `dir` son dossier (require), `exists` : le
 /// programme est-il installé.
+/// Valeur d'un champ texte d'une table Lua sur une ligne (`monitor = "DP-1"`).
+fn field(line: &str, name: &str) -> Option<String> {
+    let i = line.find(&format!("{name} ="))?;
+    let rest = line[i + name.len() + 2..].trim_start();
+    let q = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    rest[1..].split(q).next().map(str::to_string)
+}
+
+/// Règles de workspace actives de hyprland.lua : (ligne à partir de 0,
+/// workspace, écran).
+pub fn workspace_rules(src: &str) -> Vec<(usize, Option<String>, Option<String>)> {
+    src.lines()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim_start();
+            !t.starts_with("--") && t.contains("hl.workspace_rule(")
+        })
+        .map(|(n, l)| (n, field(l, "workspace"), field(l, "monitor")))
+        .collect()
+}
+
+/// Ce que l'analyse doit savoir de la session.
+#[derive(Debug, Clone, Default)]
+pub struct Session {
+    /// Écrans branchés (vide : inconnus).
+    pub monitors: Vec<String>,
+    /// hyprdesk place les workspaces (paquet Workspaces actif).
+    pub workspaces: bool,
+}
+
 pub fn analyse(
     src: &str,
     dir: &Path,
     managed: &Managed,
+    session: &Session,
     exists: impl Fn(&str) -> bool,
 ) -> Vec<Finding> {
     let lines: Vec<&str> = src.lines().collect();
     let mut out = Vec::new();
+    // Règles de workspace : écran absent, ou en conflit avec hyprdesk.
+    for (n, ws, mon) in workspace_rules(src) {
+        let absent = mon.as_ref().filter(|m| {
+            !session.monitors.is_empty()
+                && !m.starts_with("desc:")
+                && !session.monitors.iter().any(|x| x == *m)
+        });
+        let detail = match (absent, session.workspaces) {
+            (Some(m), _) => crate::tr!(
+                "écran « {m} » absent : le workspace {w} ne s'affiche pas",
+                m = m,
+                w = ws.as_deref().unwrap_or("?")
+            ),
+            (None, true) => crate::i18n::tr(
+                "en conflit avec Réglages → Workspaces, où hyprdesk pose ses propres règles",
+            )
+            .to_string(),
+            (None, false) => continue,
+        };
+        out.push(Finding {
+            kind: Kind::WorkspaceRule,
+            line: Some(n + 1),
+            excerpt: lines[n].trim().to_string(),
+            detail,
+            fix: Some(Fix::Comment(n, lines[n].to_string())),
+            safe: true,
+        });
+    }
     // Raccourcis en double.
     let mut seen: HashMap<(u32, String), usize> = HashMap::new();
     for b in crate::keymap::parse_source(src) {
@@ -305,7 +368,7 @@ pub fn config_errors() -> Vec<String> {
 }
 
 /// Relevé complet : erreurs, analyse de hyprland.lua, copies en trop.
-pub fn full(config_path: &Path, managed: &Managed) -> Vec<Finding> {
+pub fn full(config_path: &Path, managed: &Managed, session: &Session) -> Vec<Finding> {
     let hypr = crate::session_start::hyprland_path(config_path);
     let dir = hypr.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut out: Vec<Finding> = config_errors()
@@ -320,7 +383,7 @@ pub fn full(config_path: &Path, managed: &Managed) -> Vec<Finding> {
         })
         .collect();
     if let Ok(src) = std::fs::read_to_string(&hypr) {
-        out.extend(analyse(&src, &dir, managed, crate::launch::executable));
+        out.extend(analyse(&src, &dir, managed, session, crate::launch::executable));
     }
     let old = old_backups(&dir);
     if !old.is_empty() {
@@ -435,7 +498,11 @@ end)
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("monitors.lua"), "").unwrap();
         let m = managed(true, true, true, true, true);
-        let f = analyse(SRC, &dir, &m, |p| p != "programme-inconnu");
+        let session = Session {
+            monitors: vec!["eDP-1".into()],
+            workspaces: true,
+        };
+        let f = analyse(SRC, &dir, &m, &session, |p| p != "programme-inconnu");
         let kinds: Vec<(Kind, Option<usize>)> = f.iter().map(|f| (f.kind, f.line)).collect();
         assert!(kinds.contains(&(Kind::DuplicateBind, Some(5))), "{kinds:?}");
         assert!(kinds.contains(&(Kind::DuplicateStart, Some(9))), "{kinds:?}");
@@ -485,5 +552,20 @@ end)
             Some("sleep")
         );
         assert_eq!(program_of("env GDK_BACKEND=x11 slack").as_deref(), Some("slack"));
+    }
+
+    #[test]
+    fn regles_de_workspace() {
+        let src = "hl.workspace_rule({ workspace = \"1\", monitor = \"HDMI-A-2\", default = true })\n\
+-- hl.workspace_rule({ workspace = \"2\", monitor = \"DP-1\" })\n\
+hl.workspace_rule({ workspace = \"3\", monitor = \"eDP-1\" })\n";
+        assert_eq!(workspace_rules(src).len(), 2);
+        let s = Session { monitors: vec!["eDP-1".into()], workspaces: false };
+        let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
+        assert_eq!(f.len(), 1, "seul l'écran absent, hyprdesk ne place rien : {f:?}");
+        assert!(f[0].detail.contains("HDMI-A-2"));
+        let s = Session { monitors: vec!["eDP-1".into()], workspaces: true };
+        let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
+        assert_eq!(f.len(), 2, "et le conflit avec hyprdesk : {f:?}");
     }
 }

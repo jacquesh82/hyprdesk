@@ -16,6 +16,9 @@ iced_layershell = "0.19.1"
 iced_sessionlock = "0.19.1"
 # Liaison PAM écrite à la main (src/lock/pam.rs).
 libc = "0.2"
+# Couleurs par écran : tables gamma (wlr-gamma-control), mêmes versions que layershellev.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", default-features = false, features = ["client"] }
 iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio", "markdown"] }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 # IPC Hyprland partagé avec mindlog.hyprland_tools (MIT), épinglé sur un commit poussé.

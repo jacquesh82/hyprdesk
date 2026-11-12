@@ -25,6 +25,10 @@ pub enum Command {
     Cycle,
     Reload,
     Status,
+    /// Oublie les places de fenêtres choisies (plein bureau).
+    ForgetWindowPlaces,
+    /// Mire plein écran des couleurs sur tous les écrans (ouvre ou ferme).
+    ColorTest,
     Quit,
     /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
     /// sans changer le mode du bureau.
@@ -72,6 +76,8 @@ impl Command {
             "toggle-launcher" => Command::ToggleLauncher,
             "reload" => Command::Reload,
             "status" => Command::Status,
+            "forget-window-places" => Command::ForgetWindowPlaces,
+            "color-test" => Command::ColorTest,
             "quit" => Command::Quit,
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
@@ -134,6 +140,8 @@ impl Command {
             Command::ToggleLauncher => "toggle-launcher",
             Command::Reload => "reload",
             Command::Status => "status",
+            Command::ForgetWindowPlaces => "forget-window-places",
+            Command::ColorTest => "color-test",
             Command::Quit => "quit",
             Command::Settings(_) => "settings",
             Command::Menu(_) => "menu",

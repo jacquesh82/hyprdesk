@@ -35,6 +35,28 @@ pub struct State {
     pub assign_filter: String,
     pub assign_target: String,
     pub assign_silent: bool,
+    /// Règles de workspace actives de hyprland.lua : (ligne, texte).
+    pub foreign_rules: Vec<(usize, String)>,
+}
+
+/// Règles de workspace posées par hyprland.lua (lues hors du fil de l'interface).
+pub fn load_foreign(config_path: std::path::PathBuf) -> Task<UiMsg> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let src = std::fs::read_to_string(crate::session_start::hyprland_path(&config_path))
+                    .unwrap_or_default();
+                let lines: Vec<&str> = src.lines().collect();
+                crate::hyprcheck::workspace_rules(&src)
+                    .into_iter()
+                    .map(|(n, _, _)| (n + 1, lines[n].trim().to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default()
+        },
+        |l| wrap(Msg::Foreign(l)),
+    )
 }
 
 impl Default for State {
@@ -42,6 +64,7 @@ impl Default for State {
         State {
             assign_filter: String::new(),
             assign_target: "1".into(),
+            foreign_rules: Vec::new(),
             assign_silent: true,
         }
     }
@@ -49,6 +72,7 @@ impl Default for State {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
+    Foreign(Vec<(usize, String)>),
     /// Nombre de workspaces permanents (`None` : laissé à Hyprland).
     WsCount(Option<u8>),
     AssignFilter(String),
@@ -336,8 +360,56 @@ impl App {
             ));
         }
 
+        // hyprland.lua pose aussi des règles de workspace : elles se
+        // contredisent avec celles-ci (écran d'un autre poste, workspace
+        // caché…) ; le ménage les commente, LYRA explique.
+        let warn = if p.workspaces.foreign_rules.is_empty() {
+            Element::from(iced::widget::Space::new())
+        } else {
+            let lines: Vec<String> = p
+                .workspaces
+                .foreign_rules
+                .iter()
+                .map(|(n, l)| format!("{n} · {l}"))
+                .collect();
+            let prompt = crate::tr!(
+                "Dans ma session Hyprland, hyprdesk place les workspaces (Réglages → Workspaces), mais hyprland.lua pose aussi ses propres règles de workspace :\n{l}\nCertains workspaces ne s'affichent pas. Explique-moi le conflit (écrans absents, règles en double) et propose la correction, en laissant hyprdesk placer les workspaces. Demande-moi avant de modifier quoi que ce soit, et ne touche jamais à inputs.lua ni à monitors.lua.",
+                l = lines.join("\n")
+            );
+            iced::widget::container(
+                column![
+                    text(crate::tr!(
+                        "hyprland.lua pose aussi {n} règle(s) de workspace : elles peuvent cacher des workspaces ou contredire celles-ci.",
+                        n = lines.len()
+                    ))
+                    .font(self.font)
+                    .size(13)
+                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    small(lines.join("\n")),
+                    row![
+                        iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(12))
+                            .padding([4, 10])
+                            .on_press(UiMsg::Control(crate::control::Command::Settings("hyprconfig".into()))),
+                        self.lyra_button(crate::i18n::tr("Workspaces"), prompt),
+                    ]
+                    .spacing(10)
+                    .align_y(iced::Alignment::Center),
+                ]
+                .spacing(8),
+            )
+            .padding(12)
+            .style(move |_| iced::widget::container::Style {
+                border: iced::Border::default()
+                    .rounded(10)
+                    .width(1)
+                    .color(iced::Color::from_rgba8(0xff, 0xb8, 0x6c, 0.6)),
+                ..Default::default()
+            })
+            .into()
+        };
         if self.on_subtab(INFO.id, "ecrans") {
             return column![
+                warn,
                 self.section("Nombre de workspaces"),
                 self.field("Workspaces permanents", "workspaces", stepper),
                 small(count_help),
@@ -395,6 +467,10 @@ impl App {
             return Task::none();
         };
         match msg {
+            Msg::Foreign(l) => {
+                panel.workspaces.foreign_rules = l;
+                Task::none()
+            }
             Msg::WsCount(n) => {
                 self.settings.workspaces = n;
                 self.commit()

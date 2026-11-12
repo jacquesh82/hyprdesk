@@ -39,6 +39,10 @@ pub struct Facts {
 pub struct State {
     pub facts: Option<Facts>,
     pub copied: bool,
+    /// « Configuration par défaut » cliqué une fois : attend la confirmation.
+    pub confirm_reset: bool,
+    /// Compte rendu de la remise par défaut.
+    pub reset: Option<Result<String, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +51,10 @@ pub enum Msg {
     Copy,
     Copied,
     OpenRepo,
+    /// Remise à la configuration par défaut (deux clics).
+    Reset,
+    ResetCancel,
+    ResetDone(Result<String, String>),
 }
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -261,6 +269,41 @@ impl App {
                 .font(self.font)
                 .size(12)
                 .color(dim),
+            self.section("Configuration par défaut"),
+            text("Remet hyprdesk.lua (configuration d'exemple) et tous les réglages faits ici par défaut. Une copie est gardée dans ~/.config/hypr/hyprdesk/sauvegardes ; les fichiers de Hyprland (clavier, écrans, démarrage), vos thèmes et widgets ne bougent pas.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            if p.about.confirm_reset {
+                Element::from(
+                    row![
+                        button(text("Confirmer : tout remettre par défaut").font(self.font).size(13))
+                            .padding([6, 14])
+                            .style(button::danger)
+                            .on_press(wrap(Msg::Reset)),
+                        button(text("Annuler").font(self.font).size(13))
+                            .padding([6, 14])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::ResetCancel)),
+                    ]
+                    .spacing(10),
+                )
+            } else {
+                button(text("Revenir à la configuration par défaut…").font(self.font).size(13))
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Reset))
+                    .into()
+            },
+            match &p.about.reset {
+                Some(Ok(m)) => Element::from(text(m.clone()).font(self.font).size(12).color(accent)),
+                Some(Err(e)) => text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                    .into(),
+                None => Space::new().into(),
+            },
         ]
         .spacing(14)
         .into()
@@ -302,6 +345,53 @@ impl App {
                     p.about.copied = true;
                 }
                 Task::none()
+            }
+            Msg::Reset => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                if !p.about.confirm_reset {
+                    p.about.confirm_reset = true;
+                    p.about.reset = None;
+                    return Task::none();
+                }
+                p.about.confirm_reset = false;
+                let path = self.config_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::config::reset_to_defaults(&path)
+                                .map(|b| {
+                                    crate::tr!(
+                                        "Configuration par défaut remise ; copie de l'ancienne : {b}",
+                                        b = tilde(&b)
+                                    )
+                                })
+                                .map_err(|e| e.to_string())
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::ResetDone(r)),
+                )
+            }
+            Msg::ResetCancel => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.about.confirm_reset = false;
+                }
+                Task::none()
+            }
+            Msg::ResetDone(r) => {
+                let ok = r.is_ok();
+                if let Some(p) = self.panel.as_mut() {
+                    p.about.reset = Some(r);
+                }
+                // Configuration et réglages relus : l'interface repart des défauts.
+                if ok {
+                    Task::done(UiMsg::ConfigChanged)
+                } else {
+                    Task::none()
+                }
             }
             Msg::OpenRepo => {
                 let _ = std::process::Command::new("xdg-open")

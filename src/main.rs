@@ -13,6 +13,8 @@ mod brightness;
 mod capture;
 mod chat;
 mod cli_config;
+mod cli_tools;
+mod colors;
 mod clipboard;
 mod config;
 mod control;
@@ -74,8 +76,8 @@ Commandes :
   show | hide       full-desktop (fenêtres mises de côté) / no-desktop
   launcher-only     fenêtres en place, lanceur (dock) accessible en bas
   cycle             mode suivant : no-desktop → launcher-only → full-desktop
-  settings [paquet[/onglet]]
-                    ouvre l'écran Réglages (ex. bureau/raccourcis), sans changer le mode
+  settings [paquet[/onglet] | ?mots]
+                    ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
@@ -145,6 +147,21 @@ Commandes :
   check [fichier]   exécute et vérifie la configuration sans modifier le démon
   doctor            dépendances externes : présentes, absentes, et ce qui en dépend
   doctor --missing  les absentes, une par ligne (nom, paquet Arch, fonction ; tabulations)
+  autostart [list | add | remove | on | off <commande>]
+                    démarrage automatique (autostart.lua, hyprland.lua, XDG)
+  hyprland-check [--json]
+                    ménage de hyprland.lua : erreurs, doublons, conflits avec hyprdesk
+  hyprland-fix (--safe | <ligne>… | backups)
+                    applique les corrections du ménage (copie de hyprland.lua d'abord)
+  window-places [forget]
+                    places des fenêtres choisies en plein bureau ; les oublier
+  icons [list | add app|path|exec <valeur> | remove <id>]
+                    icônes du bureau
+  app-theme [status | apply]
+                    thème de hyprdesk appliqué aux applications (kitty, Thunar)
+  color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
+  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none]
+                    couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
   keyboard [disposition [variante [options]]]
@@ -1172,6 +1189,18 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
+        c @ ("autostart" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
+        | "app-theme" | "colors") => match cli_tools::run(c, &config_path, &args[1..]) {
+            Some(Ok(out)) => {
+                println!("{}", out.trim_end());
+                ExitCode::SUCCESS
+            }
+            Some(Err(e)) => {
+                eprintln!("hyprdesk {c} : {}", e.trim_end());
+                ExitCode::FAILURE
+            }
+            None => ExitCode::FAILURE,
+        },
         "snippet" => {
             println!("{}", i18n::tr_lines(SNIPPET));
             ExitCode::SUCCESS

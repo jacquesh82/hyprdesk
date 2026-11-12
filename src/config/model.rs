@@ -919,6 +919,8 @@ pub struct General {
     /// Modes imposés : écran (`DP-1`) ou workspace (`ws:5`) → `no-desktop`,
     /// `launcher-only` ou `full-desktop`.
     pub forced_modes: std::collections::BTreeMap<String, String>,
+    /// Couleurs de chaque écran (Réglages → Couleurs des écrans).
+    pub screen_colors: std::collections::BTreeMap<String, crate::colors::Adjust>,
     /// Ouverture de l'assistant IA (LYRA) : fenêtre ou terminal.
     pub assistant_mode: crate::assistant::AssistantMode,
     /// Autres services IA : fournisseurs (endpoint, modèle) et fonction →
@@ -983,6 +985,7 @@ impl Default for General {
             workspace_monitors: Default::default(),
             workspace_monitors_declared: Default::default(),
             forced_modes: Default::default(),
+            screen_colors: Default::default(),
             overview_command: String::new(),
             plugin_options: Default::default(),
             update_commands: Default::default(),

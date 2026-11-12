@@ -150,6 +150,10 @@ impl Screen {
             f.push(format!("mirror = {}", q(&self.mirror)));
         }
         f.push(format!("vrr = {}", u8::from(self.vrr)));
+        // Profil ICC choisi dans Réglages → Couleurs des écrans.
+        if let Some(icc) = crate::colors::icc_for(&self.name) {
+            f.push(format!("icc = {}", q(&icc)));
+        }
         format!("hl.monitor({{ {} }})", f.join(", "))
     }
 }
