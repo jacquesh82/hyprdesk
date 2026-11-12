@@ -231,9 +231,18 @@ what is missing; `--no-deps` skips it all.
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
-./scripts/install.sh      # builds to ~/.local/bin, writes a starter config, enables the systemd user service
-hyprdesk snippet          # prints the lines to add to hyprland.lua
+./scripts/installer.sh    # guided install: language, keyboard, options, then a verified report
 ```
+
+The installer asks for the language and the keyboard (the current one comes
+first), then the options to enable: missing prerequisites, start at login,
+`SUPER + L` lock, removing hyprpaper, the same keyboard system-wide, and
+replacing GDM (or SDDM, LightDM) with the hyprdesk login screen. Nothing
+changes before you confirm the summary; `hyprland.lua` is backed up before
+each edit. It ends with a report checked point by point (binary, service,
+Hyprland config without errors, start at login, keyboard, language, login
+screen). Without questions: `./scripts/install.sh --help` lists the same
+options (`--lang`, `--keyboard fr:azerty`, `--greeter`…).
 
 Then press `SUPER + D`. The default shortcuts are:
 

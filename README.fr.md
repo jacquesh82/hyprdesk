@@ -293,9 +293,19 @@ Il faut Hyprland 0.57+ et un pilote Vulkan ou GL. Pour le reste, le script
 installe ce qui manque.
 
 ```bash
-./scripts/install.sh              # --no-deps : ne rien installer d'autre que hyprdesk
+./scripts/installer.sh            # assistant : langue, clavier, options, puis bilan vérifié
+./scripts/install.sh --help       # la même chose sans questions (--lang, --keyboard fr:azerty, --greeter…)
 scripts/deps.sh --dry-run         # voir seulement ce qui manque
 ```
+
+L'assistant demande la langue, puis le clavier (celui en vigueur en tête),
+puis les options à activer : prérequis manquants, démarrage à la connexion,
+verrouillage `SUPER + L`, retrait de hyprpaper, même clavier pour le système,
+remplacement de GDM (ou SDDM, LightDM) par l'écran de connexion de hyprdesk.
+Rien n'est modifié avant la confirmation du récapitulatif, et `hyprland.lua`
+est sauvegardé avant chaque modification. Il se termine par un bilan vérifié
+point par point : binaire, service, configuration de Hyprland sans erreur,
+démarrage à la connexion, clavier, langue, écran de connexion.
 
 Le script :
 - installe les prérequis absents (`scripts/deps.sh`) :
@@ -311,10 +321,17 @@ Le script :
 - compile `hyprdesk` et le place dans `~/.local/bin` ;
 - écrit `~/.config/hypr/hyprdesk.lua` s'il n'existe pas, ainsi que les
   définitions LuaLS ;
-- active le service systemd utilisateur.
+- active le service systemd utilisateur, et l'ajoute au démarrage de Hyprland
+  (`hl.on("hyprland.start")`) : il démarre à la connexion même quand la
+  distribution n'active pas `graphical-session.target` ;
+- selon les options : langue (`--lang`), clavier (`--keyboard`, écrit dans
+  `inputs.lua`, chargé par `hyprland.lua`), clavier du système (`localectl`),
+  `SUPER + L`, retrait de hyprpaper, écran de connexion (`--greeter`, avec le
+  clavier, le thème et les écrans de la session ; retour arrière :
+  `sudo hyprdesk greeter setup restore`).
 
-De `hyprland.lua`, il ne touche que le raccourci de verrouillage `SUPER + L`
-(copie de sauvegarde avant). Les autres lignes recommandées s'obtiennent avec
+Chaque modification de `hyprland.lua` est précédée d'une copie de sauvegarde
+(`hyprland.lua.avant-hyprdesk-*.bak`). Les autres lignes recommandées s'obtiennent avec
 `hyprdesk snippet` : le marquage `submap_universal` des raccourcis à garder
 sur le bureau (voir ci-dessous), et le flou derrière la barre.
 

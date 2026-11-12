@@ -124,7 +124,7 @@ Commandes :
                     écran de connexion pour greetd (connexion, choix de l'environnement) ;
                     --tty : au terminal ; --demo : sans greetd, pour l'essayer ;
                     --window : fenêtre ordinaire plein écran (cage, sans layer-shell)
-  greeter setup <status|packages|install|enable|restore>
+  greeter setup <status|profile|packages|install|enable|restore>
                     met l'écran de hyprdesk à la place de GDM (en root ; Réglages →
                     Écran de connexion) ; restore : revient au gestionnaire d'avant
   mymfa <open|unlock|setup|lock|codes|logins>
@@ -143,6 +143,9 @@ Commandes :
   doctor            dépendances externes : présentes, absentes, et ce qui en dépend
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
+  keyboard [disposition [variante [options]]]
+                    clavier de la session : sans argument, celui en vigueur ;
+                    sinon appliqué et écrit dans inputs.lua (ex. keyboard fr azerty)
   stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
   snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
 
@@ -191,6 +194,73 @@ const EXAMPLE_WIDGETS: &[(&str, &str)] = &[
     ("meteo.lua", include_str!("../assets/widgets/meteo.lua")),
     ("notes.lua", include_str!("../assets/widgets/notes.lua")),
 ];
+
+/// `hyprdesk keyboard [disposition [variante [options]]]` : sans argument, le
+/// clavier en vigueur (« fr azerty ») ; sinon appliqué à chaud (si Hyprland
+/// répond) et écrit dans inputs.lua, comme Réglages → Clavier et souris.
+fn keyboard_cli(config_path: &std::path::Path, args: &[String]) -> ExitCode {
+    let mut i = inputs::read();
+    let Some(layout) = args.first() else {
+        println!("{} {} {}", i.kb_layout, i.kb_variant, i.kb_options);
+        return ExitCode::SUCCESS;
+    };
+    let ok = |v: &str| {
+        v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ',' | '_' | '-' | ':' | '(' | ')'))
+    };
+    let variant = args.get(1).cloned().unwrap_or_default();
+    let options = args.get(2).cloned().unwrap_or_default();
+    if !ok(layout) || !ok(&variant) || !ok(&options) {
+        eprintln!(
+            "{}",
+            crate::i18n::tr("hyprdesk keyboard : valeur de clavier invalide")
+        );
+        return ExitCode::FAILURE;
+    }
+    i.kb_layout = layout.clone();
+    i.kb_variant = variant;
+    i.kb_options = options;
+    // Une variante absente de xkb sur ce poste ferait refuser tout le clavier.
+    if let Some(w) = i.check_keyboard(&inputs::layouts()) {
+        eprintln!("hyprdesk keyboard : {w}");
+    }
+    // Hyprland répond mais refuse le clavier : rien n'est écrit (inputs.lua
+    // ferait l'erreur à chaque démarrage). Hyprland absent : écrit pour plus tard.
+    let running = hyprpanel_core::ipc::query_json("version").is_ok();
+    if let Err(e) = inputs::apply(&i) {
+        if running {
+            eprintln!(
+                "{}",
+                crate::tr!(
+                    "clavier refusé par Hyprland, inputs.lua inchangé : {e}",
+                    e = e
+                )
+            );
+            return ExitCode::FAILURE;
+        }
+        eprintln!(
+            "{}",
+            crate::tr!(
+                "clavier non appliqué à chaud ({e}) : il le sera au prochain démarrage",
+                e = e
+            )
+        );
+    }
+    let path = inputs::inputs_path(config_path);
+    match inputs::save(&path, &i) {
+        Ok(()) => {
+            println!("{}", crate::tr!("écrit : {p0}", p0 = path.display()));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!(
+                "{}",
+                crate::tr!("{p0} : {e}", p0 = path.display(), e = e.to_string())
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
 
 fn install_example_widgets(config_path: &std::path::Path) {
     let dir = widgets::plugins::dirs(config_path.parent().unwrap_or(std::path::Path::new(".")))[0]
@@ -439,6 +509,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "keyboard" => keyboard_cli(&config_path, &args[1..]),
         "init" => match config::ensure_exists(&config_path) {
             Ok(true) => {
                 println!("{}", crate::tr!("écrit : {p0}", p0 = config_path.display()));

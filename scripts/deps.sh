@@ -19,6 +19,13 @@
 #
 # HYPRDESK_NO_DEPS=1 (ou --no-deps pour install.sh) saute cette étape.
 
+# Messages : français ou anglais (UI de install.sh, sinon LANG).
+hyprdesk_t() {
+    local ui="${UI:-}"
+    [[ -n "$ui" ]] || { [[ "${LANG:-}" == fr* ]] && ui=fr || ui=en; }
+    if [[ "$ui" == en ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+
 # Version minimale de Rust : celle de Cargo.toml.
 hyprdesk_rust_min() {
     sed -n 's/^rust-version = "\(.*\)"/\1/p' "${HYPRDESK_ROOT:-.}/Cargo.toml" | head -1
@@ -74,7 +81,7 @@ hyprdesk_root() {
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
     else
-        echo "!! sudo introuvable : lancer en root « $* »" >&2
+        echo "!! $(hyprdesk_t "sudo introuvable : lancer en root « $* »" "sudo not found: run as root “$*”")" >&2
         return 1
     fi
 }
@@ -93,30 +100,30 @@ hyprdesk_deps() {
     local dry=0
     [ "${1:-}" = "--dry-run" ] && dry=1
     if [ "${HYPRDESK_NO_DEPS:-0}" = 1 ]; then
-        echo "== prérequis : non vérifiés (HYPRDESK_NO_DEPS=1)"
+        echo "== $(hyprdesk_t "prérequis : non vérifiés (HYPRDESK_NO_DEPS=1)" "prerequisites: not checked (HYPRDESK_NO_DEPS=1)")"
         return 0
     fi
-    echo "== prérequis de construction"
+    echo "== $(hyprdesk_t "prérequis de construction" "build prerequisites")"
 
     # -- Paquets système ------------------------------------------------------
     local pm missing
     pm="$(hyprdesk_pm)"
     if [ -z "$pm" ]; then
-        echo "   gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper) :"
-        echo "   il faut un compilateur C, pkg-config, PAM (développement), Wayland,"
-        echo "   xkbcommon, Vulkan, EGL, fontconfig et xdg-utils."
+        echo "   $(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper) :" "unknown package manager (pacman, apt, dnf, zypper):")"
+        echo "   $(hyprdesk_t "il faut un compilateur C, pkg-config, PAM (développement), Wayland," "needed: a C compiler, pkg-config, PAM (development), Wayland,")"
+        echo "   $(hyprdesk_t "xkbcommon, Vulkan, EGL, fontconfig et xdg-utils." "xkbcommon, Vulkan, EGL, fontconfig and xdg-utils.")"
     else
         # shellcheck disable=SC2046
         missing="$(hyprdesk_missing "$pm" $(hyprdesk_packages "$pm") | tr '\n' ' ' | sed 's/ *$//')"
         if [ -z "$missing" ]; then
-            echo "   paquets système : présents ($pm)"
+            echo "   $(hyprdesk_t "paquets système : présents ($pm)" "system packages: present ($pm)")"
         elif [ "$dry" = 1 ]; then
-            echo "   à installer ($pm) : $missing"
+            echo "   $(hyprdesk_t "à installer ($pm) : $missing" "to install ($pm): $missing")"
         else
-            echo "   installation ($pm) : $missing"
+            echo "   $(hyprdesk_t "installation ($pm) : $missing" "installing ($pm): $missing")"
             # shellcheck disable=SC2086
             hyprdesk_install_packages "$pm" $missing || {
-                echo "!! installation des paquets impossible : $missing" >&2
+                echo "!! $(hyprdesk_t "installation des paquets impossible : $missing" "could not install packages: $missing")" >&2
                 return 1
             }
         fi
@@ -130,12 +137,12 @@ hyprdesk_deps() {
         echo "   Rust $now (≥ $min)"
         return 0
     fi
-    echo "   Rust ${now:-absente} : $min ou plus est requise"
+    echo "   $(hyprdesk_t "Rust ${now:-absente} : $min ou plus est requise" "Rust ${now:-missing}: $min or newer is required")"
     if [ "$dry" = 1 ]; then
         if command -v rustup >/dev/null 2>&1; then
-            echo "   rustup : installerait la toolchain stable et l'utiliserait"
+            echo "   $(hyprdesk_t "rustup : installerait la toolchain stable et l'utiliserait" "rustup: would install and use the stable toolchain")"
         else
-            echo "   installerait rustup dans ~/.cargo (sans sudo), toolchain stable"
+            echo "   $(hyprdesk_t "installerait rustup dans ~/.cargo (sans sudo), toolchain stable" "would install rustup in ~/.cargo (no sudo), stable toolchain")"
         fi
         return 0
     fi
@@ -143,11 +150,11 @@ hyprdesk_deps() {
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
     if ! command -v rustup >/dev/null 2>&1; then
-        echo "   installation de rustup dans ~/.cargo (https://sh.rustup.rs)"
+        echo "   $(hyprdesk_t "installation de rustup dans ~/.cargo (https://sh.rustup.rs)" "installing rustup in ~/.cargo (https://sh.rustup.rs)")"
         # Rust de la distribution déjà là : rustup s'installe à côté, sans la retirer.
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | RUSTUP_INIT_SKIP_PATH_CHECK=yes sh -s -- -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null || {
-            echo "!! installation de rustup impossible" >&2
+            echo "!! $(hyprdesk_t "installation de rustup impossible" "could not install rustup")" >&2
             return 1
         }
         export PATH="$HOME/.cargo/bin:$PATH"
@@ -160,13 +167,13 @@ hyprdesk_deps() {
     export RUSTUP_TOOLCHAIN=stable
     now="$(hyprdesk_rust_now)"
     if [ -z "$now" ] || ! hyprdesk_version_ge "$now" "$min"; then
-        echo "!! Rust ${now:-absente} après installation, $min requise" >&2
+        echo "!! $(hyprdesk_t "Rust ${now:-absente} après installation, $min requise" "Rust ${now:-missing} after installing, $min required")" >&2
         return 1
     fi
-    echo "   Rust $now (stable de rustup)"
+    echo "   $(hyprdesk_t "Rust $now (stable de rustup)" "Rust $now (rustup stable)")"
     case ":$PATH:" in
         *":$HOME/.cargo/bin:"*) ;;
-        *) echo "   (ajoutez ~/.cargo/bin à votre PATH pour les prochaines constructions)" ;;
+        *) echo "   $(hyprdesk_t "(ajoutez ~/.cargo/bin à votre PATH pour les prochaines constructions)" "(add ~/.cargo/bin to your PATH for future builds)")" ;;
     esac
 }
 

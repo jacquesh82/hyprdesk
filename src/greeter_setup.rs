@@ -869,9 +869,46 @@ fn restore() -> Result<(), String> {
     run(&["systemctl", "enable", &prev])
 }
 
-/// `hyprdesk greeter setup <action> [arg]` (en root).
+/// Profil de l'écran de connexion d'après la session, comme Réglages →
+/// Écran de connexion : clavier (inputs.lua), thème, écrans, langue.
+pub fn session_profile(config_path: &Path) -> Profile {
+    let cfg = crate::theme::effective(config_path).unwrap_or_default();
+    let th = &cfg.general.theme;
+    let c = |v: crate::config::Rgba| [v.0, v.1, v.2, v.3];
+    let i = crate::inputs::read();
+    let monitors: Vec<MonitorRule> = crate::screens::detect()
+        .map(|l| l.iter().map(MonitorRule::from_screen).collect())
+        .unwrap_or_default();
+    Profile {
+        layout: i.kb_layout,
+        variant: i.kb_variant,
+        options: i.kb_options,
+        theme: th.name.clone(),
+        fg: c(th.fg),
+        bg: c(th.bg),
+        accent: c(th.accent),
+        lang: std::env::var("LANG").unwrap_or_default(),
+        monitors,
+        gnome_keyring: status().gnome_keyring,
+        ..Default::default()
+    }
+}
+
+/// `hyprdesk greeter setup <action> [arg]` (en root, sauf `profile`).
 pub fn cli(action: Option<&str>, arg: Option<&str>) -> Result<(), String> {
     match action {
+        // En utilisateur : le profil de la session, écrit pour `install`.
+        Some("profile") => {
+            let p = session_profile(&crate::config::default_path());
+            let json = serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?;
+            return match arg {
+                Some(path) => std::fs::write(path, json).map_err(|e| format!("{path} : {e}")),
+                None => {
+                    println!("{json}");
+                    Ok(())
+                }
+            };
+        }
         Some("packages" | "install" | "enable" | "restore") => {}
         Some("status") | None => {
             let s = status();
@@ -892,7 +929,7 @@ pub fn cli(action: Option<&str>, arg: Option<&str>) -> Result<(), String> {
         }
         Some(other) => {
             return Err(crate::tr!(
-                "action inconnue : {a} (packages, install, enable, restore, status)",
+                "action inconnue : {a} (profile, packages, install, enable, restore, status)",
                 a = other
             ));
         }

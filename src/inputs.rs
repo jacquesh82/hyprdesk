@@ -142,31 +142,89 @@ fn num(v: f64) -> String {
 }
 
 impl Inputs {
-    /// `hl.config({ input = { … } })`.
+    /// `hl.config({ input = { … } })`. Les chaînes vides (pas d'options xkb,
+    /// accélération du périphérique) ne sont pas écrites : un Hyprland plus
+    /// ancien peut les refuser, et l'absence vaut la valeur par défaut.
     pub fn lua(&self) -> String {
-        format!(
-            "hl.config({{ input = {{ kb_layout = {}, kb_variant = {}, kb_options = {}, \
-             repeat_rate = {}, repeat_delay = {}, numlock_by_default = {}, \
-             sensitivity = {}, accel_profile = {}, natural_scroll = {}, left_handed = {}, \
-             follow_mouse = {}, touchpad = {{ natural_scroll = {}, tap_to_click = {}, \
-             disable_while_typing = {}, clickfinger_behavior = {}, scroll_factor = {} }} }} }})",
-            q(&self.kb_layout),
-            q(&self.kb_variant),
-            q(&self.kb_options),
-            self.repeat_rate,
-            self.repeat_delay,
-            self.numlock,
-            num(self.sensitivity),
-            q(&self.accel_profile),
-            self.natural_scroll,
-            self.left_handed,
-            self.follow_mouse,
-            self.tp_natural_scroll,
-            self.tp_tap_to_click,
-            self.tp_disable_while_typing,
-            self.tp_clickfinger,
-            num(self.tp_scroll_factor),
-        )
+        let mut f = vec![format!("kb_layout = {}", q(&self.kb_layout))];
+        for (k, v) in [
+            ("kb_variant", &self.kb_variant),
+            ("kb_options", &self.kb_options),
+        ] {
+            if !v.is_empty() {
+                f.push(format!("{k} = {}", q(v)));
+            }
+        }
+        f.extend([
+            format!("repeat_rate = {}", self.repeat_rate),
+            format!("repeat_delay = {}", self.repeat_delay),
+            format!("numlock_by_default = {}", self.numlock),
+            format!("sensitivity = {}", num(self.sensitivity)),
+        ]);
+        if !self.accel_profile.is_empty() {
+            f.push(format!("accel_profile = {}", q(&self.accel_profile)));
+        }
+        f.extend([
+            format!("natural_scroll = {}", self.natural_scroll),
+            format!("left_handed = {}", self.left_handed),
+            format!("follow_mouse = {}", self.follow_mouse),
+            format!(
+                "touchpad = {{ natural_scroll = {}, tap_to_click = {}, \
+                 disable_while_typing = {}, clickfinger_behavior = {}, scroll_factor = {} }}",
+                self.tp_natural_scroll,
+                self.tp_tap_to_click,
+                self.tp_disable_while_typing,
+                self.tp_clickfinger,
+                num(self.tp_scroll_factor),
+            ),
+        ]);
+        format!("hl.config({{ input = {{ {} }} }})", f.join(", "))
+    }
+
+    /// Clavier connu de xkeyboard-config sur ce poste : une disposition
+    /// inconnue est gardée telle quelle (signalée), une variante inconnue de
+    /// sa disposition est retirée, sinon Hyprland refuse tout le clavier.
+    /// Rend l'avertissement, s'il y a lieu. Sans liste xkb : rien n'est vérifié.
+    pub fn check_keyboard(&mut self, known: &Layouts) -> Option<String> {
+        let (layouts, variants) = known;
+        if layouts.is_empty() {
+            return None;
+        }
+        let ls: Vec<&str> = self.kb_layout.split(',').map(str::trim).collect();
+        let vs: Vec<&str> = self.kb_variant.split(',').map(str::trim).collect();
+        let mut warn = Vec::new();
+        for l in &ls {
+            if !l.is_empty() && !layouts.iter().any(|(c, _)| c == l) {
+                warn.push(crate::tr!(
+                    "disposition « {l} » inconnue de xkb",
+                    l = l.to_string()
+                ));
+            }
+        }
+        let kept: Vec<String> = ls
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let v = vs.get(i).copied().unwrap_or("");
+                if v.is_empty() || variants.iter().any(|(vl, vc, _)| vl == l && vc == v) {
+                    v.to_string()
+                } else {
+                    warn.push(crate::tr!(
+                        "variante « {v} » inconnue pour « {l} » : retirée",
+                        v = v.to_string(),
+                        l = l.to_string()
+                    ));
+                    String::new()
+                }
+            })
+            .collect();
+        let joined = kept.join(",");
+        self.kb_variant = if joined.chars().all(|c| c == ',') {
+            String::new()
+        } else {
+            joined
+        };
+        (!warn.is_empty()).then(|| warn.join(" ; "))
     }
 }
 
@@ -269,6 +327,59 @@ pub fn has_touchpad() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Rien de vide dans inputs.lua (Hyprland refuse accel_profile = "").
+    #[test]
+    fn pas_de_valeur_vide() {
+        let i = Inputs {
+            kb_layout: "fr".into(),
+            ..Default::default()
+        };
+        let l = i.lua();
+        assert!(!l.contains("\"\""), "{l}");
+        assert!(
+            !l.contains("accel_profile") && !l.contains("kb_variant"),
+            "{l}"
+        );
+        let j = Inputs {
+            accel_profile: "flat".into(),
+            kb_variant: "azerty".into(),
+            ..i
+        };
+        assert!(
+            j.lua().contains("accel_profile = \"flat\"")
+                && j.lua().contains("kb_variant = \"azerty\"")
+        );
+    }
+
+    /// Variante inconnue de xkb : retirée ; connue : gardée.
+    #[test]
+    fn variante_verifiee() {
+        let known: Layouts = (
+            vec![
+                ("fr".into(), "French".into()),
+                ("us".into(), "English".into()),
+            ],
+            vec![("fr".into(), "azerty".into(), "French (AZERTY)".into())],
+        );
+        let mut i = Inputs {
+            kb_layout: "fr".into(),
+            kb_variant: "azerty".into(),
+            ..Default::default()
+        };
+        assert!(i.check_keyboard(&known).is_none());
+        assert_eq!(i.kb_variant, "azerty");
+        i.kb_variant = "inconnue".into();
+        assert!(i.check_keyboard(&known).is_some());
+        assert_eq!(i.kb_variant, "");
+        let mut two = Inputs {
+            kb_layout: "fr,us".into(),
+            kb_variant: "azerty,bad".into(),
+            ..Default::default()
+        };
+        two.check_keyboard(&known);
+        assert_eq!(two.kb_variant, "azerty,");
+    }
 
     #[test]
     fn inputs_lua() {
