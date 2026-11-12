@@ -398,8 +398,15 @@ impl App {
     pub(super) fn panel_width(&self) -> f32 {
         self.panel
             .as_ref()
-            .map(|p| {
-                let width = self.size_of(p.win).width;
+            .map(|p| p.win)
+            .or_else(|| {
+                self.chat
+                    .as_ref()
+                    .filter(|c| c.surface.is_some())
+                    .map(|c| c.win)
+            })
+            .map(|win| {
+                let width = self.size_of(win).width;
                 if width < 1200.0 { width } else { DRAWER_W }
             })
             .unwrap_or(DRAWER_W)

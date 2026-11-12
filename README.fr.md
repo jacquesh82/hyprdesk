@@ -21,7 +21,9 @@ hyprdesk est la **racine** de la session graphique.
     hyprpaper.
   - Appelé (SUPER + D), il met de côté les fenêtres du workspace
     (`special:hyprdesk`) et apparaît avec ses icônes et ses widgets. Ce
-    qu'on ouvre depuis lui s'ouvre **dessus**, flottant et centré.
+    qu'on ouvre depuis lui s'ouvre **dessus**, flottant et centré, comme une
+    fenêtre ramenée depuis le dock. En quittant le plein bureau, ces fenêtres
+    retrouvent leur configuration d'origine (en mosaïque sur leur workspace).
   - Masqué, il rend les fenêtres mises de côté.
   - Le mode `glass` est un effet sur le fond : fond d'écran flouté et teinté.
 - **Racine de session.** hyprdesk lance et supervise les composants déclarés

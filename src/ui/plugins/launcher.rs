@@ -1609,11 +1609,17 @@ impl App {
                 row![
                     iced::widget::toggler(l.smartui)
                         .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
-                        .on_toggle(|v| super::assistant::wrap(super::assistant::Msg::SmartToggle(v))),
-                    button(text("Créer et valider les icônes…").font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices)),
+                        .on_toggle(
+                            |v| super::assistant::wrap(super::assistant::Msg::SmartToggle(v))
+                        ),
+                    button(
+                        text("Créer et valider les icônes…")
+                            .font(self.font)
+                            .size(12)
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices)),
                 ]
                 .spacing(14)
                 .align_y(Alignment::Center),

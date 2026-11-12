@@ -981,8 +981,8 @@ pub fn current_submap() -> String {
 /// Workspace spécial où attendent les fenêtres mises de côté.
 pub const STASH: &str = "special:hyprdesk";
 
-/// Workspace spécial du bureau : les fenêtres flottantes ouvertes sur le
-/// bureau y attendent quand il est masqué, et reviennent avec lui.
+/// Workspace spécial où les versions d'avant MLG-55 rangeaient les fenêtres
+/// du bureau masqué ; vidé au prochain affichage du bureau.
 pub const DESK: &str = "special:hyprdesk-bureau";
 
 /// Parmi ces adresses, les fenêtres flottantes (liste `clients` de Hyprland).
@@ -1022,16 +1022,164 @@ pub fn focused_workspace() -> String {
     regular_workspace(&monitors, &workspaces, &focused)
 }
 
-/// Bureau masqué : ses fenêtres flottantes partent dans `DESK`.
-pub fn park_desk_windows(addresses: &[String]) -> Result<(), String> {
+/// Rectangle d'une fenêtre, en coordonnées logiques globales : x, y, largeur, hauteur.
+pub type Rect = (i32, i32, i32, i32);
+
+/// Fenêtre ordinaire (affichée) d'un workspace, avec sa géométrie.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Geometry {
+    pub address: String,
+    pub workspace: String,
+    pub floating: bool,
+    pub rect: Rect,
+}
+
+/// Fenêtres affichées (mappées, non cachées) d'après `clients`.
+pub fn geometries(clients: &Value) -> Vec<Geometry> {
+    clients
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| {
+            c["mapped"].as_bool().unwrap_or(true) && !c["hidden"].as_bool().unwrap_or(false)
+        })
+        .filter_map(|c| {
+            let n = |v: &Value, i: usize| v[i].as_i64().unwrap_or(0) as i32;
+            Some(Geometry {
+                address: c["address"].as_str()?.to_string(),
+                workspace: c["workspace"]["name"].as_str()?.to_string(),
+                floating: c["floating"].as_bool().unwrap_or(false),
+                rect: (
+                    n(&c["at"], 0),
+                    n(&c["at"], 1),
+                    n(&c["size"], 0),
+                    n(&c["size"], 1),
+                ),
+            })
+        })
+        .collect()
+}
+
+/// Plein bureau : `n` fenêtres flottantes organisées dans la zone utile d'un
+/// écran. Une seule : centrée, 60 % × 70 % ; sinon une grille (colonnes ≈ √n),
+/// la dernière rangée centrée.
+pub fn arrange(n: usize, area: Rect, gap: i32) -> Vec<Rect> {
+    let (x, y, w, h) = area;
+    if n == 0 || w <= 0 || h <= 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        let (ww, hh) = ((w as f32 * 0.6) as i32, (h as f32 * 0.7) as i32);
+        return vec![(x + (w - ww) / 2, y + (h - hh) / 2, ww, hh)];
+    }
+    let cols = (n as f32).sqrt().ceil() as usize;
+    let rows = n.div_ceil(cols);
+    let cw = (w - gap * (cols as i32 - 1)) / cols as i32;
+    let ch = (h - gap * (rows as i32 - 1)) / rows as i32;
+    (0..n)
+        .map(|i| {
+            let (r, c) = (i / cols, i % cols);
+            // Dernière rangée incomplète : centrée.
+            let in_row = if r == rows - 1 { n - r * cols } else { cols };
+            let shift = (cols - in_row) as i32 * (cw + gap) / 2;
+            (
+                x + shift + c as i32 * (cw + gap),
+                y + r as i32 * (ch + gap),
+                cw,
+                ch,
+            )
+        })
+        .collect()
+}
+
+fn on_window(address: &str, cmd: &str) -> Result<(), String> {
+    let r =
+        ipc::dispatch(&cmd.replace("{w}", &ipc::lua_escape(address))).map_err(|e| e.to_string())?;
+    if r.trim() == "ok" {
+        Ok(())
+    } else {
+        Err(crate::tr!(
+            "{address} : {r}",
+            address = address.to_string(),
+            r = r.trim().to_string()
+        ))
+    }
+}
+
+/// Passe une fenêtre en flottant ou en mosaïque.
+pub fn set_floating(address: &str, floating: bool) -> Result<(), String> {
+    on_window(
+        address,
+        if floating {
+            "hl.dsp.window.float({ action = \"enable\", window = \"address:{w}\" })"
+        } else {
+            "hl.dsp.window.float({ action = \"disable\", window = \"address:{w}\" })"
+        },
+    )
+}
+
+/// Place une fenêtre flottante (position puis taille).
+pub fn place(address: &str, rect: Rect) -> Result<(), String> {
+    let (x, y, w, h) = rect;
+    on_window(
+        address,
+        &format!(
+            "hl.dsp.window.resize({{ x = {w}, y = {h}, relative = false, window = \"address:{{w}}\" }})"
+        ),
+    )?;
+    on_window(
+        address,
+        &format!(
+            "hl.dsp.window.move({{ x = {x}, y = {y}, relative = false, window = \"address:{{w}}\" }})"
+        ),
+    )
+}
+
+/// Plein bureau : parmi ces fenêtres, celles en mosaïque passent en
+/// flottant, à la taille donnée et centrées. Rend celles qui ont changé
+/// (les déjà flottantes gardent leur place).
+pub fn float_windows(addresses: &[String], size: (u32, u32)) -> Result<Vec<String>, String> {
     let clients = ipc::query_json("clients").map_err(|e| e.to_string())?;
+    let tiled: Vec<String> = geometries(&clients)
+        .into_iter()
+        .filter(|g| !g.floating && addresses.contains(&g.address))
+        .map(|g| g.address)
+        .collect();
     let mut errors = Vec::new();
-    for a in floating_among(&clients, addresses) {
-        if let Err(e) = move_window(&a, DESK) {
-            errors.push(e.to_string());
+    for a in &tiled {
+        let steps = set_floating(a, true)
+            .and_then(|()| {
+                on_window(
+                    a,
+                    &format!(
+                        "hl.dsp.window.resize({{ x = {}, y = {}, relative = false, window = \"address:{{w}}\" }})",
+                        size.0, size.1
+                    ),
+                )
+            })
+            .and_then(|()| on_window(a, "hl.dsp.window.center({ window = \"address:{w}\" })"));
+        if let Err(e) = steps {
+            errors.push(e);
         }
     }
-    close_special_view(DESK);
+    if errors.is_empty() {
+        Ok(tiled)
+    } else {
+        Err(errors.join(" ; "))
+    }
+}
+
+/// Sortie du plein bureau : ces fenêtres repassent en mosaïque (une fenêtre
+/// fermée entre-temps est ignorée).
+pub fn tile_windows(addresses: &[String]) -> Result<(), String> {
+    if addresses.is_empty() {
+        return Ok(());
+    }
+    let clients = ipc::query_json("clients").map_err(|e| e.to_string())?;
+    let errors: Vec<String> = floating_among(&clients, addresses)
+        .iter()
+        .filter_map(|a| set_floating(a, false).err())
+        .collect();
     if errors.is_empty() {
         Ok(())
     } else {
@@ -1083,100 +1231,6 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
         ))));
     }
     Ok(())
-}
-
-/// Referme le workspace spécial des fenêtres mises de côté s'il s'est ouvert :
-/// quand la fenêtre qui avait le focus y part, Hyprland l'ouvre pour suivre
-/// le focus, et les fenêtres réapparaissent par-dessus le bureau.
-pub fn close_stash_view() {
-    close_special_view(STASH);
-}
-
-/// Referme un workspace spécial de hyprdesk (`special:…`) s'il s'est ouvert
-/// pour suivre le focus d'une fenêtre qu'on y a envoyée.
-pub fn close_special_view(special: &str) {
-    let Ok(v) = ipc::query_json("monitors") else {
-        return;
-    };
-    let Some(list) = v.as_array() else { return };
-    let focused = list
-        .iter()
-        .find(|m| m["focused"].as_bool() == Some(true))
-        .and_then(|m| m["name"].as_str())
-        .map(String::from);
-    // Écran resté sur un workspace ORDINAIRE nommé « special:hyprdesk » (état
-    // observé avec Hyprland 0.57) : on le ramène sur un workspace ordinaire.
-    let stuck: Vec<String> = list
-        .iter()
-        .filter(|m| {
-            m["activeWorkspace"]["name"].as_str() == Some(special)
-                && m["specialWorkspace"]["name"].as_str() != Some(special)
-        })
-        .filter_map(|m| m["name"].as_str().map(String::from))
-        .collect();
-    if !stuck.is_empty() {
-        let workspaces = ipc::query_json("workspaces").unwrap_or(Value::Null);
-        for mon in &stuck {
-            let target = regular_workspace(&v, &workspaces, mon);
-            tracing::warn!(
-                "{}",
-                crate::tr!(
-                    "{mon} affichait {stash} comme workspace ordinaire : retour sur {target}",
-                    mon = mon,
-                    stash = special,
-                    target = target
-                )
-            );
-            let _ = ipc::dispatch(&format!(
-                "hl.dsp.focus({{ monitor = \"{}\" }})",
-                ipc::lua_escape(mon)
-            ));
-            let _ = focus_workspace(&target);
-        }
-        if let Some(f) = &focused
-            && !stuck.contains(f)
-        {
-            let _ = ipc::dispatch(&format!(
-                "hl.dsp.focus({{ monitor = \"{}\" }})",
-                ipc::lua_escape(f)
-            ));
-        }
-    }
-    let open: Vec<String> = list
-        .iter()
-        .filter(|m| m["specialWorkspace"]["name"].as_str() == Some(special))
-        .filter_map(|m| m["name"].as_str().map(String::from))
-        .collect();
-    if open.is_empty() {
-        return;
-    }
-    let name = special.trim_start_matches("special:");
-    for mon in &open {
-        // toggle_special agit sur l'écran qui a le focus.
-        if Some(mon) != focused.as_ref() {
-            let _ = ipc::dispatch(&format!(
-                "hl.dsp.focus({{ monitor = \"{}\" }})",
-                ipc::lua_escape(mon)
-            ));
-        }
-        if let Err(e) = ipc::dispatch(&format!(
-            "hl.dsp.workspace.toggle_special(\"{}\")",
-            ipc::lua_escape(name)
-        )) {
-            tracing::warn!(
-                "{}",
-                crate::tr!("fermeture de {stash} : {e}", stash = special, e = e)
-            );
-        }
-    }
-    if let Some(f) = focused
-        && !open.contains(&f)
-    {
-        let _ = ipc::dispatch(&format!(
-            "hl.dsp.focus({{ monitor = \"{}\" }})",
-            ipc::lua_escape(&f)
-        ));
-    }
 }
 
 /// Fichier qui garde la liste, pour rendre les fenêtres même après un arrêt brutal.
@@ -1426,6 +1480,42 @@ mod tests {
         assert_eq!(floating_among(&clients, &ours), vec!["0x1".to_string()]);
         assert_eq!(windows_on(&clients, DESK), vec!["0x3".to_string()]);
         assert!(DESK.starts_with("special:") && DESK != STASH);
+    }
+
+    /// Plein bureau : une fenêtre centrée, plusieurs en grille, sans débordement.
+    #[test]
+    fn disposition_flottante() {
+        let area = (100, 50, 1000, 600);
+        assert_eq!(arrange(0, area, 10), vec![]);
+        assert_eq!(arrange(1, area, 10), vec![(300, 140, 600, 420)]);
+        let two = arrange(2, area, 10);
+        assert_eq!(two, vec![(100, 50, 495, 600), (605, 50, 495, 600)]);
+        // Trois : deux colonnes, la dernière rangée (une fenêtre) centrée.
+        let three = arrange(3, area, 10);
+        assert_eq!(three.len(), 3);
+        assert_eq!(three[2].0, 100 + (495 + 10) / 2);
+        for n in 1..=12 {
+            for (x, y, w, h) in arrange(n, area, 10) {
+                assert!(
+                    x >= 100 && y >= 50 && x + w <= 1100 && y + h <= 650,
+                    "{n} : {x},{y},{w},{h}"
+                );
+                assert!(w > 0 && h > 0);
+            }
+        }
+        let g = geometries(&serde_json::json!([
+            { "address": "0x1", "workspace": { "name": "2" }, "floating": true, "at": [10, 20], "size": [300, 200] },
+            { "address": "0x2", "workspace": { "name": "2" }, "floating": false, "at": [0, 0], "size": [1, 1], "hidden": true },
+        ]));
+        assert_eq!(
+            g,
+            vec![Geometry {
+                address: "0x1".into(),
+                workspace: "2".into(),
+                floating: true,
+                rect: (10, 20, 300, 200)
+            }]
+        );
     }
 
     #[test]

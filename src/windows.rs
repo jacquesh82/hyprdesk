@@ -1,15 +1,34 @@
 //! Acteur séquentiel : aucun IPC de déplacement ne bloque le rendu graphique.
-use crate::hypr::{self, Stashed};
+//!
+//! Plein bureau (MLG-55) : les fenêtres du workspace passent en flottant,
+//! organisées sur l'écran ou à la place qu'elles avaient la dernière fois
+//! sur ce workspace ; en quittant le mode, leurs positions sont mémorisées et
+//! elles reprennent leur configuration d'origine.
+use std::collections::{HashMap, HashSet};
+
+use crate::hypr;
 use tokio::sync::oneshot;
 
 enum Request {
-    Stash(Vec<Stashed>, oneshot::Sender<Result<(), String>>),
     Restore(Option<String>, oneshot::Sender<Result<(), String>>),
     /// Rend une seule fenêtre (par adresse), les autres restent de côté.
     RestoreOne(String, oneshot::Sender<Result<(), String>>),
     Submap(bool, oneshot::Sender<Result<(), String>>),
-    /// Bureau masqué : ses fenêtres flottantes partent avec lui.
-    Park(Vec<String>, oneshot::Sender<Result<(), String>>),
+    /// Plein bureau : ces fenêtres passent en flottant (taille, centrées) ;
+    /// `launched` : ouvertes depuis le bureau (déjà flottantes à leur lancement).
+    Float(
+        Vec<String>,
+        (u32, u32),
+        bool,
+        oneshot::Sender<Result<(), String>>,
+    ),
+    /// Plein bureau sur un workspace : ses fenêtres passent en flottant,
+    /// à la place mémorisée pour ce workspace, sinon organisées dans la zone
+    /// utile de l'écran.
+    Arrange(String, hypr::Rect, oneshot::Sender<Result<(), String>>),
+    /// Sortie du plein bureau : positions mémorisées par workspace, puis les
+    /// fenêtres qu'il a fait flotter reprennent leur configuration d'origine.
+    Release(oneshot::Sender<Result<(), String>>),
     /// Bureau affiché ou arrêt : elles reviennent.
     Unpark(oneshot::Sender<Result<(), String>>),
 }
@@ -31,10 +50,17 @@ impl WindowManager {
                     return;
                 }
             };
+            let mut desk = Floating::default();
             while let Ok(request) = rx.recv() {
                 match request {
-                    Request::Park(addresses, reply) => {
-                        let _ = reply.send(hypr::park_desk_windows(&addresses));
+                    Request::Float(addresses, size, launched, reply) => {
+                        let _ = reply.send(desk.float(addresses, size, launched));
+                    }
+                    Request::Arrange(workspace, area, reply) => {
+                        let _ = reply.send(desk.arrange(&workspace, area));
+                    }
+                    Request::Release(reply) => {
+                        let _ = reply.send(desk.release());
                     }
                     Request::Unpark(reply) => {
                         let _ = reply.send(hypr::unpark_desk_windows());
@@ -42,23 +68,6 @@ impl WindowManager {
                     Request::Submap(active, reply) => {
                         hypr::set_submap(active.then_some(hypr::SUBMAP));
                         let _ = reply.send(Ok(()));
-                    }
-                    Request::Stash(picked, reply) => {
-                        let mut next = stash.clone();
-                        // Une adresse de retour vide ou égale au workspace de côté rendrait la fenêtre introuvable.
-                        let picked: Vec<_> = picked.into_iter().filter(|s| !s.workspace.is_empty() && s.workspace != hypr::STASH && !stash.iter().any(|o| o.address == s.address)).collect();
-                        next.extend(picked.iter().cloned());
-                        // Ne jamais déplacer une fenêtre dont la destination de retour n'est pas enregistrée.
-                        let result = hypr::save_stash(&next).map_err(|e| e.to_string()).and_then(|()| {
-                            stash = next;
-                            let mut errors = Vec::new();
-                            for s in picked {
-                                if let Err(e) = hypr::move_window(&s.address, hypr::STASH) { errors.push(e.to_string()); }
-                            }
-                            hypr::close_stash_view();
-                            if errors.is_empty() { Ok(()) } else { Err(errors.join(" ; ")) }
-                        });
-                        let _ = reply.send(result);
                     }
                     Request::RestoreOne(address, reply) => {
                         let (back, mut keep): (Vec<_>, Vec<_>) = stash.iter().cloned().partition(|s| s.address == address);
@@ -97,11 +106,12 @@ impl WindowManager {
             let (std::sync::mpsc::TrySendError::Full(request)
             | std::sync::mpsc::TrySendError::Disconnected(request)) = e;
             match request {
-                Request::Stash(_, reply)
-                | Request::Restore(_, reply)
+                Request::Restore(_, reply)
                 | Request::RestoreOne(_, reply)
                 | Request::Submap(_, reply)
-                | Request::Park(_, reply)
+                | Request::Float(_, _, _, reply)
+                | Request::Arrange(_, _, reply)
+                | Request::Release(reply)
                 | Request::Unpark(reply) => {
                     let _ = reply.send(Err(crate::i18n::tr(
                         "gestionnaire de fenêtres occupé ou arrêté",
@@ -113,10 +123,6 @@ impl WindowManager {
         rx
     }
 
-    pub fn stash(&self, picked: Vec<Stashed>) -> oneshot::Receiver<Result<(), String>> {
-        self.enqueue(|reply| Request::Stash(picked, reply))
-    }
-
     pub fn restore(&self, monitor: Option<&str>) -> oneshot::Receiver<Result<(), String>> {
         self.enqueue(|reply| Request::Restore(monitor.map(str::to_owned), reply))
     }
@@ -125,8 +131,25 @@ impl WindowManager {
         self.enqueue(|reply| Request::RestoreOne(address.to_owned(), reply))
     }
 
-    pub fn park(&self, addresses: Vec<String>) -> oneshot::Receiver<Result<(), String>> {
-        self.enqueue(|reply| Request::Park(addresses, reply))
+    pub fn float(
+        &self,
+        addresses: Vec<String>,
+        size: (u32, u32),
+        launched: bool,
+    ) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(|reply| Request::Float(addresses, size, launched, reply))
+    }
+
+    pub fn arrange(
+        &self,
+        workspace: String,
+        area: hypr::Rect,
+    ) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(|reply| Request::Arrange(workspace, area, reply))
+    }
+
+    pub fn release(&self) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(Request::Release)
     }
 
     pub fn unpark(&self) -> oneshot::Receiver<Result<(), String>> {
@@ -135,5 +158,108 @@ impl WindowManager {
 
     pub fn submap(&self, active: bool) -> oneshot::Receiver<Result<(), String>> {
         self.enqueue(|reply| Request::Submap(active, reply))
+    }
+}
+
+/// Écart entre les fenêtres organisées en plein bureau.
+const GAP: i32 = 16;
+
+/// Fenêtres du plein bureau (état de l'acteur).
+#[derive(Default)]
+struct Floating {
+    /// Passées en flottant par le plein bureau : en mosaïque à la sortie.
+    floated: HashSet<String>,
+    /// Fenêtres affichées sur le bureau, et leur workspace.
+    managed: HashMap<String, String>,
+    /// Positions au moment de quitter le plein bureau, par workspace.
+    memory: HashMap<String, HashMap<String, hypr::Rect>>,
+}
+
+impl Floating {
+    fn clients() -> Result<Vec<hypr::Geometry>, String> {
+        hyprpanel_core::ipc::query_json("clients")
+            .map(|v| hypr::geometries(&v))
+            .map_err(|e| e.to_string())
+    }
+
+    fn float(
+        &mut self,
+        addresses: Vec<String>,
+        size: (u32, u32),
+        launched: bool,
+    ) -> Result<(), String> {
+        let changed = hypr::float_windows(&addresses, size)?;
+        if let Ok(list) = Self::clients() {
+            for g in list.into_iter().filter(|g| addresses.contains(&g.address)) {
+                self.managed.insert(g.address, g.workspace);
+            }
+        }
+        self.floated
+            .extend(if launched { addresses } else { changed });
+        Ok(())
+    }
+
+    fn arrange(&mut self, workspace: &str, area: hypr::Rect) -> Result<(), String> {
+        let list: Vec<hypr::Geometry> = Self::clients()?
+            .into_iter()
+            .filter(|g| g.workspace == workspace)
+            .collect();
+        let remembered = self.memory.get(workspace).cloned().unwrap_or_default();
+        let mut errors = Vec::new();
+        let mut fresh = Vec::new();
+        for g in &list {
+            self.managed.insert(g.address.clone(), g.workspace.clone());
+            if !g.floating {
+                if let Err(e) = hypr::set_floating(&g.address, true) {
+                    errors.push(e);
+                    continue;
+                }
+                self.floated.insert(g.address.clone());
+            }
+            match remembered.get(&g.address) {
+                Some(rect) => {
+                    if let Err(e) = hypr::place(&g.address, *rect) {
+                        errors.push(e);
+                    }
+                }
+                // Déjà flottante sans place mémorisée : elle garde la sienne.
+                None if !g.floating => fresh.push(g.address.clone()),
+                None => {}
+            }
+        }
+        for (a, rect) in fresh.iter().zip(hypr::arrange(fresh.len(), area, GAP)) {
+            if let Err(e) = hypr::place(a, rect) {
+                errors.push(e);
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join(" ; "))
+        }
+    }
+
+    fn release(&mut self) -> Result<(), String> {
+        let list = Self::clients().unwrap_or_default();
+        // Positions mémorisées, par workspace, pour le prochain plein bureau.
+        let managed = std::mem::take(&mut self.managed);
+        for (address, workspace) in &managed {
+            if let Some(g) = list
+                .iter()
+                .find(|g| &g.address == address && &g.workspace == workspace && g.floating)
+            {
+                self.memory
+                    .entry(workspace.clone())
+                    .or_default()
+                    .insert(address.clone(), g.rect);
+            }
+        }
+        // Fenêtres fermées depuis : oubliées.
+        for places in self.memory.values_mut() {
+            places.retain(|a, _| list.iter().any(|g| &g.address == a));
+        }
+        self.memory.retain(|_, places| !places.is_empty());
+        let floated: Vec<String> = self.floated.drain().collect();
+        hypr::tile_windows(&floated)
     }
 }

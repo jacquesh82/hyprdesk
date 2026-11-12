@@ -374,8 +374,7 @@ impl Settings {
             },
             assistant_mode: has("assistant_mode").then_some(g.assistant_mode),
             // L'ancienne forme (`ai_provider`) est réécrite en ai_services / ai_use.
-            ai_services: (has("ai_services") || has("ai_provider"))
-                .then(|| g.ai.services.clone()),
+            ai_services: (has("ai_services") || has("ai_provider")).then(|| g.ai.services.clone()),
             ai_use: g
                 .ai
                 .uses
@@ -1719,9 +1718,7 @@ mod tests {
         assert_eq!(ai.for_consumer("smartui").model(), "claude-sonnet-5-5");
         assert_eq!(ai.for_consumer("smartui").label(), "Claude \"perso\"");
         // Ancienne forme.
-        let old = load(
-            "hd.config({ ai_provider = \"zai\", ai_model = \"glm-4.5v\" })".into(),
-        );
+        let old = load("hd.config({ ai_provider = \"zai\", ai_model = \"glm-4.5v\" })".into());
         assert_eq!(old.general.ai.for_consumer("smartui").id, "zai");
         assert_eq!(old.general.ai.for_consumer("smartui").model(), "glm-4.5v");
         let rewritten = Settings::from_config(&old).to_lua();
@@ -1731,10 +1728,15 @@ mod tests {
         assert_eq!(lyra.general.ai.for_consumer("smartui").id, "lyra");
         // Identifiant réservé ou invalide : refusé.
         for bad in ["lyra", "Majuscule", ""] {
-            let lua = format!("hd.config({{ ai_services = {{ {{ id = \"{bad}\", kind = \"openai\" }} }} }})");
+            let lua = format!(
+                "hd.config({{ ai_services = {{ {{ id = \"{bad}\", kind = \"openai\" }} }} }})"
+            );
             assert!(
-                load_chunks(&[(lua, "settings.lua".into(), Origin::Settings)], Path::new("/cfg"))
-                    .is_err(),
+                load_chunks(
+                    &[(lua, "settings.lua".into(), Origin::Settings)],
+                    Path::new("/cfg")
+                )
+                .is_err(),
                 "{bad}"
             );
         }

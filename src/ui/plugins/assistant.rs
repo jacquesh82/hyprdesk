@@ -99,11 +99,7 @@ pub enum Msg {
 /// Arrivée sur le paquet : LYRA, la clé du service, les icônes SmartUI.
 pub(in crate::ui) fn on_show(app: &mut App) -> Task<UiMsg> {
     app.services_init();
-    Task::batch([
-        load_status(),
-        providers::load_keys(app),
-        app.smartui_load(),
-    ])
+    Task::batch([load_status(), providers::load_keys(app), app.smartui_load()])
 }
 
 pub fn load_status() -> Task<UiMsg> {

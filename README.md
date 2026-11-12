@@ -54,7 +54,8 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
   them. hyprdesk only touches what you change: the rest stays in
   `hyprland.lua`.
 - **Three desktop modes.** `SUPER + D` sets the windows aside and shows the
-  desktop. `SUPER + ALT + D` leaves the windows where they are and shows only
+  desktop; windows opened from it, or brought back from the dock, float on top
+  of it and return to their original layout when you leave. `SUPER + ALT + D` leaves the windows where they are and shows only
   the dock. A third mode hides the desktop entirely. You can also force a mode
   on a screen or a workspace.
 - **Wallpapers for each workspace and screen**, with crossfades and

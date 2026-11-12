@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 69] = [
+const SCENES: [&str; 74] = [
     "desktop",
     "typography",
     "icons",
@@ -93,6 +93,11 @@ const SCENES: [&str; 69] = [
     "ia-services",
     "smartui",
     "a-propos",
+    "chat-welcome",
+    "chat-writing",
+    "chat-waiting",
+    "chat-offline",
+    "chat-still",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1299,8 +1304,44 @@ impl Preview {
                  hl.bind(\"SUPER + ALT + F\", hl.dsp.exec_cmd(\"firefox\"))\n",
             );
         }
-        if SCENES[self.scene] == "chat" {
+        if SCENES[self.scene] == "chat" || SCENES[self.scene].starts_with("chat-") {
             self.app.chat_demo(self.desktop);
+            if let Some(chat) = self.app.chat.as_mut() {
+                let c = chat.cur_mut();
+                match SCENES[self.scene] {
+                    "chat-welcome" => {
+                        c.entries.clear();
+                        c.input.clear();
+                        c.busy = false;
+                        c.thinking = false;
+                    }
+                    "chat-writing" => {
+                        c.entries.truncate(4);
+                        c.thinking = false;
+                        let raw = crate::i18n::tr("Je prépare un bureau plus aéré, avec des marges et des couleurs qui vous ressemblent.").to_string();
+                        c.entries.push(chat::Entry::Assistant {
+                            md: iced::widget::markdown::Content::parse(&raw),
+                            raw,
+                        });
+                    }
+                    "chat-waiting" => {
+                        c.busy = false;
+                        c.thinking = false;
+                    }
+                    "chat-offline" => {
+                        c.busy = false;
+                        c.thinking = false;
+                        c.ready = false;
+                        c.ended = Some(
+                            crate::i18n::tr("La connexion avec LYRA a été interrompue.").into(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            if SCENES[self.scene] == "chat-still" {
+                Arc::make_mut(&mut self.app.cfg).general.transition = Transition::None;
+            }
         }
         if self.scene == 8 {
             let _ = self
@@ -1468,6 +1509,34 @@ impl Preview {
                 .app
                 .fit_popover(win, height)
                 .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::Chat(chat::ChatMsg::NewConversation) => {
+                if let Some(panel) = self.app.chat.as_mut() {
+                    let mut fresh = chat::Conversation::new(
+                        panel.convs.iter().map(|c| c.session).max().unwrap_or(0) + 1,
+                        Vec::new(),
+                        crate::tr!("Conversation {n}", n = panel.convs.len() + 1),
+                    );
+                    fresh.ready = true;
+                    fresh.provider = panel.cur().provider.clone();
+                    fresh.providers = panel.cur().providers.clone();
+                    let i = panel.push(fresh);
+                    panel.active = i;
+                }
+                Task::none()
+            }
+            Msg::Chat(chat::ChatMsg::Close) => {
+                self.app.chat = None;
+                Task::none()
+            }
+            Msg::Chat(
+                m @ (chat::ChatMsg::Input(_)
+                | chat::ChatMsg::Suggest(_)
+                | chat::ChatMsg::Switch(_)
+                | chat::ChatMsg::ToggleSteps(_)
+                | chat::ChatMsg::Select(_)
+                | chat::ChatMsg::EditorAction(_)
+                | chat::ChatMsg::Provider(_)),
+            ) => self.app.chat_update(m).map(|m| PreviewMsg::Ui(Box::new(m))),
             Msg::Frame => self
                 .app
                 .update_inner(Msg::Frame)

@@ -1271,8 +1271,9 @@ impl App {
     }
 
     /// Active le bureau sur une surface. Le bureau est la RACINE des fenêtres :
-    /// il reste toujours dessous. Les fenêtres du workspace sont mises de côté
-    /// et celles qu'on ouvre depuis le bureau s'ouvrent dessus. Le mode verre
+    /// il reste toujours dessous. En plein bureau, les fenêtres du workspace
+    /// flottent par-dessus, organisées, et celles qu'on ouvre depuis le bureau
+    /// s'ouvrent dessus. Le mode verre
     /// n'est qu'un effet sur le fond (fond d'écran flouté et teinté).
     fn activate_surface(&mut self, id: Id, has_focus: bool) -> Vec<Task<Msg>> {
         let Some(m) = self.monitor(id).cloned() else {
@@ -1280,8 +1281,9 @@ impl App {
         };
         self.raised.insert(id);
         let mut tasks = vec![self.stash_workspace(&m)];
-        // Avec les fenêtres, le bureau ne prend le clavier que si on clique dessus.
-        let kb = if has_focus && self.with_windows {
+        // Avec des fenêtres (mode lanceur, ou flottantes en plein bureau), le
+        // bureau ne prend le clavier que si on clique dessus.
+        let kb = if has_focus && (self.with_windows || !self.session_windows.is_empty()) {
             KeyboardInteractivity::OnDemand
         } else if has_focus {
             KeyboardInteractivity::Exclusive
@@ -1308,26 +1310,28 @@ impl App {
         self.monitor(id).map(|m| m.reserved).unwrap_or_default()
     }
 
-    /// Met de côté les fenêtres du workspace affiché sur cet écran (sauf
-    /// celles ouvertes depuis le bureau). L'acteur traite les demandes dans l'ordre,
-    /// sans bloquer l'interface et sans intercaler une restitution au milieu des déplacements.
+    /// Plein bureau sur cet écran (MLG-55) : les fenêtres du workspace
+    /// affiché passent en flottant par-dessus le bureau, à la place qu'elles
+    /// avaient la dernière fois sur ce workspace, sinon organisées dans la
+    /// zone utile ; elles font partie du bureau (raccourcis actifs) jusqu'à
+    /// la sortie du mode, où elles reprennent leur configuration d'origine.
     fn stash_workspace(&mut self, m: &Monitor) -> Task<Msg> {
-        // Bureau sous les fenêtres, workspace inconnu ou déjà celui de mise de
-        // côté : rien à mettre de côté.
-        if self.with_windows || m.workspace.is_empty() || m.workspace == hypr::STASH {
+        if self.with_windows || m.workspace.is_empty() || m.workspace.starts_with("special:") {
             return Task::none();
         }
-        let picked = self
-            .clients
-            .iter()
-            .filter(|c| c.workspace == m.workspace && !self.session_windows.contains(&c.address))
-            .map(|c| hypr::Stashed {
-                address: c.address.clone(),
-                workspace: c.workspace.clone(),
-                monitor: m.name.clone(),
-            })
-            .collect();
-        Self::window_result(self.windows.stash(picked))
+        for c in self.clients.iter().filter(|c| c.workspace == m.workspace) {
+            self.session_windows.insert(c.address.clone());
+            self.desk_windows.insert(c.address.clone());
+        }
+        const MARGIN: f32 = 24.0;
+        let (l, t, r, b) = m.reserved;
+        let area = (
+            (m.x + l + MARGIN) as i32,
+            (m.y + t + MARGIN) as i32,
+            (m.width as f32 - l - r - 2.0 * MARGIN) as i32,
+            (m.height as f32 - t - b - 2.0 * MARGIN) as i32,
+        );
+        Self::window_result(self.windows.arrange(m.workspace.clone(), area))
     }
 
     fn restore_stash(&mut self, monitor: Option<&str>) -> Task<Msg> {
@@ -1731,10 +1735,9 @@ impl App {
         if !self.visible {
             return self.show();
         }
-        // Depuis le plein bureau : ses fenêtres flottantes partent (elles ne
-        // s'affichent qu'en plein bureau), les autres reviennent, le bureau
-        // reste dessous.
-        let mut tasks = self.park_desk_windows();
+        // Depuis le plein bureau : ses fenêtres reprennent leur configuration
+        // d'origine, les autres reviennent, le bureau reste dessous.
+        let mut tasks = self.release_desk_windows();
         tasks.extend([
             self.restore_stash(None),
             self.sync_raised(),
@@ -1769,9 +1772,9 @@ impl App {
                 self.fire(HookEvent::Hide, "hide", m);
             }
         }
-        // Les fenêtres flottantes ouvertes sur le bureau partent avec lui
+        // Les fenêtres du bureau reprennent leur configuration d'origine
         // (avant le retour des fenêtres mises de côté, qui reprennent le focus).
-        tasks.extend(self.park_desk_windows());
+        tasks.extend(self.release_desk_windows());
         // Les fenêtres mises de côté reviennent.
         tasks.push(self.restore_stash(None));
         tasks.push(self.sync_window_gaps());
@@ -1782,17 +1785,30 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Les fenêtres flottantes ouvertes sur le bureau partent dans `hypr::DESK`
-    /// (bureau masqué ou mode lanceur : elles ne s'affichent qu'en plein bureau).
-    fn park_desk_windows(&mut self) -> Vec<Task<Msg>> {
-        let desk: Vec<String> = self.desk_windows.drain().collect();
-        if desk.is_empty() {
-            return Vec::new();
+    /// Sortie du plein bureau (bureau masqué ou mode lanceur) : les fenêtres
+    /// du bureau reprennent leur configuration d'origine — en mosaïque sur
+    /// leur workspace si le plein bureau les avait fait flotter — et restent
+    /// visibles, comme des fenêtres ordinaires (MLG-55).
+    fn release_desk_windows(&mut self) -> Vec<Task<Msg>> {
+        for a in self.desk_windows.drain() {
+            self.session_windows.remove(&a);
         }
-        for a in &desk {
-            self.session_windows.remove(a);
-        }
-        vec![Self::window_result(self.windows.park(desk))]
+        vec![Self::window_result(self.windows.release())]
+    }
+
+    /// Taille d'une fenêtre flottante sur le bureau : 60 % × 70 % de l'écran actif.
+    fn desk_window_size(&self) -> (u32, u32) {
+        self.monitors
+            .iter()
+            .find(|m| m.focused)
+            .or_else(|| self.monitors.first())
+            .map(|m| {
+                (
+                    (m.width as f32 * 0.6) as u32,
+                    (m.height as f32 * 0.7) as u32,
+                )
+            })
+            .unwrap_or((1200, 800))
     }
 
     /// Fenêtres en attente dans `hypr::DESK` : elles reviennent sur le bureau
@@ -1953,7 +1969,7 @@ impl App {
                 self.selected = None;
             }
         }
-        // Bureau affiché, on change de workspace : ses fenêtres sont mises de côté à leur tour.
+        // Bureau affiché, on change de workspace : ses fenêtres flottent à leur tour.
         let to_stash: Vec<Monitor> = self
             .monitors
             .iter()
@@ -2740,8 +2756,10 @@ impl App {
                     if self.in_submap {
                         drop(self.windows.submap(false));
                     }
-                    // Rien ne doit rester de côté après l'arrêt, ni caché avec le bureau.
-                    Self::window_result(self.windows.unpark())
+                    // Rien ne doit rester de côté après l'arrêt, ni caché avec le
+                    // bureau, ni flottant à cause de lui.
+                    Self::window_result(self.windows.release())
+                        .chain(Self::window_result(self.windows.unpark()))
                         .chain(self.restore_stash(None))
                         .chain(Task::perform(
                             async {
@@ -3056,6 +3074,13 @@ impl App {
                         }
                         self.session_windows.insert(c.address.clone());
                         self.desk_windows.insert(c.address.clone());
+                        // Ouverte sur le bureau : flottante et centrée (déjà le cas
+                        // si hyprdesk l'a lancée) ; en mosaïque à la sortie.
+                        tasks.push(Self::window_result(self.windows.float(
+                            vec![c.address.clone()],
+                            self.desk_window_size(),
+                            true,
+                        )));
                         for id in surfaces {
                             tasks.push(Task::done(Msg::KeyboardInteractivityChange {
                                 id,
@@ -3099,7 +3124,17 @@ impl App {
             Msg::FocusWindow(addr) => {
                 let back = if self.mode() == DesktopMode::FullDesktop {
                     self.session_windows.insert(addr.clone());
-                    let mut t = vec![Self::window_result(self.windows.restore_window(&addr))];
+                    // Ramenée sur le bureau : flottante par-dessus lui, puis
+                    // rendue à sa configuration d'origine à la sortie.
+                    self.desk_windows.insert(addr.clone());
+                    let mut t = vec![
+                        Self::window_result(self.windows.restore_window(&addr)),
+                        Self::window_result(self.windows.float(
+                            vec![addr.clone()],
+                            self.desk_window_size(),
+                            false,
+                        )),
+                    ];
                     for id in self.raised.iter().copied().collect::<Vec<_>>() {
                         t.push(Task::done(Msg::KeyboardInteractivityChange {
                             id,
@@ -4752,6 +4787,10 @@ mod regression_tests {
         let _ = app.update_inner(Msg::FocusWindow("0x2".into()));
         assert_eq!(app.mode(), DesktopMode::FullDesktop);
         assert!(app.session_windows.contains("0x2"));
+        assert!(
+            app.desk_windows.contains("0x2"),
+            "ramenée en plein bureau : flottante, rendue à la sortie"
+        );
         assert!(!app.in_submap, "la fenêtre rendue garde ses raccourcis");
     }
 
@@ -4889,6 +4928,9 @@ mod regression_tests {
         assert_eq!(app.raised, HashSet::from([b]));
     }
 
+    /// Bureau masqué : ses fenêtres redeviennent ordinaires (configuration
+    /// d'origine, MLG-55) ; celles qu'une version d'avant a rangées dans DESK
+    /// reviennent au prochain affichage.
     #[test]
     fn desk_windows_follow_the_desktop() {
         let mut app = app();
@@ -4897,7 +4939,7 @@ mod regression_tests {
         app.desk_windows.insert("0x1".into());
         let _ = app.hide();
         assert!(app.desk_windows.is_empty() && app.session_windows.is_empty());
-        // Parties dans DESK : elles reviennent au prochain affichage, du bureau à nouveau.
+        // Restées dans DESK : elles reviennent au prochain affichage, du bureau à nouveau.
         app.clients = vec![hypr::Client {
             address: "0x1".into(),
             class: "kitty".into(),
@@ -4909,8 +4951,9 @@ mod regression_tests {
         assert!(app.desk_windows.contains("0x1") && app.session_windows.contains("0x1"));
     }
 
-    /// Les fenêtres du bureau ne s'affichent qu'en plein bureau : le mode
-    /// lanceur les cache, le retour au plein bureau les rend.
+    /// Mode lanceur : les fenêtres du bureau redeviennent ordinaires ; une
+    /// fenêtre restée dans DESK (version d'avant MLG-55) ne revient qu'avec
+    /// le plein bureau.
     #[test]
     fn desk_windows_only_in_full_desktop() {
         let mut app = app();

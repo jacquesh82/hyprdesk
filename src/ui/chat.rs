@@ -6,7 +6,10 @@
 //! (développement, ex. `hyprdesk chat-mock`). Il vit tant que le tiroir est
 //! ouvert ; le fermer l'arrête.
 
+mod appearance;
+
 use crate::i18n::text;
+use appearance::Presence;
 use iced::futures::{SinkExt, Stream};
 use iced::widget::{
     Space, button, column, container, markdown, pick_list, row, scrollable, text_input,
@@ -198,6 +201,8 @@ pub enum ChatMsg {
     Engine(u64, ServerMsg),
     Ended(u64, String),
     Input(String),
+    /// Préremplit la saisie depuis l'accueil et lui rend le focus.
+    Suggest(String),
     Send,
     Cancel,
     Confirm(String, bool),
@@ -573,6 +578,12 @@ impl App {
             );
         }
         match msg {
+            ChatMsg::Suggest(prompt) => {
+                if let Some(chat) = self.chat.as_mut() {
+                    chat.cur_mut().input = prompt;
+                }
+                return iced::widget::operation::focus(CHAT_INPUT);
+            }
             ChatMsg::Copy(t) => return copy_text(t),
             ChatMsg::PasteImage => return paste_clipboard(false),
             ChatMsg::KeyPaste(id) => {
@@ -983,7 +994,7 @@ impl App {
         let c = chat.cur();
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.6, ..fg };
+        let dim = Color { a: 0.72, ..fg };
         let warn = Color::from_rgb8(0xff, 0x95, 0x80);
         let close_icon = super::icons::get("window-close").unwrap();
         let close = iced::widget::tooltip(
@@ -994,58 +1005,67 @@ impl App {
                     .style(move |_, _| iced::widget::svg::Style { color: Some(fg) }),
             )
             .padding(9)
-            .style(button::text)
+            .style(|t, s| appearance::pill(t, s, false))
             .on_press(Msg::Chat(ChatMsg::Close)),
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
         let providers: Vec<ProviderChoice> =
             c.providers.iter().cloned().map(ProviderChoice).collect();
-        let header = row![
+        let presence = Presence::of(c);
+        let animate = self.cfg.general.transition != crate::config::Transition::None;
+        let identity = row![
+            appearance::avatar(82.0, presence, animate, accent),
             column![
-                text("HYPRDESK")
-                    .font(self.title_font())
-                    .size(10)
-                    .color(Color { a: 0.55, ..fg }),
-                text("Assistant").font(self.title_font()).size(27).color(fg),
-                text(match &c.ended {
-                    Some(_) => crate::i18n::tr("LYRA · arrêtée").to_string(),
-                    None if c.provider.is_empty() =>
-                        crate::i18n::tr("LYRA · démarrage…").to_string(),
-                    None if c.busy => crate::tr!(
-                        "LYRA · {provider} · réfléchit…",
-                        provider = provider_label(&c.provider)
-                    ),
-                    None => crate::tr!("LYRA · {provider}", provider = provider_label(&c.provider)),
-                })
-                .font(self.font)
-                .size(12)
-                .color(if c.busy {
-                    accent
-                } else {
-                    Color { a: 0.65, ..fg }
-                }),
+                text("Votre assistante du bureau")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+                text("LYRA").font(self.title_font()).size(32).color(fg),
+                text(presence.label()).font(self.font).size(13).color(
+                    if presence == Presence::Offline {
+                        dim
+                    } else {
+                        accent
+                    }
+                ),
             ]
-            .spacing(5)
+            .spacing(3)
             .width(Length::Fill),
-            pick_list(
-                providers,
-                (!c.provider.is_empty()).then(|| ProviderChoice(c.provider.clone())),
-                move |p| Msg::Chat(ChatMsg::Provider(p.0))
-            )
-            .font(self.font)
-            .text_size(13)
-            .padding([5, 10])
-            .placeholder(crate::i18n::tr("Fournisseur"))
-            .width(140),
-            button(text("Nouvelle").font(self.font).size(12))
-                .padding([5, 10])
-                .style(button::secondary)
-                .on_press(Msg::Chat(ChatMsg::NewConversation)),
-            close,
         ]
-        .spacing(8)
-        .align_y(Alignment::Center);
+        .spacing(14)
+        .align_y(Alignment::Center)
+        .width(Length::Fill);
+        let provider = pick_list(
+            providers,
+            (!c.provider.is_empty()).then(|| ProviderChoice(c.provider.clone())),
+            move |p| Msg::Chat(ChatMsg::Provider(p.0)),
+        )
+        .font(self.font)
+        .text_size(12)
+        .padding([8, 14])
+        .style(appearance::selector)
+        .placeholder(crate::i18n::tr("Fournisseur"))
+        .width(145);
+        let new_conversation = button(text("+ Nouvelle").font(self.font).size(12))
+            .padding([8, 14])
+            .style(|t, s| appearance::pill(t, s, false))
+            .on_press(Msg::Chat(ChatMsg::NewConversation));
+        let header: Element<'_, Msg> = if self.panel_width() < 760.0 {
+            column![
+                row![identity, close].spacing(8).align_y(Alignment::Center),
+                row![provider, Space::new().width(Length::Fill), new_conversation]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+            ]
+            .spacing(14)
+            .into()
+        } else {
+            row![identity, provider, new_conversation, close]
+                .spacing(10)
+                .align_y(Alignment::Center)
+                .into()
+        };
 
         // Sélecteur des conversations : ● en cours de réponse, • du nouveau.
         let choices: Vec<ConvChoice> = chat
@@ -1074,7 +1094,8 @@ impl App {
             ))
             .font(self.font)
             .text_size(13)
-            .padding([5, 10])
+            .padding([8, 14])
+            .style(appearance::selector)
             .width(Length::Fill),
         ]
         .spacing(8)
@@ -1099,16 +1120,46 @@ impl App {
         // Fil de la conversation.
         let md_settings = markdown::Settings::with_text_size(14, &self.theme);
         let bubble = |content, mine| bubble(content, mine, fg, accent);
-        let mut thread = column![].spacing(10);
+        let mut thread = column![].spacing(14);
         if c.entries.is_empty() && c.ended.is_none() {
+            let mut welcome = column![
+                text("On fait quoi, ensemble ?")
+                    .font(self.title_font())
+                    .size(25)
+                    .color(fg),
+                text("Un bureau à votre image, un souci à résoudre ou une idée à explorer. Je suis là.")
+                    .font(self.font)
+                    .size(14)
+                    .color(dim),
+            ].spacing(12);
+            for (label, prompt) in [
+                (
+                    "Personnaliser mon bureau",
+                    "Aide-moi à personnaliser mon bureau.",
+                ),
+                (
+                    "Résoudre un problème",
+                    "Aide-moi à diagnostiquer un problème sur mon bureau.",
+                ),
+                ("Explorer hyprdesk", "Que puis-je faire avec hyprdesk ?"),
+            ] {
+                welcome = welcome.push(
+                    button(text(crate::i18n::tr(label)).font(self.font).size(13))
+                        .padding([10, 16])
+                        .width(Length::Fill)
+                        .style(|t, s| appearance::pill(t, s, false))
+                        .on_press(Msg::Chat(ChatMsg::Suggest(crate::i18n::tr(prompt).into()))),
+                );
+            }
             thread = thread.push(
-                text(
-                    "Demandez à LYRA d'explorer, dépanner ou personnaliser votre bureau. \
-                     Elle connaît hyprdesk (contexte transmis) et demande toujours avant d'agir.",
-                )
-                .font(self.font)
-                .size(13)
-                .color(dim),
+                container(welcome)
+                    .padding([28, 20])
+                    .width(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: Some(Color { a: 0.045, ..accent }.into()),
+                        border: Border::default().rounded(24),
+                        ..Default::default()
+                    }),
             );
         }
         // Petites actions sous une bulle (copier, sélectionner).
@@ -1186,6 +1237,16 @@ impl App {
                         }
                     };
                     column![
+                        row![
+                            iced::widget::image(appearance::portrait())
+                                .width(24)
+                                .height(24)
+                                .content_fit(iced::ContentFit::Cover)
+                                .border_radius(12),
+                            text("LYRA").font(self.title_font()).size(11).color(accent),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
                         bubble(content, false),
                         row![
                             action("Copier", ChatMsg::Copy(raw.clone())),
@@ -1257,11 +1318,12 @@ impl App {
                         None => Element::from(
                             row![
                                 button(text("Accepter").font(self.font).size(13))
-                                    .padding([5, 14])
+                                    .padding([8, 18])
+                                    .style(|t, s| appearance::pill(t, s, true))
                                     .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), true))),
                                 button(text("Refuser").font(self.font).size(13))
-                                    .padding([5, 14])
-                                    .style(button::secondary)
+                                    .padding([8, 18])
+                                    .style(|t, s| appearance::pill(t, s, false))
                                     .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), false))),
                             ]
                             .spacing(10),
@@ -1274,10 +1336,14 @@ impl App {
                         Some(false) => text("Refusé").font(self.font).size(12).color(dim).into(),
                     });
                     container(card)
-                        .padding(12)
+                        .padding(16)
                         .width(Length::Fill)
                         .style(move |_| container::Style {
-                            border: Border::default().rounded(12).width(1).color(edge),
+                            background: Some(Color { a: 0.045, ..edge }.into()),
+                            border: Border::default()
+                                .rounded(22)
+                                .width(1)
+                                .color(Color { a: 0.55, ..edge }),
                             ..Default::default()
                         })
                         .into()
@@ -1342,16 +1408,17 @@ impl App {
                                             }
                                             .into(),
                                         ),
-                                        border: Border::default().rounded(10).width(1).color(
-                                            if chosen {
+                                        border: Border::default()
+                                            .rounded(if compact { 20 } else { 16 })
+                                            .width(1)
+                                            .color(if chosen {
                                                 accent
                                             } else {
                                                 Color {
                                                     a: if open { 0.22 } else { 0.08 },
                                                     ..fg
                                                 }
-                                            },
-                                        ),
+                                            }),
                                         text_color: tc,
                                         ..Default::default()
                                     }
@@ -1390,7 +1457,7 @@ impl App {
                 crate::i18n::tr("LYRA réfléchit…").to_string()
             };
             let mut pill = row![
-                text("●").font(self.font).size(12).color(accent),
+                appearance::activity(animate, accent),
                 text(label).font(self.font).size(13).color(fg),
             ]
             .spacing(8)
@@ -1405,10 +1472,10 @@ impl App {
             thread =
                 thread.push(
                     container(pill)
-                        .padding([6, 12])
+                        .padding([8, 14])
                         .style(move |_| container::Style {
-                            background: Some(Color { a: 0.12, ..accent }.into()),
-                            border: Border::default().rounded(12),
+                            background: Some(Color { a: 0.10, ..accent }.into()),
+                            border: Border::default().rounded(22),
                             ..Default::default()
                         }),
                 );
@@ -1424,24 +1491,26 @@ impl App {
         .height(Length::Fill);
 
         // Saisie.
-        let can_send = c.sender.is_some() && !c.busy;
+        let can_send = c.sender.is_some() && !c.busy && !c.input.trim().is_empty();
         let composer = row![
             text_input(crate::i18n::tr("Écrire à LYRA…"), &c.input)
                 .id(CHAT_INPUT)
                 .font(self.font)
                 .size(14)
-                .padding(10)
+                .padding([12, 14])
+                .style(appearance::input)
                 .on_input(|s| Msg::Chat(ChatMsg::Input(s)))
                 .on_submit(Msg::Chat(ChatMsg::Send))
                 .width(Length::Fill),
             if c.busy {
                 button(text("Arrêter").font(self.font).size(13))
-                    .padding([8, 14])
-                    .style(button::secondary)
+                    .padding([10, 18])
+                    .style(|t, s| appearance::pill(t, s, false))
                     .on_press(Msg::Chat(ChatMsg::Cancel))
             } else {
                 button(text("Envoyer").font(self.font).size(13))
-                    .padding([8, 14])
+                    .padding([10, 18])
+                    .style(|t, s| appearance::pill(t, s, true))
                     .on_press_maybe(can_send.then(|| Msg::Chat(ChatMsg::Send)))
             },
         ]
@@ -1485,21 +1554,37 @@ impl App {
             .style(button::text)
             .on_press(Msg::Chat(ChatMsg::PasteImage)),
         );
-        let card = container(
-            column![
-                header,
-                conv_row,
-                iced::widget::rule::horizontal(1),
-                body,
-                attached,
-                composer
-            ]
-            .spacing(16),
-        )
-        .padding(24)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(|theme| super::design::surface(theme, super::design::Surface::Panel));
+        let composer = container(column![attached.wrap(), composer].spacing(6))
+            .padding(8)
+            .width(Length::Fill)
+            .style(appearance::composer);
+        let card = container(column![header, conv_row, body, composer].spacing(16))
+            .padding(24)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|theme| {
+                let mut style = super::design::surface(theme, super::design::Surface::Panel);
+                let p = theme.palette();
+                let tint = |amount| Color {
+                    r: p.background.r + (p.primary.r - p.background.r) * amount,
+                    g: p.background.g + (p.primary.g - p.background.g) * amount,
+                    b: p.background.b + (p.primary.b - p.background.b) * amount,
+                    a: 0.99,
+                };
+                style.background = Some(
+                    iced::gradient::Linear::new(iced::Radians(1.1))
+                        .add_stop(0.0, tint(0.10))
+                        .add_stop(0.4, tint(0.025))
+                        .add_stop(1.0, tint(0.0))
+                        .into(),
+                );
+                style.border = style.border.rounded(30);
+                // tiny-skia 0.14 dessine les ombres hors de la zone à
+                // rafraîchir : une animation locale assombrirait tout le
+                // tiroir à chaque image. Le contour porte ici la profondeur.
+                style.shadow = iced::Shadow::default();
+                style
+            });
         container(iced::widget::mouse_area(card).on_press(Msg::Noop))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1686,11 +1771,25 @@ fn bubble(content: Element<'_, Msg>, mine: bool, fg: Color, accent: Color) -> El
         Color { a: 0.06, ..fg }
     };
     let b = container(content)
-        .padding([10, 14])
+        .padding([12, 16])
         .max_width(560)
         .style(move |_| container::Style {
             background: Some(bg.into()),
-            border: Border::default().rounded(14),
+            border: Border::default().rounded(if mine {
+                iced::border::Radius {
+                    top_left: 22.0,
+                    top_right: 22.0,
+                    bottom_left: 22.0,
+                    bottom_right: 6.0,
+                }
+            } else {
+                iced::border::Radius {
+                    top_left: 6.0,
+                    top_right: 22.0,
+                    bottom_left: 22.0,
+                    bottom_right: 22.0,
+                }
+            }),
             ..Default::default()
         });
     container(b)
@@ -1901,5 +2000,15 @@ mod tests {
         let _ = app.open_panel();
         assert!(!app.chat_shown(), "caché, pas perdu");
         assert!(app.panel.is_some());
+    }
+
+    #[test]
+    fn tiroir_assistant_borne_par_son_ecran() {
+        let mut app = app_with_chat();
+        let win = app.chat.as_ref().unwrap().win;
+        for (screen, expected) in [(640.0, 640.0), (900.0, 900.0), (1440.0, 780.0)] {
+            app.sizes.insert(win, iced::Size::new(screen, 900.0));
+            assert_eq!(app.panel_width(), expected);
+        }
     }
 }
