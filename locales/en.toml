@@ -2306,3 +2306,4 @@
 "toujours actif" = "always on"
 "actif" = "on"
 "Supprimer" = "Remove"
+"{p} est un lien vers {t}, qui n'existe pas : rétablissez la cible ou retirez le lien" = "{p} is a link to {t}, which does not exist: restore the target or remove the link"

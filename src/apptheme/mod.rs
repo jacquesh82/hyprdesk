@@ -82,6 +82,26 @@ pub(crate) fn in_path(bin: &str) -> bool {
         .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
 }
 
+/// Erreur d'un fichier : son chemin, puis la cause.
+fn fs_err(path: &Path, e: std::io::Error) -> String {
+    format!("{} : {e}", path.display())
+}
+
+/// Lien symbolique dont la cible n'existe pas (dotfiles copiés sans leur
+/// dépôt…) : écrire à travers échouerait sur « os error 2 ».
+fn dangling(path: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_symlink() || path.exists() {
+        return None;
+    }
+    let target = std::fs::read_link(path).unwrap_or_default();
+    Some(crate::tr!(
+        "{p} est un lien vers {t}, qui n'existe pas : rétablissez la cible ou retirez le lien",
+        p = path.display(),
+        t = target.display()
+    ))
+}
+
 /// Écrit `content` dans `file` s'il diffère (dossier créé au besoin). Rend
 /// vrai si le fichier a changé.
 pub(crate) fn write_if_changed(file: &Path, content: &str) -> Result<bool, String> {
@@ -89,9 +109,15 @@ pub(crate) fn write_if_changed(file: &Path, content: &str) -> Result<bool, Strin
         return Ok(false);
     }
     if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        if let Some(e) = dangling(dir) {
+            return Err(e);
+        }
+        std::fs::create_dir_all(dir).map_err(|e| fs_err(dir, e))?;
     }
-    std::fs::write(file, content).map_err(|e| e.to_string())?;
+    if let Some(e) = dangling(file) {
+        return Err(e);
+    }
+    std::fs::write(file, content).map_err(|e| fs_err(file, e))?;
     Ok(true)
 }
 
@@ -113,10 +139,13 @@ pub(crate) fn include_once(
     {
         return Ok(false);
     }
+    if let Some(e) = dangling(conf) {
+        return Err(e);
+    }
     if conf.is_file() {
         let bak = backup_path(conf);
         if !bak.exists() {
-            std::fs::copy(conf, &bak).map_err(|e| e.to_string())?;
+            std::fs::copy(conf, &bak).map_err(|e| fs_err(&bak, e))?;
         }
     }
     let mut next = current;
@@ -169,6 +198,21 @@ mod tests {
             backup_path(Path::new("/x/kitty.conf")),
             PathBuf::from("/x/kitty.conf.avant-hyprdesk.bak")
         );
+    }
+
+    #[test]
+    fn lien_casse_signale() {
+        let dir = std::env::temp_dir().join(format!("hyprdesk-lien-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let conf = dir.join("kitty.conf");
+        std::os::unix::fs::symlink(dir.join("absent/dotfiles/kitty.conf"), &conf).unwrap();
+        let e = include_once(&conf, "include t.conf", &[], "# hd").unwrap_err();
+        assert!(e.contains("kitty.conf") && e.contains("absent/dotfiles"), "{e}");
+        let e = write_if_changed(&conf, "x").unwrap_err();
+        assert!(e.contains("absent/dotfiles"), "{e}");
+        // Dossier manquant : créé, sans erreur.
+        assert!(write_if_changed(&dir.join("sous/dossier/t.conf"), "x").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
