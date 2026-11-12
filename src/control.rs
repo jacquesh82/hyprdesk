@@ -237,6 +237,10 @@ pub fn send(cmd: Command) -> anyhow::Result<String> {
     Ok(out.trim().to_string())
 }
 
+/// Taille maximale d'une commande (une ligne) : assez pour un rapport de
+/// problème avec la fin d'un journal (`Problem`, `Ask`), bornée quand même.
+pub const MAX_LINE: usize = 256 * 1024;
+
 /// Serveur : flux des commandes reçues. `status` est servi sans passer par l'UI.
 pub fn server_stream() -> impl Stream<Item = Command> {
     iced::stream::channel(
@@ -276,14 +280,24 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                     let from = peer(&stream);
                     let (r, mut w) = stream.into_split();
                     let mut line = String::new();
-                    let mut reader = BufReader::new(r.take(1025));
+                    let mut reader = BufReader::new(r.take(MAX_LINE as u64 + 1));
                     let read =
                         tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
                             .await;
-                    if !matches!(read, Ok(Ok(1..))) || line.len() > 1024 || !line.ends_with('\n') {
+                    if !matches!(read, Ok(Ok(1..))) {
                         return;
                     }
-                    let reply = match Command::parse(&line) {
+                    // Trop longue : dit à l'expéditeur, plutôt que de couper sans réponse.
+                    let too_long = line.len() > MAX_LINE;
+                    if !too_long && !line.ends_with('\n') {
+                        return;
+                    }
+                    let reply = match (too_long, Command::parse(&line)) {
+                        (true, _) => crate::tr!(
+                            "commande trop longue ({n} octets au plus)",
+                            n = MAX_LINE
+                        ),
+                        (false, c) => match c {
                         Some(Command::Status) => {
                             STATUS.lock().map(|s| s.clone()).unwrap_or_default()
                         }
@@ -306,6 +320,7 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                             }
                         }
                         None => crate::tr!("commande inconnue : {p0}", p0 = line.trim()),
+                        },
                     };
                     let _ = tokio::time::timeout(
                         Duration::from_secs(2),
@@ -380,6 +395,19 @@ mod tests {
         assert_eq!(
             Command::parse("menu reseau"),
             Some(Command::Menu("reseau".into()))
+        );
+    }
+
+    #[test]
+    fn rapport_long_transmis() {
+        // Rapport d'une mise à jour ratée : fin du journal, bien plus que
+        // l'ancienne limite de 1 Kio ; une seule ligne, sous MAX_LINE.
+        let report = "Fin du journal :\n".to_string() + &"==> Making package: brave-bin\n".repeat(150);
+        let line = Command::ProblemShow(report.clone()).to_line();
+        assert!(line.len() > 1024 && line.len() < MAX_LINE && !line.contains('\n'));
+        assert_eq!(
+            Command::parse(&format!("{line}\n")),
+            Some(Command::ProblemShow(report))
         );
     }
 }

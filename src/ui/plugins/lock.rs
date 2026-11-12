@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, row, slider, toggler};
+use iced::widget::{button, column, pick_list, row, slider, toggler};
 use iced::{Color, Element, Task};
 
 use super::super::panel::PanelMsg;
@@ -52,6 +52,16 @@ pub enum Msg {
     /// Délai d'une étape en minutes pendant le glissé (0 = jamais), puis enregistrement.
     IdleDelay(IdleStep, u32),
     IdleCommit,
+    /// Capot refermé : situation (batterie, secteur, écran externe) → action.
+    Lid(LidCase, crate::config::LidAction),
+}
+
+/// Situation du capot refermé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LidCase {
+    Battery,
+    Ac,
+    Docked,
 }
 
 impl App {
@@ -226,7 +236,7 @@ impl App {
             );
         }
         if !i.manage {
-            return col.into();
+            return col.push(self.lid_section()).into();
         }
         for (step, label, key, secs) in [
             (IdleStep::Dim, "Assombrir l'écran", "idle_dim", i.dim),
@@ -265,6 +275,49 @@ impl App {
                 .size(12)
                 .color(dim),
         );
+        col.push(self.lid_section()).into()
+    }
+
+    /// Capot d'un portable : ce que fait sa fermeture (`crate::lid`).
+    fn lid_section(&self) -> Element<'_, UiMsg> {
+        use crate::config::LidAction;
+        let i = &self.cfg.general.idle;
+        let dim = self.ink().dim;
+        let mut col = column![
+            self.section("Capot de l'écran"),
+            text("Quand le capot du portable se referme. « Comme le système » laisse logind décider (le plus souvent : mise en veille) ; un autre choix fait tenir le capot par hyprdesk, qui verrouille toujours avant une veille ou une hibernation.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        ]
+        .spacing(14);
+        if !crate::lid::has_lid() {
+            col = col.push(
+                text("Aucun capot détecté sur ce poste : ces réglages servent au portable qui partage cette configuration.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        for (case, label, key, cur) in [
+            (LidCase::Battery, "Sur batterie", "idle_lid_battery", i.lid_battery),
+            (LidCase::Ac, "Sur secteur", "idle_lid_ac", i.lid_ac),
+            (LidCase::Docked, "Avec un écran externe", "idle_lid_docked", i.lid_docked),
+        ] {
+            col = col.push(self.field(
+                label,
+                key,
+                pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
+                    .font(self.font)
+                    .text_size(13),
+            ));
+        }
+        col = col.push(
+            text("« Éteindre l'écran du portable » : avec un écran externe, l'écran du portable est désactivé et ses workspaces passent sur l'externe ; il revient à l'ouverture. Seul, il s'éteint simplement. Hibernation : il faut une partition d'échange assez grande et le réveil configuré (resume).")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
         col.into()
     }
 
@@ -285,6 +338,15 @@ impl App {
                 self.apply()
             }
             Msg::IdleCommit => self.commit(),
+            Msg::Lid(case, a) => {
+                let v = Some(a);
+                match case {
+                    LidCase::Battery => self.settings.idle_lid_battery = v,
+                    LidCase::Ac => self.settings.idle_lid_ac = v,
+                    LidCase::Docked => self.settings.idle_lid_docked = v,
+                }
+                self.commit()
+            }
             Msg::Blur(v) => {
                 self.settings.lock_blur = Some(v);
                 self.commit()

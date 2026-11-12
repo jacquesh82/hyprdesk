@@ -321,9 +321,16 @@ if command -v mymfa >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/mymfa" ]]; then
     MYMFA_ITEM=()
     MYMFA_STATE="$(t "déjà installé" "already installed")"
 fi
+# Hyprbars : proposé (coché) s'il n'est pas déjà là.
+HYPRBARS_ITEM=(hyprbars "$(t "Installer Hyprbars, barres de titre en plein bureau (plugin Hyprland, hyprpm, 2 à 5 min)" "Install Hyprbars, title bars in full desktop (Hyprland plugin, hyprpm, 2 to 5 min)")" on)
+HYPRBARS_STATE=""
+for f in /var/cache/hyprpm/"$USER"/hyprland-plugins/hyprbars.so /usr/lib/hyprland/plugins/hyprbars.so; do
+    [[ -f "$f" ]] && { HYPRBARS_ITEM=(); HYPRBARS_STATE="$(t "déjà installé" "already installed")"; break; }
+done
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher, Entrée : suivant)" "Options to enable (space: toggle, Enter: next)")" \
     "${LYRA_ITEM[@]}" \
     "${MYMFA_ITEM[@]}" \
+    "${HYPRBARS_ITEM[@]}" \
     deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
     autostart "$(t "Démarrer hyprdesk à la connexion" "Start hyprdesk at login")" on \
     lockkey "$(t "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk")" on \
@@ -344,6 +351,7 @@ has syskb && ARGS+=(--system-keyboard)
 if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
 [[ ${#LYRA_ITEM[@]} -eq 0 ]] || has lyra || ARGS+=(--no-lyra)
 [[ ${#MYMFA_ITEM[@]} -eq 0 ]] || has mymfa || ARGS+=(--no-mymfa)
+[[ ${#HYPRBARS_ITEM[@]} -eq 0 ]] || has hyprbars || ARGS+=(--no-hyprbars)
 # Colonnes alignées en caractères (printf et ${#x} peuvent compter des octets).
 row() { local n=$((28 - $(hd_strlen "$1"))); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }
 SUMMARY="$(t "Contrôles préalables : tout est en ordre ✔" "Preflight checks: all good ✔")
@@ -351,6 +359,7 @@ SUMMARY="$(t "Contrôles préalables : tout est en ordre ✔" "Preflight checks:
 $(row "$(t "Langue" "Language")" "$LANG_CHOICE")
 $(row "LYRA" "$( [[ ${#LYRA_ITEM[@]} -eq 0 ]] && echo "$LYRA_STATE" || yes_no lyra)")
 $(row "myMFA" "$( [[ ${#MYMFA_ITEM[@]} -eq 0 ]] && echo "$MYMFA_STATE" || yes_no mymfa)")
+$(row "Hyprbars" "$( [[ ${#HYPRBARS_ITEM[@]} -eq 0 ]] && echo "$HYPRBARS_STATE" || yes_no hyprbars)")
 $(row "$(t "Clavier" "Keyboard")" "$KEYBOARD")
 $(row "$(t "Prérequis manquants" "Missing prerequisites")" "$(yes_no deps)")
 $(row "$(t "Démarrage à la connexion" "Start at login")" "$(yes_no autostart)")

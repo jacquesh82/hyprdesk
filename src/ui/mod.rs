@@ -963,6 +963,19 @@ impl App {
             {
                 defs.push(d);
             }
+            // Capot tenu par hyprdesk : inhibiteur logind (`crate::lid`).
+            if let Some(d) = crate::lid::component(&n.idle)
+                && !defs.iter().any(|c| c.name == d.name)
+            {
+                defs.push(d);
+            }
+            let idle = n.idle.clone();
+            tasks.push(Task::perform(
+                async move {
+                    let _ = tokio::task::spawn_blocking(move || crate::lid::install_binds(&idle)).await;
+                },
+                |_| Msg::Noop,
+            ));
             // Historique du presse-papiers : cliphist, sauf veilleur déjà en route.
             if let Some(d) = crate::clipboard::component(n.clipboard_history)
                 && !defs.iter().any(|c| c.name == d.name)
@@ -2944,6 +2957,10 @@ impl App {
                                 crate::session::stop_all().await;
                                 let _ = tokio::task::spawn_blocking(hypr::remove_keys).await;
                                 let _ = tokio::task::spawn_blocking(hypr::remove_rules).await;
+                                let _ = tokio::task::spawn_blocking(|| {
+                                    crate::lid::install_binds(&Default::default())
+                                })
+                                .await;
                                 let _ = tokio::task::spawn_blocking(|| hypr::set_desktop_gaps(&[]))
                                     .await;
                             },
@@ -3189,9 +3206,16 @@ impl App {
                 // Les règles de marge ont disparu avec la relecture : les reposer.
                 self.window_gaps.clear();
                 self.lyra_rule = None;
+                let idle = self.cfg.general.idle.clone();
                 let mut t = vec![
                     self.install_keys(),
                     self.install_rules(),
+                    Task::perform(
+                        async move {
+                            let _ = tokio::task::spawn_blocking(move || crate::lid::install_binds(&idle)).await;
+                        },
+                        |_| Msg::Noop,
+                    ),
                     self.sync_window_gaps(),
                     self.sync_lyra_drawer(),
                     self.sync_tiling(),

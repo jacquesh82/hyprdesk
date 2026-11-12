@@ -149,6 +149,9 @@ pub struct Settings {
     pub idle_lock: Option<u32>,
     pub idle_dpms: Option<u32>,
     pub idle_suspend: Option<u32>,
+    pub idle_lid_battery: Option<crate::config::LidAction>,
+    pub idle_lid_ac: Option<crate::config::LidAction>,
+    pub idle_lid_docked: Option<crate::config::LidAction>,
     pub icon_theme: Option<String>,
     pub font: Option<String>,
     pub font_size: Option<f32>,
@@ -346,6 +349,9 @@ impl Settings {
             idle_lock: has("idle_lock").then_some(g.idle.lock),
             idle_dpms: has("idle_dpms").then_some(g.idle.dpms),
             idle_suspend: has("idle_suspend").then_some(g.idle.suspend),
+            idle_lid_battery: has("idle_lid_battery").then_some(g.idle.lid_battery),
+            idle_lid_ac: has("idle_lid_ac").then_some(g.idle.lid_ac),
+            idle_lid_docked: has("idle_lid_docked").then_some(g.idle.lid_docked),
             launcher_show_assistant: has("launcher_show_assistant")
                 .then_some(g.launcher.show_assistant),
             apps_style: has("apps_style").then_some(g.apps_launcher.style),
@@ -675,6 +681,9 @@ impl Settings {
         set!(idle_lock, "idle_lock", g.idle.lock);
         set!(idle_dpms, "idle_dpms", g.idle.dpms);
         set!(idle_suspend, "idle_suspend", g.idle.suspend);
+        set!(idle_lid_battery, "idle_lid_battery", g.idle.lid_battery);
+        set!(idle_lid_ac, "idle_lid_ac", g.idle.lid_ac);
+        set!(idle_lid_docked, "idle_lid_docked", g.idle.lid_docked);
         if free("lock_image") {
             g.lock.image = self.lock_image.clone();
         }
@@ -1194,6 +1203,15 @@ impl Settings {
         ] {
             if let Some(v) = v {
                 cfg.push(format!("{k} = {v}"));
+            }
+        }
+        for (k, v) in [
+            ("idle_lid_battery", self.idle_lid_battery),
+            ("idle_lid_ac", self.idle_lid_ac),
+            ("idle_lid_docked", self.idle_lid_docked),
+        ] {
+            if let Some(v) = v {
+                cfg.push(format!("{k} = {}", q(v.as_str())));
             }
         }
         if let Some(v) = self.launcher_group {

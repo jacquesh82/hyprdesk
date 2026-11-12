@@ -141,6 +141,7 @@ mod tests {
             lock: 300,
             dpms: 360,
             suspend: 0,
+            ..Default::default()
         };
         let s = conf(&c, "/opt/hyprdesk bin/hyprdesk");
         assert!(s.contains("lock_cmd = '/opt/hyprdesk bin/hyprdesk' lock"));
@@ -155,7 +156,7 @@ mod tests {
             s.contains(r#"on-timeout = hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'"#)
         );
         assert!(!s.contains("systemctl suspend"));
-        let all = conf(&IdleCfg { suspend: 1800, ..c }, "hyprdesk");
+        let all = conf(&IdleCfg { suspend: 1800, ..c.clone() }, "hyprdesk");
         assert!(all.contains("timeout = 1800\n    on-timeout = systemctl suspend"));
     }
 

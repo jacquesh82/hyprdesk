@@ -30,6 +30,7 @@ mod hyprbars;
 mod hyprcheck;
 mod i18n;
 mod idle;
+mod lid;
 mod inputs;
 mod keymap;
 mod launch;
@@ -160,8 +161,10 @@ Commandes :
   app-theme [status | apply]
                     thème de hyprdesk appliqué aux applications (kitty, Thunar)
   color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
-  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none]
+  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag]
                     couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
+  lid [status | close | open]
+                    capot du portable : état et effet de sa fermeture (Réglages → Verrouillage → Veille)
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
   keyboard [disposition [variante [options]]]
@@ -1189,7 +1192,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
-        c @ ("autostart" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
+        c @ ("autostart" | "lid" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
         | "app-theme" | "colors") => match cli_tools::run(c, &config_path, &args[1..]) {
             Some(Ok(out)) => {
                 println!("{}", out.trim_end());

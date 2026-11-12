@@ -440,12 +440,26 @@ pub fn send_problem(text: &str, show: bool) {
     } else {
         crate::control::Command::Problem(text.to_string())
     };
-    if crate::control::send(cmd).is_err() {
-        crate::hypr::notify(
+    // Le démon répond « ok » ; toute autre réponse (démon absent, commande
+    // refusée) ne doit pas passer inaperçue.
+    match crate::control::send(cmd) {
+        Ok(r) if r == "ok" => {}
+        Ok(r) => {
+            tracing::warn!("{}", crate::tr!("problème non transmis au démon : {r}", r = r));
+            crate::hypr::notify(
+                3,
+                8000,
+                &crate::tr!(
+                    "hyprdesk : la mise à jour a échoué — détail dans {p}",
+                    p = report_path().display()
+                ),
+            );
+        }
+        Err(_) => crate::hypr::notify(
             3,
             8000,
             crate::i18n::tr("hyprdesk : la mise à jour a échoué — hyprdesk updates --report"),
-        );
+        ),
     }
 }
 

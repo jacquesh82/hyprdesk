@@ -238,7 +238,7 @@ impl App {
             text(match hyprbars_found {
                 None => crate::i18n::tr("Recherche du plugin…").to_string(),
                 Some(Some(p)) => crate::tr!("Chargé en entrant en plein bureau, déchargé en sortant ({p}).", p = p.display()),
-                Some(None) => crate::i18n::tr("Hyprbars n'est pas installé : hyprpm add https://github.com/hyprwm/hyprland-plugins, puis hyprpm enable hyprbars (ou réglez hyprbars_path).").to_string(),
+                Some(None) => crate::i18n::tr("Hyprbars n'est pas installé : ./scripts/install.sh l'installe (étape Hyprbars), ou à la main hyprpm update puis hyprpm add https://github.com/hyprwm/hyprland-plugins (ou réglez hyprbars_path).").to_string(),
             })
             .font(self.font)
             .size(12),

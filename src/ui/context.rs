@@ -23,6 +23,8 @@ use super::{App, Msg, color};
 use crate::config::IconKind;
 
 const WIDTH: f32 = 260.0;
+/// Largeur de la carte des propriétés.
+const PROPS_WIDTH: f32 = 400.0;
 const ROW: f32 = 34.0;
 const SHADOW: f32 = 16.0;
 const INPUT_ID: &str = "hyprdesk-icon-rename";
@@ -54,6 +56,8 @@ pub struct IconMenu {
     /// « Mettre à la corbeille » cliqué une fois : attend la confirmation.
     pub confirm: bool,
     pub error: Option<String>,
+    /// « Propriétés » : libellé → valeur, à la place des entrées.
+    pub props: Option<Vec<(String, String)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +84,9 @@ pub enum CMsg {
     /// Icône des Réglages : retirée du bureau (le fichier, lui, reste).
     Remove,
     Settings,
+    /// Détails utiles (fichier, application, widget, bureau) ; les copier.
+    Properties,
+    CopyProperties,
     Close,
     Done(Result<(), String>),
 }
@@ -126,6 +133,152 @@ fn trash(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Chemin raccourci (~ pour le dossier personnel).
+fn home(p: &Path) -> String {
+    let s = p.display().to_string();
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && s.starts_with(&h) => format!("~{}", &s[h.len()..]),
+        _ => s,
+    }
+}
+
+/// Dossier Bureau de l'utilisateur (xdg-user-dir DESKTOP).
+fn dirs_desktop() -> Option<PathBuf> {
+    let o = std::process::Command::new("xdg-user-dir").arg("DESKTOP").output().ok()?;
+    let p = PathBuf::from(String::from_utf8_lossy(&o.stdout).trim());
+    p.is_dir().then_some(p)
+}
+
+/// Taille lisible : « 1,4 Mo (1 468 006 octets) ».
+pub fn human_size(n: u64) -> String {
+    let units = ["octets", "Ko", "Mo", "Go", "To"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u < units.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{n} {}", crate::i18n::tr("octets"))
+    } else {
+        format!(
+            "{} {} ({n} {})",
+            format!("{v:.1}").replace('.', crate::i18n::tr(",")),
+            crate::i18n::tr(units[u]),
+            crate::i18n::tr("octets")
+        )
+    }
+}
+
+/// Droits à la manière de `ls -l` : « rw-r--r-- (644) ».
+pub fn mode_string(mode: u32) -> String {
+    let mut s = String::new();
+    for shift in [6, 3, 0] {
+        let b = (mode >> shift) & 7;
+        s.push(if b & 4 != 0 { 'r' } else { '-' });
+        s.push(if b & 2 != 0 { 'w' } else { '-' });
+        s.push(if b & 1 != 0 { 'x' } else { '-' });
+    }
+    format!("{s} ({:o})", mode & 0o777)
+}
+
+/// Nom d'un utilisateur (/etc/passwd) ou d'un groupe (/etc/group).
+fn id_name(file: &str, id: u32) -> String {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                let f: Vec<&str> = l.split(':').collect();
+                (f.get(2).and_then(|u| u.parse::<u32>().ok()) == Some(id)).then(|| f[0].to_string())
+            })
+        })
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn date(t: std::time::SystemTime) -> String {
+    let d: chrono::DateTime<chrono::Local> = t.into();
+    d.format_localized("%-d %B %Y, %H:%M", crate::lock::locale()).to_string()
+}
+
+fn run_out(cmd: &str, args: &[&str]) -> Option<String> {
+    let o = std::process::Command::new(cmd).args(args).output().ok()?;
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    (o.status.success() && !s.is_empty()).then_some(s)
+}
+
+/// Propriétés d'un fichier ou d'un dossier.
+pub(super) fn path_properties(p: &Path) -> Vec<(String, String)> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let tr = |s: &str| crate::i18n::tr(s).to_string();
+    let mut v = Vec::new();
+    v.push((
+        tr("Nom"),
+        p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+    ));
+    let link = std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    let Ok(meta) = std::fs::metadata(p) else {
+        v.push((tr("Emplacement"), p.parent().map(home).unwrap_or_default()));
+        v.push((tr("État"), tr("introuvable (déplacé ou supprimé ?)")));
+        return v;
+    };
+    let ps = p.display().to_string();
+    let mime = if meta.is_dir() {
+        None
+    } else {
+        run_out("xdg-mime", &["query", "filetype", &ps]).or_else(|| run_out("file", &["--mime-type", "-b", &ps]))
+    };
+    v.push((
+        tr("Type"),
+        match (&mime, meta.is_dir()) {
+            (_, true) => tr("Dossier"),
+            (Some(m), _) => crate::tr!("Fichier ({m})", m = m),
+            (None, _) => tr("Fichier"),
+        },
+    ));
+    v.push((tr("Emplacement"), p.parent().map(home).unwrap_or_default()));
+    if link && let Ok(t) = std::fs::read_link(p) {
+        v.push((tr("Lien vers"), home(&t)));
+    }
+    if meta.is_dir() {
+        let n = std::fs::read_dir(p).map(|r| r.count()).unwrap_or(0);
+        v.push((tr("Contenu"), crate::tr!("{n} éléments", n = n)));
+    } else {
+        v.push((tr("Taille"), human_size(meta.len())));
+    }
+    if let Ok(t) = meta.modified() {
+        v.push((tr("Modifié"), date(t)));
+    }
+    if let Ok(t) = meta.created() {
+        v.push((tr("Créé"), date(t)));
+    }
+    if let Ok(t) = meta.accessed() {
+        v.push((tr("Ouvert"), date(t)));
+    }
+    v.push((tr("Droits"), mode_string(meta.permissions().mode())));
+    v.push((tr("Propriétaire"), format!("{} / {}", id_name("/etc/passwd", meta.uid()), id_name("/etc/group", meta.gid()))));
+    if let Some(m) = &mime
+        && let Some(id) = run_out("xdg-mime", &["query", "default", m])
+    {
+        let name = crate::launch::find_desktop_file(id.trim_end_matches(".desktop"))
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .and_then(|s| crate::launch::parse_desktop_entry(&s, crate::i18n::code()))
+            .map(|e| e.name)
+            .unwrap_or(id);
+        v.push((tr("S'ouvre avec"), name));
+    }
+    v
+}
+
+/// Hauteur de la carte des propriétés (valeurs longues sur plusieurs lignes).
+fn props_height(props: &[(String, String)]) -> f32 {
+    let per_line = ((PROPS_WIDTH - 28.0) / 7.2) as usize;
+    let rows: f32 = props
+        .iter()
+        .map(|(_, v)| 16.0 + 18.0 * v.chars().count().div_ceil(per_line.max(1)).max(1) as f32 + 6.0)
+        .sum();
+    ROW + 6.0 + rows + 40.0
+}
+
 /// Après un changement dans le dossier Bureau : relire la config (icônes).
 fn reload_after(r: Result<(), String>) -> Msg {
     match r {
@@ -144,6 +297,7 @@ impl App {
                     v.push(("Retirer du bureau", CMsg::RemoveWidget));
                 }
                 v.push(("Réglages du widget…", CMsg::WidgetSettings));
+                v.push(("Propriétés", CMsg::Properties));
                 return v;
             }
             MenuTarget::Desktop => {
@@ -158,6 +312,7 @@ impl App {
                     v.push(("Changer de fond d'écran…", CMsg::Wallpapers));
                 }
                 v.push(("Réglages du bureau…", CMsg::Settings));
+                v.push(("Propriétés", CMsg::Properties));
                 return v;
             }
             MenuTarget::Icon => {}
@@ -192,6 +347,7 @@ impl App {
             v.push(("Retirer du bureau", CMsg::Remove));
         }
         v.push(("Réglages des icônes…", CMsg::Settings));
+        v.push(("Propriétés", CMsg::Properties));
         v
     }
 
@@ -208,6 +364,9 @@ impl App {
     }
 
     fn icon_menu_height(&self, m: &IconMenu) -> f32 {
+        if let Some(props) = &m.props {
+            return props_height(props);
+        }
         let rows = self.icon_menu_entries(m).len() as f32 + 1.0;
         rows * ROW + 24.0 + if m.rename.is_some() { 48.0 } else { 0.0 }
     }
@@ -228,6 +387,16 @@ impl App {
     }
 
     fn open_menu(&mut self, desk: Id, target: MenuTarget, idx: usize) -> Task<Msg> {
+        self.open_menu_with(desk, target, idx, None)
+    }
+
+    fn open_menu_with(
+        &mut self,
+        desk: Id,
+        target: MenuTarget,
+        idx: usize,
+        props: Option<Vec<(String, String)>>,
+    ) -> Task<Msg> {
         let mut tasks = vec![self.close_icon_menu()];
         let Some(monitor) = self.surfaces.get(&desk).cloned() else {
             return Task::batch(tasks);
@@ -272,10 +441,11 @@ impl App {
             rename: None,
             confirm: false,
             error: None,
+            props,
         };
         // Taille fixe (renommage compris) : la carte ne change pas de surface.
         let h = self.icon_menu_height(&menu) + 48.0 + 2.0 * SHADOW;
-        let w = WIDTH + 2.0 * SHADOW;
+        let w = if menu.props.is_some() { PROPS_WIDTH } else { WIDTH } + 2.0 * SHADOW;
         let (mut x, mut y) = (at.x - SHADOW, at.y - SHADOW);
         if let Some(s) = size {
             x = x.min(s.width - w).max(0.0);
@@ -536,6 +706,36 @@ impl App {
                     Task::done(Msg::Control(super::control::Command::Settings(page.into()))),
                 ])
             }
+            CMsg::Properties => {
+                let (desk, target) = (menu.desk, menu.target.clone());
+                let props = self.properties(desk, &target, idx, path.as_deref());
+                self.open_menu_with(desk, target, idx, Some(props))
+            }
+            CMsg::CopyProperties => {
+                let text = menu
+                    .props
+                    .as_ref()
+                    .map(|p| {
+                        p.iter()
+                            .map(|(k, v)| format!("{k} : {v}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default();
+                let close = self.close_icon_menu();
+                if let Ok(mut c) = std::process::Command::new("wl-copy")
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    use std::io::Write;
+                    if let Some(i) = c.stdin.as_mut() {
+                        let _ = i.write_all(text.as_bytes());
+                    }
+                    drop(c.stdin.take());
+                    let _ = c.wait();
+                }
+                close
+            }
             CMsg::Close => self.close_icon_menu(),
             CMsg::Done(r) => {
                 if let Err(e) = r {
@@ -545,6 +745,223 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Détails utiles de ce que vise le menu.
+    fn properties(
+        &self,
+        desk: Id,
+        target: &MenuTarget,
+        idx: usize,
+        path: Option<&Path>,
+    ) -> Vec<(String, String)> {
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let yes_no = |b: bool| tr(if b { "oui" } else { "non" });
+        let mut v: Vec<(String, String)> = Vec::new();
+        match target {
+            MenuTarget::Icon => {
+                let def = self.cfg.icons.get(idx);
+                if let Some(p) = path {
+                    v.extend(path_properties(p));
+                } else if let Some(d) = def {
+                    match &d.kind {
+                        IconKind::App(a) => {
+                            let file = crate::launch::find_desktop_file(a);
+                            let entry = file
+                                .as_ref()
+                                .and_then(|f| std::fs::read_to_string(f).ok())
+                                .and_then(|s| {
+                                    crate::launch::parse_desktop_entry(&s, crate::i18n::code())
+                                });
+                            if let Some(e) = &entry {
+                                v.push((tr("Nom"), e.name.clone()));
+                            }
+                            v.push((tr("Type"), tr("Application")));
+                            v.push((tr("Identifiant"), a.clone()));
+                            match &file {
+                                Some(f) => v.push((tr("Fichier"), home(f))),
+                                None => v.push((tr("Fichier"), tr("introuvable (application désinstallée ?)"))),
+                            }
+                            if let Some(e) = &entry {
+                                v.push((tr("Commande"), e.exec.clone()));
+                                if let Some(w) = &e.wm_class {
+                                    v.push((tr("Classe de fenêtre"), w.clone()));
+                                }
+                                if !e.categories.is_empty() {
+                                    v.push((tr("Catégories"), e.categories.join(", ")));
+                                }
+                                v.push((tr("Dans un terminal"), yes_no(e.terminal)));
+                            }
+                            v.push((tr("Épinglée au dock"), yes_no(self.pinned().contains(a))));
+                        }
+                        IconKind::Exec { cmd, terminal } => {
+                            v.push((tr("Type"), tr("Commande")));
+                            v.push((tr("Commande"), cmd.clone()));
+                            v.push((tr("Dans un terminal"), yes_no(*terminal)));
+                        }
+                        IconKind::Path(_) => {}
+                    }
+                }
+                if let Some(d) = def {
+                    if let Some(l) = &d.label {
+                        v.push((tr("Libellé"), l.clone()));
+                    }
+                    if let Some(i) = &d.icon {
+                        v.push((tr("Icône"), i.clone()));
+                    }
+                    v.push((
+                        tr("Déclarée"),
+                        tr(match d.origin {
+                            crate::config::Origin::Settings => "dans les Réglages",
+                            crate::config::Origin::User => "dans hyprdesk.lua (ou dossier Bureau)",
+                        }),
+                    ));
+                }
+            }
+            MenuTarget::Widget(id) => {
+                let w = self.cfg.widgets.iter().find(|w| &w.id == id);
+                let ty = w.map(|w| w.type_id.clone()).unwrap_or_default();
+                let name = self
+                    .cfg
+                    .catalog
+                    .iter()
+                    .find(|t| t.id == ty)
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| ty.clone());
+                v.push((tr("Widget"), name));
+                v.push((tr("Type"), ty));
+                v.push((tr("Identifiant"), id.clone()));
+                v.push((
+                    tr("Déclaré"),
+                    tr(if self.settings.widgets.iter().any(|w| &w.id == id) {
+                        "dans les Réglages"
+                    } else {
+                        "dans hyprdesk.lua"
+                    }),
+                ));
+            }
+            MenuTarget::Desktop => {
+                if let Some(m) = self.monitor(desk) {
+                    v.push((
+                        tr("Écran"),
+                        format!(
+                            "{} — {}×{} @ {}",
+                            m.name,
+                            (m.width as f32 * m.scale).round(),
+                            (m.height as f32 * m.scale).round(),
+                            m.scale
+                        ),
+                    ));
+                    v.push((tr("Workspace"), m.workspace.clone()));
+                    v.push((tr("Mode"), self.mode().as_str().to_string()));
+                    let d = crate::config::resolve::resolve(&self.cfg, &m.name, &m.workspace);
+                    let wall = match d.wallpaper.map(|w| (&w.source, w.span)) {
+                        Some((crate::config::WallSource::Path(p), span)) => {
+                            let mut s = home(p);
+                            if span {
+                                s += &format!(" ({})", tr("étalé sur les écrans"));
+                            }
+                            s
+                        }
+                        Some((crate::config::WallSource::Rotate { dir, interval, .. }, _)) => {
+                            crate::tr!(
+                                "rotation dans {d}, toutes les {n} min",
+                                d = home(dir),
+                                n = interval.as_secs() / 60
+                            )
+                        }
+                        Some((crate::config::WallSource::Color(c), _)) => {
+                            crate::tr!("couleur {c}", c = format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2))
+                        }
+                        None => tr("aucun (couleur du thème)"),
+                    };
+                    v.push((tr("Fond d'écran"), wall));
+                    v.push((tr("Thème"), self.cfg.general.theme.name.clone()));
+                    v.push((tr("Icônes"), self.icons.len().to_string()));
+                    v.push((tr("Widgets"), d.widgets.len().to_string()));
+                }
+                if let Some(dir) = dirs_desktop() {
+                    v.push((tr("Dossier Bureau"), home(&dir)));
+                }
+            }
+        }
+        v
+    }
+
+    /// Carte des propriétés : libellé au-dessus de sa valeur, puis Copier / Fermer.
+    fn view_properties<'a>(&'a self, name: &str, props: &'a [(String, String)]) -> Element<'a, Msg> {
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, 1.0);
+        let dim = Color { a: 0.6, ..fg };
+        let accent = color(th.accent, 1.0);
+        let bg = color(
+            th.bg,
+            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+        );
+        let mut col = column![
+            text(crate::tr!("Propriétés — {n}", n = name))
+                .font(self.title_font())
+                .size(14)
+                .color(fg)
+                .height(ROW)
+        ]
+        .spacing(6);
+        for (k, v) in props {
+            col = col.push(
+                column![
+                    text(k.clone()).font(self.font).size(11).color(dim),
+                    text(v.clone())
+                        .font(self.font)
+                        .size(13)
+                        .color(fg)
+                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+                ]
+                .spacing(1),
+            );
+        }
+        let btn = |label: &'static str, msg: CMsg| {
+            button(text(crate::i18n::tr(label)).font(self.font).size(13).color(fg))
+                .padding([5, 12])
+                .style(move |_, st| button::Style {
+                    background: Some(
+                        Color {
+                            a: if matches!(st, button::Status::Hovered) { 0.22 } else { 0.12 },
+                            ..accent
+                        }
+                        .into(),
+                    ),
+                    border: Border::default().rounded(8),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::IconMenu(msg))
+        };
+        col = col.push(
+            iced::widget::row![
+                iced::widget::Space::new().width(Length::Fill),
+                btn("Copier", CMsg::CopyProperties),
+                btn("Fermer", CMsg::Close),
+            ]
+            .spacing(8),
+        );
+        let card = container(col)
+            .padding(14)
+            .width(PROPS_WIDTH)
+            .style(move |_| container::Style {
+                background: Some(bg.into()),
+                border: Border::default()
+                    .rounded(super::design::RADIUS)
+                    .width(1)
+                    .color(Color { a: 0.12, ..fg }),
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
+                    offset: Vector::new(0.0, 6.0),
+                    blur_radius: 16.0,
+                },
+                text_color: Some(fg),
+                ..Default::default()
+            });
+        container(card).padding(SHADOW).into()
     }
 
     pub(super) fn view_icon_catcher(&self) -> Element<'_, Msg> {
@@ -599,6 +1016,9 @@ impl App {
             }
             MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
         };
+        if let Some(props) = &m.props {
+            return self.view_properties(&name, props);
+        }
         let mut col =
             column![text(name).font(self.font).size(12).color(dim).height(ROW)].spacing(0);
         for (label, msg) in self.icon_menu_entries(m) {
@@ -675,6 +1095,14 @@ mod tests {
         assert!(is_wallpaper(Path::new("x.webp")));
         assert!(!is_wallpaper(Path::new("notes.txt")));
         assert!(!is_wallpaper(Path::new("dossier")));
+    }
+
+    #[test]
+    fn tailles_et_droits() {
+        assert_eq!(mode_string(0o100644), "rw-r--r-- (644)");
+        assert_eq!(mode_string(0o40755), "rwxr-xr-x (755)");
+        assert!(human_size(512).starts_with("512 "));
+        assert!(human_size(1_468_006).contains("1 468 006") || human_size(1_468_006).contains("1468006"));
     }
 
     #[test]

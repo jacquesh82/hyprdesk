@@ -108,27 +108,42 @@ XDG applications (`~/.config/autostart`). "Run" tries a command right away.
 **Desktop icons** (Desktop → Icons) are global, per screen or per workspace;
 one click selects, a double click opens (or a single click, as you prefer),
 and a right click offers open, pin to the dock, rename, remove from the
-desktop (plus parent folder, trash, copy path and wallpaper for files).
+desktop (plus parent folder, trash, copy path and wallpaper for files), and
+Properties: name, type, location, size, dates, permissions, owner and the
+application that opens a file; identifier, `.desktop` file, command and window
+class for an application.
 Launching from the desktop, Alt+Tab or Escape never change the desktop mode.
 
 **Desktop menus.** Right-click the desktop background to align the icons, add
-a widget, change the wallpaper or open the desktop settings; with Settings
-open, right-click a widget to remove it or open its settings.
+a widget, change the wallpaper, open the desktop settings or see its
+Properties (screen, workspace, mode, wallpaper, theme, icons and widgets); with
+Settings open, right-click a widget to remove it, open its settings or see its
+Properties. Properties can be copied.
 
 **Full desktop.** Windows float, arranged on the screen; a window you move or
 resize keeps its place (per workspace and per application, across sessions)
 and is never rearranged again; Desktop → "Forget these positions" clears
 them. The bar's mode switch has three states (no-desktop, launcher-only,
 full-desktop). Optionally, Hyprbars (Hyprland plugin) adds title bars in full
-desktop only: loaded when entering it, unloaded when leaving.
+desktop only: loaded when entering it, unloaded when leaving. The installer
+builds it with hyprpm (`--no-hyprbars` to skip), and `scripts/update.sh`
+rebuilds it when the running Hyprland version changes.
 
 **Screen colours** (Windows and screens → Screen colours): per screen,
 brightness, contrast, gamma, and the gain and gamma of each channel (curves),
 applied live through a gamma table; a `.cal` calibration file (ArgyllCMS) adds
 its curves, an `.icc`/`.icm` profile is handed to Hyprland (`monitors.lua`).
-A reference image helps judge; the full-screen test pattern spreads across all
-active screens, with each screen's controls on it to compare them
-(`hyprdesk color-test`, `hyprdesk colors …`).
+A reference image helps judge; the full-screen test pattern shows it on every
+active screen (or gradients spread across all of them), with each screen's
+controls on it to compare them (`hyprdesk color-test`, `hyprdesk colors …`,
+`hyprdesk colors diag`).
+
+**Laptop lid** (Lock → Sleep): what closing the lid does, on battery, on AC
+power and with an external screen: same as the system (logind), suspend,
+hibernate, lock, turn off the laptop screen (disabled, its workspaces moving to
+the external screen, back when the lid opens) or nothing. hyprdesk then holds a
+logind `handle-lid-switch` inhibitor and acts on Hyprland's lid switch
+(`hyprdesk lid`); it always locks before suspending.
 
 **Hyprland configuration** (System group) tidies up `hyprland.lua`: errors
 reported by Hyprland, duplicate shortcuts, duplicate startups or missing

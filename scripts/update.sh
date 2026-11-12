@@ -11,6 +11,7 @@
 #     installé (~/.local/state/hyprdesk/installed-commit, écrit par install.sh)
 #     en retard sur le dépôt ; domaines touchés (code, scripts, ressources,
 #     traductions, documentation) ;
+#   - Hyprbars (hyprpm) : recompilé quand la version de Hyprland change ;
 #   - LYRA et myMFA, s'ils ont été installés par hyprdesk : leurs sources
 #     (~/.local/share/hyprdesk/src) en retard sur leur dépôt.
 # Application : git pull --ff-only ; install.sh avec les options de la
@@ -159,6 +160,21 @@ elif command -v mymfa >/dev/null 2>&1; then
     hd_note "myMFA : $(t "installé hors de hyprdesk, non suivi ici" "installed outside hyprdesk, not tracked here")"
 fi
 
+# Hyprbars compilé par hyprpm : à refaire quand la version de Hyprland qui
+# tourne n'est plus celle de sa compilation (sinon Hyprland refuse le plugin).
+HYPRBARS_NEW=""
+if [[ -d "/var/cache/hyprpm/$USER/hyprland-plugins" ]] && command -v hyprpm >/dev/null 2>&1; then
+    HB_RUN="$(hyprdesk_hyprland_running || true)"
+    HB_BUILT="$(cat "$STATE_DIR/hyprbars-hyprland" 2>/dev/null || true)"
+    if [[ -n "$HB_RUN" && "$HB_RUN" != "$HB_BUILT" ]]; then
+        HYPRBARS_NEW="$HB_RUN"
+        hd_info "Hyprbars : $(t "à recompiler pour Hyprland" "to rebuild for Hyprland") $HB_RUN${HB_BUILT:+ ($(t "compilé pour" "built for") $HB_BUILT)}"
+        PENDING+=("Hyprbars")
+    else
+        hd_ok "Hyprbars $(t "à jour" "up to date")"
+    fi
+fi
+
 # Écran de connexion de hyprdesk : il lance sa propre copie du binaire.
 greeter_stale() {
     [[ -x /usr/local/bin/hyprdesk ]] && [[ -x "$BIN_DIR/hyprdesk" ]] \
@@ -247,6 +263,17 @@ if [[ -n "$MYMFA_NEW" ]]; then
         done
     else
         hd_warn "$(t "myMFA non mis à jour (voir le journal)" "myMFA not updated (see the log)")"
+    fi
+fi
+if [[ -n "$HYPRBARS_NEW" ]]; then
+    hd_step "🪟" "Hyprbars" "Hyprbars"
+    if hd_sudo_ready "$(t "recompiler les plugins de Hyprland (hyprpm)" "rebuild the Hyprland plugins (hyprpm)")" \
+        && hd_run "$(t "en-têtes et plugins (hyprpm update)" "headers and plugins (hyprpm update)")" bash -c 'yes | hyprpm update'; then
+        printf '%s\n' "$HYPRBARS_NEW" > "$STATE_DIR/hyprbars-hyprland"
+        hd_ok "Hyprbars : Hyprland $HYPRBARS_NEW"
+        DONE+=("Hyprbars")
+    else
+        hd_warn "$(t "Hyprbars non recompilé (voir le journal) : hyprpm update" "Hyprbars not rebuilt (see the log): hyprpm update")"
     fi
 fi
 # Écran de connexion : copie du binaire rafraîchie (après la réinstallation).

@@ -27,6 +27,8 @@ pub fn run(cmd: &str, config_path: &Path, args: &[String]) -> Option<Result<Stri
         "icons" => icons(config_path, args),
         "app-theme" => app_theme(config_path, args),
         "colors" => colors(config_path, args),
+        "lid" => crate::config::lua::load_file(config_path)
+            .and_then(|l| crate::lid::run(&l.config.general.idle, args)),
         _ => return None,
     })
 }

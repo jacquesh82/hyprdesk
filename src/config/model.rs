@@ -255,6 +255,11 @@ pub struct IdleCfg {
     pub dpms: u32,
     /// Mettre en veille.
     pub suspend: u32,
+    /// Capot d'un portable refermé : sur batterie, sur secteur, et avec un
+    /// écran externe allumé (`crate::lid`).
+    pub lid_battery: LidAction,
+    pub lid_ac: LidAction,
+    pub lid_docked: LidAction,
 }
 
 impl Default for IdleCfg {
@@ -265,7 +270,85 @@ impl Default for IdleCfg {
             lock: 300,
             dpms: 360,
             suspend: 0,
+            lid_battery: LidAction::System,
+            lid_ac: LidAction::System,
+            lid_docked: LidAction::System,
         }
+    }
+}
+
+impl IdleCfg {
+    /// hyprdesk tient le capot (au moins un cas n'est pas laissé au système).
+    pub fn lid_managed(&self) -> bool {
+        [self.lid_battery, self.lid_ac, self.lid_docked]
+            .iter()
+            .any(|a| *a != LidAction::System)
+    }
+}
+
+/// Ce que fait le capot refermé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LidAction {
+    /// Laissé à logind (HandleLidSwitch…), hyprdesk n'intervient pas.
+    #[default]
+    System,
+    /// Verrouiller puis mettre en veille.
+    Suspend,
+    /// Verrouiller puis hiberner.
+    Hibernate,
+    /// Verrouiller seulement.
+    Lock,
+    /// Éteindre l'écran du portable (désactivé s'il y a un écran externe).
+    ScreenOff,
+    /// Rien.
+    Nothing,
+}
+
+impl LidAction {
+    pub const ALL: [LidAction; 6] = [
+        LidAction::System,
+        LidAction::Suspend,
+        LidAction::Hibernate,
+        LidAction::Lock,
+        LidAction::ScreenOff,
+        LidAction::Nothing,
+    ];
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "system" => LidAction::System,
+            "suspend" => LidAction::Suspend,
+            "hibernate" => LidAction::Hibernate,
+            "lock" => LidAction::Lock,
+            "screen-off" => LidAction::ScreenOff,
+            "nothing" => LidAction::Nothing,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LidAction::System => "system",
+            LidAction::Suspend => "suspend",
+            LidAction::Hibernate => "hibernate",
+            LidAction::Lock => "lock",
+            LidAction::ScreenOff => "screen-off",
+            LidAction::Nothing => "nothing",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            LidAction::System => "Comme le système (logind)",
+            LidAction::Suspend => "Mettre en veille",
+            LidAction::Hibernate => "Hiberner",
+            LidAction::Lock => "Verrouiller seulement",
+            LidAction::ScreenOff => "Éteindre l'écran du portable",
+            LidAction::Nothing => "Ne rien faire",
+        }
+    }
+}
+
+impl std::fmt::Display for LidAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(crate::i18n::tr(self.label()))
     }
 }
 

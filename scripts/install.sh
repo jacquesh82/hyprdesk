@@ -28,6 +28,9 @@
 #   --no-mymfa               ne pas installer myMFA, le trousseau (mots de passe,
 #                            codes 2FA ; installé par défaut si son dépôt, privé,
 #                            est accessible : HYPRDESK_MYMFA_REPO, _SRC)
+#   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
+#                            bureau (plugin Hyprland compilé par hyprpm ; installé
+#                            par défaut, refait par update.sh quand Hyprland change)
 #   --verbose                sortie complète des commandes (sinon : journal)
 #
 # Étapes numérotées : contrôles préalables (arrêt avant toute modification si un
@@ -54,6 +57,7 @@ GREETER=ask
 OPT_DEPS=""
 LYRA=1
 MYMFA=1
+HYPRBARS=1
 ARGC=$#
 ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -71,8 +75,9 @@ while [ $# -gt 0 ]; do
         --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
         --no-lyra) LYRA=0 ;;
         --no-mymfa) MYMFA=0 ;;
+        --no-hyprbars) HYPRBARS=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
@@ -124,6 +129,7 @@ HD_STEP_TOTAL=10
 [[ "$REMOVE_HYPRPAPER" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$LYRA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$MYMFA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
+[[ "$HYPRBARS" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 
 # LYRA : sources, et place à prévoir pour la compiler si elle manque.
 LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
@@ -350,6 +356,67 @@ if [[ "$MYMFA" == 1 ]]; then
         fi
     elif [[ -f "$PAM_DEST" ]]; then
         hd_ok "$(t "module PAM en place :" "PAM module in place:") $PAM_DEST"
+    fi
+fi
+
+# -- Hyprbars ------------------------------------------------------------------------
+# Barres de titre des fenêtres en plein bureau : plugin de Hyprland
+# (hyprwm/hyprland-plugins) compilé par hyprpm contre la version de Hyprland
+# qui tourne. Pas de « hyprpm enable » : hyprdesk le charge lui-même en plein
+# bureau et le décharge en sortant (src/hyprbars.rs).
+hyprbars_so() {
+    local f
+    for f in /var/cache/hyprpm/"$USER"/hyprland-plugins/hyprbars.so \
+             /usr/lib/hyprland/plugins/hyprbars.so /usr/lib/hyprland/plugins/libhyprbars.so \
+             /usr/lib/hyprland-plugins/hyprbars.so /usr/lib64/hyprland/plugins/hyprbars.so \
+             /usr/local/lib/hyprland/plugins/hyprbars.so "$HOME/.local/share/hyprland/plugins/hyprbars.so"; do
+        [[ -f "$f" ]] && { echo "$f"; return; }
+    done
+}
+if [[ "$HYPRBARS" == 1 ]]; then
+    hd_step "🪟" "Hyprbars, les barres de titre" "Hyprbars, the title bars" \
+        "Barres de titre des fenêtres en plein bureau (plugin Hyprland compilé par hyprpm, 2 à 5 min)." \
+        "Window title bars in full desktop (Hyprland plugin built by hyprpm, 2 to 5 min)."
+    if [[ -n "$(hyprbars_so)" ]]; then
+        hd_ok "$(t "déjà installé :" "already installed:") $(hyprbars_so)"
+    elif [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        hd_warn "$(t "hors d'une session Hyprland : hyprpm compile contre la version qui tourne, étape sautée" "outside a Hyprland session: hyprpm builds against the running version, step skipped")"
+    else
+        HB_PM="$(hyprdesk_pm)"
+        HB_OK=1
+        # hyprpm (paquet à part sur Arch) et de quoi compiler les plugins.
+        if ! command -v hyprpm >/dev/null 2>&1 || ! command -v cmake >/dev/null 2>&1 \
+            || ! command -v meson >/dev/null 2>&1 || ! command -v cpio >/dev/null 2>&1; then
+            HB_PKGS=()
+            for p in hyprpm cmake meson cpio; do
+                command -v "$p" >/dev/null 2>&1 && continue
+                n="$(hyprdesk_pkg_name "$HB_PM" "$p")"
+                [[ -n "$HB_PM" ]] && hyprdesk_pkg_available "$HB_PM" "$n" && HB_PKGS+=("$n")
+            done
+            if ((${#HB_PKGS[@]} > 0)); then
+                hd_sudo_ready "$(t "installer ${HB_PKGS[*]}" "install ${HB_PKGS[*]}")" \
+                    && hd_run "$(t "paquets" "packages") ${HB_PKGS[*]}" hyprdesk_install_packages "$HB_PM" "${HB_PKGS[@]}" || HB_OK=0
+            fi
+            command -v hyprpm >/dev/null 2>&1 || { HB_OK=0; hd_warn "$(t "hyprpm introuvable (ni installé, ni dans les dépôts) : étape sautée" "hyprpm not found (not installed, not in the repositories): step skipped")"; }
+        fi
+        if [[ "$HB_OK" == 1 ]]; then
+            # hyprpm demande sudo lui-même (en-têtes dans /var/cache/hyprpm) ; il
+            # pose ses questions [Y/n] : « yes » y répond.
+            if hd_sudo_ready "$(t "préparer les en-têtes de Hyprland (hyprpm)" "prepare the Hyprland headers (hyprpm)")" \
+                && hd_run "$(t "en-têtes de Hyprland (hyprpm update)" "Hyprland headers (hyprpm update)")" bash -c 'yes | hyprpm update' \
+                && hd_run "$(t "compilation des plugins (hyprpm add hyprland-plugins)" "building the plugins (hyprpm add hyprland-plugins)")" \
+                    bash -c 'yes | hyprpm add https://github.com/hyprwm/hyprland-plugins' \
+                && [[ -n "$(hyprbars_so)" ]]; then
+                hd_ok "$(t "installé :" "installed:") $(hyprbars_so)"
+                hd_note "$(t "à activer dans Réglages → Bureau (barres de titre en plein bureau)" "turn it on in Settings → Desktop (title bars in full desktop)")"
+                # Version de Hyprland compilée : update.sh recompile quand elle change.
+                mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk"
+                hyprdesk_hyprland_running > "${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk/hyprbars-hyprland" || true
+            else
+                hd_warn "$(t "Hyprbars ne s'est pas installé : le reste continue sans lui" "Hyprbars did not install: the rest goes on without it")"
+                hd_hint "$(t "à la main : hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins" "by hand: hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins")"
+            fi
+        fi
     fi
 fi
 
@@ -740,6 +807,12 @@ if [[ "$MYMFA" == 1 ]] && [[ -n "$(mymfa_bin)" ]]; then
     check 0 "myMFA, le trousseau, répond" "myMFA, the keyring, answers" \
         "voir pourquoi : journalctl --user -u mymfa -n 50" "see why: journalctl --user -u mymfa -n 50" \
         "$(mymfa_bin)" status
+fi
+if [[ "$HYPRBARS" == 1 ]] && [[ "$IN_SESSION" == 1 ]]; then
+    check 0 "Hyprbars, les barres de titre" "Hyprbars, the title bars" \
+        "voir l'étape Hyprbars (hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins)" \
+        "see the Hyprbars step (hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins)" \
+        bash -c "[[ -n \"$(hyprbars_so)\" ]]"
 fi
 if [[ "$GREETER" == yes ]] || greeter_ours; then
     check 0 "écran de connexion de hyprdesk (greetd)" "hyprdesk login screen (greetd)" \

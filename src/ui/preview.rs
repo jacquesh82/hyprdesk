@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 74] = [
+const SCENES: [&str; 75] = [
     "desktop",
     "typography",
     "icons",
@@ -74,6 +74,7 @@ const SCENES: [&str; 74] = [
     "reseau",
     "bluetooth",
     "menu-icone",
+    "proprietes",
     "fenetres",
     "connexion",
     "luminosite",
@@ -1237,7 +1238,24 @@ impl Preview {
             };
         }
         // Menu contextuel d'une icône (fichier du Bureau), corbeille à confirmer.
-        if SCENES[self.scene] == "menu-icone" {
+        if SCENES[self.scene] == "proprietes" {
+            // Propriétés d'un vrai fichier (le binaire lui-même).
+            let exe = std::env::current_exe().unwrap_or_else(|_| "/etc/hostname".into());
+            self.app.icon_menu = Some(super::context::IconMenu {
+                target: super::context::MenuTarget::Icon,
+                win: iced::window::Id::unique(),
+                desk: iced::window::Id::unique(),
+                catcher: iced::window::Id::unique(),
+                icon: 1,
+                path: Some(exe.clone()),
+                app: None,
+                own: None,
+                rename: None,
+                confirm: false,
+                error: None,
+                props: Some(super::context::path_properties(&exe)),
+            });
+        } else if SCENES[self.scene] == "menu-icone" {
             self.app.icon_menu = Some(super::context::IconMenu {
                 target: super::context::MenuTarget::Icon,
                 win: iced::window::Id::unique(),
@@ -1250,6 +1268,7 @@ impl Preview {
                 rename: None,
                 confirm: true,
                 error: None,
+                props: None,
             });
         } else {
             self.app.icon_menu = None;

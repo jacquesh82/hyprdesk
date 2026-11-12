@@ -10,7 +10,7 @@ use std::path::Path;
 
 use crate::config::lua::{load_file, load_settings_only};
 use crate::config::{
-    AppMatch, BarPosition, Config, Fit, LauncherGroup, MAX_WORKSPACES, Mode, Place, Rgba,
+    AppMatch, BarPosition, Config, Fit, LauncherGroup, LidAction, MAX_WORKSPACES, Mode, Place, Rgba,
     RunningApps, Selector, ShowOn, Transition, WallSource,
 };
 use crate::settings::{BarSettings, Settings, hex};
@@ -57,6 +57,8 @@ fn number<T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy>(
     }
     Ok(n)
 }
+
+const LID_CHOICES: &str = "system, suspend, hibernate, lock, screen-off, nothing";
 
 fn choice<T>(v: &str, parse: impl Fn(&str) -> Option<T>, allowed: &str) -> Result<T, String> {
     parse(v).ok_or_else(|| {
@@ -433,6 +435,18 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.idle.suspend.to_string(),
         |s, v, c| { s.idle_suspend = Some(number(v, 0u32, 86_400)?); Ok(()) },
         |s| s.idle_suspend = None;
+    "idle_lid_battery", "lock", "system | suspend | hibernate | lock | screen-off | nothing — capot refermé, sur batterie",
+        |c| c.general.idle.lid_battery.as_str().into(),
+        |s, v, c| { s.idle_lid_battery = Some(choice(v, LidAction::parse, LID_CHOICES)?); Ok(()) },
+        |s| s.idle_lid_battery = None;
+    "idle_lid_ac", "lock", "system | suspend | hibernate | lock | screen-off | nothing — capot refermé, sur secteur",
+        |c| c.general.idle.lid_ac.as_str().into(),
+        |s, v, c| { s.idle_lid_ac = Some(choice(v, LidAction::parse, LID_CHOICES)?); Ok(()) },
+        |s| s.idle_lid_ac = None;
+    "idle_lid_docked", "lock", "system | suspend | hibernate | lock | screen-off | nothing — capot refermé avec un écran externe",
+        |c| c.general.idle.lid_docked.as_str().into(),
+        |s, v, c| { s.idle_lid_docked = Some(choice(v, LidAction::parse, LID_CHOICES)?); Ok(()) },
+        |s| s.idle_lid_docked = None;
     "ai_use.smartui", "assistant", "lyra | id d'un fournisseur — fournisseur IA de SmartUI design (fournisseurs : Réglages → IA)",
         |c| c.general.ai.for_consumer("smartui").id,
         |s, v, c| {

@@ -608,6 +608,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "idle_lock",
             "idle_dpms",
             "idle_suspend",
+            "idle_lid_battery",
+            "idle_lid_ac",
+            "idle_lid_docked",
             "show_on",
             "close_on_launch",
             "icon_scope",
@@ -843,6 +846,23 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         if let Some(v) = opt_num(t, key, CTX)? {
             // Secondes, jusqu'à 24 h ; 0 coupe l'étape.
             *slot = v.clamp(0.0, 86_400.0) as u32;
+        }
+    }
+    for key in ["idle_lid_battery", "idle_lid_ac", "idle_lid_docked"] {
+        if let Some(s) = opt_string(t, key, CTX)? {
+            let a = LidAction::parse(&s).ok_or_else(|| {
+                err(crate::tr!(
+                    "{CTX} : {key} « {s} » inconnu (system, suspend, hibernate, lock, screen-off, nothing)",
+                    CTX = CTX,
+                    key = key,
+                    s = s
+                ))
+            })?;
+            match key {
+                "idle_lid_battery" => g.idle.lid_battery = a,
+                "idle_lid_ac" => g.idle.lid_ac = a,
+                _ => g.idle.lid_docked = a,
+            }
         }
     }
     if let Some(v) = opt_bool(t, "launcher_show_settings", CTX)? {
