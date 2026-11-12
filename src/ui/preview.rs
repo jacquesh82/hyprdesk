@@ -193,6 +193,12 @@ impl Preview {
         app.sizes.insert(desktop, size);
         app.raised.insert(desktop);
         app.visible = true;
+        // Plein bureau sur l'écran d'aperçu (workspace 1).
+        app.ws_modes.insert("1".into(), DesktopMode::FullDesktop);
+        app.applied.insert(
+            crate::i18n::tr("APERÇU").into(),
+            (DesktopMode::FullDesktop, "1".into()),
+        );
         app.volume = Some((0.64, false));
         let dev = |id: u32, name: &str, default: bool| bar::AudioDevice {
             id,
@@ -501,15 +507,18 @@ impl Preview {
         }
         // Scènes des modes du bureau (captures) : fenêtres visibles, bureau masqué.
         // Les champs sont posés directement : les transitions réelles font de l'IPC.
-        match SCENES[self.scene] {
-            "mode-launcher" => self.app.with_windows = true,
+        let apercu = crate::i18n::tr("APERÇU").to_string();
+        let mode = match SCENES[self.scene] {
+            "mode-launcher" => DesktopMode::LauncherOnly,
             "mode-hidden" => {
                 self.app.visible = false;
-                self.app.with_windows = false;
                 self.app.raised.remove(&self.desktop);
+                DesktopMode::NoDesktop
             }
-            _ => {}
-        }
+            _ => DesktopMode::FullDesktop,
+        };
+        self.app.ws_modes.insert("1".into(), mode);
+        self.app.applied.insert(apercu, (mode, "1".into()));
         let tab = match self.scene {
             1 => Some("theme"),
             2 => Some("icons"),

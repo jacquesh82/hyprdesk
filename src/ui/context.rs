@@ -853,7 +853,7 @@ impl App {
                         ),
                     ));
                     v.push((tr("Workspace"), m.workspace.clone()));
-                    v.push((tr("Mode"), self.mode().as_str().to_string()));
+                    v.push((tr("Mode"), self.monitor_mode(&m.name).as_str().to_string()));
                     let d = crate::config::resolve::resolve(&self.cfg, &m.name, &m.workspace);
                     let wall = match d.wallpaper.map(|w| (&w.source, w.span)) {
                         Some((crate::config::WallSource::Path(p), span)) => {

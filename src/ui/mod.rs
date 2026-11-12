@@ -430,18 +430,18 @@ pub struct App {
     /// Module de barre en cours de déplacement : (zone, rang) d'origine, et
     /// place d'insertion survolée.
     bar_drag: Option<BarDrag>,
-    /// Mode imposé en cours (règle `forced_modes` de l'écran actif) et le
-    /// mode d'avant, rendu en la quittant.
-    forced_key: Option<String>,
-    forced_prev: Option<DesktopMode>,
+
     /// Module Luminosité ; dernière relecture des écrans DDC/CI (lente).
     light: bar::Light,
     light_ddc_at: Option<Instant>,
     /// Micro et périphériques audio (menu Son).
     audio: bar::Audio,
-    /// Bureau affiché SOUS les fenêtres, laissées en place : icônes, widgets
-    /// et dock visibles entre elles (sans effet quand le bureau est masqué).
-    with_windows: bool,
+    /// Mode du bureau de chaque workspace (absent : no-desktop), mémorisé
+    /// d'une session à l'autre (`layout.toml`, hors aperçu).
+    ws_modes: HashMap<String, DesktopMode>,
+    persist_modes: bool,
+    /// Mode appliqué à chaque écran, et workspace qu'il affichait alors.
+    applied: HashMap<String, (DesktopMode, String)>,
     /// Marges posées dans Hyprland pour dégager les contrôles du bureau, par
     /// écran (haut, droite, bas, gauche) : vide hors du bureau avec les fenêtres.
     window_gaps: Vec<(String, [i32; 4])>,
@@ -769,13 +769,22 @@ impl App {
             active_window: None,
             volume: None,
             light: bar::Light::default(),
-            forced_key: None,
-            forced_prev: None,
+
             bar_drag: None,
             mods: keyboard::Modifiers::default(),
             light_ddc_at: None,
             audio: bar::Audio::default(),
-            with_windows: false,
+            ws_modes: if preview {
+                HashMap::new()
+            } else {
+                Layout::load()
+                    .modes()
+                    .iter()
+                    .filter_map(|(w, m)| Some((w.clone(), DesktopMode::parse(m)?)))
+                    .collect()
+            },
+            persist_modes: !preview,
+            applied: HashMap::new(),
             window_gaps: Vec::new(),
             click_monitor: None,
             launcher_cycle: HashMap::new(),
@@ -1145,7 +1154,7 @@ impl App {
         // Dès qu'une fenêtre est ouverte depuis le bureau, ses raccourcis
         // habituels doivent pouvoir agir sur elle.
         let want = self.visible
-            && !self.with_windows
+            && self.mode() == DesktopMode::FullDesktop
             && self.cfg.general.suspend_binds
             && self.session_windows.is_empty();
         if want == self.in_submap {
@@ -1158,7 +1167,9 @@ impl App {
     /// Hyprbars : chargé en plein bureau si l'option est active, déchargé
     /// sinon (hors du fil de l'interface).
     fn sync_hyprbars(&mut self) -> Task<Msg> {
-        let want = self.cfg.general.hyprbars && self.mode() == DesktopMode::FullDesktop;
+        // Plugin global : chargé dès qu'un écran est en plein bureau.
+        let want = self.cfg.general.hyprbars
+            && self.applied.values().any(|(m, _)| *m == DesktopMode::FullDesktop);
         if want == self.hyprbars_on {
             return Task::none();
         }
@@ -1333,11 +1344,99 @@ impl App {
     }
 
     /// Mode du bureau, tel que l'utilisateur le nomme.
+    /// Mode de l'écran visé (celui du clic, sinon l'écran actif) : celui du
+    /// workspace qu'il affiche.
     pub(super) fn mode(&self) -> DesktopMode {
-        match (self.visible, self.with_windows) {
-            (false, _) => DesktopMode::NoDesktop,
-            (true, true) => DesktopMode::LauncherOnly,
-            (true, false) => DesktopMode::FullDesktop,
+        self.target_monitor()
+            .map(|m| self.monitor_mode(&m))
+            .unwrap_or(DesktopMode::NoDesktop)
+    }
+
+    /// Essais : un écran « A » (workspace 1) dans ce mode, sans transition.
+    #[cfg(test)]
+    pub(super) fn test_mode(&mut self, mode: DesktopMode) {
+        if self.monitors.is_empty() {
+            self.monitors.push(Monitor {
+                name: "A".into(),
+                width: 1440,
+                height: 900,
+                workspace: "1".into(),
+                focused: true,
+                reserved: (0.0, 0.0, 0.0, 0.0),
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+            });
+        }
+        let (name, ws) = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| (m.name.clone(), m.workspace.clone()))
+            .unwrap_or_default();
+        self.ws_modes.insert(ws.clone(), mode);
+        let id = match self.surfaces.iter().find(|(_, n)| **n == name) {
+            Some((id, _)) => *id,
+            None => {
+                let id = Id::unique();
+                self.surfaces.insert(id, name.clone());
+                id
+            }
+        };
+        if mode == DesktopMode::NoDesktop {
+            self.raised.remove(&id);
+        } else {
+            self.raised.insert(id);
+        }
+        self.applied.insert(name, (mode, ws));
+        self.visible = mode != DesktopMode::NoDesktop;
+    }
+
+    /// Mode mémorisé d'un workspace (no-desktop par défaut).
+    fn ws_mode(&self, ws: &str) -> DesktopMode {
+        self.ws_modes.get(ws).copied().unwrap_or(DesktopMode::NoDesktop)
+    }
+
+    /// Mode voulu d'un écran : celui du workspace affiché ; écran imposé en
+    /// no-desktop : jamais de bureau ; workspace spécial ouvert par-dessus :
+    /// le mode en place ne change pas.
+    pub(super) fn monitor_mode(&self, name: &str) -> DesktopMode {
+        let Some(m) = self.monitors.iter().find(|m| m.name == name) else {
+            return DesktopMode::NoDesktop;
+        };
+        if m.workspace.is_empty() || m.workspace.starts_with("special:") {
+            return self.applied_mode(name);
+        }
+        if self.cfg.general.forced_mode(name, &m.workspace) == Some("no-desktop") {
+            return DesktopMode::NoDesktop;
+        }
+        self.ws_mode(&m.workspace)
+    }
+
+    /// Mode appliqué à un écran (surfaces, fenêtres) à la dernière synchronisation.
+    pub(super) fn applied_mode(&self, name: &str) -> DesktopMode {
+        self.applied
+            .get(name)
+            .map(|(m, _)| *m)
+            .unwrap_or(DesktopMode::NoDesktop)
+    }
+
+    /// Retient le mode d'un workspace (et l'écrit, hors aperçu).
+    fn store_mode(&mut self, ws: &str, mode: DesktopMode) {
+        let changed = if mode == DesktopMode::NoDesktop {
+            self.ws_modes.remove(ws).is_some()
+        } else {
+            self.ws_modes.insert(ws.to_string(), mode) != Some(mode)
+        };
+        if changed && self.persist_modes {
+            let mut l = Layout::load();
+            l.set_modes(
+                self.ws_modes
+                    .iter()
+                    .map(|(w, m)| (w.clone(), m.as_str().to_string()))
+                    .collect(),
+            );
+            l.save();
         }
     }
 
@@ -1353,6 +1452,10 @@ impl App {
         if self.cfg.general.forced_mode(monitor, ws) == Some("no-desktop") {
             return false;
         }
+        // Chaque écran suit le mode du workspace qu'il affiche.
+        if self.monitor_mode(monitor) == DesktopMode::NoDesktop {
+            return false;
+        }
         match self.cfg.general.show_on {
             ShowOn::All => true,
             ShowOn::Focused => self.monitors.iter().any(|m| m.focused && m.name == monitor),
@@ -1360,75 +1463,176 @@ impl App {
         }
     }
 
-    /// Bureau affiché : aligne les surfaces actives sur `show_on` (tous, actif, principal).
+    /// Aligne les écrans sur leur mode (`sync_modes`).
     fn sync_raised(&mut self) -> Task<Msg> {
-        if !self.visible {
-            return Task::none();
+        self.sync_modes()
+    }
+
+    /// Chaque écran prend le mode du workspace qu'il affiche (MLG-98) :
+    /// surface levée ou rendue au fond, fenêtres du workspace mises de côté
+    /// (plein bureau) ou rendues, clavier ; le fondu ne joue que quand le
+    /// bureau apparaît ou disparaît partout à la fois.
+    fn sync_modes(&mut self) -> Task<Msg> {
+        use DesktopMode::{FullDesktop as Full, LauncherOnly as Launcher, NoDesktop as No};
+        let mut tasks: Vec<Task<Msg>> = Vec::new();
+        // Arrivée sur un workspace (ou un écran) à mode imposé : la règle
+        // reprend la main ; un changement à la main reste tant qu'on y est.
+        for m in self.monitors.clone() {
+            if m.workspace.is_empty() || m.workspace.starts_with("special:") {
+                continue;
+            }
+            let arrived = self
+                .applied
+                .get(&m.name)
+                .is_none_or(|(_, ws)| ws != &m.workspace);
+            if arrived
+                && let Some(w) = self
+                    .cfg
+                    .general
+                    .forced_mode(&m.name, &m.workspace)
+                    .and_then(DesktopMode::parse)
+                    .filter(|w| *w != No)
+            {
+                self.store_mode(&m.workspace, w);
+            }
         }
         let focused = self
             .monitors
             .iter()
             .find(|m| m.focused)
             .map(|m| m.name.clone());
-        let mut tasks = Vec::new();
-        for (id, mon) in self.surfaces.clone() {
-            let want = self.shows_on(&mon);
-            let has = self.raised.contains(&id);
-            if want && !has {
-                tasks.extend(self.activate_surface(id, Some(&mon) == focused.as_ref()));
-            } else if want && has {
-                let kb = if Some(&mon) != focused.as_ref() {
-                    KeyboardInteractivity::None
-                } else if self.session_windows.is_empty() && !self.with_windows {
-                    KeyboardInteractivity::Exclusive
-                } else {
-                    KeyboardInteractivity::OnDemand
-                };
-                tasks.push(Task::done(Msg::KeyboardInteractivityChange {
-                    id,
-                    keyboard_interactivity: kb,
-                }));
-            } else if !want && has {
-                self.raised.remove(&id);
-                tasks.push(Task::done(Msg::KeyboardInteractivityChange {
-                    id,
-                    keyboard_interactivity: KeyboardInteractivity::None,
-                }));
-                tasks.extend(self.lower_surface(id));
-                tasks.push(self.restore_stash(Some(&mon)));
+        let was_visible = self.visible;
+        let wanted: Vec<(Id, String, DesktopMode)> = self
+            .surfaces
+            .iter()
+            .map(|(id, mon)| {
+                let w = if self.shows_on(mon) { self.monitor_mode(mon) } else { No };
+                (*id, mon.clone(), w)
+            })
+            .collect();
+        let now_visible = wanted.iter().any(|(_, _, w)| *w != No);
+        let mut pull_desk = false;
+        for (id, mon, want) in &wanted {
+            let Some(m) = self.monitors.iter().find(|m| &m.name == mon).cloned() else {
+                continue;
+            };
+            let (had, had_ws) = self
+                .applied
+                .get(mon)
+                .cloned()
+                .unwrap_or((No, m.workspace.clone()));
+            let ws_changed = had_ws != m.workspace;
+            // Workspaces dont les fenêtres reprennent leur configuration.
+            let scope: Vec<String> = [had_ws.clone(), m.workspace.clone()]
+                .into_iter()
+                .filter(|w| !w.is_empty())
+                .collect();
+            match (had, *want) {
+                (a, b) if a == b => {
+                    if b == Full && ws_changed {
+                        // Bureau affiché, on change de workspace : ses fenêtres
+                        // flottent à leur tour.
+                        tasks.push(self.stash_workspace(&m));
+                    }
+                    if b != No && ws_changed {
+                        self.fire(HookEvent::Workspace, "workspace", &m);
+                        self.selected = None;
+                    }
+                }
+                (No, b) => {
+                    self.raised.insert(*id);
+                    self.fire(HookEvent::Show, "show", &m);
+                    if b == Full {
+                        tasks.push(self.stash_workspace(&m));
+                        pull_desk = true;
+                    }
+                }
+                (a, No) => {
+                    let _ = a;
+                    self.fire(HookEvent::Hide, "hide", &m);
+                    tasks.extend(self.release_desk_windows_in(scope));
+                    tasks.push(self.restore_stash(Some(mon)));
+                    // Ailleurs le bureau reste : cet écran redescend tout de
+                    // suite ; sinon, à la fin du fondu.
+                    if now_visible {
+                        self.raised.remove(id);
+                        tasks.extend(self.lower_surface(*id));
+                    }
+                    tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                        id: *id,
+                        keyboard_interactivity: KeyboardInteractivity::None,
+                    }));
+                }
+                (Launcher, Full) => {
+                    tasks.push(self.stash_workspace(&m));
+                    pull_desk = true;
+                }
+                (Full, _) => {
+                    // Vers le mode lanceur : les fenêtres du bureau reprennent
+                    // leur configuration, les autres reviennent.
+                    tasks.extend(self.release_desk_windows_in(scope));
+                    tasks.push(self.restore_stash(Some(mon)));
+                }
+                _ => {}
             }
+            self.applied.insert(mon.clone(), (*want, m.workspace.clone()));
         }
+        // Fondu : seulement quand le bureau apparaît ou disparaît partout.
+        if now_visible != was_visible {
+            self.visible = now_visible;
+            let from = self.fade_value();
+            self.fade = Some(Fade {
+                from,
+                to: if now_visible { 1.0 } else { 0.0 },
+                start: Instant::now(),
+                dur: self.fade_duration(),
+            });
+            if now_visible {
+                self.selected = None;
+                self.last_poll.clear();
+                tasks.push(Task::done(Msg::Poll));
+            } else {
+                self.drag = None;
+                self.hovered = None;
+                self.session_windows.clear();
+                tasks.push(self.finish_fade());
+            }
+            tasks.push(self.refresh_walls());
+        } else if wanted.iter().any(|(id, _, w)| *w != No && !self.raised.contains(id)) {
+            tasks.push(self.refresh_walls());
+        }
+        // Fenêtres en attente du bureau : elles reviennent en plein bureau.
+        if pull_desk {
+            tasks.extend(self.bring_back_desk_windows());
+        }
+        // Clavier : l'écran actif seulement ; exclusif sur un bureau vide.
+        for (id, mon, want) in &wanted {
+            if *want == No || !self.raised.contains(id) {
+                continue;
+            }
+            let kb = if Some(mon) != focused.as_ref() {
+                KeyboardInteractivity::None
+            } else if *want == Launcher || !self.session_windows.is_empty() {
+                KeyboardInteractivity::OnDemand
+            } else {
+                KeyboardInteractivity::Exclusive
+            };
+            tasks.push(Task::done(Msg::KeyboardInteractivityChange {
+                id: *id,
+                keyboard_interactivity: kb,
+            }));
+        }
+        tasks.push(self.sync_submap());
+        tasks.push(self.sync_hyprbars());
         tasks.push(self.sync_window_gaps());
+        self.publish_status();
         Task::batch(tasks)
     }
 
-    /// Active le bureau sur une surface. Le bureau est la RACINE des fenêtres :
-    /// il reste toujours dessous. En plein bureau, les fenêtres du workspace
-    /// flottent par-dessus, organisées, et celles qu'on ouvre depuis le bureau
-    /// s'ouvrent dessus. Le mode verre
-    /// n'est qu'un effet sur le fond (fond d'écran flouté et teinté).
-    fn activate_surface(&mut self, id: Id, has_focus: bool) -> Vec<Task<Msg>> {
-        let Some(m) = self.monitor(id).cloned() else {
-            return Vec::new();
-        };
-        self.raised.insert(id);
-        let mut tasks = vec![self.stash_workspace(&m)];
-        // Avec des fenêtres (mode lanceur, ou flottantes en plein bureau), le
-        // bureau ne prend le clavier que si on clique dessus.
-        let kb = if has_focus && (self.with_windows || !self.session_windows.is_empty()) {
-            KeyboardInteractivity::OnDemand
-        } else if has_focus {
-            KeyboardInteractivity::Exclusive
-        } else {
-            KeyboardInteractivity::None
-        };
-        tasks.push(Task::done(Msg::KeyboardInteractivityChange {
-            id,
-            keyboard_interactivity: kb,
-        }));
-        self.fire(HookEvent::Show, "show", &m);
-        tasks
-    }
+    // Le bureau est la RACINE des fenêtres : il reste toujours dessous. En
+    // plein bureau, les fenêtres du workspace flottent par-dessus, organisées,
+    // et celles qu'on ouvre depuis le bureau s'ouvrent dessus. Le mode verre
+    // n'est qu'un effet sur le fond (fond d'écran flouté et teinté).
 
     /// Redescend une surface au repos (fond d'écran seul, plein écran).
     /// La surface du bureau reste plein écran : seul son contenu suit la zone
@@ -1448,7 +1652,7 @@ impl App {
     /// zone utile ; elles font partie du bureau (raccourcis actifs) jusqu'à
     /// la sortie du mode, où elles reprennent leur configuration d'origine.
     fn stash_workspace(&mut self, m: &Monitor) -> Task<Msg> {
-        if self.with_windows || m.workspace.is_empty() || m.workspace.starts_with("special:") {
+        if m.workspace.is_empty() || m.workspace.starts_with("special:") {
             return Task::none();
         }
         for c in self.clients.iter().filter(|c| c.workspace == m.workspace) {
@@ -1810,69 +2014,9 @@ impl App {
 
     // -- Affichage / masquage ------------------------------------------------
 
+    /// Plein bureau sur le workspace de l'écran visé.
     fn show(&mut self) -> Task<Msg> {
-        if self.visible && self.with_windows {
-            // Bureau déjà affiché avec les fenêtres : on les met de côté.
-            self.with_windows = false;
-            let mut tasks: Vec<Task<Msg>> = self
-                .surfaces
-                .iter()
-                .filter(|(id, _)| self.raised.contains(id))
-                .filter_map(|(id, _)| self.monitor(*id).cloned())
-                .collect::<Vec<_>>()
-                .iter()
-                .map(|m| self.stash_workspace(m))
-                .collect();
-            // Plein bureau : les fenêtres du bureau, cachées en mode lanceur, reviennent.
-            tasks.extend(self.bring_back_desk_windows());
-            tasks.push(self.sync_raised());
-            tasks.push(self.sync_submap());
-            self.publish_status();
-            return Task::batch(tasks);
-        }
-        if self.visible && self.fade.is_none_or(|f| f.to >= 1.0) {
-            return Task::none();
-        }
-        self.visible = true;
-        let focused = self
-            .monitors
-            .iter()
-            .find(|m| m.focused)
-            .map(|m| m.name.clone());
-        let targets: Vec<(Id, bool)> = self
-            .surfaces
-            .iter()
-            .filter(|(_, mon)| self.shows_on(mon))
-            .map(|(id, mon)| (*id, Some(mon) == focused.as_ref()))
-            .collect();
-        let from = self.fade_value();
-        self.fade = Some(Fade {
-            from,
-            to: 1.0,
-            start: Instant::now(),
-            dur: self.fade_duration(),
-        });
-        self.selected = None;
-        let mut tasks = Vec::new();
-        for (id, has_focus) in targets {
-            if !self.raised.contains(&id) {
-                tasks.extend(self.activate_surface(id, has_focus));
-            }
-        }
-        // Les fenêtres du bureau, parties avec lui, reviennent (après la mise
-        // de côté des autres : l'acteur traite les demandes dans l'ordre) —
-        // en plein bureau seulement, pas en mode lanceur.
-        if !self.with_windows {
-            tasks.extend(self.bring_back_desk_windows());
-        }
-        self.last_poll.clear();
-        tasks.push(Task::done(Msg::Poll));
-        tasks.push(self.refresh_walls());
-        // Les raccourcis de Hyprland ne doivent pas agir sur les fenêtres cachées.
-        tasks.push(self.sync_submap());
-        // Bureau avec les fenêtres : elles laissent la place des contrôles.
-        tasks.push(self.sync_window_gaps());
-        Task::batch(tasks)
+        self.set_mode(DesktopMode::FullDesktop)
     }
 
     fn fade_duration(&self) -> Duration {
@@ -1886,82 +2030,51 @@ impl App {
         Duration::from_millis(self.cfg.general.crossfade_ms)
     }
 
+    /// Mode du workspace de l'écran visé (celui du clic, sinon l'actif) ;
+    /// les autres écrans gardent le leur.
     fn set_mode(&mut self, mode: DesktopMode) -> Task<Msg> {
-        match mode {
-            DesktopMode::NoDesktop => self.hide(),
-            DesktopMode::LauncherOnly => self.show_with_windows(),
-            DesktopMode::FullDesktop => self.show(),
-        }
+        let Some(ws) = self
+            .target_monitor()
+            .and_then(|n| self.monitors.iter().find(|m| m.name == n))
+            .map(|m| m.workspace.clone())
+            .filter(|w| !w.is_empty() && !w.starts_with("special:"))
+        else {
+            return Task::none();
+        };
+        self.store_mode(&ws, mode);
+        self.sync_modes()
     }
 
     /// Bureau affiché sous les fenêtres, qui restent (ou reviennent) en place.
     fn show_with_windows(&mut self) -> Task<Msg> {
-        if self.visible && self.with_windows {
-            return Task::none();
-        }
-        self.with_windows = true;
-        if !self.visible {
-            return self.show();
-        }
-        // Depuis le plein bureau : ses fenêtres reprennent leur configuration
-        // d'origine, les autres reviennent, le bureau reste dessous.
-        let mut tasks = self.release_desk_windows();
-        tasks.extend([
-            self.restore_stash(None),
-            self.sync_raised(),
-            self.sync_submap(),
-        ]);
-        self.publish_status();
-        Task::batch(tasks)
+        self.set_mode(DesktopMode::LauncherOnly)
     }
 
     fn hide(&mut self) -> Task<Msg> {
-        if !self.visible {
-            return Task::none();
-        }
-        self.visible = false;
-        self.with_windows = false;
-        self.drag = None;
-        self.hovered = None;
-        let from = self.fade_value();
-        self.fade = Some(Fade {
-            from,
-            to: 0.0,
-            start: Instant::now(),
-            dur: self.fade_duration(),
-        });
-        let mut tasks: Vec<Task<Msg>> = Vec::new();
-        for id in self.raised.iter().copied().collect::<Vec<_>>() {
-            tasks.push(Task::done(Msg::KeyboardInteractivityChange {
-                id,
-                keyboard_interactivity: KeyboardInteractivity::None,
-            }));
-            if let Some(m) = self.monitor(id) {
-                self.fire(HookEvent::Hide, "hide", m);
-            }
-        }
-        // Les fenêtres du bureau reprennent leur configuration d'origine
-        // (avant le retour des fenêtres mises de côté, qui reprennent le focus).
-        tasks.extend(self.release_desk_windows());
-        // Les fenêtres mises de côté reviennent.
-        tasks.push(self.restore_stash(None));
-        tasks.push(self.sync_window_gaps());
-        tasks.push(self.refresh_walls());
-        self.session_windows.clear();
-        tasks.push(self.sync_submap());
-        tasks.push(self.finish_fade());
-        Task::batch(tasks)
+        self.set_mode(DesktopMode::NoDesktop)
     }
 
     /// Sortie du plein bureau (bureau masqué ou mode lanceur) : les fenêtres
     /// du bureau reprennent leur configuration d'origine — en mosaïque sur
     /// leur workspace si le plein bureau les avait fait flotter — et restent
     /// visibles, comme des fenêtres ordinaires (MLG-55).
-    fn release_desk_windows(&mut self) -> Vec<Task<Msg>> {
-        for a in self.desk_windows.drain() {
+    fn release_desk_windows_in(&mut self, workspaces: Vec<String>) -> Vec<Task<Msg>> {
+        let here: Vec<String> = self
+            .desk_windows
+            .iter()
+            .filter(|a| {
+                self.clients
+                    .iter()
+                    .find(|c| &c.address == *a)
+                    .is_none_or(|c| workspaces.contains(&c.workspace))
+            })
+            .cloned()
+            .collect();
+        for a in here {
+            self.desk_windows.remove(&a);
             self.session_windows.remove(&a);
         }
-        vec![Self::window_result(self.windows.release())]
+        vec![Self::window_result(self.windows.release_workspaces(workspaces))]
     }
 
     /// Taille d'une fenêtre flottante sur le bureau : 60 % × 70 % de l'écran actif.
@@ -2122,39 +2235,6 @@ impl App {
             self.raised.remove(&id);
             tasks.push(iced::window::close(id));
         }
-        // Changement de workspace pendant que le bureau est affiché.
-        for m in &self.monitors {
-            let changed = old
-                .iter()
-                .find(|o| o.name == m.name)
-                .is_some_and(|o| o.workspace != m.workspace);
-            let raised = self
-                .surfaces
-                .iter()
-                .any(|(id, n)| n == &m.name && self.raised.contains(id));
-            if changed && raised {
-                self.fire(HookEvent::Workspace, "workspace", m);
-                self.selected = None;
-            }
-        }
-        // Bureau affiché, on change de workspace : ses fenêtres flottent à leur tour.
-        let to_stash: Vec<Monitor> = self
-            .monitors
-            .iter()
-            .filter(|m| {
-                old.iter()
-                    .find(|o| o.name == m.name)
-                    .is_some_and(|o| o.workspace != m.workspace)
-                    && self
-                        .surfaces
-                        .iter()
-                        .any(|(id, n)| n == &m.name && self.raised.contains(id))
-            })
-            .cloned()
-            .collect();
-        for m in to_stash {
-            tasks.push(self.stash_workspace(&m));
-        }
         tasks.push(self.refresh_walls());
         tasks.push(self.sync_bars());
         tasks.push(self.sync_lyra_drawer());
@@ -2164,49 +2244,12 @@ impl App {
         if names(&old) != names(&self.monitors) && self.cfg.plugin_on("workspaces") {
             tasks.push(self.install_rules());
         }
-        tasks.push(self.apply_forced_mode());
+        // Chaque écran prend le mode du workspace qu'il affiche.
+        tasks.push(self.sync_modes());
         if self.visible {
-            tasks.push(self.sync_raised());
             tasks.push(Task::done(Msg::Poll));
         }
         Task::batch(tasks)
-    }
-
-    /// Règle `forced_modes` de l'écran actif : en arrivant sur un écran ou
-    /// un workspace imposé en launcher-only ou full-desktop, le bureau passe
-    /// dans ce mode ; en le quittant, il reprend le mode d'avant. Seule
-    /// l'arrivée compte : un changement fait à la main sur place reste.
-    fn apply_forced_mode(&mut self) -> Task<Msg> {
-        let Some(m) = self.monitors.iter().find(|m| m.focused) else {
-            return Task::none();
-        };
-        let g = &self.cfg.general;
-        let rule = g
-            .forced_modes
-            .contains_key(&format!("ws:{}", m.workspace))
-            .then(|| format!("ws:{}", m.workspace))
-            .or_else(|| g.forced_modes.contains_key(&m.name).then(|| m.name.clone()));
-        let wanted = g
-            .forced_mode(&m.name, &m.workspace)
-            .and_then(DesktopMode::parse)
-            .filter(|w| *w != DesktopMode::NoDesktop);
-        let key = wanted.and(rule);
-        if key == self.forced_key {
-            return Task::none();
-        }
-        self.forced_key = key;
-        match wanted {
-            Some(w) => {
-                if self.forced_prev.is_none() {
-                    self.forced_prev = Some(self.mode());
-                }
-                self.set_mode(w)
-            }
-            None => match self.forced_prev.take() {
-                Some(prev) => self.set_mode(prev),
-                None => Task::none(),
-            },
-        }
     }
 
     // -- Fonds d'écran ---------------------------------------------------------
@@ -3278,7 +3321,7 @@ impl App {
                 let mut tasks = Vec::new();
                 // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
                 // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
-                if self.visible && !self.with_windows {
+                if self.visible {
                     // Fenêtre ouverte sur un bureau affiché : le bureau la contient ;
                     // elle reçoit le clavier et ses raccourcis habituels.
                     let fresh: Vec<Client> = list
@@ -3293,6 +3336,7 @@ impl App {
                             .iter()
                             .filter(|(id, n)| {
                                 self.raised.contains(id)
+                                    && self.applied_mode(n) == DesktopMode::FullDesktop
                                     && self
                                         .monitors
                                         .iter()
@@ -4418,8 +4462,12 @@ impl App {
         let panel_here = self.panel.as_ref().is_some_and(|p| p.win == id);
         if raised && (!panel_here || self.size_of(id).width - self.panel_width() >= 400.0) {
             // Avec les fenêtres, seul le lanceur (dock) reste : ni icônes ni widgets.
+            let with_windows = self
+                .surfaces
+                .get(&id)
+                .is_some_and(|n| self.applied_mode(n) == DesktopMode::LauncherOnly);
             let mut content: Vec<Element<'_, Msg>> = Vec::new();
-            if !self.with_windows {
+            if !with_windows {
                 if self.cfg.plugin_on("icons") {
                     content.push(self.view_icons(id, t));
                 }
@@ -4445,7 +4493,7 @@ impl App {
             let right = rr + if panel_here { self.panel_width() } else { 0.0 };
             // Clic droit sur le fond (pas sur une icône ni un widget, qui ont
             // le leur) : menu du bureau.
-            let content: Element<'_, Msg> = if self.with_windows {
+            let content: Element<'_, Msg> = if with_windows {
                 Stack::with_children(content)
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -4880,6 +4928,65 @@ mod regression_tests {
         assert_eq!(app.mode(), DesktopMode::NoDesktop);
     }
 
+    /// Workspace 5 imposé en plein bureau, deux écrans : seul l'écran qui
+    /// l'affiche passe en plein bureau ; l'autre garde le mode de son
+    /// workspace, même quand il a le focus.
+    #[test]
+    fn forced_workspace_only_on_its_screen() {
+        let mut app = app();
+        let mut cfg = (*app.cfg).clone();
+        cfg.general
+            .forced_modes
+            .insert("ws:5".into(), "full-desktop".into());
+        app.cfg = std::sync::Arc::new(cfg);
+        let at = |name: &str, ws: &str, focused: bool| Monitor {
+            workspace: ws.into(),
+            ..monitor(name, focused)
+        };
+        let _ = app.set_monitors(vec![at("DP-1", "1", true), at("HDMI-A-2", "6", false)]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        let _ = app.set_monitors(vec![at("DP-1", "5", true), at("HDMI-A-2", "6", false)]);
+        assert_eq!(app.monitor_mode("DP-1"), DesktopMode::FullDesktop);
+        assert_eq!(app.monitor_mode("HDMI-A-2"), DesktopMode::NoDesktop);
+        assert!(app.shows_on("DP-1") && !app.shows_on("HDMI-A-2"));
+        // Focus sur l'autre écran : chacun garde le sien.
+        let _ = app.set_monitors(vec![at("DP-1", "5", false), at("HDMI-A-2", "6", true)]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop, "écran actif : workspace 6");
+        assert_eq!(app.monitor_mode("DP-1"), DesktopMode::FullDesktop);
+        // Changement à la main : le workspace de l'écran actif seulement.
+        app.fade = None;
+        let _ = app.set_mode(DesktopMode::LauncherOnly);
+        assert_eq!(app.monitor_mode("HDMI-A-2"), DesktopMode::LauncherOnly);
+        assert_eq!(app.monitor_mode("DP-1"), DesktopMode::FullDesktop);
+        // DP-1 quitte le 5 : le workspace 2 n'a jamais été réglé.
+        let _ = app.set_monitors(vec![at("DP-1", "2", true), at("HDMI-A-2", "6", false)]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        assert_eq!(app.monitor_mode("HDMI-A-2"), DesktopMode::LauncherOnly);
+    }
+
+    /// Chaque workspace garde son mode : on le retrouve en y revenant.
+    #[test]
+    fn each_workspace_keeps_its_mode() {
+        let mut app = app();
+        let on = |ws: &str| Monitor {
+            workspace: ws.into(),
+            ..monitor("A", true)
+        };
+        app.surfaces.insert(Id::unique(), "A".into());
+        let _ = app.set_monitors(vec![on("1")]);
+        let _ = app.set_mode(DesktopMode::FullDesktop);
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        let _ = app.set_monitors(vec![on("2")]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop, "workspace 2 jamais réglé");
+        assert!(!app.visible);
+        let _ = app.set_mode(DesktopMode::LauncherOnly);
+        let _ = app.set_monitors(vec![on("1")]);
+        assert_eq!(app.mode(), DesktopMode::FullDesktop, "le 1 retrouve le sien");
+        assert!(app.visible);
+        let _ = app.set_monitors(vec![on("2")]);
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly, "le 2 aussi");
+    }
+
     /// Plein bureau : Alt+Tab vers une fenêtre cachée quitte le bureau ;
     /// vers une fenêtre ouverte sur le bureau, le bureau reste.
     #[test]
@@ -4907,8 +5014,7 @@ mod regression_tests {
             });
         };
         let mut app = app();
-        app.visible = true;
-        app.with_windows = false;
+        app.test_mode(DesktopMode::FullDesktop);
         app.session_windows.insert("0xd".into());
         open(&mut app, vec![w("0xd", false)]);
         let _ = app.switcher_commit();
@@ -5192,7 +5298,7 @@ mod regression_tests {
         };
         app.surfaces.insert(a, "A".into());
         app.surfaces.insert(b, "B".into());
-        app.visible = true;
+        app.ws_modes.insert("1".into(), DesktopMode::FullDesktop);
         {
             let g = &mut Arc::make_mut(&mut app.cfg).general;
             g.show_on = ShowOn::Primary;
@@ -5217,9 +5323,8 @@ mod regression_tests {
         app.monitors = vec![monitor("A", true), monitor("B", false)];
         app.surfaces.insert(a, "A".into());
         app.surfaces.insert(b, "B".into());
-        app.raised.insert(a);
-        app.visible = true;
         Arc::make_mut(&mut app.cfg).general.show_on = ShowOn::Focused;
+        app.test_mode(DesktopMode::FullDesktop);
         let _ = app.set_monitors(vec![monitor("A", false), monitor("B", true)]);
         assert_eq!(app.raised, HashSet::from([b]));
     }
@@ -5230,7 +5335,7 @@ mod regression_tests {
     #[test]
     fn desk_windows_follow_the_desktop() {
         let mut app = app();
-        app.visible = true;
+        app.test_mode(DesktopMode::FullDesktop);
         app.session_windows.insert("0x1".into());
         app.desk_windows.insert("0x1".into());
         let _ = app.hide();
@@ -5253,7 +5358,7 @@ mod regression_tests {
     #[test]
     fn desk_windows_only_in_full_desktop() {
         let mut app = app();
-        app.visible = true;
+        app.test_mode(DesktopMode::FullDesktop);
         app.session_windows.insert("0x1".into());
         app.desk_windows.insert("0x1".into());
         let _ = app.show_with_windows();
@@ -5279,7 +5384,7 @@ mod regression_tests {
     #[test]
     fn closing_the_last_launched_window_restores_shortcut_suspension() {
         let mut app = app();
-        app.visible = true;
+        app.test_mode(DesktopMode::FullDesktop);
         app.session_windows.insert("0x1".into());
         let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new())));
         assert!(app.session_windows.is_empty());

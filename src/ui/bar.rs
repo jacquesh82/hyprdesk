@@ -856,7 +856,9 @@ impl App {
             // sur un autre y passe.
             BarItem::Desktop => {
                 use super::DesktopMode as M;
-                let mode = self.mode();
+                // Le mode de cet écran (celui du workspace qu'il affiche) ;
+                // un clic le change pour cet écran.
+                let mode = self.monitor_mode(&monitor);
                 let accent = color(pal.accent, 1.0);
                 let on_accent = color(pal.bg, 1.0);
                 let fgc = color(base, 1.0);
@@ -872,7 +874,7 @@ impl App {
                             .width(h * 1.25)
                             .height(h)
                             .padding(0)
-                            .on_press(Msg::Control(cmd))
+                            .on_press(Msg::On(monitor.clone(), Box::new(Msg::Control(cmd))))
                             .style(move |_, st| button::Style {
                                 background: if active {
                                     Some(Background::Color(accent))

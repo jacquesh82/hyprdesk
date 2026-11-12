@@ -558,17 +558,16 @@ mod tests {
                 .style = st;
         };
         style(&mut app, AppsStyle::Auto);
-        app.visible = false;
+        app.test_mode(crate::ui::DesktopMode::NoDesktop);
         assert!(!app.launcher_sheet(), "no-desktop : carte centrée");
-        app.visible = true;
-        app.with_windows = true;
+        app.test_mode(crate::ui::DesktopMode::LauncherOnly);
         assert!(!app.launcher_sheet(), "launcher-only : carte centrée");
-        app.with_windows = false;
+        app.test_mode(crate::ui::DesktopMode::FullDesktop);
         assert!(app.launcher_sheet(), "full-desktop : grande feuille");
         style(&mut app, AppsStyle::Spotlight);
         assert!(!app.launcher_sheet());
         style(&mut app, AppsStyle::Sheet);
-        app.visible = false;
+        app.test_mode(crate::ui::DesktopMode::NoDesktop);
         assert!(app.launcher_sheet());
         assert!(spot_height(true) > spot_height(false));
     }

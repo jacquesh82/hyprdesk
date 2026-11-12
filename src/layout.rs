@@ -67,6 +67,10 @@ pub struct Layout {
     /// Clé `écran|workspace|id d'icône` → [colonne, ligne].
     #[serde(default)]
     positions: BTreeMap<String, [u16; 2]>,
+    /// Mode du bureau de chaque workspace (`full-desktop`, `launcher-only`) ;
+    /// absent : no-desktop.
+    #[serde(default)]
+    modes: BTreeMap<String, String>,
 }
 
 pub fn key(monitor: &str, workspace: &str, icon: &str) -> String {
@@ -120,6 +124,15 @@ impl Layout {
                 crate::tr!("enregistrement de {p0} : {e}", p0 = p.display(), e = e)
             );
         }
+    }
+
+    /// Modes mémorisés, workspace → mode.
+    pub fn modes(&self) -> &BTreeMap<String, String> {
+        &self.modes
+    }
+
+    pub fn set_modes(&mut self, modes: BTreeMap<String, String>) {
+        self.modes = modes;
     }
 
     pub fn get(&self, key: &str) -> Option<Cell> {

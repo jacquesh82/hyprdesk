@@ -59,8 +59,11 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
   desktop or brought back from the dock float too. When you leave, they
   return to their original tiled layout and their positions are remembered
   per workspace. `SUPER + ALT + D` leaves the windows where they are and shows only
-  the dock. A third mode hides the desktop entirely. You can also force a mode
-  on a screen or a workspace.
+  the dock. A third mode hides the desktop entirely. **The mode belongs to the
+  workspace**: each screen shows the mode of the workspace it displays,
+  changing it only affects that workspace, and every workspace finds its
+  mode again when you come back, across sessions (no-desktop until you set
+  one). You can also force a mode on a screen or a workspace.
 - **Wallpapers for each workspace and screen**, with crossfades and
   slideshows. hyprdesk replaces hyprpaper.
 - **A bar and a dock.** Workspaces, tray, volume, brightness and any plugin.

@@ -438,7 +438,7 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
                 out += &format!("{m} : {} ; calibration={cal}\n", v.join(" "));
             }
             if !full.plugin_on("colors") {
-                out += &crate::i18n::tr("(paquet « Couleurs des écrans » coupé : réglages non appliqués)");
+                out += crate::i18n::tr("(paquet « Couleurs des écrans » coupé : réglages non appliqués)");
                 out.push('\n');
             }
             Ok(out)
@@ -517,7 +517,7 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
                     None => crate::tr!("{m} : table tenue par hyprdesk (réglages actifs) — normal", m = name),
                 };
                 out.push('\n');
-                if let Some(icc) = crate::colors::icc_in_use(&name) {
+                if let Some(icc) = crate::colors::icc_in_use(name) {
                     out += &crate::tr!("  profil ICC : {p}", p = icc);
                     out.push('\n');
                 }

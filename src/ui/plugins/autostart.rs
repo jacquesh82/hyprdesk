@@ -20,6 +20,9 @@ use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 
+/// Interrupteur d'une ligne : état voulu → message.
+type Toggle = Box<dyn Fn(bool) -> UiMsg>;
+
 pub const INFO: PluginInfo = PluginInfo {
     id: "autostart",
     label: "Démarrage automatique",
@@ -285,7 +288,7 @@ impl App {
             if let Some(n) = &it.note {
                 detail.push(n.clone());
             }
-            let (toggle, actions): (Option<Box<dyn Fn(bool) -> UiMsg>>, Vec<Element<'static, UiMsg>>) =
+            let (toggle, actions): (Option<Toggle>, Vec<Element<'static, UiMsg>>) =
                 if it.locked {
                     (None, Vec::new())
                 } else {

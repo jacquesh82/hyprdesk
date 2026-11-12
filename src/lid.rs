@@ -78,10 +78,10 @@ pub fn on_ac() -> bool {
         let kind = std::fs::read_to_string(p.join("type")).unwrap_or_default();
         match kind.trim() {
             "Battery" => battery = true,
-            "Mains" | "USB" | "USB_C" | "USB_PD" => {
-                if std::fs::read_to_string(p.join("online")).is_ok_and(|s| s.trim() == "1") {
-                    return true;
-                }
+            "Mains" | "USB" | "USB_C" | "USB_PD"
+                if std::fs::read_to_string(p.join("online")).is_ok_and(|s| s.trim() == "1") =>
+            {
+                return true;
             }
             _ => {}
         }
@@ -346,7 +346,7 @@ pub fn run(c: &IdleCfg, args: &[String]) -> Result<String, String> {
                     }
                 )
             );
-            out += &if c.lid_managed() {
+            out += if c.lid_managed() {
                 crate::i18n::tr("hyprdesk tient le capot (inhibiteur logind et raccourcis)")
             } else {
                 crate::i18n::tr("capot laissé à logind")

@@ -942,19 +942,18 @@ pub fn install_rules(
         .find(|m| Some(m.as_str()) == primary)
         .or(live.first())
         .filter(|_| primary.is_some())
+        && let Ok(v) = ipc::query_json("workspacerules")
     {
-        if let Ok(v) = ipc::query_json("workspacerules") {
-            for ws in orphan_workspaces(&v, &live, &placement) {
-                tracing::info!(
-                    "{}",
-                    crate::tr!(
-                        "workspace {ws} : écran de sa règle absent, placé sur {m}",
-                        ws = ws,
-                        m = target
-                    )
-                );
-                placement.push((ws, target.clone(), false));
-            }
+        for ws in orphan_workspaces(&v, &live, &placement) {
+            tracing::info!(
+                "{}",
+                crate::tr!(
+                    "workspace {ws} : écran de sa règle absent, placé sur {m}",
+                    ws = ws,
+                    m = target
+                )
+            );
+            placement.push((ws, target.clone(), false));
         }
     }
     let placement = &placement[..];

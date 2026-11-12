@@ -516,7 +516,7 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 |---|---|
 | `hyprdesk` / `hyprdesk daemon` | lance le démon (une seule instance par session) |
 | `hyprdesk daemon --replace` | remplace proprement l'instance en place |
-| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres flottantes par-dessus, organisées), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué |
+| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres flottantes par-dessus, organisées), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué. Le mode est celui du workspace : chaque écran prend le mode du workspace qu'il affiche, un changement ne touche que le workspace de l'écran actif, et chaque workspace retrouve le sien en y revenant, d'une session à l'autre (no-desktop tant qu'on n'en a pas choisi) |
 | `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, ou no-desktop si on y est déjà (raccourcis SUPER + D, SUPER + ALT + D ; SUPER + CTRL + D : no-desktop) |
 | `hyprdesk cycle` | mode suivant : no-desktop → launcher-only → full-desktop → no-desktop (bouton Bureau de la barre ; clic droit : no-desktop) |
 | `hyprdesk settings [paquet]` | ouvre les réglages sans changer le mode du bureau (`desktop`, `launcher`, `screens`, `fond`…) |

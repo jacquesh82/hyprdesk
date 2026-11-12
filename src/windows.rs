@@ -33,8 +33,9 @@ enum Request {
     /// utile de l'écran.
     Arrange(String, hypr::Rect, oneshot::Sender<Result<(), String>>),
     /// Sortie du plein bureau : positions mémorisées par workspace, puis les
-    /// fenêtres qu'il a fait flotter reprennent leur configuration d'origine.
-    Release(oneshot::Sender<Result<(), String>>),
+    /// fenêtres qu'il a fait flotter reprennent leur configuration d'origine ;
+    /// `Some(workspaces)` : seulement celles de ces workspaces (un écran).
+    Release(Option<Vec<String>>, oneshot::Sender<Result<(), String>>),
     /// Bureau affiché ou arrêt : elles reviennent.
     Unpark(oneshot::Sender<Result<(), String>>),
     /// Oublie les places choisies par l'utilisateur (Réglages → Bureau).
@@ -116,8 +117,8 @@ impl WindowManager {
                     Request::Arrange(workspace, area, reply) => {
                         let _ = reply.send(desk.arrange(&workspace, area));
                     }
-                    Request::Release(reply) => {
-                        let _ = reply.send(desk.release());
+                    Request::Release(scope, reply) => {
+                        let _ = reply.send(desk.release(scope.as_deref()));
                     }
                     Request::Unpark(reply) => {
                         let _ = reply.send(hypr::unpark_desk_windows());
@@ -171,7 +172,7 @@ impl WindowManager {
                 | Request::Submap(_, reply)
                 | Request::Float(_, _, _, reply)
                 | Request::Arrange(_, _, reply)
-                | Request::Release(reply)
+                | Request::Release(_, reply)
                 | Request::Unpark(reply)
                 | Request::Forget(reply) => {
                     let _ = reply.send(Err(crate::i18n::tr(
@@ -210,7 +211,12 @@ impl WindowManager {
     }
 
     pub fn release(&self) -> oneshot::Receiver<Result<(), String>> {
-        self.enqueue(Request::Release)
+        self.enqueue(|reply| Request::Release(None, reply))
+    }
+
+    /// Comme `release`, pour les fenêtres de ces workspaces seulement.
+    pub fn release_workspaces(&self, workspaces: Vec<String>) -> oneshot::Receiver<Result<(), String>> {
+        self.enqueue(|reply| Request::Release(Some(workspaces), reply))
     }
 
     pub fn unpark(&self) -> oneshot::Receiver<Result<(), String>> {
@@ -365,12 +371,17 @@ impl Floating {
         }
     }
 
-    fn release(&mut self) -> Result<(), String> {
+    fn release(&mut self, scope: Option<&[String]>) -> Result<(), String> {
         let list = Self::clients().unwrap_or_default();
         // Déplacées depuis : préférences retenues avant de quitter.
         self.note_user_moves(&list);
+        let in_scope = |ws: &str| scope.is_none_or(|s| s.iter().any(|w| w == ws));
         // Positions mémorisées, par workspace, pour le prochain plein bureau.
-        let managed = std::mem::take(&mut self.managed);
+        let (managed, keep): (HashMap<String, String>, HashMap<String, String>) =
+            std::mem::take(&mut self.managed)
+                .into_iter()
+                .partition(|(_, ws)| in_scope(ws));
+        self.managed = keep;
         for (address, workspace) in &managed {
             if let Some(g) = list
                 .iter()
@@ -387,7 +398,17 @@ impl Floating {
             places.retain(|a, _| list.iter().any(|g| &g.address == a));
         }
         self.memory.retain(|_, places| !places.is_empty());
-        let floated: Vec<String> = self.floated.drain().collect();
+        // Fenêtres que le plein bureau a fait flotter, sur ces workspaces.
+        let (floated, keep): (HashSet<String>, HashSet<String>) =
+            std::mem::take(&mut self.floated).into_iter().partition(|a| {
+                scope.is_none()
+                    || list
+                        .iter()
+                        .find(|g| &g.address == a)
+                        .is_some_and(|g| in_scope(&g.workspace))
+            });
+        self.floated = keep;
+        let floated: Vec<String> = floated.into_iter().collect();
         hypr::tile_windows(&floated)
     }
 }

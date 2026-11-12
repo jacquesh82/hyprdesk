@@ -319,7 +319,7 @@ pub fn curves_image(a: &Adjust, cal: Option<&Cal>, w: u32, h: u32) -> Rgba {
         put(x, y, [90, 90, 100]);
     }
     const C: [[u8; 3]; 3] = [[255, 85, 85], [80, 250, 123], [98, 160, 255]];
-    for ch in 0..3 {
+    for (ch, col) in C.iter().enumerate() {
         let mut prev: Option<i64> = None;
         for x in 0..w as i64 {
             let v = a.curve(ch, x as f32 / (w - 1).max(1) as f32, cal);
@@ -329,8 +329,8 @@ pub fn curves_image(a: &Adjust, cal: Option<&Cal>, w: u32, h: u32) -> Rgba {
                 None => (y, y),
             };
             for yy in lo..=hi {
-                put(x, yy, C[ch]);
-                put(x, yy + 1, C[ch]);
+                put(x, yy, *col);
+                put(x, yy + 1, *col);
             }
             prev = Some(y);
         }
@@ -903,9 +903,12 @@ fn remember_gamma(monitor: &str) {
 /// Résultat de la sonde d'un écran : taille de sa table gamma, ou refus.
 pub type Probe = (String, Result<u32, ()>);
 
+/// Écran sondé : identifiant, sortie, nom, résultat.
+type ProbeOut = (u32, wl_output::WlOutput, Option<String>, Option<Result<u32, ()>>);
+
 struct ProbeState {
     manager: Option<ZwlrGammaControlManagerV1>,
-    outs: Vec<(u32, wl_output::WlOutput, Option<String>, Option<Result<u32, ()>>)>,
+    outs: Vec<ProbeOut>,
 }
 
 /// Demande une table gamma aux écrans `wanted`, sans rien y poser, puis la
@@ -1141,8 +1144,10 @@ mod tests {
         assert!((cal.eval(0, 0.5) - 0.4).abs() < 1e-6);
         assert!((cal.eval(0, 0.25) - 0.2).abs() < 1e-6);
         assert!((cal.eval(2, 1.0) - 1.0).abs() < 1e-6);
-        let mut a = Adjust::default();
-        a.calibration = "/x/ecran.cal".into();
+        let mut a = Adjust {
+            calibration: "/x/ecran.cal".into(),
+            ..Default::default()
+        };
         assert!(a.needs_table() && a.icc().is_none());
         a.calibration = "/x/ecran.ICC".into();
         assert_eq!(a.icc(), Some("/x/ecran.ICC"));
