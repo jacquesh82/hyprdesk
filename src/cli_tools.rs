@@ -483,8 +483,51 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
                 crate::tr!("{m} : calibration {f}", m = m, f = kept)
             })
         }
+        "diag" | "doctor" => {
+            crate::colors::set_icc_map(&map);
+            let names: Vec<String> = hyprpanel_core::ipc::query_json("monitors")
+                .ok()
+                .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str().map(str::to_string)).collect()))
+                .unwrap_or_default();
+            let holders = crate::colors::gamma_holders(true);
+            let daemon = holders.iter().any(|h| h.starts_with("hyprdesk"));
+            let others = holders.iter().any(|h| !h.starts_with("hyprdesk"));
+            // Jamais de sonde sur un écran tenu : Hyprland le verrouillerait.
+            let held = |m: &String| others || (daemon && map.get(m).is_some_and(|a| a.needs_table()));
+            let free: Vec<String> = names.iter().filter(|m| !held(m)).cloned().collect();
+            let probed = crate::colors::probe(&free)?;
+            let mut out = String::new();
+            for name in &names {
+                let r = probed.iter().find(|(n, _)| n == name).map(|(_, r)| *r);
+                out += &match r {
+                    Some(Ok(n)) => crate::tr!("{m} : table gamma disponible ({n} entrées)", m = name, n = n),
+                    Some(Err(())) => crate::tr!(
+                        "{m} : refusée — {e}",
+                        m = name,
+                        e = crate::colors::refusal_reason(name, false, false)
+                    ),
+                    None if others => crate::tr!(
+                        "{m} : non sondé — {e}",
+                        m = name,
+                        e = crate::colors::refusal_reason(name, false, false)
+                    ),
+                    None => crate::tr!("{m} : table tenue par hyprdesk (réglages actifs) — normal", m = name),
+                };
+                out.push('\n');
+                if let Some(icc) = crate::colors::icc_in_use(&name) {
+                    out += &crate::tr!("  profil ICC : {p}", p = icc);
+                    out.push('\n');
+                }
+            }
+            out += &crate::tr!(
+                "programmes de tables gamma en cours : {p}",
+                p = if holders.is_empty() { crate::i18n::tr("aucun").to_string() } else { holders.join(", ") }
+            );
+            out.push('\n');
+            Ok(out)
+        }
         other => Err(crate::tr!(
-            "colors {o} : list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none",
+            "colors {o} : list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag",
             o = other
         )),
     }

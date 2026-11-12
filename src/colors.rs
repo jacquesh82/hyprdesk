@@ -11,8 +11,10 @@
 //! - Un profil `.icc` / `.icm` passe par l'option `icc` de Hyprland
 //!   (monitors.lua, `crate::screens`), qui en applique aussi les courbes.
 //!
-//! Un seul programme peut tenir la table gamma d'un écran : si un autre la
-//! tient déjà (wlsunset, gammastep…), l'écran est signalé en échec.
+//! Hyprland peut refuser la table d'un écran : un autre programme la tient
+//! (wlsunset, gammastep…), un profil ICC en a déjà posé une, ou l'écran n'en
+//! a pas. Il ne dit pas pourquoi ; `refusal_reason` le cherche, et
+//! `hyprdesk colors diag` sonde chaque écran.
 
 use std::collections::{BTreeMap, HashMap};
 use std::os::fd::AsFd;
@@ -283,70 +285,14 @@ fn hsv(h: f32, s: f32, v: f32) -> [u8; 3] {
     [r + m, g + m, b + m].map(|t| (t * 255.0).round() as u8)
 }
 
-/// Mire de référence : dégradés gris et couleur, paliers des noirs et des
-/// blancs (chaque case doit se distinguer), damier de gamma, couleurs
-/// primaires et secondaires, tons chair.
-pub fn reference_image(w: u32, h: u32) -> Rgba {
-    let mut px = vec![0u8; (w * h * 4) as usize];
-    let rows = 8.0;
-    for y in 0..h {
-        let band = (y as f32 / h as f32 * rows) as u32;
-        for x in 0..w {
-            let t = x as f32 / (w - 1).max(1) as f32;
-            let g = |v: f32| (v * 255.0).round() as u8;
-            let c: [u8; 3] = match band {
-                // Dégradé de gris continu, puis en 16 paliers.
-                0 => [g(t); 3],
-                1 => [g((t * 16.0).floor().min(15.0) / 15.0); 3],
-                // Dégradés rouge, vert, bleu.
-                2 => [g(t), 0, 0],
-                3 => [0, g(t), 0],
-                4 => [0, 0, g(t)],
-                // Noirs (0 à 15 %) à gauche, blancs (85 à 100 %) à droite : 10 cases chacun.
-                5 => {
-                    let k = (t * 20.0).floor().min(19.0);
-                    if k < 10.0 {
-                        [g(k * 0.015); 3]
-                    } else {
-                        [g(0.85 + (k - 10.0) * 0.015 + 0.015); 3]
-                    }
-                }
-                // Damier de gamma : lignes noires et blanches contre le gris
-                // 50 % de luminance (186 en sRGB) ; à bon gamma, ils se confondent de loin.
-                6 => {
-                    let k = (t * 6.0) as u32;
-                    if k % 2 == 0 {
-                        if y % 2 == 0 { [255; 3] } else { [0; 3] }
-                    } else {
-                        [186; 3]
-                    }
-                }
-                // Primaires, secondaires et tons chair.
-                _ => {
-                    const P: [[u8; 3]; 12] = [
-                        [255, 255, 255],
-                        [255, 255, 0],
-                        [0, 255, 255],
-                        [0, 255, 0],
-                        [255, 0, 255],
-                        [255, 0, 0],
-                        [0, 0, 255],
-                        [0, 0, 0],
-                        [255, 224, 196],
-                        [234, 192, 160],
-                        [198, 134, 98],
-                        [141, 85, 60],
-                    ];
-                    P[((t * 12.0) as usize).min(11)]
-                }
-            };
-            let i = ((y * w + x) * 4) as usize;
-            px[i..i + 3].copy_from_slice(&c);
-            px[i + 3] = 255;
-        }
-    }
-    (w, h, px)
-}
+/// Mire de référence (PNG sRGB 8 bits, opaque) : photos (peaux, feuillage,
+/// fruits, tissu sombre, métal, coucher de soleil), aplats et saturations
+/// des six teintes, dégradés R, V, B et gris, paliers des ombres (0 à 32)
+/// et des hautes lumières (223 à 255).
+pub const MIRE: &[u8] = include_bytes!("../assets/colors/mire.png");
+
+/// Fond gris de la mire, pour border l'image sans qu'elle se découpe.
+pub const MIRE_FOND: [u8; 3] = [216, 216, 216];
 
 /// Courbes des trois canaux (entrée en abscisse, sortie en ordonnée), sur
 /// fond sombre avec la diagonale neutre.
@@ -584,6 +530,9 @@ struct Out {
     control: Option<ZwlrGammaControlV1>,
     size: Option<u32>,
     failed: bool,
+    /// Un programme connu tient les tables : pas de demande (un refus de
+    /// Hyprland verrouillerait l'écran), revérifié régulièrement.
+    blocked: bool,
     /// Table posée en dernier (pour ne pas la reposer à l'identique).
     applied: Option<Adjust>,
 }
@@ -629,12 +578,24 @@ impl State {
                     reports.push((name, None));
                 }
                 Some(a) => {
-                    if o.failed {
+                    if o.failed || o.blocked {
                         continue;
                     }
                     if o.control.is_none()
                         && let Some(m) = &manager
                     {
+                        // Hyprland garde une demande refusée comme si elle
+                        // tenait l'écran : quand le vrai détenteur le lâche,
+                        // plus personne ne peut le prendre (jusqu'à la
+                        // session suivante). Donc pas de demande tant qu'un
+                        // programme connu tient les tables.
+                        if !gamma_holders(true).is_empty() {
+                            o.blocked = true;
+                            let why = refusal_reason(&name, false, true);
+                            tracing::warn!("{}", crate::tr!("couleurs de {m} : pas de demande — {e}", m = name, e = why));
+                            reports.push((name, Some(why)));
+                            continue;
+                        }
                         o.control = Some(m.get_gamma_control(&o.output, qh, o.id));
                     }
                     if let (Some(c), Some(size)) = (&o.control, o.size)
@@ -709,6 +670,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                         control: None,
                         size: None,
                         failed: false,
+                        blocked: false,
                         applied: None,
                     });
                 } else if interface == "zwlr_gamma_control_manager_v1" {
@@ -772,6 +734,9 @@ impl Dispatch<ZwlrGammaControlV1, u32> for State {
         };
         match event {
             zwlr_gamma_control_v1::Event::GammaSize { size } => {
+                if let Some(n) = &o.name {
+                    remember_gamma(n);
+                }
                 o.size = Some(size);
                 o.applied = None;
                 state.apply(qh);
@@ -781,14 +746,274 @@ impl Dispatch<ZwlrGammaControlV1, u32> for State {
                     c.destroy();
                 }
                 o.failed = true;
-                o.size = None;
+                let had_size = o.size.take().is_some();
                 let name = o.name.clone().unwrap_or_default();
-                tracing::warn!("{}", crate::tr!("couleurs de {m} : table gamma refusée (déjà tenue par un autre programme)", m = name));
-                state.report(
-                    &name,
-                    Some(crate::i18n::tr("un autre programme tient déjà les couleurs de cet écran (wlsunset, gammastep…)").to_string()),
-                );
+                // Hyprland ne dit pas pourquoi : la raison est cherchée ici
+                // (autre programme, profil ICC, écran sans table gamma).
+                let why = refusal_reason(&name, had_size, true);
+                tracing::warn!("{}", crate::tr!("couleurs de {m} : table gamma refusée — {e}", m = name, e = why));
+                state.report(&name, Some(why));
             }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Refus d'une table gamma : la raison
+// ---------------------------------------------------------------------------
+
+/// Programmes connus pour tenir les tables gamma (wlr-gamma-control).
+/// hyprsunset n'en est pas : il passe par la matrice de couleur (CTM).
+const GAMMA_CLIENTS: &[&str] = &[
+    "wlsunset",
+    "gammastep",
+    "redshift",
+    "wl-gammarelay-rs",
+    "wl-gammarelay",
+    "wl-gammactl",
+    "sunsetr",
+    "gammy",
+];
+
+/// Programmes en cours qui tiennent (sans doute) des tables gamma ; un autre
+/// démon hyprdesk compte (`with_hyprdesk`), ce processus non.
+pub fn gamma_holders(with_hyprdesk: bool) -> Vec<String> {
+    let me = std::process::id();
+    let mut out: Vec<String> = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/proc") else { return out };
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
+        if pid == me {
+            continue;
+        }
+        let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
+        let comm = comm.trim();
+        let hit = if GAMMA_CLIENTS.contains(&comm) {
+            Some(comm.to_string())
+        } else if with_hyprdesk && comm == "hyprdesk" {
+            let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
+            cmd.split(|b| *b == 0)
+                .any(|a| a == b"daemon")
+                .then(|| format!("hyprdesk daemon ({pid})"))
+        } else {
+            None
+        };
+        if let Some(h) = hit
+            && !out.contains(&h)
+        {
+            out.push(h);
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Profil ICC appliqué à l'écran : celui de hyprdesk, ou une ligne de la
+/// config Hyprland qui nomme l'écran et pose `icc`.
+pub fn icc_in_use(monitor: &str) -> Option<String> {
+    if let Some(p) = icc_for(monitor) {
+        return Some(p);
+    }
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?
+        .join("hypr");
+    let quoted = format!("\"{monitor}\"");
+    for e in std::fs::read_dir(&base).ok()?.flatten() {
+        let path = e.path();
+        if !matches!(path.extension().and_then(|x| x.to_str()), Some("lua" | "conf")) {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(&path) else { continue };
+        for (n, line) in src.lines().enumerate() {
+            let t = line.trim();
+            if t.starts_with("--") || t.starts_with('#') {
+                continue;
+            }
+            if t.contains("icc") && (t.contains(&quoted) || t.contains(&format!("{monitor},"))) {
+                let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                return Some(format!("{file}:{}", n + 1));
+            }
+        }
+    }
+    None
+}
+
+/// Pourquoi Hyprland refuse la table gamma d'un écran. `had_size` : la
+/// taille de la table avait été reçue avant le refus.
+pub fn refusal_reason(monitor: &str, had_size: bool, with_hyprdesk: bool) -> String {
+    let holders = gamma_holders(with_hyprdesk);
+    if !holders.is_empty() {
+        return crate::tr!(
+            "{p} tient déjà les tables gamma (un seul programme à la fois) : l'arrêter pour régler les couleurs ici",
+            p = holders.join(", ")
+        );
+    }
+    if let Some(icc) = icc_in_use(monitor) {
+        return crate::tr!(
+            "le profil ICC de cet écran ({p}) tient déjà sa table gamma : le retirer pour utiliser les réglages, ou passer par un fichier .cal",
+            p = icc
+        );
+    }
+    if had_size {
+        return crate::i18n::tr("Hyprland a refusé la table gamma posée sur cet écran").to_string();
+    }
+    if gamma_seen(monitor) {
+        return crate::i18n::tr(
+            "Hyprland garde cet écran verrouillé : une demande refusée plus tôt (redémarrage de hyprdesk, autre programme de couleurs) compte encore comme détentrice — défaut de Hyprland, levé en relançant la session ou en rebranchant l'écran",
+        )
+        .to_string();
+    }
+    crate::i18n::tr(
+        "Hyprland refuse la table gamma de cet écran et aucun programme connu ne la tient : soit l'écran n'en a pas (pilote ou dalle, fréquent sur les portables), soit Hyprland le garde verrouillé après une demande refusée — relancer la session tranche",
+    )
+    .to_string()
+}
+
+/// Écrans dont Hyprland a déjà accordé une table gamma (d'une session à
+/// l'autre) : un refus sans détenteur y est un verrou, pas un manque.
+fn gamma_ok_path() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))?;
+    Some(base.join("hyprdesk").join("gamma-ok"))
+}
+
+pub fn gamma_seen(monitor: &str) -> bool {
+    gamma_ok_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .is_some_and(|s| s.lines().any(|l| l.trim() == monitor))
+}
+
+fn remember_gamma(monitor: &str) {
+    if gamma_seen(monitor) {
+        return;
+    }
+    let Some(p) = gamma_ok_path() else { return };
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let mut cur = std::fs::read_to_string(&p).unwrap_or_default();
+    cur.push_str(monitor);
+    cur.push('\n');
+    let _ = std::fs::write(&p, cur);
+}
+
+/// Résultat de la sonde d'un écran : taille de sa table gamma, ou refus.
+pub type Probe = (String, Result<u32, ()>);
+
+struct ProbeState {
+    manager: Option<ZwlrGammaControlManagerV1>,
+    outs: Vec<(u32, wl_output::WlOutput, Option<String>, Option<Result<u32, ()>>)>,
+}
+
+/// Demande une table gamma aux écrans `wanted`, sans rien y poser, puis la
+/// lâche : dit ce que Hyprland accorde (`hyprdesk colors diag`). Ne jamais
+/// sonder un écran tenu : le refus le verrouillerait (voir `apply`).
+pub fn probe(wanted: &[String]) -> Result<Vec<Probe>, String> {
+    let conn = Connection::connect_to_env().map_err(|e| e.to_string())?;
+    let mut queue = conn.new_event_queue::<ProbeState>();
+    let qh = queue.handle();
+    conn.display().get_registry(&qh, ());
+    let mut st = ProbeState {
+        manager: None,
+        outs: Vec::new(),
+    };
+    queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
+    queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
+    let Some(m) = st.manager.clone() else {
+        return Err(crate::i18n::tr("Hyprland ne propose pas wlr-gamma-control").to_string());
+    };
+    let controls: Vec<ZwlrGammaControlV1> = st
+        .outs
+        .iter()
+        .filter(|(_, _, n, _)| n.as_ref().is_some_and(|n| wanted.contains(n)))
+        .map(|(id, o, _, _)| m.get_gamma_control(o, &qh, *id))
+        .collect();
+    queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
+    queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
+    for c in controls {
+        c.destroy();
+    }
+    let _ = queue.roundtrip(&mut st);
+    Ok(st
+        .outs
+        .into_iter()
+        .filter_map(|(_, _, name, r)| {
+            let name = name?;
+            wanted.contains(&name).then(|| (name, r.unwrap_or(Err(()))))
+        })
+        .collect())
+}
+
+impl Dispatch<wl_registry::WlRegistry, ()> for ProbeState {
+    fn event(
+        state: &mut Self,
+        registry: &wl_registry::WlRegistry,
+        event: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global { name, interface, version } = event {
+            if interface == "wl_output" {
+                let o = registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
+                state.outs.push((name, o, None, None));
+            } else if interface == "zwlr_gamma_control_manager_v1" {
+                state.manager = Some(registry.bind(name, 1, qh, ()));
+            }
+        }
+    }
+}
+
+impl Dispatch<wl_output::WlOutput, u32> for ProbeState {
+    fn event(
+        state: &mut Self,
+        _: &wl_output::WlOutput,
+        event: wl_output::Event,
+        id: &u32,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_output::Event::Name { name } = event
+            && let Some(o) = state.outs.iter_mut().find(|o| o.0 == *id)
+        {
+            o.2 = Some(name);
+        }
+    }
+}
+
+impl Dispatch<ZwlrGammaControlManagerV1, ()> for ProbeState {
+    fn event(
+        _: &mut Self,
+        _: &ZwlrGammaControlManagerV1,
+        _: <ZwlrGammaControlManagerV1 as wayland_client::Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ZwlrGammaControlV1, u32> for ProbeState {
+    fn event(
+        state: &mut Self,
+        _: &ZwlrGammaControlV1,
+        event: zwlr_gamma_control_v1::Event,
+        id: &u32,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let Some(o) = state.outs.iter_mut().find(|o| o.0 == *id) else { return };
+        match event {
+            zwlr_gamma_control_v1::Event::GammaSize { size } => {
+                if let Some(n) = &o.2 {
+                    remember_gamma(n);
+                }
+                o.3 = Some(Ok(size))
+            }
+            zwlr_gamma_control_v1::Event::Failed => o.3 = Some(Err(())),
             _ => {}
         }
     }
@@ -807,11 +1032,20 @@ fn run(rx: mpsc::Receiver<Wanted>, status: Arc<Mutex<HashMap<String, String>>>) 
         wanted: Wanted::new(),
         status,
     };
+    // Relève (--replace) : l'instance précédente tient peut-être encore ses
+    // tables ; une demande refusée verrouillerait l'écran, donc on l'attend.
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(10)
+        && gamma_holders(true).iter().any(|h| h.starts_with("hyprdesk"))
+    {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
     queue.roundtrip(&mut state).map_err(|e| e.to_string())?;
     queue.roundtrip(&mut state).map_err(|e| e.to_string())?;
     if state.manager.is_none() {
         return Err(crate::i18n::tr("Hyprland ne propose pas wlr-gamma-control").to_string());
     }
+    let mut recheck = std::time::Instant::now();
     loop {
         // Derniers réglages reçus (les précédents sont dépassés) ; fil arrêté
         // avec le démon.
@@ -828,8 +1062,20 @@ fn run(rx: mpsc::Receiver<Wanted>, status: Arc<Mutex<HashMap<String, String>>>) 
             // Un écran en échec réessaie quand on change ses réglages.
             for o in &mut state.outs {
                 o.failed = false;
+                o.blocked = false;
             }
             state.apply(&qh);
+        }
+        // Écrans en attente d'un programme qui tient les tables : revus
+        // toutes les 5 s (il a pu s'arrêter).
+        if recheck.elapsed() > std::time::Duration::from_secs(5) {
+            recheck = std::time::Instant::now();
+            if state.outs.iter().any(|o| o.blocked) {
+                for o in &mut state.outs {
+                    o.blocked = false;
+                }
+                state.apply(&qh);
+            }
         }
         let _ = conn.flush();
         if let Some(guard) = queue.prepare_read() {
@@ -871,9 +1117,10 @@ mod tests {
 
     #[test]
     fn images_de_test() {
-        let (w, h, px) = reference_image(320, 160);
-        assert_eq!(px.len(), (w * h * 4) as usize);
-        assert_eq!(&px[0..4], &[0, 0, 0, 255], "dégradé de gris : noir à gauche");
+        // Mire embarquée : un PNG valide (signature), assez grand pour un écran.
+        assert_eq!(&MIRE[..8], b"\x89PNG\r\n\x1a\n");
+        let w = u32::from_be_bytes(MIRE[16..20].try_into().unwrap());
+        assert!(w >= 1920, "mire de {w} px");
         let (_, _, c) = curves_image(&Adjust::default(), None, 64, 40);
         assert_eq!(c.len(), 64 * 40 * 4);
         // Deux écrans côte à côte : le second commence où finit le premier.

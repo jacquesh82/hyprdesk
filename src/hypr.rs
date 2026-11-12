@@ -791,6 +791,36 @@ fn regex_escape(s: &str) -> String {
 /// Affectation prête à poser : classe (regex), workspace, sans y aller.
 pub type Assign = (String, String, bool);
 
+/// Workspaces nommés par une règle active vers un écran absent (hors ceux que
+/// hyprdesk place déjà) ; les sélecteurs (`m[…]`, `r[…]`…) sont ignorés.
+pub fn orphan_workspaces(rules: &Value, live: &[String], placement: &[Placement]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for r in rules.as_array().into_iter().flatten() {
+        if r["enabled"].as_bool() == Some(false) {
+            continue;
+        }
+        let (Some(ws), Some(mon)) = (r["workspaceString"].as_str(), r["monitor"].as_str()) else {
+            continue;
+        };
+        let ws = ws.strip_prefix("name:").unwrap_or(ws);
+        let plain = !ws.is_empty()
+            && !ws.contains('[')
+            && !ws.starts_with("special")
+            && !ws.contains(' ');
+        if !plain
+            || mon.is_empty()
+            || mon.starts_with("desc:")
+            || live.iter().any(|m| m == mon)
+            || placement.iter().any(|(w, _, _)| w == ws)
+            || out.iter().any(|w| w == ws)
+        {
+            continue;
+        }
+        out.push(ws.to_string());
+    }
+    out
+}
+
 /// Lua qui remplace les règles de workspace de hyprdesk : les anciennes sont
 /// désactivées (Hyprland ne sait pas les retirer), les nouvelles posées.
 /// Écran d'un workspace : (workspace, écran, workspace par défaut de l'écran).
@@ -856,8 +886,43 @@ pub fn install_rules(
     workspaces: Option<u8>,
     placement: &[Placement],
     rules: &[crate::config::AssignRule],
+    primary: Option<&str>,
 ) -> Result<(), ipc::IpcError> {
     use crate::config::AppMatch;
+    // Écrans relus au moment de poser : deux poses en vol (démarrage, écran
+    // branché) ne peuvent pas laisser un placement vers un écran parti.
+    let live: Vec<String> = monitors()
+        .map(|l| l.into_iter().map(|m| m.name).collect())
+        .unwrap_or_default();
+    let mut placement: Vec<Placement> = placement
+        .iter()
+        .filter(|(_, mon, _)| live.is_empty() || live.contains(mon))
+        .cloned()
+        .collect();
+    // Règles d'une autre source (hyprland.lua d'une époque à plusieurs
+    // écrans…) vers un écran absent : Hyprland ne crée pas ces workspaces,
+    // la barre ne les montre pas. Ils vont sur l'écran principal.
+    if let Some(target) = live
+        .iter()
+        .find(|m| Some(m.as_str()) == primary)
+        .or(live.first())
+        .filter(|_| primary.is_some())
+    {
+        if let Ok(v) = ipc::query_json("workspacerules") {
+            for ws in orphan_workspaces(&v, &live, &placement) {
+                tracing::info!(
+                    "{}",
+                    crate::tr!(
+                        "workspace {ws} : écran de sa règle absent, placé sur {m}",
+                        ws = ws,
+                        m = target
+                    )
+                );
+                placement.push((ws, target.clone(), false));
+            }
+        }
+    }
+    let placement = &placement[..];
     let assigns: Vec<Assign> = rules
         .iter()
         .map(|r| {
@@ -1690,6 +1755,24 @@ mod tests {
         let off = build_rules_lua(None, &[], &[]);
         assert!(!off.contains("hl.workspace_rule") && !off.contains("hl.window_rule"));
         assert!(off.contains("set_enabled(false)"));
+    }
+
+    #[test]
+    fn workspaces_d_un_ecran_absent() {
+        let rules = serde_json::json!([
+            { "workspaceString": "1", "monitor": "HDMI-A-1", "persistent": true },
+            { "workspaceString": "2", "monitor": "HDMI-A-1", "enabled": false },
+            { "workspaceString": "3", "monitor": "HDMI-A-1" },
+            { "workspaceString": "3", "monitor": "HDMI-A-1" },
+            { "workspaceString": "4", "monitor": "eDP-1" },
+            { "workspaceString": "5" },
+            { "workspaceString": "m[HDMI-A-1]", "monitor": "HDMI-A-1" },
+            { "workspaceString": "6", "monitor": "desc:Dell U2720" },
+            { "workspaceString": "7", "monitor": "DP-3" },
+        ]);
+        let live = vec!["eDP-1".to_string()];
+        let placed = vec![("7".to_string(), "eDP-1".to_string(), false)];
+        assert_eq!(orphan_workspaces(&rules, &live, &placed), vec!["1", "3"]);
     }
 
     #[test]

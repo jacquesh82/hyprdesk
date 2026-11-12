@@ -52,6 +52,10 @@ pub struct ColorTest {
     pub wins: Vec<(iced::window::Id, String, image::Handle)>,
     /// Écrans dont le bloc de réglages est replié.
     pub folded: std::collections::HashSet<String>,
+    /// Dégradés étalés sur tous les écrans au lieu de la mire sur chacun.
+    pub span: bool,
+    /// La mire (une seule image, la même sur chaque écran).
+    pub mire: Option<image::Handle>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +79,8 @@ pub enum Msg {
     Step(String, String, f32),
     TestNeutral(String),
     TestFold(String),
+    /// Mire sur chaque écran ⇄ dégradés étalés sur l'ensemble.
+    TestSpan,
 }
 
 /// Fichiers de calibration du poste (hors du fil de l'interface).
@@ -207,7 +213,7 @@ impl App {
                     self.lyra_button(
                         crate::i18n::tr("Couleurs des écrans"),
                         crate::tr!(
-                            "hyprdesk ne peut pas régler les couleurs de l'écran {m} : {e}. Trouve le programme qui tient sa table gamma (wlsunset, gammastep, redshift…) et propose de l'arrêter ou de le retirer du démarrage.",
+                            "hyprdesk ne peut pas régler les couleurs de l'écran {m} : {e}. Lance « hyprdesk colors diag », trouve pourquoi Hyprland refuse sa table gamma (programme qui la tient, profil ICC, pilote sans table) et propose une solution.",
                             m = mon,
                             e = e
                         ),
@@ -345,7 +351,7 @@ impl App {
             col = col.push(image(h.clone()).width(Length::Fill));
         }
         col = col.push(
-            text("Les dix cases sombres et les dix claires doivent toutes se distinguer ; de loin, les rayures et le gris voisin se confondent quand le gamma est juste ; le blanc ne doit tirer ni vers le bleu ni vers le jaune.")
+            text("Les cases des ombres (1 à 32) et des hautes lumières (223 à 254) doivent toutes se distinguer de leur fond ; le dégradé de gris doit rester neutre, sans dominante ni marches ; les peaux doivent paraître naturelles. « Mire plein écran » l'affiche sur chaque écran, avec ses réglages.")
                 .font(self.font)
                 .size(11)
                 .color(dim),
@@ -359,7 +365,7 @@ impl App {
                 if let Some(p) = self.panel.as_mut() {
                     p.colors.profiles = l;
                     if p.colors.reference.is_none() {
-                        p.colors.reference = Some(handle(crate::colors::reference_image(960, 420)));
+                        p.colors.reference = Some(image::Handle::from_bytes(crate::colors::MIRE));
                     }
                 }
                 self.colors_curves();
@@ -447,11 +453,14 @@ impl App {
             }
             Msg::TestOpen => self.color_test_open(),
             Msg::TestClose => Task::batch(
-                std::mem::take(&mut self.color_test)
-                    .wins
+                std::mem::take(&mut self.color_test.wins)
                     .into_iter()
                     .map(|(id, _, _)| iced::window::close(id)),
             ),
+            Msg::TestSpan => {
+                self.color_test.span = !self.color_test.span;
+                Task::none()
+            }
             Msg::Step(mon, key, d) => self.colors_edit(&mon, true, |a| {
                 let v = a.get(&key).unwrap_or(1.0);
                 a.set(&key, ((v + d) * 100.0).round() / 100.0);
@@ -472,13 +481,12 @@ impl App {
         }
     }
 
-    /// Ouvre la mire sur chaque écran : une seule image étalée sur l'ensemble.
+    /// Ouvre la mire sur chaque écran (ou les dégradés étalés sur l'ensemble).
     fn color_test_open(&mut self) -> Task<UiMsg> {
         use iced_layershell::reexport::{
             Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
         };
-        let mut tasks: Vec<Task<UiMsg>> = std::mem::take(&mut self.color_test)
-            .wins
+        let mut tasks: Vec<Task<UiMsg>> = std::mem::take(&mut self.color_test.wins)
             .into_iter()
             .map(|(id, _, _)| iced::window::close(id))
             .collect();
@@ -491,6 +499,9 @@ impl App {
         let x1 = ms.iter().map(|m| m.x + m.width as f32).fold(f32::MIN, f32::max);
         let y1 = ms.iter().map(|m| m.y + m.height as f32).fold(f32::MIN, f32::max);
         let all = (x0, y0, x1 - x0, y1 - y0);
+        if self.color_test.mire.is_none() {
+            self.color_test.mire = Some(image::Handle::from_bytes(crate::colors::MIRE));
+        }
         for m in ms {
             let id = iced::window::Id::unique();
             // Image réduite (étirée à l'écran) : la mire n'a pas besoin du pixel près.
@@ -543,6 +554,12 @@ impl App {
                 .size(18)
                 .color(accent),
             Space::new().width(Length::Fill),
+            button(small(
+                crate::i18n::tr(if self.color_test.span { "Mire" } else { "Dégradés étalés" }).to_string()
+            ))
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press(wrap(Msg::TestSpan)),
             button(small(crate::i18n::tr(if folded { "Réglages" } else { "Replier" }).to_string()))
                 .padding([4, 10])
                 .style(button::secondary)
@@ -612,19 +629,45 @@ impl App {
                 border: Border::default().rounded(14).width(1).color(Color { a: 0.4, ..accent }),
                 ..Default::default()
             });
-        stack![
-            image(img.clone())
+        match (&self.color_test.mire, self.color_test.span) {
+            // Mire entière sur l'écran, réglages dessous : rien ne cache les
+            // paliers des ombres et des hautes lumières, en bas de l'image.
+            (Some(mire), false) => {
+                let [r, g, b] = crate::colors::MIRE_FOND;
+                let fond = Color::from_rgb8(r, g, b);
+                container(
+                    column![
+                        image(mire.clone())
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .content_fit(iced::ContentFit::Contain),
+                        container(card).width(Length::Fill).align_x(Alignment::Center),
+                    ]
+                    .spacing(10),
+                )
+                .padding(12)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .content_fit(iced::ContentFit::Fill),
-            container(card)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(Alignment::Center)
-                .align_y(Alignment::End)
-                .padding(28),
-        ]
-        .into()
+                .style(move |_| container::Style {
+                    background: Some(fond.into()),
+                    ..Default::default()
+                })
+                .into()
+            }
+            _ => stack![
+                image(img.clone())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Fill),
+                container(card)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::End)
+                    .padding(28),
+            ]
+            .into(),
+        }
     }
 }
 

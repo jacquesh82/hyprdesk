@@ -1070,15 +1070,20 @@ impl App {
         } else {
             (None, Vec::new())
         };
-        let placement = if self.cfg.plugin_on("workspaces") {
-            self.workspace_placement()
+        // Principal : cible des workspaces dont la règle vise un écran absent.
+        let (placement, primary) = if self.cfg.plugin_on("workspaces") {
+            let primary = self
+                .primary_monitor()
+                .or_else(|| self.cfg.general.primary.clone())
+                .unwrap_or_default();
+            (self.workspace_placement(), Some(primary))
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         Task::perform(
             async move {
                 match tokio::task::spawn_blocking(move || {
-                    hypr::install_rules(n, &placement, &rules)
+                    hypr::install_rules(n, &placement, &rules, primary.as_deref())
                 })
                 .await
                 {
@@ -2138,7 +2143,9 @@ impl App {
         tasks.push(self.sync_bars());
         tasks.push(self.sync_lyra_drawer());
         let names = |l: &[Monitor]| l.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
-        if names(&old) != names(&self.monitors) && !self.cfg.general.workspace_monitors.is_empty() {
+        // Écrans changés : placement à refaire, et workspaces d'un écran parti
+        // (règles d'autres sources comprises) à reloger.
+        if names(&old) != names(&self.monitors) && self.cfg.plugin_on("workspaces") {
             tasks.push(self.install_rules());
         }
         tasks.push(self.apply_forced_mode());
