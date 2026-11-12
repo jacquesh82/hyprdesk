@@ -268,7 +268,7 @@ fi
 if [[ -n "$HYPRBARS_NEW" ]]; then
     hd_step "🪟" "Hyprbars" "Hyprbars"
     if hd_sudo_ready "$(t "recompiler les plugins de Hyprland (hyprpm)" "rebuild the Hyprland plugins (hyprpm)")" \
-        && hd_run "$(t "en-têtes et plugins (hyprpm update)" "headers and plugins (hyprpm update)")" bash -c 'yes | hyprpm update'; then
+        && HYPRDESK_VERBOSE=1 hd_run "$(t "en-têtes et plugins (hyprpm update)" "headers and plugins (hyprpm update)")" bash -c 'yes | hyprpm update'; then
         printf '%s\n' "$HYPRBARS_NEW" > "$STATE_DIR/hyprbars-hyprland"
         hd_ok "Hyprbars : Hyprland $HYPRBARS_NEW"
         DONE+=("Hyprbars")

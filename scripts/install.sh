@@ -400,13 +400,30 @@ if [[ "$HYPRBARS" == 1 ]]; then
             command -v hyprpm >/dev/null 2>&1 || { HB_OK=0; hd_warn "$(t "hyprpm introuvable (ni installé, ni dans les dépôts) : étape sautée" "hyprpm not found (not installed, not in the repositories): step skipped")"; }
         fi
         if [[ "$HB_OK" == 1 ]]; then
-            # hyprpm demande sudo lui-même (en-têtes dans /var/cache/hyprpm) ; il
-            # pose ses questions [Y/n] : « yes » y répond.
-            if hd_sudo_ready "$(t "préparer les en-têtes de Hyprland (hyprpm)" "prepare the Hyprland headers (hyprpm)")" \
-                && hd_run "$(t "en-têtes de Hyprland (hyprpm update)" "Hyprland headers (hyprpm update)")" bash -c 'yes | hyprpm update' \
-                && hd_run "$(t "compilation des plugins (hyprpm add hyprland-plugins)" "building the plugins (hyprpm add hyprland-plugins)")" \
-                    bash -c 'yes | hyprpm add https://github.com/hyprwm/hyprland-plugins' \
-                && [[ -n "$(hyprbars_so)" ]]; then
+            # hyprpm appelle sudo (ou doas) lui-même, plusieurs fois, pour écrire
+            # dans /var/cache/hyprpm : au premier plan (HYPRDESK_VERBOSE), une
+            # invite de mot de passe reste visible au lieu d'être effacée par
+            # l'animation ; jeton sudo redemandé avant chaque appel et entretenu
+            # pendant l'étape. Ses questions [Y/n] : « yes » y répond.
+            hb_keep=""
+            if [[ "$(id -u)" != 0 ]] && command -v sudo >/dev/null 2>&1; then
+                (while sleep 45; do sudo -n true 2>/dev/null || exit; done) &
+                hb_keep=$!
+            fi
+            hb_hyprpm() { # hb_hyprpm <libellé> <arguments de hyprpm…>
+                local label="$1"; shift
+                hd_sudo_ready "$label" || return 1
+                HYPRDESK_VERBOSE=1 hd_run "$label" bash -c 'yes | hyprpm "$@"' hyprpm "$@"
+            }
+            HB_REPO=https://github.com/hyprwm/hyprland-plugins
+            hb_hyprpm "$(t "en-têtes de Hyprland (hyprpm update)" "Hyprland headers (hyprpm update)")" update || true
+            if [[ -z "$(hyprbars_so)" ]]; then
+                hb_hyprpm "$(t "compilation des plugins (hyprpm add hyprland-plugins)" "building the plugins (hyprpm add hyprland-plugins)")" add "$HB_REPO" \
+                    || { [[ -z "$(hyprbars_so)" ]] \
+                         && hb_hyprpm "$(t "nouvel essai (hyprpm add)" "second try (hyprpm add)")" add "$HB_REPO"; } || true
+            fi
+            [[ -n "$hb_keep" ]] && kill "$hb_keep" 2>/dev/null
+            if [[ -n "$(hyprbars_so)" ]]; then
                 hd_ok "$(t "installé :" "installed:") $(hyprbars_so)"
                 hd_note "$(t "à activer dans Réglages → Bureau (barres de titre en plein bureau)" "turn it on in Settings → Desktop (title bars in full desktop)")"
                 # Version de Hyprland compilée : update.sh recompile quand elle change.
@@ -414,7 +431,7 @@ if [[ "$HYPRBARS" == 1 ]]; then
                 hyprdesk_hyprland_running > "${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk/hyprbars-hyprland" || true
             else
                 hd_warn "$(t "Hyprbars ne s'est pas installé : le reste continue sans lui" "Hyprbars did not install: the rest goes on without it")"
-                hd_hint "$(t "à la main : hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins" "by hand: hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins")"
+                hd_hint "$(t "à la main, dans un terminal (hyprpm demande le mot de passe) : hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins" "by hand, in a terminal (hyprpm asks for the password): hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins")"
             fi
         fi
     fi
