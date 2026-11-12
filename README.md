@@ -243,9 +243,20 @@ asks for the keyboard (the current one comes first), then the options to enable:
 `SUPER + L` lock, removing hyprpaper, the same keyboard system-wide, and
 replacing GDM (or SDDM, LightDM) with the hyprdesk login screen. Nothing
 changes before you confirm the summary; `hyprland.lua` is backed up before
-each edit. It ends with a report checked point by point (binary, service,
-Hyprland config without errors, start at login, keyboard, language, login
-screen). Without questions: `./scripts/install.sh --help` lists the same
+each edit. The install then runs in numbered steps with a progress bar,
+colours and icons; long commands (build, packages) show a spinner with their
+last output line, and their full output goes to
+`~/.local/state/hyprdesk/install-<date>.log`. If a step fails, the install
+stops and says which step, the last lines of the error, how to fix it, and
+that running it again is safe. It ends with a report checked point by point
+(binary, service, Hyprland config without errors, start at login, keyboard,
+language, login screen), then **what is left to do** for hyprdesk to run (log
+in to Hyprland, log back in after an update, reboot for the login screen…),
+each with the command to type, the optional extras (missing optional
+packages, `~/.local/bin` in `PATH`), and a verdict: running, installed with
+actions left, or not working yet. `--verbose` shows the full output instead
+of the log; `NO_COLOR=1` or `HYPRDESK_COLOR=0` turns colours off,
+`HYPRDESK_ASCII=1` uses ASCII icons. Without questions: `./scripts/install.sh --help` lists the same
 options (`--lang`, `--keyboard fr:azerty`, `--greeter`…).
 
 Then press `SUPER + D`. The default shortcuts are:

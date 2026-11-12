@@ -308,9 +308,22 @@ puis les options à activer : prérequis manquants, démarrage à la connexion,
 verrouillage `SUPER + L`, retrait de hyprpaper, même clavier pour le système,
 remplacement de GDM (ou SDDM, LightDM) par l'écran de connexion de hyprdesk.
 Rien n'est modifié avant la confirmation du récapitulatif, et `hyprland.lua`
-est sauvegardé avant chaque modification. Il se termine par un bilan vérifié
-point par point : binaire, service, configuration de Hyprland sans erreur,
-démarrage à la connexion, clavier, langue, écran de connexion.
+est sauvegardé avant chaque modification. L'installation se déroule ensuite
+en étapes numérotées, avec barre de progression, couleurs et icônes ; les
+commandes longues (compilation, paquets) tournent avec une animation, leur
+dernière ligne et le temps écoulé, et leur sortie complète va dans
+`~/.local/state/hyprdesk/install-<date>.log`. Si une étape échoue,
+l'installation s'arrête en disant laquelle, les dernières lignes de l'erreur,
+la piste de correction, et que la relancer est sans danger. Elle se termine
+par un bilan vérifié point par point (binaire, service, configuration de
+Hyprland sans erreur, démarrage à la connexion, clavier, langue, écran de
+connexion), puis **ce qu'il reste à faire** pour que hyprdesk tourne (ouvrir
+une session Hyprland, se reconnecter après une mise à jour, redémarrer pour
+l'écran de connexion…), chaque point avec sa commande, le facultatif (paquets
+facultatifs absents, `~/.local/bin` dans le `PATH`), et un verdict : en marche,
+installé avec des actions restantes, ou pas encore fonctionnel. `--verbose`
+montre toute la sortie au lieu du journal ; `NO_COLOR=1` ou `HYPRDESK_COLOR=0`
+retire les couleurs, `HYPRDESK_ASCII=1` passe les icônes en ASCII.
 
 Le script :
 - installe les prérequis absents (`scripts/deps.sh`) :

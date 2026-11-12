@@ -19,12 +19,9 @@
 #
 # HYPRDESK_NO_DEPS=1 (ou --no-deps pour install.sh) saute cette étape.
 
-# Messages : français ou anglais (UI de install.sh, sinon LANG).
-hyprdesk_t() {
-    local ui="${UI:-}"
-    [[ -n "$ui" ]] || { [[ "${LANG:-}" == fr* ]] && ui=fr || ui=en; }
-    if [[ "$ui" == en ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi
-}
+# Habillage (couleurs, icônes, étapes, attente) et hyprdesk_t.
+# shellcheck source=ui.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
 # Version minimale de Rust : celle de Cargo.toml.
 hyprdesk_rust_min() {
@@ -38,7 +35,7 @@ hyprdesk_version_ge() {
 
 # Version de rustc utilisée par cargo (vide si aucune).
 hyprdesk_rust_now() {
-    rustc --version 2>/dev/null | awk '{print $2}' | sed 's/-.*//'
+    rustc --version 2>/dev/null | awk '{print $2}' | sed 's/-.*//' || true
 }
 
 hyprdesk_pm() {
@@ -81,7 +78,7 @@ hyprdesk_root() {
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
     else
-        echo "!! $(hyprdesk_t "sudo introuvable : lancer en root « $* »" "sudo not found: run as root “$*”")" >&2
+        hd_die_line "$(hyprdesk_t "sudo introuvable : lancer en root « $* »" "sudo not found: run as root “$*”")"
         return 1
     fi
 }
@@ -123,66 +120,86 @@ hyprdesk_upgrade_hyprland() {
 # 1 sinon, 3 si seul Hyprland est trop ancien (l'assistant propose la mise à jour).
 hyprdesk_preflight() {
     local fails=0 only_hypr=1 hmin="${HYPRDESK_HYPRLAND_MIN:-0.57}" v run free
-    ok() { echo "  ✓ $1"; }
-    ko() { echo "  ✗ $1"; [ -n "${2:-}" ] && echo "      → $2"; fails=$((fails + 1)); [ "${3:-}" = hypr ] || only_hypr=0; }
-    warn() { echo "  • $1"; }
-    echo "== $(hyprdesk_t "contrôles préalables" "preflight checks")"
+    _pf_ko() { # _pf_ko <constat> [<marche à suivre>] [hypr]
+        hd_ko "$1"
+        [ -n "${2:-}" ] && hd_hint "$2"
+        fails=$((fails + 1))
+        [ "${3:-}" = hypr ] || only_hypr=0
+    }
+    # Titre d'étape, sauf si l'appelant l'a déjà posé (HD_PREFLIGHT_HEADER=0).
+    if [ "${HD_PREFLIGHT_HEADER:-1}" != 0 ]; then
+        hd_step "🔎" "Contrôles préalables" "Preflight checks" \
+            "Rien n'est modifié tant que ces critères de base ne sont pas tous remplis." \
+            "Nothing is changed until all these basic criteria are met."
+    fi
     if [ "$(id -u)" = 0 ]; then
-        ko "$(hyprdesk_t "lancé en root" "running as root")" \
-           "$(hyprdesk_t "lancer en utilisateur : sudo sera demandé quand il le faut" "run as your user: sudo is asked when needed")"
+        _pf_ko "$(hyprdesk_t "lancé en root" "running as root")" \
+            "$(hyprdesk_t "lancer en utilisateur : sudo sera demandé quand il le faut" "run as your user: sudo is asked when needed")"
     else
-        ok "$(hyprdesk_t "utilisateur" "user"): $(id -un)"
+        hd_ok "$(hyprdesk_t "utilisateur :" "user:") $(id -un)"
     fi
     case "$(uname -m)" in
-        x86_64|aarch64) ok "$(hyprdesk_t "architecture" "architecture"): $(uname -m)" ;;
-        *) ko "$(hyprdesk_t "architecture non prise en charge" "unsupported architecture"): $(uname -m)" ;;
+        x86_64|aarch64) hd_ok "$(hyprdesk_t "architecture :" "architecture:") $(uname -m)" ;;
+        *) _pf_ko "$(hyprdesk_t "architecture non prise en charge :" "unsupported architecture:") $(uname -m)" \
+            "$(hyprdesk_t "hyprdesk se construit pour x86_64 et aarch64" "hyprdesk builds for x86_64 and aarch64")" ;;
     esac
     if systemctl --user show-environment >/dev/null 2>&1; then
-        ok "$(hyprdesk_t "systemd utilisateur" "systemd user manager")"
+        hd_ok "$(hyprdesk_t "systemd utilisateur" "systemd user manager")"
     else
-        ko "$(hyprdesk_t "systemd utilisateur injoignable" "systemd user manager unreachable")" \
-           "$(hyprdesk_t "lancer depuis une session ouverte (pas su/sudo -i)" "run from a logged-in session (not su/sudo -i)")"
+        _pf_ko "$(hyprdesk_t "systemd utilisateur injoignable" "systemd user manager unreachable")" \
+            "$(hyprdesk_t "lancer depuis une session ouverte (pas su ni sudo -i)" "run from a logged-in session (not su or sudo -i)")"
     fi
     v="$(hyprdesk_hyprland_installed || true)"
     if [ -z "$v" ]; then
-        ko "$(hyprdesk_t "Hyprland absent" "Hyprland not installed")" \
-           "$(hyprdesk_t "installer Hyprland $hmin ou plus (paquet hyprland)" "install Hyprland $hmin or newer (hyprland package)")" hypr
+        _pf_ko "$(hyprdesk_t "Hyprland absent" "Hyprland not installed")" \
+            "$(hyprdesk_t "installer Hyprland $hmin ou plus (paquet hyprland), puis relancer" "install Hyprland $hmin or newer (hyprland package), then run again")" hypr
     elif ! hyprdesk_version_ge "$v" "$hmin"; then
-        ko "$(hyprdesk_t "Hyprland $v installé : $hmin ou plus requis" "Hyprland $v installed: $hmin or newer required")" \
-           "$(hyprdesk_t "mettre à jour (Arch : sudo pacman -Syu), se reconnecter, relancer l'installation" "update it (Arch: sudo pacman -Syu), log out and back in, run the install again")" hypr
+        _pf_ko "$(hyprdesk_t "Hyprland $v installé : $hmin ou plus requis" "Hyprland $v installed: $hmin or newer required")" \
+            "$(hyprdesk_t "mettre à jour (Arch : sudo pacman -Syu), se reconnecter, relancer l'installation" "update it (Arch: sudo pacman -Syu), log out and back in, run the install again")" hypr
     else
-        ok "Hyprland $v (≥ $hmin)"
+        hd_ok "Hyprland $v $(hyprdesk_t "installé" "installed") (≥ $hmin)"
     fi
     run="$(hyprdesk_hyprland_running || true)"
     if [ -z "$run" ]; then
-        warn "$(hyprdesk_t "hors d'une session Hyprland : hyprdesk démarrera à la prochaine connexion" "outside a Hyprland session: hyprdesk starts at next login")"
+        hd_warn "$(hyprdesk_t "hors d'une session Hyprland : hyprdesk démarrera à la prochaine connexion" "outside a Hyprland session: hyprdesk starts at next login")"
     elif ! hyprdesk_version_ge "$run" "$hmin"; then
-        ko "$(hyprdesk_t "session en Hyprland $run : $hmin ou plus requis" "session runs Hyprland $run: $hmin or newer required")" \
-           "$(hyprdesk_t "se reconnecter pour passer à la version installée, puis relancer" "log out and back in to run the installed version, then run again")" hypr
+        _pf_ko "$(hyprdesk_t "session en Hyprland $run : $hmin ou plus requis" "session runs Hyprland $run: $hmin or newer required")" \
+            "$(hyprdesk_t "se reconnecter pour passer à la version installée, puis relancer" "log out and back in to run the installed version, then run again")" hypr
     else
-        ok "$(hyprdesk_t "session Hyprland" "Hyprland session") $run"
+        hd_ok "$(hyprdesk_t "session Hyprland" "Hyprland session") $run"
     fi
-    if [ "${HYPRDESK_NO_DEPS:-0}" != 1 ] && [ -z "$(hyprdesk_pm)" ]; then
-        ko "$(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper)" "unknown package manager (pacman, apt, dnf, zypper)")" \
-           "$(hyprdesk_t "installer les prérequis à la main, puis relancer avec --no-deps" "install the prerequisites by hand, then run with --no-deps")"
+    if [ "${HYPRDESK_NO_DEPS:-0}" != 1 ]; then
+        if [ -z "$(hyprdesk_pm)" ]; then
+            _pf_ko "$(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper)" "unknown package manager (pacman, apt, dnf, zypper)")" \
+                "$(hyprdesk_t "installer les prérequis à la main, puis relancer avec --no-deps" "install the prerequisites by hand, then run with --no-deps")"
+        else
+            hd_ok "$(hyprdesk_t "gestionnaire de paquets :" "package manager:") $(hyprdesk_pm)"
+        fi
     fi
     free="$(df -Pk "${HYPRDESK_ROOT:-.}" 2>/dev/null | awk 'NR == 2 {print int($4 / 1048576)}')"
     if [ -n "$free" ] && [ "$free" -lt 4 ]; then
-        ko "$(hyprdesk_t "espace libre : $free Gio (4 Gio requis pour la compilation)" "free space: $free GiB (4 GiB needed to build)")"
+        _pf_ko "$(hyprdesk_t "espace libre : $free Gio (4 Gio requis pour la compilation)" "free space: $free GiB (4 GiB needed to build)")" \
+            "$(hyprdesk_t "libérer de la place (cargo clean dans d'anciens projets, cache des paquets…)" "free some space (cargo clean in old projects, package cache…)")"
     else
-        ok "$(hyprdesk_t "espace libre" "free space"): ${free:-?} $(hyprdesk_t "Gio" "GiB")"
+        hd_ok "$(hyprdesk_t "espace libre :" "free space:") ${free:-?} $(hyprdesk_t "Gio" "GiB")"
     fi
     if command -v curl >/dev/null 2>&1; then
-        if curl -sfSo /dev/null --max-time 8 https://index.crates.io/config.json \
-            && curl -sfSo /dev/null --max-time 8 https://github.com; then
-            ok "$(hyprdesk_t "réseau (crates.io, GitHub)" "network (crates.io, GitHub)")"
+        if curl -sfSo /dev/null --max-time 8 https://index.crates.io/config.json 2>/dev/null \
+            && curl -sfSo /dev/null --max-time 8 https://github.com 2>/dev/null; then
+            hd_ok "$(hyprdesk_t "réseau (crates.io, GitHub)" "network (crates.io, GitHub)")"
         else
-            ko "$(hyprdesk_t "crates.io ou GitHub injoignable" "crates.io or GitHub unreachable")" \
-               "$(hyprdesk_t "la compilation télécharge ses dépendances : vérifier la connexion" "the build downloads its dependencies: check the connection")"
+            _pf_ko "$(hyprdesk_t "crates.io ou GitHub injoignable" "crates.io or GitHub unreachable")" \
+                "$(hyprdesk_t "la compilation télécharge ses dépendances : vérifier la connexion" "the build downloads its dependencies: check the connection")"
         fi
+    else
+        hd_warn "$(hyprdesk_t "curl absent : réseau non vérifié (curl sera installé avec les prérequis)" "no curl: network not checked (curl is installed with the prerequisites)")"
     fi
+    unset -f _pf_ko
     if [ "$fails" -gt 0 ]; then
-        echo "!! $(hyprdesk_t "installation arrêtée avant toute modification : $fails critère(s) non rempli(s)" "install stopped before changing anything: $fails check(s) failed")" >&2
+        hd_panel "$C_RED" \
+            "$C_RED$C_BOLD$I_KO $(hyprdesk_t "Installation arrêtée avant toute modification" "Install stopped before changing anything")$C_RESET" \
+            "$(hyprdesk_t "$fails critère(s) non rempli(s) : suivez les ➜ ci-dessus, puis relancez" "$fails check(s) failed: follow the ➜ above, then run again")" \
+            "$C_BOLD./scripts/installer.sh$C_RESET"
         [ "$only_hypr" = 1 ] && return 3
         return 1
     fi
@@ -192,31 +209,36 @@ hyprdesk_preflight() {
 hyprdesk_deps() {
     local dry=0
     [ "${1:-}" = "--dry-run" ] && dry=1
+    hd_step "📦" "Prérequis de construction" "Build prerequisites" \
+        "Paquets système, Hyprland ${HYPRDESK_HYPRLAND_MIN:-0.57}+, Rust récente : seul ce qui manque est installé." \
+        "System packages, Hyprland ${HYPRDESK_HYPRLAND_MIN:-0.57}+, recent Rust: only what is missing gets installed."
+    HD_HINT="$(hyprdesk_t "un prérequis n'a pas pu s'installer : vérifiez la connexion et le gestionnaire de paquets, ou installez-le à la main puis relancez avec --no-deps" \
+                         "a prerequisite could not be installed: check the connection and the package manager, or install it by hand and run again with --no-deps")"
     if [ "${HYPRDESK_NO_DEPS:-0}" = 1 ]; then
-        echo "== $(hyprdesk_t "prérequis : non vérifiés (HYPRDESK_NO_DEPS=1)" "prerequisites: not checked (HYPRDESK_NO_DEPS=1)")"
+        hd_warn "$(hyprdesk_t "non vérifiés (--no-deps) : la compilation dira s'il manque quelque chose" "not checked (--no-deps): the build will tell if something is missing")"
         return 0
     fi
-    echo "== $(hyprdesk_t "prérequis de construction" "build prerequisites")"
 
     # -- Paquets système ------------------------------------------------------
     local pm missing
     pm="$(hyprdesk_pm)"
     if [ -z "$pm" ]; then
-        echo "   $(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper) :" "unknown package manager (pacman, apt, dnf, zypper):")"
-        echo "   $(hyprdesk_t "il faut un compilateur C, pkg-config, PAM (développement), Wayland," "needed: a C compiler, pkg-config, PAM (development), Wayland,")"
-        echo "   $(hyprdesk_t "xkbcommon, Vulkan, EGL, fontconfig et xdg-utils." "xkbcommon, Vulkan, EGL, fontconfig and xdg-utils.")"
+        hd_warn "$(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper)" "unknown package manager (pacman, apt, dnf, zypper)")"
+        hd_hint "$(hyprdesk_t "il faut un compilateur C, pkg-config, PAM (développement), Wayland, xkbcommon, Vulkan, EGL, fontconfig et xdg-utils" \
+                             "needed: a C compiler, pkg-config, PAM (development), Wayland, xkbcommon, Vulkan, EGL, fontconfig and xdg-utils")"
     else
         # shellcheck disable=SC2046
         missing="$(hyprdesk_missing "$pm" $(hyprdesk_packages "$pm") | tr '\n' ' ' | sed 's/ *$//')"
         if [ -z "$missing" ]; then
-            echo "   $(hyprdesk_t "paquets système : présents ($pm)" "system packages: present ($pm)")"
+            hd_ok "$(hyprdesk_t "paquets système présents" "system packages present") ($pm)"
         elif [ "$dry" = 1 ]; then
-            echo "   $(hyprdesk_t "à installer ($pm) : $missing" "to install ($pm): $missing")"
+            hd_info "$(hyprdesk_t "à installer" "to install") ($pm) : $missing"
         else
-            echo "   $(hyprdesk_t "installation ($pm) : $missing" "installing ($pm): $missing")"
+            hd_info "$(hyprdesk_t "manquants" "missing") : $C_BOLD$missing$C_RESET"
+            hd_sudo_ready "$(hyprdesk_t "installer les paquets" "install the packages")" || return 1
             # shellcheck disable=SC2086
-            hyprdesk_install_packages "$pm" $missing || {
-                echo "!! $(hyprdesk_t "installation des paquets impossible : $missing" "could not install packages: $missing")" >&2
+            hd_run "$(hyprdesk_t "installation des paquets" "installing packages") ($pm)" hyprdesk_install_packages "$pm" $missing || {
+                hd_hint "$(hyprdesk_t "à la main :" "by hand:") $(hyprdesk_install_hint "$pm") $missing"
                 return 1
             }
         fi
@@ -227,24 +249,26 @@ hyprdesk_deps() {
     # raccourcis. Mis à jour par la distribution ; la session en cours garde
     # l'ancien jusqu'à la reconnexion.
     local hmin="${HYPRDESK_HYPRLAND_MIN:-0.57}" hnow=""
-    command -v Hyprland >/dev/null 2>&1 \
-        && hnow="$(Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//')"
+    hnow="$(hyprdesk_hyprland_installed || true)"
     if [ -n "$hnow" ] && hyprdesk_version_ge "$hnow" "$hmin"; then
-        echo "   Hyprland $hnow (≥ $hmin)"
+        hd_ok "Hyprland $hnow (≥ $hmin)"
     elif [ -n "$pm" ]; then
-        echo "   $(hyprdesk_t "Hyprland ${hnow:-absent} : $hmin ou plus est requis" "Hyprland ${hnow:-missing}: $hmin or newer is required")"
+        hd_warn "$(hyprdesk_t "Hyprland ${hnow:-absent} : $hmin ou plus est requis" "Hyprland ${hnow:-missing}: $hmin or newer is required")"
         if [ "$dry" = 1 ]; then
             case "$pm" in
-                pacman) echo "   $(hyprdesk_t "mettrait le système à jour (pacman -Syu hyprland : Arch n'accepte pas de mise à jour partielle)" "would update the system (pacman -Syu hyprland: Arch does not support partial upgrades)")" ;;
-                *) echo "   $(hyprdesk_t "mettrait hyprland à jour ($pm)" "would update hyprland ($pm)")" ;;
+                pacman) hd_info "$(hyprdesk_t "mettrait le système à jour (pacman -Syu hyprland : Arch n'accepte pas de mise à jour partielle)" "would update the system (pacman -Syu hyprland: Arch does not support partial upgrades)")" ;;
+                *) hd_info "$(hyprdesk_t "mettrait hyprland à jour ($pm)" "would update hyprland ($pm)")" ;;
             esac
         else
-            hyprdesk_upgrade_hyprland "$pm" || true
-            hnow="$(Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//')"
+            hd_sudo_ready "$(hyprdesk_t "mettre Hyprland à jour" "update Hyprland")" || return 1
+            hd_run "$(hyprdesk_t "mise à jour de Hyprland" "updating Hyprland") ($pm)" hyprdesk_upgrade_hyprland "$pm" || true
+            hnow="$(hyprdesk_hyprland_installed || true)"
             if [ -n "$hnow" ] && hyprdesk_version_ge "$hnow" "$hmin"; then
-                echo "   $(hyprdesk_t "Hyprland $hnow installé : reconnectez-vous pour l'utiliser" "Hyprland $hnow installed: log out and back in to use it")"
+                hd_ok "$(hyprdesk_t "Hyprland $hnow installé" "Hyprland $hnow installed")"
+                hd_hint "$(hyprdesk_t "reconnectez-vous ensuite pour l'utiliser" "log out and back in afterwards to use it")"
             else
-                echo "!! $(hyprdesk_t "Hyprland ${hnow:-absent} : la distribution ne fournit pas encore $hmin ; hyprdesk refusera de démarrer" "Hyprland ${hnow:-missing}: the distribution does not ship $hmin yet; hyprdesk will refuse to start")" >&2
+                hd_ko "$(hyprdesk_t "Hyprland ${hnow:-absent} : la distribution ne fournit pas encore $hmin" "Hyprland ${hnow:-missing}: the distribution does not ship $hmin yet")"
+                hd_hint "$(hyprdesk_t "hyprdesk refusera de démarrer tant que Hyprland n'est pas en $hmin" "hyprdesk will refuse to start until Hyprland is $hmin")"
             fi
         fi
     fi
@@ -254,15 +278,15 @@ hyprdesk_deps() {
     min="$(hyprdesk_rust_min)"
     now="$(hyprdesk_rust_now)"
     if [ -n "$now" ] && hyprdesk_version_ge "$now" "$min"; then
-        echo "   Rust $now (≥ $min)"
+        hd_ok "Rust $now (≥ $min)"
         return 0
     fi
-    echo "   $(hyprdesk_t "Rust ${now:-absente} : $min ou plus est requise" "Rust ${now:-missing}: $min or newer is required")"
+    hd_warn "$(hyprdesk_t "Rust ${now:-absente} : $min ou plus est requise" "Rust ${now:-missing}: $min or newer is required")"
     if [ "$dry" = 1 ]; then
         if command -v rustup >/dev/null 2>&1; then
-            echo "   $(hyprdesk_t "rustup : installerait la toolchain stable et l'utiliserait" "rustup: would install and use the stable toolchain")"
+            hd_info "$(hyprdesk_t "rustup : installerait la toolchain stable et l'utiliserait" "rustup: would install and use the stable toolchain")"
         else
-            echo "   $(hyprdesk_t "installerait rustup dans ~/.cargo (sans sudo), toolchain stable" "would install rustup in ~/.cargo (no sudo), stable toolchain")"
+            hd_info "$(hyprdesk_t "installerait rustup dans ~/.cargo (sans sudo), toolchain stable" "would install rustup in ~/.cargo (no sudo), stable toolchain")"
         fi
         return 0
     fi
@@ -270,16 +294,16 @@ hyprdesk_deps() {
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
     if ! command -v rustup >/dev/null 2>&1; then
-        echo "   $(hyprdesk_t "installation de rustup dans ~/.cargo (https://sh.rustup.rs)" "installing rustup in ~/.cargo (https://sh.rustup.rs)")"
         # Rust de la distribution déjà là : rustup s'installe à côté, sans la retirer.
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | RUSTUP_INIT_SKIP_PATH_CHECK=yes sh -s -- -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null || {
-            echo "!! $(hyprdesk_t "installation de rustup impossible" "could not install rustup")" >&2
+        hd_run "$(hyprdesk_t "installation de rustup dans ~/.cargo (sans sudo)" "installing rustup in ~/.cargo (no sudo)")" \
+            bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_INIT_SKIP_PATH_CHECK=yes sh -s -- -y -q --profile minimal --default-toolchain stable --no-modify-path" || {
+            hd_hint "$(hyprdesk_t "voir https://rustup.rs, puis relancer" "see https://rustup.rs, then run again")"
             return 1
         }
         export PATH="$HOME/.cargo/bin:$PATH"
     else
-        rustup -q toolchain install stable --profile minimal || return 1
+        hd_run "$(hyprdesk_t "Rust stable par rustup" "Rust stable through rustup")" \
+            rustup -q toolchain install stable --profile minimal || return 1
     fi
     # Cette construction utilise la stable de rustup, même si la toolchain par
     # défaut, ou la Rust de la distribution (/usr/bin), reste plus ancienne.
@@ -287,13 +311,24 @@ hyprdesk_deps() {
     export RUSTUP_TOOLCHAIN=stable
     now="$(hyprdesk_rust_now)"
     if [ -z "$now" ] || ! hyprdesk_version_ge "$now" "$min"; then
-        echo "!! $(hyprdesk_t "Rust ${now:-absente} après installation, $min requise" "Rust ${now:-missing} after installing, $min required")" >&2
+        hd_ko "$(hyprdesk_t "Rust ${now:-absente} après installation, $min requise" "Rust ${now:-missing} after installing, $min required")"
         return 1
     fi
-    echo "   $(hyprdesk_t "Rust $now (stable de rustup)" "Rust $now (rustup stable)")"
+    hd_ok "$(hyprdesk_t "Rust $now (stable de rustup)" "Rust $now (rustup stable)")"
     case ":$PATH:" in
         *":$HOME/.cargo/bin:"*) ;;
-        *) echo "   $(hyprdesk_t "(ajoutez ~/.cargo/bin à votre PATH pour les prochaines constructions)" "(add ~/.cargo/bin to your PATH for future builds)")" ;;
+        *) hd_note "$(hyprdesk_t "(ajoutez ~/.cargo/bin à votre PATH pour les prochaines constructions)" "(add ~/.cargo/bin to your PATH for future builds)")" ;;
+    esac
+}
+
+# Commande d'installation à proposer à la main, selon le gestionnaire.
+hyprdesk_install_hint() {
+    case "${1:-$(hyprdesk_pm)}" in
+        pacman) echo "sudo pacman -S --needed" ;;
+        apt-get) echo "sudo apt install" ;;
+        dnf) echo "sudo dnf install" ;;
+        zypper) echo "sudo zypper install" ;;
+        *) echo "sudo <gestionnaire> install" ;;
     esac
 }
 
