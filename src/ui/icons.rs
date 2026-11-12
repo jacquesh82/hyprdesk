@@ -190,6 +190,8 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "edit-paste" => {
             r#"<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>"#
         }
+        // Démarrage automatique : le symbole marche.
+        "hyprdesk-autostart" => r#"<path d="M12 3v8M7 5.8a8 8 0 1 0 10 0"/>"#,
         // Clavier : un rectangle et ses rangées de touches.
         "input-keyboard" => {
             r#"<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>"#

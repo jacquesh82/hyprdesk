@@ -35,6 +35,19 @@ fn state_path() -> PathBuf {
         .join("bar-offered")
 }
 
+/// Premier démarrage du démon sur ce compte : ni `first-start` ni
+/// `bar-offered` (écrit à chaque démarrage par `run`) dans le dossier d'état.
+/// À appeler avant `run` ; le marqueur `first-start` est posé aussitôt.
+pub fn first_start() -> bool {
+    let dir = state_path();
+    let dir = dir.parent().unwrap_or(Path::new("."));
+    let marker = dir.join("first-start");
+    let first = !marker.exists() && !dir.join("bar-offered").exists();
+    let _ = std::fs::create_dir_all(dir);
+    let _ = std::fs::write(&marker, "");
+    first
+}
+
 /// Ajoute à la barre les modules `ids` qui n'y sont pas ; vrai si elle a changé.
 pub fn insert(bar: &mut BarSettings, ids: &[&str]) -> bool {
     let present = |b: &BarSettings, id: &str| {

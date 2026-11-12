@@ -97,6 +97,14 @@ saves on its own**. The header has a guided tour and an "Advanced
 configuration" switch that reveals the expert pages. "Ask LYRA" buttons appear
 wherever something needs sorting out.
 
+They open by themselves the first time hyprdesk starts. **Autostart** (Apps
+group) lists what starts with the session: programs hyprdesk starts (pick an
+application or type a command; kept in `autostart.lua`, loaded by
+`require("autostart")`), the lines of the `hl.on("hyprland.start", …)` block
+of `hyprland.lua`, turned off or back on by commenting them (the lines that
+prepare the session stay locked; `hyprland.lua` is backed up first), and the
+XDG applications (`~/.config/autostart`). "Run" tries a command right away.
+
 <table>
   <tr>
     <td width="50%" valign="top"><img src="assets/screenshots/settings-desktop.png" alt="Settings → Desktop"><br><sub><b>Desktop</b> — screens shown, desktop mode, shortcuts and their conflicts with hyprland.lua</sub></td>
@@ -158,7 +166,9 @@ everything she needs to help.
 </p>
 
 LYRA herself (`hyprpanel-chat`) comes from
-[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). The install script builds and installs her by default
+(`--no-lyra` to skip; `HYPRDESK_LYRA_REF` picks the branch), with her
+integration service, which starts with hyprdesk.
 Without her, hyprdesk works the same; only the AI features stay off.
 
 ## Widgets and plugins
@@ -241,7 +251,9 @@ if it is older, it offers to update it, then you log back in), a known package
 manager, 4 GiB free to build, network access to crates.io and GitHub. It then
 asks for the keyboard (the current one comes first), then the options to enable: missing prerequisites, start at login,
 `SUPER + L` lock, removing hyprpaper, the same keyboard system-wide, and
-replacing GDM (or SDDM, LightDM) with the hyprdesk login screen. Nothing
+replacing GDM (or SDDM, LightDM) with the hyprdesk login screen (hyprdesk
+logo, and its own wallpaper, landscape or portrait to match the screen, unless
+you pick one in Settings → Login screen). Nothing
 changes before you confirm the summary; `hyprland.lua` is backed up before
 each edit. The install then runs in numbered steps with a progress bar,
 colours and icons; long commands (build, packages) show a spinner with their
@@ -265,7 +277,8 @@ of the log; `NO_COLOR=1` or `HYPRDESK_COLOR=0` turns colours off,
 `HYPRDESK_ASCII=1` uses ASCII icons. Without questions: `./scripts/install.sh --help` lists the same
 options (`--lang`, `--keyboard fr:azerty`, `--greeter`…).
 
-Then press `SUPER + D`. The default shortcuts are:
+The default configuration shows the bar at the top in every mode. Then press
+`SUPER + D`. The default shortcuts are:
 
 | Shortcut | Action |
 |---|---|

@@ -76,7 +76,7 @@ pub enum Msg {
     Demo,
 }
 
-/// Entrée de la liste des fonds (aucun : couleur du thème).
+/// Entrée de la liste des fonds (aucun : celui livré avec hyprdesk).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WallChoice(pub Option<PathBuf>);
 
@@ -84,7 +84,7 @@ impl std::fmt::Display for WallChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
             Some(p) => f.write_str(&p.file_name().unwrap_or_default().to_string_lossy()),
-            None => f.write_str(crate::i18n::tr("Aucun (couleur du thème)")),
+            None => f.write_str(crate::i18n::tr("Celui de hyprdesk (par défaut)")),
         }
     }
 }
@@ -560,7 +560,7 @@ impl App {
         match m {
             Msg::Loaded(s, k, images, screens) => {
                 // Empreinte et fond : ceux du profil installé tant qu'on n'y a
-                // pas touché ; sans profil, le fond par défaut du bureau.
+                // pas touché ; sans profil, le fond livré avec hyprdesk.
                 if !p.login.status.loaded {
                     p.login.fingerprint = s.profile.as_ref().is_some_and(|p| p.fingerprint);
                     p.login.wallpaper_vertical = s
@@ -575,18 +575,11 @@ impl App {
                         .filter(|n| !n.is_empty())
                         .or_else(|| self.cfg.general.primary.clone())
                         .unwrap_or_default();
-                    p.login.wallpaper = match &s.profile {
-                        Some(pr) => Some(PathBuf::from(&pr.wallpaper_source))
-                            .filter(|w| !w.as_os_str().is_empty()),
-                        None => self.cfg.wallpapers.iter().find_map(|w| match &w.source {
-                            crate::config::WallSource::Path(path)
-                                if w.sel == crate::config::Selector::default() =>
-                            {
-                                Some(path.clone())
-                            }
-                            _ => None,
-                        }),
-                    };
+                    p.login.wallpaper = s
+                        .profile
+                        .as_ref()
+                        .map(|pr| PathBuf::from(&pr.wallpaper_source))
+                        .filter(|w| !w.as_os_str().is_empty());
                 }
                 p.login.images = images;
                 p.login.screens = screens;

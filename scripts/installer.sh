@@ -315,7 +315,15 @@ else
         fi
     fi
 fi
+# LYRA : proposée (cochée) si elle n'est pas déjà là.
+LYRA_ITEM=(lyra "$(t "Installer LYRA, l'assistante IA (compilée depuis GitHub, 3 à 8 min)" "Install LYRA, the AI assistant (built from GitHub, 3 to 8 min)")" on)
+LYRA_STATE=""
+if command -v hyprpanel-chat >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/hyprpanel-chat" ]]; then
+    LYRA_ITEM=()
+    LYRA_STATE="$(t "déjà installée" "already installed")"
+fi
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher, Entrée : suivant)" "Options to enable (space: toggle, Enter: next)")" \
+    "${LYRA_ITEM[@]}" \
     deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
     autostart "$(t "Démarrer hyprdesk à la connexion" "Start hyprdesk at login")" on \
     lockkey "$(t "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk")" on \
@@ -334,11 +342,13 @@ has lockkey || ARGS+=(--no-lock-key)
 has hyprpaper && ARGS+=(--remove-hyprpaper)
 has syskb && ARGS+=(--system-keyboard)
 if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
+[[ ${#LYRA_ITEM[@]} -eq 0 ]] || has lyra || ARGS+=(--no-lyra)
 # Colonnes alignées en caractères (printf et ${#x} peuvent compter des octets).
 row() { local n=$((28 - $(hd_strlen "$1"))); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }
 SUMMARY="$(t "Contrôles préalables : tout est en ordre ✔" "Preflight checks: all good ✔")
 
 $(row "$(t "Langue" "Language")" "$LANG_CHOICE")
+$(row "LYRA" "$( [[ ${#LYRA_ITEM[@]} -eq 0 ]] && echo "$LYRA_STATE" || yes_no lyra)")
 $(row "$(t "Clavier" "Keyboard")" "$KEYBOARD")
 $(row "$(t "Prérequis manquants" "Missing prerequisites")" "$(yes_no deps)")
 $(row "$(t "Démarrage à la connexion" "Start at login")" "$(yes_no autostart)")

@@ -31,7 +31,8 @@ hyprdesk est la **racine** de la session graphique.
 - **Racine de session.** hyprdesk lance et supervise les composants déclarés
   avec `hd.component`. Il les relance s'ils plantent et les arrête avec lui.
 - **Barre native.** `hd.bar` affiche une barre au-dessus des fenêtres, avec
-  sa zone réservée. Les fenêtres et la grille du bureau se rangent à côté.
+  sa zone réservée, dans tous les modes ; la configuration par défaut l'active.
+  Les fenêtres et la grille du bureau se rangent à côté.
   - Ses modules sont des widgets : workspaces, fenêtre active, volume,
     bouton bureau, et tout widget ou plugin en version compacte.
   - Elle se règle aussi dans Réglages → Barre.
@@ -49,7 +50,8 @@ Chaque entrée des réglages est un **paquet intégré** (manifeste, messages,
 
 Le bouton ⚙ du dock, ou `hyprdesk settings [bureau|icones|fond|effets]`, ouvre
 un panneau par-dessus le bureau, sur l'écran du clic (l'écran actif pour un
-raccourci ou une commande). Il regroupe les réglages suivants :
+raccourci ou une commande). Il s'ouvre de lui-même au premier démarrage de
+hyprdesk. Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
@@ -70,9 +72,10 @@ raccourci ou une commande). Il regroupe les réglages suivants :
 | | Réseau · Bluetooth | Wi-Fi, Ethernet, VPN, mode avion ; appareils Bluetooth |
 | | Clavier et souris | dispositions et variantes, répétition, Verr. Num., souris et pavé tactile, zone d'essai (écrit dans `inputs.lua`) |
 | | Énergie · Date et heure | profils d'énergie, veille ; fuseau, format, synchronisation |
-| | Écran de connexion | greetd et l'écran de connexion de hyprdesk à la place de GDM |
+| | Écran de connexion | greetd et l'écran de connexion de hyprdesk à la place de GDM ; logo de hyprdesk, fond livré (horizontal ou vertical selon l'écran) ou une image de la bibliothèque |
 | | Mots de passe | trousseau myMFA (codes 2FA, mots de passe), reprise de gnome-keyring |
 | Applications | Applications | application par défaut d'un rôle (navigateur, terminal, images, vidéo, assistant IA…) |
+| | Démarrage automatique | **Hyprland** : programmes lancés par hyprdesk (application de la liste ou commande, dans `autostart.lua`) et lignes du bloc `hl.on("hyprland.start", …)` de `hyprland.lua`, coupées ou rétablies en les commentant (préparation de la session verrouillée, copie de sauvegarde d'abord), « Lancer » pour essayer ; **Applications (XDG)** : `~/.config/autostart` |
 | | IA | **Assistant** (LYRA : abonnement, ouverture, contexte) ; **Autres services IA** (fournisseurs, et le fournisseur de chaque fonction) ; **SmartUI design** (icônes unifiées par l'IA) — voir [LYRA, IA embarquée](#lyra-ia-embarquée) |
 | Système | Verrouillage | écran de verrouillage : fond, contenus affichés, verrouiller maintenant |
 | | Partage * | exporter/importer tout son setup, ou le thème seul |
@@ -159,7 +162,9 @@ fonctions IA restent éteintes.
 </p>
 
 LYRA elle-même (`hyprpanel-chat`) vient de
-[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
+[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). Le script d'installation la compile et l'installe par
+défaut (`--no-lyra` pour s'en passer ; `HYPRDESK_LYRA_REF` choisit la
+branche), avec son service d'intégration, qui démarre avec hyprdesk.
 
 <p align="center">
   <img src="assets/screenshots/assistant-settings.png" width="480" alt="Réglages → IA → Assistant : abonnement de LYRA (Claude Code, Codex, Zcode), ouverture, contexte">

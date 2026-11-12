@@ -60,12 +60,12 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 
 -- Native bar (or Settings ⚙ → Bar): above the windows, reserved area.
 -- Modules: "workspaces", "window", "volume", "desktop", or any widget/plugin.
--- hd.bar({
---     position = "top", height = 36,
---     left   = { "workspaces", "window" },
---     center = { { "clock", format = "%a %d %b  %H:%M" } },
---     right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
--- })
+hd.bar({
+    position = "top", height = 36,
+    left   = { "workspaces", "window" },
+    center = { { "clock", format = "%a %d %b  %H:%M" } },
+    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
+})
 
 -- Session: components launched and supervised by hyprdesk (restarted if they
 -- crash, stopped along with it). Remove them from Hyprland's autostart then.

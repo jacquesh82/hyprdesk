@@ -105,9 +105,18 @@ pub struct Greeter {
     stream: Arc<Mutex<Option<UnixStream>>>,
     /// Démo sans greetd (`--demo`).
     demo: bool,
-    /// Fond (copie posée par Réglages → Écran de connexion).
+    /// Fond : la copie posée par Réglages → Écran de connexion, sinon celui
+    /// de hyprdesk (horizontal ou vertical selon l'écran).
     wallpaper: Option<image::Handle>,
+    /// Logo de hyprdesk, en haut à gauche.
+    logo: image::Handle,
 }
+
+/// Fonds et logo livrés avec hyprdesk (dans le binaire : le greeter n'a
+/// accès à aucun fichier de l'utilisateur).
+pub const DEFAULT_WALLPAPER: &[u8] = include_bytes!("../assets/greeter/fond.jpg");
+pub const DEFAULT_WALLPAPER_VERTICAL: &[u8] = include_bytes!("../assets/greeter/fond-vertical.jpg");
+pub const LOGO: &[u8] = include_bytes!("../assets/greeter/logo.png");
 
 fn rgba(c: crate::config::Rgba, a: f32) -> Color {
     Color::from_rgba8(c.0, c.1, c.2, (c.3 as f32 / 255.0) * a)
@@ -147,12 +156,16 @@ impl Greeter {
         // y en a un), sinon le fond ordinaire.
         let vertical = crate::greeter_setup::login_monitor(&profile).is_some_and(|m| m.vertical());
         let usable = |w: &String| !w.is_empty() && std::path::Path::new(w).is_file();
-        let wallpaper = if vertical && usable(&profile.wallpaper_vertical) {
+        let chosen = if vertical && usable(&profile.wallpaper_vertical) {
             Some(profile.wallpaper_vertical.clone())
         } else {
             Some(profile.wallpaper.clone()).filter(usable)
-        }
-        .map(image::Handle::from_path);
+        };
+        let wallpaper = Some(match chosen {
+            Some(path) => image::Handle::from_path(path),
+            None if vertical => image::Handle::from_bytes(DEFAULT_WALLPAPER_VERTICAL),
+            None => image::Handle::from_bytes(DEFAULT_WALLPAPER),
+        });
         let last = read_last();
         let session = sessions
             .iter()
@@ -176,6 +189,7 @@ impl Greeter {
             stream: Arc::new(Mutex::new(None)),
             demo: false,
             wallpaper,
+            logo: image::Handle::from_bytes(LOGO),
         }
     }
 
@@ -217,6 +231,8 @@ impl Greeter {
                 wayland: true,
             },
         ];
+        // Aperçu de la documentation : le fond livré, pas celui du poste.
+        g.wallpaper = Some(image::Handle::from_bytes(DEFAULT_WALLPAPER));
         g.user = "jacques".into();
         g.answer = "secret".into();
         g.phase = Phase::Ask(AuthKind::Secret, "Mot de passe :".into());
@@ -604,7 +620,12 @@ impl Greeter {
                 .into(),
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        container(stack![back, overlay])
+        // Logo en haut à gauche, à la largeur de la zone de connexion.
+        let logo = container(image(self.logo.clone()).width(300))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(48);
+        container(stack![back, logo, overlay])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| container::Style {

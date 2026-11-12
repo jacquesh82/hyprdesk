@@ -47,10 +47,10 @@ hyprdesk_pm() {
 # Paquets requis par gestionnaire.
 hyprdesk_packages() {
     case "$1" in
-        pacman) echo "base-devel pkgconf pam wayland libxkbcommon vulkan-icd-loader libglvnd fontconfig xdg-utils curl" ;;
-        apt-get) echo "build-essential pkg-config libpam0g-dev libxkbcommon-dev libwayland-dev libwayland-client0 libwayland-egl1 libxkbcommon0 libvulkan1 libegl1 fontconfig xdg-utils curl ca-certificates" ;;
-        dnf) echo "gcc make pkgconf-pkg-config pam-devel libxkbcommon-devel wayland-devel libwayland-client libwayland-egl libxkbcommon vulkan-loader libglvnd-egl fontconfig xdg-utils curl" ;;
-        zypper) echo "gcc make pkg-config pam-devel libxkbcommon-devel wayland-devel libwayland-client0 libwayland-egl1 libxkbcommon0 libvulkan1 libEGL1 fontconfig xdg-utils curl" ;;
+        pacman) echo "base-devel pkgconf pam wayland libxkbcommon vulkan-icd-loader libglvnd fontconfig openssl git xdg-utils curl" ;;
+        apt-get) echo "build-essential pkg-config libpam0g-dev libxkbcommon-dev libwayland-dev libwayland-client0 libwayland-egl1 libxkbcommon0 libvulkan1 libegl1 fontconfig libfontconfig-dev libssl-dev git xdg-utils curl ca-certificates" ;;
+        dnf) echo "gcc make pkgconf-pkg-config pam-devel libxkbcommon-devel wayland-devel libwayland-client libwayland-egl libxkbcommon vulkan-loader libglvnd-egl fontconfig fontconfig-devel openssl-devel git xdg-utils curl" ;;
+        zypper) echo "gcc make pkg-config pam-devel libxkbcommon-devel wayland-devel libwayland-client0 libwayland-egl1 libxkbcommon0 libvulkan1 libEGL1 fontconfig fontconfig-devel libopenssl-devel git xdg-utils curl" ;;
     esac
 }
 
@@ -177,8 +177,9 @@ hyprdesk_preflight() {
         fi
     fi
     free="$(df -Pk "${HYPRDESK_ROOT:-.}" 2>/dev/null | awk 'NR == 2 {print int($4 / 1048576)}')"
-    if [ -n "$free" ] && [ "$free" -lt 4 ]; then
-        _pf_ko "$(hyprdesk_t "espace libre : $free Gio (4 Gio requis pour la compilation)" "free space: $free GiB (4 GiB needed to build)")" \
+    local need="${HYPRDESK_DISK_MIN:-4}"
+    if [ -n "$free" ] && [ "$free" -lt "$need" ]; then
+        _pf_ko "$(hyprdesk_t "espace libre : $free Gio ($need Gio requis pour la compilation)" "free space: $free GiB ($need GiB needed to build)")" \
             "$(hyprdesk_t "libérer de la place (cargo clean dans d'anciens projets, cache des paquets…)" "free some space (cargo clean in old projects, package cache…)")"
     else
         hd_ok "$(hyprdesk_t "espace libre :" "free space:") ${free:-?} $(hyprdesk_t "Gio" "GiB")"
@@ -232,9 +233,9 @@ hyprdesk_deps() {
         if [ -z "$missing" ]; then
             hd_ok "$(hyprdesk_t "paquets système présents" "system packages present") ($pm)"
         elif [ "$dry" = 1 ]; then
-            hd_info "$(hyprdesk_t "à installer" "to install") ($pm) : $missing"
+            hd_info "$(hyprdesk_t "à installer ($pm) :" "to install ($pm):") $missing"
         else
-            hd_info "$(hyprdesk_t "manquants" "missing") : $C_BOLD$missing$C_RESET"
+            hd_info "$(hyprdesk_t "manquants :" "missing:") $C_BOLD$missing$C_RESET"
             hd_sudo_ready "$(hyprdesk_t "installer les paquets" "install the packages")" || return 1
             # shellcheck disable=SC2086
             hd_run "$(hyprdesk_t "installation des paquets" "installing packages") ($pm)" hyprdesk_install_packages "$pm" $missing || {

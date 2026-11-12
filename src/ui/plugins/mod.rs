@@ -26,6 +26,7 @@ pub mod effects;
 pub mod energy;
 pub mod icons;
 pub mod input;
+pub mod autostart;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
@@ -63,6 +64,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     icons::INFO,
     launcher::INFO,
     apps::INFO,
+    autostart::INFO,
     assistant::INFO,
     theme::INFO,
     apptheme::INFO,
@@ -127,7 +129,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Applications",
-        ids: &["apps", "assistant"],
+        ids: &["apps", "autostart", "assistant"],
     },
     Group {
         label: "Système",
@@ -177,6 +179,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
         "input" => input::TABS,
+        "autostart" => autostart::TABS,
         "assistant" => assistant::TABS,
         _ => &[],
     }
@@ -295,6 +298,8 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
         "applications" | "defaults" => "apps",
+        "demarrage" | "démarrage" | "demarrage-automatique" | "démarrage-automatique"
+        | "exec-once" | "startup" => "autostart",
         "extensions" | "paquets" => "plugins",
         "ia" | "ai" | "lyra" | "smartui" | "services-ia" => "assistant",
         "partage" | "export" | "import" => "share",
@@ -339,6 +344,7 @@ pub enum PluginMsg {
     Bluetooth(bluetooth::Msg),
     DateTime(datetime::Msg),
     Input(input::Msg),
+    Autostart(autostart::Msg),
     Login(login::Msg),
     Passwords(passwords::Msg),
     Effects(effects::Msg),
@@ -370,6 +376,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Bluetooth(m) => app.bluetooth_update(m),
         PluginMsg::DateTime(m) => app.datetime_update(m),
         PluginMsg::Input(m) => app.input_update(m),
+        PluginMsg::Autostart(m) => app.autostart_update(m),
         PluginMsg::Login(m) => app.login_update(m),
         PluginMsg::Passwords(m) => app.passwords_update(m),
         PluginMsg::Effects(m) => app.effects_update(m),
@@ -402,6 +409,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "bt" => app.bluetooth_page(),
         "datetime" => app.datetime_page(),
         "input" => app.input_page(),
+        "autostart" => app.autostart_page(),
         "login" => app.login_page(),
         "passwords" => app.passwords_page(),
         "effects" => app.tab_effects(),
@@ -430,6 +438,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "bt" => bluetooth::load(),
         "datetime" => datetime::load(),
         "input" => input::load(),
+        "autostart" => autostart::load(app.config_path.clone()),
         "login" => login::load(),
         "passwords" => passwords::load(),
         "assistant" => assistant::on_show(app),

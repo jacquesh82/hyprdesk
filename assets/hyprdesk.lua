@@ -60,12 +60,12 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 
 -- Barre native (ou Réglages ⚙ → Barre) : au-dessus des fenêtres, zone réservée.
 -- Modules : "workspaces", "window", "volume", "desktop", ou tout widget/plugin.
--- hd.bar({
---     position = "top", height = 36,
---     left   = { "workspaces", "window" },
---     center = { { "clock", format = "%a %d %b  %H:%M" } },
---     right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
--- })
+hd.bar({
+    position = "top", height = 36,
+    left   = { "workspaces", "window" },
+    center = { { "clock", format = "%a %d %b  %H:%M" } },
+    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
+})
 
 -- Session : composants lancés et supervisés par hyprdesk (relancés s'ils
 -- plantent, arrêtés avec lui). Retirez-les alors de l'autostart de Hyprland.

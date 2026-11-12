@@ -15,6 +15,9 @@
 #                            dépendances facultatives absentes (veille, captures,
 #                            écran de connexion…) : proposées à l'étape dédiée
 #                            (ask, par défaut au terminal), toutes installées, ou non
+#   --no-lyra                ne pas installer LYRA, l'assistante IA (installée par
+#                            défaut : compilée depuis mindlog.hyprland_tools ; dépôt,
+#                            branche et dossier : HYPRDESK_LYRA_REPO, _REF, _SRC)
 #   --verbose                sortie complète des commandes (sinon : journal)
 #
 # Étapes numérotées : contrôles préalables (arrêt avant toute modification si un
@@ -39,6 +42,7 @@ LOCK_KEY=1
 REMOVE_HYPRPAPER=0
 GREETER=ask
 OPT_DEPS=""
+LYRA=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --lang) LANG_CHOICE="${2:?--lang fr|en|auto}"; shift ;;
@@ -51,8 +55,9 @@ while [ $# -gt 0 ]; do
         --greeter) GREETER=yes ;;
         --no-greeter) GREETER=no ;;
         --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
+        --no-lyra) LYRA=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
@@ -96,6 +101,19 @@ HD_STEP_TOTAL=10
 [[ "$AUTOSTART" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$LOCK_KEY" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$REMOVE_HYPRPAPER" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
+[[ "$LYRA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
+
+# LYRA : sources, et place à prévoir pour la compiler si elle manque.
+LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
+# Branche qui porte le mode « serve » (tiroir de hyprdesk) ; main à défaut.
+LYRA_REF="${HYPRDESK_LYRA_REF:-feat/lyra-desktop-agent}"
+LYRA_SRC="${HYPRDESK_LYRA_SRC:-${XDG_DATA_HOME:-$HOME/.local/share}/hyprdesk/src/mindlog.hyprland_tools}"
+lyra_bin() {
+    command -v hyprpanel-chat 2>/dev/null || { [[ -x "$BIN_DIR/hyprpanel-chat" ]] && echo "$BIN_DIR/hyprpanel-chat"; } || true
+}
+if [[ "$LYRA" == 1 ]] && [[ -z "$(lyra_bin)" ]]; then
+    export HYPRDESK_DISK_MIN=8
+fi
 
 hd_log_init
 hd_banner "hyprdesk ${VERSION:+$VERSION }· $(t "installation" "installation")" \
@@ -172,10 +190,71 @@ hd_run "$(t "configuration de départ" "starter configuration")" "$BIN" init
 hd_run "$(t "définitions pour l'éditeur (stubs Lua)" "editor definitions (Lua stubs)")" "$BIN" stubs
 hd_run "$(t "configuration vérifiée" "configuration checked")" "$BIN" check
 
+# -- LYRA --------------------------------------------------------------------------------
+if [[ "$LYRA" == 1 ]]; then
+    hd_step "🤖" "LYRA, l'assistante IA" "LYRA, the AI assistant" \
+        "Le tiroir IA du dock, « Demander à LYRA », SmartUI. Compilée depuis GitHub : 3 à 8 min la première fois." \
+        "The dock's AI drawer, “Ask LYRA”, SmartUI. Built from GitHub: 3 to 8 min the first time."
+    HD_HINT="$(t "LYRA n'a pas pu s'installer : relancez, ou installez sans elle (--no-lyra) ; hyprdesk marche sans, seules les fonctions IA restent coupées" \
+                 "LYRA could not be installed: run again, or install without her (--no-lyra); hyprdesk works without, only the AI features stay off")"
+    if [[ -n "$(lyra_bin)" ]]; then
+        hd_ok "$(t "déjà installée :" "already installed:") $(lyra_bin)"
+    else
+        mkdir -p "$(dirname "$LYRA_SRC")"
+        if [[ -n "${HYPRDESK_LYRA_SRC:-}" ]]; then
+            hd_ok "$(t "sources locales :" "local sources:") $LYRA_SRC"
+        elif [[ -d "$LYRA_SRC/.git" ]]; then
+            hd_run "$(t "mise à jour des sources" "updating the sources") ($LYRA_REF)" \
+                bash -c "git -C '$LYRA_SRC' fetch -q --depth 1 origin '$LYRA_REF' && git -C '$LYRA_SRC' checkout -q FETCH_HEAD"
+        else
+            git ls-remote --exit-code --heads "$LYRA_REPO" "$LYRA_REF" >/dev/null 2>&1 || LYRA_REF=main
+            rm -rf "$LYRA_SRC"
+            if command -v git >/dev/null 2>&1; then
+                hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
+                    git clone -q --depth 1 -b "$LYRA_REF" "$LYRA_REPO" "$LYRA_SRC"
+            else
+                mkdir -p "$LYRA_SRC"
+                hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
+                    bash -c "curl -fsSL '$LYRA_REPO/archive/refs/heads/$LYRA_REF.tar.gz' | tar xz --strip-components=1 -C '$LYRA_SRC'"
+            fi
+        fi
+        hd_run "$(t "compilation de LYRA" "building LYRA")" \
+            cargo build --release --locked --manifest-path "$LYRA_SRC/Cargo.toml" -p hyprpanel-chat -p hyprpanel-server
+        install -m755 "$LYRA_SRC/target/release/hyprpanel-chat" "$LYRA_SRC/target/release/hyprpanel" "$BIN_DIR/"
+        hd_ok "$(t "installée :" "installed:") $BIN_DIR/hyprpanel-chat"
+    fi
+    # Configuration (jamais écrasée) et service d'intégration (hyprpanel).
+    if [[ -x "$BIN_DIR/hyprpanel" ]] || command -v hyprpanel >/dev/null 2>&1; then
+        HP="$(command -v hyprpanel 2>/dev/null || echo "$BIN_DIR/hyprpanel")"
+        # Sortie tue : hyprpanel init affiche son jeton d'accès.
+        hd_run "$(t "configuration de LYRA" "LYRA configuration")" bash -c "'$HP' init >/dev/null 2>&1 && '$(lyra_bin)' init >/dev/null 2>&1"
+        mkdir -p "$UNIT_DIR/hyprdesk.service.d"
+        if [[ ! -f "$UNIT_DIR/hyprpanel.service" ]] && [[ -f "$LYRA_SRC/assets/hyprpanel.service" ]]; then
+            # Sans WAYLAND_DISPLAY figé : transmis par la session, comme pour hyprdesk.
+            grep -v "^# (qui précise" "$LYRA_SRC/assets/hyprpanel.service" > "$UNIT_DIR/hyprpanel.service"
+        fi
+        if [[ -f "$UNIT_DIR/hyprpanel.service" ]]; then
+            # Démarré avec hyprdesk : graphical-session.target n'est pas toujours actif sous Hyprland.
+            printf '# Écrit par scripts/install.sh : le service de LYRA démarre avec hyprdesk.\n[Unit]\nWants=hyprpanel.service\n' \
+                > "$UNIT_DIR/hyprdesk.service.d/lyra.conf"
+            systemctl --user daemon-reload
+            systemctl --user enable hyprpanel.service >/dev/null 2>&1 || true
+            if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+                systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP 2>/dev/null || true
+                systemctl --user start hyprpanel.service 2>/dev/null || true
+            fi
+            hd_ok "$(t "service de LYRA (hyprpanel) : démarre avec hyprdesk" "LYRA service (hyprpanel): starts with hyprdesk")"
+        fi
+    fi
+    if ! command -v claude >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1 && ! command -v zcode >/dev/null 2>&1; then
+        hd_warn "$(t "aucun abonnement trouvé (Claude Code, Codex ou Zcode) : LYRA en a besoin pour répondre" "no subscription found (Claude Code, Codex or Zcode): LYRA needs one to answer")"
+    fi
+fi
+
 if [[ -n "$LANG_CHOICE" ]]; then
     hd_step "🌍" "Langue" "Language"
     "$BIN" config set language "$LANG_CHOICE" >>"$HD_LOG" 2>&1
-    hd_ok "$(t "hyprdesk en" "hyprdesk in") : $LANG_CHOICE"
+    hd_ok "$(t "hyprdesk en :" "hyprdesk in:") $LANG_CHOICE"
 fi
 
 if [[ -n "$KEYBOARD" ]]; then
@@ -195,7 +274,7 @@ if [[ -n "$KEYBOARD" ]]; then
         if command -v localectl >/dev/null 2>&1; then
             if hd_sudo_ready "$(t "changer le clavier du système" "change the system keyboard")" \
                 && hyprdesk_root localectl set-x11-keymap "$KB_LAYOUT" "" "${KB_VARIANT:-}" "${KB_OPTIONS:-}" >>"$HD_LOG" 2>&1; then
-                hd_ok "$(t "clavier du système" "system keyboard") : $KB_LAYOUT ${KB_VARIANT:-}"
+                hd_ok "$(t "clavier du système :" "system keyboard:") $KB_LAYOUT ${KB_VARIANT:-}"
             else
                 hd_warn "$(t "clavier du système non modifié (localectl)" "system keyboard unchanged (localectl)")"
             fi
@@ -243,7 +322,7 @@ if ((${#OPT_PKGS[@]} == 0 && ${#OPT_MANUAL[@]} == 0)); then
 elif ((${#OPT_PKGS[@]} == 0)); then
     hd_info "${DOCTOR:-?} $(t "présentes ; les autres ne sont pas dans les dépôts de $PM" "present; the others are not in the $PM repositories")"
 else
-    hd_info "${DOCTOR:-?} $(t "présentes" "present") ; $(t "installables" "installable") : $C_BOLD${OPT_PKGS[*]}$C_RESET"
+    hd_info "${DOCTOR:-?} $(t "présentes ; installables :" "present; installable:") $C_BOLD${OPT_PKGS[*]}$C_RESET"
     CHOSEN=()
     case "$OPT_DEPS" in
         all) CHOSEN=("${OPT_PKGS[@]}") ;;
@@ -545,6 +624,16 @@ if [[ "$REMOVE_HYPRPAPER" == 1 ]]; then
     check 0 "hyprpaper retiré de l'autostart" "hyprpaper removed from autostart" "" "" \
         bash -c "! grep -qE '^[[:space:]]*hl\\.exec_cmd\\(.*hyprpaper' '$HYPR_CONF'"
 fi
+if [[ "$LYRA" == 1 ]]; then
+    check 0 "LYRA, l'assistante IA" "LYRA, the AI assistant" \
+        "relancez l'installation (voir l'étape LYRA)" "run the install again (see the LYRA step)" \
+        bash -c "[[ -n \"\$(command -v hyprpanel-chat || ls '$BIN_DIR/hyprpanel-chat' 2>/dev/null)\" ]]"
+    if [[ "$IN_SESSION" == 1 ]] && [[ -f "$UNIT_DIR/hyprpanel.service" ]]; then
+        check 0 "service de LYRA (hyprpanel) en marche" "LYRA service (hyprpanel) running" \
+            "voir pourquoi : journalctl --user -u hyprpanel -n 50" "see why: journalctl --user -u hyprpanel -n 50" \
+            systemctl --user is-active hyprpanel.service
+    fi
+fi
 if [[ "$GREETER" == yes ]] || greeter_ours; then
     check 0 "écran de connexion de hyprdesk (greetd)" "hyprdesk login screen (greetd)" \
         "réessayez : sudo hyprdesk greeter setup enable" "try again: sudo hyprdesk greeter setup enable" greeter_ours
@@ -588,6 +677,9 @@ if ((${#OPT_MANUAL[@]} > 0)); then
 fi
 if [[ "$GREETER" == no ]] && ! greeter_ours && [[ -z "$GREETER_WHY" ]]; then
     optional "$(t "écran de connexion de hyprdesk" "hyprdesk login screen")" "./scripts/install.sh --greeter"
+fi
+if [[ "$LYRA" == 1 ]] && ! command -v claude >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1 && ! command -v zcode >/dev/null 2>&1; then
+    optional "$(t "LYRA : un abonnement Claude Code, Codex ou Zcode, puis Réglages → IA" "LYRA: a Claude Code, Codex or Zcode subscription, then Settings → AI")" "npm install -g @anthropic-ai/claude-code && claude"
 fi
 optional "$(t "lignes conseillées pour hyprland.lua (raccourcis, règles)" "suggested hyprland.lua lines (shortcuts, rules)")" "hyprdesk snippet"
 

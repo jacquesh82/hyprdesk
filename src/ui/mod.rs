@@ -468,6 +468,10 @@ pub struct App {
     ui_family: &'static str,
 }
 
+/// Premier démarrage (posé par main) : les Réglages s'ouvrent une fois l'interface prête.
+pub static OPEN_SETTINGS_AT_START: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
     daemon(
         move || App::boot(config_path.clone()),
@@ -782,7 +786,15 @@ impl App {
             },
             Msg::Apps,
         );
-        let t = Task::batch([app.load_config(), apps]);
+        let mut tasks = vec![app.load_config(), apps];
+        if !preview && OPEN_SETTINGS_AT_START.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            // Écrans et configuration connus d'abord.
+            tasks.push(Task::perform(
+                tokio::time::sleep(Duration::from_secs(2)),
+                |_| Msg::Control(control::Command::Settings("desktop".into())),
+            ));
+        }
+        let t = Task::batch(tasks);
         (app, t)
     }
 

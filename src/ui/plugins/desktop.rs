@@ -550,31 +550,12 @@ impl App {
         col.into()
     }
 
-    pub(in crate::ui) fn session_section(&self) -> Element<'_, UiMsg> {
+    /// Démarrage automatique XDG (Réglages → Démarrage automatique → Applications).
+    pub(in crate::ui) fn xdg_autostart_section(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
-        let fg = color(g.theme.fg, 1.0);
+        let fg = self.ink().fg;
         let dim = self.ink().dim;
-        let mut col = column![self.section("Session")].spacing(10);
-        col = col.push(
-            text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).").font(self.font)
-                .size(12)
-                .color(dim),
-        );
-        col = col.push(self.field(
-            "Historique du presse-papiers (cliphist)",
-            "clipboard_history",
-            toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
-        ));
-        col = col.push(
-            text(if crate::clipboard::available() {
-                "Chaque copie est gardée par cliphist. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."
-            } else {
-                "cliphist et wl-clipboard ne sont pas installés (voir Dépendances)."
-            })
-            .font(self.font)
-            .size(12)
-            .color(dim),
-        );
+        let mut col = column![].spacing(10);
         col = col.push(self.field(
             "Démarrage automatique des applications (XDG)",
             "autostart",
@@ -622,6 +603,40 @@ impl App {
                 col = col.push(line);
             }
         }
+        col.into()
+    }
+
+    pub(in crate::ui) fn session_section(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let mut col = column![self.section("Session")].spacing(10);
+        col = col.push(
+            text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).").font(self.font)
+                .size(12)
+                .color(dim),
+        );
+        col = col.push(self.field(
+            "Historique du presse-papiers (cliphist)",
+            "clipboard_history",
+            toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+        ));
+        col = col.push(
+            text(if crate::clipboard::available() {
+                "Chaque copie est gardée par cliphist. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."
+            } else {
+                "cliphist et wl-clipboard ne sont pas installés (voir Dépendances)."
+            })
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        );
+        col = col.push(
+            text("Démarrage automatique (hyprland.lua, applications XDG) : Réglages → Démarrage automatique.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
         let comps = crate::session::snapshot();
         if comps.is_empty() {
             col = col.push(text("Aucun composant.").font(self.font).size(12).color(dim));

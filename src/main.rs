@@ -39,6 +39,7 @@ mod processes;
 mod screens;
 mod search;
 mod session;
+mod session_start;
 mod settings;
 mod share;
 mod single;
@@ -409,6 +410,10 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             "{}",
             crate::tr!("création de {p0} : {e}", p0 = path.display(), e = e)
         ),
+    }
+    // Premier démarrage : les Réglages s'ouvrent pour faire connaissance.
+    if bar_offer::first_start() {
+        ui::OPEN_SETTINGS_AT_START.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // Modules de barre livrés depuis : ajoutés une fois à la barre réglée.
     bar_offer::run(&path);
