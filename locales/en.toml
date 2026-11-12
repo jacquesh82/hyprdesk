@@ -2271,3 +2271,4 @@
 "disposition « {l} » inconnue de xkb" = "layout “{l}” unknown to xkb"
 "variante « {v} » inconnue pour « {l} » : retirée" = "variant “{v}” unknown for “{l}”: removed"
 "clavier refusé par Hyprland, inputs.lua inchangé : {e}" = "keyboard refused by Hyprland, inputs.lua unchanged: {e}"
+"hyprdesk : Hyprland {v} trop ancien ({min} ou plus requis) — mettez à jour Hyprland puis reconnectez-vous" = "hyprdesk: Hyprland {v} too old ({min} or newer required) — update Hyprland, then log out and back in"

@@ -129,6 +129,38 @@ hyprdesk_deps() {
         fi
     fi
 
+    # -- Hyprland -------------------------------------------------------------------
+    # 0.57 au moins (API Lua) : en 0.56, hyprdesk le ferait planter en posant ses
+    # raccourcis. Mis à jour par la distribution ; la session en cours garde
+    # l'ancien jusqu'à la reconnexion.
+    local hmin="${HYPRDESK_HYPRLAND_MIN:-0.57}" hnow=""
+    command -v Hyprland >/dev/null 2>&1 \
+        && hnow="$(Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//')"
+    if [ -n "$hnow" ] && hyprdesk_version_ge "$hnow" "$hmin"; then
+        echo "   Hyprland $hnow (≥ $hmin)"
+    elif [ -n "$pm" ]; then
+        echo "   $(hyprdesk_t "Hyprland ${hnow:-absent} : $hmin ou plus est requis" "Hyprland ${hnow:-missing}: $hmin or newer is required")"
+        if [ "$dry" = 1 ]; then
+            case "$pm" in
+                pacman) echo "   $(hyprdesk_t "mettrait le système à jour (pacman -Syu hyprland : Arch n'accepte pas de mise à jour partielle)" "would update the system (pacman -Syu hyprland: Arch does not support partial upgrades)")" ;;
+                *) echo "   $(hyprdesk_t "mettrait hyprland à jour ($pm)" "would update hyprland ($pm)")" ;;
+            esac
+        else
+            case "$pm" in
+                pacman) hyprdesk_root pacman -Syu --needed --noconfirm hyprland ;;
+                apt-get) hyprdesk_root apt-get update -qq && hyprdesk_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq hyprland >/dev/null ;;
+                dnf) hyprdesk_root dnf install -y -q hyprland && hyprdesk_root dnf upgrade -y -q hyprland ;;
+                zypper) hyprdesk_root zypper --non-interactive --quiet install hyprland ;;
+            esac || true
+            hnow="$(Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//')"
+            if [ -n "$hnow" ] && hyprdesk_version_ge "$hnow" "$hmin"; then
+                echo "   $(hyprdesk_t "Hyprland $hnow installé : reconnectez-vous pour l'utiliser" "Hyprland $hnow installed: log out and back in to use it")"
+            else
+                echo "!! $(hyprdesk_t "Hyprland ${hnow:-absent} : la distribution ne fournit pas encore $hmin ; hyprdesk refusera de démarrer" "Hyprland ${hnow:-missing}: the distribution does not ship $hmin yet; hyprdesk will refuse to start")" >&2
+            fi
+        fi
+    fi
+
     # -- Rust ---------------------------------------------------------------------
     local min now
     min="$(hyprdesk_rust_min)"

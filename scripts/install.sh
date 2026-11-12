@@ -281,6 +281,14 @@ check 1 "binaire $BIN ($("$BIN" --version 2>/dev/null))" "binary $BIN ($("$BIN" 
 check 1 "configuration valide" "valid configuration" "$BIN" check
 check 1 "service activé à la connexion" "service enabled at login" systemctl --user is-enabled hyprdesk.service
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    # Hyprland de la session en cours : hyprdesk refuse de démarrer sous 0.57.
+    HYPR_RUN="$(hyprctl -j version 2>/dev/null | sed -n 's/.*"tag": *"v\{0,1\}\([0-9.]*\).*/\1/p' | head -1)"
+    check 1 "Hyprland ${HYPR_RUN:-?} en cours (0.57 ou plus)" "running Hyprland ${HYPR_RUN:-?} (0.57 or newer)" \
+        hyprdesk_version_ge "${HYPR_RUN:-0}" 0.57
+    if [[ -n "$HYPR_RUN" ]] && ! hyprdesk_version_ge "$HYPR_RUN" 0.57; then
+        echo "    $(t "→ mettez Hyprland à jour, puis reconnectez-vous : hyprdesk démarrera" \
+                    "→ update Hyprland, then log out and back in: hyprdesk will start")"
+    fi
     check 1 "service en marche (hyprdesk répond)" "service running (hyprdesk answers)" "$BIN" status
     check 1 "Hyprland sans erreur de configuration" "Hyprland config without errors" \
         bash -c '[[ -z "$(hyprctl configerrors 2>/dev/null | grep -v "^$")" ]]'

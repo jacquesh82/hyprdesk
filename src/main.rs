@@ -290,6 +290,22 @@ fn init_tracing() {
 
 fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     init_tracing();
+    // Hyprland trop ancien : rien ne lui est envoyé (un raccourci posé par
+    // hyprctl eval fait planter la 0.56). Code 75 : systemd ne relance pas.
+    if let Some((a, b, c)) = hypr::running_version()
+        && (a, b) < hypr::MIN_HYPRLAND
+    {
+        let msg = crate::tr!(
+            "hyprdesk : Hyprland {v} trop ancien ({min} ou plus requis) — mettez à jour Hyprland puis reconnectez-vous",
+            v = format!("{a}.{b}.{c}"),
+            min = format!("{}.{}", hypr::MIN_HYPRLAND.0, hypr::MIN_HYPRLAND.1)
+        );
+        eprintln!("{msg}");
+        hypr::notify(0, 15000, &msg);
+        // Laisse le temps au fil des notifications d'envoyer le message.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        return ExitCode::from(75);
+    }
     let lock = single::lock_path();
     let _guard = match single::acquire(&lock) {
         Ok(g) => g,

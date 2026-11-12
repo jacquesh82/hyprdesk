@@ -978,6 +978,27 @@ pub fn current_submap() -> String {
 // le bureau » ailleurs) : elles attendent dans un workspace spécial, et le
 // bureau, resté sous les fenêtres, contient celles qu'on ouvre depuis lui.
 
+/// Version minimale de Hyprland (API Lua de 0.57). En 0.56.1, rendre à Lua
+/// l'objet d'un raccourci (`hl.bind`, par `hyprctl eval`) fait planter
+/// Hyprland : hyprdesk ne lui envoie rien en dessous.
+pub const MIN_HYPRLAND: (u32, u32) = (0, 57);
+
+/// Version de Hyprland (`v0.57.2` → (0, 57, 2)).
+pub fn parse_version(tag: &str) -> Option<(u32, u32, u32)> {
+    let mut it = tag.trim().trim_start_matches('v').split(['.', '-', '+']);
+    let mut n = || it.next().and_then(|p| p.parse::<u32>().ok());
+    Some((n()?, n()?, n().unwrap_or(0)))
+}
+
+/// Version de Hyprland en marche (None : injoignable ou illisible).
+pub fn running_version() -> Option<(u32, u32, u32)> {
+    let v = ipc::query_json("version").ok()?;
+    v["tag"]
+        .as_str()
+        .and_then(parse_version)
+        .or_else(|| v["version"].as_str().and_then(parse_version))
+}
+
 /// Workspace spécial où attendent les fenêtres mises de côté.
 pub const STASH: &str = "special:hyprdesk";
 
@@ -1480,6 +1501,16 @@ mod tests {
         assert_eq!(floating_among(&clients, &ours), vec!["0x1".to_string()]);
         assert_eq!(windows_on(&clients, DESK), vec!["0x3".to_string()]);
         assert!(DESK.starts_with("special:") && DESK != STASH);
+    }
+
+    #[test]
+    fn version_de_hyprland() {
+        assert_eq!(parse_version("v0.57.2"), Some((0, 57, 2)));
+        assert_eq!(parse_version("0.56.1"), Some((0, 56, 1)));
+        assert_eq!(parse_version("v0.58.0-12-gabc"), Some((0, 58, 0)));
+        assert_eq!(parse_version("v1.0"), Some((1, 0, 0)));
+        assert_eq!(parse_version("inconnue"), None);
+        assert!((0, 56) < MIN_HYPRLAND && (0, 57) >= MIN_HYPRLAND);
     }
 
     /// Plein bureau : une fenêtre centrée, plusieurs en grille, sans débordement.

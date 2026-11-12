@@ -147,7 +147,7 @@ if [[ "$DM" == greetd ]] && command -v hyprdesk >/dev/null 2>&1 \
     GREETER_ITEM=()
 fi
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher)" "Options to enable (space: toggle)")" \
-    deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
+    deps "$(t "Installer les prérequis manquants (paquets, Rust récente, Hyprland 0.57+)" "Install missing prerequisites (packages, recent Rust, Hyprland 0.57+)")" on \
     autostart "$(t "Démarrer hyprdesk à la connexion" "Start hyprdesk at login")" on \
     lockkey "$(t "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk")" on \
     hyprpaper "$(t "Retirer hyprpaper (hyprdesk dessine le fond)" "Remove hyprpaper (hyprdesk draws the wallpaper)")" "$HAS_HYPRPAPER" \
