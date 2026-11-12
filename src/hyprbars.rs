@@ -133,9 +133,51 @@ pub fn buttons_lua(
     // Le plugin n'a pas de retrait : une seule pose par cycle. Une relecture
     // de la config efface ses boutons et l'état Lua (donc la marque) ; le
     // déchargement, lui, efface la marque explicitement (`unload`).
+    // Fenêtres étiquetées par hyprdesk (écrans hors plein bureau) : sans barre.
+    let rule = format!(
+        "pcall(function() return hl.window_rule({{ name = \"hyprdesk-nobar\", match = {{ tag = \"{NOBAR}\" }}, [\"hyprbars:no_bar\"] = true }}) end)"
+    );
     format!(
-        "if hl.plugin and hl.plugin.hyprbars and not {MARK} then\n{style}\n{add}\n{MARK} = true\nend"
+        "if hl.plugin and hl.plugin.hyprbars and not {MARK} then\n{style}\n{rule}\n{add}\n{MARK} = true\nend"
     )
+}
+
+/// Étiquette des fenêtres sans barre : le plugin est global, mais seuls les
+/// écrans en plein bureau en veulent une.
+pub const NOBAR: &str = "hyprdesk-nobar";
+
+/// Lua qui pose (`add`) ou retire (`remove`) l'étiquette. Changer une
+/// étiquette fait réévaluer les règles de la fenêtre, donc sa barre ;
+/// `force` la retire d'abord, pour une règle qui vient d'être (re)créée.
+pub fn tags_lua(add: &[String], remove: &[String], force: bool) -> String {
+    use hyprpanel_core::ipc::lua_escape;
+    let one = |sign: char, a: &str| {
+        format!(
+            "pcall(function() hl.dispatch(hl.dsp.window.tag({{ tag = \"{sign}{NOBAR}\", window = \"address:{}\" }})) end)\n",
+            lua_escape(a)
+        )
+    };
+    let mut lua = String::new();
+    for a in remove {
+        lua += &one('-', a);
+    }
+    for a in add {
+        if force {
+            lua += &one('-', a);
+        }
+        lua += &one('+', a);
+    }
+    lua
+}
+
+/// Pose ou retire l'étiquette (rien à faire : aucun appel).
+pub fn set_tags(add: &[String], remove: &[String], force: bool) {
+    if add.is_empty() && remove.is_empty() {
+        return;
+    }
+    if let Err(e) = hyprpanel_core::ipc::eval(&tags_lua(add, remove, force)) {
+        tracing::warn!("{}", crate::tr!("Hyprbars, étiquettes : {e}", e = e));
+    }
 }
 
 /// Symboles de fermer et d'agrandir, selon les polices installées (le texte
@@ -203,8 +245,22 @@ mod tests {
         assert!(lines.iter().all(|l| l.contains("rgba(00000000)") && l.contains("rgb(f6f7ff)")));
         assert!(lines[0].contains("size = 32") && lines[2].contains("size = 38") && lines[2].contains("⎽"));
         assert!(lua.contains("bar_height = 34") && lua.contains("bar_color = \"rgb(22212c)\""));
+        // Règle « pas de barre » des fenêtres étiquetées, dans le bloc gardé.
+        assert!(lua.contains(r#"match = { tag = "hyprdesk-nobar" }, ["hyprbars:no_bar"] = true"#));
         // Une seule pose par cycle (pas de retrait dans le plugin).
         assert!(lua.starts_with("if hl.plugin and hl.plugin.hyprbars and not __hyprdesk_bar_buttons then"));
         assert!(lua.trim_end().ends_with("__hyprdesk_bar_buttons = true\nend"));
+    }
+
+    #[test]
+    fn etiquettes_sans_barre() {
+        let lua = tags_lua(&["0xa".into()], &["0xb".into()], false);
+        assert!(lua.contains(r#"tag = "-hyprdesk-nobar", window = "address:0xb""#));
+        assert!(lua.contains(r#"tag = "+hyprdesk-nobar", window = "address:0xa""#));
+        assert!(!lua.contains(r#""-hyprdesk-nobar", window = "address:0xa""#));
+        // Règle recréée : retirée puis reposée, pour la réévaluation.
+        let forced = tags_lua(&["0xa".into()], &[], true);
+        assert!(forced.find("-hyprdesk-nobar").unwrap() < forced.find("+hyprdesk-nobar").unwrap());
+        assert!(tags_lua(&[], &[], true).is_empty());
     }
 }

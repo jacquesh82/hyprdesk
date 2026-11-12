@@ -442,6 +442,8 @@ pub struct App {
     persist_modes: bool,
     /// Mode appliqué à chaque écran, et workspace qu'il affichait alors.
     applied: HashMap<String, (DesktopMode, String)>,
+    /// Fenêtres étiquetées sans barre Hyprbars (écrans hors plein bureau).
+    nobar: HashSet<String>,
     /// Marges posées dans Hyprland pour dégager les contrôles du bureau, par
     /// écran (haut, droite, bas, gauche) : vide hors du bureau avec les fenêtres.
     window_gaps: Vec<(String, [i32; 4])>,
@@ -785,6 +787,7 @@ impl App {
             },
             persist_modes: !preview,
             applied: HashMap::new(),
+            nobar: HashSet::new(),
             window_gaps: Vec::new(),
             click_monitor: None,
             launcher_cycle: HashMap::new(),
@@ -1171,11 +1174,20 @@ impl App {
         let want = self.cfg.general.hyprbars
             && self.applied.values().any(|(m, _)| *m == DesktopMode::FullDesktop);
         if want == self.hyprbars_on {
-            return Task::none();
+            return self.sync_bar_tags();
         }
         self.hyprbars_on = want;
         let custom = self.cfg.general.hyprbars_path.clone();
         let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);
+        // Étiquettes posées après le chargement (la règle doit exister) ;
+        // toutes retirées au déchargement.
+        let (tag, untag): (Vec<String>, Vec<String>) = if want {
+            let w = self.nobar_wanted();
+            self.nobar = w.clone();
+            (w.into_iter().collect(), Vec::new())
+        } else {
+            (Vec::new(), std::mem::take(&mut self.nobar).into_iter().collect())
+        };
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -1184,8 +1196,11 @@ impl App {
                     };
                     if want {
                         crate::hyprbars::load(&path)?;
-                        crate::hyprbars::add_buttons(fg, bg)
+                        let r = crate::hyprbars::add_buttons(fg, bg);
+                        crate::hyprbars::set_tags(&tag, &[], true);
+                        r
                     } else {
+                        crate::hyprbars::set_tags(&[], &untag, false);
                         crate::hyprbars::unload(&path)
                     }
                 })
@@ -1198,6 +1213,48 @@ impl App {
                 }
                 Msg::Noop
             },
+        )
+    }
+
+    /// Fenêtres qui ne doivent pas avoir de barre Hyprbars : celles dont le
+    /// workspace n'est affiché par aucun écran en plein bureau.
+    fn nobar_wanted(&self) -> HashSet<String> {
+        let full: Vec<&String> = self
+            .applied
+            .values()
+            .filter(|(m, _)| *m == DesktopMode::FullDesktop)
+            .map(|(_, ws)| ws)
+            .collect();
+        self.clients
+            .iter()
+            .filter(|c| !full.contains(&&c.workspace))
+            .map(|c| c.address.clone())
+            .collect()
+    }
+
+    /// Hyprbars chargé : étiquettes mises à jour (seulement les différences).
+    fn sync_bar_tags(&mut self) -> Task<Msg> {
+        if !self.hyprbars_on {
+            return Task::none();
+        }
+        let want = self.nobar_wanted();
+        let add: Vec<String> = want.difference(&self.nobar).cloned().collect();
+        let remove: Vec<String> = self
+            .nobar
+            .difference(&want)
+            .filter(|a| self.clients.iter().any(|c| &c.address == *a))
+            .cloned()
+            .collect();
+        self.nobar = want;
+        if add.is_empty() && remove.is_empty() {
+            return Task::none();
+        }
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::hyprbars::set_tags(&add, &remove, false))
+                    .await;
+            },
+            |_| Msg::Noop,
         )
     }
 
@@ -3255,13 +3312,20 @@ impl App {
                 let idle = self.cfg.general.idle.clone();
                 let bars = self.hyprbars_on;
                 let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);
+                let tagged: Vec<String> = self.nobar.iter().cloned().collect();
                 let mut t = vec![
                     // Hyprbars oublie ses boutons à chaque relecture.
                     Task::perform(
                         async move {
+                            // La règle « sans barre » revient avec les boutons :
+                            // étiquettes reposées pour la réévaluation.
                             if bars
-                                && let Ok(Err(e)) =
-                                    tokio::task::spawn_blocking(move || crate::hyprbars::add_buttons(fg, bg)).await
+                                && let Ok(Err(e)) = tokio::task::spawn_blocking(move || {
+                                    let r = crate::hyprbars::add_buttons(fg, bg);
+                                    crate::hyprbars::set_tags(&tagged, &[], true);
+                                    r
+                                })
+                                .await
                             {
                                 tracing::warn!("{}", e);
                             }
