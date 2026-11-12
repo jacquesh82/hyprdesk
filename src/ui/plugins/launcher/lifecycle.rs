@@ -19,6 +19,8 @@ pub(in crate::ui) struct Runtime {
     pub pending: Option<Pending>,
     pub launches: HashMap<String, Launch>,
     pub backdrops: HashMap<crate::ui::WallKey, super::contrast::Backdrop>,
+    /// Dock qui tient le clavier : écran et rang de la case choisie.
+    pub focus: Option<(String, usize)>,
 }
 
 #[derive(Clone, Debug)]

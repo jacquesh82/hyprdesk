@@ -1,8 +1,13 @@
-//! Paquet intégré « Assistant IA » : LYRA (mindlog.hyprland_tools), avec le
-//! fournisseur choisi (Claude Code, Codex, Zcode) et le contexte de hyprdesk.
-//! Domaine : `crate::assistant`. Ouvrir l'assistant ne change pas le mode.
+//! Paquet intégré « IA » : l'onglet Assistant (LYRA, mindlog.hyprland_tools,
+//! avec le fournisseur choisi — Claude Code, Codex, Zcode — et le contexte
+//! de hyprdesk) et l'onglet Autres services IA (`services.rs` : endpoint et
+//! clé API, SmartUI design). Domaine : `crate::assistant`,
+//! `crate::ai_services`, `crate::smartui`. Ouvrir l'assistant ne change pas le mode.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
+
+mod providers;
+mod services;
 
 use crate::i18n::text;
 use iced::widget::{button, column, container, radio, row, scrollable};
@@ -15,11 +20,17 @@ use crate::assistant::{self, AssistantMode};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "assistant",
-    label: "Assistant IA",
+    label: "IA",
     icon: "ai-assistant",
-    summary: "LYRA avec Claude Code, Codex ou Zcode, et tout l'environnement en contexte.",
+    summary: "LYRA, l'assistante du bureau, et les autres services IA comme SmartUI design.",
     builtin: true,
 };
+
+pub const TABS: &[super::SubTab] = &[
+    ("assistant", "Assistant"),
+    ("services", "Autres services IA"),
+    ("smartui", "SmartUI design"),
+];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Assistant(m)))
@@ -38,6 +49,7 @@ pub struct Status {
 pub struct State {
     pub status: Option<Status>,
     pub show_context: bool,
+    pub services: services::State,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +60,50 @@ pub enum Msg {
     Provider(String),
     Open,
     ToggleContext,
+    // Fournisseurs IA (`providers.rs`).
+    AiAdd(crate::ai_services::Provider),
+    AiEdit(String),
+    AiDraft(providers::DraftField, String),
+    AiSave,
+    AiCancel,
+    /// Suppression en deux temps (armer, confirmer).
+    AiDelete(String),
+    AiKeyClear(String),
+    /// Clé enregistrée (`true`) ou effacée, ou l'erreur du trousseau.
+    AiKeyStored(Result<bool, String>),
+    AiReloadKeys,
+    AiKeys(Vec<(String, crate::ai_services::KeySource)>),
+    /// Fonction → fournisseur.
+    AiUse(&'static str, String),
+    // SmartUI design.
+    SmartToggle(bool),
+    SmartStyleEdit(iced::widget::text_editor::Action),
+    SmartStyleSave,
+    /// Retour au style de hyprdesk.
+    SmartStyleReset,
+    SmartRows(Vec<services::RowData>),
+    SmartGenerate(String),
+    SmartGenerateMissing,
+    SmartGenerated(String, Result<Vec<u8>, String>),
+    SmartValidate(String),
+    SmartReject(String),
+    SmartForget(String),
+    SmartClear,
+    /// Génération automatique : fin d'une icône (clé ajoutée au thème, rien à faire, erreur).
+    SmartAutoDone(Result<Option<String>, String>),
+    SmartAutoToggle(bool),
+    /// Réglages → IA → SmartUI design (depuis le Lanceur).
+    OpenServices,
+}
+
+/// Arrivée sur le paquet : LYRA, la clé du service, les icônes SmartUI.
+pub(in crate::ui) fn on_show(app: &mut App) -> Task<UiMsg> {
+    app.services_init();
+    Task::batch([
+        load_status(),
+        providers::load_keys(app),
+        app.smartui_load(),
+    ])
 }
 
 pub fn load_status() -> Task<UiMsg> {
@@ -87,14 +143,34 @@ impl App {
         self.open_assistant_window().chain(close)
     }
 
+    /// L'assistant est affiché : son tiroir, ou la fenêtre de LYRA sur un
+    /// workspace visible (pastille du bouton du lanceur).
+    pub(in crate::ui) fn assistant_shown(&self) -> bool {
+        self.chat_shown() || self.lyra_window_shown()
+    }
+
+    fn lyra_window_shown(&self) -> bool {
+        self.clients.iter().any(|c| {
+            c.class == assistant::LYRA_APP_ID
+                && self.monitors.iter().any(|m| m.workspace == c.workspace)
+        })
+    }
+
     fn open_assistant_window(&mut self) -> Task<UiMsg> {
-        // Déjà ouverte : on la ramène plutôt que d'en lancer une seconde.
+        // Déjà ouverte : affichée, le même bouton la ferme ; ailleurs, on la
+        // ramène plutôt que d'en lancer une seconde.
         if let Some(c) = self
             .clients
             .iter()
             .find(|c| c.class == assistant::LYRA_APP_ID)
         {
             let address = c.address.clone();
+            if self.lyra_window_shown() {
+                if let Err(e) = crate::hypr::close_window(&address) {
+                    tracing::warn!("{}", crate::tr!("LYRA : {e}", e = e.to_string()));
+                }
+                return Task::none();
+            }
             return self.update_inner(UiMsg::FocusWindow(address));
         }
         let g = &self.cfg.general;
@@ -161,6 +237,12 @@ impl App {
         let Some(p) = &self.panel else {
             return text("").into();
         };
+        if self.on_subtab(INFO.id, "services") {
+            return self.services_tab(&p.assistant.services);
+        }
+        if self.on_subtab(INFO.id, "smartui") {
+            return self.smartui_section(&p.assistant.services);
+        }
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = Color { a: 0.6, ..fg };
@@ -330,6 +412,18 @@ impl App {
                 self.update_inner(super::apps::wrap(super::apps::Msg::Pick("ai".into(), v)))
             }
             Msg::Open => self.open_assistant(),
+            m @ (Msg::AiAdd(_)
+            | Msg::AiEdit(_)
+            | Msg::AiDraft(..)
+            | Msg::AiSave
+            | Msg::AiCancel
+            | Msg::AiDelete(_)
+            | Msg::AiKeyClear(_)
+            | Msg::AiKeyStored(_)
+            | Msg::AiReloadKeys
+            | Msg::AiKeys(_)
+            | Msg::AiUse(..)) => self.providers_update(m),
+            other => self.services_update(other),
         }
     }
 }

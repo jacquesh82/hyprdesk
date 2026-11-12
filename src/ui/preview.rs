@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 62] = [
+const SCENES: [&str; 66] = [
     "desktop",
     "typography",
     "icons",
@@ -86,6 +86,10 @@ const SCENES: [&str; 62] = [
     "coffre-creation",
     "coffre-sauvegarde",
     "coffre-pret",
+    "launcher-keyboard",
+    "mymfa-fenetre",
+    "mymfa-mots-de-passe",
+    "mymfa-activite",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -382,6 +386,7 @@ impl Preview {
         self.app.launcher_popup = None;
         self.app.launcher_runtime.docks.clear();
         self.app.launcher_runtime.launches.clear();
+        self.app.launcher_runtime.focus = None;
         if self.scene >= 16 {
             use crate::config::{LauncherGroup, LauncherPosition};
             let cfg = Arc::make_mut(&mut self.app.cfg);
@@ -465,6 +470,12 @@ impl Preview {
             }
             if self.scene == 27 {
                 let _ = self.app.launcher_launch_started("preview-launch".into());
+            }
+            // Dock tenu au clavier : deuxième case choisie (anneau + vague).
+            if SCENES[self.scene] == "launcher-keyboard" {
+                let monitor = crate::i18n::tr("APERÇU").to_string();
+                self.app.launcher_runtime.focus = Some((monitor.clone(), 1));
+                let _ = self.app.launcher_pointer(&monitor, Some(1.0));
             }
             if self.scene == 30 {
                 for index in 0..40 {
@@ -759,8 +770,26 @@ impl Preview {
             self.app.search = None;
         }
         // Coffre myMFA : création (saisie en cours, confirmation fausse),
-        // reprise de la sauvegarde du web, coffre prêt.
+        // reprise de la sauvegarde du web, coffre prêt, fenêtre myMFA.
         self.app.mfa_dialog = None;
+        self.app.mfa_fenetre = None;
+        if SCENES[self.scene].starts_with("mymfa-") {
+            self.app.mfa = crate::mymfa::State {
+                installed: true,
+                vault: true,
+                sealed: true,
+                ..Default::default()
+            };
+            let mut fenetre = super::mymfa_fenetre::Fenetre::apercu(iced::window::Id::unique());
+            if SCENES[self.scene] == "mymfa-mots-de-passe" {
+                fenetre.onglet = super::mymfa_fenetre::Onglet::MotsDePasse;
+                fenetre.detail = Some("l1".to_string());
+            }
+            if SCENES[self.scene] == "mymfa-activite" {
+                fenetre.onglet = super::mymfa_fenetre::Onglet::Activite;
+            }
+            self.app.mfa_fenetre = Some(fenetre);
+        }
         if let Some(kind) = match SCENES[self.scene] {
             "coffre-creation" => Some(super::mymfa::Kind::Create),
             "coffre-sauvegarde" => Some(super::mymfa::Kind::Install(PathBuf::from(
@@ -1318,6 +1347,7 @@ impl Preview {
                 .app
                 .update_inner(m)
                 .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::LauncherActivate(inner) => self.update_ui(*inner),
             Msg::LauncherLaunch(id) => self
                 .app
                 .launcher_launch_started(id)
@@ -1468,6 +1498,16 @@ impl Preview {
         if self.app.mfa_dialog.is_some() {
             layers.push(
                 container(self.app.view_mfa_dialog())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into(),
+            );
+        }
+        if self.app.mfa_fenetre.is_some() {
+            layers.push(
+                container(self.app.view_mfa_fenetre())
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .center_x(Length::Fill)

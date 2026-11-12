@@ -13,6 +13,7 @@ use iced::{Element, Task};
 use super::panel::Panel;
 use super::{App, Msg};
 
+pub mod about;
 pub mod animations;
 pub mod apps;
 pub mod apptheme;
@@ -84,6 +85,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     passwords::INFO,
     share::INFO,
     plugins::INFO,
+    about::INFO,
 ];
 
 /// Groupe de la navigation des Réglages : titre, paquets dans l'ordre.
@@ -129,7 +131,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["lock", "share", "plugins"],
+        ids: &["lock", "share", "plugins", "about"],
     },
 ];
 
@@ -175,6 +177,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
         "input" => input::TABS,
+        "assistant" => assistant::TABS,
         _ => &[],
     }
 }
@@ -293,8 +296,9 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "fx" | "animation" | "anim" => "animations",
         "applications" | "defaults" => "apps",
         "extensions" | "paquets" => "plugins",
-        "ia" | "ai" | "lyra" => "assistant",
+        "ia" | "ai" | "lyra" | "smartui" | "services-ia" => "assistant",
         "partage" | "export" | "import" => "share",
+        "a-propos" | "à-propos" | "apropos" | "version" | "info" => "about",
         "verrouillage" | "verrou" => "lock",
         "son" | "audio" | "volume" => "sound",
         "reseau" | "réseau" | "wifi" | "wi-fi" | "vpn" => "network",
@@ -340,6 +344,7 @@ pub enum PluginMsg {
     Effects(effects::Msg),
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
+    About(about::Msg),
 }
 
 pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
@@ -370,6 +375,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Effects(m) => app.effects_update(m),
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
+        PluginMsg::About(m) => app.about_update(m),
     }
 }
 
@@ -380,6 +386,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "apps" => app.apps_page(),
         "assistant" => app.assistant_page(),
         "plugins" => app.plugins_page(),
+        "about" => app.about_page(),
         "share" => app.share_page(),
         "lock" => app.lock_page(),
         "wallpaper" => app.tab_wallpaper(p),
@@ -425,7 +432,8 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "input" => input::load(),
         "login" => login::load(),
         "passwords" => passwords::load(),
-        "assistant" => assistant::load_status(),
+        "assistant" => assistant::on_show(app),
+        "about" => about::load(),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées
         // apparaissent (vignettes déjà faites gardées, seules les nouvelles se chargent).

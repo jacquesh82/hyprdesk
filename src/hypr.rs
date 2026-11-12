@@ -180,6 +180,21 @@ pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
     Ok(())
 }
 
+/// Ferme une fenêtre (comme son bouton de fermeture : l'application peut s'y opposer).
+pub fn close_window(address: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.window.close({{ window = \"address:{}\" }})",
+        ipc::lua_escape(address)
+    ))?;
+    if r.trim() != "ok" {
+        tracing::warn!(
+            "{}",
+            crate::tr!("fermeture {address} : {r}", address = address, r = r)
+        );
+    }
+    Ok(())
+}
+
 /// Ce que le flux d'événements apporte à l'interface.
 #[derive(Debug, Clone)]
 pub enum Update {

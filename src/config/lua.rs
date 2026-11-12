@@ -209,13 +209,90 @@ fn load_plugin(
     run().map_err(|e| short_lua_error(&e))
 }
 
+/// Fournisseurs IA (`ai_services`), fonction → fournisseur (`ai_use`), et
+/// l'ancienne forme à un seul fournisseur (`ai_provider`…), qui devient le
+/// fournisseur de SmartUI design.
+fn parse_ai(t: &Table, g: &mut crate::config::General) -> mlua::Result<()> {
+    use crate::ai_services::{CONSUMERS, LYRA_ID, Provider, Service, valid_id};
+    const CTX: &str = "hd.config";
+    const C: &str = "hd.config.ai_services";
+    let kind = |s: &str, ctx: &str| {
+        Provider::parse(s)
+            .filter(|p| *p != Provider::Lyra)
+            .ok_or_else(|| {
+                err(crate::tr!(
+                    "{ctx} : type « {s} » inconnu (anthropic, openai, zai, compatible)",
+                    ctx = ctx.to_string(),
+                    s = s.to_string()
+                ))
+            })
+    };
+    if let Some(list) = t.get::<Option<Table>>("ai_services")? {
+        g.ai.services.clear();
+        for item in list.sequence_values::<Table>() {
+            let item = item?;
+            check_keys(&item, &["id", "kind", "name", "endpoint", "model"], C)?;
+            let id = opt_string(&item, "id", C)?.unwrap_or_default();
+            if !valid_id(&id) || id == LYRA_ID || g.ai.services.iter().any(|s| s.id == id) {
+                return Err(err(crate::tr!(
+                    "{C} : id « {id} » invalide ou en double (minuscules, chiffres, - et _ ; « lyra » est réservé)",
+                    C = C,
+                    id = id
+                )));
+            }
+            let k = opt_string(&item, "kind", C)?.unwrap_or_default();
+            g.ai.services.push(Service {
+                kind: kind(&k, C)?,
+                name: opt_string(&item, "name", C)?.unwrap_or_default(),
+                endpoint: opt_string(&item, "endpoint", C)?.unwrap_or_default(),
+                model: opt_string(&item, "model", C)?.unwrap_or_default(),
+                id,
+            });
+        }
+    }
+    if let Some(uses) = t.get::<Option<Table>>("ai_use")? {
+        const U: &str = "hd.config.ai_use";
+        let ids: Vec<&str> = CONSUMERS.iter().map(|c| c.id).collect();
+        check_keys(&uses, &ids, U)?;
+        for c in &ids {
+            if let Some(v) = opt_string(&uses, c, U)? {
+                g.ai.uses.insert(c.to_string(), v.trim().to_string());
+            }
+        }
+    }
+    if let Some(p) = opt_string(t, "ai_provider", CTX)? {
+        let p = Provider::parse(&p).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : ai_provider « {s} » inconnu (lyra, anthropic, openai, zai, compatible)",
+                CTX = CTX,
+                s = p
+            ))
+        })?;
+        if p != Provider::Lyra && !g.ai.services.iter().any(|s| s.id == p.as_str()) {
+            g.ai.services.push(Service {
+                id: p.as_str().into(),
+                name: String::new(),
+                kind: p,
+                endpoint: opt_string(t, "ai_endpoint", CTX)?.unwrap_or_default(),
+                model: opt_string(t, "ai_model", CTX)?.unwrap_or_default(),
+            });
+        }
+        g.ai.uses
+            .entry("smartui".into())
+            .or_insert_with(|| p.as_str().to_string());
+    }
+    Ok(())
+}
+
 /// Clés présentes dans une table `hd.config`, en notation pointée (`grid.icon_size`).
 fn present_keys(t: &Table) -> mlua::Result<Vec<String>> {
     let mut out = Vec::new();
     for pair in t.pairs::<String, Value>() {
         let (k, v) = pair?;
         match v {
-            Value::Table(sub) if k == "grid" || k == "theme" || k == "keys" || k == "apps" => {
+            Value::Table(sub)
+                if k == "grid" || k == "theme" || k == "keys" || k == "apps" || k == "ai_use" =>
+            {
                 for p in sub.pairs::<String, Value>() {
                     let (sk, sv) = p?;
                     // Effets du thème : un endroit à la fois (`theme.effects.bar`).
@@ -541,6 +618,15 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "apps",
             "disabled_plugins",
             "assistant_mode",
+            "ai_services",
+            "ai_use",
+            // Anciennes clés (un seul fournisseur) : relues, puis réécrites en ai_services.
+            "ai_provider",
+            "ai_endpoint",
+            "ai_model",
+            "launcher_smartui",
+            "smartui_style",
+            "smartui_auto",
             "fx",
             "language",
             "layout",
@@ -888,6 +974,16 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(fx) = t.get::<Option<Table>>("fx")? {
         g.fx = crate::fx::parse(&fx).map_err(|e| err(format!("{CTX} : {e}")))?;
+    }
+    parse_ai(t, g)?;
+    if let Some(v) = opt_bool(t, "launcher_smartui", CTX)? {
+        g.launcher.smartui = v;
+    }
+    if let Some(v) = opt_bool(t, "smartui_auto", CTX)? {
+        g.launcher.smartui_auto = Some(v);
+    }
+    if let Some(s) = opt_string(t, "smartui_style", CTX)? {
+        g.launcher.smartui_style = s;
     }
     if let Some(s) = opt_string(t, "assistant_mode", CTX)? {
         g.assistant_mode = crate::assistant::AssistantMode::parse(&s).ok_or_else(|| {

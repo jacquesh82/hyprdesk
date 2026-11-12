@@ -266,16 +266,11 @@ pub fn installed_apps() -> Vec<AppInfo> {
     out
 }
 
-/// Image d'icône d'une fenêtre d'après sa classe : entrée `.desktop` du même
-/// nom, ou dont `StartupWMClass` correspond, sinon le nom de classe lui-même.
-pub fn icon_for_class(
-    class: &str,
-    apps: &[AppInfo],
-    theme: Option<&str>,
-    size: u16,
-) -> Option<PathBuf> {
+/// Nom d'icône (`Icon=`) de l'application d'une classe de fenêtre : entrée
+/// `.desktop` du même nom, ou dont `StartupWMClass` correspond.
+pub fn icon_name_for_class(class: &str, apps: &[AppInfo]) -> Option<String> {
     let lc = class.to_lowercase();
-    let from_entry = find_desktop_file(class)
+    find_desktop_file(class)
         .or_else(|| find_desktop_file(&lc))
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| parse_desktop_entry(&s, ""))
@@ -289,8 +284,19 @@ pub fn icon_for_class(
                         || a.id.to_lowercase() == lc
                 })
                 .and_then(|a| a.icon.clone())
-        });
-    from_entry
+        })
+}
+
+/// Image d'icône d'une fenêtre d'après sa classe : entrée `.desktop` du même
+/// nom, ou dont `StartupWMClass` correspond, sinon le nom de classe lui-même.
+pub fn icon_for_class(
+    class: &str,
+    apps: &[AppInfo],
+    theme: Option<&str>,
+    size: u16,
+) -> Option<PathBuf> {
+    let lc = class.to_lowercase();
+    icon_name_for_class(class, apps)
         .and_then(|i| lookup_icon(&i, theme, size))
         .or_else(|| lookup_icon(&lc, theme, size))
         .or_else(|| lookup_icon("application-x-executable", theme, size))
@@ -372,6 +378,10 @@ pub fn in_terminal(terminal: &str, cmd: &str) -> String {
 
 /// Image d'icône : chemin absolu existant, sinon recherche dans le thème.
 pub fn lookup_icon(name: &str, theme: Option<&str>, size: u16) -> Option<PathBuf> {
+    // SmartUI design actif : ses icônes passent avant le thème, partout.
+    if let Some(p) = crate::smartui::themed(name) {
+        return Some(p);
+    }
     let p = Path::new(name);
     if p.is_absolute() {
         return p.is_file().then(|| p.to_path_buf());

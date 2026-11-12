@@ -48,6 +48,8 @@ optdepends=(
   'glib2: corbeille du bureau (gio)'
   'util-linux: mode avion (rfkill), supports amovibles (lsblk)'
   'pacman-contrib: paquets à mettre à jour (checkupdates)'
+  'curl: services IA, SmartUI design (appels aux API)'
+  'libsecret: services IA, clés API dans le trousseau (secret-tool)'
   'flatpak: mises à jour des applications Flatpak'
   "xdg-desktop-portal-hyprland: partage d'écran"
   'xdg-desktop-portal-gtk: sélecteur de fichiers'

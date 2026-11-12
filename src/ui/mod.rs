@@ -20,6 +20,7 @@ mod context;
 mod design;
 mod icons;
 mod mymfa;
+mod mymfa_fenetre;
 mod osd;
 mod panel;
 pub(crate) mod plugins;
@@ -163,6 +164,9 @@ pub enum Msg {
     LauncherLaunch(String),
     /// Lanceur : application regroupée (écran, classe), fenêtre suivante.
     LauncherApp(String, String),
+    /// Case du dock activée (clic ou Entrée) : le dock rend le clavier,
+    /// puis l'action de la case.
+    LauncherActivate(Box<Msg>),
     /// Écrans détectés (désactivés compris).
     Screens(Vec<crate::screens::Screen>),
     /// Seconde écoulée pendant qu'un changement d'écrans attend confirmation.
@@ -196,6 +200,7 @@ pub enum Msg {
     Polkit(polkit::PMsg),
     /// Trousseau myMFA : état, demandes de déverrouillage, carte.
     Mymfa(mymfa::MMsg),
+    MymfaF(mymfa_fenetre::FMsg),
     /// Bulles de notifications.
     Toasts(toasts::TMsg),
     /// Fenêtre de détail d'un problème.
@@ -383,6 +388,7 @@ pub struct App {
     /// Trousseau myMFA : état connu, carte de déverrouillage ouverte.
     pub(crate) mfa: crate::mymfa::State,
     mfa_dialog: Option<mymfa::Dialog>,
+    mfa_fenetre: Option<mymfa_fenetre::Fenetre>,
     /// Accueil myMFA de l'ouverture de session (création du coffre, ou
     /// dernière saisie avant le sceau) encore à faire ; démarrage du démon.
     mfa_greet: Option<std::time::Instant>,
@@ -720,6 +726,7 @@ impl App {
             polkit: None,
             mfa: Default::default(),
             mfa_dialog: None,
+            mfa_fenetre: None,
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
@@ -816,6 +823,11 @@ impl App {
     fn install_config(&mut self, cfg: Arc<Config>) -> Task<Msg> {
         let old = std::mem::replace(&mut self.cfg, cfg);
         crate::i18n::apply(&self.cfg.general.language);
+        // Thème SmartUI : avant toute recherche d'icône.
+        crate::smartui::configure(
+            self.cfg.general.launcher.smartui,
+            self.cfg.general.icon_theme.as_deref(),
+        );
         let n_owned = self.cfg.general.clone();
         let (o, n) = (&old.general, &n_owned);
         if o.font != n.font || self.icons_gen == 0 {
@@ -850,43 +862,14 @@ impl App {
             }
         }
         // La taille d'icône ne demande pas de nouvelle recherche : l'image est mise à l'échelle.
+        // SmartUI design activé ou coupé : toutes les icônes sont relues.
         let icons_changed = old.icons != self.cfg.icons
             || o.icon_theme != n.icon_theme
             || o.terminal != n.terminal
+            || o.launcher.smartui != n.launcher.smartui
             || self.icons_gen == 0;
         if icons_changed {
-            self.icons.clear();
-            self.icon_imgs.clear();
-            self.selected = None;
-            self.icons_gen += 1;
-            let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
-            tasks.push(Task::perform(
-                async move {
-                    tokio::task::spawn_blocking(move || {
-                        let g = &cfg.general;
-                        let icons = cfg
-                            .icons
-                            .iter()
-                            .map(|d| {
-                                launch::resolve(
-                                    d,
-                                    g.icon_theme.as_deref(),
-                                    g.grid.icon_size,
-                                    &g.terminal,
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        let media = UI_ICONS
-                            .iter()
-                            .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
-                            .collect::<Vec<_>>();
-                        (icons, media)
-                    })
-                    .await
-                    .unwrap_or_default()
-                },
-                move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
-            ));
+            tasks.push(self.reload_icons());
         } else if o.running_apps != n.running_apps || o.launcher.pinned != n.launcher.pinned {
             tasks.push(self.resolve_class_icons());
         }
@@ -1201,6 +1184,22 @@ impl App {
         )
     }
 
+    /// Écoute des événements bruts (souris, clavier) : bureau affiché
+    /// (glisser-déposer, clavier), menu ou réglages ouverts (Échap), et toute
+    /// surface qui prend le clavier seule — recherche, sélecteur de fenêtres,
+    /// carte myMFA, dock — même bureau masqué. Jamais pour la seule barre :
+    /// chaque mouvement de souris coûterait un rendu de toutes les surfaces.
+    fn listens_to_events(&self) -> bool {
+        !self.raised.is_empty()
+            || self.popover.is_some()
+            || self.panel.is_some()
+            || self.chat_shown()
+            || self.search.is_some()
+            || self.switcher.is_some()
+            || self.mfa_dialog.is_some()
+            || !self.launcher_surfaces.is_empty()
+    }
+
     /// Mode du bureau, tel que l'utilisateur le nomme.
     pub(super) fn mode(&self) -> DesktopMode {
         match (self.visible, self.with_windows) {
@@ -1468,7 +1467,9 @@ impl App {
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
         );
-        Task::perform(
+        // SmartUI design : les nouvelles applications du lanceur reçoivent leur icône.
+        let auto = self.smartui_auto(missing.clone());
+        let resolve = Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     missing
@@ -1483,6 +1484,44 @@ impl App {
                 .unwrap_or_default()
             },
             move |l| Msg::ClassIcons(gen_, l),
+        );
+        Task::batch([resolve, auto])
+    }
+
+    /// Relit toutes les icônes (bureau, barre, lanceur, notifications) :
+    /// thème changé, SmartUI activé, ou une icône SmartUI ajoutée.
+    pub(super) fn reload_icons(&mut self) -> Task<Msg> {
+        self.icons.clear();
+        self.icon_imgs.clear();
+        self.selected = None;
+        self.icons_gen += 1;
+        let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let g = &cfg.general;
+                    let icons = cfg
+                        .icons
+                        .iter()
+                        .map(|d| {
+                            launch::resolve(
+                                d,
+                                g.icon_theme.as_deref(),
+                                g.grid.icon_size,
+                                &g.terminal,
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let media = UI_ICONS
+                        .iter()
+                        .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                        .collect::<Vec<_>>();
+                    (icons, media)
+                })
+                .await
+                .unwrap_or_default()
+            },
+            move |(icons, media)| Msg::IconsResolved(gen_, icons, media),
         )
     }
 
@@ -2330,6 +2369,15 @@ impl App {
     /// Handle iced pour une image d'icône (SVG ou matricielle), créé une fois.
     fn handle_for(&mut self, p: Option<&std::path::Path>) -> IconImg {
         match p {
+            // Icône SmartUI : relue en mémoire, une icône revalidée au même
+            // chemin ne doit pas reprendre l'ancienne image en cache.
+            Some(p) if crate::smartui::owns(p) => match std::fs::read(p) {
+                Ok(bytes) => {
+                    self.vectors.push(svg::Handle::from_memory(bytes));
+                    IconImg::Vector(self.vectors.len() - 1)
+                }
+                Err(_) => IconImg::None,
+            },
             Some(p) if p.extension().is_some_and(|e| e == "svg" || e == "svgz") => {
                 self.vectors.push(svg::Handle::from_path(p));
                 IconImg::Vector(self.vectors.len() - 1)
@@ -2667,16 +2715,25 @@ impl App {
                         self.show()
                     }
                 }
+                // Ouvert au clavier, le dock prend le clavier (première case
+                // choisie) : aucune souris nécessaire pour s'en servir.
                 control::Command::ToggleLauncher => {
                     if self.mode() == DesktopMode::LauncherOnly {
                         self.hide()
                     } else {
-                        self.show_with_windows()
+                        let grab = self.launcher_grab_focused();
+                        Task::batch([self.show_with_windows(), grab])
                     }
                 }
                 control::Command::Show => self.show(),
                 control::Command::Hide => self.hide(),
-                control::Command::LauncherOnly => self.show_with_windows(),
+                control::Command::LauncherOnly => {
+                    if self.mode() == DesktopMode::LauncherOnly {
+                        return self.show_with_windows();
+                    }
+                    let grab = self.launcher_grab_focused();
+                    Task::batch([self.show_with_windows(), grab])
+                }
                 control::Command::Cycle => self.set_mode(self.mode().next()),
                 control::Command::Reload => self.load_config(),
                 control::Command::Quit => {
@@ -2712,6 +2769,7 @@ impl App {
                 control::Command::Mymfa(a) => match a.as_str() {
                     "lock" => self.mfa_update(mymfa::MMsg::Lock),
                     "setup" => self.mfa_update(mymfa::MMsg::Setup(None)),
+                    "open" => self.mfa_fenetre_open(),
                     "codes" => self.open_search_with(":2fa "),
                     "logins" => self.open_search_with(":mdp "),
                     _ => self.mfa_update(mymfa::MMsg::Ask),
@@ -2839,6 +2897,7 @@ impl App {
                 after.chain(Task::perform(bar::read_audio(), Msg::AudioValue))
             }
             Msg::LauncherApp(monitor, class) => self.launcher_focus_app(&monitor, &class),
+            Msg::LauncherActivate(msg) => self.launcher_activate(*msg),
             Msg::OpenAssistant => self.open_assistant(),
             Msg::AskLyra(origin, text) => {
                 let close = if self.panel.is_some() {
@@ -3065,7 +3124,7 @@ impl App {
                 back.chain(focus)
             }
             // Les réglages s'ouvrent sans changer le mode du bureau.
-            Msg::OpenPanel => self.open_panel(),
+            Msg::OpenPanel => self.toggle_panel(),
             Msg::Panel(m) => self.panel_update(m),
             Msg::Chat(m) => self.chat_update(m),
             Msg::SettingsLoaded(revision, s) => {
@@ -3179,6 +3238,7 @@ impl App {
             Msg::OsdTick => self.osd_tick(),
             Msg::Polkit(m) => self.polkit_update(m),
             Msg::Mymfa(m) => self.mfa_update(m),
+            Msg::MymfaF(m) => self.mfa_fenetre_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
             Msg::Search(m) => self.search_update(m),
@@ -3589,6 +3649,9 @@ impl App {
                     }
                     return Task::none();
                 }
+                if self.mfa_fenetre.as_ref().is_some_and(|f| f.win == id) {
+                    return self.mfa_fenetre_close();
+                }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {
                     if let Some(mut d) = self.polkit.take() {
@@ -3680,6 +3743,11 @@ impl App {
                 {
                     return self.close_mfa_dialog();
                 }
+                if self.mfa_fenetre.is_some()
+                    && key == keyboard::Key::Named(keyboard::key::Named::Escape)
+                {
+                    return self.mfa_fenetre_close();
+                }
                 if self.mfa_ready_open() && key == keyboard::Key::Named(keyboard::key::Named::Enter)
                 {
                     return self.mfa_update(mymfa::MMsg::Submit);
@@ -3724,6 +3792,10 @@ impl App {
                         _ => Task::none(),
                     };
                 }
+                // Le dock tient le clavier : il garde ses touches.
+                if self.launcher_surfaces.contains_key(&id) {
+                    return self.launcher_key(id, &key);
+                }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
                     if self.icon_menu.is_some() {
                         return self.close_icon_menu();
@@ -3751,6 +3823,12 @@ impl App {
                         };
                     }
                     return Task::none();
+                }
+                // Bureau : Tab descend dans le dock (Échap y remonte).
+                if key == keyboard::Key::Named(keyboard::key::Named::Tab)
+                    && let Some(monitor) = self.surfaces.get(&id).cloned()
+                {
+                    return self.launcher_grab(&monitor);
                 }
                 self.navigate(id, &key)
             }
@@ -3859,14 +3937,7 @@ impl App {
         if self.osd.is_some() {
             subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
         }
-        if !self.raised.is_empty()
-            || self.popover.is_some()
-            || self.panel.is_some()
-            || self.chat_shown()
-        {
-            // Bureau affiché (glisser-déposer, clavier), menu ou réglages ouverts (Échap).
-            // Jamais pour la seule barre : chaque mouvement de souris coûterait
-            // un rendu de toutes les surfaces.
+        if self.listens_to_events() {
             subs.push(iced::event::listen_with(listen));
         }
         if !self.raised.is_empty() {
@@ -3972,6 +4043,9 @@ impl App {
         }
         if self.mfa_dialog.as_ref().is_some_and(|d| d.win == id) {
             return self.view_mfa_dialog();
+        }
+        if self.mfa_fenetre.as_ref().is_some_and(|f| f.win == id) {
+            return self.view_mfa_fenetre();
         }
         if self.toasts.win == Some(id) {
             return self.view_toasts();
@@ -4638,6 +4712,24 @@ mod regression_tests {
     }
 
     #[test]
+    fn the_app_launcher_hears_its_keys_with_the_desktop_hidden() {
+        let mut app = app();
+        app.monitors = vec![monitor("A", true)];
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        assert!(!app.listens_to_events(), "barre seule : rien à écouter");
+        // SUPER + R bureau masqué : flèches, Entrée et Échap doivent arriver.
+        let _ = app.update_inner(Msg::Control(control::Command::Search));
+        assert!(app.search.is_some());
+        assert!(app.listens_to_events());
+        let _ = app.update_inner(Msg::Key(
+            Id::unique(),
+            keyboard::Key::Named(keyboard::key::Named::Escape),
+        ));
+        assert!(app.search.is_none());
+        assert!(!app.listens_to_events());
+    }
+
+    #[test]
     fn the_launcher_never_changes_the_mode() {
         let mut app = app();
         let a = Id::unique();
@@ -4661,6 +4753,24 @@ mod regression_tests {
         assert_eq!(app.mode(), DesktopMode::FullDesktop);
         assert!(app.session_windows.contains("0x2"));
         assert!(!app.in_submap, "la fenêtre rendue garde ses raccourcis");
+    }
+
+    #[test]
+    fn the_settings_button_toggles_the_drawer() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        let _ = app.update_inner(Msg::OpenPanel);
+        assert!(app.panel_open(), "premier clic : ouvert");
+        let _ = app.update_inner(Msg::OpenPanel);
+        assert!(!app.panel_open(), "second clic : fermé");
+        let _ = app.update_inner(Msg::OpenPanel);
+        assert!(app.panel_open(), "troisième clic : rouvert");
+        // Le raccourci et `hyprdesk settings` ouvrent toujours, sans refermer.
+        let _ = app.update_inner(Msg::Control(control::Command::Settings("desktop".into())));
+        assert!(app.panel_open());
     }
 
     #[test]

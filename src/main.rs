@@ -3,6 +3,7 @@
 //! Le même binaire est le démon (`hyprdesk`, `hyprdesk daemon`) et son client
 //! (`hyprdesk toggle`, à lier à une touche dans `hyprland.lua`).
 
+mod ai_services;
 mod apps;
 mod apptheme;
 mod assistant;
@@ -41,6 +42,7 @@ mod session;
 mod settings;
 mod share;
 mod single;
+mod smartui;
 mod span;
 mod storage;
 mod switcher;

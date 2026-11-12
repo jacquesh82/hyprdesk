@@ -253,6 +253,14 @@ pub struct LauncherCfg {
     pub pinned: Vec<String>,
     pub show_settings: bool,
     pub show_assistant: bool,
+    /// SmartUI design : les icônes redessinées par l'IA et validées
+    /// remplacent celles du thème (cache `smartui`).
+    pub smartui: bool,
+    /// Style demandé à l'IA ; vide : celui de hyprdesk ([`crate::smartui::DEFAULT_STYLE`]).
+    pub smartui_style: String,
+    /// Génération automatique (icônes validées d'office) ; `None` : active
+    /// si LYRA est installée ([`crate::smartui::auto_on`]).
+    pub smartui_auto: Option<bool>,
 }
 
 /// Présentation du lanceur d'applications (`hyprdesk apps`, `search`).
@@ -318,6 +326,9 @@ impl Default for LauncherCfg {
             pinned: Vec::new(),
             show_settings: true,
             show_assistant: true,
+            smartui: false,
+            smartui_style: String::new(),
+            smartui_auto: None,
         }
     }
 }
@@ -841,6 +852,9 @@ pub struct General {
     pub forced_modes: std::collections::BTreeMap<String, String>,
     /// Ouverture de l'assistant IA (LYRA) : fenêtre ou terminal.
     pub assistant_mode: crate::assistant::AssistantMode,
+    /// Autres services IA : fournisseurs (endpoint, modèle) et fonction →
+    /// fournisseur. Les clés API restent dans le trousseau.
+    pub ai: crate::ai_services::AiCfg,
     /// Langue de l'interface : `auto` (celle du système), `fr` ou `en`.
     pub language: String,
     /// Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
@@ -903,6 +917,7 @@ impl Default for General {
             apps: Default::default(),
             disabled_plugins: Default::default(),
             assistant_mode: Default::default(),
+            ai: Default::default(),
             language: "auto".into(),
             tiling: Default::default(),
             fx: Default::default(),

@@ -213,6 +213,8 @@ overrides:
       - "xdg-user-dirs: dossiers Images et Vidéos des captures (xdg-user-dir)"
       - "networkmanager: réseau (nmcli)"
       - "nm-connection-editor: réglages réseau avancés"
+      - "curl: services IA, SmartUI design (appels aux API)"
+      - "libsecret: services IA, clés API dans le trousseau (secret-tool)"
       - "bluez-utils: Bluetooth (bluetoothctl)"
       - "blueman: réglages Bluetooth avancés"
       - "brightnessctl: assombrir l'écran à l'inactivité"

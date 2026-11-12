@@ -119,6 +119,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "ai-assistant" => {
             r#"<path d="M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>"#
         }
+        // À propos : un « i » dans un cercle.
+        "help-about" | "dialog-information" => {
+            r#"<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>"#
+        }
         // Partage : une boîte, une flèche qui sort.
         // Thème : une palette à moitié remplie.
         "preferences-desktop-theme" => {

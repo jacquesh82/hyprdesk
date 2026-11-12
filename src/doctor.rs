@@ -34,6 +34,20 @@ pub struct Dep {
 
 pub const DEPS: &[Dep] = &[
     Dep {
+        name: "curl",
+        probe: Probe::Program(&["curl"]),
+        package: "curl",
+        feature: "Services IA : appels aux API (SmartUI design)",
+        essential: false,
+    },
+    Dep {
+        name: "secret-tool",
+        probe: Probe::Program(&["secret-tool"]),
+        package: "libsecret",
+        feature: "Services IA : clés API dans le trousseau",
+        essential: false,
+    },
+    Dep {
         name: "hyprctl",
         probe: Probe::Program(&["hyprctl"]),
         package: "hyprland",

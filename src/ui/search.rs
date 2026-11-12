@@ -67,6 +67,18 @@ impl Search {
         crate::clipboard::query(&self.query)
     }
 
+    /// Vue de la carte (applications, presse-papiers, mots de passe) : en
+    /// changer remplace le champ de saisie.
+    fn view_kind(&self) -> u8 {
+        if crate::mymfa::query(&self.query).is_some() {
+            2
+        } else if self.clip_query().is_some() {
+            1
+        } else {
+            0
+        }
+    }
+
     fn rank_mfa(&mut self) {
         let Some((_, q)) = crate::mymfa::query(&self.query) else {
             return;
@@ -112,6 +124,8 @@ pub enum SMsg {
     Resolved(String),
     Clips(Vec<crate::clipboard::Entry>),
     Mfa(crate::mymfa::Mode, MfaList),
+    /// Carte affichée : le champ prend le focus (la surface existe enfin).
+    Shown,
 }
 
 impl App {
@@ -329,6 +343,11 @@ impl App {
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
         match m {
+            // Fenêtre myMFA complète (MLG-46) : le lanceur se referme.
+            SMsg::Query(q) if q.trim() == ":mymfa" => {
+                let fermer = self.toggle_search();
+                Task::batch([fermer, self.mfa_fenetre_open()])
+            }
             SMsg::Query(q) if crate::mymfa::query(&q).is_some() => {
                 let Some((mode, _)) = crate::mymfa::query(&q) else {
                     return Task::none();
@@ -516,6 +535,7 @@ impl App {
                 }
                 Task::batch(icons.iter().map(|n| self.want_icon(n)).collect::<Vec<_>>())
             }
+            SMsg::Shown => iced::widget::operation::focus(INPUT_ID),
             SMsg::Query(q) => {
                 let (grid, cat) = self
                     .search
@@ -531,12 +551,20 @@ impl App {
                     .iter()
                     .filter_map(|&i| self.apps[i].icon.clone())
                     .collect();
+                // `:clip`, `:2fa`… changent de vue : le nouveau champ reprend le focus.
+                let mut refocus = false;
                 if let Some(s) = self.search.as_mut() {
+                    let before = s.view_kind();
                     s.query = q;
                     s.results = results;
                     s.selected = 0;
+                    refocus = s.view_kind() != before;
                 }
-                Task::batch(icons.iter().map(|n| self.want_icon(n)).collect::<Vec<_>>())
+                let mut tasks: Vec<Task<Msg>> = icons.iter().map(|n| self.want_icon(n)).collect();
+                if refocus {
+                    tasks.push(iced::widget::operation::focus(INPUT_ID));
+                }
+                Task::batch(tasks)
             }
             SMsg::Launch(k) => {
                 let Some(&i) = self.search.as_ref().and_then(|s| s.results.get(k)) else {
@@ -578,10 +606,19 @@ impl App {
         }
     }
 
+    /// La carte de recherche. Son apparition donne le focus au champ : le
+    /// focus demandé à l'ouverture part avant que la surface n'existe.
     pub(super) fn view_search(&self) -> Element<'_, Msg> {
         let Some(s) = &self.search else {
             return iced::widget::Space::new().into();
         };
+        iced::widget::sensor(self.view_search_card(s))
+            .key(format!("{:?}", s.win))
+            .on_show(|_| Msg::Search(SMsg::Shown))
+            .into()
+    }
+
+    fn view_search_card<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
         if crate::mymfa::query(&s.query).is_some() {
             return self.view_mfa_search(s);
         }

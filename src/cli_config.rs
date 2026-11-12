@@ -425,6 +425,29 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.idle.suspend.to_string(),
         |s, v, c| { s.idle_suspend = Some(number(v, 0u32, 86_400)?); Ok(()) },
         |s| s.idle_suspend = None;
+    "ai_use.smartui", "assistant", "lyra | id d'un fournisseur — fournisseur IA de SmartUI design (fournisseurs : Réglages → IA)",
+        |c| c.general.ai.for_consumer("smartui").id,
+        |s, v, c| {
+            if c.general.ai.service(v).is_none() {
+                let ids: Vec<String> = c.general.ai.all().into_iter().map(|s| s.id).collect();
+                return Err(crate::tr!("fournisseur « {v} » inconnu ({ids})", v = v.to_string(), ids = ids.join(", ")));
+            }
+            s.ai_use.insert("smartui".into(), v.to_string());
+            Ok(())
+        },
+        |s| { s.ai_use.remove("smartui"); };
+    "launcher_smartui", "launcher", "on | off — SmartUI design : icônes redessinées par l'IA et validées",
+        |c| on_off(c.general.launcher.smartui),
+        |s, v, c| { s.launcher_smartui = Some(parse_bool(v)?); Ok(()) },
+        |s| s.launcher_smartui = None;
+    "smartui_auto", "launcher", "on | off — SmartUI design : icônes générées et validées d'office (défaut : on si LYRA est installée)",
+        |c| on_off(crate::smartui::auto_on(c)),
+        |s, v, c| { s.smartui_auto = Some(parse_bool(v)?); Ok(()) },
+        |s| s.smartui_auto = None;
+    "smartui_style", "launcher", "texte | vide — style demandé à l'IA pour SmartUI design",
+        |c| c.general.launcher.smartui_style.clone(),
+        |s, v, c| { s.smartui_style = Some(v.to_string()); Ok(()) },
+        |s| s.smartui_style = None;
     "assistant_mode", "assistant", "window | terminal — ouverture de LYRA (fournisseur : apps.ai)",
         |c| c.general.assistant_mode.as_str().into(),
         |s, v, c| { s.assistant_mode = Some(choice(v, crate::assistant::AssistantMode::parse, "window, terminal")?); Ok(()) },

@@ -170,6 +170,13 @@ pub struct Settings {
     /// Écran principal (`hd.config({ primary = "DP-1" })`).
     pub primary: Option<String>,
     pub assistant_mode: Option<crate::assistant::AssistantMode>,
+    /// Autres services IA : fournisseurs (la clé : trousseau), fonction → fournisseur.
+    pub ai_services: Option<Vec<crate::ai_services::Service>>,
+    pub ai_use: BTreeMap<String, String>,
+    /// SmartUI design : icônes validées dans le lanceur, et leur style.
+    pub launcher_smartui: Option<bool>,
+    pub smartui_style: Option<String>,
+    pub smartui_auto: Option<bool>,
     pub language: Option<String>,
     /// Layouts (`layout`, `layout_workspaces`, `dwindle`, `master`, `scrolling`).
     pub tiling: Option<crate::tiling::Tiling>,
@@ -366,6 +373,23 @@ impl Settings {
                 None
             },
             assistant_mode: has("assistant_mode").then_some(g.assistant_mode),
+            // L'ancienne forme (`ai_provider`) est réécrite en ai_services / ai_use.
+            ai_services: (has("ai_services") || has("ai_provider"))
+                .then(|| g.ai.services.clone()),
+            ai_use: g
+                .ai
+                .uses
+                .iter()
+                .filter(|(c, _)| has(&format!("ai_use.{c}")) || has("ai_provider"))
+                .map(|(c, v)| (c.clone(), v.clone()))
+                .collect(),
+            launcher_smartui: has("launcher_smartui").then_some(g.launcher.smartui),
+            smartui_style: has("smartui_style").then(|| g.launcher.smartui_style.clone()),
+            smartui_auto: if has("smartui_auto") {
+                g.launcher.smartui_auto
+            } else {
+                None
+            },
             language: has("language").then(|| g.language.clone()),
             tiling: [
                 "layout",
@@ -585,6 +609,19 @@ impl Settings {
             g.launcher.show_assistant
         );
         set!(assistant_mode, "assistant_mode", g.assistant_mode);
+        set!(ai_services, "ai_services", g.ai.services);
+        for (c, v) in &self.ai_use {
+            if free(&format!("ai_use.{c}")) {
+                g.ai.uses.insert(c.clone(), v.clone());
+            }
+        }
+        set!(launcher_smartui, "launcher_smartui", g.launcher.smartui);
+        set!(smartui_style, "smartui_style", g.launcher.smartui_style);
+        if let Some(v) = self.smartui_auto
+            && free("smartui_auto")
+        {
+            g.launcher.smartui_auto = Some(v);
+        }
         set!(language, "language", g.language);
         set!(fx, "fx", g.fx);
         if let Some(t) = &self.tiling {
@@ -1002,6 +1039,39 @@ impl Settings {
         }
         if let Some(v) = self.assistant_mode {
             cfg.push(format!("assistant_mode = {}", q(v.as_str())));
+        }
+        if let Some(list) = &self.ai_services {
+            let items: Vec<String> = list
+                .iter()
+                .map(|s| {
+                    format!(
+                        "{{ id = {}, kind = {}, name = {}, endpoint = {}, model = {} }}",
+                        q(&s.id),
+                        q(s.kind.as_str()),
+                        q(&s.name),
+                        q(&s.endpoint),
+                        q(&s.model)
+                    )
+                })
+                .collect();
+            cfg.push(format!("ai_services = {{ {} }}", items.join(", ")));
+        }
+        if !self.ai_use.is_empty() {
+            let f: Vec<String> = self
+                .ai_use
+                .iter()
+                .map(|(c, v)| format!("{c} = {}", q(v)))
+                .collect();
+            cfg.push(format!("ai_use = {{ {} }}", f.join(", ")));
+        }
+        if let Some(v) = self.launcher_smartui {
+            cfg.push(format!("launcher_smartui = {v}"));
+        }
+        if let Some(v) = &self.smartui_style {
+            cfg.push(format!("smartui_style = {}", q(v)));
+        }
+        if let Some(v) = self.smartui_auto {
+            cfg.push(format!("smartui_auto = {v}"));
         }
         if let Some(v) = &self.language {
             cfg.push(format!("language = {}", q(v)));
@@ -1615,6 +1685,59 @@ mod tests {
             Some("Noto Sans")
         );
         assert_eq!(settings.apply_to(&user).general.font_size, 18.0);
+    }
+
+    /// Fournisseurs IA et fonction → fournisseur ; l'ancienne forme à un
+    /// seul fournisseur (`ai_provider`) est reprise, puis réécrite.
+    #[test]
+    fn fournisseurs_ia_aller_retour() {
+        use crate::ai_services::{Provider, Service};
+        let mut ai_use = BTreeMap::new();
+        ai_use.insert("smartui".to_string(), "claude-perso".to_string());
+        let settings = Settings {
+            ai_services: Some(vec![Service {
+                id: "claude-perso".into(),
+                name: "Claude \"perso\"".into(),
+                kind: Provider::Anthropic,
+                endpoint: String::new(),
+                model: "claude-sonnet-5-5".into(),
+            }]),
+            ai_use,
+            ..Settings::default()
+        };
+        let load = |lua: String| {
+            load_chunks(
+                &[(lua, "settings.lua".into(), Origin::Settings)],
+                Path::new("/cfg"),
+            )
+            .unwrap()
+            .config
+        };
+        let loaded = load(settings.to_lua());
+        assert_eq!(Settings::from_config(&loaded), settings);
+        let ai = &loaded.general.ai;
+        assert_eq!(ai.for_consumer("smartui").model(), "claude-sonnet-5-5");
+        assert_eq!(ai.for_consumer("smartui").label(), "Claude \"perso\"");
+        // Ancienne forme.
+        let old = load(
+            "hd.config({ ai_provider = \"zai\", ai_model = \"glm-4.5v\" })".into(),
+        );
+        assert_eq!(old.general.ai.for_consumer("smartui").id, "zai");
+        assert_eq!(old.general.ai.for_consumer("smartui").model(), "glm-4.5v");
+        let rewritten = Settings::from_config(&old).to_lua();
+        assert!(rewritten.contains("ai_services") && !rewritten.contains("ai_provider"));
+        assert_eq!(load(rewritten).general.ai, old.general.ai);
+        let lyra = load("hd.config({ ai_provider = \"lyra\" })".into());
+        assert_eq!(lyra.general.ai.for_consumer("smartui").id, "lyra");
+        // Identifiant réservé ou invalide : refusé.
+        for bad in ["lyra", "Majuscule", ""] {
+            let lua = format!("hd.config({{ ai_services = {{ {{ id = \"{bad}\", kind = \"openai\" }} }} }})");
+            assert!(
+                load_chunks(&[(lua, "settings.lua".into(), Origin::Settings)], Path::new("/cfg"))
+                    .is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

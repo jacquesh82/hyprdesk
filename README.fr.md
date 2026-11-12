@@ -308,6 +308,12 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 | `hyprdesk doctor` | dépendances externes (hypridle, wpctl, nmcli, portails…) : présentes ou absentes, et ce qui en dépend ; aussi dans Réglages → Bureau → Dépendances (configuration avancée) |
 | `hyprdesk init` · `stubs` · `snippet` | config d'exemple, définitions LuaLS, lignes pour `hyprland.lua` |
 
+Au clavier, le dock se pilote sans souris : ouvert par `toggle-launcher` ou
+`launcher-only`, il prend le clavier, première case choisie (Tab y descend
+depuis le plein bureau). Flèches, Tab et Maj + Tab changent de case, Début et
+Fin vont aux bouts, Entrée ou Espace l'activent et rendent le clavier, Échap
+referme le dock (ou remonte au plein bureau).
+
 Options et variables :
 - `--config <fichier>` ou `$HYPRDESK_CONFIG` : fichier de configuration à utiliser ;
 - `$HYPRDESK_LOG` : niveau de journal (`debug`, `info`…).

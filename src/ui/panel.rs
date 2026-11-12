@@ -73,6 +73,7 @@ pub struct Panel {
     pub bar: plugins::bar::State,
     pub theme: plugins::theme::State,
     pub apptheme: plugins::apptheme::State,
+    pub about: plugins::about::State,
 }
 
 /// Couleurs proposées (palette Dracula PRO), partagées par les paquets.
@@ -125,6 +126,7 @@ impl Panel {
             bar: Default::default(),
             theme: Default::default(),
             apptheme: Default::default(),
+            about: Default::default(),
         }
     }
 
@@ -140,7 +142,7 @@ impl App {
     /// surface au-dessus des fenêtres : le mode du bureau ne change pas.
     pub(super) fn open_panel(&mut self) -> Task<Msg> {
         // Déjà ouvert : rien à refaire (un nouvel appel ne doit pas le dupliquer).
-        if self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0) {
+        if self.panel_open() {
             return Task::none();
         }
         let primary = self.primary_monitor();
@@ -154,6 +156,20 @@ impl App {
         // Un seul tiroir à la fois : l'assistant laisse la place aux réglages.
         let chat = self.close_chat();
         Task::batch([chat, self.open_panel_at(win)])
+    }
+
+    /// Bouton Réglages du lanceur : ouvre le tiroir, ou le ferme s'il est affiché.
+    pub(super) fn toggle_panel(&mut self) -> Task<Msg> {
+        if self.panel_open() {
+            self.close_panel()
+        } else {
+            self.open_panel()
+        }
+    }
+
+    /// Tiroir affiché ou en train de s'ouvrir (pas en train de se fermer).
+    pub(super) fn panel_open(&self) -> bool {
+        self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0)
     }
 
     fn open_panel_at(&mut self, win: Id) -> Task<Msg> {
