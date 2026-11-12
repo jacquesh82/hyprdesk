@@ -47,6 +47,7 @@
 "  daemon            lance le démon (par défaut) ; une seule instance par session" = "  daemon            starts the daemon (default); a single instance per session"
 "  daemon --replace  remplace proprement l'instance en place" = "  daemon --replace  cleanly replaces the running instance"
 "  doctor            dépendances externes : présentes, absentes, et ce qui en dépend" = "  doctor            external dependencies: present, missing, and what relies on them"
+"  doctor --missing  les absentes, une par ligne (nom, paquet Arch, fonction ; tabulations)" = "  doctor --missing  missing ones, one per line (name, Arch package, feature; tab-separated)"
 "  export [fichier] [--theme] [--screens]" = "  export [file] [--theme] [--screens]"
 "  fichiers : {list}" = "  files: {list}"
 "  fonds d'écran : {n}" = "  wallpapers: {n}"

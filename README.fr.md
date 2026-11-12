@@ -314,7 +314,13 @@ commandes longues (compilation, paquets) tournent avec une animation, leur
 dernière ligne et le temps écoulé, et leur sortie complète va dans
 `~/.local/state/hyprdesk/install-<date>.log`. Si une étape échoue,
 l'installation s'arrête en disant laquelle, les dernières lignes de l'erreur,
-la piste de correction, et que la relancer est sans danger. Elle se termine
+la piste de correction, et que la relancer est sans danger. L'étape des
+dépendances facultatives liste celles qui manquent (veille, captures,
+Bluetooth, écran de connexion…), propose d'installer celles des dépôts de la
+distribution (toutes, aucune ou par numéros ; `--optional-deps ask|all|none`),
+montre les autres avec leur commande AUR, et annonce la suite : l'écran de
+connexion de hyprdesk n'est proposé que si greetd et cage sont présents ou
+installables, et la question dit qu'elle les installe. Elle se termine
 par un bilan vérifié point par point (binaire, service, configuration de
 Hyprland sans erreur, démarrage à la connexion, clavier, langue, écran de
 connexion), puis **ce qu'il reste à faire** pour que hyprdesk tourne (ouvrir

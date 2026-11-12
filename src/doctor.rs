@@ -346,6 +346,22 @@ pub fn report(list: &[Status]) -> String {
     out
 }
 
+/// Les absentes, une par ligne : nom, paquet (Arch), fonction traduite,
+/// séparés par des tabulations (`hyprdesk doctor --missing`, scripts/install.sh).
+pub fn missing_tsv(list: &[Status]) -> String {
+    list.iter()
+        .filter(|s| s.found.is_none())
+        .map(|s| {
+            format!(
+                "{}\t{}\t{}\n",
+                s.dep.name,
+                s.dep.package,
+                crate::i18n::tr(s.dep.feature)
+            )
+        })
+        .collect()
+}
+
 /// Une dépendance indispensable manque.
 pub fn essential_missing(list: &[Status]) -> bool {
     list.iter().any(|s| s.dep.essential && s.found.is_none())
@@ -384,6 +400,10 @@ mod tests {
         assert!(r.contains("hypridle)"), "le paquet est indiqué : {r}");
         assert!(r.contains(&format!("{}/{}", DEPS.len() - 1, DEPS.len())));
         assert!(!essential_missing(&list));
+        assert_eq!(
+            missing_tsv(&list).lines().collect::<Vec<_>>(),
+            vec!["hypridle\thypridle\tVeille et verrouillage automatique"]
+        );
         let none: Vec<Status> = DEPS.iter().map(|dep| Status { dep, found: None }).collect();
         assert!(essential_missing(&none));
     }

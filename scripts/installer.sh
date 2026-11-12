@@ -295,13 +295,25 @@ DM=""
 [[ -L /etc/systemd/system/display-manager.service ]] \
     && DM="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)" .service)"
 GREETER_ITEM=(greeter "" off)
+GREETER_STATE=""   # récapitulatif quand l'option n'est pas proposée
+PM="$(hyprdesk_pm)"
 # Écran de hyprdesk déjà en place : rien à proposer.
 if [[ "$DM" == greetd ]] && command -v hyprdesk >/dev/null 2>&1 \
     && hyprdesk greeter setup status 2>/dev/null | grep -q hyprdesk; then
     GREETER_ITEM=()
+    GREETER_STATE="$(t "déjà en place" "already set")"
 else
     case "$DM" in gdm) DM=GDM ;; sddm) DM=SDDM ;; lightdm) DM=LightDM ;; esac
     GREETER_ITEM[1]="$(t "Remplacer ${DM:-le gestionnaire de connexion} par l'écran de hyprdesk" "Replace ${DM:-the display manager} with the hyprdesk login screen")"
+    # Il lui faut greetd et cage : présents, sinon installables depuis les dépôts.
+    if ! { command -v greetd >/dev/null 2>&1 && command -v cage >/dev/null 2>&1; }; then
+        if [[ -n "$PM" ]] && hyprdesk_pkg_available "$PM" greetd && hyprdesk_pkg_available "$PM" cage; then
+            GREETER_ITEM[1]+="$(t " (installe greetd et cage)" " (installs greetd and cage)")"
+        else
+            GREETER_ITEM=()
+            GREETER_STATE="$(t "non proposé (greetd ou cage absent des dépôts)" "not offered (greetd or cage not in the repositories)")"
+        fi
+    fi
 fi
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher, Entrée : suivant)" "Options to enable (space: toggle, Enter: next)")" \
     deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
@@ -333,13 +345,16 @@ $(row "$(t "Démarrage à la connexion" "Start at login")" "$(yes_no autostart)"
 $(row "SUPER + L" "$(yes_no lockkey)")
 $(row "$(t "Retirer hyprpaper" "Remove hyprpaper")" "$(yes_no hyprpaper)")
 $(row "$(t "Clavier du système" "System keyboard")" "$(yes_no syskb)")
-$(row "$(t "Écran de connexion" "Login screen")" "$( [[ ${#GREETER_ITEM[@]} -eq 0 ]] && t "déjà en place" "already set" || yes_no greeter)")
+$(row "$(t "Écran de connexion" "Login screen")" "$( [[ ${#GREETER_ITEM[@]} -eq 0 ]] && echo "$GREETER_STATE" || yes_no greeter)")
 
 $(t "Ensuite : compilation et installation en étapes numérotées (5 à 10 min la
-première fois), puis un bilan et ce qu'il reste à faire. hyprland.lua est
+première fois). L'étape « Dépendances facultatives » propose d'installer celles
+qui manquent (veille, captures, Bluetooth…), puis un bilan dit ce qu'il reste
+à faire. hyprland.lua est
 sauvegardé avant chaque modification ; sudo est demandé pour les paquets, le
-clavier du système et l'écran de connexion." "Then: build and install in numbered steps (5 to 10 min the first time),
-then a report and what is left to do. hyprland.lua is backed up before each
+clavier du système et l'écran de connexion." "Then: build and install in numbered steps (5 to 10 min the first time).
+The “Optional dependencies” step offers to install the missing ones (idle,
+screenshots, Bluetooth…), then a report says what is left to do. hyprland.lua is backed up before each
 change; sudo is asked for packages, the system keyboard and the login screen.")"
 yesno "$SUMMARY" "$(t "Installer" "Install")" "$(t "Annuler" "Cancel")" || quit
 

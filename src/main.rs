@@ -141,6 +141,7 @@ Commandes :
   preview [dossier] aperçu isolé ; capture les vues si un dossier est fourni
   check [fichier]   exécute et vérifie la configuration sans modifier le démon
   doctor            dépendances externes : présentes, absentes, et ce qui en dépend
+  doctor --missing  les absentes, une par ligne (nom, paquet Arch, fonction ; tabulations)
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
   keyboard [disposition [variante [options]]]
@@ -1152,6 +1153,11 @@ fn main() -> ExitCode {
         // Dépendances externes : présentes, absentes, et ce qui en dépend.
         "doctor" => {
             let list = doctor::check();
+            // Pour les scripts d'installation : les absentes, sans mise en forme.
+            if args.get(1).map(String::as_str) == Some("--missing") {
+                print!("{}", doctor::missing_tsv(&list));
+                return ExitCode::SUCCESS;
+            }
             println!("{}", doctor::report(&list));
             if doctor::essential_missing(&list) {
                 ExitCode::FAILURE

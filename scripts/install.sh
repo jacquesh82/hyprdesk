@@ -11,6 +11,10 @@
 #   --remove-hyprpaper       retirer hyprpaper de l'autostart (hyprdesk dessine le fond)
 #   --greeter | --no-greeter remplacer GDM (SDDM…) par l'écran de hyprdesk, ou non
 #                            (sans l'un ni l'autre : question posée)
+#   --optional-deps ask|all|none
+#                            dépendances facultatives absentes (veille, captures,
+#                            écran de connexion…) : proposées à l'étape dédiée
+#                            (ask, par défaut au terminal), toutes installées, ou non
 #   --verbose                sortie complète des commandes (sinon : journal)
 #
 # Étapes numérotées : contrôles préalables (arrêt avant toute modification si un
@@ -34,6 +38,7 @@ AUTOSTART=1
 LOCK_KEY=1
 REMOVE_HYPRPAPER=0
 GREETER=ask
+OPT_DEPS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --lang) LANG_CHOICE="${2:?--lang fr|en|auto}"; shift ;;
@@ -45,13 +50,17 @@ while [ $# -gt 0 ]; do
         --remove-hyprpaper) REMOVE_HYPRPAPER=1 ;;
         --greeter) GREETER=yes ;;
         --no-greeter) GREETER=no ;;
+        --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
 done
 case "$LANG_CHOICE" in ""|fr|en|auto) ;; *) echo "--lang : fr, en ou auto" >&2; exit 2 ;; esac
+case "$OPT_DEPS" in ""|ask|all|none) ;; *) echo "--optional-deps : ask, all ou none" >&2; exit 2 ;; esac
+# Sans choix : proposées au terminal, laissées de côté sans terminal.
+if [[ -z "$OPT_DEPS" ]]; then [[ -t 0 ]] && OPT_DEPS=ask || OPT_DEPS=none; fi
 
 # Langue des messages : celle choisie, sinon celle du système.
 UI=fr
@@ -198,21 +207,94 @@ fi
 
 # -- Dépendances facultatives ----------------------------------------------------------
 hd_step "🩺" "Dépendances facultatives" "Optional dependencies" \
-    "Une absente rend seulement sa fonction inopérante (détail : hyprdesk doctor)." \
-    "A missing one only disables its feature (details: hyprdesk doctor)."
+    "Une absente rend seulement sa fonction inopérante ; celles des dépôts peuvent être installées ici." \
+    "A missing one only disables its feature; those in the repositories can be installed here."
+PM="$(hyprdesk_pm)"
+AUR="$( [[ "$PM" == pacman ]] && hyprdesk_aur_helper || true)"
+OPT_PKGS=()     # installables depuis les dépôts (noms de la distribution)
+OPT_MANUAL=()   # absentes des dépôts (AUR…) : à la main
+OPT_NUM=()      # paquet de chaque ligne numérotée (choix par numéros)
+# opt_scan : relève les absentes et les classe ; affiche la liste numérotée.
+opt_scan() {
+    OPT_PKGS=() OPT_MANUAL=() OPT_NUM=()
+    local name pkg feature dpkg i=0 seen=" "
+    while IFS=$'\t' read -r name pkg feature; do
+        [[ -n "$name" ]] || continue
+        dpkg="$(hyprdesk_pkg_name "$PM" "$pkg")"
+        if [[ -n "$dpkg" ]] && hyprdesk_pkg_available "$PM" "$dpkg"; then
+            i=$((i + 1))
+            printf '  %s%2d%s %s%s%s — %s %s(%s)%s\n' "$C_ACCENT$C_BOLD" "$i" "$C_RESET" "$C_BOLD" "$name" "$C_RESET" \
+                "$feature" "$C_GREY" "$dpkg" "$C_RESET"
+            OPT_NUM+=("$dpkg")
+            [[ "$seen" == *" $dpkg "* ]] || { OPT_PKGS+=("$dpkg"); seen+="$dpkg "; }
+        else
+            printf '   %s—%s %s%s%s — %s %s(%s)%s\n' "$C_GREY" "$C_RESET" "$C_BOLD" "$name" "$C_RESET" "$feature" "$C_GREY" \
+                "$(t "absent des dépôts" "not in the repositories")${AUR:+ : $AUR -S $pkg}" "$C_RESET"
+            OPT_MANUAL+=("$pkg")
+        fi
+    done < <("$BIN" doctor --missing 2>/dev/null || true)
+}
 DOCTOR_OUT="$("$BIN" doctor 2>/dev/null || true)"
 printf '%s\n' "$DOCTOR_OUT" >>"$HD_LOG"
 DOCTOR="$(grep -Eo '[0-9]+/[0-9]+' <<< "$DOCTOR_OUT" | tail -1 || true)"
-OPT_PKGS=()
-while IFS= read -r l; do
-    [[ -n "$l" ]] || continue
-    name="$(awk '{print $2}' <<< "$l")"
-    what="$(sed -E 's/^[[:space:]]*✗[[:space:]]+[^[:space:]]+[[:space:]]+//; s/[[:space:]]*\((paquet|package)[[:space:]]*:[^)]*\)//' <<< "$l")"
-    pkg="$(sed -nE 's/.*\((paquet|package)[[:space:]]*:[[:space:]]*([^)]+)\).*/\2/p' <<< "$l")"
-    hd_warn "$C_BOLD$name$C_RESET — $what"
-    if [[ -n "$pkg" ]]; then OPT_PKGS+=("$pkg"); fi
-done < <(grep '✗' <<< "$DOCTOR_OUT" || true)
-hd_ok "${DOCTOR:-?} $(t "présentes" "present")"
+opt_scan
+if ((${#OPT_PKGS[@]} == 0 && ${#OPT_MANUAL[@]} == 0)); then
+    hd_ok "$(t "toutes présentes" "all present") (${DOCTOR:-?})"
+elif ((${#OPT_PKGS[@]} == 0)); then
+    hd_info "${DOCTOR:-?} $(t "présentes ; les autres ne sont pas dans les dépôts de $PM" "present; the others are not in the $PM repositories")"
+else
+    hd_info "${DOCTOR:-?} $(t "présentes" "present") ; $(t "installables" "installable") : $C_BOLD${OPT_PKGS[*]}$C_RESET"
+    CHOSEN=()
+    case "$OPT_DEPS" in
+        all) CHOSEN=("${OPT_PKGS[@]}") ;;
+        none) hd_note "$(t "non installées (--optional-deps none)" "not installed (--optional-deps none)")" ;;
+        ask)
+            printf '  %s?%s ' "$C_ACCENT$C_BOLD" "$C_RESET"
+            read -r -p "$(t "Installer : [T]outes, [n]on, ou les numéros (ex. 1 3) ? " "Install: [A]ll, [n]one, or the numbers (e.g. 1 3)? ")" reply || reply=n
+            case "$reply" in
+                ""|[tTaAoOyY]*) CHOSEN=("${OPT_PKGS[@]}") ;;
+                [nN]*) ;;
+                *)
+                    # Numéros de la liste ci-dessus.
+                    for n in $reply; do
+                        if [[ "$n" =~ ^[0-9]+$ ]] && ((n >= 1 && n <= ${#OPT_NUM[@]})); then
+                            CHOSEN+=("${OPT_NUM[$((n - 1))]}")
+                        fi
+                    done ;;
+            esac ;;
+    esac
+    if ((${#CHOSEN[@]} > 0)); then
+        mapfile -t CHOSEN < <(printf '%s\n' "${CHOSEN[@]}" | awk '!seen[$0]++')
+        if hd_sudo_ready "$(t "installer les dépendances facultatives" "install the optional dependencies")" \
+            && hd_run "$(t "installation de" "installing") ${CHOSEN[*]}" hyprdesk_install_packages "$PM" "${CHOSEN[@]}"; then
+            DOCTOR="$("$BIN" doctor 2>/dev/null | grep -Eo '[0-9]+/[0-9]+' | tail -1 || true)"
+            hd_ok "${DOCTOR:-?} $(t "présentes désormais" "present now")"
+        else
+            hd_warn "$(t "installation incomplète : le reste continue sans elles" "install incomplete: the rest goes on without them")"
+        fi
+        # Relevé à jour pour le bilan.
+        opt_scan >/dev/null
+    fi
+fi
+# Ce que ce relevé change pour la suite.
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+GREETER_READY=0
+has_cmd greetd && has_cmd cage && GREETER_READY=1
+GREETER_INSTALLABLE=0
+if [[ "$GREETER_READY" == 0 ]] && [[ -n "$PM" ]] \
+    && hyprdesk_pkg_available "$PM" greetd && hyprdesk_pkg_available "$PM" cage; then
+    GREETER_INSTALLABLE=1
+fi
+printf '   %s%s%s\n' "$C_GREY" "$(t "Pour la suite :" "Next:")" "$C_RESET"
+if [[ "$GREETER_READY" == 1 ]]; then
+    hd_note "$I_OK $(t "greetd et cage présents : l'écran de connexion de hyprdesk est possible (étape « Écran de connexion »)" "greetd and cage present: the hyprdesk login screen is possible (“Login screen” step)")"
+elif [[ "$GREETER_INSTALLABLE" == 1 ]]; then
+    hd_note "$I_DOT $(t "écran de connexion de hyprdesk : demande greetd et cage (installés seulement si vous le choisissez)" "hyprdesk login screen: needs greetd and cage (installed only if you choose it)")"
+else
+    hd_note "$I_DOT $(t "écran de connexion de hyprdesk : non proposé, greetd ou cage absent des dépôts" "hyprdesk login screen: not offered, greetd or cage not in the repositories")"
+fi
+((${#OPT_PKGS[@]} + ${#OPT_MANUAL[@]} > 0)) \
+    && hd_note "$I_DOT $(t "fonctions encore inopérantes : leurs dépendances restent dans « Ce qu'il reste à faire »" "features still off: their dependencies stay in “What is left to do”")"
 
 # -- Service ---------------------------------------------------------------------------
 hd_step "🔁" "Service systemd utilisateur" "systemd user service" \
@@ -337,20 +419,29 @@ greeter_ours() {
     [[ "$DM_UNIT" == "greetd.service" ]] && "$BIN" greeter setup status 2>/dev/null | grep -q "hyprdesk"
 }
 GREETER_NEW=0
+GREETER_WHY=""
 if greeter_ours; then
     hd_ok "$(t "déjà l'écran de hyprdesk (greetd)" "already the hyprdesk login screen (greetd)")"
+    GREETER=no
+elif [[ "$GREETER_READY" == 0 && "$GREETER_INSTALLABLE" == 0 ]]; then
+    # Sans greetd ni cage, et rien pour les installer : pas de proposition.
+    GREETER_WHY="$(t "greetd ou cage absent, et pas dans les dépôts de ${PM:-la distribution}" "greetd or cage missing, and not in the ${PM:-distribution} repositories")"
+    [[ "$GREETER" == yes ]] && hd_warn "$(t "--greeter demandé, mais" "--greeter asked, but") $GREETER_WHY"
+    hd_info "$(t "non proposé :" "not offered:") $GREETER_WHY"
     GREETER=no
 elif [[ "$GREETER" == ask ]]; then
     if [[ -t 0 ]]; then
         printf '  %s?%s ' "$C_ACCENT$C_BOLD" "$C_RESET"
-        read -r -p "$(t "Remplacer ${DM_UNIT:-le gestionnaire actuel} par l'écran de connexion de hyprdesk ? [o/N] " "Replace ${DM_UNIT:-the current display manager} with the hyprdesk login screen? [y/N] ")" reply
+        EXTRA=""
+        [[ "$GREETER_READY" == 0 ]] && EXTRA="$(t " (installe greetd et cage)" " (installs greetd and cage)")"
+        read -r -p "$(t "Remplacer ${DM_UNIT:-le gestionnaire actuel} par l'écran de connexion de hyprdesk$EXTRA ? [o/N] " "Replace ${DM_UNIT:-the current display manager} with the hyprdesk login screen$EXTRA? [y/N] ")" reply
         [[ "$reply" =~ ^[oOyY] ]] && GREETER=yes || GREETER=no
     else
         hd_info "$(t "non interactif : relancez avec --greeter pour le mettre en place" "non-interactive: run again with --greeter to set it up")"
         GREETER=no
     fi
 fi
-if [[ "$GREETER" == no ]] && ! greeter_ours; then
+if [[ "$GREETER" == no ]] && ! greeter_ours && [[ -z "$GREETER_WHY" ]]; then
     hd_info "$(t "inchangé" "unchanged")${DM_UNIT:+ ($DM_UNIT)}"
 fi
 if [[ "$GREETER" == yes ]]; then
@@ -364,7 +455,8 @@ if [[ "$GREETER" == yes ]]; then
     LANG="$GREETER_LANG" "$BIN" greeter setup profile "$PROFILE" >>"$HD_LOG" 2>&1
     chmod 644 "$PROFILE"
     if hd_sudo_ready "$(t "installer l'écran de connexion" "install the login screen")" \
-        && hd_run "$(t "paquets greetd et cage" "greetd and cage packages")" hyprdesk_root "$BIN" greeter setup packages \
+        && { [[ "$GREETER_READY" == 1 ]] \
+            || hd_run "$(t "paquets greetd et cage" "greetd and cage packages")" hyprdesk_root "$BIN" greeter setup packages; } \
         && hd_run "$(t "configuration de greetd" "greetd configuration")" hyprdesk_root "$BIN" greeter setup install "$PROFILE" \
         && hd_run "$(t "bascule vers greetd" "switch to greetd")" hyprdesk_root "$BIN" greeter setup enable; then
         DM_UNIT="greetd.service"
@@ -485,9 +577,16 @@ case ":$PATH:" in
 esac
 if ((${#OPT_PKGS[@]} > 0)); then
     optional "$(t "dépendances facultatives absentes (voir l'étape Dépendances facultatives)" "missing optional dependencies (see the Optional dependencies step)")" \
-        "$(hyprdesk_install_hint) ${OPT_PKGS[*]}"
+        "$(hyprdesk_install_hint "$PM") ${OPT_PKGS[*]}"
 fi
-if [[ "$GREETER" == no ]] && ! greeter_ours; then
+if ((${#OPT_MANUAL[@]} > 0)); then
+    if [[ -n "$AUR" ]]; then
+        optional "$(t "hors des dépôts officiels (AUR)" "outside the official repositories (AUR)")" "$AUR -S ${OPT_MANUAL[*]}"
+    else
+        optional "$(t "hors des dépôts de la distribution, à installer à la main :" "outside the distribution repositories, to install by hand:") ${OPT_MANUAL[*]}"
+    fi
+fi
+if [[ "$GREETER" == no ]] && ! greeter_ours && [[ -z "$GREETER_WHY" ]]; then
     optional "$(t "écran de connexion de hyprdesk" "hyprdesk login screen")" "./scripts/install.sh --greeter"
 fi
 optional "$(t "lignes conseillées pour hyprland.lua (raccourcis, règles)" "suggested hyprland.lua lines (shortcuts, rules)")" "hyprdesk snippet"

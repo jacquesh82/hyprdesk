@@ -321,6 +321,49 @@ hyprdesk_deps() {
     esac
 }
 
+# Nom du paquet sur cette distribution, depuis le nom Arch de `hyprdesk doctor`
+# (vide : pas d'équivalent).
+hyprdesk_pkg_name() { # <gestionnaire> <paquet Arch>
+    local p="$2"
+    case "$1" in
+        apt-get)
+            case "$p" in
+                libsecret) p=libsecret-tools ;; networkmanager) p=network-manager ;;
+                bluez-utils) p=bluez ;; pacman-contrib) p="" ;; libnotify) p=libnotify-bin ;;
+                glib2) p=libglib2.0-bin ;; polkit) p=polkitd ;; hyprland) p=hyprland ;;
+            esac ;;
+        dnf)
+            case "$p" in
+                networkmanager) p=NetworkManager ;; bluez-utils) p=bluez ;; pacman-contrib) p="" ;;
+                libnotify) p=libnotify ;; glib2) p=glib2 ;;
+            esac ;;
+        zypper)
+            case "$p" in
+                networkmanager) p=NetworkManager ;; bluez-utils) p=bluez ;; pacman-contrib) p="" ;;
+                libsecret) p=libsecret-tools ;; libnotify) p=libnotify-tools ;; glib2) p=glib2-tools ;;
+            esac ;;
+    esac
+    echo "$p"
+}
+
+# Vrai si le paquet est dans les dépôts configurés (installable sans AUR, PPA…).
+hyprdesk_pkg_available() { # <gestionnaire> <paquet>
+    [ -n "$2" ] || return 1
+    case "$1" in
+        pacman) pacman -Si -- "$2" >/dev/null 2>&1 ;;
+        apt-get) apt-cache policy -- "$2" 2>/dev/null | grep -q 'Candidate: [^(]' ;;
+        dnf) dnf -q list --available -- "$2" >/dev/null 2>&1 ;;
+        zypper) zypper -q info -- "$2" 2>/dev/null | grep -q '^Name' ;;
+        *) return 1 ;;
+    esac
+}
+
+# Assistant AUR présent (Arch) : yay ou paru, sinon rien.
+hyprdesk_aur_helper() {
+    local h
+    for h in paru yay; do command -v "$h" >/dev/null 2>&1 && { echo "$h"; return; }; done
+}
+
 # Commande d'installation à proposer à la main, selon le gestionnaire.
 hyprdesk_install_hint() {
     case "${1:-$(hyprdesk_pm)}" in

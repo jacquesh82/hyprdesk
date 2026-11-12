@@ -248,7 +248,13 @@ colours and icons; long commands (build, packages) show a spinner with their
 last output line, and their full output goes to
 `~/.local/state/hyprdesk/install-<date>.log`. If a step fails, the install
 stops and says which step, the last lines of the error, how to fix it, and
-that running it again is safe. It ends with a report checked point by point
+that running it again is safe. The optional dependencies step lists what is
+missing (idle, screenshots, Bluetooth, login screen…), offers to install
+those available in the distribution's repositories (all, none, or by
+number; `--optional-deps ask|all|none`), shows the others with their AUR
+command, and says what follows: the hyprdesk login screen is only offered
+when greetd and cage are present or installable, and the question says it
+will install them. It ends with a report checked point by point
 (binary, service, Hyprland config without errors, start at login, keyboard,
 language, login screen), then **what is left to do** for hyprdesk to run (log
 in to Hyprland, log back in after an update, reboot for the login screen…),
