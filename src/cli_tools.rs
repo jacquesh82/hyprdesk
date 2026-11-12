@@ -27,6 +27,7 @@ pub fn run(cmd: &str, config_path: &Path, args: &[String]) -> Option<Result<Stri
         "icons" => icons(config_path, args),
         "app-theme" => app_theme(config_path, args),
         "colors" => colors(config_path, args),
+        "window" => window(args),
         "lid" => crate::config::lua::load_file(config_path)
             .and_then(|l| crate::lid::run(&l.config.general.idle, args)),
         _ => return None,
@@ -532,5 +533,22 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
             "colors {o} : list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag",
             o = other
         )),
+    }
+}
+
+/// `hyprdesk window minimize|maximize|close` : fenêtre active (boutons de
+/// Hyprbars, raccourcis).
+fn window(args: &[String]) -> Result<String, String> {
+    use hyprpanel_core::ipc;
+    let dispatch = |lua: &str| -> Result<String, String> {
+        let r = ipc::dispatch(lua).map_err(|e| e.to_string())?;
+        if r.trim() == "ok" { Ok(String::new()) } else { Err(r.trim().to_string()) }
+    };
+    match args.first().map(String::as_str).unwrap_or("") {
+        "minimize" => crate::hypr::minimize_active()
+            .map(|a| crate::tr!("fenêtre {a} réduite (le dock la rappelle)", a = a)),
+        "maximize" => dispatch(r#"hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })"#),
+        "close" => dispatch("hl.dsp.window.close()"),
+        other => Err(crate::tr!("window {o} : minimize | maximize | close", o = other)),
     }
 }

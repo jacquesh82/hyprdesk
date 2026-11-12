@@ -165,6 +165,8 @@ Commandes :
                     couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
   lid [status | close | open]
                     capot du portable : état et effet de sa fermeture (Réglages → Verrouillage → Veille)
+  window minimize | maximize | close
+                    fenêtre active : réduire (le dock la rappelle), agrandir, fermer
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
   init              écrit la configuration d'exemple si aucune n'existe
   keyboard [disposition [variante [options]]]
@@ -1192,7 +1194,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
-        c @ ("autostart" | "lid" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
+        c @ ("autostart" | "lid" | "window" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
         | "app-theme" | "colors") => match cli_tools::run(c, &config_path, &args[1..]) {
             Some(Ok(out)) => {
                 println!("{}", out.trim_end());

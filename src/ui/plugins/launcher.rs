@@ -138,9 +138,11 @@ fn ws_key(name: &str) -> (i64, String) {
 fn windows<'a>(clients: &'a [Client], running: RunningApps, workspace: &str) -> Vec<&'a Client> {
     match running {
         RunningApps::Off => Vec::new(),
+        // Fenêtres réduites comprises, d'où qu'elles viennent : le dock est
+        // le seul moyen de les rappeler.
         RunningApps::Workspace => clients
             .iter()
-            .filter(|c| c.workspace == workspace)
+            .filter(|c| c.workspace == workspace || c.workspace == crate::hypr::MINIMIZED)
             .collect(),
         // Fenêtres mises de côté comprises : le lanceur permet de les rappeler.
         RunningApps::All => clients.iter().collect(),

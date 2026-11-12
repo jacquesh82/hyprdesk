@@ -723,7 +723,8 @@ impl App {
             layout: Layout::load(),
             selected: None,
             last_click: None,
-            hyprbars_on: false,
+            // État réel : une instance précédente a pu le laisser chargé.
+            hyprbars_on: !preview && crate::hyprbars::loaded(),
             hovered: None,
             cursor: HashMap::new(),
             drag: None,
@@ -1163,6 +1164,7 @@ impl App {
         }
         self.hyprbars_on = want;
         let custom = self.cfg.general.hyprbars_path.clone();
+        let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -1170,7 +1172,8 @@ impl App {
                         return Err(crate::i18n::tr("Hyprbars introuvable (hyprpm add https://github.com/hyprwm/hyprland-plugins, puis hyprpm enable hyprbars)").to_string());
                     };
                     if want {
-                        crate::hyprbars::load(&path)
+                        crate::hyprbars::load(&path)?;
+                        crate::hyprbars::add_buttons(fg, bg)
                     } else {
                         crate::hyprbars::unload(&path)
                     }
@@ -3207,7 +3210,21 @@ impl App {
                 self.window_gaps.clear();
                 self.lyra_rule = None;
                 let idle = self.cfg.general.idle.clone();
+                let bars = self.hyprbars_on;
+                let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);
                 let mut t = vec![
+                    // Hyprbars oublie ses boutons à chaque relecture.
+                    Task::perform(
+                        async move {
+                            if bars
+                                && let Ok(Err(e)) =
+                                    tokio::task::spawn_blocking(move || crate::hyprbars::add_buttons(fg, bg)).await
+                            {
+                                tracing::warn!("{}", e);
+                            }
+                        },
+                        |_| Msg::Noop,
+                    ),
                     self.install_keys(),
                     self.install_rules(),
                     Task::perform(

@@ -125,7 +125,9 @@ resize keeps its place (per workspace and per application, across sessions)
 and is never rearranged again; Desktop → "Forget these positions" clears
 them. The bar's mode switch has three states (no-desktop, launcher-only,
 full-desktop). Optionally, Hyprbars (Hyprland plugin) adds title bars in full
-desktop only: loaded when entering it, unloaded when leaving. The installer
+desktop only: loaded when entering it, unloaded when leaving, with close,
+maximize and minimize buttons (a minimized window waits in the dock, a click
+brings it back; `hyprdesk window minimize|maximize|close`). The installer
 builds it with hyprpm (`--no-hyprbars` to skip), and `scripts/update.sh`
 rebuilds it when the running Hyprland version changes.
 

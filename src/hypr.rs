@@ -165,8 +165,43 @@ pub async fn clients_async() -> Vec<Client> {
     }
 }
 
-/// Donne le focus à une fenêtre (et donc à son workspace).
+/// Workspace des fenêtres réduites (bouton de Hyprbars, `hyprdesk window
+/// minimize`) : le dock les montre, les rappeler les ramène sur le
+/// workspace affiché.
+pub const MINIMIZED: &str = "special:hyprdesk-reduites";
+
+/// Réduit la fenêtre active : mise dans `MINIMIZED`, sans la suivre.
+pub fn minimize_active() -> Result<String, String> {
+    let v = ipc::query_json("activewindow").map_err(|e| e.to_string())?;
+    let address = v["address"]
+        .as_str()
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| crate::i18n::tr("aucune fenêtre active").to_string())?;
+    if v["workspace"]["name"].as_str().is_some_and(|w| w.starts_with("special:")) {
+        return Err(crate::i18n::tr("fenêtre déjà dans un workspace spécial").to_string());
+    }
+    move_window(address, MINIMIZED).map_err(|e| e.to_string())?;
+    Ok(address.to_string())
+}
+
+/// Donne le focus à une fenêtre (et donc à son workspace) ; réduite, elle
+/// revient d'abord sur le workspace affiché.
 pub fn focus_window(address: &str) -> Result<(), ipc::IpcError> {
+    let minimized = ipc::query_json("clients").ok().is_some_and(|v| {
+        v.as_array().is_some_and(|l| {
+            l.iter().any(|c| {
+                c["address"].as_str() == Some(address)
+                    && c["workspace"]["name"].as_str() == Some(MINIMIZED)
+            })
+        })
+    });
+    if minimized
+        && let Some(ws) = ipc::query_json("activeworkspace")
+            .ok()
+            .and_then(|v| v["name"].as_str().map(str::to_string))
+    {
+        move_window(address, &ws)?;
+    }
     let r = ipc::dispatch(&format!(
         "hl.dsp.focus({{ window = \"address:{}\" }})",
         ipc::lua_escape(address)
