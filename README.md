@@ -234,8 +234,12 @@ git clone https://github.com/jacquesh82/hyprdesk && cd hyprdesk
 ./scripts/installer.sh    # guided install: language, keyboard, options, then a verified report
 ```
 
-The installer asks for the language and the keyboard (the current one comes
-first), then the options to enable: missing prerequisites, start at login,
+The installer asks for the language, then checks the basics before changing
+anything, and stops with what to do if one fails: not run as root, x86_64 or
+aarch64, systemd user manager, Hyprland 0.57 or newer (installed and running;
+if it is older, it offers to update it, then you log back in), a known package
+manager, 4 GiB free to build, network access to crates.io and GitHub. It then
+asks for the keyboard (the current one comes first), then the options to enable: missing prerequisites, start at login,
 `SUPER + L` lock, removing hyprpaper, the same keyboard system-wide, and
 replacing GDM (or SDDM, LightDM) with the hyprdesk login screen. Nothing
 changes before you confirm the summary; `hyprland.lua` is backed up before

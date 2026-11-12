@@ -298,7 +298,12 @@ installe ce qui manque.
 scripts/deps.sh --dry-run         # voir seulement ce qui manque
 ```
 
-L'assistant demande la langue, puis le clavier (celui en vigueur en tête),
+L'assistant demande la langue, puis vérifie les critères de base avant de
+toucher à quoi que ce soit, et s'arrête avec la marche à suivre si l'un manque :
+pas en root, x86_64 ou aarch64, systemd utilisateur, Hyprland 0.57 ou plus
+(installé et en cours ; plus ancien, il propose la mise à jour, puis il faut se
+reconnecter), gestionnaire de paquets reconnu, 4 Gio libres pour compiler,
+accès à crates.io et GitHub. Il demande ensuite le clavier (celui en vigueur en tête),
 puis les options à activer : prérequis manquants, démarrage à la connexion,
 verrouillage `SUPER + L`, retrait de hyprpaper, même clavier pour le système,
 remplacement de GDM (ou SDDM, LightDM) par l'écran de connexion de hyprdesk.

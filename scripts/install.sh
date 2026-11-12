@@ -12,7 +12,9 @@
 #   --greeter | --no-greeter remplacer GDM (SDDM…) par l'écran de hyprdesk, ou non
 #                            (sans l'un ni l'autre : question posée)
 #
-# Étapes : prérequis (scripts/deps.sh), compilation, binaire dans ~/.local/bin,
+# Étapes : contrôles préalables (arrêt avant toute modification si un critère
+# de base manque : root, architecture, systemd utilisateur, Hyprland 0.57+,
+# gestionnaire de paquets, espace disque, réseau), prérequis (scripts/deps.sh), compilation, binaire dans ~/.local/bin,
 # police, configuration, service systemd utilisateur, langue, clavier,
 # démarrage à la connexion (hyprland.lua, sans dépendre de
 # graphical-session.target), SUPER + L, hyprpaper, écran de connexion, puis
@@ -58,6 +60,10 @@ note() { echo "   $(t "$1" "$2")"; }
 HYPRDESK_ROOT="$PWD"
 # shellcheck source=deps.sh
 source scripts/deps.sh
+# Critères de base vérifiés avant de toucher à quoi que ce soit.
+PREFLIGHT=0
+hyprdesk_preflight || PREFLIGHT=$?
+[[ "$PREFLIGHT" == 0 ]] || exit 1
 hyprdesk_deps
 
 BIN_DIR="$HOME/.local/bin"

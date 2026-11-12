@@ -5,7 +5,9 @@
 #   scripts/installer.sh
 #
 # Interface : whiptail s'il est là (paquet libnewt / whiptail / newt), sinon
-# questions au terminal. Rien n'est modifié avant la confirmation finale.
+# questions au terminal. Contrôles préalables juste après la langue : un
+# critère de base manquant arrête tout. Rien n'est modifié avant la
+# confirmation finale.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -93,6 +95,31 @@ LANG_CHOICE="$(menu "Langue / Language" "$UI" \
     en "English" \
     auto "Langue du système / System language")" || exit 1
 case "$LANG_CHOICE" in fr) UI=fr ;; en) UI=en ;; esac
+export UI
+
+# -- Contrôles préalables : rien ne va plus loin si un critère de base manque ------
+HYPRDESK_ROOT="$PWD"
+# shellcheck source=deps.sh
+source scripts/deps.sh
+PREFLIGHT=0
+REPORT="$(hyprdesk_preflight 2>&1)" || PREFLIGHT=$?
+if [[ "$PREFLIGHT" == 3 ]] && [[ -n "$(hyprdesk_pm)" ]]; then
+    # Seul Hyprland est trop ancien : proposé ici, puis reconnexion.
+    if yesno "$REPORT
+
+$(t "Mettre Hyprland à jour maintenant ? Ensuite : se reconnecter, puis relancer l'assistant." "Update Hyprland now? Then: log out and back in, and run the installer again.")"; then
+        hyprdesk_upgrade_hyprland || { echo "!! $(t "mise à jour impossible" "update failed")" >&2; exit 1; }
+        echo "Hyprland $(hyprdesk_hyprland_installed) — $(t "reconnectez-vous, puis relancez scripts/installer.sh" "log out and back in, then run scripts/installer.sh again")"
+    fi
+    exit 1
+elif [[ "$PREFLIGHT" != 0 ]]; then
+    if [[ "$TUI" == 1 ]]; then
+        whiptail --title "$TITLE" --msgbox "$REPORT" 24 78
+    fi
+    echo "$REPORT" >&2
+    exit 1
+fi
+[[ "$TUI" == 1 ]] || echo "$REPORT" >&2
 
 # -- 2. Clavier ---------------------------------------------------------------------
 # Celui en vigueur : Hyprland s'il répond, sinon localectl.
@@ -166,7 +193,7 @@ has syskb && ARGS+=(--system-keyboard)
 if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
 # Colonnes alignées en caractères (printf compte des octets : accents).
 row() { local n=$((28 - ${#1})); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }
-SUMMARY="$(t "Récapitulatif" "Summary")
+SUMMARY="$(t "Récapitulatif" "Summary") — $(t "contrôles préalables : tout est en ordre" "preflight checks: all good")
 
 $(row "$(t "Langue" "Language")" "$LANG_CHOICE")
 $(row "$(t "Clavier" "Keyboard")" "$KEYBOARD")

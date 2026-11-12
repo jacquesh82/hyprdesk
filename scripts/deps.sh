@@ -96,6 +96,99 @@ hyprdesk_install_packages() {
     esac
 }
 
+# Version de Hyprland installée (binaire) et de la session en cours.
+hyprdesk_hyprland_installed() {
+    command -v Hyprland >/dev/null 2>&1 \
+        && Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//'
+}
+hyprdesk_hyprland_running() {
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1 \
+        && hyprctl -j version 2>/dev/null | sed -n 's/.*"tag": *"v\{0,1\}\([0-9.]*\).*/\1/p' | head -1
+}
+
+# Installe ou met à jour Hyprland par la distribution (Arch : mise à jour
+# complète, pacman n'acceptant pas de mise à jour partielle).
+hyprdesk_upgrade_hyprland() {
+    case "${1:-$(hyprdesk_pm)}" in
+        pacman) hyprdesk_root pacman -Syu --needed --noconfirm hyprland ;;
+        apt-get) hyprdesk_root apt-get update -qq && hyprdesk_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq hyprland >/dev/null ;;
+        dnf) hyprdesk_root dnf install -y -q hyprland && hyprdesk_root dnf upgrade -y -q hyprland ;;
+        zypper) hyprdesk_root zypper --non-interactive --quiet install hyprland ;;
+        *) return 1 ;;
+    esac
+}
+
+# Contrôles préalables, AVANT toute modification : critères de base. Un échec
+# arrête l'installation avec la marche à suivre ; code 0 si tout va bien,
+# 1 sinon, 3 si seul Hyprland est trop ancien (l'assistant propose la mise à jour).
+hyprdesk_preflight() {
+    local fails=0 only_hypr=1 hmin="${HYPRDESK_HYPRLAND_MIN:-0.57}" v run free
+    ok() { echo "  ✓ $1"; }
+    ko() { echo "  ✗ $1"; [ -n "${2:-}" ] && echo "      → $2"; fails=$((fails + 1)); [ "${3:-}" = hypr ] || only_hypr=0; }
+    warn() { echo "  • $1"; }
+    echo "== $(hyprdesk_t "contrôles préalables" "preflight checks")"
+    if [ "$(id -u)" = 0 ]; then
+        ko "$(hyprdesk_t "lancé en root" "running as root")" \
+           "$(hyprdesk_t "lancer en utilisateur : sudo sera demandé quand il le faut" "run as your user: sudo is asked when needed")"
+    else
+        ok "$(hyprdesk_t "utilisateur" "user"): $(id -un)"
+    fi
+    case "$(uname -m)" in
+        x86_64|aarch64) ok "$(hyprdesk_t "architecture" "architecture"): $(uname -m)" ;;
+        *) ko "$(hyprdesk_t "architecture non prise en charge" "unsupported architecture"): $(uname -m)" ;;
+    esac
+    if systemctl --user show-environment >/dev/null 2>&1; then
+        ok "$(hyprdesk_t "systemd utilisateur" "systemd user manager")"
+    else
+        ko "$(hyprdesk_t "systemd utilisateur injoignable" "systemd user manager unreachable")" \
+           "$(hyprdesk_t "lancer depuis une session ouverte (pas su/sudo -i)" "run from a logged-in session (not su/sudo -i)")"
+    fi
+    v="$(hyprdesk_hyprland_installed || true)"
+    if [ -z "$v" ]; then
+        ko "$(hyprdesk_t "Hyprland absent" "Hyprland not installed")" \
+           "$(hyprdesk_t "installer Hyprland $hmin ou plus (paquet hyprland)" "install Hyprland $hmin or newer (hyprland package)")" hypr
+    elif ! hyprdesk_version_ge "$v" "$hmin"; then
+        ko "$(hyprdesk_t "Hyprland $v installé : $hmin ou plus requis" "Hyprland $v installed: $hmin or newer required")" \
+           "$(hyprdesk_t "mettre à jour (Arch : sudo pacman -Syu), se reconnecter, relancer l'installation" "update it (Arch: sudo pacman -Syu), log out and back in, run the install again")" hypr
+    else
+        ok "Hyprland $v (≥ $hmin)"
+    fi
+    run="$(hyprdesk_hyprland_running || true)"
+    if [ -z "$run" ]; then
+        warn "$(hyprdesk_t "hors d'une session Hyprland : hyprdesk démarrera à la prochaine connexion" "outside a Hyprland session: hyprdesk starts at next login")"
+    elif ! hyprdesk_version_ge "$run" "$hmin"; then
+        ko "$(hyprdesk_t "session en Hyprland $run : $hmin ou plus requis" "session runs Hyprland $run: $hmin or newer required")" \
+           "$(hyprdesk_t "se reconnecter pour passer à la version installée, puis relancer" "log out and back in to run the installed version, then run again")" hypr
+    else
+        ok "$(hyprdesk_t "session Hyprland" "Hyprland session") $run"
+    fi
+    if [ "${HYPRDESK_NO_DEPS:-0}" != 1 ] && [ -z "$(hyprdesk_pm)" ]; then
+        ko "$(hyprdesk_t "gestionnaire de paquets non reconnu (pacman, apt, dnf, zypper)" "unknown package manager (pacman, apt, dnf, zypper)")" \
+           "$(hyprdesk_t "installer les prérequis à la main, puis relancer avec --no-deps" "install the prerequisites by hand, then run with --no-deps")"
+    fi
+    free="$(df -Pk "${HYPRDESK_ROOT:-.}" 2>/dev/null | awk 'NR == 2 {print int($4 / 1048576)}')"
+    if [ -n "$free" ] && [ "$free" -lt 4 ]; then
+        ko "$(hyprdesk_t "espace libre : $free Gio (4 Gio requis pour la compilation)" "free space: $free GiB (4 GiB needed to build)")"
+    else
+        ok "$(hyprdesk_t "espace libre" "free space"): ${free:-?} $(hyprdesk_t "Gio" "GiB")"
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        if curl -sfSo /dev/null --max-time 8 https://index.crates.io/config.json \
+            && curl -sfSo /dev/null --max-time 8 https://github.com; then
+            ok "$(hyprdesk_t "réseau (crates.io, GitHub)" "network (crates.io, GitHub)")"
+        else
+            ko "$(hyprdesk_t "crates.io ou GitHub injoignable" "crates.io or GitHub unreachable")" \
+               "$(hyprdesk_t "la compilation télécharge ses dépendances : vérifier la connexion" "the build downloads its dependencies: check the connection")"
+        fi
+    fi
+    if [ "$fails" -gt 0 ]; then
+        echo "!! $(hyprdesk_t "installation arrêtée avant toute modification : $fails critère(s) non rempli(s)" "install stopped before changing anything: $fails check(s) failed")" >&2
+        [ "$only_hypr" = 1 ] && return 3
+        return 1
+    fi
+    return 0
+}
+
 hyprdesk_deps() {
     local dry=0
     [ "${1:-}" = "--dry-run" ] && dry=1
@@ -146,12 +239,7 @@ hyprdesk_deps() {
                 *) echo "   $(hyprdesk_t "mettrait hyprland à jour ($pm)" "would update hyprland ($pm)")" ;;
             esac
         else
-            case "$pm" in
-                pacman) hyprdesk_root pacman -Syu --needed --noconfirm hyprland ;;
-                apt-get) hyprdesk_root apt-get update -qq && hyprdesk_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq hyprland >/dev/null ;;
-                dnf) hyprdesk_root dnf install -y -q hyprland && hyprdesk_root dnf upgrade -y -q hyprland ;;
-                zypper) hyprdesk_root zypper --non-interactive --quiet install hyprland ;;
-            esac || true
+            hyprdesk_upgrade_hyprland "$pm" || true
             hnow="$(Hyprland --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/^v//')"
             if [ -n "$hnow" ] && hyprdesk_version_ge "$hnow" "$hmin"; then
                 echo "   $(hyprdesk_t "Hyprland $hnow installé : reconnectez-vous pour l'utiliser" "Hyprland $hnow installed: log out and back in to use it")"
