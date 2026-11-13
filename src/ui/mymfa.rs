@@ -261,6 +261,17 @@ impl App {
             message: None,
             busy: false,
         });
+        tracing::info!(
+            "{}",
+            crate::tr!(
+                "carte myMFA ouverte (écran actif : {ecran})",
+                ecran = self
+                    .monitors
+                    .iter()
+                    .find(|m| m.focused)
+                    .map_or("?", |m| m.name.as_str())
+            )
+        );
         Task::batch([
             Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
@@ -268,7 +279,10 @@ impl App {
                     layer: Layer::Overlay,
                     anchor: LsAnchor::empty(),
                     exclusive_zone: Some(-1),
-                    keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                    // À la demande, pas exclusif : la carte reçoit le clavier en
+                    // s'ouvrant, mais un clic ailleurs le reprend. Une carte qui ne
+                    // se dessinerait pas (MLG-106) ne peut plus figer la session.
+                    keyboard_interactivity: KeyboardInteractivity::OnDemand,
                     output_option: OutputOption::Active,
                     namespace: Some(NAMESPACE.into()),
                     ..Default::default()

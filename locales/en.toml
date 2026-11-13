@@ -2674,3 +2674,4 @@
 ", tenu par myMFA" = ", held by myMFA"
 "Une clé de session attend : le prochain déverrouillage activera l'ouverture à la connexion." = "A session key is waiting: the next unlock will enable unlocking at login."
 "Web" = "Web"
+"carte myMFA ouverte (écran actif : {ecran})" = "myMFA card opened (active screen: {ecran})"

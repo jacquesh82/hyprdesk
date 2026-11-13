@@ -237,7 +237,9 @@ impl App {
                             // Sans ancre : centrée par le compositeur.
                             anchor: LsAnchor::empty(),
                             exclusive_zone: Some(-1),
-                            keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                            // À la demande (comme la carte myMFA, MLG-106) : un clic
+                            // ailleurs reprend le clavier, jamais de session figée.
+                            keyboard_interactivity: KeyboardInteractivity::OnDemand,
                             output_option: OutputOption::Active,
                             namespace: Some(NAMESPACE.into()),
                             ..Default::default()
