@@ -58,14 +58,16 @@ jobs:
           HASH="$(curl -fsSL "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | awk '{print $1}')"
           echo "Tarball ${GITHUB_REF_NAME}.tar.gz : sha256 $HASH"
           echo "HASH=$HASH" >> "$GITHUB_ENV"
-      - name: "PKGBUILD : sha256 committé sur main"
+      - name: "PKGBUILD et .SRCINFO : sha256 committé sur main"
         run: |
           git config user.name "hyprdesk-ci"
           git config user.email "hyprdesk-ci@users.noreply.github.com"
           git checkout main
           git pull --ff-only
           sed -i "s/^sha256sums=('.*')$/sha256sums=('$HASH')/" packaging/arch/PKGBUILD
-          git add packaging/arch/PKGBUILD
+          # .SRCINFO (lu par l'AUR) suit le PKGBUILD.
+          sed -i "s/^\tsha256sums = .*/\tsha256sums = $HASH/" packaging/arch/.SRCINFO
+          git add packaging/arch/PKGBUILD packaging/arch/.SRCINFO
           git commit -m "arch : sha256 du tarball ${GITHUB_REF_NAME} (job release)"
           git push
       - name: Release GitHub

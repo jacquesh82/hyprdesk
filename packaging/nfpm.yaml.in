@@ -73,8 +73,8 @@ archlinux:
 #   (session, veille, date), fc-list (polices) ; wl-copy / wl-paste
 #   (copier-coller) ; notify-send (notifications des captures, de la batterie,
 #   de LYRA) ; xdg-user-dir (dossiers Images et Vidéos des captures) ;
-#   greetd et cage (écran de connexion, Réglages → Écran de connexion : le
-#   paquet les installe, la bascule depuis GDM reste un choix explicite) ;
+#   greetd et cage (écran de connexion, Réglages → Écran de connexion) :
+#   suggérés seulement, l'écran de connexion reste un choix explicite ;
 # - facultatifs : les outils orchestrés (hyprdesk doctor, Réglages → Bureau →
 #   Dépendances) et les renvois des menus : gio (corbeille), rfkill (mode
 #   avion), pkexec (mises à jour), checkupdates / flatpak (mises à jour).
@@ -93,8 +93,6 @@ overrides:
       - xdg-utils
       - systemd
       - fontconfig
-      - greetd
-      - cage
     recommends:
       - hyprland
       - hypridle
@@ -104,6 +102,8 @@ overrides:
       - xdg-user-dirs
       - mesa-vulkan-drivers
     suggests:
+      - greetd
+      - cage
       - network-manager
       - network-manager-gnome
       - bluez
@@ -145,8 +145,6 @@ overrides:
       - tar
       - systemd
       - fontconfig
-      - greetd
-      - cage
     recommends:
       - hyprland
       - hypridle
@@ -156,6 +154,8 @@ overrides:
       - xdg-user-dirs
       - mesa-vulkan-drivers
     suggests:
+      - greetd
+      - cage
       - NetworkManager
       - nm-connection-editor
       - bluez
@@ -202,10 +202,10 @@ overrides:
       - systemd
       - fontconfig
       - hyprland
-      - greetd
-      - cage
     # optdepends : « paquet: raison ».
     suggests:
+      - "greetd: écran de connexion de hyprdesk (hyprdesk greeter setup)"
+      - "cage: écran de connexion de hyprdesk (compositeur du greeter)"
       - "hypridle: veille et verrouillage automatique"
       - "wireplumber: son (wpctl)"
       - "wl-clipboard: copier-coller (wl-copy, wl-paste)"

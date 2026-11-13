@@ -1,11 +1,26 @@
 # Rien n'est activé d'office : le service est utilisateur, chacun l'active.
-# Le cache des polices est refait par le hook de fontconfig.
+# Le cache des polices est refait par le hook de fontconfig. Messages en
+# anglais, comme les autres paquets de l'AUR.
 post_install() {
   cat <<'EOF'
-hyprdesk installé. Pour l'activer dans votre session Hyprland :
+hyprdesk is installed. To start it in your Hyprland session:
   systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
   systemctl --user enable --now hyprdesk.service
-Lignes à ajouter à hyprland.lua : hyprdesk snippet
-Dépendances facultatives (veille, réseau, captures…) : hyprdesk doctor
+Suggested hyprland.lua lines (start at login, SUPER + D): hyprdesk snippet
+Optional dependencies (idle, network, screenshots…): hyprdesk doctor
+Login screen, opt-in (needs greetd and cage): sudo hyprdesk greeter setup enable
+EOF
+}
+
+post_upgrade() {
+  echo 'hyprdesk upgraded: systemctl --user restart hyprdesk.service'
+}
+
+# Le service et la configuration sont à l'utilisateur : rappel de ce qui reste.
+post_remove() {
+  cat <<'EOF'
+hyprdesk is removed. Per user, if it was set up:
+  systemctl --user disable hyprdesk.service
+Your configuration stays in ~/.config/hypr/hyprdesk.lua and ~/.config/hypr/hyprdesk/.
 EOF
 }

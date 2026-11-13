@@ -16,10 +16,8 @@ license=('MIT AND OFL-1.1')
 # Relevé de scripts/package.sh : liées (glibc, libgcc, PAM), chargées à
 # l'exécution (Wayland, xkbcommon, Vulkan, EGL), programmes appelés.
 depends=(
-  'cage'
   'fontconfig'
   'glibc'
-  'greetd'
   'hyprland'
   'libgcc'
   'libglvnd'
@@ -32,42 +30,46 @@ depends=(
   'xdg-utils'
 )
 makedepends=('cargo')
+# Installation minimale : l'écran de connexion (greetd, cage), le trousseau et
+# l'assistante restent des choix explicites. Descriptions en anglais : c'est
+# ce que la page AUR et pacman -Si affichent.
 optdepends=(
-  'hypridle: veille et verrouillage automatique'
-  'wireplumber: son (wpctl)'
-  'wl-clipboard: copier-coller (wl-copy, wl-paste)'
-  'libnotify: notifications des captures, de la batterie, de LYRA (notify-send)'
-  'xdg-user-dirs: dossiers Images et Vidéos des captures (xdg-user-dir)'
-  'networkmanager: réseau (nmcli)'
-  'nm-connection-editor: réglages réseau avancés'
+  'greetd: hyprdesk login screen (hyprdesk greeter setup)'
+  'cage: hyprdesk login screen (kiosk compositor for the greeter)'
+  'hypridle: idle and automatic lock'
+  'wireplumber: sound (wpctl)'
+  'wl-clipboard: copy and paste (wl-copy, wl-paste)'
+  'libnotify: notifications for screenshots, battery and LYRA (notify-send)'
+  'xdg-user-dirs: Pictures and Videos folders for screenshots (xdg-user-dir)'
+  'networkmanager: network (nmcli)'
+  'nm-connection-editor: advanced network settings'
   'bluez-utils: Bluetooth (bluetoothctl)'
-  'blueman: réglages Bluetooth avancés'
-  "brightnessctl: assombrir l'écran à l'inactivité"
-  "power-profiles-daemon: profils d'énergie"
-  'polkit: authentification administrateur, mises à jour (pkexec)'
-  'glib2: corbeille du bureau (gio)'
-  'util-linux: mode avion (rfkill), supports amovibles (lsblk)'
-  'pacman-contrib: paquets à mettre à jour (checkupdates)'
-  'curl: services IA, SmartUI design (appels aux API)'
-  'libsecret: services IA, clés API dans le trousseau (secret-tool)'
-  'flatpak: mises à jour des applications Flatpak'
-  "xdg-desktop-portal-hyprland: partage d'écran"
-  'xdg-desktop-portal-gtk: sélecteur de fichiers'
-  "hyprshot: captures d'écran"
-  "wf-recorder: enregistrement de l'écran"
-  'cliphist: historique du presse-papiers'
-  'hyprsunset: éclairage nocturne'
-  'udisks2: supports amovibles (montage, éjection)'
-  'ddcutil: luminosité des écrans externes (DDC/CI)'
-  "slurp: capture ou enregistrement d'une zone"
-  'wvkbd: clavier virtuel'
-  'fprintd: empreinte digitale au verrouillage'
-  'pavucontrol: réglages du son avancés'
-  'unzip: thèmes au format .zip'
-  "git: plugins depuis un dépôt git"
-  "curl: widget météo d'exemple (hyprdesk.lua)"
-  'kitty: thème des applications (terminal)'
-  'wayle: notifications par wayle (AUR ; sans lui, hyprdesk les affiche)'
+  'blueman: advanced Bluetooth settings'
+  'brightnessctl: dim the screen when idle'
+  'power-profiles-daemon: power profiles'
+  'polkit: administrator authentication, updates (pkexec)'
+  'glib2: desktop trash (gio)'
+  'util-linux: airplane mode (rfkill), removable drives (lsblk)'
+  'pacman-contrib: pending updates (checkupdates)'
+  'curl: AI services, SmartUI design, sample weather widget'
+  'libsecret: AI services, API keys in the keyring (secret-tool)'
+  'flatpak: Flatpak application updates'
+  'xdg-desktop-portal-hyprland: screen sharing'
+  'xdg-desktop-portal-gtk: file picker'
+  'hyprshot: screenshots'
+  'wf-recorder: screen recording'
+  'cliphist: clipboard history'
+  'hyprsunset: night light'
+  'udisks2: removable drives (mount, eject)'
+  'ddcutil: external screen brightness (DDC/CI)'
+  'slurp: screenshot or recording of an area'
+  'wvkbd: on-screen keyboard'
+  'fprintd: fingerprint at the lock screen'
+  'pavucontrol: advanced sound settings'
+  'unzip: .zip themes'
+  'git: plugins from a git repository'
+  'kitty: application theme (terminal)'
+  'wayle: notifications through wayle (AUR; without it, hyprdesk shows them)'
 )
 # Sans LTO : le -flto=auto de makepkg fait de la Lua compilée par mlua (C)
 # du bitcode GCC que rust-lld ne lit pas (undefined symbol: lua_rotate…).
