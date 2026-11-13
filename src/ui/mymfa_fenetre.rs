@@ -136,10 +136,10 @@ pub enum FMsg {
     SyncNow,
     ConnecterDrive,
     DeconnecterDrive,
-    /// Drive porte un autre coffre : son mot de passe, puis sa récupération.
+    /// Drive porte un autre coffre : son mot de passe, puis la liaison.
     MdpDrive(String),
-    RecupererDrive,
-    Recupere(Result<(), String>),
+    LierDrive,
+    Lie(Result<Value, String>),
     /// Message affiché en bas de fenêtre (erreur ?).
     Message(bool, String),
 }
@@ -176,7 +176,7 @@ pub struct Fenetre {
     /// Nouveau compte 2FA (formulaire du code, pas encore du scanner d'image).
     pub nouveau: NouveauCompte,
     pub statut_synchro: Option<Value>,
-    /// Mot de passe du coffre de Drive (récupération, `driveAutreCoffre`).
+    /// Mot de passe du coffre de Drive (liaison, `driveAutreCoffre`).
     pub mdp_drive: String,
     pub journal: Option<Value>,
     /// Santé des mots de passe (Audit du démon).
@@ -1149,23 +1149,21 @@ impl Fenetre {
                 f.mdp_drive = m;
                 Task::none()
             }
-            FMsg::RecupererDrive => {
+            FMsg::LierDrive => {
                 if f.occupe || f.mdp_drive.is_empty() {
                     return Task::none();
                 }
                 f.occupe = true;
-                f.message = Some((false, tr_("Récupération du coffre de Drive…")));
+                f.message = Some((false, tr_("Liaison au coffre de Drive et fusion…")));
                 let mdp = std::mem::take(&mut f.mdp_drive);
-                Task::perform(
-                    async move { mymfa::restore_drive("", mdp).await },
-                    |r| Msg::MymfaF(FMsg::Recupere(r)),
-                )
+                Task::perform(mymfa::link_drive(mdp), |r| Msg::MymfaF(FMsg::Lie(r)))
             }
-            FMsg::Recupere(r) => match r {
-                Ok(()) => {
+            FMsg::Lie(r) => match r {
+                Ok(statut) => {
+                    f.statut_synchro = Some(statut);
                     f.dit_message(
                         false,
-                        tr_("Coffre de Drive récupéré : il remplace celui de cet ordinateur (gardé à côté), les secrets des applications sont conservés."),
+                        tr_("Coffre lié à celui de Drive : ils fusionnent à chaque synchro, chacun garde son mot de passe."),
                     );
                     Task::batch([
                         Task::perform(mymfa::content(), |r| Msg::MymfaF(FMsg::Contenu(r))),
@@ -2540,8 +2538,8 @@ impl Fenetre {
 
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
 
-    /// Drive porte un autre coffre (celui du web, en général) : pas de fusion
-    /// possible ; on le récupère avec son mot de passe, à la place du local.
+    /// Drive porte un autre coffre (celui du web, en général), pas encore lié :
+    /// son mot de passe, une fois, lie ce coffre d'appareil au coffre partagé.
     fn vue_autre_coffre(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
@@ -2549,13 +2547,6 @@ impl Fenetre {
         let dim = color(r.dim, 1.0);
         let warn = color(r.error, 1.0);
         let edge = color(r.edge, 1.0);
-        let compte = |c: &str| {
-            self.contenu
-                .as_ref()
-                .and_then(|v| v.get(c))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len)
-        };
         let saisie = text_input(
             crate::i18n::tr("Mot de passe du coffre de Drive (celui du web)"),
             &self.mdp_drive,
@@ -2565,29 +2556,23 @@ impl Fenetre {
         .size(13)
         .padding(8)
         .on_input(|m| Msg::MymfaF(FMsg::MdpDrive(m)))
-        .on_submit(Msg::MymfaF(FMsg::RecupererDrive));
+        .on_submit(Msg::MymfaF(FMsg::LierDrive));
         let colonne = column![
             text(crate::i18n::tr(
-                "Google Drive porte un autre coffre que celui de cet ordinateur (celui du web, en général) : les deux ne peuvent pas se fusionner."
+                "Google Drive porte un autre coffre que celui de cet ordinateur (celui du web, en général)."
             ))
             .font(app.font)
             .size(13)
             .color(warn),
-            text(crate::tr!(
-                "Récupérez-le avec son mot de passe : il remplacera le coffre de cet ordinateur ({comptes} comptes, {logins} logins), gardé à côté. Les secrets des applications sont conservés.",
-                comptes = compte("accounts"),
-                logins = compte("logins")
+            text(crate::i18n::tr(
+                "Liez-les avec le mot de passe du coffre de Drive, une seule fois : ce coffre d'appareil garde sa clé et son mot de passe (ouvert par la session), les deux fusionnent à chaque synchro. Les secrets des applications restent sur cet ordinateur."
             ))
             .font(app.font)
             .size(12)
             .color(dim),
             row![
                 saisie,
-                bouton_simple(
-                    app,
-                    crate::i18n::tr("Récupérer le coffre de Drive"),
-                    FMsg::RecupererDrive
-                ),
+                bouton_simple(app, crate::i18n::tr("Lier et fusionner"), FMsg::LierDrive),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -2625,6 +2610,7 @@ impl Fenetre {
             .get("connecte")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let lie = statut.get("lie").and_then(Value::as_bool).unwrap_or(false);
         let horloge = statut
             .get("horlogeVerifiee")
             .and_then(Value::as_bool)
@@ -2634,7 +2620,9 @@ impl Fenetre {
             .and_then(Value::as_str)
             .unwrap_or("");
         let lignes = row![
-            text(if connecte {
+            text(if connecte && lie {
+                crate::i18n::tr("Connecté à Google Drive, coffre d'appareil lié.").to_string()
+            } else if connecte {
                 crate::i18n::tr("Connecté à Google Drive.").to_string()
             } else {
                 crate::i18n::tr("Non connecté.").to_string()

@@ -52,6 +52,8 @@ pub trait MyMfa1 {
     fn drive_connect(&self) -> zbus::Result<String>;
     fn drive_disconnect(&self) -> zbus::Result<()>;
     fn restore_drive(&self, revision: &str, password: &str) -> zbus::Result<()>;
+    /// Lie ce coffre d'appareil au coffre partagé de Drive (SYN-13).
+    fn link_drive(&self, password: &str) -> zbus::Result<String>;
     #[zbus(property)]
     fn locked(&self) -> zbus::Result<bool>;
     #[zbus(property)]
@@ -452,9 +454,23 @@ pub async fn drive_disconnect() -> Result<(), String> {
         .map_err(|e| error_text(&e))
 }
 
+/// Lie ce coffre d'appareil au coffre partagé de Drive (celui du web) avec le
+/// mot de passe de ce dernier : chacun garde sa clé et son mot de passe, ils
+/// fusionnent à chaque synchro. Rend le statut après un premier cycle.
+pub async fn link_drive(mut password: String) -> Result<serde_json::Value, String> {
+    let r = match proxy().await {
+        Ok(p) => p.link_drive(&password).await,
+        Err(e) => Err(e),
+    };
+    crate::lock::pam::wipe(&mut password);
+    let texte = r.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
+}
+
 /// Restaure une version reçue de Drive (révision vide : la dernière), ouverte
 /// par son mot de passe. Un coffre local présent est remplacé (gardé à côté
-/// par le démon) : c'est la récupération du coffre du web (driveAutreCoffre).
+/// par le démon). La fenêtre propose la liaison (`link_drive`) à la place.
+#[allow(dead_code)]
 pub async fn restore_drive(revision: &str, mut password: String) -> Result<(), String> {
     let r = match proxy().await {
         Ok(p) => p.restore_drive(revision, &password).await,
