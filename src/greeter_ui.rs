@@ -105,6 +105,10 @@ pub struct Greeter {
     stream: Arc<Mutex<Option<UnixStream>>>,
     /// Démo sans greetd (`--demo`).
     demo: bool,
+    /// Démo filmée (`HYPRDESK_GREETER_FILM`, pour les captures) : sans la
+    /// mention « Démo », et la validation ferme l'écran comme une ouverture
+    /// de session.
+    film: bool,
     /// Fond : la copie posée par Réglages → Écran de connexion, sinon celui
     /// de hyprdesk (horizontal ou vertical selon l'écran).
     wallpaper: Option<image::Handle>,
@@ -188,6 +192,7 @@ impl Greeter {
             error: None,
             stream: Arc::new(Mutex::new(None)),
             demo: false,
+            film: false,
             wallpaper,
             logo: image::Handle::from_bytes(LOGO),
         }
@@ -196,6 +201,7 @@ impl Greeter {
     fn demo() -> Self {
         Greeter {
             demo: true,
+            film: std::env::var_os("HYPRDESK_GREETER_FILM").is_some(),
             user: std::env::var("USER").unwrap_or_default(),
             ..Greeter::new()
         }
@@ -319,6 +325,16 @@ impl Greeter {
                 if self.demo {
                     let mut a = std::mem::take(&mut self.answer);
                     crate::lock::pam::wipe(&mut a);
+                    if self.film {
+                        // Comme une session qui s'ouvre : l'attente, puis l'écran part.
+                        self.phase = Phase::Waiting;
+                        return Task::perform(
+                            async {
+                                tokio::time::sleep(std::time::Duration::from_millis(900)).await
+                            },
+                            |_| GMsg::Quit,
+                        );
+                    }
                     self.phase = Phase::User;
                     self.messages = vec![self.demo_outcome()];
                     return iced::widget::operation::focus(USER_ID);
@@ -529,7 +545,7 @@ impl Greeter {
                 );
             }
         }
-        if self.demo {
+        if self.demo && !self.film {
             col = col.push(Space::new().height(12));
             col = col.push(
                 text(crate::i18n::tr(

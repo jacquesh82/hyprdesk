@@ -9,7 +9,7 @@
 **Un bureau que l'on fait apparaître dès qu'on en a besoin, dans
 [Hyprland](https://hyprland.org).**
 
-![SUPER + D ouvre le dock, puis le bureau complet ; une fenêtre est déplacée sur le bureau, puis les Réglages, LYRA et le lanceur, et les fenêtres reviennent en mosaïque](assets/screenshots/hyprdesk-demo.gif)
+![Connexion sur l'écran greetd de hyprdesk, puis SUPER + D passe par les trois modes (fond, dock, bureau complet avec ses icônes) ; deux images s'ouvrent en mosaïque, puis flottent sur le bureau complet et sont déplacées ; visite des Réglages (dont Raccourcis) et une question à LYRA](assets/screenshots/hyprdesk-demo.gif)
 
 En tuiles, les fenêtres couvrent l'écran : `SUPER + D` (deux fois : le dock,
 puis le bureau complet) ramène le fond d'écran, les icônes et les widgets. Les
