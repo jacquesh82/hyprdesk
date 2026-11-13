@@ -703,6 +703,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "take",
                 "essentials",
                 "essentials_off",
+                "essential_keys",
             ],
             C,
         )?;
@@ -748,6 +749,42 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                     }
                 }
                 g.keys.essentials_off = list.iter().map(|s| s.trim().to_string()).collect();
+            }
+        }
+        // Combinaisons choisies pour des essentiels : { ["swap.left"] = "SUPER + CTRL + h" }.
+        match k.get::<Value>("essential_keys")? {
+            Value::Nil => {}
+            Value::Boolean(false) => g.keys.essential_keys.clear(),
+            Value::Table(t) => {
+                let mut map = std::collections::BTreeMap::new();
+                for pair in t.pairs::<String, String>() {
+                    let (slot, combo) = pair?;
+                    let known = crate::essentials::slots();
+                    if !known.iter().any(|s| s == slot.trim()) {
+                        return Err(err(crate::tr!(
+                            "{C} : essentiel « {id} » inconnu ({p0})",
+                            C = C,
+                            id = slot,
+                            p0 = known.join(", ")
+                        )));
+                    }
+                    if crate::hypr::parse_combo(&combo).is_none() {
+                        return Err(err(crate::tr!(
+                            "{C} : raccourci « {s} » illisible (ex. \"SUPER + SHIFT + D\")",
+                            C = C,
+                            s = combo
+                        )));
+                    }
+                    map.insert(slot.trim().to_string(), combo.trim().to_string());
+                }
+                g.keys.essential_keys = map;
+            }
+            v => {
+                return Err(err(crate::tr!(
+                    "{C} : « essential_keys » attend une table, pas {p0}",
+                    C = C,
+                    p0 = v.type_name()
+                )));
             }
         }
         for (name, slot) in [

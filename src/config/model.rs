@@ -897,6 +897,9 @@ pub struct Keys {
     pub essentials: bool,
     /// Essentiels coupés (identifiants de `essentials::CATALOGUE`).
     pub essentials_off: Vec<String>,
+    /// Combinaisons choisies pour des essentiels (`swap.left` →
+    /// `SUPER + CTRL + h`) ; absentes : celles que hyprdesk déduit.
+    pub essential_keys: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Keys {
@@ -919,6 +922,7 @@ impl Default for Keys {
             media: true,
             essentials: true,
             essentials_off: Vec::new(),
+            essential_keys: Default::default(),
         }
     }
 }

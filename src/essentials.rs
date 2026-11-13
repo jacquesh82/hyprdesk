@@ -209,8 +209,13 @@ pub struct Line {
     pub label: &'static str,
     /// Précision (« 8 », « gauche »), vide s'il n'y a qu'un raccourci.
     pub detail: String,
-    /// Combinaison proposée.
+    /// Identifiant stable du raccourci (`swap.left`, `pin`) : clé de
+    /// `keys.essential_keys`. Vide pour la rangée des chiffres (non réglable).
+    pub slot: String,
+    /// Combinaison posée : celle choisie, sinon celle déduite.
     pub combo: String,
+    /// Combinaison déduite de hyprland.lua (valeur par défaut).
+    pub default: String,
     /// Dispatcher Lua.
     pub lua: String,
     /// Options de `hl.bind` en plus de la description (`mouse = true`).
@@ -526,6 +531,46 @@ impl Ctx {
     }
 }
 
+/// Identifiant stable d'un raccourci d'essentiel : `swap.left`, `pin`.
+/// Vide pour la rangée des chiffres, dont la combinaison suit hyprland.lua.
+fn slot_of(id: &str, w: &Want) -> String {
+    if w.number.is_some() {
+        return String::new();
+    }
+    let sub = match w.detail.as_str() {
+        "" => return id.to_string(),
+        "gauche" => "left",
+        "droite" => "right",
+        "haut" => "up",
+        "bas" => "down",
+        "suivant" => "next",
+        "précédent" => "prev",
+        "déplacer" => "drag",
+        "redimensionner" => "resize",
+        other => other,
+    };
+    format!("{id}.{sub}")
+}
+
+/// Identifiants réglables (`keys.essential_keys`), dans l'ordre des Réglages.
+pub fn slots() -> Vec<String> {
+    let ctx = Ctx {
+        ws: "SUPER".into(),
+        ws_move: "SUPER + ALT".into(),
+        focus: [None, None, None, None],
+    };
+    CATALOGUE
+        .iter()
+        .flat_map(|e| {
+            ctx.wants(e.id)
+                .into_iter()
+                .map(|w| slot_of(e.id, &w))
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 /// Même touche : identique, ou même touche physique (`1`, `ampersand`, `code:10`).
 fn same_key(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
@@ -602,7 +647,16 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
     let mut out: Vec<Line> = Vec::new();
     for ess in CATALOGUE {
         let off = !keys.essentials || keys.essentials_off.iter().any(|o| o == ess.id);
-        for w in ctx.wants(ess.id) {
+        for mut w in ctx.wants(ess.id) {
+            let slot = slot_of(ess.id, &w);
+            let default = w.combo.clone();
+            if let Some(c) = keys
+                .essential_keys
+                .get(&slot)
+                .filter(|c| !slot.is_empty() && crate::hypr::parse_combo(c).is_some())
+            {
+                w.combo = c.clone();
+            }
             let Some(n) = crate::keymap::norm(&w.combo) else {
                 continue;
             };
@@ -704,7 +758,9 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
                 group: ess.group,
                 label: ess.label,
                 detail: w.detail,
+                slot,
                 combo: w.combo,
+                default,
                 lua: w.lua,
                 opts: w.opts,
                 state,
@@ -1215,6 +1271,24 @@ hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
         keys.essentials = false;
         let lines = plan(&keys, &binds, &[], &[]);
         assert!(lines.iter().all(|l| !l.state.installs()));
+    }
+
+    /// Une combinaison choisie remplace celle déduite ; la déduite reste la
+    /// valeur par défaut.
+    #[test]
+    fn combinaison_choisie() {
+        let mut keys = Keys::default();
+        keys.essential_keys
+            .insert("swap.left".into(), "SUPER + ALT + h".into());
+        let lines = plan(&keys, &Value::Null, &[], &[]);
+        let l = find(&lines, "swap", "gauche");
+        assert_eq!(l.slot, "swap.left");
+        assert_eq!(l.combo, "SUPER + ALT + h");
+        assert_eq!(l.default, "SUPER + CTRL + left");
+        assert_eq!(find(&lines, "pin", "").slot, "pin");
+        assert_eq!(find(&lines, "ws", "8").slot, "");
+        assert!(slots().contains(&"group-tabs.prev".to_string()));
+        assert!(!slots().iter().any(|s| s.starts_with("ws.") || s == "ws"));
     }
 
     /// Une combinaison de hyprdesk n'est jamais doublée par un essentiel.

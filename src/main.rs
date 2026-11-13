@@ -389,12 +389,13 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         }
     };
     // Arrêt brutal précédent, bureau affiché : on rend les raccourcis.
-    if hypr::current_submap() == hypr::SUBMAP {
+    let left = hypr::current_submap();
+    if left == hypr::SUBMAP || left == hypr::CAPTURE_SUBMAP {
         tracing::info!(
             "{}",
             crate::tr!(
                 "submap « {p0} » laissée active par un arrêt précédent : remise à zéro",
-                p0 = hypr::SUBMAP
+                p0 = left
             )
         );
         hypr::set_submap(None);

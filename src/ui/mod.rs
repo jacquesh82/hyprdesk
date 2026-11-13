@@ -2078,6 +2078,16 @@ impl App {
     }
 
     fn close_panel(&mut self) -> Task<Msg> {
+        // Capture en cours : Hyprland retrouve ses raccourcis.
+        let end = if self
+            .panel
+            .as_ref()
+            .is_some_and(|p| p.keys.capture.is_some())
+        {
+            self.keys_capture_end()
+        } else {
+            Task::none()
+        };
         let from = self
             .panel_fade
             .map(|f| f.value(Instant::now()))
@@ -2088,7 +2098,7 @@ impl App {
             start: Instant::now(),
             dur: self.motion_duration(),
         });
-        Task::done(Msg::Frame)
+        Task::batch([end, Task::done(Msg::Frame)])
     }
 
     fn hooks(&self, ev: HookEvent) -> Vec<usize> {
@@ -4223,6 +4233,15 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
+                // Capture d'un raccourci (Réglages → Raccourcis) : les touches
+                // vont à la capture, Échap compris.
+                if self
+                    .panel
+                    .as_ref()
+                    .is_some_and(|p| p.keys.capture.is_some())
+                {
+                    return Task::none();
+                }
                 // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt » ; Tab
                 // passe du mot de passe à sa confirmation et retour.
                 if self.mfa_dialog.is_some()
@@ -4428,6 +4447,26 @@ impl App {
         }
         if self.listens_to_events() {
             subs.push(iced::event::listen_with(listen));
+        }
+        // Capture d'un raccourci : chaque touche, sans modificateurs appliqués.
+        if self
+            .panel
+            .as_ref()
+            .is_some_and(|p| p.keys.capture.is_some())
+        {
+            subs.push(iced::event::listen_with(|e, _, _| match e {
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    physical_key,
+                    modifiers,
+                    ..
+                }) => Some(plugins::keys::wrap(plugins::keys::Msg::CaptureKey(
+                    key,
+                    physical_key,
+                    modifiers,
+                ))),
+                _ => None,
+            }));
         }
         if !self.raised.is_empty() {
             subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Msg::Poll));

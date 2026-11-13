@@ -338,6 +338,23 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.key_essentials_off = None;
+    "keys.essential_keys", "keys", "id.sens=raccourci,… | none — combinaisons choisies pour des essentiels (ex. swap.left=SUPER + CTRL + h)",
+        |c| c.general.keys.essential_keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","),
+        |s, v, c| {
+            let mut map = std::collections::BTreeMap::new();
+            if !matches!(v.trim(), "none" | "") {
+                for pair in v.split(',') {
+                    let (slot, k) = pair.split_once('=').ok_or_else(|| crate::tr!("« {p} » : attendu id=raccourci", p = pair))?;
+                    if !crate::essentials::slots().iter().any(|s| s == slot.trim()) {
+                        return Err(crate::tr!("essentiel « {k} » inconnu", k = slot.trim()));
+                    }
+                    map.insert(slot.trim().to_string(), combo(k.trim())?);
+                }
+            }
+            s.key_essential_keys = Some(map);
+            Ok(())
+        },
+        |s| s.key_essential_keys = None;
     "grid.icon_size", "icons", "8..1024 — taille des icônes du bureau",
         |c| c.general.grid.icon_size.to_string(),
         |s, v, c| { s.icon_size = Some(number(v, 8u16, 1024)?); Ok(()) },

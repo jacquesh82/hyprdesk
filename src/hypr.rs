@@ -418,6 +418,10 @@ pub fn stream() -> impl Stream<Item = Update> {
 /// Nom de la submap active pendant que le bureau est affiché.
 pub const SUBMAP: &str = "hyprdesk";
 
+/// Submap vide, le temps de capturer un raccourci dans les Réglages : la
+/// combinaison arrive au tiroir au lieu de déclencher l'action en place.
+pub const CAPTURE_SUBMAP: &str = "hyprdesk-capture";
+
 /// Masque de modificateurs Hyprland (`modmask` de `j/binds`).
 fn modifier_bit(m: &str) -> Option<u32> {
     Some(match m.to_ascii_uppercase().as_str() {
@@ -701,6 +705,8 @@ pub fn build_keys_lua(
     // tient, sauf celles marquées submap_universal.
     media(&mut lua, "  ", true);
     lua += "end)\n";
+    // Capture d'un raccourci (Réglages → Raccourcis) : aucune liaison.
+    lua += &format!("hl.define_submap({}, function() end)\n", q(CAPTURE_SUBMAP));
     // Surfaces floutées selon le thème (barre, menus, lanceur, réglages),
     // menus sans animation d'apparition.
     lua += "if __hyprdesk_rules then for _, r in ipairs(__hyprdesk_rules) do pcall(function() r:set_enabled(false) end) end end\n\

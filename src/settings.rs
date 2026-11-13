@@ -109,6 +109,7 @@ pub struct Settings {
     pub key_media: Option<bool>,
     pub key_essentials: Option<bool>,
     pub key_essentials_off: Option<Vec<String>>,
+    pub key_essential_keys: Option<std::collections::BTreeMap<String, String>>,
     pub suspend_binds: Option<bool>,
     pub clipboard_history: Option<bool>,
     pub autostart: Option<bool>,
@@ -311,6 +312,7 @@ impl Settings {
             key_media: has("keys.media").then_some(g.keys.media),
             key_essentials: has("keys.essentials").then_some(g.keys.essentials),
             key_essentials_off: has("keys.essentials_off").then(|| g.keys.essentials_off.clone()),
+            key_essential_keys: has("keys.essential_keys").then(|| g.keys.essential_keys.clone()),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             clipboard_history: has("clipboard_history").then_some(g.clipboard_history),
             autostart: has("autostart").then_some(g.autostart),
@@ -593,6 +595,11 @@ impl Settings {
             key_essentials_off,
             "keys.essentials_off",
             g.keys.essentials_off
+        );
+        set!(
+            key_essential_keys,
+            "keys.essential_keys",
+            g.keys.essential_keys
         );
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(clipboard_history, "clipboard_history", g.clipboard_history);
@@ -1031,6 +1038,13 @@ impl Settings {
         if let Some(list) = &self.key_essentials_off {
             let items: Vec<String> = list.iter().map(|k| q(k)).collect();
             keys.push(format!("essentials_off = {{ {} }}", items.join(", ")));
+        }
+        if let Some(map) = &self.key_essential_keys {
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("[{}] = {}", q(k), q(v)))
+                .collect();
+            keys.push(format!("essential_keys = {{ {} }}", items.join(", ")));
         }
         if !keys.is_empty() {
             cfg.push(format!("keys = {{ {} }}", keys.join(", ")));
