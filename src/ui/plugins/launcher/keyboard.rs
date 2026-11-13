@@ -221,6 +221,7 @@ mod tests {
             width: 1440,
             height: 900,
             workspace: "1".into(),
+            base: String::new(),
             focused: true,
             scale: 1.0,
             reserved: (0.0, 0.0, 0.0, 0.0),

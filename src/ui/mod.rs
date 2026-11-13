@@ -1418,6 +1418,7 @@ impl App {
                 width: 1440,
                 height: 900,
                 workspace: "1".into(),
+                base: String::new(),
                 focused: true,
                 reserved: (0.0, 0.0, 0.0, 0.0),
                 x: 0.0,
@@ -1461,13 +1462,14 @@ impl App {
         let Some(m) = self.monitors.iter().find(|m| m.name == name) else {
             return DesktopMode::NoDesktop;
         };
-        if m.workspace.is_empty() || m.workspace.starts_with("special:") {
+        let ws = m.mode_workspace();
+        if ws.is_empty() {
             return self.applied_mode(name);
         }
-        if self.cfg.general.forced_mode(name, &m.workspace) == Some("no-desktop") {
+        if self.cfg.general.forced_mode(name, ws) == Some("no-desktop") {
             return DesktopMode::NoDesktop;
         }
-        self.ws_mode(&m.workspace)
+        self.ws_mode(ws)
     }
 
     /// Mode appliqué à un écran (surfaces, fenêtres) à la dernière synchronisation.
@@ -1504,7 +1506,7 @@ impl App {
             .monitors
             .iter()
             .find(|m| m.name == monitor)
-            .map(|m| m.workspace.as_str())
+            .map(|m| m.mode_workspace())
             .unwrap_or("");
         if self.cfg.general.forced_mode(monitor, ws) == Some("no-desktop") {
             return false;
@@ -1580,7 +1582,7 @@ impl App {
                 .unwrap_or((No, m.workspace.clone()));
             let ws_changed = had_ws != m.workspace;
             // Workspaces dont les fenêtres reprennent leur configuration.
-            let scope: Vec<String> = [had_ws.clone(), m.workspace.clone()]
+            let scope: Vec<String> = [had_ws.clone(), m.workspace.clone(), m.base.clone()]
                 .into_iter()
                 .filter(|w| !w.is_empty())
                 .collect();
@@ -2093,8 +2095,8 @@ impl App {
         let Some(ws) = self
             .target_monitor()
             .and_then(|n| self.monitors.iter().find(|m| m.name == n))
-            .map(|m| m.workspace.clone())
-            .filter(|w| !w.is_empty() && !w.starts_with("special:"))
+            .map(|m| m.mode_workspace().to_string())
+            .filter(|w| !w.is_empty())
         else {
             return Task::none();
         };
@@ -4951,6 +4953,7 @@ mod regression_tests {
             width: 1440,
             height: 900,
             workspace: "1".into(),
+            base: String::new(),
             focused,
             reserved: (0.0, 0.0, 0.0, 0.0),
             x: 0.0,
@@ -5049,6 +5052,32 @@ mod regression_tests {
         assert!(app.visible);
         let _ = app.set_monitors(vec![on("2")]);
         assert_eq!(app.mode(), DesktopMode::LauncherOnly, "le 2 aussi");
+    }
+
+    /// Scratchpad (workspace spécial) ouvert par-dessus : le sélecteur de mode
+    /// règle le workspace normal de l'écran, sans attendre qu'il se referme.
+    #[test]
+    fn mode_selector_works_under_a_scratchpad() {
+        let mut app = app();
+        let magic = Monitor {
+            workspace: "special:magic".into(),
+            base: "1".into(),
+            ..monitor("A", true)
+        };
+        app.surfaces.insert(Id::unique(), "A".into());
+        let _ = app.set_monitors(vec![magic.clone()]);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        let _ = app.set_mode(DesktopMode::LauncherOnly);
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        assert!(app.visible);
+        app.fade = None;
+        let _ = app.set_mode(DesktopMode::NoDesktop);
+        assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        // Le scratchpad refermé : le workspace 1 a le mode réglé dessous.
+        app.fade = None;
+        let _ = app.set_mode(DesktopMode::FullDesktop);
+        let _ = app.set_monitors(vec![monitor("A", true)]);
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
     }
 
     /// Plein bureau : Alt+Tab vers une fenêtre cachée quitte le bureau ;

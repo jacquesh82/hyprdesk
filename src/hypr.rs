@@ -21,6 +21,9 @@ pub struct Monitor {
     pub height: u32,
     /// Workspace affiché : le spécial s'il est ouvert, sinon l'actif.
     pub workspace: String,
+    /// Workspace normal de l'écran, sous un spécial ouvert par-dessus (vide
+    /// sinon ou s'il est inconnu).
+    pub base: String,
     pub focused: bool,
     /// Zone réservée par les barres (gauche, haut, droite, bas), en pixels logiques.
     pub reserved: (f32, f32, f32, f32),
@@ -250,6 +253,18 @@ pub fn is_window_event(line: &str) -> bool {
     )
 }
 
+impl Monitor {
+    /// Workspace dont l'écran suit le mode du bureau : le normal, même quand
+    /// un spécial (scratchpad) est ouvert par-dessus ; vide s'il est inconnu.
+    pub fn mode_workspace(&self) -> &str {
+        if self.workspace.starts_with("special:") {
+            &self.base
+        } else {
+            &self.workspace
+        }
+    }
+}
+
 pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
     let Some(list) = v.as_array() else {
         return Vec::new();
@@ -281,6 +296,7 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
                 width: (w / scale).round() as u32,
                 height: (h / scale).round() as u32,
                 workspace,
+                base: if active != STASH { active.to_string() } else { String::new() },
                 focused: m["focused"].as_bool().unwrap_or(false),
                 reserved: (r(0), r(1), r(2), r(3)),
                 x: m["x"].as_f64().unwrap_or(0.0) as f32,
@@ -1871,6 +1887,9 @@ mod tests {
         );
         assert_eq!((m[1].width, m[1].height), (1152, 2048));
         assert_eq!(m[1].workspace, "special:magic");
+        // Le mode du bureau suit le workspace normal, sous le scratchpad.
+        assert_eq!(m[1].mode_workspace(), "6");
+        assert_eq!(m[0].mode_workspace(), "2");
     }
 
     #[test]

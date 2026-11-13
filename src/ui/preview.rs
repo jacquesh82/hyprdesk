@@ -182,6 +182,7 @@ impl Preview {
             width: size.width as u32,
             height: size.height as u32,
             workspace: "1".into(),
+            base: String::new(),
             focused: true,
             reserved: (0.0, 44.0, 0.0, 0.0),
             x: 0.0,
