@@ -532,8 +532,8 @@ impl App {
                 .color(fg),
             );
             for l in lines {
-                let origin = match l.origin {
-                    Origin::HyprlandLua(Some(n)) => crate::tr!("hyprland.lua, ligne {n}", n = n),
+                let origin = match &l.origin {
+                    Origin::HyprlandLua(Some((f, n))) => crate::tr!("{f}, ligne {n}", f = f, n = n),
                     Origin::HyprlandLua(None) => crate::i18n::tr("hyprland.lua").to_string(),
                     Origin::Hyprdesk => crate::i18n::tr("hyprdesk").to_string(),
                 };

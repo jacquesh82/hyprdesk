@@ -705,6 +705,13 @@ LUA
 fi
 
 LOCK_CMD="$BIN lock"
+# Raccourcis rangés par hyprdesk dans binds.lua (MLG-111) : cherchés dans les
+# deux fichiers, la ligne ajoutée va dans binds.lua s'il existe.
+BINDS_CONF="$(dirname "$HYPR_CONF")/binds.lua"
+LOCK_FILES=("$HYPR_CONF")
+[[ -f "$BINDS_CONF" ]] && LOCK_FILES+=("$BINDS_CONF")
+LOCK_TARGET="$HYPR_CONF"
+[[ -f "$BINDS_CONF" ]] && LOCK_TARGET="$BINDS_CONF"
 # Raccourci SUPER + L : « mainMod .. " + L" » ou « "SUPER + L" ».
 LOCK_KEY_RE='hl\.bind\((mainMod[[:space:]]*\.\.[[:space:]]*"[[:space:]]*\+[[:space:]]*L"|"SUPER[[:space:]]*\+[[:space:]]*L")'
 if [[ "$LOCK_KEY" == 1 ]]; then
@@ -712,19 +719,21 @@ if [[ "$LOCK_KEY" == 1 ]]; then
     if [[ ! -f "$HYPR_CONF" ]]; then
         hd_warn "$(t "hyprland.lua absent ; à ajouter :" "hyprland.lua missing; to add:")"
         hd_cmd "hl.bind(\"SUPER + L\", hl.dsp.exec_cmd(\"$LOCK_CMD\"))"
-    elif grep -Eq "$LOCK_KEY_RE.*hyprdesk lock" "$HYPR_CONF"; then
+    elif grep -Eq "$LOCK_KEY_RE.*hyprdesk lock" "${LOCK_FILES[@]}"; then
         hd_ok "$(t "déjà en place" "already set")"
-    elif grep -Eq "$LOCK_KEY_RE.*exec_cmd\(\"hyprlock\"\)" "$HYPR_CONF"; then
+    elif grep -Eq "$LOCK_KEY_RE.*exec_cmd\(\"hyprlock\"\)" "${LOCK_FILES[@]}"; then
         backup lock
-        sed -E -i "/$LOCK_KEY_RE/ s#exec_cmd\(\"hyprlock\"\)#exec_cmd(\"$LOCK_CMD\")#" "$HYPR_CONF"
+        for f in "${LOCK_FILES[@]}"; do
+            sed -E -i "/$LOCK_KEY_RE/ s#exec_cmd\(\"hyprlock\"\)#exec_cmd(\"$LOCK_CMD\")#" "$f"
+        done
         hd_ok "$(t "hyprlock remplacé par hyprdesk lock" "hyprlock replaced by hyprdesk lock")"
-    elif grep -Eq "$LOCK_KEY_RE" "$HYPR_CONF"; then
+    elif grep -Eq "$LOCK_KEY_RE" "${LOCK_FILES[@]}"; then
         hd_warn "$(t "SUPER + L sert déjà à autre chose : laissé tel quel" "SUPER + L is already used: left as is")"
     else
         backup lock
         printf '\n-- hyprdesk : verrouillage (écrit par scripts/install.sh)\nhl.bind("SUPER + L", hl.dsp.exec_cmd("%s"), { description = "hyprdesk : verrouiller" })\n' \
-            "$LOCK_CMD" >> "$HYPR_CONF"
-        hd_ok "$(t "ajouté à hyprland.lua" "added to hyprland.lua")"
+            "$LOCK_CMD" >> "$LOCK_TARGET"
+        hd_ok "$(t "ajouté à $(basename "$LOCK_TARGET")" "added to $(basename "$LOCK_TARGET")")"
     fi
 fi
 
@@ -871,7 +880,7 @@ fi
 if [[ "$LOCK_KEY" == 1 ]]; then
     check 0 "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk" \
         "SUPER + L déjà pris : liez hyprdesk lock à une autre touche dans hyprland.lua" "SUPER + L already taken: bind hyprdesk lock to another key in hyprland.lua" \
-        grep -Eq "$LOCK_KEY_RE.*hyprdesk lock" "$HYPR_CONF"
+        grep -Eq "$LOCK_KEY_RE.*hyprdesk lock" "${LOCK_FILES[@]}"
 fi
 if [[ -n "$LANG_CHOICE" ]]; then
     check 0 "langue : $LANG_CHOICE" "language: $LANG_CHOICE" "" "" \

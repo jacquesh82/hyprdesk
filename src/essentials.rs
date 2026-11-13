@@ -184,8 +184,13 @@ pub enum State {
     Installed,
     /// Posé par hyprdesk sur une combinaison prise à hyprland.lua (`keys.take`).
     TakenOver,
-    /// Déjà fait par hyprland.lua : sa combinaison, sa ligne si elle est lue.
-    Present { combo: String, line: Option<usize> },
+    /// Déjà fait par hyprland.lua (ou binds.lua) : sa combinaison, le
+    /// fichier, sa ligne si elle est lue.
+    Present {
+        combo: String,
+        file: String,
+        line: Option<usize>,
+    },
     /// Combinaison tenue ailleurs : rien n'est posé. `inert` : le raccourci
     /// en place ne fait rien (message d'un layout inutilisé).
     Taken { by: String, inert: Option<String> },
@@ -667,43 +672,52 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
                     .iter()
                     .find(|f| f.what == dsp && physical_key(&f.combo.1) == Some(code))
                     .map(|f| {
-                        let line = source
+                        let at = source
                             .iter()
                             .find(|s| same_combo(&s.combo, &f.combo))
-                            .map(|s| s.line);
-                        (f.combo.clone(), line)
+                            .map(|s| (s.file.clone(), s.line));
+                        (f.combo.clone(), at)
                     })
             } else {
                 source
                     .iter()
                     .filter(|s| w.key_like.is_none_or(|k| s.combo.1.starts_with(k)))
                     .find(|s| w.calls.iter().any(|p| call_matches(&s.call, p)))
-                    .map(|s| (s.combo.clone(), Some(s.line)))
+                    .map(|s| (s.combo.clone(), Some((s.file.clone(), s.line))))
             };
             let holder = foreign.iter().find(|f| same_combo(&f.combo, &n));
             // Un chiffre écrit tel quel sur un clavier AZERTY : Hyprland compare
             // la touche sans Maj (« & »), ce raccourci ne se déclenche jamais.
             // hyprdesk pose quand même le sien, et le dit.
             let mut note = None;
-            let present = present.filter(|(c, line)| {
+            let present = present.filter(|(c, at)| {
                 let dead = shifted && c.1.len() == 1 && c.1.chars().all(|ch| ch.is_ascii_digit());
                 if dead {
+                    let (file, line) = match at {
+                        Some((f, n)) => (f.clone(), Some(*n)),
+                        None => ("hyprland.lua".to_string(), None),
+                    };
                     let at = match line {
                         Some(n) => crate::tr!("{c} (ligne {n})", c = combo_text(c), n = n),
                         None => combo_text(c),
                     };
                     note = Some(crate::tr!(
-                        "hyprland.lua a {at}, qui ne se déclenche sans doute jamais : sur ce clavier, la touche {k} donne un autre caractère sans Maj",
+                        "{f} a {at}, qui ne se déclenche sans doute jamais : sur ce clavier, la touche {k} donne un autre caractère sans Maj",
+                        f = file,
                         at = at,
                         k = c.1
                     ));
                 }
                 !dead
             });
-            let state = if let Some((c, line)) = present {
+            let state = if let Some((c, at)) = present {
                 State::Present {
                     combo: combo_text(&c),
-                    line,
+                    file: at
+                        .as_ref()
+                        .map(|(f, _)| f.clone())
+                        .unwrap_or_else(|| "hyprland.lua".into()),
+                    line: at.map(|(_, n)| n),
                 }
             } else if off {
                 State::Off
@@ -733,6 +747,7 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
                             .map(|s| s.action.clone())
                             .unwrap_or_else(|| f.what.clone()),
                         line: src.map(|s| s.line),
+                        file: src.map(|s| s.file.clone()).unwrap_or_default(),
                     };
                     State::Taken {
                         by: h.describe(),
@@ -780,15 +795,14 @@ impl State {
             State::TakenOver => {
                 crate::i18n::tr("posé par hyprdesk, pris à hyprland.lua").to_string()
             }
-            State::Present { combo, line } => match line {
-                Some(n) => {
-                    crate::tr!(
-                        "dans hyprland.lua : {c} (ligne {n})",
-                        c = pretty(combo),
-                        n = n
-                    )
-                }
-                None => crate::tr!("dans hyprland.lua : {c}", c = pretty(combo)),
+            State::Present { combo, file, line } => match line {
+                Some(n) => crate::tr!(
+                    "dans {f} : {c} (ligne {n})",
+                    f = file,
+                    c = pretty(combo),
+                    n = n
+                ),
+                None => crate::tr!("dans {f} : {c}", f = file, c = pretty(combo)),
             },
             State::Taken { by, inert } => match inert {
                 Some(i) => crate::tr!(
@@ -997,7 +1011,8 @@ impl Category {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Origin {
     /// hyprland.lua (ligne, si elle est lue).
-    HyprlandLua(Option<usize>),
+    /// Un fichier de la config de Hyprland : (fichier, ligne) s'il est lu.
+    HyprlandLua(Option<(String, usize)>),
     /// Posé par hyprdesk.
     Hyprdesk,
 }
@@ -1151,15 +1166,22 @@ pub fn inventory(binds: &Value, source: &[SourceBind]) -> Vec<Listed> {
                 combo: shown,
                 category: category(&combo.1, &dsp, &call),
                 what,
-                origin: Origin::HyprlandLua(src.map(|s| s.line)),
+                origin: Origin::HyprlandLua(src.map(|s| (s.file.clone(), s.line))),
                 outside: !inside,
                 desktop: inside || universal,
             }
         };
         out.push(l);
     }
-    let line = |l: &Listed| match l.origin {
-        Origin::HyprlandLua(Some(n)) => n,
+    let line = |l: &Listed| match &l.origin {
+        // binds.lua après hyprland.lua.
+        Origin::HyprlandLua(Some((f, n))) => {
+            *n + if f.as_str() == "hyprland.lua" {
+                0
+            } else {
+                1_000_000
+            }
+        }
         Origin::HyprlandLua(None) => usize::MAX - 1,
         Origin::Hyprdesk => usize::MAX,
     };
@@ -1326,7 +1348,10 @@ hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }))
         let print = inv.iter().find(|l| l.combo == "Impr. écran").unwrap();
         assert!(print.outside && print.desktop);
         assert_eq!(print.category, Category::Captures);
-        assert_eq!(print.origin, Origin::HyprlandLua(Some(3)));
+        assert_eq!(
+            print.origin,
+            Origin::HyprlandLua(Some(("hyprland.lua".into(), 3)))
+        );
         let ws1 = inv.iter().find(|l| l.combo == "SUPER + &").unwrap();
         assert!(ws1.outside && !ws1.desktop);
         assert_eq!(ws1.what, "Aller au workspace 1");

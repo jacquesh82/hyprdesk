@@ -201,6 +201,8 @@ pub struct SourceBind {
     /// L'appel entier, sans espaces ni préfixe `hl.dsp.`, guillemets doubles
     /// (`focus({workspace="previous"})`) : de quoi reconnaître une action.
     pub call: String,
+    /// Fichier lu (`hyprland.lua`, `binds.lua`).
+    pub file: String,
 }
 
 /// Appel comparable : sans espaces, sans `hl.dsp.`, guillemets doubles.
@@ -324,27 +326,38 @@ pub fn parse_source(src: &str) -> Vec<SourceBind> {
             line: n + 1,
             action,
             call: call_key(call),
+            file: "hyprland.lua".into(),
         });
     }
     out
 }
 
-/// Raccourcis de hyprland.lua (dossier de la config de hyprdesk).
+/// Raccourcis de hyprland.lua et de binds.lua (dossier de la config de
+/// hyprdesk ; MLG-111).
 pub fn load_source(config_path: &Path) -> Vec<SourceBind> {
     let dir = config_path
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
-    std::fs::read_to_string(dir.join("hyprland.lua"))
-        .map(|s| parse_source(&s))
-        .unwrap_or_default()
+    let mut out = Vec::new();
+    for file in ["hyprland.lua", crate::binds_file::FILE] {
+        if let Ok(src) = std::fs::read_to_string(dir.join(file)) {
+            out.extend(parse_source(&src).into_iter().map(|mut b| {
+                b.file = file.to_string();
+                b
+            }));
+        }
+    }
+    out
 }
 
-/// Ce qui tient une combinaison dans hyprland.lua.
+/// Ce qui tient une combinaison dans hyprland.lua (ou binds.lua).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Holder {
     pub what: String,
     pub line: Option<usize>,
+    /// Fichier (`hyprland.lua` à défaut).
+    pub file: String,
 }
 
 impl Holder {
@@ -355,9 +368,14 @@ impl Holder {
         } else {
             self.what.as_str()
         };
+        let file = if self.file.is_empty() {
+            "hyprland.lua"
+        } else {
+            self.file.as_str()
+        };
         match self.line {
-            Some(n) => crate::tr!("« {what} » (hyprland.lua, ligne {n})", what = what, n = n),
-            None => crate::tr!("« {what} » (hyprland.lua)", what = what),
+            Some(n) => crate::tr!("« {what} » ({f}, ligne {n})", what = what, f = file, n = n),
+            None => crate::tr!("« {what} » ({f})", what = what, f = file),
         }
     }
 }
@@ -518,10 +536,12 @@ pub fn analyse(keys: &Keys, unified: bool, binds: &Value, source: &[SourceBind])
             (Some(s), _) => Some(Holder {
                 what: s.action.clone(),
                 line: Some(s.line),
+                file: s.file.clone(),
             }),
             (None, Some(f)) => Some(Holder {
                 what: f.what.clone(),
                 line: None,
+                file: String::new(),
             }),
             _ => None,
         }

@@ -116,7 +116,16 @@ hyprdesk or leave its default `SUPER + R` override enabled. Where
 (workspaces 1 to 10, previous workspace, maximize, pin, swap, group tabs,
 next screen…), hyprdesk sets it on a free combination, without editing the
 file; each one can be turned off in **Settings → Shortcuts → Windows and
-workspaces**.
+workspaces**. Every hyprdesk shortcut and adjustable essential can be changed
+by pressing the new combination (**Capture**) and set back with **Default**.
+
+At startup, hyprdesk moves the `hl.bind` lines of `hyprland.lua` (with the
+comments above them and the locals they use, such as `mainMod`) into
+`binds.lua`, next to it, which `hyprland.lua` loads with `require("binds")`.
+A copy is kept (`hyprland.lua.avant-hyprdesk-binds.bak`), and everything is
+put back if Hyprland reports a new error. `binds.lua` stays yours; hyprdesk
+only appends shortcuts that later appear in `hyprland.lua`. Preview with
+`hyprdesk binds`.
 
 <details>
 <summary>Keyboard navigation in the dock</summary>

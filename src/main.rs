@@ -9,6 +9,7 @@ mod apptheme;
 mod assistant;
 mod autostart;
 mod bar_offer;
+mod binds_file;
 mod brightness;
 mod capture;
 mod chat;
@@ -169,6 +170,7 @@ Commandes :
   window minimize | maximize | close
                     fenêtre active : réduire (le dock la rappelle), agrandir, fermer
   keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
+  binds [split]     raccourcis de hyprland.lua à ranger dans binds.lua (fait au démarrage)
   init              écrit la configuration d'exemple si aucune n'existe
   keyboard [disposition [variante [options]]]
                     clavier de la session : sans argument, celui en vigueur ;
@@ -402,6 +404,24 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     }
     // Fenêtres laissées de côté par un arrêt brutal, bureau affiché : on les rend.
     hypr::restore_leftover_stash();
+    // Raccourcis de hyprland.lua rangés dans binds.lua (MLG-111) ; Hyprland
+    // rechargé, tout rendu tel quel s'il signale une erreur nouvelle.
+    match binds_file::migrate(&path) {
+        Ok(Some(d)) => {
+            let msg = crate::tr!(
+                "hyprdesk : {n} raccourci(s) de hyprland.lua rangé(s) dans binds.lua (Réglages → Raccourcis) ; copie : {b}",
+                n = d.moved,
+                b = d.backup.display()
+            );
+            tracing::info!("{msg}");
+            hypr::notify(1, 10000, &msg);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            tracing::warn!("{e}");
+            hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
+        }
+    }
     // Le dossier des modules et des plugins doit exister dès le démarrage :
     // c'est lui que la surveillance suit pour détecter les nouveaux widgets.
     let widget_dir =
@@ -1163,6 +1183,67 @@ fn main() -> ExitCode {
                     n = updates::total(&pending)
                 )
             );
+            ExitCode::SUCCESS
+        }
+        // Raccourcis de hyprland.lua rangés dans binds.lua (MLG-111) : aperçu,
+        // ou `split` pour le faire tout de suite.
+        "binds" => {
+            if args.get(1).map(String::as_str) == Some("split") {
+                return match binds_file::migrate(&config_path) {
+                    Ok(Some(d)) => {
+                        println!(
+                            "{}",
+                            crate::tr!(
+                                "{n} raccourci(s) déplacé(s) vers binds.lua ; copie : {b}",
+                                n = d.moved,
+                                b = d.backup.display()
+                            )
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    Ok(None) => {
+                        println!(
+                            "{}",
+                            crate::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            let hypr = session_start::hyprland_path(&config_path);
+            let src = std::fs::read_to_string(&hypr).unwrap_or_default();
+            let old = std::fs::read_to_string(binds_file::path(&config_path)).ok();
+            match binds_file::split(&src, old.as_deref()) {
+                Some(s) => {
+                    println!(
+                        "{}",
+                        crate::tr!(
+                            "{n} raccourci(s) à déplacer vers binds.lua ; locales déplacées : {t} ; copiées : {c}",
+                            n = s.moved,
+                            t = if s.taken.is_empty() {
+                                "—".to_string()
+                            } else {
+                                s.taken.join(", ")
+                            },
+                            c = if s.copied.is_empty() {
+                                "—".to_string()
+                            } else {
+                                s.copied.join(", ")
+                            }
+                        )
+                    );
+                    println!("\n----- binds.lua -----\n{}", s.binds);
+                    println!("----- hyprland.lua -----\n{}", s.hyprland);
+                }
+                None => println!(
+                    "{}",
+                    crate::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
+                ),
+            }
             ExitCode::SUCCESS
         }
         // Raccourcis : où chacun agit, conflits avec hyprland.lua (MLG-40).

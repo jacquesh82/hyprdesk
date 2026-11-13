@@ -119,7 +119,18 @@ lui confiez et son `SUPER + R` par défaut, que l'on peut désactiver. Là où
 d'écrans (workspaces 1 à 10, workspace précédent, maximiser, épingler,
 échanger, onglets de groupe, écran suivant…), hyprdesk le pose sur une
 combinaison libre, sans modifier le fichier ; chacun se coupe dans
-**Réglages → Raccourcis → Fenêtres et workspaces**.
+**Réglages → Raccourcis → Fenêtres et workspaces**. Chaque raccourci de
+hyprdesk et chaque essentiel réglable se change en appuyant sur la nouvelle
+combinaison (**Capturer**) et revient à sa valeur avec **Par défaut**.
+
+Au démarrage, hyprdesk range les lignes `hl.bind` de `hyprland.lua` (avec les
+commentaires qui les annoncent et les locales dont elles se servent, comme
+`mainMod`) dans `binds.lua`, à côté, que `hyprland.lua` charge par
+`require("binds")`. Une copie est gardée
+(`hyprland.lua.avant-hyprdesk-binds.bak`), et tout est remis en place si
+Hyprland signale une nouvelle erreur. `binds.lua` reste à vous : hyprdesk n'y
+fait qu'ajouter les raccourcis apparus ensuite dans `hyprland.lua`. Aperçu :
+`hyprdesk binds`.
 
 <details>
 <summary>Navigation au clavier dans le dock</summary>

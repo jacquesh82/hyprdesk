@@ -987,9 +987,12 @@ pub fn load_binds(config_path: &std::path::Path) -> Vec<Bind> {
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_default();
-    std::fs::read_to_string(dir.join("hyprland.lua"))
-        .map(|s| parse_binds(&s))
-        .unwrap_or_default()
+    // hyprland.lua, puis binds.lua où hyprdesk range les raccourcis (MLG-111).
+    ["hyprland.lua", crate::binds_file::FILE]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(dir.join(f)).ok())
+        .flat_map(|s| parse_binds(&s))
+        .collect()
 }
 
 #[cfg(test)]
