@@ -74,6 +74,8 @@ optdepends=(
 options=('!lto')
 install=hyprdesk.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+# Renseigné par la CI au moment du tag (job release de ci.yml) : hash du
+# tarball GitHub, committé sur main. 'SKIP' en attendant.
 sha256sums=('SKIP')
 
 prepare() {

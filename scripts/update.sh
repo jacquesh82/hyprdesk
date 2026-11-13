@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC2005
+# (SC2034 : HYPRDESK_ROOT et HD_STEP_TOTAL lus par deps.sh et ui.sh sourcés ;
+#  SC2005 : t() écrit par printf %s sans saut de ligne — le echo l'ajoute.)
 # Mise à jour de hyprdesk : relève ce qui a changé, puis l'applique.
 #
 #   ./scripts/update.sh            relevé, puis mise à jour après confirmation
@@ -38,7 +41,7 @@ UI=fr
 [[ "${LANG:-}" == fr* ]] || UI=en
 export UI
 HYPRDESK_ROOT="$PWD"
-# shellcheck source=deps.sh
+# shellcheck source=deps.sh disable=SC1091
 source scripts/deps.sh
 t() { hyprdesk_t "$@"; }
 
@@ -114,6 +117,8 @@ else
 fi
 if [[ " ${PENDING[*]:-} " == *" hyprdesk "* ]]; then
     mapfile -t DOMAINS < <(domains)
+    # sed (plutôt que ${var//…}) : joint par la virgule IFS puis « , » -> « ,  ».
+    # shellcheck disable=SC2001
     ((${#DOMAINS[@]} > 0)) && hd_note "$(t "touche :" "touches:") $(IFS=,; echo "${DOMAINS[*]}" | sed 's/,/, /g')"
 fi
 ((AHEAD > 0)) && hd_note "$(t "$AHEAD commit(s) locaux pas encore poussés : gardés" "$AHEAD local commit(s) not pushed yet: kept")"
@@ -257,6 +262,9 @@ if [[ -n "$MYMFA_NEW" ]]; then
         PAM_LIB="$MYMFA_SRC/linux/target/release/libpam_mymfa.so"
         for d in /usr/lib/security /usr/lib64/security "/usr/lib/$(uname -m)-linux-gnu/security" "/lib/$(uname -m)-linux-gnu/security"; do
             if [[ -f "$d/pam_mymfa.so" ]] && ! cmp -s "$PAM_LIB" "$d/pam_mymfa.so"; then
+                # « || true » : l'échec de la mise à jour du module n'arrête pas
+                # la suite ; l'ancien module reste en place.
+                # shellcheck disable=SC2015
                 hd_sudo_ready "$(t "mettre à jour le module PAM de myMFA" "update the myMFA PAM module")" \
                     && hd_run "$(t "module PAM" "PAM module")" hyprdesk_root install -Dm0755 "$PAM_LIB" "$d/pam_mymfa.so" || true
             fi
@@ -288,6 +296,8 @@ if greeter_stale; then
 fi
 
 if ((${#DONE[@]} > 0)); then
+    # sed (plutôt que ${var//…}) : joint par la virgule IFS puis « , » -> « ,  ».
+    # shellcheck disable=SC2001
     hd_panel "$C_GREEN" "$C_GREEN$C_BOLD$I_OK $(t "Mis à jour :" "Updated:") $(IFS=,; echo "${DONE[*]}" | sed 's/,/, /g')$C_RESET"
 else
     hd_panel "$C_YELLOW" "$C_YELLOW$C_BOLD$I_WARN $(t "Rien n'a pu être mis à jour : voir ci-dessus" "Nothing could be updated: see above")$C_RESET"

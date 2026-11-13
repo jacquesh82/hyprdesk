@@ -1,7 +1,15 @@
 name: Vérifications
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
 jobs:
+  # Branches et pull requests seulement : un tag v* pointe un commit déjà
+  # vérifié par le push ou la PR qui l'a produit, il ne relance donc ni rust ni
+  # shellcheck — seul le job release s'exécute sur les tags.
   rust:
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -12,3 +20,53 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/verify.sh
+  shellcheck:
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck scripts/*.sh
+  release:
+    # Uniquement les tags v* : paquets (deb, rpm, arch), release GitHub, et
+    # sha256 du tarball committé dans packaging/arch/PKGBUILD sur main.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Historique complet : le checkout est détaché sur le tag, et le hash
+          # du PKGBUILD est committé sur main juste après (git checkout main).
+          # La version des paquets vient de Cargo.toml, pas de git describe.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+      # Mêmes paquets que le job rust, plus ceux que scripts/package.sh réclame
+      # (via scripts/deps.sh : libpam0g-dev, libssl-dev) et binutils (objdump,
+      # strip, pour la version glibc). nfpm tourne dans son image Docker
+      # (goreleaser/nfpm:v2.48.0), déjà disponible sur le runner.
+      - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11 libpam0g-dev libssl-dev binutils
+      - uses: Swatinem/rust-cache@v2
+      - run: MAINTAINER="Jacques HULLU <jacquesh82@users.noreply.github.com>" bash scripts/package.sh deb rpm arch
+      - name: Empreinte du tarball du tag
+        run: |
+          HASH="$(curl -fsSL "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | awk '{print $1}')"
+          echo "Tarball ${GITHUB_REF_NAME}.tar.gz : sha256 $HASH"
+          echo "HASH=$HASH" >> "$GITHUB_ENV"
+      - name: "PKGBUILD : sha256 committé sur main"
+        run: |
+          git config user.name "hyprdesk-ci"
+          git config user.email "hyprdesk-ci@users.noreply.github.com"
+          git checkout main
+          git pull --ff-only
+          sed -i "s/^sha256sums=('.*')$/sha256sums=('$HASH')/" packaging/arch/PKGBUILD
+          git add packaging/arch/PKGBUILD
+          git commit -m "arch : sha256 du tarball ${GITHUB_REF_NAME} (job release)"
+          git push
+      - name: Release GitHub
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.pkg.tar.zst --title "hyprdesk ${GITHUB_REF_NAME#v}" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

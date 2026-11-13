@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034,SC2015,SC1111
+# (SC2034 : HYPRDESK_ROOT lu par deps.sh sourcé plus bas ; SC2015 : les
+# « cond && affiche || affiche » du récapitulatif sont voulus, les deux branches
+# affichent ; SC1111 : “ ” typographiques des traductions anglaises.)
 # Assistant d'installation de hyprdesk, sourcé par scripts/install.sh lancé
 # sans option au terminal (on ne lance pas ce fichier soi-même).
 #
@@ -15,7 +20,7 @@ UI=fr
 [[ "${LANG:-}" == fr* ]] || UI=en
 export UI
 HYPRDESK_ROOT="$PWD"
-# shellcheck source=deps.sh
+# shellcheck source=deps.sh disable=SC1091
 source scripts/deps.sh
 t() { hyprdesk_t "$@"; }
 

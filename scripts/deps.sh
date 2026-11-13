@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC1111
+# (SC2034 : variables lues par les scripts qui sourcent celui-ci, install.sh
+#  notamment, à travers ui.sh et hyprdesk_deps ; SC1111 : “ ” typographiques
+#  des traductions anglaises, pas des guillemets bash.)
 # Prérequis de construction de hyprdesk : installe ce qui manque au lieu de
 # s'arrêter sur une erreur de compilation.
 #
@@ -20,7 +24,7 @@
 # HYPRDESK_NO_DEPS=1 (ou --no-deps pour install.sh) saute cette étape.
 
 # Habillage (couleurs, icônes, étapes, attente) et hyprdesk_t.
-# shellcheck source=ui.sh
+# shellcheck source=ui.sh disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
 # Version minimale de Rust : celle de Cargo.toml.
@@ -308,7 +312,8 @@ hyprdesk_deps() {
     fi
     # Cette construction utilise la stable de rustup, même si la toolchain par
     # défaut, ou la Rust de la distribution (/usr/bin), reste plus ancienne.
-    export PATH="$(dirname "$(command -v rustup)"):$PATH"
+    PATH="$(dirname "$(command -v rustup)"):$PATH"
+    export PATH
     export RUSTUP_TOOLCHAIN=stable
     now="$(hyprdesk_rust_now)"
     if [ -z "$now" ] || ! hyprdesk_version_ge "$now" "$min"; then

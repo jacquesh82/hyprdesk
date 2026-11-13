@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# (Couleurs, icônes et états définis ici et lus par les scripts qui sourcent
+# ui.sh : deps.sh, install.sh, update.sh, wizard.sh — shellcheck ne les voit pas.)
 # Habillage des scripts d'installation : couleurs, icônes, étapes numérotées,
 # attente animée des commandes longues, erreurs et pistes de correction.
 # Sourcé par deps.sh, install.sh et wizard.sh (l'assistant).
@@ -68,6 +71,8 @@ hd_icons() {
     fi
     if [[ "$HD_ASCII" == 1 ]]; then
         I_OK='[ok]' I_KO='[x]' I_WARN='[!]' I_INFO='[i]' I_HINT='->' I_DOT='*'
+        # Le '\' est l'image du spinner, pas une quote à échapper.
+        # shellcheck disable=SC1003
         I_STEP='>>' I_BAR='|' I_FULL='#' I_EMPTY='.' HD_SPIN=('|' '/' '-' '\')
     else
         I_OK='✔' I_KO='✖' I_WARN='⚠' I_INFO='ℹ' I_HINT='➜' I_DOT='•'

@@ -48,8 +48,10 @@ MAINTAINER="${MAINTAINER:-Jacques HULLU <jacquesh82@users.noreply.github.com>}"
 
 if [ "$BUILD" = 1 ]; then
     # Prérequis manquants (paquets, Rust assez récente) : installés d'abord.
+    # HYPRDESK_ROOT est lu par deps.sh, sourcé juste après.
+    # shellcheck disable=SC2034
     HYPRDESK_ROOT="$PWD"
-    # shellcheck source=deps.sh
+    # shellcheck source=deps.sh disable=SC1091
     source scripts/deps.sh
     hyprdesk_deps
     echo "== build release"

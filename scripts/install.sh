@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC1111
+# (SC2034 : variables lues par ui.sh et deps.sh sourcés (HYPRDESK_ROOT,
+#  HD_HINT, MYMFA_NEW…), shellcheck ne voit pas les scripts entre eux ;
+#  SC1111 : “ ” typographiques des traductions anglaises.)
 # Installation de hyprdesk sur la machine locale.
 #
 #   ./scripts/install.sh               au terminal : l'assistant (langue, contrôles
@@ -86,7 +90,7 @@ case "$LANG_CHOICE" in ""|fr|en|auto) ;; *) echo "--lang : fr, en ou auto" >&2; 
 # Sans option, au terminal : l'assistant pose les questions, puis relance
 # ce script avec les options choisies (scripts/wizard.sh, qui ne revient pas).
 if [[ "$ARGC" == 0 ]] && [[ -t 0 && -t 1 ]] && [[ "${HYPRDESK_WIZARD:-1}" != 0 ]]; then
-    # shellcheck source=wizard.sh
+    # shellcheck source=wizard.sh disable=SC1091
     source scripts/wizard.sh
 fi
 case "$OPT_DEPS" in ""|ask|all|none) ;; *) echo "--optional-deps : ask, all ou none" >&2; exit 2 ;; esac
@@ -101,7 +105,7 @@ fi
 export UI
 
 HYPRDESK_ROOT="$PWD"
-# shellcheck source=deps.sh
+# shellcheck source=deps.sh disable=SC1091
 source scripts/deps.sh
 t() { hyprdesk_t "$@"; }
 
@@ -149,6 +153,8 @@ hd_banner "hyprdesk ${VERSION:+$VERSION }· $(t "installation" "installation")" 
     "$(t "Journal complet : $HD_LOG" "Full log: $HD_LOG")"
 
 # Arrêt sur erreur : quelle étape, pourquoi, que faire.
+# Appelée par « trap 'on_error $LINENO' ERR » plus bas.
+# shellcheck disable=SC2329,SC2317
 on_error() {
     local rc=$? line="$1"
     trap - ERR
@@ -209,6 +215,8 @@ trap - EXIT
 hd_ok "$("$BIN" --version 2>/dev/null || echo hyprdesk) → $BIN"
 
 # -- Configuration ---------------------------------------------------------------------
+# Les chemins « ~/.config/… » sont affichés tels quels : tilde volontaire.
+# shellcheck disable=SC2088
 hd_step "🛠" "Configuration" "Configuration" \
     "~/.config/hypr/hyprdesk.lua créé s'il manque ; une configuration existante est gardée." \
     "~/.config/hypr/hyprdesk.lua created if missing; an existing configuration is kept."
@@ -537,6 +545,8 @@ hd_step "🩺" "Dépendances facultatives" "Optional dependencies" \
     "Une absente rend seulement sa fonction inopérante ; celles des dépôts peuvent être installées ici." \
     "A missing one only disables its feature; those in the repositories can be installed here."
 PM="$(hyprdesk_pm)"
+# « || true » : sans helper AUR, AUR reste vide et on continue.
+# shellcheck disable=SC2015
 AUR="$( [[ "$PM" == pacman ]] && hyprdesk_aur_helper || true)"
 OPT_PKGS=()     # installables depuis les dépôts (noms de la distribution)
 OPT_MANUAL=()   # absentes des dépôts (AUR…) : à la main
@@ -640,6 +650,8 @@ systemctl --user daemon-reload
 systemctl --user enable hyprdesk.service >/dev/null 2>&1
 hd_ok "$(t "service installé et activé" "service installed and enabled")"
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    # Passée par nom à hd_run juste après.
+    # shellcheck disable=SC2329,SC2317
     wait_ready() {
         systemctl --user restart hyprdesk.service
         for _ in $(seq 1 20); do
@@ -845,6 +857,8 @@ if [[ "$IN_SESSION" == 1 ]]; then
         hyprdesk_version_ge "${HYPR_RUN:-0}" 0.57
     check 1 "hyprdesk en marche (il répond)" "hyprdesk running (it answers)" \
         "voir pourquoi : $JOURNAL" "see why: $JOURNAL" "$BIN" status
+    # Le $(…) doit être évalué par le bash -c appelé, pas par ce script.
+    # shellcheck disable=SC2016
     check 1 "Hyprland sans erreur de configuration" "Hyprland config without errors" \
         "erreurs signalées par : hyprctl configerrors" "errors listed by: hyprctl configerrors" \
         bash -c '[[ -z "$(hyprctl configerrors 2>/dev/null | grep -v "^$")" ]]'
@@ -928,6 +942,8 @@ case ":$PATH:" in
             zsh) PATH_CMD="echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc" ;;
             *) PATH_CMD="echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc" ;;
         esac
+        # « ~/.local/bin » affiché tel quel : tilde volontaire.
+        # shellcheck disable=SC2088
         optional "$(t "~/.local/bin dans le PATH, pour taper hyprdesk dans un terminal" "~/.local/bin in PATH, to type hyprdesk in a terminal")" "$PATH_CMD" ;;
 esac
 if ((${#OPT_PKGS[@]} > 0)); then
