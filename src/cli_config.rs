@@ -207,7 +207,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.float_launched),
         |s, v, c| { s.float_launched = Some(parse_bool(v)?); Ok(()) },
         |s| s.float_launched = None;
-    "suspend_binds", "desktop", "on | off — full-desktop : suspendre les raccourcis de Hyprland",
+    "suspend_binds", "keys", "on | off — full-desktop : suspendre les raccourcis de Hyprland",
         |c| on_off(c.general.suspend_binds),
         |s, v, c| { s.suspend_binds = Some(parse_bool(v)?); Ok(()) },
         |s| s.suspend_binds = None;
@@ -262,39 +262,39 @@ pub static KEYS: &[Key] = keys![
         |c| format!("{}", c.general.font_size),
         |s, v, c| { s.font_size = Some(number(v, 6.0f32, 96.0)?); Ok(()) },
         |s| s.font_size = None;
-    "keys.toggle", "desktop", "raccourci | none — full-desktop (SUPER + D)",
+    "keys.toggle", "keys", "raccourci | none — mode suivant : no-desktop → launcher-only → full-desktop (SUPER + D)",
         |c| c.general.keys.toggle.clone(),
         |s, v, c| { s.key_toggle = Some(combo(v)?); Ok(()) },
         |s| s.key_toggle = None;
-    "keys.launcher", "desktop", "raccourci | none — launcher-only (SUPER + ALT + D)",
+    "keys.launcher", "keys", "raccourci | none — launcher-only (SUPER + ALT + D)",
         |c| c.general.keys.launcher.clone(),
         |s, v, c| { s.key_launcher = Some(combo(v)?); Ok(()) },
         |s| s.key_launcher = None;
-    "keys.hide", "desktop", "raccourci | none — no-desktop (SUPER + CTRL + D)",
+    "keys.hide", "keys", "raccourci | none — no-desktop (SUPER + CTRL + D)",
         |c| c.general.keys.hide.clone(),
         |s, v, c| { s.key_hide = Some(combo(v)?); Ok(()) },
         |s| s.key_hide = None;
-    "keys.settings", "desktop", "raccourci | none — ouvrir les réglages (SUPER + SHIFT + D)",
+    "keys.settings", "keys", "raccourci | none — ouvrir les réglages (SUPER + SHIFT + D)",
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;
-    "keys.lock", "desktop", "raccourci | none — verrouiller la session ; none : celui de hyprland.lua (SUPER + L), réglé : hyprdesk le remplace",
+    "keys.lock", "keys", "raccourci | none — verrouiller la session ; none : celui de hyprland.lua (SUPER + L), réglé : hyprdesk le remplace",
         |c| c.general.keys.lock.clone(),
         |s, v, c| { s.key_lock = Some(combo(v)?); Ok(()) },
         |s| s.key_lock = None;
-    "keys.switch", "desktop", "raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)",
+    "keys.switch", "keys", "raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)",
         |c| c.general.keys.switch.clone(),
         |s, v, c| { s.key_switch = Some(combo(v)?); Ok(()) },
         |s| s.key_switch = None;
-    "keys.search", "desktop", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)",
+    "keys.search", "keys", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)",
         |c| c.general.keys.search.clone(),
         |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
         |s| s.key_search = None;
-    "keys.search_desktop", "desktop", "raccourci | none — plein bureau : un autre raccourci pour le lanceur (none : keys.search)",
+    "keys.search_desktop", "keys", "raccourci | none — plein bureau : un autre raccourci pour le lanceur (none : keys.search)",
         |c| c.general.keys.search_desktop.clone(),
         |s, v, c| { s.key_search_desktop = Some(combo(v)?); Ok(()) },
         |s| s.key_search_desktop = None;
-    "keys.take", "desktop", "raccourci,raccourci,… | none — raccourcis que hyprdesk prend à hyprland.lua (déliés là-bas)",
+    "keys.take", "keys", "raccourci,raccourci,… | none — raccourcis que hyprdesk prend à hyprland.lua (déliés là-bas)",
         |c| c.general.keys.take.join(","),
         |s, v, c| {
             s.key_take = Some(if matches!(v.trim(), "none" | "") { Vec::new() } else {
@@ -303,22 +303,41 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.key_take = None;
-    "keys.overview", "desktop", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
+    "keys.overview", "keys", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
         |c| c.general.keys.overview.clone(),
         |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
         |s| s.key_overview = None;
-    "overview_command", "desktop", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
+    "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
         |s| s.overview_command = None;
-    "keys.leave", "desktop", "raccourci | none — sortie de secours",
+    "keys.leave", "keys", "raccourci | none — sortie de secours",
         |c| c.general.keys.leave.clone(),
         |s, v, c| { s.key_leave = Some(combo(v)?); Ok(()) },
         |s| s.key_leave = None;
-    "keys.media", "desktop", "on | off — touches de volume, de luminosité et de lecture gérées par hyprdesk (avec affichage)",
+    "keys.media", "keys", "on | off — touches de volume, de luminosité et de lecture gérées par hyprdesk (avec affichage)",
         |c| on_off(c.general.keys.media),
         |s, v, c| { s.key_media = Some(parse_bool(v)?); Ok(()) },
         |s| s.key_media = None;
+    "keys.essentials", "keys", "on | off — raccourcis essentiels de fenêtres, de workspaces et d'écrans posés par hyprdesk là où hyprland.lua n'en a pas",
+        |c| on_off(c.general.keys.essentials),
+        |s, v, c| { s.key_essentials = Some(parse_bool(v)?); Ok(()) },
+        |s| s.key_essentials = None;
+    "keys.essentials_off", "keys", "id,id,… | none — essentiels coupés (hyprdesk keys les liste)",
+        |c| c.general.keys.essentials_off.join(","),
+        |s, v, c| {
+            s.key_essentials_off = Some(if matches!(v.trim(), "none" | "") { Vec::new() } else {
+                v.split(',').map(|k| k.trim()).filter(|k| !k.is_empty()).map(|k| {
+                    if crate::essentials::CATALOGUE.iter().any(|e| e.id == k) {
+                        Ok(k.to_string())
+                    } else {
+                        Err(crate::tr!("essentiel « {k} » inconnu", k = k))
+                    }
+                }).collect::<Result<Vec<_>, _>>()?
+            });
+            Ok(())
+        },
+        |s| s.key_essentials_off = None;
     "grid.icon_size", "icons", "8..1024 — taille des icônes du bureau",
         |c| c.general.grid.icon_size.to_string(),
         |s, v, c| { s.icon_size = Some(number(v, 8u16, 1024)?); Ok(()) },

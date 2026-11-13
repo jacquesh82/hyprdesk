@@ -57,7 +57,7 @@ pub struct Action {
 
 /// Libellés des actions (catalogue anglais vérifié par `libelles_traduits`).
 pub const LABELS: &[&str] = &[
-    "full-desktop (bureau complet)",
+    "Changer de mode (no-desktop → launcher-only → full-desktop)",
     "launcher-only (lanceur seul)",
     "no-desktop (masquer)",
     "Ouvrir les réglages",
@@ -174,10 +174,8 @@ pub fn foreign(binds: &Value) -> Vec<Foreign> {
         })
         .filter_map(|b| {
             let mask = b["modmask"].as_u64()? as u32;
-            let key = b["key"].as_str()?.to_lowercase();
-            if key.is_empty() {
-                return None;
-            }
+            // Posé par code (`code:10`) : `key` vide, `keycode` renseigné.
+            let key = crate::hypr::bind_key(b)?;
             Some(Foreign {
                 combo: (mask, key),
                 universal: matches!(&b["submap_universal"], Value::Bool(true))
@@ -200,6 +198,19 @@ pub struct SourceBind {
     pub line: usize,
     /// La commande lancée (`rofi -show drun`), sinon le dispatcher (`window.float`).
     pub action: String,
+    /// L'appel entier, sans espaces ni préfixe `hl.dsp.`, guillemets doubles
+    /// (`focus({workspace="previous"})`) : de quoi reconnaître une action.
+    pub call: String,
+}
+
+/// Appel comparable : sans espaces, sans `hl.dsp.`, guillemets doubles.
+pub fn call_key(call: &str) -> String {
+    call.trim()
+        .trim_start_matches("hl.dsp.")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| if c == '\'' { '"' } else { c })
+        .collect()
 }
 
 /// Coupe `s` sur `sep` hors des chaînes et des parenthèses.
@@ -312,6 +323,7 @@ pub fn parse_source(src: &str) -> Vec<SourceBind> {
             combo,
             line: n + 1,
             action,
+            call: call_key(call),
         });
     }
     out
@@ -419,6 +431,10 @@ pub struct Report {
     pub left: Vec<Held>,
     /// Raccourcis de Hyprland `submap_universal`, lisibles.
     pub universal: Vec<String>,
+    /// Essentiels de fenêtres, de workspaces et d'écrans (MLG-109).
+    pub essentials: Vec<crate::essentials::Line>,
+    /// Raccourcis de Hyprland (hors hyprdesk), par rubrique.
+    pub hyprland: Vec<crate::essentials::Listed>,
 }
 
 impl Report {
@@ -437,6 +453,8 @@ pub struct Plan {
     skip_desktop: Vec<(u32, String)>,
     /// Actions en doublon : non posées.
     dropped: Vec<&'static str>,
+    /// Essentiels résolus : ceux qui s'installent sont posés par hyprdesk.
+    pub essentials: Vec<crate::essentials::Line>,
 }
 
 impl Plan {
@@ -649,6 +667,7 @@ pub fn text_report(keys: &Keys, report: &Report) -> String {
             }
         }
     }
+    o += &crate::essentials::text(&report.essentials);
     o
 }
 
@@ -784,7 +803,10 @@ hl.bind(mainMod .. " + Tab", function()
         };
         let (r, plan) = analyse(&k, true, &Value::Null, &[]);
         let i = r.issue_for("keys.settings").unwrap();
-        assert_eq!(i.kind, Kind::Duplicate("full-desktop (bureau complet)"));
+        assert_eq!(
+            i.kind,
+            Kind::Duplicate("Changer de mode (no-desktop → launcher-only → full-desktop)")
+        );
         assert!(plan.outside("toggle", "SUPER + D") && !plan.outside("settings", "SUPER + D"));
         // Sortie de secours (bureau affiché) et un raccourci hors du bureau : pas de doublon.
         let k = Keys {

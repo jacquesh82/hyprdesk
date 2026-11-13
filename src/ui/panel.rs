@@ -55,6 +55,7 @@ pub struct Panel {
     pub tab: Tab,
     // État de chaque paquet intégré.
     pub desktop: plugins::desktop::State,
+    pub keys: plugins::keys::State,
     pub icons: plugins::icons::State,
     pub wallpaper: plugins::wallpaper::State,
     pub widgets: plugins::widgets::State,
@@ -116,6 +117,7 @@ impl Panel {
             surface: Id::unique(),
             tab: plugins::desktop::INFO.id,
             desktop: Default::default(),
+            keys: Default::default(),
             icons: Default::default(),
             wallpaper: Default::default(),
             widgets: Default::default(),
@@ -233,7 +235,7 @@ impl App {
             }
         };
         let k = &self.cfg.general.keys;
-        p.desktop.keys = [
+        p.keys.keys = [
             k.toggle.clone(),
             k.settings.clone(),
             k.leave.clone(),

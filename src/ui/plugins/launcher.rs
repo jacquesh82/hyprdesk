@@ -1398,7 +1398,7 @@ impl App {
                     .padding(8)
                     .width(220),
             ),
-            text("Les autres raccourcis, et tous les conflits : Réglages → Bureau → Raccourcis.")
+            text("Les autres raccourcis, et tous les conflits : Réglages → Raccourcis.")
                 .font(self.font)
                 .size(12)
                 .color(dim),
@@ -1434,9 +1434,9 @@ impl App {
                     )
                     .padding([4, 10])
                     .style(button::secondary)
-                    .on_press(super::desktop::wrap(
-                        super::desktop::Msg::TakeKey(i.action.combo.clone()),
-                    )),
+                    .on_press(super::keys::wrap(super::keys::Msg::TakeKey(
+                        i.action.combo.clone(),
+                    ))),
                 );
             }
             line = line.push(self.lyra_button(
@@ -1724,7 +1724,7 @@ impl App {
                 }
                 p.launcher.desk_key = None;
                 // Saisi aussi dans Bureau → Raccourcis : le champ suit.
-                p.desktop.keys[9] = v.clone();
+                p.keys.keys[9] = v.clone();
                 self.settings.key_search_desktop = Some(v);
                 self.commit()
             }

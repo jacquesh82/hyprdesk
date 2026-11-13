@@ -145,7 +145,7 @@ to return to. The Alt+Tab switcher filters it out too.
   installed. A combination bound in `hyprland.lua`: hyprdesk's action only
   works while the desktop is shown. A combination marked
   `submap_universal`: hyprdesk leaves it alone, so nothing fires twice
-  (media keys included). Settings → Desktop → Shortcuts lists them first,
+  (media keys included). Settings → Shortcuts → hyprdesk shortcuts lists them first,
   with "hyprdesk takes it" (`keys.take`) and a LYRA button; `hyprdesk keys`
   prints the same report and exits with 1 if there is a conflict.
 - **Alt+Tab on the full desktop** lists the windows floating on it. Picking

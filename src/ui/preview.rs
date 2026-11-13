@@ -23,7 +23,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 75] = [
+const SCENES: [&str; 77] = [
     "desktop",
     "typography",
     "icons",
@@ -99,6 +99,8 @@ const SCENES: [&str; 75] = [
     "chat-waiting",
     "chat-offline",
     "chat-still",
+    "raccourcis",
+    "raccourcis-essentiels",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -555,6 +557,7 @@ impl Preview {
             "mots-de-passe" => Some("passwords"),
             "ia-services" | "smartui" => Some("assistant"),
             "a-propos" => Some("about"),
+            "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -582,6 +585,53 @@ impl Preview {
                 { "modmask": 65, "key": "D", "submap": "", "submap_universal": "true", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
             ]);
             crate::keymap::analyse(&self.app.cfg.general.keys, true, &binds, &source).0
+        } else if SCENES[self.scene].starts_with("raccourcis") {
+            // Raccourcis : un hyprland.lua d'exemple (AZERTY, workspaces 1 à 7,
+            // molette du layout scrolling en dwindle) et la submap de hyprdesk.
+            let lua = "local mainMod = \"SUPER\"\n\
+                 hl.bind(\"Print\", hl.dsp.exec_cmd(\"hyprshot -m region\"), { submap_universal = true })\n\
+                 hl.bind(mainMod .. \" + Return\", hl.dsp.exec_cmd(\"kitty\"))\n\
+                 hl.bind(mainMod .. \" + Q\", hl.dsp.window.close())\n\
+                 hl.bind(mainMod .. \" + F\", hl.dsp.window.fullscreen())\n\
+                 hl.bind(mainMod .. \" + h\", hl.dsp.focus({ direction = \"left\" }))\n\
+                 hl.bind(mainMod .. \" + m\", hl.dsp.focus({ direction = \"right\" }))\n\
+                 hl.bind(mainMod .. \" + ampersand\", hl.dsp.focus({ workspace = 1 }))\n\
+                 hl.bind(mainMod .. \" + eacute\", hl.dsp.focus({ workspace = 2 }))\n\
+                 hl.bind(mainMod .. \" + ALT + ampersand\", hl.dsp.window.move({ workspace = 1 }))\n\
+                 hl.bind(mainMod .. \" + SHIFT + 1\", hl.dsp.window.move({ monitor = \"DP-1\" }))\n\
+                 hl.bind(mainMod .. \" + mouse_down\", hl.dsp.layout(\"move +col\"))\n\
+                 hl.bind(\"XF86AudioMute\", hl.dsp.exec_cmd(\"wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle\"))\n";
+            let source = crate::keymap::parse_source(lua);
+            let binds = serde_json::json!([
+                { "modmask": 0, "key": "Print", "submap": "", "submap_universal": "true", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "Return", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "Q", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(close)" },
+                { "modmask": 64, "key": "F", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(fullscreen)" },
+                { "modmask": 64, "key": "h", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 64, "key": "m", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 64, "key": "ampersand", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 64, "key": "eacute", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 72, "key": "ampersand", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(move)" },
+                { "modmask": 65, "key": "1", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(move)" },
+                { "modmask": 64, "key": "mouse_down", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(layout)" },
+                { "modmask": 0, "key": "XF86AudioMute", "submap": "", "description": "", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "D", "submap": "", "description": "hyprdesk : changer de mode", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "R", "submap": "", "description": "hyprdesk : lanceur d'applications", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "", "keycode": 49, "submap": "", "description": "hyprdesk : Workspace précédent (aller-retour)", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 68, "key": "h", "submap": "", "description": "hyprdesk : Échanger avec la fenêtre voisine (gauche)", "dispatcher": "HL.Dispatcher(swap)" },
+                { "modmask": 64, "key": "D", "submap": "hyprdesk", "description": "hyprdesk : no-desktop", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+                { "modmask": 64, "key": "", "keycode": 10, "submap": "hyprdesk", "description": "hyprdesk : workspace 1", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 64, "key": "", "keycode": 49, "submap": "hyprdesk", "description": "hyprdesk : Workspace précédent (aller-retour)", "dispatcher": "HL.Dispatcher(focus)" },
+                { "modmask": 0, "key": "XF86AudioMute", "submap": "hyprdesk", "description": "hyprdesk : touche multimédia", "dispatcher": "HL.Dispatcher(exec_cmd)" },
+            ]);
+            let keys = &self.app.cfg.general.keys;
+            let mut r = crate::keymap::analyse(keys, true, &binds, &source).0;
+            r.essentials = crate::essentials::plan(keys, &binds, &source, &["dwindle".into()]);
+            r.hyprland = crate::essentials::inventory(&binds, &source);
+            if SCENES[self.scene] == "raccourcis-essentiels" {
+                self.app.subtabs.insert("keys", "essentiels");
+            }
+            r
         } else {
             Default::default()
         };

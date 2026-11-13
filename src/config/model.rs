@@ -866,7 +866,7 @@ pub struct ComponentDef {
 /// Chaîne vide = pas de raccourci.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Keys {
-    /// full-desktop, ou retour à no-desktop s'il y est déjà.
+    /// Mode suivant : no-desktop → launcher-only → full-desktop → no-desktop.
     pub toggle: String,
     /// launcher-only, ou retour à no-desktop s'il y est déjà.
     pub launcher: String,
@@ -892,6 +892,11 @@ pub struct Keys {
     /// Touches multimédia (volume, luminosité, lecture) par hyprdesk : là où
     /// hyprland.lua ne les lie pas déjà, et toujours bureau affiché.
     pub media: bool,
+    /// Raccourcis essentiels de fenêtres, de workspaces et d'écrans posés
+    /// par hyprdesk là où hyprland.lua n'en a pas (`crate::essentials`).
+    pub essentials: bool,
+    /// Essentiels coupés (identifiants de `essentials::CATALOGUE`).
+    pub essentials_off: Vec<String>,
 }
 
 impl Default for Keys {
@@ -912,6 +917,8 @@ impl Default for Keys {
             lock: String::new(),
             leave: "SUPER + Escape".into(),
             media: true,
+            essentials: true,
+            essentials_off: Vec::new(),
         }
     }
 }

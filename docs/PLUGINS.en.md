@@ -106,7 +106,8 @@ Keys per package:
 
 | Package | Keys |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
+| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
 | `wallpaper` | `wallpaper` (image or `#rrggbb`, all desktops), `wallpaper.fit`, `wallpaper.span` (`on`: spread across all screens) |
@@ -183,7 +184,8 @@ each CLI key points to an existing package.
 
 | id | Label | Controls | Domain outside the UI |
 |---|---|---|---|
-| `desktop` | Desktop | screens the desktop is shown on, mode, font, shortcuts for the three modes, session | `config::General` |
+| `desktop` | Desktop | screens the desktop is shown on, mode, font, session | `config::General` |
+| `keys` | Shortcuts | every active shortcut (outside the full desktop, desktop shown), hyprdesk's own, essential window, workspace and screen shortcuts set by hyprdesk | `keymap.rs`, `essentials.rs` |
 | `icons` | Icons | application shortcuts, size, theme | `launch.rs`, `layout.rs` |
 | `launcher` | Launcher | windows shown, grouping | — (widget, § 3) |
 | `theme` | Theme | colors, backgrounds, effect of each place (opacity, blur), desktop mode, lock screen veil; shipped themes and “My themes” | `theme.rs`, `config::Theme` |

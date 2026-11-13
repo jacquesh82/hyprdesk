@@ -107,6 +107,8 @@ pub struct Settings {
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
     pub key_media: Option<bool>,
+    pub key_essentials: Option<bool>,
+    pub key_essentials_off: Option<Vec<String>>,
     pub suspend_binds: Option<bool>,
     pub clipboard_history: Option<bool>,
     pub autostart: Option<bool>,
@@ -307,6 +309,8 @@ impl Settings {
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
             key_media: has("keys.media").then_some(g.keys.media),
+            key_essentials: has("keys.essentials").then_some(g.keys.essentials),
+            key_essentials_off: has("keys.essentials_off").then(|| g.keys.essentials_off.clone()),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             clipboard_history: has("clipboard_history").then_some(g.clipboard_history),
             autostart: has("autostart").then_some(g.autostart),
@@ -584,6 +588,12 @@ impl Settings {
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
         set!(key_media, "keys.media", g.keys.media);
+        set!(key_essentials, "keys.essentials", g.keys.essentials);
+        set!(
+            key_essentials_off,
+            "keys.essentials_off",
+            g.keys.essentials_off
+        );
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(clipboard_history, "clipboard_history", g.clipboard_history);
         set!(autostart, "autostart", g.autostart);
@@ -1014,6 +1024,13 @@ impl Settings {
         if let Some(list) = &self.key_take {
             let items: Vec<String> = list.iter().map(|k| q(k)).collect();
             keys.push(format!("take = {{ {} }}", items.join(", ")));
+        }
+        if let Some(v) = self.key_essentials {
+            keys.push(format!("essentials = {v}"));
+        }
+        if let Some(list) = &self.key_essentials_off {
+            let items: Vec<String> = list.iter().map(|k| q(k)).collect();
+            keys.push(format!("essentials_off = {{ {} }}", items.join(", ")));
         }
         if !keys.is_empty() {
             cfg.push(format!("keys = {{ {} }}", keys.join(", ")));

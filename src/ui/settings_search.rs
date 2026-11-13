@@ -28,6 +28,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("hyprconfig", include_str!("plugins/hyprconfig.rs")),
     ("icons", include_str!("plugins/icons.rs")),
     ("input", include_str!("plugins/input.rs")),
+    ("keys", include_str!("plugins/keys.rs")),
     ("launcher", include_str!("plugins/launcher.rs")),
     ("layouts", include_str!("plugins/layouts.rs")),
     ("lock", include_str!("plugins/lock.rs")),
@@ -354,7 +355,7 @@ mod tests {
         let r = search("raccourcis", |_| true);
         assert!(
             r.iter()
-                .any(|e| e.page == "desktop" && e.tab == Some("raccourcis"))
+                .any(|e| e.page == "keys" && e.tab == Some("hyprdesk"))
         );
         // Sans accents ni casse ; tous les mots.
         assert!(matches("Écran de connexion", "ecran CONNEX"));

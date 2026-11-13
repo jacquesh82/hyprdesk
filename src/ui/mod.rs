@@ -1078,11 +1078,13 @@ impl App {
         let unified = self.cfg.general.apps_launcher.unified;
         let blurred = self.cfg.general.theme.blurred_namespaces();
         let config_path = self.config_path.clone();
+        let layouts = crate::tiling::in_use(&plugins::layouts::effective(&self.cfg));
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let source = crate::keymap::load_source(&config_path);
-                    hypr::install_keys(&keys, unified, &blurred, &source).map_err(|e| e.to_string())
+                    hypr::install_keys(&keys, unified, &blurred, &source, &layouts)
+                        .map_err(|e| e.to_string())
                 })
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
@@ -3104,7 +3106,15 @@ impl App {
                     let grab = self.launcher_grab_focused();
                     Task::batch([self.show_with_windows(), grab])
                 }
-                control::Command::Cycle => self.set_mode(self.mode().next()),
+                // Mode suivant (SUPER + D, MLG-108) : au clavier, le dock
+                // prend le clavier en launcher-only, comme SUPER + ALT + D.
+                control::Command::Cycle => match self.mode().next() {
+                    DesktopMode::LauncherOnly if self.click_monitor.is_none() => {
+                        let grab = self.launcher_grab_focused();
+                        Task::batch([self.show_with_windows(), grab])
+                    }
+                    m => self.set_mode(m),
+                },
                 control::Command::Reload => self.load_config(),
                 control::Command::Quit => {
                     if self.in_submap {
@@ -3435,7 +3445,7 @@ impl App {
                                 0,
                                 10000,
                                 &crate::tr!(
-                                    "hyprdesk : raccourcis en conflit (Réglages → Bureau → Raccourcis, ou hyprdesk keys) — {p0}",
+                                    "hyprdesk : raccourcis en conflit (Réglages → Raccourcis, ou hyprdesk keys) — {p0}",
                                     p0 = fresh.join(" ; ")
                                 ),
                             );
@@ -5339,9 +5349,9 @@ mod regression_tests {
         let win = Id::unique();
         app.surfaces.insert(win, "DP-1".into());
         let _ = app.update_inner(Msg::Control(control::Command::Settings(
-            "bureau/raccourcis".into(),
+            "raccourcis/hyprdesk".into(),
         )));
-        assert_eq!(app.subtab("desktop"), "raccourcis");
+        assert_eq!(app.subtab("keys"), "hyprdesk");
         assert_eq!(app.subtab("bar"), "general");
         let _ = app.update_inner(Msg::Panel(PanelMsg::SubTab("bar", "modules")));
         assert_eq!(app.subtab("bar"), "modules");

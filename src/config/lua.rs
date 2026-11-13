@@ -701,11 +701,54 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "search_desktop",
                 "overview",
                 "take",
+                "essentials",
+                "essentials_off",
             ],
             C,
         )?;
         if let Some(v) = opt_bool(&k, "media", C)? {
             g.keys.media = v;
+        }
+        if let Some(v) = opt_bool(&k, "essentials", C)? {
+            g.keys.essentials = v;
+        }
+        // Essentiels coupés : une liste d'identifiants, false pour aucun.
+        match k.get::<Value>("essentials_off")? {
+            Value::Nil => {}
+            Value::Boolean(false) => g.keys.essentials_off.clear(),
+            v => {
+                let list: Vec<String> = match v {
+                    Value::String(s) => vec![s.to_str()?.to_string()],
+                    Value::Table(t) => t
+                        .sequence_values::<String>()
+                        .collect::<mlua::Result<Vec<_>>>()?,
+                    v => {
+                        return Err(err(crate::tr!(
+                            "{C} : « essentials_off » attend une liste d'identifiants, pas {p0}",
+                            C = C,
+                            p0 = v.type_name()
+                        )));
+                    }
+                };
+                for id in &list {
+                    if !crate::essentials::CATALOGUE
+                        .iter()
+                        .any(|e| e.id == id.trim())
+                    {
+                        return Err(err(crate::tr!(
+                            "{C} : essentiel « {id} » inconnu ({p0})",
+                            C = C,
+                            id = id,
+                            p0 = crate::essentials::CATALOGUE
+                                .iter()
+                                .map(|e| e.id)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )));
+                    }
+                }
+                g.keys.essentials_off = list.iter().map(|s| s.trim().to_string()).collect();
+            }
         }
         for (name, slot) in [
             ("toggle", &mut g.keys.toggle),

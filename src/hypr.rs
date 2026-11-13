@@ -558,7 +558,7 @@ pub fn build_keys_lua(
     let switch_back = crate::switcher::with_shift(&keys.switch).unwrap_or_default();
     // Hors plein bureau. Un raccourci par mode ; celui du mode en cours rend no-desktop.
     for (id, k, arg, desc) in [
-        ("toggle", &keys.toggle, "toggle", "full-desktop"),
+        ("toggle", &keys.toggle, "cycle", "changer de mode"),
         (
             "launcher",
             &keys.launcher,
@@ -601,6 +601,29 @@ pub fn build_keys_lua(
         }
     };
     media(&mut lua, "", false);
+    // Essentiels de fenêtres, de workspaces et d'écrans (MLG-109) : là où
+    // hyprland.lua n'en a pas, sur une combinaison libre.
+    let essential = |lua: &mut String, indent: &str, l: &crate::essentials::Line| {
+        let desc = if l.detail.is_empty() {
+            format!("hyprdesk : {}", l.label)
+        } else {
+            format!("hyprdesk : {} ({})", l.label, l.detail)
+        };
+        let opts = if l.opts.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", l.opts)
+        };
+        *lua += &format!(
+            "{indent}keep(hl.bind({}, {}, {{ description = {}{opts} }}))\n",
+            q(&l.combo),
+            l.lua,
+            q(&desc)
+        );
+    };
+    for l in plan.essentials.iter().filter(|l| l.state.installs()) {
+        essential(&mut lua, "", l);
+    }
     // Dans la submap (full-desktop), les raccourcis de Hyprland sont
     // suspendus, sauf ceux marqués submap_universal.
     lua += &format!("hl.define_submap({}, function()\n", q(SUBMAP));
@@ -670,6 +693,10 @@ pub fn build_keys_lua(
             );
         }
     }
+    // Essentiels qui ont un sens bureau affiché (le bureau suit).
+    for l in plan.essentials.iter().filter(|l| l.desktop) {
+        essential(&mut lua, "  ", l);
+    }
     // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les
     // tient, sauf celles marquées submap_universal.
     media(&mut lua, "  ", true);
@@ -700,9 +727,10 @@ pub fn install_keys(
     unified: bool,
     blurred: &[&str],
     source: &[crate::keymap::SourceBind],
+    layouts: &[String],
 ) -> Result<KeyReport, ipc::IpcError> {
     let binds = ipc::query_json("binds")?;
-    let (mut report, plan) = crate::keymap::analyse(keys, unified, &binds, source);
+    let (mut report, mut plan) = plan_keys(keys, unified, &binds, source, layouts);
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
@@ -713,7 +741,32 @@ pub fn install_keys(
     }
     let after = ipc::query_json("binds").unwrap_or(binds);
     report.universal = universal_binds(&after);
+    report.essentials = std::mem::take(&mut plan.essentials);
+    report.hyprland = crate::essentials::inventory(&after, source);
     Ok(report)
+}
+
+/// Analyse des raccourcis de hyprdesk, et des essentiels à poser : leurs
+/// combinaisons prises à hyprland.lua s'ajoutent à celles à délier.
+fn plan_keys(
+    keys: &crate::config::Keys,
+    unified: bool,
+    binds: &Value,
+    source: &[crate::keymap::SourceBind],
+    layouts: &[String],
+) -> (KeyReport, crate::keymap::Plan) {
+    let (report, mut plan) = crate::keymap::analyse(keys, unified, binds, source);
+    let mut layouts = layouts.to_vec();
+    if let Some(l) = crate::tiling::current().get("general.layout") {
+        layouts.push(l.clone());
+    }
+    plan.essentials = crate::essentials::plan(keys, binds, source, &layouts);
+    for c in crate::essentials::taken_combos(&plan.essentials) {
+        if !plan.take.iter().any(|t| t == &c) {
+            plan.take.push(c);
+        }
+    }
+    (report, plan)
 }
 
 /// `hyprdesk keys` : analyse sans rien installer.
@@ -721,10 +774,13 @@ pub fn key_report(
     keys: &crate::config::Keys,
     unified: bool,
     source: &[crate::keymap::SourceBind],
+    layouts: &[String],
 ) -> Result<KeyReport, ipc::IpcError> {
     let binds = ipc::query_json("binds")?;
-    let (mut report, _) = crate::keymap::analyse(keys, unified, &binds, source);
+    let (mut report, mut plan) = plan_keys(keys, unified, &binds, source, layouts);
     report.universal = universal_binds(&binds);
+    report.essentials = std::mem::take(&mut plan.essentials);
+    report.hyprland = crate::essentials::inventory(&binds, source);
     Ok(report)
 }
 
@@ -762,6 +818,46 @@ const NUMBER_ROW: &[&str] = &[
     "plus",
 ];
 
+/// Code physique d'une touche : `code:N`, ou une touche de la rangée des
+/// chiffres en QWERTY ou en AZERTY (`1` et `ampersand` → 10). Hyprland
+/// compare la touche sans modificateur : sur la même touche physique, deux
+/// raccourcis se déclenchent ensemble.
+pub fn physical_key(key: &str) -> Option<u32> {
+    if let Some(c) = key.strip_prefix("code:") {
+        return c.parse().ok();
+    }
+    // Touche à gauche du 1 : ` en QWERTY, ² en AZERTY.
+    if ["grave", "twosuperior"]
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(key))
+    {
+        return Some(49);
+    }
+    NUMBER_ROW[..20]
+        .iter()
+        .position(|k| k.eq_ignore_ascii_case(key))
+        .map(|i| 10 + (i % 10) as u32)
+}
+
+/// Code physique d'un raccourci de `j/binds` : posé par code (`key` vide,
+/// `keycode`), ou sur une touche de la rangée des chiffres.
+pub fn bind_code(b: &Value) -> Option<u32> {
+    match b["keycode"].as_u64() {
+        Some(c) if c > 0 => Some(c as u32),
+        _ => physical_key(b["key"].as_str()?),
+    }
+}
+
+/// Touche d'un raccourci de `j/binds`, en minuscules : `code:N` s'il est
+/// posé par code.
+pub fn bind_key(b: &Value) -> Option<String> {
+    match (b["key"].as_str().unwrap_or(""), b["keycode"].as_u64()) {
+        ("", Some(c)) if c > 0 => Some(format!("code:{c}")),
+        ("", _) => None,
+        (k, _) => Some(k.to_lowercase()),
+    }
+}
+
 /// Modificateur des raccourcis de workspace de hyprland.lua : celui des
 /// raccourcis « focus » posés sur la rangée des chiffres (SUPER à défaut).
 pub fn workspace_modifier(binds: &Value) -> String {
@@ -775,14 +871,7 @@ pub fn workspace_modifier(binds: &Value) -> String {
                 .as_str()
                 .is_some_and(|d| d.contains("focus") || d == "workspace")
         })
-        .filter(|b| {
-            b["key"].as_str().is_some_and(|k| NUMBER_ROW.contains(&k))
-                || b["key"].as_str().is_some_and(|k| {
-                    k.strip_prefix("code:")
-                        .and_then(|c| c.parse::<u32>().ok())
-                        .is_some_and(|c| (10..=19).contains(&c))
-                })
-        })
+        .filter(|b| bind_code(b).is_some_and(|c| (10..=19).contains(&c)))
         .filter_map(|b| b["modmask"].as_u64())
         .next()
         .unwrap_or(64);
@@ -1972,7 +2061,7 @@ mod tests {
         plan.take = vec!["SUPER + L".into()];
         let lua = build_keys_lua(&k, &["hyprdesk-bar"], "/bin/hyprdesk", &plan, "SUPER");
         assert!(
-            lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle")"#),
+            lua.contains(r#"keep(hl.bind("SUPER + D", hl.dsp.exec_cmd("'/bin/hyprdesk' cycle")"#),
             "{lua}"
         );
         // Sélecteur de fenêtres, et en arrière avec Maj.

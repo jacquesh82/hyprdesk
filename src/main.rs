@@ -20,6 +20,7 @@ mod config;
 mod control;
 mod desktop_files;
 mod doctor;
+mod essentials;
 mod fonts;
 mod fx;
 mod greeter;
@@ -1174,7 +1175,8 @@ fn main() -> ExitCode {
             };
             let keys = &cfg.general.keys;
             let source = keymap::load_source(&config_path);
-            match hypr::key_report(keys, cfg.general.apps_launcher.unified, &source) {
+            let layouts = crate::tiling::in_use(&cfg.general.tiling);
+            match hypr::key_report(keys, cfg.general.apps_launcher.unified, &source, &layouts) {
                 Ok(r) => {
                     print!("{}", keymap::text_report(keys, &r));
                     if r.issues.is_empty() {

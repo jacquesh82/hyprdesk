@@ -42,12 +42,14 @@ pub const STEPS: &[Step] = &[
          bureau entier). Ici : la langue, les écrans où s'affiche le bureau, le mode opaque ou verre.",
     ),
     step(
-        "desktop",
-        Some("raccourcis"),
+        "keys",
+        Some("ensemble"),
         "Les raccourcis",
-        "SUPER + D affiche le bureau complet, SUPER + ALT + D le lanceur seul, SUPER + CTRL + D \
-         masque tout ; SUPER + SHIFT + D ouvre ces réglages, SUPER + L verrouille. Chaque raccourci \
-         se change ici ; Échap ferme le tiroir.",
+        "SUPER + D passe d'un mode à l'autre (masqué, lanceur seul, bureau complet), SUPER + ALT + D \
+         mène au lanceur seul, SUPER + CTRL + D masque tout ; SUPER + SHIFT + D ouvre ces réglages, \
+         SUPER + L verrouille. Cette page montre tous les raccourcis actifs, hors plein bureau et \
+         bureau affiché ; hyprdesk ajoute ceux de fenêtres et de workspaces qui manquent. Échap \
+         ferme le tiroir.",
     ),
     step(
         "wallpaper",
@@ -357,7 +359,8 @@ mod tests {
         assert_eq!(app.panel.as_ref().unwrap().tour, Some(0));
         assert_eq!(app.panel.as_ref().unwrap().tab, "desktop");
         run(&mut app, TourMsg::Next);
-        assert_eq!(app.subtab("desktop"), "raccourcis");
+        assert_eq!(app.panel.as_ref().unwrap().tab, "keys");
+        assert_eq!(app.subtab("keys"), "ensemble");
         run(&mut app, TourMsg::Next);
         assert_eq!(app.panel.as_ref().unwrap().tab, "wallpaper");
         run(&mut app, TourMsg::Prev);

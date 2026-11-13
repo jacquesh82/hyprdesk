@@ -29,6 +29,7 @@ pub mod energy;
 pub mod hyprconfig;
 pub mod icons;
 pub mod input;
+pub mod keys;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
@@ -63,6 +64,7 @@ pub struct PluginInfo {
 /// Paquets intégrés, dans l'ordre de la navigation.
 pub const BUILTIN: &[PluginInfo] = &[
     desktop::INFO,
+    keys::INFO,
     icons::INFO,
     launcher::INFO,
     apps::INFO,
@@ -104,7 +106,7 @@ pub struct Group {
 pub const GROUPS: &[Group] = &[
     Group {
         label: "Bureau",
-        ids: &["desktop", "wallpaper", "icons", "widgets"],
+        ids: &["desktop", "keys", "wallpaper", "icons", "widgets"],
     },
     Group {
         label: "Apparence",
@@ -173,6 +175,7 @@ pub type SubTab = (&'static str, &'static str);
 pub fn tabs(id: &str) -> &'static [SubTab] {
     match id {
         "desktop" => desktop::TABS,
+        "keys" => keys::TABS,
         "theme" => theme::TABS,
         "screens" => screens::TABS,
         "launcher" => launcher::TABS,
@@ -291,6 +294,7 @@ impl App {
 pub fn find(id: &str) -> Option<&'static PluginInfo> {
     let id = match id {
         "bureau" => "desktop",
+        "raccourcis" | "shortcuts" | "touches" | "binds" | "keybinds" | "keys" => "keys",
         "icones" | "icônes" => "icons",
         "fond" => "wallpaper",
         "barre" => "bar",
@@ -336,6 +340,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
 #[derive(Debug, Clone)]
 pub enum PluginMsg {
     Desktop(desktop::Msg),
+    Keys(keys::Msg),
     Icons(icons::Msg),
     Launcher(launcher::Msg),
     Apps(apps::Msg),
@@ -370,6 +375,7 @@ pub enum PluginMsg {
 pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
     match m {
         PluginMsg::Desktop(m) => app.desktop_update(m),
+        PluginMsg::Keys(m) => app.keys_update(m),
         PluginMsg::Icons(m) => app.icons_update(m),
         PluginMsg::Launcher(m) => app.launcher_update(m),
         PluginMsg::Apps(m) => app.apps_update(m),
@@ -405,6 +411,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
 pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
     match id {
         "icons" => app.tab_icons(p),
+        "keys" => app.keys_page(),
         "launcher" => app.launcher_page(),
         "apps" => app.apps_page(),
         "assistant" => app.assistant_page(),
@@ -448,6 +455,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             desktop::load_hyprbars(app.cfg.general.hyprbars_path.clone()),
         ]),
         "screens" => App::detect_screens(),
+        "keys" => app.keys_load(),
         "layouts" => Task::batch([
             layouts::load_current(),
             layouts::load_binds(app.config_path.clone()),
@@ -551,8 +559,8 @@ mod tests {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
         assert!(!visible("plugins", false) && visible("plugins", true));
-        assert_eq!(visible_tabs("desktop", false).len(), 4);
-        assert_eq!(visible_tabs("desktop", true).len(), 5);
+        assert_eq!(visible_tabs("desktop", false).len(), 3);
+        assert_eq!(visible_tabs("desktop", true).len(), 4);
     }
 
     /// Onglets : identifiants uniques, désignables sans casse ni accents.
@@ -570,11 +578,14 @@ mod tests {
                 p.id
             );
         }
-        assert_eq!(find_tab("desktop", "Raccourcis"), Some("raccourcis"));
+        assert_eq!(
+            find_tab("keys", "Fenetres et workspaces"),
+            Some("essentiels")
+        );
         assert_eq!(find_tab("launcher", "épinglées"), Some("epinglees"));
         assert_eq!(find_tab("screens", "ÉCRAN"), Some("ecran"));
         assert_eq!(find_tab("theme", "texte"), Some("texte"));
-        assert_eq!(find_tab("desktop", "shortcuts"), Some("raccourcis"));
+        assert_eq!(find_tab("keys", "overview"), Some("ensemble"));
         assert_eq!(find_tab("desktop", "inconnu"), None);
         assert_eq!(find_tab("apps", "x"), None);
     }

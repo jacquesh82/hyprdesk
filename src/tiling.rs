@@ -429,6 +429,16 @@ pub struct Tiling {
     pub options: BTreeMap<String, OptValue>,
 }
 
+/// Layouts demandés par hyprdesk : le layout par défaut et ceux des
+/// workspaces (celui de hyprland.lua s'y ajoute, lu dans Hyprland).
+pub fn in_use(t: &Tiling) -> Vec<String> {
+    t.layout
+        .iter()
+        .chain(t.workspaces.values())
+        .cloned()
+        .collect()
+}
+
 /// Nom accepté : layout intégré, personnalisé de hyprdesk, ou `lua:<nom>`.
 pub fn valid_name(name: &str) -> bool {
     BUILTIN.iter().any(|(n, _)| *n == name)

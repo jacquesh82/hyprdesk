@@ -104,7 +104,8 @@ Clés par paquet :
 
 | Paquet | Clés |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
+| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
 | `wallpaper` | `wallpaper` (image ou `#couleur`, tous les bureaux), `wallpaper.fit`, `wallpaper.span` (`on` : étalée sur tous les écrans) |
@@ -181,7 +182,8 @@ chaque clé CLI pointe vers un paquet existant.
 
 | id | Libellé | Règle | Domaine hors interface |
 |---|---|---|---|
-| `desktop` | Bureau | écrans où le bureau s'affiche, mode, police, raccourcis des trois modes, session | `config::General` |
+| `desktop` | Bureau | écrans où le bureau s'affiche, mode, police, session | `config::General` |
+| `keys` | Raccourcis | tous les raccourcis actifs (hors plein bureau, bureau affiché), ceux de hyprdesk, essentiels de fenêtres, de workspaces et d'écrans posés par hyprdesk | `keymap.rs`, `essentials.rs` |
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
 | `launcher` | Lanceur | fenêtres affichées, regroupement | — (widget, § 3) |
 | `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
