@@ -15,3 +15,9 @@ sélection à la place de celui de smithay-clipboard (Hyprland n'en sert
 qu'un par client) : sans ce détour, Ctrl+V ne collait rien dans les champs
 texte. Repli sur smithay-clipboard si `wl-paste` manque ou échoue ; rien
 quand le presse-papiers est désactivé (`disable_clipboard`).
+
+## Licence
+
+- Code d'origine : MIT © waycrate/exwlshelleventloop — texte dans `LICENSE` ;
+- Modifications hyprdesk : décrites ci-dessus ;
+- Redistribution sous MIT.
