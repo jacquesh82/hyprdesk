@@ -8,6 +8,8 @@
 
 **A desktop you can bring up whenever you need it in [Hyprland](https://hyprland.org).**
 
+![SUPER + D brings up the dock, then the full desktop; a window is moved on the desktop, then the Settings, LYRA and the launcher are shown, and the windows return to their tiles](assets/screenshots/hyprdesk-demo.gif)
+
 When your tiled windows fill the screen, press `SUPER + D` (twice: dock, then full desktop) to reach your
 wallpaper, icons, and widgets. Your windows float above the desktop while
 you use it and return to their tiled layout when you leave. Each workspace
