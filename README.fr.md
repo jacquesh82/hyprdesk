@@ -35,7 +35,8 @@ hyprdesk est la **racine** de la session graphique.
   Les fenêtres et la grille du bureau se rangent à côté.
   - Ses modules sont des widgets : workspaces, fenêtre active, volume,
     interrupteur de mode à trois états (no-desktop, launcher-only,
-    full-desktop), et tout widget ou plugin en version compacte.
+    full-desktop) qui montre le mode de son écran, et tout widget ou plugin
+    en version compacte.
   - Elle se règle aussi dans Réglages → Barre.
 - **Dock** en bas au centre : les fenêtres ouvertes, si l'option est activée
   (un clic donne le focus à la fenêtre), puis les boutons Applications, LYRA
@@ -56,7 +57,7 @@ hyprdesk. Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
-| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; une fenêtre déplacée garde sa place (par workspace et par application, d'une session à l'autre), « Oublier ces places » ; barres de titre Hyprbars (plugin Hyprland, compilé par hyprpm à l'installation, recompilé par update.sh quand Hyprland change ; --no-hyprbars) en plein bureau seulement, avec boutons fermer, agrandir et réduire (une fenêtre réduite attend dans le dock, un clic la ramène ; `hyprdesk window minimize|maximize|close`) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
+| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; une fenêtre déplacée garde sa place (par workspace et par application, d'une session à l'autre), « Oublier ces places » ; barres de titre Hyprbars (plugin Hyprland, à activer ici, compilé par hyprpm à l'installation, recompilé par update.sh quand Hyprland change ; --no-hyprbars) en plein bureau seulement : chargé dès qu'un écran est en plein bureau, déchargé quand aucun ne l'est, barres masquées sur les fenêtres des workspaces qu'aucun écran en plein bureau n'affiche ; boutons fermer, agrandir et réduire (une fenêtre réduite attend dans le dock, un clic la ramène ; `hyprdesk window minimize|maximize|close`) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
 | | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
 | | Icônes | portée : globales, par écran ou par workspace ; ouverture d'un double clic (un clic sélectionne) ou d'un clic ; clic droit : ouvrir, épingler au dock, renommer, retirer du bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran), Propriétés (fichier : nom, type, emplacement, taille, dates, droits, propriétaire, application qui l'ouvre ; application : identifiant, fichier .desktop, commande, classe de fenêtre ; fond du bureau : écran, workspace, mode, fond, thème ; à copier) ; raccourcis vers des applications installées ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; écran (le principal par défaut, un autre, tous ; s'il est débranché : sur le principal ou masqué) ; glisser-déposer sur le bureau, sans superposition |
@@ -298,11 +299,14 @@ panneau signale les réglages que `hyprdesk.lua` surcharge.
 ### Menus du bureau
 
 - Clic droit sur le fond du bureau : aligner les icônes, ajouter un widget,
-  changer de fond d'écran, réglages du bureau.
+  changer de fond d'écran, réglages du bureau, Propriétés (écran, workspace,
+  mode, fond, thème, icônes et widgets).
 - Réglages ouverts, clic droit sur un widget : le retirer du bureau, ses
-  réglages.
+  réglages, ses Propriétés.
 - Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du
-  bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran).
+  bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran),
+  Propriétés.
+- Les Propriétés se copient.
 
 ## Installation
 
@@ -358,7 +362,8 @@ ligne et le temps écoulé ; leur sortie complète va dans
 | 🦀 Compilation | `cargo build --release` (3 à 10 min la première fois) |
 | 🔤 Police · 📥 Binaire · 🛠 Configuration | police Mindlog, `hyprdesk` dans `~/.local/bin`, `~/.config/hypr/hyprdesk.lua` s'il manque (une configuration existante est gardée) |
 | 🤖 LYRA | l'assistante IA, compilée depuis [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools), avec son service, qui démarre avec hyprdesk ; déjà installée : gardée |
-| 🔑 myMFA | le trousseau (mots de passe, codes 2FA) : démon, Secret Service, module PAM qui ouvre le coffre à la connexion. Son dépôt est **privé** : sans accès (clé SSH du poste, ou `HYPRDESK_MYMFA_SRC`), l'étape est sautée sans rien bloquer |
+| 🔑 myMFA | le trousseau (mots de passe, codes 2FA) : démon, Secret Service, module PAM qui ouvre le coffre à la connexion. « Déjà installé » exige le binaire **et** son activation D-Bus ; sinon l'installation est refaite. Son dépôt est **privé** : joint par la clé SSH du poste, puis en HTTPS avec des identifiants enregistrés (jamais d'invite), puis par un `gh` connecté, ou une copie locale (`HYPRDESK_MYMFA_SRC`) ; sans accès, l'étape est sautée sans rien bloquer. Chaque issue (déjà installé, accès utilisé, dépôt inaccessible, échec, `--no-mymfa`) est écrite au journal |
+| 🪟 Hyprbars | les barres de titre du plein bureau : `hyprpm`, `cmake`, `meson` et `cpio` s'ils manquent, puis `hyprpm update` et `hyprpm add` (2 à 5 min, un second essai), contre le Hyprland qui tourne, donc seulement dans une session Hyprland. hyprpm tourne au premier plan, car il demande lui-même le mot de passe `sudo` ; déjà compilé : gardé |
 | 🌍 Langue · ⌨ Clavier | si choisis : langue de hyprdesk, clavier dans `inputs.lua` (et pour le système avec `localectl`) |
 | 🩺 Dépendances facultatives | celles qui manquent (veille, captures, Bluetooth, écran de connexion…) : celles des dépôts sont proposées à l'installation (toutes, aucune, ou par numéros), les autres sont montrées avec leur commande AUR |
 | 🔁 Service | service systemd utilisateur, démarré aussitôt dans une session Hyprland |
@@ -374,8 +379,8 @@ danger : ce qui est déjà en place est reconnu et laissé.
 
 - un **bilan vérifié** point par point : binaire, configuration, service,
   version de Hyprland en cours, hyprdesk qui répond, configuration de Hyprland
-  sans erreur, démarrage à la connexion, LYRA, myMFA, clavier, langue, écran
-  de connexion ;
+  sans erreur, démarrage à la connexion, LYRA, myMFA (installé, puis qui
+  répond), Hyprbars, clavier, langue, écran de connexion ;
 - **ce qu'il reste à faire** pour que hyprdesk tourne, chaque point avec sa
   commande : ouvrir une session Hyprland, se reconnecter après une mise à jour
   de Hyprland, redémarrer pour l'écran de connexion… puis le facultatif
@@ -400,7 +405,7 @@ directement. `./scripts/install.sh --help` les liste :
 | `--system-keyboard` | le même clavier pour le système (TTY, autre écran de connexion) |
 | `--greeter` / `--no-greeter` | remplacer GDM par l'écran de hyprdesk, ou non (sinon : question) |
 | `--optional-deps ask\|all\|none` | dépendances facultatives : proposées, toutes installées, ou non |
-| `--no-lyra` · `--no-mymfa` | sans LYRA, sans myMFA |
+| `--no-lyra` · `--no-mymfa` · `--no-hyprbars` | sans LYRA, sans myMFA, sans les barres de titre Hyprbars |
 | `--no-deps` | ne pas installer les prérequis (à la main ; `scripts/deps.sh --dry-run` montre ce qui manque) |
 | `--no-autostart` · `--no-lock-key` · `--remove-hyprpaper` | démarrage à la connexion, `SUPER + L`, hyprpaper |
 | `--verbose` | sortie complète des commandes à l'écran |
@@ -436,6 +441,13 @@ rafraîchit l'écran de connexion.
   `hyprdesk doctor` liste les dépendances et ce qui en dépend.
 - Dans les Réglages, les boutons « Demander à LYRA » confient un problème à
   l'assistante (elle demande avant de modifier quoi que ce soit).
+- myMFA absent : donner accès à son dépôt privé (clé SSH, `gh auth login`, ou
+  `HYPRDESK_MYMFA_SRC=<copie des sources>`) et relancer `./scripts/install.sh` ;
+  le journal dit pourquoi l'étape a été sautée, la page Réglages → Mots de
+  passe aussi.
+- Hyprbars absent : dans un terminal, sous Hyprland,
+  `hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins`
+  (hyprpm demande le mot de passe).
 - Revenir à l'écran de connexion d'avant : `sudo hyprdesk greeter setup restore`.
 
 ### Désinstaller
@@ -516,7 +528,7 @@ Un seul démon tourne par session : il tient un verrou exclusif (`flock`) sur
 |---|---|
 | `hyprdesk` / `hyprdesk daemon` | lance le démon (une seule instance par session) |
 | `hyprdesk daemon --replace` | remplace proprement l'instance en place |
-| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres flottantes par-dessus, organisées), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué. Le mode est celui du workspace : chaque écran prend le mode du workspace qu'il affiche, un changement ne touche que le workspace de l'écran actif, et chaque workspace retrouve le sien en y revenant, d'une session à l'autre (no-desktop tant qu'on n'en a pas choisi) |
+| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | les trois modes du bureau : complet (fenêtres flottantes par-dessus, organisées), lanceur seul (dock accessible, les fenêtres en mosaïque lui laissent la place), masqué. Le mode est celui du workspace : chaque écran prend le mode du workspace qu'il affiche, un changement ne touche que le workspace de l'écran actif, et chaque workspace retrouve le sien en y revenant, d'une session à l'autre (no-desktop tant qu'on n'en a pas choisi). Un mode imposé à un écran ou à un workspace (Réglages → Bureau → Modes imposés) s'applique en y arrivant, sans faire changer les autres écrans |
 | `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, ou no-desktop si on y est déjà (raccourcis SUPER + D, SUPER + ALT + D ; SUPER + CTRL + D : no-desktop) |
 | `hyprdesk cycle` | mode suivant : no-desktop → launcher-only → full-desktop → no-desktop (bouton Bureau de la barre ; clic droit : no-desktop) |
 | `hyprdesk settings [paquet]` | ouvre les réglages sans changer le mode du bureau (`desktop`, `launcher`, `screens`, `fond`…) |

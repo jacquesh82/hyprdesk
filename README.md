@@ -63,7 +63,9 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
   workspace**: each screen shows the mode of the workspace it displays,
   changing it only affects that workspace, and every workspace finds its
   mode again when you come back, across sessions (no-desktop until you set
-  one). You can also force a mode on a screen or a workspace.
+  one). You can also force a mode on a screen or a workspace (Settings → Desktop → Forced
+  modes): it applies when
+  you arrive there, without switching the other screens.
 - **Wallpapers for each workspace and screen**, with crossfades and
   slideshows. hyprdesk replaces hyprpaper.
 - **A bar and a dock.** Workspaces, tray, volume, brightness and any plugin.
@@ -127,8 +129,11 @@ Properties. Properties can be copied.
 resize keeps its place (per workspace and per application, across sessions)
 and is never rearranged again; Desktop → "Forget these positions" clears
 them. The bar's mode switch has three states (no-desktop, launcher-only,
-full-desktop). Optionally, Hyprbars (Hyprland plugin) adds title bars in full
-desktop only: loaded when entering it, unloaded when leaving, with close,
+full-desktop) and shows the mode of its own screen. Optionally, Hyprbars
+(Hyprland plugin, turned on in Settings → Desktop) adds title bars in full
+desktop only: loaded as soon as one screen is in full desktop, unloaded when
+none is, and hidden on the windows of workspaces that no full-desktop screen
+shows, so another screen's tiled windows keep no bar. The bars have close,
 maximize and minimize buttons (a minimized window waits in the dock, a click
 brings it back; `hyprdesk window minimize|maximize|close`). The installer
 builds it with hyprpm (`--no-hyprbars` to skip), and `scripts/update.sh`
@@ -341,7 +346,8 @@ output goes to `~/.local/state/hyprdesk/install-<date>.log`.
 | 🦀 Build | `cargo build --release` (3 to 10 min the first time) |
 | 🔤 Font · 📥 Binary · 🛠 Configuration | Mindlog font, `hyprdesk` in `~/.local/bin`, `~/.config/hypr/hyprdesk.lua` if missing (an existing configuration is kept) |
 | 🤖 LYRA | the AI assistant, built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools), with her service, which starts with hyprdesk; already installed: kept |
-| 🔑 myMFA | the keyring (passwords, 2FA codes): daemon, Secret Service, PAM module that opens the vault at login. Its repository is **private**: without access (the machine's SSH key, or `HYPRDESK_MYMFA_SRC`), the step is skipped without blocking anything |
+| 🔑 myMFA | the keyring (passwords, 2FA codes): daemon, Secret Service, PAM module that opens the vault at login. "Already installed" means the binary **and** its D-Bus activation; otherwise it is installed again. Its repository is **private**: reached through the machine's SSH key, then HTTPS with saved credentials (never a prompt), then a logged-in `gh`, or a local copy (`HYPRDESK_MYMFA_SRC`); without access, the step is skipped without blocking anything. Each outcome (already installed, access used, unreachable, failure, `--no-mymfa`) goes to the log |
+| 🪟 Hyprbars | the title bars of full desktop: `hyprpm`, `cmake`, `meson` and `cpio` if missing, then `hyprpm update` and `hyprpm add` (2 to 5 min, one retry), against the running Hyprland, so only inside a Hyprland session. hyprpm runs in the foreground because it asks for the `sudo` password itself; already built: kept |
 | 🌍 Language · ⌨ Keyboard | if chosen: hyprdesk's language, keyboard in `inputs.lua` (and system-wide with `localectl`) |
 | 🩺 Optional dependencies | the missing ones (idle, screenshots, Bluetooth, login screen…): those in the repositories are offered (all, none, or by number), the others are shown with their AUR command |
 | 🔁 Service | systemd user service, started right away in a Hyprland session |
@@ -357,8 +363,8 @@ what is already in place is recognised and left alone.
 
 - a **report checked point by point**: binary, configuration, service,
   running Hyprland version, hyprdesk answering, Hyprland configuration
-  without errors, start at login, LYRA, myMFA, keyboard, language, login
-  screen;
+  without errors, start at login, LYRA, myMFA (installed, then answering),
+  Hyprbars, keyboard, language, login screen;
 - **what is left to do** for hyprdesk to run, each with its command: log in
   to Hyprland, log back in after a Hyprland update, reboot for the login
   screen… then the optional extras (missing packages, `~/.local/bin` in
@@ -381,7 +387,7 @@ installs straight away. `./scripts/install.sh --help` lists them:
 | `--system-keyboard` | the same keyboard system-wide (TTY, other login screens) |
 | `--greeter` / `--no-greeter` | replace GDM with the hyprdesk login screen, or not (otherwise: asked) |
 | `--optional-deps ask\|all\|none` | optional dependencies: offered, all installed, or none |
-| `--no-lyra` · `--no-mymfa` | without LYRA, without myMFA |
+| `--no-lyra` · `--no-mymfa` · `--no-hyprbars` | without LYRA, without myMFA, without the Hyprbars title bars |
 | `--no-deps` | do not install prerequisites (by hand; `scripts/deps.sh --dry-run` shows what is missing) |
 | `--no-autostart` · `--no-lock-key` · `--remove-hyprpaper` | start at login, `SUPER + L`, hyprpaper |
 | `--verbose` | full command output on screen |
@@ -416,6 +422,13 @@ install, rebuilds LYRA and myMFA when needed, and refreshes the login screen.
   `hyprdesk doctor` lists the dependencies and what relies on them.
 - In Settings, the "Ask LYRA" buttons hand a problem to the assistant (she
   asks before changing anything).
+- myMFA missing: give access to its private repository (SSH key,
+  `gh auth login`, or `HYPRDESK_MYMFA_SRC=<copy of the sources>`) and run
+  `./scripts/install.sh` again; the log says why the step was skipped, and
+  Settings → Passwords says the same.
+- Hyprbars missing: in a terminal inside Hyprland,
+  `hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins`
+  (hyprpm asks for the password).
 - Back to the previous login screen: `sudo hyprdesk greeter setup restore`.
 
 ### Uninstall
