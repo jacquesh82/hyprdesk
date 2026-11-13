@@ -1159,7 +1159,8 @@ impl App {
         let want = self.visible
             && self.mode() == DesktopMode::FullDesktop
             && self.cfg.general.suspend_binds
-            && self.session_windows.is_empty();
+            && self.session_windows.is_empty()
+            && !self.target_monitor().is_some_and(|m| self.windows_shown_on(&m));
         if want == self.in_submap {
             return Task::none();
         }
@@ -1450,6 +1451,17 @@ impl App {
         self.visible = mode != DesktopMode::NoDesktop;
     }
 
+    /// Une fenêtre s'affiche-t-elle sur cet écran, hors du bureau ? Un
+    /// scratchpad ouvert par-dessus, par exemple : le bureau ne doit alors
+    /// pas prendre le clavier pour lui seul, ni suspendre les raccourcis.
+    fn windows_shown_on(&self, monitor: &str) -> bool {
+        let Some(m) = self.monitors.iter().find(|m| m.name == monitor) else {
+            return false;
+        };
+        m.workspace.starts_with("special:")
+            && self.clients.iter().any(|c| c.workspace == m.workspace)
+    }
+
     /// Mode mémorisé d'un workspace (no-desktop par défaut).
     fn ws_mode(&self, ws: &str) -> DesktopMode {
         self.ws_modes.get(ws).copied().unwrap_or(DesktopMode::NoDesktop)
@@ -1671,7 +1683,10 @@ impl App {
             }
             let kb = if Some(mon) != focused.as_ref() {
                 KeyboardInteractivity::None
-            } else if *want == Launcher || !self.session_windows.is_empty() {
+            } else if *want == Launcher
+                || !self.session_windows.is_empty()
+                || self.windows_shown_on(mon)
+            {
                 KeyboardInteractivity::OnDemand
             } else {
                 KeyboardInteractivity::Exclusive
@@ -5078,6 +5093,35 @@ mod regression_tests {
         let _ = app.set_mode(DesktopMode::FullDesktop);
         let _ = app.set_monitors(vec![monitor("A", true)]);
         assert_eq!(app.mode(), DesktopMode::FullDesktop);
+    }
+
+    /// Plein bureau sous un scratchpad garni : la fenêtre du scratchpad garde
+    /// le clavier et ses raccourcis (pas de submap) ; refermé sur un bureau
+    /// vide, le bureau reprend la main.
+    #[test]
+    fn full_desktop_leaves_keyboard_to_a_scratchpad() {
+        let mut app = app();
+        let magic = Monitor {
+            workspace: "special:magic".into(),
+            base: "1".into(),
+            ..monitor("A", true)
+        };
+        app.surfaces.insert(Id::unique(), "A".into());
+        app.clients = vec![hypr::Client {
+            address: "0x9".into(),
+            class: "kitty".into(),
+            title: String::new(),
+            workspace: "special:magic".into(),
+        }];
+        let _ = app.set_monitors(vec![magic]);
+        let _ = app.set_mode(DesktopMode::FullDesktop);
+        assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        assert!(app.windows_shown_on("A"));
+        assert!(!app.in_submap, "raccourcis gardés pour le scratchpad");
+        app.clients.clear();
+        let _ = app.set_monitors(vec![monitor("A", true)]);
+        assert!(!app.windows_shown_on("A"));
+        assert!(app.in_submap, "bureau vide : raccourcis suspendus");
     }
 
     /// Plein bureau : Alt+Tab vers une fenêtre cachée quitte le bureau ;
