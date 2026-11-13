@@ -54,6 +54,9 @@ pub trait MyMfa1 {
     fn restore_drive(&self, revision: &str, password: &str) -> zbus::Result<()>;
     /// Lie ce coffre d'appareil au coffre partagé de Drive (SYN-13).
     fn link_drive(&self, password: &str) -> zbus::Result<String>;
+    /// L'appareil : identité, coffre d'appareil, liaison, trousseau des
+    /// applications (sans secret), appareils du coffre partagé.
+    fn device(&self) -> zbus::Result<String>;
     #[zbus(property)]
     fn locked(&self) -> zbus::Result<bool>;
     #[zbus(property)]
@@ -452,6 +455,13 @@ pub async fn drive_disconnect() -> Result<(), String> {
         .drive_disconnect()
         .await
         .map_err(|e| error_text(&e))
+}
+
+/// L'appareil tel que le démon le décrit (onglet Appareil) — aucun secret.
+pub async fn device() -> Result<serde_json::Value, String> {
+    let p = proxy().await.map_err(|e| error_text(&e))?;
+    let texte = p.device().await.map_err(|e| error_text(&e))?;
+    serde_json::from_str(&texte).map_err(|e| e.to_string())
 }
 
 /// Lie ce coffre d'appareil au coffre partagé de Drive (celui du web) avec le

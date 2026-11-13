@@ -38,6 +38,7 @@ pub enum Onglet {
     MotsDePasse,
     Activite,
     TableauDeBord,
+    Appareil,
     Reglages,
 }
 
@@ -48,15 +49,17 @@ impl Onglet {
             Onglet::MotsDePasse => "Mots de passe",
             Onglet::Activite => "Activité",
             Onglet::TableauDeBord => "Tableau de bord",
+            Onglet::Appareil => "Appareil",
             Onglet::Reglages => "Réglages",
         })
         .to_string()
     }
-    const TOUS: [Onglet; 5] = [
+    const TOUS: [Onglet; 6] = [
         Onglet::Codes,
         Onglet::MotsDePasse,
         Onglet::Activite,
         Onglet::TableauDeBord,
+        Onglet::Appareil,
         Onglet::Reglages,
     ];
 }
@@ -92,6 +95,8 @@ pub enum FMsg {
     Codes(Result<Vec<crate::mymfa::CodeComplet>, String>),
     /// Contenu complet (`Content`).
     Contenu(Result<Value, String>),
+    /// L'appareil (`Device`) : coffre d'appareil, trousseau, appareils.
+    Appareil(Result<Value, String>),
     /// `Content` refusé : le message, et si le coffre est verrouillé.
     ContenuRefuse(String, bool),
     Recherche(String),
@@ -176,6 +181,8 @@ pub struct Fenetre {
     /// Nouveau compte 2FA (formulaire du code, pas encore du scanner d'image).
     pub nouveau: NouveauCompte,
     pub statut_synchro: Option<Value>,
+    /// L'appareil (`Device` du démon), sans aucun secret.
+    pub appareil: Option<Value>,
     /// Mot de passe du coffre de Drive (liaison, `driveAutreCoffre`).
     pub mdp_drive: String,
     pub journal: Option<Value>,
@@ -305,6 +312,7 @@ impl Fenetre {
             generateur: Generateur::default(),
             nouveau: NouveauCompte::default(),
             statut_synchro: None,
+            appareil: None,
             mdp_drive: String::new(),
             journal: None,
             audit: None,
@@ -590,6 +598,16 @@ impl Fenetre {
             FMsg::Onglet(o) => {
                 f.onglet = o;
                 f.nouveau.ouvert = false;
+                if o == Onglet::Appareil {
+                    Task::perform(mymfa::device(), |r| Msg::MymfaF(FMsg::Appareil(r)))
+                } else {
+                    Task::none()
+                }
+            }
+            FMsg::Appareil(r) => {
+                if let Ok(v) = r {
+                    f.appareil = Some(v);
+                }
                 Task::none()
             }
             FMsg::Tic => {
@@ -606,6 +624,9 @@ impl Fenetre {
                         }))
                         .chain(Task::perform(mymfa::audit(), |r| {
                             Msg::MymfaF(FMsg::Audit(r))
+                        }))
+                        .chain(Task::perform(mymfa::device(), |r| {
+                            Msg::MymfaF(FMsg::Appareil(r))
                         }))
                 } else {
                     Task::none()
@@ -1261,6 +1282,7 @@ impl Fenetre {
             Onglet::MotsDePasse => self.vue_sites(app),
             Onglet::Activite => self.vue_activite(app),
             Onglet::TableauDeBord => self.vue_tableau(app),
+            Onglet::Appareil => self.vue_appareil(app),
             Onglet::Reglages => self.vue_reglages(app),
         };
 
@@ -2537,6 +2559,231 @@ impl Fenetre {
     }
 
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
+
+    /// Onglet Appareil : CET appareil et son coffre (ouvert par la session),
+    /// sa liaison au coffre partagé, le trousseau des applications (Secret
+    /// Service, propre à l'appareil, jamais synchronisé) et les appareils qui
+    /// partagent le coffre. Aucun secret : libellés, attributs, dates.
+    fn vue_appareil(&self, app: &Habillage) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let edge = color(r.edge, 1.0);
+        let warn = color(r.error, 1.0);
+        let ok = ok_vert(app);
+        let Some(a) = &self.appareil else {
+            return text(crate::i18n::tr("Lecture de l'appareil…").to_string())
+                .font(app.font)
+                .size(13)
+                .color(dim)
+                .into();
+        };
+        let titre = |t: &str| text(t.to_string()).font(app.title_font()).size(15).color(fg);
+        let ligne = |etiquette: String, valeur: String, c: Color| -> Element<'static, Msg> {
+            row![
+                text(etiquette).font(app.font).size(13).color(dim).width(Length::Fixed(220.0)),
+                text(valeur).font(app.font).size(13).color(c),
+            ]
+            .spacing(10)
+            .into()
+        };
+        let carte = move |contenu: Element<'static, Msg>| -> Element<'static, Msg> {
+            container(contenu)
+                .padding(12)
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.05, ..fg }.into()),
+                    border: Border::default().rounded(8).width(1).color(edge),
+                    ..Default::default()
+                })
+                .into()
+        };
+        let b = |v: &Value, c: &str| v.get(c).and_then(Value::as_bool).unwrap_or(false);
+        let s = |v: &Value, c: &str| v.get(c).and_then(Value::as_str).unwrap_or("").to_string();
+        let tr = |t: &str| crate::i18n::tr(t).to_string();
+
+        // ── Cet appareil et son coffre.
+        let ap = a.get("appareil").cloned().unwrap_or(Value::Null);
+        let coffre = a.get("coffre").cloned().unwrap_or(Value::Null);
+        let synchro = a.get("synchro").cloned().unwrap_or(Value::Null);
+        let nom = s(&ap, "nom");
+        let ouverture = if b(&coffre, "scelle") {
+            (tr("à la connexion (sceau de session)"), ok)
+        } else if b(&coffre, "sansSceau") {
+            (tr("par son mot de passe (ouverture à la connexion refusée)"), dim)
+        } else {
+            (tr("par son mot de passe (sceau au prochain déverrouillage)"), dim)
+        };
+        let liaison = if b(&synchro, "lie") {
+            (tr("lié au coffre partagé de Drive : fusion à chaque synchro"), ok)
+        } else if b(&synchro, "connecte") {
+            (tr("coffre partagé de Drive non lié (Réglages)"), warn)
+        } else {
+            (tr("pas de synchronisation (Réglages → Connecter Google Drive)"), dim)
+        };
+        let mut c1 = column![
+            titre(&tr("Cet appareil")),
+            ligne(
+                tr("Appareil"),
+                format!("{} · Linux", if nom.is_empty() { tr("sans nom") } else { nom }),
+                fg
+            ),
+            ligne(tr("Identifiant de synchro"), s(&ap, "id"), dim),
+            ligne(
+                tr("Coffre d'appareil"),
+                if b(&coffre, "ouvert") { tr("ouvert") } else { tr("verrouillé") },
+                if b(&coffre, "ouvert") { ok } else { warn }
+            ),
+            ligne(tr("Ouverture"), ouverture.0, ouverture.1),
+            ligne(tr("Coffre partagé"), liaison.0, liaison.1),
+            ligne(tr("Données"), s(&coffre, "dossier"), dim),
+        ]
+        .spacing(6);
+        if b(&coffre, "cleEnAttente") {
+            c1 = c1.push(
+                text(tr("Une clé de session attend : le prochain déverrouillage activera l'ouverture à la connexion."))
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        let mut col = column![carte(c1.into())].spacing(12);
+
+        // ── Trousseau des applications (Secret Service).
+        let trousseau = a.get("trousseau").cloned().unwrap_or(Value::Null);
+        let collections = trousseau
+            .get("collections")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let total: usize = collections
+            .iter()
+            .map(|c| {
+                c.get("elements")
+                    .and_then(Value::as_array)
+                    .map(Vec::len)
+                    .or_else(|| c.get("nombre").and_then(Value::as_u64).map(|n| n as usize))
+                    .unwrap_or(0)
+            })
+            .sum();
+        let mut c2 = column![
+            titre(&tr("Trousseau des applications")),
+            text(crate::tr!(
+                "{n} secret(s) rangé(s) par les applications (Secret Service{tenu}). Propre à cet appareil : jamais synchronisé, comme un Credential Vault.",
+                n = total,
+                tenu = if b(a, "secretService") { tr(", tenu par myMFA") } else { tr(", pas tenu par myMFA") }
+            ))
+            .font(app.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(6);
+        for c in &collections {
+            let label = s(c, "label");
+            let elements = c.get("elements").and_then(Value::as_array).cloned();
+            let nombre = elements
+                .as_ref()
+                .map(Vec::len)
+                .or_else(|| c.get("nombre").and_then(Value::as_u64).map(|n| n as usize))
+                .unwrap_or(0);
+            c2 = c2.push(
+                text(format!("{label} ({nombre})"))
+                    .font(app.font)
+                    .size(13)
+                    .color(fg),
+            );
+            let Some(mut elements) = elements else {
+                continue;
+            };
+            elements.sort_by_key(|e| std::cmp::Reverse(e.get("modifie").and_then(Value::as_u64).unwrap_or(0)));
+            for e in elements {
+                let attributs = e.get("attributs").and_then(Value::as_object);
+                let source = attributs
+                    .and_then(|m| {
+                        ["application", "xdg:schema", "service"]
+                            .iter()
+                            .find_map(|k| m.get(*k).and_then(Value::as_str))
+                    })
+                    .unwrap_or("")
+                    .to_string();
+                let quand = e
+                    .get("modifie")
+                    .and_then(Value::as_i64)
+                    .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+                    .map(|d| d.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M").to_string())
+                    .unwrap_or_default();
+                c2 = c2.push(
+                    row![
+                        text(s(&e, "label")).font(app.font).size(12).color(fg).width(Length::Fill),
+                        text(source).font(app.font).size(11).color(dim),
+                        text(quand).font(app.font).size(11).color(dim),
+                    ]
+                    .spacing(12)
+                    .padding([0, 12]),
+                );
+            }
+        }
+        if !b(&trousseau, "ouvert") {
+            c2 = c2.push(
+                text(tr("Coffre verrouillé : les libellés des secrets n'apparaissent qu'ouvert."))
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        col = col.push(carte(c2.into()));
+
+        // ── Appareils qui partagent le coffre (registre de la synchro).
+        let appareils = a.get("appareils").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut c3 = column![titre(&tr("Appareils du coffre partagé"))].spacing(6);
+        if appareils.is_empty() {
+            c3 = c3.push(
+                text(tr("Aucun pour l'instant : le registre se remplit à la première synchro."))
+                    .font(app.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        let mut appareils = appareils;
+        appareils.sort_by_key(|x| std::cmp::Reverse(x.get("actifLe").and_then(Value::as_i64).unwrap_or(0)));
+        for x in appareils {
+            let type_ = match s(&x, "type").as_str() {
+                "web" => tr("Web"),
+                "extension" => tr("Extension"),
+                "linux" => tr("Linux"),
+                "android" => tr("Android"),
+                "" => tr("Client"),
+                autre => autre.to_string(),
+            };
+            let nom = s(&x, "nom");
+            let quand = x
+                .get("actifLe")
+                .and_then(Value::as_i64)
+                .filter(|t| *t > 0)
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|d| d.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M").to_string())
+                .unwrap_or_else(|| tr("activité inconnue"));
+            let moi = b(&x, "moi");
+            c3 = c3.push(
+                row![
+                    text(if nom.is_empty() { type_.clone() } else { format!("{type_} · {nom}") })
+                        .font(app.font)
+                        .size(13)
+                        .color(fg)
+                        .width(Length::Fill),
+                    text(if moi { tr("cet appareil") } else { String::new() })
+                        .font(app.font)
+                        .size(11)
+                        .color(ok),
+                    text(quand).font(app.font).size(11).color(dim),
+                ]
+                .spacing(12),
+            );
+        }
+        col = col.push(carte(c3.into()));
+        col.into()
+    }
 
     /// Drive porte un autre coffre (celui du web, en général), pas encore lié :
     /// son mot de passe, une fois, lie ce coffre d'appareil au coffre partagé.
