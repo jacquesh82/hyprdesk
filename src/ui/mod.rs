@@ -22,6 +22,7 @@ mod desk_layout;
 mod icons;
 mod mymfa;
 mod mymfa_fenetre;
+pub use mymfa_fenetre::run as run_mymfa_fenetre;
 mod osd;
 mod panel;
 pub(crate) mod plugins;

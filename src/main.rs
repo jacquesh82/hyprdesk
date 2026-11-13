@@ -524,6 +524,16 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        // Fenêtre myMFA en application (lancée par le démon via Hyprland).
+        "mymfa" if args.get(1).map(String::as_str) == Some("window") => {
+            match ui::run_mymfa_fenetre(config_path) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("fenêtre myMFA : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "preview" => match ui::preview::run(args.get(1).map(PathBuf::from)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

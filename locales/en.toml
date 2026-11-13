@@ -2636,3 +2636,4 @@
 "  window minimize | maximize | close" = "  window minimize | maximize | close"
 "                    fenêtre active : réduire (le dock la rappelle), agrandir, fermer" = "                    active window: minimize (the dock brings it back), maximize, close"
 "Hyprbars, étiquettes : {e}" = "Hyprbars, tags: {e}"
+"fenêtre myMFA : {e}" = "myMFA window: {e}"

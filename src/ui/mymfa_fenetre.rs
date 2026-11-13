@@ -1,5 +1,8 @@
 //! Fenêtre myMFA (MLG-46) : codes 2FA et réglages (dont la synchronisation
-//! Drive, MLG-47), au style de hyprdesk, dans une fenêtre layer-shell centrée.
+//! Drive, MLG-47), au style de hyprdesk, dans une fenêtre d'application
+//! ordinaire (MLG-103) : `hyprdesk mymfa window`, processus à part que le
+//! démon fait lancer par Hyprland, flottante et centrée, déplaçable et rangée
+//! comme les autres. Le démon n'héberge plus ces vues que dans l'aperçu.
 //!
 //! Tout passe par le démon `today.mindlog.MyMfa1` : les codes en cours de
 //! `Codes` (clic = copie par le démon lui-même), le contenu de `Content` (sans
@@ -16,15 +19,11 @@
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Task};
-use iced_layershell::reexport::{
-    Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
-};
 use serde_json::Value;
 
 use super::{App, Msg, color};
 use crate::mymfa;
 
-pub const NAMESPACE: &str = "hyprdesk-mymfa-fenetre";
 const WIDTH: f32 = 860.0;
 const HEIGHT: f32 = 600.0;
 const MARGE: f32 = 18.0;
@@ -141,9 +140,19 @@ pub enum FMsg {
     Message(bool, String),
 }
 
+/// Ce que la fenêtre demande à son hôte, au-delà d'elle-même.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sortie {
+    Fermer,
+    /// Coffre verrouillé entre-temps : la carte de déverrouillage prend le relais.
+    Deverrouiller,
+}
+
 /// Fenêtre ouverte.
 pub struct Fenetre {
     pub win: Id,
+    /// Posé par `update`, lu (et vidé) par l'hôte.
+    pub sortie: Option<Sortie>,
     pub onglet: Onglet,
     /// Contenu complet (`Content`), sans aucun secret.
     pub contenu: Option<Value>,
@@ -276,6 +285,7 @@ impl Fenetre {
     fn neuf(win: Id) -> Self {
         Self {
             win,
+            sortie: None,
             onglet: Onglet::Codes,
             contenu: None,
             codes: Vec::new(),
@@ -295,6 +305,14 @@ impl Fenetre {
             message: None,
             occupe: false,
             tiques: 0,
+        }
+    }
+
+    /// Efface les secrets tenus (mot de passe révélé, formulaire).
+    pub fn effacer(&mut self) {
+        crate::lock::pam::wipe(&mut self.revele);
+        if let Some(form) = self.formulaire.as_mut() {
+            crate::lock::pam::wipe(&mut form.password);
         }
     }
 
@@ -396,6 +414,68 @@ fn contenu_apercu() -> Value {
     })
 }
 
+/// Ce que les vues de la fenêtre prennent de hyprdesk : thème et polices.
+/// Le processus de la fenêtre d'application le tire de la config seule.
+pub struct Habillage {
+    pub cfg: std::sync::Arc<crate::config::Config>,
+    pub font: iced::Font,
+    titre: iced::Font,
+    /// Fenêtre d'application (pas de carte arrondie : Hyprland décore).
+    normale: bool,
+}
+
+impl Habillage {
+    fn title_font(&self) -> iced::Font {
+        self.titre
+    }
+
+    /// Habillage tiré d'une config, comme hyprdesk le fait de la sienne.
+    fn de_config(cfg: crate::config::Config) -> Self {
+        let famille = match &cfg.general.font {
+            Some(f) => super::intern_font(f),
+            None => crate::fonts::FAMILY,
+        };
+        Self {
+            font: match &cfg.general.font {
+                Some(f) => iced::Font::with_name(super::intern_font(f)),
+                None => crate::fonts::DEFAULT,
+            },
+            titre: iced::Font {
+                family: iced::font::Family::Name(famille),
+                weight: iced::font::Weight::Bold,
+                ..iced::Font::DEFAULT
+            },
+            cfg: std::sync::Arc::new(cfg),
+            normale: true,
+        }
+    }
+}
+
+/// Classe (app_id) de la fenêtre d'application myMFA.
+pub const APP_ID: &str = "hyprdesk-mymfa";
+
+/// Commande qui ouvre la fenêtre d'application (ce binaire, même config).
+fn commande_fenetre(config: &std::path::Path) -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "hyprdesk".into());
+    format!(
+        "{} --config {} mymfa window",
+        crate::launch::sh_quote(&exe),
+        crate::launch::sh_quote(&config.to_string_lossy())
+    )
+}
+
+/// Adresse de la fenêtre myMFA déjà ouverte, s'il y en a une.
+fn fenetre_ouverte() -> Option<String> {
+    let clients = hyprpanel_core::ipc::query_json("clients").ok()?;
+    clients.as_array()?.iter().find_map(|c| {
+        (c["class"].as_str() == Some(APP_ID))
+            .then(|| c["address"].as_str().map(str::to_string))
+            .flatten()
+    })
+}
+
 impl App {
     /// Ouvre la fenêtre myMFA (`hyprdesk mymfa open`, lanceur `:mymfa`,
     /// Réglages → Mots de passe). Coffre verrouillé : la carte d'abord (MLG-45).
@@ -406,27 +486,36 @@ impl App {
         if self.mfa.vault && self.mfa.locked {
             return self.mfa_update(crate::ui::mymfa::MMsg::Ask);
         }
-        if self.mfa_fenetre.is_some() {
-            return Task::none();
-        }
-        let win = Id::unique();
-        self.mfa_fenetre = Some(Fenetre::neuf(win));
-        Task::batch([
-            Task::done(Msg::NewLayerShell {
-                settings: NewLayerShellSettings {
-                    size: Some(((WIDTH + 2.0 * MARGE) as u32, (HEIGHT + 2.0 * MARGE) as u32)),
-                    layer: Layer::Overlay,
-                    anchor: LsAnchor::empty(),
-                    exclusive_zone: Some(-1),
-                    keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                    output_option: OutputOption::Active,
-                    namespace: Some(NAMESPACE.into()),
-                    ..Default::default()
-                },
-                id: win,
-            }),
-            Task::done(Msg::MymfaF(FMsg::Tic)),
-        ])
+        // Fenêtre d'application (xdg-toplevel) dans son propre processus,
+        // lancée par Hyprland : flottante et centrée, elle se déplace, se range
+        // et passe derrière les autres comme toute application. Déjà ouverte :
+        // elle revient au premier plan.
+        let cmd = commande_fenetre(&self.config_path);
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    if let Some(adresse) = fenetre_ouverte() {
+                        return crate::hypr::focus_window(&adresse).map_err(|e| e.to_string());
+                    }
+                    crate::hypr::exec_floating(
+                        &cmd,
+                        (WIDTH + 2.0 * MARGE) as u32,
+                        (HEIGHT + 2.0 * MARGE) as u32,
+                        None,
+                    )
+                    .map_err(|e| e.to_string())
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r)
+            },
+            |r| {
+                if let Err(e) = r {
+                    tracing::warn!("{}", crate::tr!("fenêtre myMFA : {e}", e = e));
+                }
+                Msg::Noop
+            },
+        )
     }
 
     /// Ferme la fenêtre : état effacé ET surface détruite. Sans la seconde, une
@@ -442,16 +531,22 @@ impl App {
     /// la fermer : pour une surface que le compositeur a déjà fermée.
     pub fn mfa_fenetre_oublier(&mut self) -> Option<Id> {
         let mut f = self.mfa_fenetre.take()?;
-        crate::lock::pam::wipe(&mut f.revele);
-        if let Some(form) = f.formulaire.as_mut() {
-            crate::lock::pam::wipe(&mut form.password);
-        }
+        f.effacer();
         Some(f.win)
+    }
+
+    fn habillage_mfa(&self, normale: bool) -> Habillage {
+        Habillage {
+            cfg: self.cfg.clone(),
+            font: self.font,
+            titre: self.title_font(),
+            normale,
+        }
     }
 
     pub fn view_mfa_fenetre(&self) -> Element<'_, Msg> {
         match &self.mfa_fenetre {
-            Some(f) => f.view(self),
+            Some(f) => f.view(&self.habillage_mfa(false)),
             None => iced::widget::Space::new().into(),
         }
     }
@@ -460,8 +555,30 @@ impl App {
         let Some(f) = self.mfa_fenetre.as_mut() else {
             return Task::none();
         };
+        let t = f.update(m);
+        match f.sortie.take() {
+            None => t,
+            Some(Sortie::Fermer) => Task::batch([t, self.mfa_fenetre_close()]),
+            Some(Sortie::Deverrouiller) => Task::batch([
+                t,
+                self.mfa_fenetre_close(),
+                self.mfa_update(crate::ui::mymfa::MMsg::Ask),
+            ]),
+        }
+    }
+}
+
+impl Fenetre {
+    /// Un message de la fenêtre. Ce qui la dépasse (fermer, laisser la carte
+    /// de déverrouillage prendre le relais) est posé dans `sortie`, que l'hôte
+    /// lit ensuite : hyprdesk, ou le processus de la fenêtre d'application.
+    pub fn update(&mut self, m: FMsg) -> Task<Msg> {
+        let f = &mut *self;
         match m {
-            FMsg::Fermer => self.mfa_fenetre_close(),
+            FMsg::Fermer => {
+                f.sortie = Some(Sortie::Fermer);
+                Task::none()
+            }
             FMsg::Onglet(o) => {
                 f.onglet = o;
                 f.nouveau.ouvert = false;
@@ -521,10 +638,8 @@ impl App {
             FMsg::ContenuRefuse(e, verrouille) => {
                 if verrouille {
                     // La carte de déverrouillage prend le relais.
-                    Task::batch([
-                        self.mfa_fenetre_close(),
-                        self.mfa_update(crate::ui::mymfa::MMsg::Ask),
-                    ])
+                    f.sortie = Some(Sortie::Deverrouiller);
+                    Task::none()
                 } else {
                     // Coffre ouvert : la fenêtre reste et dit pourquoi elle est vide.
                     f.dit_message(true, e);
@@ -1045,7 +1160,7 @@ fn tr_(texte: &str) -> String {
 /* ───── Vue ──────────────────────────────────────────────────────────────── */
 
 impl Fenetre {
-    fn view(&self, app: &App) -> Element<'_, Msg> {
+    fn view(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1148,6 +1263,9 @@ impl Fenetre {
         .width(Length::Fill)
         .height(Length::Fill);
 
+        // Carte arrondie et bordée en surface hyprdesk ; fenêtre d'application,
+        // Hyprland pose déjà bordure et coins.
+        let (rayon, trait_) = if app.normale { (0.0, 0.0) } else { (14.0, 1.0) };
         container(cadre)
             .padding(MARGE)
             .width(Length::Fill)
@@ -1155,14 +1273,14 @@ impl Fenetre {
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 text_color: Some(fg),
-                border: Border::default().rounded(14).width(1).color(edge),
+                border: Border::default().rounded(rayon).width(trait_).color(edge),
                 ..Default::default()
             })
             .into()
     }
 
     /// Petit bouton discret (fermer, verrouiller…).
-    fn bouton_doux(app: &App, t: &str, act: FMsg) -> Element<'static, Msg> {
+    fn bouton_doux(app: &Habillage, t: &str, act: FMsg) -> Element<'static, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1183,7 +1301,7 @@ impl Fenetre {
 
     /* ── Onglet Codes ── */
 
-    fn vue_codes(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_codes(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1365,7 +1483,7 @@ impl Fenetre {
         col.into()
     }
 
-    fn vue_nouveau_compte(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_nouveau_compte(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1502,7 +1620,7 @@ impl Fenetre {
 
     /* ── Onglet Mots de passe (MLG-46) ── */
 
-    fn vue_sites(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_sites(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1658,7 +1776,7 @@ impl Fenetre {
 
     /// Détail d'un site : identifiant, mot de passe (révélation 30 s), note,
     /// étiquette, passkeys du site.
-    fn vue_detail_site(&self, app: &App, l: &Value) -> Element<'static, Msg> {
+    fn vue_detail_site(&self, app: &Habillage, l: &Value) -> Element<'static, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -1838,7 +1956,7 @@ impl Fenetre {
         col.into()
     }
 
-    fn vue_formulaire(&self, app: &App, form: &FormulaireSite) -> Element<'static, Msg> {
+    fn vue_formulaire(&self, app: &Habillage, form: &FormulaireSite) -> Element<'static, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -2023,7 +2141,7 @@ impl Fenetre {
 
     /* ── Onglet Activité (MLG-46) ── */
 
-    fn vue_activite(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_activite(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -2131,7 +2249,7 @@ impl Fenetre {
 
     /* ── Onglet Tableau de bord (MLG-46) : chiffres, usage, santé ── */
 
-    fn vue_tableau(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_tableau(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -2349,7 +2467,7 @@ impl Fenetre {
         col.into()
     }
 
-    fn chiffre_carte(&self, app: &App, nombre: &str, libelle: &str) -> Element<'_, Msg> {
+    fn chiffre_carte(&self, app: &Habillage, nombre: &str, libelle: &str) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -2377,7 +2495,7 @@ impl Fenetre {
 
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
 
-    fn vue_reglages(&self, app: &App) -> Element<'_, Msg> {
+    fn vue_reglages(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
@@ -2537,7 +2655,7 @@ fn mymfa_core_date() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-fn bascule(app: &App, nom: &'static str, actif: bool, t: &str) -> Element<'static, Msg> {
+fn bascule(app: &Habillage, nom: &'static str, actif: bool, t: &str) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let fg = color(r.fg, 1.0);
@@ -2571,7 +2689,7 @@ fn bascule(app: &App, nom: &'static str, actif: bool, t: &str) -> Element<'stati
     .into()
 }
 
-fn bouton_etoile_login(app: &App, id: String, favori: bool) -> Element<'static, Msg> {
+fn bouton_etoile_login(app: &Habillage, id: String, favori: bool) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let dim = color(r.dim, 1.0);
@@ -2586,7 +2704,7 @@ fn bouton_etoile_login(app: &App, id: String, favori: bool) -> Element<'static, 
         .into()
 }
 
-fn bouton_poubelle_login(app: &App, id: String, _site: String) -> Element<'static, Msg> {
+fn bouton_poubelle_login(app: &Habillage, id: String, _site: String) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let dim = color(r.dim, 1.0);
@@ -2680,7 +2798,7 @@ fn decoder_image(chemin: &str) -> Result<String, String> {
     Err(crate::i18n::tr("Aucun code QR trouvé dans cette image.").to_string())
 }
 
-fn ok_vert(app: &App) -> Color {
+fn ok_vert(app: &Habillage) -> Color {
     let th = &app.cfg.general.theme;
     color(crate::theme::readable(th.fg, th.bg, th.accent).focus, 1.0)
 }
@@ -2689,7 +2807,7 @@ fn f_meme_etiquette(f: &Filtre, t: &str) -> bool {
     matches!(f, Filtre::Etiquette(e) if e == t)
 }
 
-fn filtre_bouton(app: &App, actif: bool, t: &str, act: FMsg) -> Element<'static, Msg> {
+fn filtre_bouton(app: &Habillage, actif: bool, t: &str, act: FMsg) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let fg = color(r.fg, 1.0);
@@ -2723,7 +2841,7 @@ fn filtre_bouton(app: &App, actif: bool, t: &str, act: FMsg) -> Element<'static,
     .into()
 }
 
-fn bouton_simple(app: &App, t: &str, act: FMsg) -> Element<'static, Msg> {
+fn bouton_simple(app: &Habillage, t: &str, act: FMsg) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let btn = color(r.button, 1.0);
@@ -2749,7 +2867,7 @@ fn bouton_simple(app: &App, t: &str, act: FMsg) -> Element<'static, Msg> {
         .into()
 }
 
-fn bouton_etoile(app: &App, id: String, favori: bool) -> Element<'static, Msg> {
+fn bouton_etoile(app: &Habillage, id: String, favori: bool) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let dim = color(r.dim, 1.0);
@@ -2764,7 +2882,7 @@ fn bouton_etoile(app: &App, id: String, favori: bool) -> Element<'static, Msg> {
         .into()
 }
 
-fn bouton_poubelle(app: &App, id: String, label: String) -> Element<'static, Msg> {
+fn bouton_poubelle(app: &Habillage, id: String, label: String) -> Element<'static, Msg> {
     let th = &app.cfg.general.theme;
     let r = crate::theme::readable(th.fg, th.bg, th.accent);
     let dim = color(r.dim, 1.0);
@@ -2781,4 +2899,89 @@ fn bouton_poubelle(app: &App, id: String, label: String) -> Element<'static, Msg
         })
         .on_press(wrap(FMsg::SupprimerCompte(id, label)))
         .into()
+}
+
+/* ───── Fenêtre d'application (processus à part) ─────────────────────────── */
+
+/// La fenêtre myMFA hors de hyprdesk : mêmes vues, même logique, dans une
+/// fenêtre d'application ordinaire.
+struct Application {
+    fenetre: Fenetre,
+    hab: Habillage,
+    theme: iced::Theme,
+}
+
+impl Application {
+    fn boot(config_path: &std::path::Path) -> (Self, Task<Msg>) {
+        let cfg = crate::config::lua::load_settings_only(config_path).unwrap_or_default();
+        let theme = super::make_theme(&cfg);
+        (
+            Self {
+                fenetre: Fenetre::neuf(Id::unique()),
+                hab: Habillage::de_config(cfg),
+                theme,
+            },
+            Task::done(Msg::MymfaF(FMsg::Tic)),
+        )
+    }
+
+    fn update(&mut self, m: Msg) -> Task<Msg> {
+        let Msg::MymfaF(m) = m else {
+            return Task::none();
+        };
+        let t = self.fenetre.update(m);
+        match self.fenetre.sortie.take() {
+            None => t,
+            Some(sortie) => {
+                self.fenetre.effacer();
+                if sortie == Sortie::Deverrouiller {
+                    // Coffre verrouillé : la carte de hyprdesk le demande.
+                    let _ = crate::control::send(crate::control::Command::Mymfa("unlock".into()));
+                }
+                iced::exit()
+            }
+        }
+    }
+
+    fn view(&self) -> Element<'_, Msg> {
+        self.fenetre.view(&self.hab)
+    }
+}
+
+/// `hyprdesk mymfa window` : la fenêtre myMFA en application (xdg-toplevel,
+/// classe `hyprdesk-mymfa`), que hyprdesk fait lancer par Hyprland. Une seule
+/// par session : une seconde ramène la première au premier plan.
+pub fn run(config_path: std::path::PathBuf) -> iced::Result {
+    let verrou = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("hyprdesk-mymfa.lock");
+    let Ok(_garde) = crate::single::acquire(&verrou) else {
+        if let Some(adresse) = fenetre_ouverte() {
+            let _ = crate::hypr::focus_window(&adresse);
+        }
+        return Ok(());
+    };
+    iced::application(
+        move || Application::boot(&config_path),
+        Application::update,
+        Application::view,
+    )
+    .settings(iced::Settings {
+        fonts: crate::fonts::bundled(),
+        default_font: crate::fonts::DEFAULT,
+        ..Default::default()
+    })
+    .title(|_: &Application| crate::i18n::tr("myMFA").to_string())
+    .window(iced::window::Settings {
+        size: iced::Size::new(WIDTH + 2.0 * MARGE, HEIGHT + 2.0 * MARGE),
+        min_size: Some(iced::Size::new(640.0, 420.0)),
+        platform_specific: iced::window::settings::PlatformSpecific {
+            application_id: APP_ID.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .theme(|a: &Application| a.theme.clone())
+    .run()
 }
