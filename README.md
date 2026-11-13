@@ -108,10 +108,15 @@ Forced modes** to set a mode for a specific screen or workspace. Windows you
 move or resize in full desktop mode keep their positions for that application
 and workspace. Clear those positions in **Settings → Desktop**.
 
-**Settings → Desktop → Shortcuts** and `hyprdesk keys` show existing bindings
-and their source lines in `hyprland.lua`. hyprdesk respects existing bindings
-unless you assign them to hyprdesk or leave its default `SUPER + R` override
-enabled.
+**Settings → Shortcuts** and `hyprdesk keys` show every active binding, outside
+the full desktop and with the desktop shown, with its source line in
+`hyprland.lua`. hyprdesk respects existing bindings unless you assign them to
+hyprdesk or leave its default `SUPER + R` override enabled. Where
+`hyprland.lua` lacks an essential window, workspace or screen shortcut
+(workspaces 1 to 10, previous workspace, maximize, pin, swap, group tabs,
+next screen…), hyprdesk sets it on a free combination, without editing the
+file; each one can be turned off in **Settings → Shortcuts → Windows and
+workspaces**.
 
 <details>
 <summary>Keyboard navigation in the dock</summary>

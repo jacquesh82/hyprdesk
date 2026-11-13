@@ -111,10 +111,15 @@ Modes imposés** fixe le mode d'un écran ou d'un workspace précis. Une fenêtr
 déplacée ou redimensionnée en bureau complet garde sa place, par application
 et par workspace ; « Oublier ces places » les efface (**Réglages → Bureau**).
 
-**Réglages → Bureau → Raccourcis** et `hyprdesk keys` montrent les liaisons
-existantes et leur ligne d'origine dans `hyprland.lua`. hyprdesk respecte les
-liaisons en place, sauf celles que vous lui confiez et son `SUPER + R` par
-défaut, que l'on peut désactiver.
+**Réglages → Raccourcis** et `hyprdesk keys` montrent toutes les liaisons
+actives, hors plein bureau et bureau affiché, avec leur ligne d'origine dans
+`hyprland.lua`. hyprdesk respecte les liaisons en place, sauf celles que vous
+lui confiez et son `SUPER + R` par défaut, que l'on peut désactiver. Là où
+`hyprland.lua` n'a pas un raccourci essentiel de fenêtres, de workspaces ou
+d'écrans (workspaces 1 à 10, workspace précédent, maximiser, épingler,
+échanger, onglets de groupe, écran suivant…), hyprdesk le pose sur une
+combinaison libre, sans modifier le fichier ; chacun se coupe dans
+**Réglages → Raccourcis → Fenêtres et workspaces**.
 
 <details>
 <summary>Navigation au clavier dans le dock</summary>
