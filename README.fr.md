@@ -1,6 +1,10 @@
 # hyprdesk
 *[English version](README.md)*
 
+![Licence](https://img.shields.io/badge/licence-MIT-blue)
+![Hyprland](https://img.shields.io/badge/Hyprland-%E2%89%A5%200.57-58e1ff)
+![Rust](https://img.shields.io/badge/Rust-%E2%89%A5%201.99-dea584)
+
 **Un bureau à la demande pour Hyprland.** En tuiles, les fenêtres couvrent
 l'écran et le bureau n'existe plus. hyprdesk le rend visible d'une touche,
 avec un fond d'écran, des icônes et des widgets. Chaque workspace
@@ -44,6 +48,31 @@ hyprdesk est la **racine** de la session graphique.
   s'allume tant que ce qu'il ouvre est affiché. Le dock se pilote aussi au
   clavier.
 
+<p align="center">
+  <img src="assets/screenshots/desktop.png" width="880" alt="bureau hyprdesk : barre en haut, colonne d'icônes, widgets horloge, calendrier et système, dock en bas">
+</p>
+
+## Vue d'ensemble
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/bar.png" alt="Réglages → Barre"><br><sub><b>Barre</b> — Réglages → Barre : position, hauteur, écrans, mode compact</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/launcher.png" alt="Réglages → Lanceur"><br><sub><b>Lanceur</b> — Réglages → Lanceur : fenêtres affichées, regroupement</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/icons.png" alt="Icônes du bureau et Réglages → Icônes"><br><sub><b>Icônes</b> — la colonne d'icônes du bureau et ses réglages</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/widgets.png" alt="Réglages → Widgets"><br><sub><b>Widgets</b> — Réglages → Widgets, avec horloge, calendrier et système sur le bureau</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/wallpaper.png" alt="Réglages → Fond d'écran"><br><sub><b>Fond d'écran</b> — Réglages → Fond d'écran : portée, image, diaporama ou couleur</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/effects.png" alt="Réglages → Effets"><br><sub><b>Effets</b> — Réglages → Effets : transitions et fondu entre les fonds</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/mode-launcher.png" alt="Mode lanceur seul"><br><sub><b>Mode lanceur seul</b> — fenêtres en place, le dock reste accessible</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/mode-hidden.png" alt="Mode bureau masqué"><br><sub><b>Mode bureau masqué</b> — fenêtres en mosaïque, sans dock, icônes ni widgets</sub></td>
+  </tr>
+</table>
+
 ## Réglages (⚙)
 
 Chaque entrée des réglages est un **paquet intégré** (manifeste, messages,
@@ -57,7 +86,7 @@ hyprdesk. Il regroupe les réglages suivants :
 
 | Groupe | Onglet | Réglages |
 |---|---|---|
-| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; une fenêtre déplacée garde sa place (par workspace et par application, d'une session à l'autre), « Oublier ces places » ; barres de titre Hyprbars (plugin Hyprland, à activer ici, compilé par hyprpm à l'installation, recompilé par update.sh quand Hyprland change ; --no-hyprbars) en plein bureau seulement : chargé dès qu'un écran est en plein bureau, déchargé quand aucun ne l'est, barres masquées sur les fenêtres des workspaces qu'aucun écran en plein bureau n'affiche ; boutons fermer, agrandir et réduire (une fenêtre réduite attend dans le dock, un clic la ramène ; `hyprdesk window minimize|maximize|close`) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
+| Bureau | Bureau | écrans affichés (tous, l'actif, le principal) ; fenêtres ouvertes flottantes (lancer depuis le bureau, Alt+Tab ou Échap ne changent jamais de mode) ; une fenêtre déplacée garde sa place (par workspace et par application, d'une session à l'autre), « Oublier ces places » ; barres de titre Hyprbars (plugin Hyprland, à activer ici, compilé par hyprpm à l'installation, recompilé par update.sh quand Hyprland change ; --no-hyprbars) en plein bureau seulement : chargé dès qu'un écran est en plein bureau, déchargé quand aucun ne l'est, barres masquées sur les fenêtres des workspaces qu'aucun écran en plein bureau n'affiche ; boutons fermer, agrandir et réduire (une fenêtre réduite attend dans le dock, un clic la ramène ; `hyprdesk window minimize\|maximize\|close`) ; mode opaque ou verre, par défaut et pour ce workspace ; opacité du voile ; raccourcis et conflits |
 | | Fond d'écran | portée (tous les bureaux, ce workspace, cet écran) ; image d'un dossier (vignettes), diaporama ou couleur unie ; ajustement |
 | | Icônes | portée : globales, par écran ou par workspace ; ouverture d'un double clic (un clic sélectionne) ou d'un clic ; clic droit : ouvrir, épingler au dock, renommer, retirer du bureau (et pour un fichier : dossier, corbeille, chemin, fond d'écran), Propriétés (fichier : nom, type, emplacement, taille, dates, droits, propriétaire, application qui l'ouvre ; application : identifiant, fichier .desktop, commande, classe de fenêtre ; fond du bureau : écran, workspace, mode, fond, thème ; à copier) ; raccourcis vers des applications installées ; taille des icônes et des cases ; thème d'icônes ; remise à zéro des positions |
 | | Widgets | sur ce bureau / disponibles (intégrés et plugins détectés) ; ancrage 3×3, décalages, taille, carte ; écran (le principal par défaut, un autre, tous ; s'il est débranché : sur le principal ou masqué) ; glisser-déposer sur le bureau, sans superposition |
@@ -730,6 +759,18 @@ personnalisé comme `SUPER + SHIFT + S`. Les modes région et écran capturent l
 bureau et les surfaces layer-shell. Le mode fenêtre de Hyprshot vise une
 fenêtre d’application ; le bureau et la barre ne sont pas des fenêtres XDG.
 
+## Documentation
+
+- **[Guide avancé](docs/ADVANCED.md)** : le fonctionnement de hyprdesk et
+  tout ce qui se règle
+- [Écrire un plugin](docs/WRITING_PLUGINS.md) : un guide pas à pas
+- [Plugins, widgets et lanceur](docs/PLUGINS.md) : conception interne
+- **[Journal des versions](CHANGELOG.md)** : ce qui change à chaque version
+- **[Contribuer](CONTRIBUTING.md)** : construire, vérifier, proposer ses
+  changements
+- `hyprdesk --help` liste toutes les commandes
+- `hyprdesk doctor` montre les dépendances optionnelles présentes ou absentes
+
 ## Crédits
 
 Certaines pièces viennent d'autres projets de la famille Mindlog ; elles sont
@@ -744,4 +785,4 @@ référencées ici, sans être présentées comme des éléments de hyprdesk :
 - **hyprpanel-core** — l'IPC Hyprland, du même dépôt
   [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools).
 
-Code sous licence MIT.
+Code sous licence [MIT](LICENSE).

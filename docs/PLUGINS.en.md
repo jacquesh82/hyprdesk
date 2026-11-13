@@ -12,7 +12,7 @@ a widget, and where the launcher fits.
 |---|---|---|
 | **Settings package** | `src/ui/plugins/<id>.rs` | an entry of the Settings screen: manifest, messages, state, view, update, CLI keys |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | an element placed on the desktop or in the bar, fed by a data source |
-| **Widget plugin** | `~/.config/hypr/hyprdesk/widgets/<nom>.lua` | a widget written in Lua, detected without recompiling |
+| **Widget plugin** | `~/.config/hypr/hyprdesk/widgets/<name>.lua` | a widget written in Lua, detected without recompiling |
 | **Launcher** | `src/ui/plugins/launcher.rs` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
 
 ## 1. Settings packages
@@ -24,7 +24,7 @@ A package is a module of `src/ui/plugins/` that exposes:
 ```rust
 pub const INFO: PluginInfo = PluginInfo {
     id: "screens",            // stable identifier: tab, `hyprdesk settings screens`
-    label: "Écrans",          // navigation
+    label: "Écrans",          // navigation: French source text, translated at display time (§ 9)
     icon: "video-display",    // glyph (ui/icons.rs) or theme icon
     summary: "Détection, disposition, …",
     builtin: true,            // shipped with hyprdesk
@@ -42,7 +42,7 @@ impl App {
 ```
 
 The package only knows its own messages. It emits them through `wrap(Msg::…)`;
-if it needs to talk to another package, it goes through `super::autre::wrap(…)`,
+if it needs to talk to another package, it goes through `super::other::wrap(…)`,
 which makes the dependency visible.
 
 ### Registry and shell
@@ -52,8 +52,8 @@ which makes the dependency visible.
 - `BUILTIN`: the manifests, in navigation order;
 - `PluginMsg`: one variant per package, wrapped in `PanelMsg::Plugin`;
 - `update`, `view`, `on_show`: routing to the relevant package;
-- `find`: looks up a package by identifier or by alias (`fond`,
-  `écrans`…), for `hyprdesk settings <paquet>`.
+- `find`: looks up a package by identifier or by a French alias (`fond`,
+  `écrans`…), for `hyprdesk settings <package>`.
 
 `src/ui/panel.rs` is the drawer's **shell**: its surface (its own layer
 above the windows), opening and closing, the navigation built from
@@ -77,7 +77,7 @@ above the windows), opening and closing, the navigation built from
    editor) is reloaded the same way.
 
 `settings.lua` is loaded **before** `hyprdesk.lua`: what the user writes
-by hand has the last word, and `field(…, "clé")` flags it in the view.
+by hand has the last word, and `field(…, "key")` flags it in the view.
 `settings.lua` is also reloaded **on its own**, without `hyprdesk.lua`, for
 the screen's state. A setting that targets an element of `hyprdesk.lua` must
 therefore survive this standalone read (this is the case for `hd.place` and
@@ -109,7 +109,7 @@ Keys per package:
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `suspend_binds`, `font`, `font_size`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `launcher` | `running_apps`, `launcher_group` |
-| `wallpaper` | `wallpaper` (image or `#couleur`, all desktops), `wallpaper.fit`, `wallpaper.span` (`on`: spread across all screens) |
+| `wallpaper` | `wallpaper` (image or `#rrggbb`, all desktops), `wallpaper.fit`, `wallpaper.span` (`on`: spread across all screens) |
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, or comma-separated screens) |
 | `screens` | `primary` |
@@ -117,9 +117,9 @@ Keys per package:
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
 | `apptheme` | `app_themes` (`kitty`, `none`) |
 | `effects` | `transition`, `fade_ms`, `crossfade_ms` |
-| `theme` | `theme.preset` (shipped theme), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (places: `bar`, `menus`, `launcher`, `settings`, `widgets` — no blur) |
+| `theme` | `theme.preset` (shipped theme), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<place>.opacity` (0..1), `theme.effects.<place>.blur` (places: `bar`, `menus`, `launcher`, `settings`, `widgets` — no blur) |
 | `launcher` (appearance) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
-| `apps` | `apps.<rôle>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
+| `apps` | `apps.<role>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
 | `assistant` | `assistant_mode` (`window`, `terminal`), `ai_services`, `ai_use` |
 | `plugins` | `plugin.<id>` (`on` / `off`) |
 
@@ -164,9 +164,9 @@ changes.
    `on_show`.
 3. If the package has a screen state, add its field to `Panel` (`panel.rs`).
    If it has many settings, split them into tabs: a `TABS` constant
-   (`(identifiant, libellé)`), an arm in `plugins::tabs`, and the view
+   (`(identifier, label)`), an arm in `plugins::tabs`, and the view
    only shows the tab of `self.subtab(INFO.id)`. The drawer draws the
-   pills and remembers the choice; `hyprdesk settings <paquet>/<onglet>`
+   pills and remembers the choice; `hyprdesk settings <package>/<tab>`
    opens it directly.
 4. Persist in `Settings` (`src/settings.rs`): the field, `from_config`,
    `apply_to` and `to_lua`. On the Lua side, the key must be recognized in
@@ -245,7 +245,7 @@ identifiers (`bar:<zone>:<n>`) and do not count.
 
 ### Lua plugins
 
-A plugin is a `<nom>.lua` file or a `<nom>/init.lua` folder. Search
+A plugin is a `<name>.lua` file or a `<name>/init.lua` folder. Search
 folders, the first match wins:
 
 1. `~/.config/hypr/hyprdesk/widgets`
@@ -257,14 +257,14 @@ The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `l
 
 ```lua
 return {
-    name = "VPN", description = "État du VPN", interval = 5, anchor = "top-right",
+    name = "VPN", description = "VPN state", interval = 5, anchor = "top-right",
     options = { interface = "wg0" },          -- default values of the options
     render = function(o)                      -- text, or a rich table:
-        return { icon = "network-vpn-symbolic", tooltip = "VPN actif", state = "active" }
+        return { icon = "network-vpn-symbolic", tooltip = "VPN up", state = "active" }
     end,                                      -- state: normal, active, warning, critical, hidden
     on_click  = function(o) end,
-    on_scroll = function(o, sens) end,        -- +1 / -1
-    menu = function(o) return { { header = "VPN" }, { label = "Couper", action = function() end } } end,
+    on_scroll = function(o, dir) end,         -- +1 / -1
+    menu = function(o) return { { header = "VPN" }, { label = "Disconnect", action = function() end } } end,
 }
 ```
 
@@ -430,7 +430,8 @@ closing. It talks in **JSON Lines** (one object per line, distinguished by
 A confirmation is **never** accepted by default: it waits for the click.
 To try it without LYRA: `HYPRDESK_CHAT_ENGINE="hyprdesk chat-mock"` in
 the daemon's environment (fake engine: streamed text, one tool, a
-confirmation if the message mentions “gaps”, a choice if it mentions “couleur”).
+confirmation if the message mentions “gaps”, a choice if it mentions
+“couleur” (French for “color”).
 
 ## 8. Sharing a setup
 
@@ -495,8 +496,8 @@ A **scene** is an image designed for the whole screen layout.
   unless it has its own image (`lock_image`). Per-screen slicing on the lock
   screen will come once the lock screen knows which output carries each
   surface.
-- `hyprdesk wallpaper split <image> [dossier] [--scale N]` writes each
-  screen's share (`<écran>.png`), for another tool or for checking.
+- `hyprdesk wallpaper split <image> [folder] [--scale N]` writes each
+  screen's share (`<screen>.png`), for another tool or for checking.
 
 ## 9. Interface language (i18n)
 
@@ -525,5 +526,5 @@ translation. A missing text is shown in French: nothing breaks.
 - **Checks**: `i18n::tests::catalogue_complet` (texts marked in
   `src/` and `assets/`), `registres_traduits` (packages, tabs, widgets),
   `aide_traduite` and `aide_config_traduite`. To complete the catalog:
-  `HYPRDESK_I18N_TODO=manque.toml HYPRDESK_I18N_TODO_DIR=dossier cargo test i18n`
+  `HYPRDESK_I18N_TODO=missing.toml HYPRDESK_I18N_TODO_DIR=<dir> cargo test i18n`
   writes the missing entries, to be translated and then added to `locales/en.toml`.

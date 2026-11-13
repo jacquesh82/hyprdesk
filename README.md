@@ -31,6 +31,27 @@ manage. See [LYRA, the AI in your desktop](#lyra-the-ai-in-your-desktop).
   <img src="assets/screenshots/desktop.png" width="880" alt="hyprdesk desktop: bar on top, icon column, clock, calendar and system widgets, dock at the bottom">
 </p>
 
+## Overview
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/bar.png" alt="Settings → Bar"><br><sub><b>Bar</b> — Settings → Bar: position, height, screens, compact mode</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/launcher.png" alt="Settings → Launcher"><br><sub><b>Launcher</b> — Settings → Launcher: windows shown, grouping</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/icons.png" alt="Desktop icons and Settings → Icons"><br><sub><b>Icons</b> — the desktop's icon column and its settings</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/widgets.png" alt="Settings → Widgets"><br><sub><b>Widgets</b> — Settings → Widgets, with clock, calendar and system stats on the desktop</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/wallpaper.png" alt="Settings → Wallpaper"><br><sub><b>Wallpaper</b> — Settings → Wallpaper: scope, image, slideshow or color</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/effects.png" alt="Settings → Effects"><br><sub><b>Effects</b> — Settings → Effects: transitions and wallpaper crossfade</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="assets/screenshots/mode-launcher.png" alt="Launcher-only mode"><br><sub><b>Launcher-only mode</b> — windows stay tiled, the dock stays reachable</sub></td>
+    <td width="50%" valign="top"><img src="assets/screenshots/mode-hidden.png" alt="No-desktop mode"><br><sub><b>No-desktop mode</b> — tiled windows only, no dock, icons or widgets</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - **LYRA, the built-in AI.** A chat drawer one click away on the dock, that
@@ -465,6 +486,38 @@ everywhere; you can turn that off) and the ones you hand over yourself.
 Settings → Desktop → Shortcuts and `hyprdesk keys` show every conflict, with
 the `hyprland.lua` line involved; LYRA can sort them out with you.
 
+## CLI commands
+
+| Command | What it does |
+|---|---|
+| `hyprdesk` / `hyprdesk daemon` | starts the daemon (one instance per session) |
+| `hyprdesk daemon --replace` | cleanly replaces the running instance |
+| `hyprdesk show` (`full-desktop`) · `launcher-only` · `hide` (`no-desktop`) | the three desktop modes: full (windows floating on top, arranged), launcher only (dock reachable, tiled windows leave it room), hidden. The mode belongs to the workspace: each screen takes the mode of the workspace it displays, a change only affects that workspace, and every workspace finds its mode again when you come back, across sessions (no-desktop until you set one). A mode forced on a screen or a workspace (Settings → Desktop → Forced modes) applies when you arrive there, without switching the other screens |
+| `hyprdesk toggle` · `toggle-launcher` | full-desktop / launcher-only, or no-desktop if already there (SUPER + D, SUPER + ALT + D; SUPER + CTRL + D: no-desktop) |
+| `hyprdesk cycle` | next mode: no-desktop → launcher-only → full-desktop → no-desktop (the bar's Desktop button; right click: no-desktop) |
+| `hyprdesk settings [package]` | opens the settings without changing the desktop mode (`desktop`, `launcher`, `screens`, `wallpaper`…) |
+| `hyprdesk theme [list]` · `theme new <image\|pack.zip\|folder> [--name NAME]` · `theme apply <name>` | "My themes"; a theme built from a scene (colors from the image, scene spanned across all screens, desktop and lock screen) |
+| `hyprdesk wallpaper split <image> [folder] [--scale N]` | slices a scene according to the screen layout: one image per screen |
+| `hyprdesk export [file] [--theme] [--screens]` · `hyprdesk import <archive> [--theme] [--dry-run] [--screens]` | share your setup: configs, plugins, wallpapers — or, with `--theme`, the theme alone (colors, wallpapers, effects); importing backs up the current one |
+| `hyprdesk open <role>` · `hyprdesk context` · `hyprdesk assistant` | default application of a role (`browser`, `terminal`, `ai`…); Markdown context of the environment for the assistant; opens or closes the assistant's drawer, without changing the desktop mode |
+| `hyprdesk config [list [package]] \| get \| set \| unset` | settings on the command line, per package, written to `settings.lua` as from the screen (e.g. `hyprdesk config set launcher_group app`) |
+| `hyprdesk reload` | reloads the configuration (also reloaded on every save) |
+| `hyprdesk status` | state: shown or hidden, workspaces, configuration in error or not |
+| `hyprdesk check [file]` | checks a configuration without touching the daemon |
+| `hyprdesk doctor` | external dependencies (hypridle, wpctl, nmcli, portals…): present or missing, and what relies on them; also in Settings → Desktop → Dependencies (advanced configuration) |
+| `hyprdesk init` · `stubs` · `snippet` | example config, LuaLS definitions, lines for `hyprland.lua` |
+
+With the keyboard, the dock can be driven without a mouse: opened by
+`toggle-launcher` or `launcher-only`, it takes the keyboard, first tile
+selected (Tab moves down to it from the full desktop). Arrows, Tab and
+Shift + Tab move between tiles, Home and End go to the ends, Enter or Space
+activate one and give the keyboard back, Escape closes the dock (or climbs
+back up to the full desktop).
+
+Options and variables:
+- `--config <file>` or `$HYPRDESK_CONFIG`: the configuration file to use;
+- `$HYPRDESK_LOG`: the log level (`debug`, `info`…).
+
 ## Configuration
 
 Your configuration lives in `~/.config/hypr/hyprdesk.lua`:
@@ -482,12 +535,44 @@ soon as you save them. If you make a mistake, a notification points to
 `file:line` and the last working configuration stays active. The
 [advanced guide](docs/ADVANCED.md#configuration-reference) lists every option.
 
+## Development
+
+```bash
+cargo test --locked                            # Lua config, resolution, placement, IPC, .desktop
+cargo run --locked -- --config example.lua     # the daemon with a test configuration
+```
+
+`Cargo.lock` pins `winit-core` to `0.31.0-beta.2`, because beta.4 breaks
+`iced_exdevtools`, a dependency of `iced_layershell` 0.19: always build with
+`--locked`.
+
+### Verification loop
+
+Rust 1.99 or newer is required, and `Cargo.lock` must stay in use.
+
+```bash
+bash scripts/verify.sh            # format, strict Clippy, tests, build, isolated D-Bus
+bash scripts/verify.sh --visual   # adds captures at 1440, 900 and 640 px
+cargo run --locked -- preview     # interactive preview, without touching the session
+```
+
+The preview runs the real views on demo data. It launches no application and
+writes no setting. The captures go to `/tmp/hyprdesk-visual` by default and
+cover the nine views. The preview's controls are limited to navigation and
+typography. Composer-provided blur and multi-screen interactions still need
+checking inside a Hyprland session.
+
+See [Contributing](CONTRIBUTING.md) for the full workflow.
+
 ## Documentation
 
 - **[Advanced guide](docs/ADVANCED.md)**: how hyprdesk works and everything
   you can configure
 - [Writing a plugin](docs/WRITING_PLUGINS.md): a step-by-step guide
 - [Plugins, widgets and the launcher](docs/PLUGINS.en.md): internal design
+- **[Changelog](CHANGELOG.md)**: what changed in each release
+- **[Contributing](CONTRIBUTING.md)**: build, verification loop, and what a
+  pull request is checked against
 - `hyprdesk --help` lists every command
 - `hyprdesk doctor` shows which optional dependencies are present or missing
 - Settings → About shows the version, the system, Hyprland and LYRA, and
@@ -504,4 +589,4 @@ soon as you save them. If you make a mistake, a notification points to
 
 ## License
 
-MIT.
+[MIT](LICENSE)
