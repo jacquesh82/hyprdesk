@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussions
+    url: https://github.com/jacquesh82/hyprdesk/discussions
+    about: Questions, usage help and ideas to shape up before they become an issue.
