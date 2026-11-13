@@ -315,7 +315,7 @@ if command -v hyprpanel-chat >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/hyprpane
     LYRA_STATE="$(t "déjà installée" "already installed")"
 fi
 # myMFA : proposé (coché) s'il n'est pas déjà là.
-MYMFA_ITEM=(mymfa "$(t "Installer myMFA, le trousseau (mots de passe, codes 2FA ; dépôt privé, accès SSH)" "Install myMFA, the keyring (passwords, 2FA codes; private repository, SSH access)")" on)
+MYMFA_ITEM=(mymfa "$(t "Installer myMFA, le trousseau (mots de passe, codes 2FA ; dépôt public GitHub)" "Install myMFA, the keyring (passwords, 2FA codes; public GitHub repository)")" on)
 MYMFA_STATE=""
 if command -v mymfa >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/mymfa" ]]; then
     MYMFA_ITEM=()

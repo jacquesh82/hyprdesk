@@ -26,8 +26,8 @@
 #                            défaut : compilée depuis mindlog.hyprland_tools ; dépôt,
 #                            branche et dossier : HYPRDESK_LYRA_REPO, _REF, _SRC)
 #   --no-mymfa               ne pas installer myMFA, le trousseau (mots de passe,
-#                            codes 2FA ; installé par défaut si son dépôt, privé,
-#                            est accessible : HYPRDESK_MYMFA_REPO, _SRC)
+#                            codes 2FA ; installé par défaut si son dépôt est
+#                            accessible : HYPRDESK_MYMFA_REPO, _SRC)
 #   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
 #                            bureau (plugin Hyprland compilé par hyprpm ; installé
 #                            par défaut, refait par update.sh quand Hyprland change)
@@ -133,8 +133,8 @@ HD_STEP_TOTAL=10
 
 # LYRA : sources, et place à prévoir pour la compiler si elle manque.
 LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
-# Branche qui porte le mode « serve » (tiroir de hyprdesk) ; main à défaut.
-LYRA_REF="${HYPRDESK_LYRA_REF:-feat/lyra-desktop-agent}"
+# Le mode « serve » (tiroir de hyprdesk) est fusionné dans main.
+LYRA_REF="${HYPRDESK_LYRA_REF:-main}"
 LYRA_SRC="${HYPRDESK_LYRA_SRC:-${XDG_DATA_HOME:-$HOME/.local/share}/hyprdesk/src/mindlog.hyprland_tools}"
 lyra_bin() {
     command -v hyprpanel-chat 2>/dev/null || { [[ -x "$BIN_DIR/hyprpanel-chat" ]] && echo "$BIN_DIR/hyprpanel-chat"; } || true
@@ -281,7 +281,7 @@ fi
 
 # -- myMFA ---------------------------------------------------------------------------
 # Trousseau myMFA : client Linux (démon, Secret Service, module PAM) du dépôt
-# mindlog.mymfa.clients, privé : sans accès, l'étape est sautée, rien ne bloque.
+# public mindlog.mymfa.clients : sans accès, l'étape est sautée, rien ne bloque.
 MYMFA_SRC="${HYPRDESK_MYMFA_SRC:-${XDG_DATA_HOME:-$HOME/.local/share}/hyprdesk/src/mindlog.mymfa.clients}"
 MYMFA_NEW=0
 mymfa_bin() {
@@ -314,22 +314,21 @@ mymfa_answers() {
     done
     return 1
 }
-# Dépôt privé : le premier accès qui marche, sans rien demander (clé SSH,
-# identifiants HTTPS enregistrés, ou gh connecté). Rend « ssh|https <url> »
-# ou « gh <dépôt> ».
+# Dépôt public : le premier accès qui marche, sans rien demander (HTTPS, clé
+# SSH, ou gh connecté). Rend « https|ssh <url> » ou « gh <dépôt> ».
 MYMFA_GH=lelabnet-creator/mindlog.mymfa.clients
 mymfa_access() {
     local r
-    for r in ${HYPRDESK_MYMFA_REPO:-} git@github-lelab:$MYMFA_GH.git git@github.com:$MYMFA_GH.git; do
+    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true timeout 15 \
+        git ls-remote --heads "https://github.com/$MYMFA_GH.git" >/dev/null 2>&1; then
+        echo "https https://github.com/$MYMFA_GH.git"; return
+    fi
+    for r in ${HYPRDESK_MYMFA_REPO:-} git@github.com:$MYMFA_GH.git; do
         if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" \
             git ls-remote --heads "$r" >/dev/null 2>&1; then
             echo "ssh $r"; return
         fi
     done
-    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true timeout 15 \
-        git ls-remote --heads "https://github.com/$MYMFA_GH.git" >/dev/null 2>&1; then
-        echo "https https://github.com/$MYMFA_GH.git"; return
-    fi
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
         && gh repo view "$MYMFA_GH" >/dev/null 2>&1; then
         echo "gh $MYMFA_GH"; return
@@ -368,7 +367,7 @@ if [[ "$MYMFA" == 1 ]]; then
                 MYMFA_OK=1
             fi
         else
-            # Dépôt privé : le premier accès qui marche (clé SSH, HTTPS, gh).
+            # Dépôt public : le premier accès qui marche (HTTPS, SSH, gh).
             read -r MYMFA_HOW MYMFA_REPO <<< "$(mymfa_access)"
             if [[ -n "${MYMFA_REPO:-}" ]]; then
                 mkdir -p "$(dirname "$MYMFA_SRC")"
@@ -382,9 +381,9 @@ if [[ "$MYMFA" == 1 ]]; then
                     MYMFA_OK=1
                 fi
             else
-                hd_warn "$(t "dépôt de myMFA inaccessible (privé) : étape sautée" "myMFA repository unreachable (private): step skipped")"
-                hd_hint "$(t "un accès au dépôt $MYMFA_GH : clé SSH, gh auth login, ou HYPRDESK_MYMFA_SRC=<copie des sources>, puis relancer" "access to the $MYMFA_GH repository: an SSH key, gh auth login, or HYPRDESK_MYMFA_SRC=<copy of the sources>, then run again")"
-                hd_log_note "myMFA : dépôt $MYMFA_GH inaccessible (SSH github-lelab et github.com, HTTPS sans identifiants, gh absent ou non connecté) — étape sautée"
+                hd_warn "$(t "dépôt de myMFA inaccessible : étape sautée" "myMFA repository unreachable: step skipped")"
+                hd_hint "$(t "un accès réseau au dépôt $MYMFA_GH, ou HYPRDESK_MYMFA_SRC=<copie des sources>, puis relancer" "network access to the $MYMFA_GH repository, or HYPRDESK_MYMFA_SRC=<copy of the sources>, then run again")"
+                hd_log_note "myMFA : dépôt public $MYMFA_GH inaccessible (HTTPS, SSH, gh absent ou non connecté) — étape sautée"
             fi
         fi
         if [[ "$MYMFA_OK" == 1 ]]; then
@@ -886,8 +885,8 @@ fi
 if [[ "$MYMFA" == 1 ]]; then
     # Visible au bilan : installé (binaire et activation D-Bus), puis répond.
     check 0 "myMFA, le trousseau, installé" "myMFA, the keyring, installed" \
-        "voir l'étape myMFA (accès au dépôt privé : clé SSH, gh auth login, ou HYPRDESK_MYMFA_SRC=<copie des sources>)" \
-        "see the myMFA step (access to the private repository: SSH key, gh auth login, or HYPRDESK_MYMFA_SRC=<copy of the sources>)" \
+        "voir l'étape myMFA (accès au dépôt public : réseau, ou HYPRDESK_MYMFA_SRC=<copie des sources>)" \
+        "see the myMFA step (access to the public repository: network, or HYPRDESK_MYMFA_SRC=<copy of the sources>)" \
         mymfa_ready
     if mymfa_ready; then
         check 0 "myMFA, le trousseau, répond" "myMFA, the keyring, answers" \
@@ -952,7 +951,7 @@ if [[ "$MYMFA" == 1 ]] && [[ -n "$(mymfa_bin)" ]] && [[ "$("$(mymfa_bin)" status
     optional "$(t "myMFA : créer le coffre, ou reprendre la sauvegarde du web" "myMFA: create the vault, or restore the web backup")" "hyprdesk settings mots-de-passe"
 fi
 if [[ "$MYMFA" == 1 ]] && ! mymfa_ready; then
-    optional "$(t "myMFA : dépôt privé, à installer avec un accès (clé SSH, gh auth login, ou HYPRDESK_MYMFA_SRC)" "myMFA: private repository, install it with access (SSH key, gh auth login, or HYPRDESK_MYMFA_SRC)")" "./scripts/install.sh --defaults"
+    optional "$(t "myMFA : dépôt public non joint à l'installation, à retenter (réseau, ou HYPRDESK_MYMFA_SRC)" "myMFA: public repository not reached during install, try again (network, or HYPRDESK_MYMFA_SRC)")" "./scripts/install.sh --defaults"
 fi
 optional "$(t "lignes conseillées pour hyprland.lua (raccourcis, règles)" "suggested hyprland.lua lines (shortcuts, rules)")" "hyprdesk snippet"
 

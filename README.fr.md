@@ -362,7 +362,7 @@ ligne et le temps écoulé ; leur sortie complète va dans
 | 🦀 Compilation | `cargo build --release` (3 à 10 min la première fois) |
 | 🔤 Police · 📥 Binaire · 🛠 Configuration | police Mindlog, `hyprdesk` dans `~/.local/bin`, `~/.config/hypr/hyprdesk.lua` s'il manque (une configuration existante est gardée) |
 | 🤖 LYRA | l'assistante IA, compilée depuis [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools), avec son service, qui démarre avec hyprdesk ; déjà installée : gardée |
-| 🔑 myMFA | le trousseau (mots de passe, codes 2FA) : démon, Secret Service, module PAM qui ouvre le coffre à la connexion. « Déjà installé » exige le binaire **et** son activation D-Bus ; sinon l'installation est refaite. Son dépôt est **privé** : joint par la clé SSH du poste, puis en HTTPS avec des identifiants enregistrés (jamais d'invite), puis par un `gh` connecté, ou une copie locale (`HYPRDESK_MYMFA_SRC`) ; sans accès, l'étape est sautée sans rien bloquer. Chaque issue (déjà installé, accès utilisé, dépôt inaccessible, échec, `--no-mymfa`) est écrite au journal |
+| 🔑 myMFA | le trousseau (mots de passe, codes 2FA) : démon, Secret Service, module PAM qui ouvre le coffre à la connexion. « Déjà installé » exige le binaire **et** son activation D-Bus ; sinon l'installation est refaite. Il est cloné depuis son dépôt GitHub **public** ([lelabnet-creator/mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients)), avec la clé SSH du poste ou un `gh` connecté en repli, ou une copie locale (`HYPRDESK_MYMFA_SRC`) ; l'étape reste facultative (`--no-mymfa`) et est sautée sans rien bloquer si le dépôt est inaccessible. Chaque issue (déjà installé, accès utilisé, dépôt inaccessible, échec, `--no-mymfa`) est écrite au journal |
 | 🪟 Hyprbars | les barres de titre du plein bureau : `hyprpm`, `cmake`, `meson` et `cpio` s'ils manquent, puis `hyprpm update` et `hyprpm add` (2 à 5 min, un second essai), contre le Hyprland qui tourne, donc seulement dans une session Hyprland. hyprpm tourne au premier plan, car il demande lui-même le mot de passe `sudo` ; déjà compilé : gardé |
 | 🌍 Langue · ⌨ Clavier | si choisis : langue de hyprdesk, clavier dans `inputs.lua` (et pour le système avec `localectl`) |
 | 🩺 Dépendances facultatives | celles qui manquent (veille, captures, Bluetooth, écran de connexion…) : celles des dépôts sont proposées à l'installation (toutes, aucune, ou par numéros), les autres sont montrées avec leur commande AUR |
@@ -441,10 +441,10 @@ rafraîchit l'écran de connexion.
   `hyprdesk doctor` liste les dépendances et ce qui en dépend.
 - Dans les Réglages, les boutons « Demander à LYRA » confient un problème à
   l'assistante (elle demande avant de modifier quoi que ce soit).
-- myMFA absent : donner accès à son dépôt privé (clé SSH, `gh auth login`, ou
-  `HYPRDESK_MYMFA_SRC=<copie des sources>`) et relancer `./scripts/install.sh` ;
-  le journal dit pourquoi l'étape a été sautée, la page Réglages → Mots de
-  passe aussi.
+- myMFA absent : vérifier l'accès réseau à son dépôt GitHub public, ou
+  renseigner `HYPRDESK_MYMFA_SRC=<copie des sources>`, puis relancer
+  `./scripts/install.sh` ; le journal dit pourquoi l'étape a été sautée, la
+  page Réglages → Mots de passe aussi.
 - Hyprbars absent : dans un terminal, sous Hyprland,
   `hyprpm update && hyprpm add https://github.com/hyprwm/hyprland-plugins`
   (hyprpm demande le mot de passe).

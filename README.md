@@ -346,7 +346,7 @@ output goes to `~/.local/state/hyprdesk/install-<date>.log`.
 | 🦀 Build | `cargo build --release` (3 to 10 min the first time) |
 | 🔤 Font · 📥 Binary · 🛠 Configuration | Mindlog font, `hyprdesk` in `~/.local/bin`, `~/.config/hypr/hyprdesk.lua` if missing (an existing configuration is kept) |
 | 🤖 LYRA | the AI assistant, built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools), with her service, which starts with hyprdesk; already installed: kept |
-| 🔑 myMFA | the keyring (passwords, 2FA codes): daemon, Secret Service, PAM module that opens the vault at login. "Already installed" means the binary **and** its D-Bus activation; otherwise it is installed again. Its repository is **private**: reached through the machine's SSH key, then HTTPS with saved credentials (never a prompt), then a logged-in `gh`, or a local copy (`HYPRDESK_MYMFA_SRC`); without access, the step is skipped without blocking anything. Each outcome (already installed, access used, unreachable, failure, `--no-mymfa`) goes to the log |
+| 🔑 myMFA | the keyring (passwords, 2FA codes): daemon, Secret Service, PAM module that opens the vault at login. "Already installed" means the binary **and** its D-Bus activation; otherwise it is installed again. It is cloned from its **public** GitHub repository ([lelabnet-creator/mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients)), with the machine's SSH key or a logged-in `gh` as fallbacks, or a local copy (`HYPRDESK_MYMFA_SRC`); the step stays optional (`--no-mymfa`) and is skipped without blocking anything when the repository is unreachable. Each outcome (already installed, access used, unreachable, failure, `--no-mymfa`) goes to the log |
 | 🪟 Hyprbars | the title bars of full desktop: `hyprpm`, `cmake`, `meson` and `cpio` if missing, then `hyprpm update` and `hyprpm add` (2 to 5 min, one retry), against the running Hyprland, so only inside a Hyprland session. hyprpm runs in the foreground because it asks for the `sudo` password itself; already built: kept |
 | 🌍 Language · ⌨ Keyboard | if chosen: hyprdesk's language, keyboard in `inputs.lua` (and system-wide with `localectl`) |
 | 🩺 Optional dependencies | the missing ones (idle, screenshots, Bluetooth, login screen…): those in the repositories are offered (all, none, or by number), the others are shown with their AUR command |
@@ -422,8 +422,8 @@ install, rebuilds LYRA and myMFA when needed, and refreshes the login screen.
   `hyprdesk doctor` lists the dependencies and what relies on them.
 - In Settings, the "Ask LYRA" buttons hand a problem to the assistant (she
   asks before changing anything).
-- myMFA missing: give access to its private repository (SSH key,
-  `gh auth login`, or `HYPRDESK_MYMFA_SRC=<copy of the sources>`) and run
+- myMFA missing: check the network access to its public GitHub repository,
+  or set `HYPRDESK_MYMFA_SRC=<copy of the sources>`, and run
   `./scripts/install.sh` again; the log says why the step was skipped, and
   Settings → Passwords says the same.
 - Hyprbars missing: in a terminal inside Hyprland,

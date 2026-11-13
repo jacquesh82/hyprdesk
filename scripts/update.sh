@@ -126,7 +126,7 @@ fi
 LYRA_NEW=""
 if [[ -d "$LYRA_SRC/.git" ]]; then
     REF="$(git -C "$LYRA_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-    [[ "$REF" == HEAD ]] && REF="${HYPRDESK_LYRA_REF:-feat/lyra-desktop-agent}"
+    [[ "$REF" == HEAD ]] && REF="${HYPRDESK_LYRA_REF:-main}"
     git -C "$LYRA_SRC" ls-remote --exit-code --heads origin "$REF" >/dev/null 2>&1 || REF=main
     if git -C "$LYRA_SRC" fetch -q --depth 1 origin "$REF" >/dev/null 2>&1; then
         if [[ "$(git -C "$LYRA_SRC" rev-parse HEAD)" != "$(git -C "$LYRA_SRC" rev-parse FETCH_HEAD)" ]]; then
@@ -154,7 +154,7 @@ if [[ -d "$MYMFA_SRC/.git" ]]; then
             hd_ok "myMFA $(t "à jour" "up to date")"
         fi
     else
-        hd_warn "myMFA : $(t "dépôt injoignable (privé : clé SSH)" "repository unreachable (private: SSH key)")"
+        hd_warn "myMFA : $(t "dépôt injoignable" "repository unreachable")"
     fi
 elif command -v mymfa >/dev/null 2>&1; then
     hd_note "myMFA : $(t "installé hors de hyprdesk, non suivi ici" "installed outside hyprdesk, not tracked here")"
