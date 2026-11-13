@@ -18,7 +18,7 @@ or adjust shortcuts and see the result as you go. For help with a shortcut
 conflict or a setting you’re unfamiliar with, open LYRA, the optional desktop
 assistant, from the dock.
 
-[Install](#install) · [Quick start](#quick-start) · [Configuration](#configuration) · [LYRA](#lyra) · [myMFA](#the-mymfa-keyring) · [Contributing](#contributing)
+[Install](#install) · [Uninstall](#uninstall) · [Quick start](#quick-start) · [Configuration](#configuration) · [LYRA](#lyra) · [myMFA](#the-mymfa-keyring) · [Contributing](#contributing)
 
 ![hyprdesk desktop with a top bar, app shortcuts, clock, calendar, system widgets, and a dock](assets/screenshots/desktop.png)
 
@@ -90,6 +90,22 @@ Set `HYPRDESK_INSTALLER_TUI=0` to use terminal prompts in place of whiptail.
 selects ASCII icons.
 
 </details>
+
+### Uninstall
+
+```bash
+./scripts/uninstall.sh --dry-run   # see what would change, touch nothing
+./scripts/uninstall.sh             # summary, confirmation, then uninstall
+```
+
+The script restores your previous login screen if hyprdesk replaced it,
+removes the service, binary, and font, and takes its lines out of
+`hyprland.lua` and `binds.lua`: `SUPER + L` goes back to hyprlock, and the
+services hyprdesk had taken over (polkit agent, hyprpaper…) start again. Each
+edited file is backed up first (`*.avant-desinstallation-hyprdesk.bak`), and
+the edit is rolled back if Hyprland reports a new error. Your configuration
+stays for a later install unless you pass `--purge`; `--lyra` and `--mymfa`
+also remove LYRA and myMFA.
 
 ## Quick start
 
@@ -390,23 +406,6 @@ an update is available), or `--yes` to apply without prompting.
   `hyprpm update`, then
   `hyprpm add https://github.com/hyprwm/hyprland-plugins`.
 - **Restore the previous login screen.** Run `sudo hyprdesk greeter setup restore`.
-
-<details>
-<summary>Uninstall hyprdesk</summary>
-
-If you enabled the hyprdesk login screen, restore the previous one with
-`sudo hyprdesk greeter setup restore` before removing the binary.
-
-```bash
-systemctl --user disable --now hyprdesk.service
-rm ~/.local/bin/hyprdesk
-```
-
-Remove the hyprdesk-managed entries from `hyprland.lua` or restore the
-appropriate `hyprland.lua.avant-hyprdesk-*.bak` backup. You can keep your
-`hyprdesk.lua` and `settings.lua` for a later install.
-
-</details>
 
 ## Contributing
 
