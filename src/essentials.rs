@@ -1025,6 +1025,9 @@ pub struct Listed {
     /// l'appel (`focus({workspace=1})`), sinon le dispatcher.
     pub what: String,
     pub origin: Origin,
+    /// Combinaison lue dans le fichier (raccourci de la config de Hyprland
+    /// retrouvé à sa ligne) : de quoi le modifier (MLG-116).
+    pub bind: Option<(u32, String)>,
     pub category: Category,
     /// Actif hors plein bureau (no-desktop, launcher-only).
     pub outside: bool,
@@ -1134,6 +1137,7 @@ pub fn inventory(binds: &Value, source: &[SourceBind]) -> Vec<Listed> {
                 combo: shown,
                 what: desc.trim_start_matches("hyprdesk : ").to_string(),
                 origin: Origin::Hyprdesk,
+                bind: None,
                 category: hyprdesk_category(desc),
                 outside: !inside,
                 desktop: inside || universal,
@@ -1167,6 +1171,7 @@ pub fn inventory(binds: &Value, source: &[SourceBind]) -> Vec<Listed> {
                 category: category(&combo.1, &dsp, &call),
                 what,
                 origin: Origin::HyprlandLua(src.map(|s| (s.file.clone(), s.line))),
+                bind: src.map(|s| s.combo.clone()),
                 outside: !inside,
                 desktop: inside || universal,
             }

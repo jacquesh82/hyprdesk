@@ -35,17 +35,142 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Keys(m)))
 }
 
-/// Raccourci réglable : un de hyprdesk (case de `State::keys`) ou un
-/// essentiel (`swap.left`).
+/// Raccourci réglable : un de hyprdesk (case de `State::keys`), un
+/// essentiel (`swap.left`), ou une ligne de binds.lua (ligne, combinaison lue).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Hyprdesk(usize),
     Essential(String),
+    Bind(usize, (u32, String)),
+}
+
+/// Raccourci qu'on active, désactive ou supprime dans la vue d'ensemble
+/// (MLG-116).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Row {
+    /// Ligne de binds.lua : (ligne, combinaison lue).
+    File(usize, (u32, String)),
+    /// Raccourci de hyprdesk (case de `State::keys`).
+    Hyprdesk(usize),
+    /// Essentiel (`float`).
+    Essential(&'static str),
+}
+
+/// Filtre de la vue d'ensemble.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Filter {
+    #[default]
+    All,
+    On,
+    Off,
+}
+
+/// Ce qui vient d'être fait, affiché en tête de la vue d'ensemble.
+#[derive(Debug, Clone)]
+pub struct Notice {
+    pub text: String,
+    pub error: bool,
+    /// De quoi annuler une modification de binds.lua.
+    pub undo: Option<crate::binds_file::Edited>,
+}
+
+/// Combinaison capturée déjà prise par un autre raccourci.
+#[derive(Debug, Clone)]
+pub struct Clash {
+    pub target: Target,
+    pub combo: String,
+    /// Le raccourci qui la tient, s'il se désactive d'ici.
+    pub other: Option<Row>,
+    pub what: String,
+    pub origin: String,
+}
+
+/// Une ligne de la vue d'ensemble.
+#[derive(Debug, Clone)]
+struct Shown {
+    row: Option<Row>,
+    combo: String,
+    what: String,
+    origin: String,
+    on: bool,
+    /// Posé par hyprdesk (couleur d'accent).
+    hyprdesk: bool,
+    capture: Option<Target>,
+    deletable: bool,
+    note: Option<String>,
+}
+
+/// Raccourcis de hyprdesk (case de `State::keys`) et leur libellé.
+const KEY_LABELS: &[(usize, &str)] = &[
+    (
+        0,
+        "Changer de mode (no-desktop → launcher-only → full-desktop)",
+    ),
+    (3, "launcher-only (lanceur seul)"),
+    (4, "no-desktop (masquer)"),
+    (1, "Ouvrir les réglages"),
+    (6, "Lanceur d'applications (tous les modes)"),
+    (9, "Lanceur d'applications en plein bureau (vide : le même)"),
+    (7, "Fenêtres (Alt+Tab ; avec Maj : en arrière)"),
+    (8, "Vue d'ensemble des fenêtres"),
+    (5, "Verrouiller la session"),
+    (2, "Sortie de secours (bureau affiché)"),
+];
+
+/// Case de `State::keys` d'une clé de configuration (`keys.toggle`).
+fn key_index(key: &str) -> Option<usize> {
+    Some(match key {
+        "keys.toggle" => 0,
+        "keys.settings" => 1,
+        "keys.leave" => 2,
+        "keys.launcher" => 3,
+        "keys.hide" => 4,
+        "keys.lock" => 5,
+        "keys.search" => 6,
+        "keys.switch" => 7,
+        "keys.overview" => 8,
+        "keys.search_desktop" => 9,
+        _ => return None,
+    })
+}
+
+/// Valeur réglée d'un raccourci de hyprdesk.
+fn key_value(k: &crate::config::Keys, i: usize) -> &str {
+    match i {
+        0 => &k.toggle,
+        1 => &k.settings,
+        2 => &k.leave,
+        3 => &k.launcher,
+        4 => &k.hide,
+        5 => &k.lock,
+        6 => &k.search,
+        7 => &k.switch,
+        8 => &k.overview,
+        _ => &k.search_desktop,
+    }
+}
+
+/// Deux combinaisons écrites (`SUPER + 1`, `SUPER + code:10`) : la même ?
+fn same_text(a: &str, b: &str) -> bool {
+    match (crate::hypr::parse_combo(a), crate::hypr::parse_combo(b)) {
+        (Some(x), Some(y)) => crate::binds_file::same_combo(&x, &y),
+        _ => false,
+    }
 }
 
 /// État propre à ce paquet, porté par le tiroir des réglages.
 #[derive(Default)]
 pub struct State {
+    /// Vue d'ensemble : filtre, recherche, sous-menu ouvert, suppression à
+    /// confirmer (MLG-116).
+    pub filter: Filter,
+    pub query: String,
+    pub menu: Option<Row>,
+    pub confirm: Option<Row>,
+    pub notice: Option<Notice>,
+    pub clash: Option<Clash>,
+    /// Raccourcis de binds.lua désactivés ici.
+    pub disabled: Vec<crate::binds_file::Disabled>,
     /// Raccourci en cours de capture (MLG-110).
     pub capture: Option<Target>,
     /// Numéro de la capture : un délai écoulé d'une capture finie est ignoré.
@@ -88,6 +213,27 @@ pub enum Msg {
     CaptureTimeout(u64),
     /// Revenir à la valeur par défaut.
     Reset(Target),
+    /// Vue d'ensemble (MLG-116) : filtre, recherche.
+    Filter(Filter),
+    Query(String),
+    /// Sous-menu « Actions » d'une ligne (aucun : fermé).
+    Menu(Option<Row>),
+    /// Activer (true) ou désactiver un raccourci.
+    Toggle(Row, bool),
+    /// Demander (ou abandonner) la suppression d'une ligne de binds.lua…
+    AskDelete(Option<Row>),
+    /// … puis la faire.
+    Delete(Row),
+    /// binds.lua modifié (message, de quoi annuler), ou l'erreur.
+    Edited(Result<(String, crate::binds_file::Edited), String>),
+    Undo,
+    Undone(Result<(), String>),
+    CloseNotice,
+    /// Raccourcis désactivés de binds.lua, relus.
+    Disabled(Vec<crate::binds_file::Disabled>),
+    /// Combinaison capturée déjà prise : la prendre quand même, ou non.
+    ClashReplace,
+    ClashCancel,
 }
 
 /// Valeur par défaut d'un raccourci de hyprdesk (case de `State::keys`).
@@ -333,18 +479,185 @@ impl App {
         let unified = self.cfg.general.apps_launcher.unified;
         let config_path = self.config_path.clone();
         let layouts = crate::tiling::in_use(&super::layouts::effective(&self.cfg));
+        let cp = config_path.clone();
+        Task::batch([
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        let source = crate::keymap::load_source(&config_path);
+                        crate::hypr::key_report(&keys, unified, &source, &layouts)
+                            .map_err(|e| e.to_string())
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
+                },
+                |r| wrap(Msg::Report(r)),
+            ),
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || crate::binds_file::disabled(&cp))
+                        .await
+                        .unwrap_or_default()
+                },
+                |d| wrap(Msg::Disabled(d)),
+            ),
+        ])
+    }
+
+    /// Modifie binds.lua hors du fil de l'interface : d'abord `first` (un
+    /// autre raccourci désactivé, s'il le faut), puis `edit`.
+    fn bind_edit(
+        &self,
+        first: Option<(usize, (u32, String))>,
+        line: usize,
+        combo: (u32, String),
+        edit: crate::binds_file::Edit,
+        done: String,
+    ) -> Task<UiMsg> {
+        let cp = self.config_path.clone();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let source = crate::keymap::load_source(&config_path);
-                    crate::hypr::key_report(&keys, unified, &source, &layouts)
-                        .map_err(|e| e.to_string())
+                    use crate::binds_file::{Edit, edit as run};
+                    let before = match &first {
+                        Some((n, c)) => Some(run(&cp, *n, c, &Edit::Disable)?),
+                        None => None,
+                    };
+                    let mut d = run(&cp, line, &combo, &edit)?;
+                    if let Some(b) = before {
+                        d.before = b.before;
+                    }
+                    Ok((done, d))
                 })
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
             },
-            |r| wrap(Msg::Report(r)),
+            |r| wrap(Msg::Edited(r)),
         )
+    }
+
+    /// Raccourci de hyprdesk : combinaison réglée (`None` : par défaut).
+    fn set_key(&mut self, i: usize, v: Option<String>) {
+        if let Some(p) = self.panel.as_mut()
+            && let Some(slot) = p.keys.keys.get_mut(i)
+        {
+            *slot = v.clone().unwrap_or_else(|| default_key(i));
+        }
+        let s = &mut self.settings;
+        let field = match i {
+            0 => &mut s.key_toggle,
+            1 => &mut s.key_settings,
+            2 => &mut s.key_leave,
+            3 => &mut s.key_launcher,
+            4 => &mut s.key_hide,
+            5 => &mut s.key_lock,
+            6 => &mut s.key_search,
+            7 => &mut s.key_switch,
+            8 => &mut s.key_overview,
+            _ => &mut s.key_search_desktop,
+        };
+        *field = v;
+    }
+
+    /// Essentiel coupé (false) ou posé.
+    fn set_essential(&mut self, id: &str, on: bool) {
+        let mut off = self.cfg.general.keys.essentials_off.clone();
+        off.retain(|o| o != id);
+        if !on {
+            off.push(id.to_string());
+        }
+        self.settings.key_essentials_off = Some(off);
+    }
+
+    /// Libellé d'un raccourci de la vue d'ensemble (pour les messages).
+    fn row_label(&self, r: &Row) -> String {
+        match r {
+            Row::File(n, c) => self
+                .key_report
+                .hyprland
+                .iter()
+                .find(|l| {
+                    l.origin == Origin::HyprlandLua(Some((crate::binds_file::FILE.to_string(), *n)))
+                })
+                .map(|l| l.what.clone())
+                .or_else(|| {
+                    self.panel.as_ref().and_then(|p| {
+                        p.keys
+                            .disabled
+                            .iter()
+                            .find(|d| d.line == *n && &d.combo == c)
+                            .map(|d| d.what.clone())
+                    })
+                })
+                .unwrap_or_else(|| crate::tr!("ligne {n}", n = n)),
+            Row::Hyprdesk(i) => KEY_LABELS
+                .iter()
+                .find(|(k, _)| k == i)
+                .map(|(_, l)| crate::i18n::tr(l).to_string())
+                .unwrap_or_default(),
+            Row::Essential(id) => CATALOGUE
+                .iter()
+                .find(|e| e.id == *id)
+                .map(|e| crate::i18n::tr(e.label).to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Active ou désactive un raccourci de la vue d'ensemble.
+    fn keys_toggle(&mut self, r: Row, on: bool) -> Task<UiMsg> {
+        if let Some(p) = self.panel.as_mut() {
+            p.keys.menu = None;
+            p.keys.confirm = None;
+        }
+        let what = self.row_label(&r);
+        match r {
+            Row::File(n, c) => {
+                let (edit, done) = if on {
+                    (
+                        crate::binds_file::Edit::Enable,
+                        crate::tr!("« {w} » réactivé (binds.lua, ligne {n}).", w = what, n = n),
+                    )
+                } else {
+                    (
+                        crate::binds_file::Edit::Disable,
+                        crate::tr!(
+                            "« {w} » désactivé : la ligne {n} reste dans binds.lua, en commentaire.",
+                            w = what,
+                            n = n
+                        ),
+                    )
+                };
+                self.bind_edit(None, n, c, edit, done)
+            }
+            Row::Hyprdesk(i) => {
+                self.set_key(i, if on { None } else { Some(String::new()) });
+                self.keys_notice(crate::tr!(
+                    "« {w} » {s}.",
+                    w = what,
+                    s = crate::i18n::tr(if on { "réactivé" } else { "désactivé" })
+                ));
+                self.commit()
+            }
+            Row::Essential(id) => {
+                self.set_essential(id, on);
+                self.keys_notice(crate::tr!(
+                    "« {w} » {s}.",
+                    w = what,
+                    s = crate::i18n::tr(if on { "réactivé" } else { "désactivé" })
+                ));
+                self.commit()
+            }
+        }
+    }
+
+    fn keys_notice(&mut self, text: String) {
+        if let Some(p) = self.panel.as_mut() {
+            p.keys.notice = Some(Notice {
+                text,
+                error: false,
+                undo: None,
+            });
+        }
     }
 
     pub(in crate::ui) fn keys_page(&self) -> Element<'_, UiMsg> {
@@ -452,6 +765,35 @@ impl App {
                 self.settings.key_essential_keys = Some(map);
                 self.commit()
             }
+            Target::Bind(n, c) => {
+                // Déjà la combinaison d'un autre raccourci actif : on demande.
+                let clash = self
+                    .key_report
+                    .hyprland
+                    .iter()
+                    .filter(|l| l.outside || l.desktop)
+                    .filter(|l| l.bind.as_ref() != Some(&c))
+                    .find(|l| same_text(&l.combo, &combo))
+                    .map(|l| {
+                        let s = self.shown_active(l);
+                        (s.row, s.what, s.origin)
+                    });
+                if let Some((other, what, origin)) = clash {
+                    if let Some(p) = self.panel.as_mut() {
+                        p.keys.clash = Some(Clash {
+                            target: Target::Bind(n, c),
+                            combo,
+                            other,
+                            what,
+                            origin,
+                        });
+                    }
+                    return Task::none();
+                }
+                let what = self.row_label(&Row::File(n, c.clone()));
+                let done = crate::tr!("« {w} » : {k}.", w = what, k = pretty(&combo));
+                self.bind_edit(None, n, c, crate::binds_file::Edit::Rebind(combo), done)
+            }
         }
     }
 
@@ -471,8 +813,146 @@ impl App {
             .into()
     }
 
-    /// Vue d'ensemble : les raccourcis actifs dans un mode, par rubrique.
-    fn keys_overview(&self) -> Element<'_, UiMsg> {
+    /// Une ligne de la vue d'ensemble, avec ce qu'on peut y faire (MLG-116).
+    fn shown_active(&self, l: &crate::essentials::Listed) -> Shown {
+        let g = &self.cfg.general;
+        let mut s = Shown {
+            row: None,
+            combo: l.combo.clone(),
+            what: crate::i18n::tr(&l.what).to_string(),
+            origin: String::new(),
+            on: true,
+            hyprdesk: l.origin == Origin::Hyprdesk,
+            capture: None,
+            deletable: false,
+            note: None,
+        };
+        match &l.origin {
+            Origin::HyprlandLua(Some((f, n))) => {
+                s.origin = format!("{f}:{n}");
+                if let Some(c) = &l.bind {
+                    if f == crate::binds_file::FILE {
+                        s.row = Some(Row::File(*n, c.clone()));
+                        s.capture = Some(Target::Bind(*n, c.clone()));
+                        s.deletable = true;
+                    } else {
+                        s.note = Some(
+                            crate::i18n::tr("Dans hyprland.lua : hyprdesk n'y touche pas.")
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            Origin::HyprlandLua(None) => {
+                s.origin = crate::i18n::tr("hyprland.lua").to_string();
+            }
+            Origin::Hyprdesk => {
+                if let Some(e) = CATALOGUE.iter().find(|e| l.what.starts_with(e.label)) {
+                    s.origin = crate::i18n::tr("essentiel (hyprdesk)").to_string();
+                    if g.keys.essentials {
+                        s.row = Some(Row::Essential(e.id));
+                    }
+                    s.capture = self
+                        .key_report
+                        .essentials
+                        .iter()
+                        .find(|x| {
+                            x.id == e.id
+                                && !x.slot.is_empty()
+                                && same_text(&pretty(&x.combo), &l.combo)
+                        })
+                        .map(|x| Target::Essential(x.slot.clone()));
+                } else {
+                    s.origin = crate::i18n::tr("hyprdesk").to_string();
+                    let slot = crate::keymap::actions(&g.keys)
+                        .into_iter()
+                        .find(|a| same_text(&a.combo, &l.combo))
+                        .and_then(|a| key_index(a.key))
+                        .filter(|i| !key_value(&g.keys, *i).trim().is_empty());
+                    if let Some(i) = slot {
+                        s.row = Some(Row::Hyprdesk(i));
+                        s.capture = Some(Target::Hyprdesk(i));
+                    }
+                }
+            }
+        }
+        s
+    }
+
+    /// Raccourcis désactivés : dans binds.lua, de hyprdesk (combinaison
+    /// vidée), essentiels coupés.
+    fn shown_disabled(&self) -> Vec<Shown> {
+        let g = &self.cfg.general;
+        let mut out = Vec::new();
+        let Some(p) = &self.panel else {
+            return out;
+        };
+        for d in &p.keys.disabled {
+            let m = crate::hypr::modmask_name(d.combo.0 as u64);
+            let combo = if m.is_empty() {
+                d.combo.1.clone()
+            } else {
+                format!("{m} + {}", d.combo.1)
+            };
+            out.push(Shown {
+                row: Some(Row::File(d.line, d.combo.clone())),
+                combo: pretty(&combo),
+                what: d.what.clone(),
+                origin: format!("{}:{}", crate::binds_file::FILE, d.line),
+                on: false,
+                hyprdesk: false,
+                capture: None,
+                deletable: true,
+                note: None,
+            });
+        }
+        for (i, label) in KEY_LABELS {
+            let def = default_key(*i);
+            if key_value(&g.keys, *i).trim().is_empty() && !def.is_empty() {
+                out.push(Shown {
+                    row: Some(Row::Hyprdesk(*i)),
+                    combo: pretty(&def),
+                    what: crate::i18n::tr(label).to_string(),
+                    origin: crate::i18n::tr("hyprdesk").to_string(),
+                    on: false,
+                    hyprdesk: true,
+                    capture: None,
+                    deletable: false,
+                    note: None,
+                });
+            }
+        }
+        if g.keys.essentials {
+            for e in CATALOGUE
+                .iter()
+                .filter(|e| g.keys.essentials_off.iter().any(|o| o == e.id))
+            {
+                let combo = self
+                    .key_report
+                    .essentials
+                    .iter()
+                    .find(|l| l.id == e.id)
+                    .map(|l| pretty(&l.combo))
+                    .unwrap_or_default();
+                out.push(Shown {
+                    row: Some(Row::Essential(e.id)),
+                    combo,
+                    what: crate::i18n::tr(e.label).to_string(),
+                    origin: crate::i18n::tr("essentiel (hyprdesk)").to_string(),
+                    on: false,
+                    hyprdesk: true,
+                    capture: None,
+                    deletable: false,
+                    note: None,
+                });
+            }
+        }
+        out
+    }
+
+    /// Une ligne : interrupteur, combinaison, action, origine, Capturer,
+    /// Actions ; dessous, le sous-menu, la confirmation ou la capture.
+    fn bind_row<'a>(&'a self, s: Shown) -> Element<'a, UiMsg> {
         let Some(p) = &self.panel else {
             return Space::new().into();
         };
@@ -480,6 +960,234 @@ impl App {
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let chip_color = if !s.on {
+            dim
+        } else if s.hyprdesk {
+            accent
+        } else {
+            fg
+        };
+        let toggle_row = s.row.clone();
+        let switch = toggler(s.on)
+            .on_toggle_maybe(toggle_row.map(|r| move |v| wrap(Msg::Toggle(r.clone(), v))));
+        let chip: Element<'a, UiMsg> = match &s.capture {
+            Some(t) => button(self.key_chip(s.combo.clone(), chip_color))
+                .padding(0)
+                .style(button::text)
+                .on_press(wrap(Msg::Capture(t.clone())))
+                .into(),
+            None => self.key_chip(s.combo.clone(), chip_color),
+        };
+        let mut what = column![
+            text(s.what.clone())
+                .font(self.font)
+                .size(12)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+                .color(if s.on { fg } else { dim }),
+        ]
+        .spacing(2);
+        if !s.on {
+            what = what.push(
+                text(crate::i18n::tr("Désactivé"))
+                    .font(self.font)
+                    .size(11)
+                    .color(warn),
+            );
+        }
+        let mut line = row![
+            switch,
+            container(chip).width(Length::FillPortion(4)),
+            container(what).width(Length::FillPortion(6)),
+            text(s.origin.clone())
+                .font(self.font)
+                .size(11)
+                .color(dim)
+                .width(Length::FillPortion(3)),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        if let Some(t) = &s.capture {
+            line = line.push(self.capture_button(t.clone()));
+        }
+        let menu_open = s.row.is_some() && p.keys.menu == s.row;
+        if let Some(r) = &s.row {
+            line = line.push(
+                button(
+                    text(crate::i18n::tr(if menu_open {
+                        "Fermer"
+                    } else {
+                        "Actions"
+                    }))
+                    .font(self.font)
+                    .size(12),
+                )
+                .padding([4, 10])
+                .style(if menu_open {
+                    button::primary
+                } else {
+                    button::text
+                })
+                .on_press(wrap(Msg::Menu((!menu_open).then(|| r.clone())))),
+            );
+        }
+        let mut col = column![line].spacing(8);
+        let capturing = s
+            .capture
+            .as_ref()
+            .is_some_and(|t| p.keys.capture.as_ref() == Some(t));
+        if capturing {
+            col = col.push(self.capture_prompt());
+        }
+        if let Some(c) = &p.keys.clash
+            && s.capture.as_ref() == Some(&c.target)
+        {
+            col = col.push(
+                row![
+                    text(crate::tr!(
+                        "{k} sert déjà à « {w} » ({o}). Le remplacer désactive ce raccourci-là.",
+                        k = pretty(&c.combo),
+                        w = c.what.as_str(),
+                        o = c.origin.as_str()
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(warn)
+                    .width(Length::Fill),
+                    button(text(crate::i18n::tr("Remplacer")).font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::primary)
+                        .on_press(wrap(Msg::ClashReplace)),
+                    button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::ClashCancel)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        if menu_open && let Some(r) = &s.row {
+            let mut m = row![].spacing(8).align_y(Alignment::Center);
+            if let Some(t) = &s.capture {
+                m = m.push(
+                    button(
+                        text(crate::i18n::tr("Capturer une combinaison"))
+                            .font(self.font)
+                            .size(12),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Capture(t.clone()))),
+                );
+            }
+            m = m.push(
+                button(
+                    text(crate::i18n::tr(if s.on {
+                        "Désactiver"
+                    } else {
+                        "Activer"
+                    }))
+                    .font(self.font)
+                    .size(12),
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::Toggle(r.clone(), !s.on))),
+            );
+            if s.deletable {
+                m = m.push(
+                    button(text(crate::i18n::tr("Supprimer…")).font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::danger)
+                        .on_press(wrap(Msg::AskDelete(Some(r.clone())))),
+                );
+            } else {
+                m = m.push(
+                    text(crate::i18n::tr(
+                        "Posé par hyprdesk, pas dans binds.lua : on le désactive au lieu de le supprimer.",
+                    ))
+                    .font(self.font)
+                    .size(11)
+                    .color(dim)
+                    .width(Length::Fill),
+                );
+            }
+            col = col.push(container(m).padding([0, 52]));
+        }
+        if s.row.is_some() && p.keys.confirm == s.row {
+            let Some(Row::File(n, _)) = &s.row else {
+                return col.into();
+            };
+            let r = s.row.clone().unwrap_or(Row::Hyprdesk(0));
+            let mut c = row![
+                text(crate::tr!(
+                    "Supprimer « {w} » ({k}) : la ligne {n} de binds.lua est retirée et Hyprland délie la touche. « Annuler » la remet ensuite.",
+                    w = s.what.as_str(),
+                    k = s.combo.as_str(),
+                    n = n
+                ))
+                .font(self.font)
+                .size(12)
+                .width(Length::Fill),
+                button(
+                    text(crate::i18n::tr("Supprimer la ligne"))
+                        .font(self.font)
+                        .size(12)
+                )
+                .padding([4, 10])
+                .style(button::danger)
+                .on_press(wrap(Msg::Delete(r.clone()))),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center);
+            if s.on {
+                c = c.push(
+                    button(
+                        text(crate::i18n::tr("Désactiver plutôt"))
+                            .font(self.font)
+                            .size(12),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Toggle(r, false))),
+                );
+            }
+            c = c.push(
+                button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
+                    .padding([4, 10])
+                    .style(button::text)
+                    .on_press(wrap(Msg::AskDelete(None))),
+            );
+            col = col.push(container(c).padding([8, 12]).style(move |_| {
+                container::Style {
+                    border: Border::default()
+                        .rounded(8)
+                        .width(1)
+                        .color(Color::from_rgb8(0xff, 0xa3, 0xa3)),
+                    ..Default::default()
+                }
+            }));
+        }
+        if let Some(n) = &s.note
+            && menu_open
+        {
+            col = col.push(text(n.clone()).font(self.font).size(11).color(dim));
+        }
+        col.into()
+    }
+
+    /// Vue d'ensemble : les raccourcis actifs dans un mode, par rubrique,
+    /// puis les désactivés ; chacun s'active, se désactive, se capture, et
+    /// se supprime s'il est dans binds.lua (MLG-116).
+    fn keys_overview(&self) -> Element<'_, UiMsg> {
+        let Some(p) = &self.panel else {
+            return Space::new().into();
+        };
+        let g = &self.cfg.general;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let desktop = p.keys.desktop_view;
         let mode = |label: &'static str, on: bool, v: bool| {
             button(text(crate::i18n::tr(label)).font(self.font).size(13))
@@ -493,7 +1201,7 @@ impl App {
         };
         let mut col = column![
             self.section("Vue d'ensemble"),
-            text("Les raccourcis actifs en ce moment, lus dans Hyprland : ceux de hyprland.lua (avec leur ligne) et ceux que pose hyprdesk. Bureau affiché, ceux de hyprland.lua sont suspendus, sauf ceux marqués { submap_universal = true } ; hyprdesk y garde les siens, les workspaces et les touches multimédia.")
+            text("Les raccourcis actifs en ce moment, lus dans Hyprland : ceux de binds.lua (avec leur ligne) et ceux que pose hyprdesk. Chacun s'active ou se désactive ; « Capturer » change sa combinaison ; « Actions » propose aussi de supprimer une ligne de binds.lua. Désactiver garde la ligne, mise en commentaire ; hyprland.lua n'est jamais touché.")
                 .font(self.font)
                 .size(12)
                 .color(dim),
@@ -504,7 +1212,91 @@ impl App {
             .spacing(8),
         ]
         .spacing(10);
+        // Ce qui vient d'être fait, avec de quoi l'annuler.
+        if let Some(n) = &p.keys.notice {
+            let mut r = row![
+                text(n.text.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(if n.error { warn } else { fg })
+                    .width(Length::Fill),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center);
+            if n.undo.is_some() {
+                r = r.push(
+                    button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Undo)),
+                );
+            }
+            r = r.push(
+                button(text(crate::i18n::tr("Fermer")).font(self.font).size(12))
+                    .padding([4, 10])
+                    .style(button::text)
+                    .on_press(wrap(Msg::CloseNotice)),
+            );
+            let edge = if n.error {
+                warn
+            } else {
+                color(g.theme.accent, 1.0)
+            };
+            col = col.push(
+                container(r)
+                    .padding([8, 12])
+                    .style(move |_| container::Style {
+                        border: Border::default().rounded(8).width(1).color(edge),
+                        ..Default::default()
+                    }),
+            );
+        }
+        let q = p.keys.query.trim().to_lowercase();
+        let hit = |s: &Shown| {
+            q.is_empty()
+                || format!("{} {} {}", s.combo, s.what, s.origin)
+                    .to_lowercase()
+                    .contains(&q)
+        };
         let list = &self.key_report.hyprland;
+        let active: Vec<(Category, Shown)> = list
+            .iter()
+            .filter(|l| if desktop { l.desktop } else { l.outside })
+            .map(|l| (l.category, self.shown_active(l)))
+            .collect();
+        let off = self.shown_disabled();
+        let filter = p.keys.filter;
+        let tab = |label: &'static str, n: usize, f: Filter| {
+            button(
+                text(crate::tr!("{l} ({n})", l = crate::i18n::tr(label), n = n))
+                    .font(self.font)
+                    .size(12),
+            )
+            .padding([4, 12])
+            .style(if filter == f {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .on_press(wrap(Msg::Filter(f)))
+        };
+        col = col.push(
+            row![
+                text_input(
+                    crate::i18n::tr("Chercher : touche, action, fichier…"),
+                    &p.keys.query
+                )
+                .font(self.font)
+                .on_input(|v| wrap(Msg::Query(v)))
+                .padding(8)
+                .width(Length::Fill),
+                tab("Tous", active.len() + off.len(), Filter::All),
+                tab("Actifs", active.len(), Filter::On),
+                tab("Désactivés", off.len(), Filter::Off),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
         if list.is_empty() {
             col = col.push(
                 text("Aucun raccourci lu (Hyprland injoignable, ou relevé en cours).")
@@ -513,52 +1305,61 @@ impl App {
                     .color(dim),
             );
         }
-        for cat in Category::ALL {
-            let lines: Vec<_> = list
-                .iter()
-                .filter(|l| l.category == cat && if desktop { l.desktop } else { l.outside })
-                .collect();
-            if lines.is_empty() {
-                continue;
+        let mut shown_any = false;
+        if filter != Filter::Off {
+            for cat in Category::ALL {
+                let lines: Vec<Shown> = active
+                    .iter()
+                    .filter(|(c, s)| *c == cat && hit(s))
+                    .map(|(_, s)| s.clone())
+                    .collect();
+                if lines.is_empty() {
+                    continue;
+                }
+                shown_any = true;
+                col = col.push(
+                    text(crate::tr!(
+                        "{c} ({n})",
+                        c = crate::i18n::tr(cat.label()),
+                        n = lines.len()
+                    ))
+                    .font(self.font)
+                    .size(14)
+                    .color(fg),
+                );
+                for s in lines {
+                    col = col.push(self.bind_row(s));
+                }
             }
+        }
+        if filter != Filter::On {
+            let lines: Vec<Shown> = off.into_iter().filter(|s| hit(s)).collect();
+            if !lines.is_empty() {
+                shown_any = true;
+                col = col.push(
+                    text(crate::tr!(
+                        "{c} ({n})",
+                        c = crate::i18n::tr("Désactivés"),
+                        n = lines.len()
+                    ))
+                    .font(self.font)
+                    .size(14)
+                    .color(fg),
+                );
+                for s in lines {
+                    col = col.push(self.bind_row(s));
+                }
+            }
+        }
+        if !shown_any && !list.is_empty() {
             col = col.push(
-                text(crate::tr!(
-                    "{c} ({n})",
-                    c = crate::i18n::tr(cat.label()),
-                    n = lines.len()
+                text(crate::i18n::tr(
+                    "Aucun raccourci ne correspond : effacez la recherche ou changez de filtre.",
                 ))
                 .font(self.font)
-                .size(14)
-                .color(fg),
+                .size(12)
+                .color(dim),
             );
-            for l in lines {
-                let origin = match &l.origin {
-                    Origin::HyprlandLua(Some((f, n))) => crate::tr!("{f}, ligne {n}", f = f, n = n),
-                    Origin::HyprlandLua(None) => crate::i18n::tr("hyprland.lua").to_string(),
-                    Origin::Hyprdesk => crate::i18n::tr("hyprdesk").to_string(),
-                };
-                let c = if l.origin == Origin::Hyprdesk {
-                    accent
-                } else {
-                    fg
-                };
-                col = col.push(
-                    row![
-                        container(self.key_chip(l.combo.clone(), c)).width(Length::FillPortion(4)),
-                        text(crate::i18n::tr(&l.what).to_string())
-                            .font(self.font)
-                            .size(12)
-                            .width(Length::FillPortion(6)),
-                        text(origin)
-                            .font(self.font)
-                            .size(11)
-                            .color(dim)
-                            .width(Length::FillPortion(3)),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
-                );
-            }
         }
         // Essentiels non posés : la raison est dans l'onglet voisin.
         let held = self
@@ -1056,7 +1857,127 @@ impl App {
                     self.settings.key_essential_keys = Some(map);
                     self.commit()
                 }
+                // Une ligne de binds.lua n'a pas de valeur par défaut.
+                Target::Bind(..) => Task::none(),
             },
+            Msg::Filter(f) => {
+                panel.keys.filter = f;
+                Task::none()
+            }
+            Msg::Query(q) => {
+                panel.keys.query = q;
+                Task::none()
+            }
+            Msg::Menu(r) => {
+                panel.keys.menu = r;
+                panel.keys.confirm = None;
+                Task::none()
+            }
+            Msg::Toggle(r, on) => self.keys_toggle(r, on),
+            Msg::AskDelete(r) => {
+                panel.keys.confirm = r;
+                panel.keys.menu = None;
+                Task::none()
+            }
+            Msg::Delete(r) => {
+                panel.keys.confirm = None;
+                let Row::File(n, c) = r else {
+                    return Task::none();
+                };
+                let what = self.row_label(&Row::File(n, c.clone()));
+                let done = crate::tr!(
+                    "« {w} » supprimé : ligne {n} retirée de binds.lua.",
+                    w = what,
+                    n = n
+                );
+                self.bind_edit(None, n, c, crate::binds_file::Edit::Delete, done)
+            }
+            Msg::Edited(r) => {
+                panel.keys.notice = Some(match r {
+                    Ok((text, d)) => Notice {
+                        text,
+                        error: false,
+                        undo: Some(d),
+                    },
+                    Err(e) => Notice {
+                        text: e,
+                        error: true,
+                        undo: None,
+                    },
+                });
+                self.keys_load()
+            }
+            Msg::Undo => {
+                let Some(d) = panel.keys.notice.take().and_then(|n| n.undo) else {
+                    return Task::none();
+                };
+                let cp = self.config_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::binds_file::undo(&cp, &d))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::Undone(r)),
+                )
+            }
+            Msg::Undone(r) => {
+                panel.keys.notice = Some(match r {
+                    Ok(()) => Notice {
+                        text: crate::i18n::tr("binds.lua remis comme avant.").to_string(),
+                        error: false,
+                        undo: None,
+                    },
+                    Err(e) => Notice {
+                        text: e,
+                        error: true,
+                        undo: None,
+                    },
+                });
+                self.keys_load()
+            }
+            Msg::CloseNotice => {
+                panel.keys.notice = None;
+                Task::none()
+            }
+            Msg::Disabled(d) => {
+                panel.keys.disabled = d;
+                Task::none()
+            }
+            Msg::ClashCancel => {
+                panel.keys.clash = None;
+                Task::none()
+            }
+            Msg::ClashReplace => {
+                let Some(cl) = panel.keys.clash.take() else {
+                    return Task::none();
+                };
+                let Target::Bind(n, c) = cl.target else {
+                    return Task::none();
+                };
+                let what = self.row_label(&Row::File(n, c.clone()));
+                let done = crate::tr!(
+                    "« {w} » prend {k} ; « {o} » est désactivé.",
+                    w = what,
+                    k = pretty(&cl.combo),
+                    o = cl.what.as_str()
+                );
+                let rebind = crate::binds_file::Edit::Rebind(cl.combo);
+                match cl.other {
+                    // L'autre est aussi dans binds.lua : les deux d'un coup.
+                    Some(Row::File(on, oc)) => self.bind_edit(Some((on, oc)), n, c, rebind, done),
+                    Some(Row::Hyprdesk(i)) => {
+                        self.set_key(i, Some(String::new()));
+                        Task::batch([self.commit(), self.bind_edit(None, n, c, rebind, done)])
+                    }
+                    Some(Row::Essential(id)) => {
+                        self.set_essential(id, false);
+                        Task::batch([self.commit(), self.bind_edit(None, n, c, rebind, done)])
+                    }
+                    // Tenu par un raccourci qu'on ne désactive pas d'ici.
+                    None => self.bind_edit(None, n, c, rebind, done),
+                }
+            }
             Msg::Essentials(v) => {
                 self.settings.key_essentials = Some(v);
                 self.commit()

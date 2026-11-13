@@ -558,6 +558,269 @@ pub fn migrate(config_path: &Path) -> Result<Option<Done>, String> {
     }))
 }
 
+// ── Édition d'un raccourci de binds.lua (MLG-116) ─────────────────────────
+//
+// Réglages → Raccourcis désactive (met en commentaire, avec une marque),
+// réactive, supprime ou réécrit un `hl.bind(…)` de binds.lua, désigné par sa
+// ligne et sa combinaison : si la ligne ne porte plus cette combinaison (le
+// fichier a changé depuis le relevé), rien n'est touché.
+
+/// Marque d'un raccourci désactivé dans les Réglages.
+pub const OFF: &str = "-- [hyprdesk off] ";
+
+/// Un raccourci de binds.lua désactivé dans les Réglages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Disabled {
+    /// Ligne du `hl.bind(` (à partir de 1).
+    pub line: usize,
+    pub combo: (u32, String),
+    /// Ce qu'il fait (commande lancée, sinon le dispatcher).
+    pub what: String,
+}
+
+/// Une modification de binds.lua.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Edit {
+    Disable,
+    Enable,
+    Delete,
+    /// Nouvelle combinaison (`SUPER + SHIFT + d`).
+    Rebind(String),
+}
+
+/// binds.lua avec ses raccourcis désactivés rendus lisibles (marque ôtée),
+/// et pour chaque ligne si elle portait la marque.
+fn unmasked(src: &str) -> (String, Vec<bool>) {
+    let mut marked = Vec::new();
+    let text: Vec<&str> = src
+        .lines()
+        .map(|l| match l.strip_prefix(OFF) {
+            Some(rest) => {
+                marked.push(true);
+                rest
+            }
+            None => {
+                marked.push(false);
+                l
+            }
+        })
+        .collect();
+    (text.join("\n"), marked)
+}
+
+/// Raccourcis désactivés dans les Réglages.
+pub fn disabled_in(src: &str) -> Vec<Disabled> {
+    let (text, marked) = unmasked(src);
+    crate::keymap::parse_source(&text)
+        .into_iter()
+        .filter(|b| {
+            marked.get(b.line - 1) == Some(&true)
+                && (b.line < 2 || marked.get(b.line - 2) != Some(&true))
+        })
+        .map(|b| Disabled {
+            line: b.line,
+            combo: b.combo,
+            what: b.action,
+        })
+        .collect()
+}
+
+/// Raccourcis désactivés de binds.lua (fichier absent : aucun).
+pub fn disabled(config_path: &Path) -> Vec<Disabled> {
+    std::fs::read_to_string(path(config_path))
+        .map(|s| disabled_in(&s))
+        .unwrap_or_default()
+}
+
+/// Même combinaison (même touche physique : `1`, `ampersand`, `code:10`).
+pub fn same_combo(a: &(u32, String), b: &(u32, String)) -> bool {
+    let key = |k: &str| crate::hypr::physical_key(k);
+    a.0 == b.0
+        && (a.1.eq_ignore_ascii_case(&b.1)
+            || matches!((key(&a.1), key(&b.1)), (Some(x), Some(y)) if x == y))
+}
+
+/// Instruction `hl.bind(…)` qui commence à la ligne `line` (à partir de 1),
+/// en lignes [début, fin), si elle porte `combo`. Une boucle qui pose des
+/// raccourcis n'est pas une instruction seule : refusée.
+fn statement(src: &str, line: usize, combo: &(u32, String)) -> Result<(usize, usize), String> {
+    let changed = || {
+        crate::tr!(
+            "binds.lua a changé depuis le relevé (ligne {n}) : rien n'est modifié.",
+            n = line
+        )
+    };
+    let lines: Vec<&str> = src.lines().collect();
+    let first = lines.get(line.wrapping_sub(1)).ok_or_else(changed)?;
+    if !first.trim_start().starts_with("hl.bind(") {
+        return Err(crate::tr!(
+            "Ligne {n} de binds.lua : raccourci posé par un bloc (boucle, fonction), à modifier dans le fichier.",
+            n = line
+        ));
+    }
+    let found = crate::keymap::parse_source(src)
+        .into_iter()
+        .any(|b| b.line == line && same_combo(&b.combo, combo));
+    if !found {
+        return Err(changed());
+    }
+    items(src)
+        .into_iter()
+        .find(|it| it.kind == Kind::Bind && it.start + 1 == line)
+        .map(|it| (it.start, it.end))
+        .ok_or_else(changed)
+}
+
+/// Bloc désactivé (lignes marquées) qui commence à `line`, s'il porte `combo`.
+fn masked_statement(
+    src: &str,
+    line: usize,
+    combo: &(u32, String),
+) -> Result<(usize, usize), String> {
+    let (text, marked) = unmasked(src);
+    if marked.get(line.wrapping_sub(1)) != Some(&true) {
+        return Err(crate::tr!(
+            "binds.lua a changé depuis le relevé (ligne {n}) : rien n'est modifié.",
+            n = line
+        ));
+    }
+    let (start, end) = statement(&text, line, combo)?;
+    // Le bloc entier doit être marqué : sinon ce n'est pas notre commentaire.
+    if marked[start..end].iter().all(|m| *m) {
+        Ok((start, end))
+    } else {
+        Err(crate::tr!(
+            "binds.lua a changé depuis le relevé (ligne {n}) : rien n'est modifié.",
+            n = line
+        ))
+    }
+}
+
+/// Première combinaison d'un `hl.bind(` : position (octets) de l'argument
+/// dans la ligne.
+fn first_arg(line: &str) -> Option<(usize, usize)> {
+    let open = line.find("hl.bind(")? + "hl.bind(".len();
+    let (mut quote, mut depth) = (None::<char>, 0i32);
+    for (i, c) in line[open..].char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '{' | '[') => depth += 1,
+            (None, ')' | '}' | ']') => depth -= 1,
+            (None, ',') if depth == 0 => return Some((open, open + i)),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// binds.lua après la modification `edit` du raccourci de la ligne `line`
+/// (combinaison `combo`).
+pub fn edit_src(
+    src: &str,
+    line: usize,
+    combo: &(u32, String),
+    edit: &Edit,
+) -> Result<String, String> {
+    let mut lines: Vec<String> = src.lines().map(str::to_string).collect();
+    match edit {
+        Edit::Disable => {
+            let (s, e) = statement(src, line, combo)?;
+            for l in &mut lines[s..e] {
+                *l = format!("{OFF}{l}");
+            }
+        }
+        Edit::Enable => {
+            let (s, e) = masked_statement(src, line, combo)?;
+            for l in &mut lines[s..e] {
+                *l = l.strip_prefix(OFF).unwrap_or(l).to_string();
+            }
+        }
+        Edit::Delete => {
+            let (s, e) =
+                statement(src, line, combo).or_else(|_| masked_statement(src, line, combo))?;
+            lines.drain(s..e);
+        }
+        Edit::Rebind(new) => {
+            if crate::hypr::parse_combo(new).is_none() {
+                return Err(crate::tr!("« {v} » : raccourci illisible", v = new));
+            }
+            let (s, _) = statement(src, line, combo)?;
+            let (a, b) = first_arg(&lines[s]).ok_or_else(|| {
+                crate::tr!(
+                    "Ligne {n} de binds.lua : combinaison introuvable.",
+                    n = line
+                )
+            })?;
+            lines[s].replace_range(a..b, &format!("\"{new}\""));
+        }
+    }
+    let mut out = lines.join("\n");
+    if src.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// Ce qu'a fait une modification : de quoi l'annuler.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Edited {
+    pub before: String,
+    pub after: String,
+}
+
+/// Écrit `new` dans binds.lua, recharge Hyprland, et rend l'ancien contenu
+/// si Hyprland signale une erreur nouvelle.
+fn write_checked(file: &Path, old: &str, new: &str) -> Result<(), String> {
+    let before: BTreeSet<String> = crate::hyprcheck::config_errors().into_iter().collect();
+    std::fs::write(file, new).map_err(|e| e.to_string())?;
+    let _ = std::process::Command::new("hyprctl").arg("reload").output();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let fresh: Vec<String> = crate::hyprcheck::config_errors()
+        .into_iter()
+        .filter(|e| !before.contains(e))
+        .collect();
+    if !fresh.is_empty() {
+        let _ = std::fs::write(file, old);
+        let _ = std::process::Command::new("hyprctl").arg("reload").output();
+        return Err(crate::tr!(
+            "binds.lua laissé tel quel : Hyprland signalait {e}",
+            e = fresh.join(" ; ")
+        ));
+    }
+    Ok(())
+}
+
+/// Modifie un raccourci de binds.lua, puis recharge Hyprland.
+pub fn edit(
+    config_path: &Path,
+    line: usize,
+    combo: &(u32, String),
+    e: &Edit,
+) -> Result<Edited, String> {
+    let file = path(config_path);
+    let src = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    let new = edit_src(&src, line, combo, e)?;
+    write_checked(&file, &src, &new)?;
+    Ok(Edited {
+        before: src,
+        after: new,
+    })
+}
+
+/// Annule une modification, si binds.lua n'a pas changé depuis.
+pub fn undo(config_path: &Path, done: &Edited) -> Result<(), String> {
+    let file = path(config_path);
+    let now = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    if now != done.after {
+        return Err(
+            crate::i18n::tr("binds.lua a changé depuis : annulation impossible.").to_string(),
+        );
+    }
+    write_checked(&file, &now, &done.before)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,6 +937,76 @@ hl.bind("SUPER + X", hl.dsp.exec_cmd("vieux"))
         // Une locale posée par un raccourci et reprise ailleurs : on ne touche à rien.
         let src = "local b = hl.bind(\"SUPER + C\", hl.dsp.window.close())\nb:set_enabled(false)\n";
         assert_eq!(split(src, None), None);
+    }
+
+    const BINDS: &str = r#"local mainMod = "SUPER"
+-- Apps
+hl.bind(mainMod .. " + Return", hl.dsp.exec_cmd("kitty"))
+hl.bind(mainMod .. " + Q", hl.dsp.window.close())
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),
+    { mouse = true })
+for ws, code in ipairs({ 10, 11 }) do
+    hl.bind(mainMod .. " + code:" .. code, hl.dsp.focus({ workspace = ws }))
+end
+"#;
+
+    fn c(s: &str) -> (u32, String) {
+        crate::hypr::parse_combo(s).unwrap()
+    }
+
+    #[test]
+    fn desactive_puis_reactive() {
+        let off = edit_src(BINDS, 5, &c("SUPER + mouse:272"), &Edit::Disable).unwrap();
+        assert!(off.contains(&format!("{OFF}hl.bind(mainMod .. \" + mouse:272\"")));
+        assert!(off.contains(&format!("{OFF}    {{ mouse = true }})")));
+        // Plus actif, mais listé comme désactivé, avec sa ligne.
+        assert!(
+            !crate::keymap::parse_source(&off)
+                .iter()
+                .any(|b| b.combo == c("SUPER + mouse:272"))
+        );
+        let d = disabled_in(&off);
+        assert_eq!(d.len(), 1);
+        assert_eq!((d[0].line, d[0].combo.clone()), (5, c("SUPER + mouse:272")));
+        assert_eq!(d[0].what, "window.drag");
+        let on = edit_src(&off, 5, &c("SUPER + mouse:272"), &Edit::Enable).unwrap();
+        assert_eq!(on, BINDS);
+    }
+
+    #[test]
+    fn supprime_et_reecrit() {
+        let del = edit_src(BINDS, 4, &c("SUPER + Q"), &Edit::Delete).unwrap();
+        assert!(!del.contains("window.close"));
+        assert_eq!(del.lines().count(), BINDS.lines().count() - 1);
+        // Un raccourci désactivé se supprime aussi.
+        let off = edit_src(BINDS, 5, &c("SUPER + mouse:272"), &Edit::Disable).unwrap();
+        let gone = edit_src(&off, 5, &c("SUPER + mouse:272"), &Edit::Delete).unwrap();
+        assert!(!gone.contains("mouse:272") && gone.contains("window.close"));
+        let re = edit_src(
+            BINDS,
+            3,
+            &c("SUPER + Return"),
+            &Edit::Rebind("SUPER + ALT + t".into()),
+        )
+        .unwrap();
+        assert!(re.contains("hl.bind(\"SUPER + ALT + t\", hl.dsp.exec_cmd(\"kitty\"))"));
+        assert!(
+            crate::keymap::parse_source(&re)
+                .iter()
+                .any(|b| b.line == 3 && b.combo == c("SUPER + ALT + t"))
+        );
+    }
+
+    #[test]
+    fn refuse_ce_qui_a_change() {
+        // Autre combinaison à cette ligne (fichier modifié depuis le relevé).
+        assert!(edit_src(BINDS, 4, &c("SUPER + E"), &Edit::Delete).is_err());
+        // Raccourci posé par une boucle.
+        assert!(edit_src(BINDS, 8, &c("SUPER + code:10"), &Edit::Disable).is_err());
+        // Réactiver une ligne qui n'est pas désactivée.
+        assert!(edit_src(BINDS, 4, &c("SUPER + Q"), &Edit::Enable).is_err());
+        // Combinaison illisible.
+        assert!(edit_src(BINDS, 4, &c("SUPER + Q"), &Edit::Rebind("SUPER +".into())).is_err());
     }
 
     #[test]
