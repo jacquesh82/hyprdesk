@@ -452,9 +452,9 @@ pub async fn drive_disconnect() -> Result<(), String> {
         .map_err(|e| error_text(&e))
 }
 
-/// Restaure une version gardée en point de restauration (mot de passe demandé).
-/// (MLG-46, tranche suivante : onglets Mots de passe et restauration.)
-#[allow(dead_code)]
+/// Restaure une version reçue de Drive (révision vide : la dernière), ouverte
+/// par son mot de passe. Un coffre local présent est remplacé (gardé à côté
+/// par le démon) : c'est la récupération du coffre du web (driveAutreCoffre).
 pub async fn restore_drive(revision: &str, mut password: String) -> Result<(), String> {
     let r = match proxy().await {
         Ok(p) => p.restore_drive(revision, &password).await,

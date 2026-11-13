@@ -136,6 +136,10 @@ pub enum FMsg {
     SyncNow,
     ConnecterDrive,
     DeconnecterDrive,
+    /// Drive porte un autre coffre : son mot de passe, puis sa récupération.
+    MdpDrive(String),
+    RecupererDrive,
+    Recupere(Result<(), String>),
     /// Message affiché en bas de fenêtre (erreur ?).
     Message(bool, String),
 }
@@ -172,6 +176,8 @@ pub struct Fenetre {
     /// Nouveau compte 2FA (formulaire du code, pas encore du scanner d'image).
     pub nouveau: NouveauCompte,
     pub statut_synchro: Option<Value>,
+    /// Mot de passe du coffre de Drive (récupération, `driveAutreCoffre`).
+    pub mdp_drive: String,
     pub journal: Option<Value>,
     /// Santé des mots de passe (Audit du démon).
     pub audit: Option<Value>,
@@ -299,6 +305,7 @@ impl Fenetre {
             generateur: Generateur::default(),
             nouveau: NouveauCompte::default(),
             statut_synchro: None,
+            mdp_drive: String::new(),
             journal: None,
             audit: None,
             image_chemin: String::new(),
@@ -311,6 +318,7 @@ impl Fenetre {
     /// Efface les secrets tenus (mot de passe révélé, formulaire).
     pub fn effacer(&mut self) {
         crate::lock::pam::wipe(&mut self.revele);
+        crate::lock::pam::wipe(&mut self.mdp_drive);
         if let Some(form) = self.formulaire.as_mut() {
             crate::lock::pam::wipe(&mut form.password);
         }
@@ -1136,6 +1144,43 @@ impl Fenetre {
                 })))),
                 Err(e) => Msg::MymfaF(FMsg::Message(true, e)),
             }),
+            FMsg::MdpDrive(m) => {
+                crate::lock::pam::wipe(&mut f.mdp_drive);
+                f.mdp_drive = m;
+                Task::none()
+            }
+            FMsg::RecupererDrive => {
+                if f.occupe || f.mdp_drive.is_empty() {
+                    return Task::none();
+                }
+                f.occupe = true;
+                f.message = Some((false, tr_("Récupération du coffre de Drive…")));
+                let mdp = std::mem::take(&mut f.mdp_drive);
+                Task::perform(
+                    async move { mymfa::restore_drive("", mdp).await },
+                    |r| Msg::MymfaF(FMsg::Recupere(r)),
+                )
+            }
+            FMsg::Recupere(r) => match r {
+                Ok(()) => {
+                    f.dit_message(
+                        false,
+                        tr_("Coffre de Drive récupéré : il remplace celui de cet ordinateur (gardé à côté), les secrets des applications sont conservés."),
+                    );
+                    Task::batch([
+                        Task::perform(mymfa::content(), |r| Msg::MymfaF(FMsg::Contenu(r))),
+                        Task::perform(mymfa::codes_pleines(), |r| Msg::MymfaF(FMsg::Codes(r))),
+                        Task::perform(mymfa::sync_status(), |r| {
+                            Msg::MymfaF(FMsg::StatutSynchro(r))
+                        }),
+                        Task::perform(mymfa::sync_journal(), |r| Msg::MymfaF(FMsg::Journal(r))),
+                    ])
+                }
+                Err(e) => {
+                    f.dit_message(true, e);
+                    Task::none()
+                }
+            },
             FMsg::Message(erreur, texte) => {
                 f.message = Some((erreur, texte));
                 f.occupe = false;
@@ -2495,6 +2540,70 @@ impl Fenetre {
 
     /* ── Onglet Réglages : verrouillage, export, synchro Drive (MLG-47) ── */
 
+    /// Drive porte un autre coffre (celui du web, en général) : pas de fusion
+    /// possible ; on le récupère avec son mot de passe, à la place du local.
+    fn vue_autre_coffre(&self, app: &Habillage) -> Element<'_, Msg> {
+        let th = &app.cfg.general.theme;
+        let r = crate::theme::readable(th.fg, th.bg, th.accent);
+        let fg = color(r.fg, 1.0);
+        let dim = color(r.dim, 1.0);
+        let warn = color(r.error, 1.0);
+        let edge = color(r.edge, 1.0);
+        let compte = |c: &str| {
+            self.contenu
+                .as_ref()
+                .and_then(|v| v.get(c))
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        };
+        let saisie = text_input(
+            crate::i18n::tr("Mot de passe du coffre de Drive (celui du web)"),
+            &self.mdp_drive,
+        )
+        .secure(true)
+        .font(app.font)
+        .size(13)
+        .padding(8)
+        .on_input(|m| Msg::MymfaF(FMsg::MdpDrive(m)))
+        .on_submit(Msg::MymfaF(FMsg::RecupererDrive));
+        let colonne = column![
+            text(crate::i18n::tr(
+                "Google Drive porte un autre coffre que celui de cet ordinateur (celui du web, en général) : les deux ne peuvent pas se fusionner."
+            ))
+            .font(app.font)
+            .size(13)
+            .color(warn),
+            text(crate::tr!(
+                "Récupérez-le avec son mot de passe : il remplacera le coffre de cet ordinateur ({comptes} comptes, {logins} logins), gardé à côté. Les secrets des applications sont conservés.",
+                comptes = compte("accounts"),
+                logins = compte("logins")
+            ))
+            .font(app.font)
+            .size(12)
+            .color(dim),
+            row![
+                saisie,
+                bouton_simple(
+                    app,
+                    crate::i18n::tr("Récupérer le coffre de Drive"),
+                    FMsg::RecupererDrive
+                ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(8);
+        container(colonne)
+            .padding(10)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(Color { a: 0.05, ..fg }.into()),
+                border: Border::default().rounded(8).width(1).color(edge),
+                ..Default::default()
+            })
+            .into()
+    }
+
     fn vue_reglages(&self, app: &Habillage) -> Element<'_, Msg> {
         let th = &app.cfg.general.theme;
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
@@ -2576,6 +2685,24 @@ impl Fenetre {
             ]
             .spacing(8),
         );
+
+        // Erreur du dernier cycle ; Drive porte un autre coffre : sa récupération.
+        let code = statut
+            .get("statut")
+            .filter(|s| s.get("etat").and_then(Value::as_str) == Some("erreur"))
+            .and_then(|s| s.get("code"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if code == "driveAutreCoffre" {
+            col = col.push(self.vue_autre_coffre(app));
+        } else if !code.is_empty() {
+            col = col.push(
+                text(crate::tr!("Dernière synchro en échec : {code}", code = code).to_string())
+                    .font(app.font)
+                    .size(13)
+                    .color(warn),
+            );
+        }
 
         // Journal de synchro (dernières entrées).
         if let Some(j) = &self.journal {
