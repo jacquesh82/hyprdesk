@@ -8,7 +8,7 @@
 
 **A desktop you can bring up whenever you need it in [Hyprland](https://hyprland.org).**
 
-When your tiled windows fill the screen, press `SUPER + D` to reach your
+When your tiled windows fill the screen, press `SUPER + D` (twice: dock, then full desktop) to reach your
 wallpaper, icons, and widgets. Your windows float above the desktop while
 you use it and return to their tiled layout when you leave. Each workspace
 remembers how you left it.
@@ -18,7 +18,7 @@ or adjust shortcuts and see the result as you go. For help with a shortcut
 conflict or a setting you’re unfamiliar with, open LYRA, the optional desktop
 assistant, from the dock.
 
-[Install](#install) · [Quick start](#quick-start) · [Configuration](#configuration) · [LYRA](#lyra) · [Contributing](#contributing)
+[Install](#install) · [Quick start](#quick-start) · [Configuration](#configuration) · [LYRA](#lyra) · [myMFA](#the-mymfa-keyring) · [Contributing](#contributing)
 
 ![hyprdesk desktop with a top bar, app shortcuts, clock, calendar, system widgets, and a dock](assets/screenshots/desktop.png)
 
@@ -93,7 +93,7 @@ selects ASCII icons.
 
 | Shortcut | Action |
 | --- | --- |
-| `SUPER + D` | Toggle the full desktop. Windows float above the wallpaper, icons, and widgets |
+| `SUPER + D` | Next mode: hidden → dock (windows stay in place) → full desktop (windows float above the wallpaper, icons, and widgets) → hidden |
 | `SUPER + ALT + D` | Toggle the dock and keep windows in place |
 | `SUPER + CTRL + D` | Hide the desktop and dock |
 | `SUPER + SHIFT + D` | Open Settings |
@@ -134,7 +134,8 @@ closes the dock or returns focus to the full desktop.
   revert after 12 seconds unless you keep them.
 - **Set up your session.** Configure autostart, laptop lid behavior, the lock
   screen with fingerprint support, notifications, screenshots, and screen
-  recording. The installer also offers a greetd login screen and a myMFA keyring.
+  recording. The installer also offers a greetd login screen and a
+  [myMFA keyring](#the-mymfa-keyring).
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 
@@ -239,6 +240,29 @@ enabled by default when LYRA is installed.
 | ![Assistant and CLI subscription settings](assets/screenshots/assistant-settings.png) | ![Provider settings](assets/screenshots/settings-ai-services.png) | ![SmartUI icon generation settings](assets/screenshots/settings-smartui.png) |
 
 </details>
+
+## The myMFA keyring
+
+myMFA is an optional keyring for passwords and 2FA codes. Installed with
+hyprdesk from its [public repository](https://github.com/lelabnet-creator/mindlog.mymfa.clients)
+(`--no-mymfa` skips it), its daemon serves the Secret Service — the secrets
+your applications keep go to the myMFA vault — and the `pam_mymfa` module
+can open that vault when you log in. hyprdesk is its interface:
+
+- **The myMFA window** (`hyprdesk mymfa window`) shows the 2FA codes, the
+  passwords, the vault’s dashboard and activity, this device, its settings,
+  and a scanner that adds an account from a QR image or a screenshot. The
+  bar’s `mymfa` module shows the vault’s state, and an unlock card in
+  hyprdesk’s own style answers applications asking for the vault.
+- **The launcher** finds codes and passwords with `:2fa` and `:mdp`. The
+  daemon itself does the copying, and a copied password clears from the
+  clipboard after 30 seconds.
+- **Settings → Passwords** creates the vault, or installs the backup of the
+  [myMFA web app](https://app.mymfa.mindlog.today). It can also take the
+  Secret Service over from gnome-keyring — importing its secrets, then
+  stopping it — with one button to go back.
+- The **Device** tab links this machine’s vault to the web app’s, merges
+  the two, and shows the synchronization journal.
 
 ## Widgets and plugins
 
@@ -350,14 +374,17 @@ and isolated D-Bus checks. Add `--visual` to capture the demo views at 1440,
 uses demo data and leaves session settings untouched. Check compositor blur and
 multi-monitor behavior in a Hyprland session.
 
-See the [development guide](docs/ADVANCED.md#development) for more build and verification details.
+See the [development guide](docs/ADVANCED.md#development) for more build and
+verification details, and the [contributing guide](CONTRIBUTING.md) for the
+pull request workflow.
 
 ## Documentation
 
 - [Advanced guide](docs/ADVANCED.md)
 - [Writing a plugin](docs/WRITING_PLUGINS.md)
 - [Plugin, widget, and launcher internals](docs/PLUGINS.en.md)
-- [Project work log](WORKLOG.md) (French)
+- [Changelog](CHANGELOG.md)
+- [Contributing guide](CONTRIBUTING.md)
 
 ## Credits and license
 
