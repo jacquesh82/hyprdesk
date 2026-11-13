@@ -1398,6 +1398,7 @@ impl App {
             || self.search.is_some()
             || self.switcher.is_some()
             || self.mfa_dialog.is_some()
+            || self.mfa_fenetre.is_some()
             || !self.launcher_surfaces.is_empty()
     }
 
@@ -4070,7 +4071,8 @@ impl App {
                     return Task::none();
                 }
                 if self.mfa_fenetre.as_ref().is_some_and(|f| f.win == id) {
-                    return self.mfa_fenetre_close();
+                    self.mfa_fenetre_oublier();
+                    return Task::none();
                 }
                 // Carte polkit fermée par le compositeur : la saisie est annulée.
                 if self.polkit.as_ref().is_some_and(|d| d.win == id) {

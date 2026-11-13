@@ -93,6 +93,8 @@ pub enum FMsg {
     Codes(Result<Vec<crate::mymfa::CodeComplet>, String>),
     /// Contenu complet (`Content`).
     Contenu(Result<Value, String>),
+    /// `Content` refusé : le message, et si le coffre est verrouillé.
+    ContenuRefuse(String, bool),
     Recherche(String),
     Filtre(Filtre),
     Masquer(bool),
@@ -427,15 +429,24 @@ impl App {
         ])
     }
 
+    /// Ferme la fenêtre : état effacé ET surface détruite. Sans la seconde, une
+    /// surface vide resterait à l'écran en gardant le clavier (exclusif).
     pub fn mfa_fenetre_close(&mut self) -> Task<Msg> {
-        if let Some(f) = self.mfa_fenetre.as_mut() {
-            crate::lock::pam::wipe(&mut f.revele);
-            if let Some(form) = f.formulaire.as_mut() {
-                crate::lock::pam::wipe(&mut form.password);
-            }
+        match self.mfa_fenetre_oublier() {
+            Some(win) => iced::window::close(win),
+            None => Task::none(),
         }
-        self.mfa_fenetre = None;
-        Task::none()
+    }
+
+    /// Efface l'état de la fenêtre (secrets compris) et rend sa surface, sans
+    /// la fermer : pour une surface que le compositeur a déjà fermée.
+    pub fn mfa_fenetre_oublier(&mut self) -> Option<Id> {
+        let mut f = self.mfa_fenetre.take()?;
+        crate::lock::pam::wipe(&mut f.revele);
+        if let Some(form) = f.formulaire.as_mut() {
+            crate::lock::pam::wipe(&mut form.password);
+        }
+        Some(f.win)
     }
 
     pub fn view_mfa_fenetre(&self) -> Element<'_, Msg> {
@@ -501,14 +512,25 @@ impl App {
                     f.contenu = Some(c);
                     Task::none()
                 }
-                Err(_e) => {
-                    // Coffre verrouillé entre-temps : la carte prend le relais.
+                // Refus : coffre verrouillé entre-temps, ou autre chose (démon
+                // trop ancien pour `Content`…). L'état du démon tranche.
+                Err(e) => Task::perform(mymfa::state(), move |s| {
+                    Msg::MymfaF(FMsg::ContenuRefuse(e.clone(), s.vault && s.locked))
+                }),
+            },
+            FMsg::ContenuRefuse(e, verrouille) => {
+                if verrouille {
+                    // La carte de déverrouillage prend le relais.
                     Task::batch([
                         self.mfa_fenetre_close(),
                         self.mfa_update(crate::ui::mymfa::MMsg::Ask),
                     ])
+                } else {
+                    // Coffre ouvert : la fenêtre reste et dit pourquoi elle est vide.
+                    f.dit_message(true, e);
+                    Task::none()
                 }
-            },
+            }
             FMsg::Recherche(s) => {
                 f.recherche = s;
                 Task::none()

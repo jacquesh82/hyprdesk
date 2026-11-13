@@ -163,18 +163,9 @@ pub fn query(q: &str) -> Option<(Mode, &str)> {
 }
 
 /// Message lisible d'une erreur du démon (ses erreurs portent un texte
-/// français affichable).
+/// français affichable). Une méthode inconnue désigne un démon d'avant elle
+/// (client pas à jour, ou binaire remplacé sans relance) : dit comme tel.
 pub fn error_text(e: &zbus::Error) -> String {
-    match e {
-        zbus::Error::MethodError(_, Some(msg), _) => msg.clone(),
-        zbus::Error::MethodError(name, None, _) => name.to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// Message d'une erreur de création : un démon d'avant CreateVault /
-/// InstallVault (binaire remplacé sans relance) est désigné comme tel.
-fn create_error_text(e: &zbus::Error) -> String {
     match e {
         zbus::Error::MethodError(name, _, _)
             if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
@@ -184,7 +175,9 @@ fn create_error_text(e: &zbus::Error) -> String {
             )
             .to_string()
         }
-        other => error_text(other),
+        zbus::Error::MethodError(_, Some(msg), _) => msg.clone(),
+        zbus::Error::MethodError(name, None, _) => name.to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -272,7 +265,7 @@ pub async fn create_vault(mut password: String) -> Result<bool, String> {
         Err(e) => Err(e),
     };
     crate::lock::pam::wipe(&mut password);
-    let p = r.map_err(|e| create_error_text(&e))?;
+    let p = r.map_err(|e| error_text(&e))?;
     Ok(p.sealed().await.unwrap_or(false))
 }
 
@@ -287,7 +280,7 @@ pub async fn install_vault(path: PathBuf, mut password: String) -> Result<bool, 
         Err(e) => Err(e),
     };
     crate::lock::pam::wipe(&mut password);
-    let p = r.map_err(|e| create_error_text(&e))?;
+    let p = r.map_err(|e| error_text(&e))?;
     Ok(p.sealed().await.unwrap_or(false))
 }
 
