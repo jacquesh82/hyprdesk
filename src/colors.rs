@@ -100,7 +100,11 @@ impl Adjust {
         let Some(&(_, _, lo, hi, _)) = FIELDS.iter().find(|f| f.0 == key) else {
             return false;
         };
-        let v = if v.is_finite() { v.clamp(lo, hi) } else { return false };
+        let v = if v.is_finite() {
+            v.clamp(lo, hi)
+        } else {
+            return false;
+        };
         match key {
             "brightness" => self.brightness = v,
             "contrast" => self.contrast = v,
@@ -180,9 +184,14 @@ static ICC: std::sync::RwLock<BTreeMap<String, String>> = std::sync::RwLock::new
 pub fn set_icc_map(colors: &BTreeMap<String, Adjust>) -> bool {
     let next: BTreeMap<String, String> = colors
         .iter()
-        .filter_map(|(m, a)| a.icc().map(|p| (m.clone(), crate::apptheme::expand_home(p))))
+        .filter_map(|(m, a)| {
+            a.icc()
+                .map(|p| (m.clone(), crate::apptheme::expand_home(p)))
+        })
         .collect();
-    let Ok(mut cur) = ICC.write() else { return false };
+    let Ok(mut cur) = ICC.write() else {
+        return false;
+    };
     let changed = *cur != next;
     *cur = next;
     changed
@@ -206,7 +215,9 @@ pub fn installed_profiles() -> Vec<String> {
     ] {
         let mut stack = vec![std::path::PathBuf::from(dir)];
         while let Some(d) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            let Ok(rd) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -236,7 +247,9 @@ pub fn import(config_path: &std::path::Path, file: &str) -> Result<String, Strin
         .map(str::to_lowercase)
         .unwrap_or_default();
     if !matches!(ext.as_str(), "icc" | "icm" | "cal") {
-        return Err(crate::i18n::tr("fichier de calibration attendu : .icc, .icm ou .cal").to_string());
+        return Err(
+            crate::i18n::tr("fichier de calibration attendu : .icc, .icm ou .cal").to_string(),
+        );
     }
     if ext == "cal" {
         let t = std::fs::read_to_string(&src).map_err(|e| format!("{} : {e}", src.display()))?;
@@ -245,7 +258,10 @@ pub fn import(config_path: &std::path::Path, file: &str) -> Result<String, Strin
         let b = std::fs::read(&src).map_err(|e| format!("{} : {e}", src.display()))?;
         // En-tête ICC : signature « acsp » à l'octet 36.
         if b.len() < 128 || &b[36..40] != b"acsp" {
-            return Err(crate::tr!("{f} : ce n'est pas un profil ICC", f = src.display()));
+            return Err(crate::tr!(
+                "{f} : ce n'est pas un profil ICC",
+                f = src.display()
+            ));
         }
     }
     let dir = config_path
@@ -438,8 +454,16 @@ pub fn parse_cal(src: &str) -> Result<Cal, String> {
             "END_DATA" => in_data = false,
             _ if in_format => fields.extend(t.split_whitespace().map(str::to_string)),
             _ if in_data => {
-                let v: Vec<f32> = t.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-                let at = |name: &str| fields.iter().position(|f| f == name).and_then(|i| v.get(i).copied());
+                let v: Vec<f32> = t
+                    .split_whitespace()
+                    .filter_map(|x| x.parse().ok())
+                    .collect();
+                let at = |name: &str| {
+                    fields
+                        .iter()
+                        .position(|f| f == name)
+                        .and_then(|i| v.get(i).copied())
+                };
                 if let (Some(i), Some(rr), Some(gg), Some(bb)) =
                     (at("RGB_I"), at("RGB_R"), at("RGB_G"), at("RGB_B"))
                 {
@@ -453,9 +477,14 @@ pub fn parse_cal(src: &str) -> Result<Cal, String> {
         }
     }
     if input.len() < 2 {
-        return Err(crate::i18n::tr("fichier .cal sans courbes RGB_I / RGB_R / RGB_G / RGB_B").to_string());
+        return Err(
+            crate::i18n::tr("fichier .cal sans courbes RGB_I / RGB_R / RGB_G / RGB_B").to_string(),
+        );
     }
-    Ok(Cal { input, out: [r, g, b] })
+    Ok(Cal {
+        input,
+        out: [r, g, b],
+    })
 }
 
 /// Lit le `.cal` d'un réglage (rien si ce n'en est pas un).
@@ -570,7 +599,10 @@ impl State {
                     // Neutre : la table d'origine revient en lâchant la nôtre.
                     if let Some(c) = o.control.take() {
                         c.destroy();
-                        tracing::info!("{}", crate::tr!("couleurs de {m} : table d'origine rendue", m = name));
+                        tracing::info!(
+                            "{}",
+                            crate::tr!("couleurs de {m} : table d'origine rendue", m = name)
+                        );
                     }
                     o.size = None;
                     o.applied = None;
@@ -592,7 +624,14 @@ impl State {
                         if !gamma_holders(true).is_empty() {
                             o.blocked = true;
                             let why = refusal_reason(&name, false, true);
-                            tracing::warn!("{}", crate::tr!("couleurs de {m} : pas de demande — {e}", m = name, e = why));
+                            tracing::warn!(
+                                "{}",
+                                crate::tr!(
+                                    "couleurs de {m} : pas de demande — {e}",
+                                    m = name,
+                                    e = why
+                                )
+                            );
                             reports.push((name, Some(why)));
                             continue;
                         }
@@ -604,10 +643,20 @@ impl State {
                         let r = load_cal(&a).and_then(|cal| set_table(c, size, &a, cal.as_ref()));
                         match &r {
                             Ok(()) => {
-                                tracing::info!("{}", crate::tr!("couleurs de {m} : table gamma posée ({n} entrées)", m = name, n = size));
+                                tracing::info!(
+                                    "{}",
+                                    crate::tr!(
+                                        "couleurs de {m} : table gamma posée ({n} entrées)",
+                                        m = name,
+                                        n = size
+                                    )
+                                );
                                 o.applied = Some(a);
                             }
-                            Err(e) => tracing::warn!("{}", crate::tr!("couleurs de {m} : {e}", m = name, e = e)),
+                            Err(e) => tracing::warn!(
+                                "{}",
+                                crate::tr!("couleurs de {m} : {e}", m = name, e = e)
+                            ),
                         }
                         reports.push((name, r.err()));
                     }
@@ -621,7 +670,12 @@ impl State {
 }
 
 /// Écrit la table dans un fichier et la donne à Hyprland.
-fn set_table(c: &ZwlrGammaControlV1, size: u32, a: &Adjust, cal: Option<&Cal>) -> Result<(), String> {
+fn set_table(
+    c: &ZwlrGammaControlV1,
+    size: u32,
+    a: &Adjust,
+    cal: Option<&Cal>,
+) -> Result<(), String> {
     use std::io::{Seek, Write};
     let [r, g, b] = a.ramps(size as usize, cal);
     let mut bytes = Vec::with_capacity(size as usize * 6);
@@ -641,7 +695,8 @@ fn set_table(c: &ZwlrGammaControlV1, size: u32, a: &Adjust, cal: Option<&Cal>) -
         .map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&path);
     f.write_all(&bytes).map_err(|e| e.to_string())?;
-    f.seek(std::io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    f.seek(std::io::SeekFrom::Start(0))
+        .map_err(|e| e.to_string())?;
     c.set_gamma(f.as_fd());
     Ok(())
 }
@@ -662,7 +717,8 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                 version,
             } => {
                 if interface == "wl_output" {
-                    let output = registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
+                    let output =
+                        registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
                     state.outs.push(Out {
                         id: name,
                         output,
@@ -751,7 +807,14 @@ impl Dispatch<ZwlrGammaControlV1, u32> for State {
                 // Hyprland ne dit pas pourquoi : la raison est cherchée ici
                 // (autre programme, profil ICC, écran sans table gamma).
                 let why = refusal_reason(&name, had_size, true);
-                tracing::warn!("{}", crate::tr!("couleurs de {m} : table gamma refusée — {e}", m = name, e = why));
+                tracing::warn!(
+                    "{}",
+                    crate::tr!(
+                        "couleurs de {m} : table gamma refusée — {e}",
+                        m = name,
+                        e = why
+                    )
+                );
                 state.report(&name, Some(why));
             }
             _ => {}
@@ -776,21 +839,209 @@ const GAMMA_CLIENTS: &[&str] = &[
     "gammy",
 ];
 
+/// Nom connu (parmi `names`) d'une commande `/proc/<pid>/comm`, tronquée à
+/// 15 caractères par le noyau.
+fn known_comm(comm: &str, names: &[&'static str]) -> Option<&'static str> {
+    names
+        .iter()
+        .copied()
+        .find(|n| comm == n.get(..15).unwrap_or(n))
+}
+
+/// Processus terminé (absent ou zombie en attente de son parent).
+fn gone(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .map(|s| {
+            s.rsplit_once(')')
+                .is_some_and(|(_, r)| r.trim_start().starts_with(['Z', 'X']))
+        })
+        .unwrap_or(true)
+}
+
+/// Programme qui tient les tables gamma, et empêche donc les réglages de
+/// couleur (hyprsunset n'en est pas : le module « nuit » de hyprdesk le pilote).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Blocker {
+    pub pid: u32,
+    pub name: String,
+    /// Service systemd de l'utilisateur qui le lance (et le relancerait).
+    pub unit: Option<String>,
+    /// Entrée de démarrage automatique XDG qui le lance à chaque session.
+    pub autostart: Option<String>,
+}
+
+impl Blocker {
+    /// Relancé de lui-même (service, démarrage automatique) : « ne plus lancer » a un sens.
+    pub fn relaunched(&self) -> bool {
+        self.unit.is_some() || self.autostart.is_some()
+    }
+}
+
+/// Service systemd de l'utilisateur propre au programme (`wlsunset.service`,
+/// `gammastep@x.service`…) ; jamais un service plus large (la session
+/// Hyprland sous uwsm en est un : l'arrêter fermerait tout).
+fn own_unit(pid: u32, name: &str) -> Option<String> {
+    let cg = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?;
+    let path = cg.lines().find_map(|l| l.strip_prefix("0::"))?;
+    let unit = path.rsplit('/').next()?;
+    (unit.ends_with(".service") && !unit.starts_with("user@") && unit.starts_with(name))
+        .then(|| unit.to_string())
+}
+
+/// Programmes en cours qui tiennent les tables gamma (killswitch) ; hyprdesk
+/// n'en est pas.
+pub fn blockers() -> Vec<Blocker> {
+    let me = std::process::id();
+    let mut out: Vec<Blocker> = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    let mut autostart: Option<Vec<crate::autostart::Entry>> = None;
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid == me || gone(pid) {
+            continue;
+        }
+        let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
+        let comm = comm.trim();
+        let Some(name) = known_comm(comm, GAMMA_CLIENTS) else {
+            continue;
+        };
+        let entries = autostart.get_or_insert_with(crate::autostart::entries);
+        let auto = entries
+            .iter()
+            .find(|a| {
+                a.status != crate::autostart::Status::Disabled
+                    && crate::launch::exec_program(&a.exec)
+                        .is_some_and(|p| p.rsplit('/').next() == Some(name))
+            })
+            .map(|a| a.id.clone());
+        out.push(Blocker {
+            pid,
+            name: name.to_string(),
+            unit: own_unit(pid, name),
+            autostart: auto,
+        });
+    }
+    out.sort_by(|a, b| (&a.name, a.pid).cmp(&(&b.name, b.pid)));
+    out
+}
+
+/// Arrête ces programmes (killswitch de Réglages → Couleurs des écrans) :
+/// leur service systemd s'ils en ont un (sinon il les relancerait), un
+/// signal TERM sinon, KILL s'ils traînent. `disable` : ne plus les lancer
+/// non plus (service désactivé, entrée de démarrage automatique masquée).
+/// Une ligne par programme ; `Err` si l'un d'eux tourne encore.
+pub fn stop_blockers(list: &[Blocker], disable: bool) -> Result<String, String> {
+    let mut lines = Vec::new();
+    let mut failed = false;
+    let mut units_done: Vec<String> = Vec::new();
+    for b in list {
+        let mut how = Vec::new();
+        if let Some(u) = &b.unit
+            && !units_done.contains(u)
+        {
+            units_done.push(u.clone());
+            let verb = if disable {
+                ["disable", "--now"].as_slice()
+            } else {
+                ["stop"].as_slice()
+            };
+            let ok = std::process::Command::new("systemctl")
+                .arg("--user")
+                .args(verb)
+                .arg(u)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            how.push(if ok {
+                crate::tr!(
+                    "service {u} {v}",
+                    u = u,
+                    v = if disable {
+                        crate::i18n::tr("arrêté et désactivé")
+                    } else {
+                        crate::i18n::tr("arrêté")
+                    }
+                )
+            } else {
+                crate::tr!(
+                    "systemctl --user {v} {u} a échoué",
+                    v = verb.join(" "),
+                    u = u
+                )
+            });
+        }
+        if disable
+            && let Some(id) = &b.autostart
+            && let Some(e) = crate::autostart::entries()
+                .into_iter()
+                .find(|e| &e.id == id)
+        {
+            how.push(match crate::autostart::set_enabled(&e, false) {
+                Ok(()) => crate::tr!("démarrage automatique « {n} » désactivé", n = e.name),
+                Err(err) => crate::tr!("démarrage automatique « {n} » : {e}", n = e.name, e = err),
+            });
+        }
+        // Sans service, ou s'il a survécu à son arrêt : signaux.
+        let wait = |pid: u32, ms: u64| {
+            let t0 = std::time::Instant::now();
+            while !gone(pid) && t0.elapsed() < std::time::Duration::from_millis(ms) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            gone(pid)
+        };
+        if !wait(b.pid, if b.unit.is_some() { 1500 } else { 0 }) {
+            // SAFETY : simple envoi de signal à un pid relevé dans /proc.
+            unsafe { libc::kill(b.pid as libc::pid_t, libc::SIGTERM) };
+            if !wait(b.pid, 1500) {
+                unsafe { libc::kill(b.pid as libc::pid_t, libc::SIGKILL) };
+                wait(b.pid, 1000);
+            }
+        }
+        let alive = !gone(b.pid);
+        failed |= alive;
+        let state = if alive {
+            crate::i18n::tr("tourne encore (droits ?)").to_string()
+        } else {
+            crate::i18n::tr("arrêté").to_string()
+        };
+        let mut line = format!("{} ({}) : {state}", b.name, b.pid);
+        if !how.is_empty() {
+            line += &format!(" — {}", how.join(", "));
+        }
+        if !alive && !disable && b.relaunched() {
+            line += &format!(" — {}", crate::i18n::tr("reviendra à la prochaine session"));
+        }
+        lines.push(line);
+    }
+    let out = lines.join("\n");
+    if failed { Err(out) } else { Ok(out) }
+}
+
 /// Programmes en cours qui tiennent (sans doute) des tables gamma ; un autre
 /// démon hyprdesk compte (`with_hyprdesk`), ce processus non.
 pub fn gamma_holders(with_hyprdesk: bool) -> Vec<String> {
     let me = std::process::id();
     let mut out: Vec<String> = Vec::new();
-    let Ok(rd) = std::fs::read_dir("/proc") else { return out };
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return out;
+    };
     for e in rd.flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
-        if pid == me {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid == me || gone(pid) {
             continue;
         }
         let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
         let comm = comm.trim();
-        let hit = if GAMMA_CLIENTS.contains(&comm) {
-            Some(comm.to_string())
+        let hit = if let Some(n) = known_comm(comm, GAMMA_CLIENTS) {
+            Some(n.to_string())
         } else if with_hyprdesk && comm == "hyprdesk" {
             let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
             cmd.split(|b| *b == 0)
@@ -822,17 +1073,25 @@ pub fn icc_in_use(monitor: &str) -> Option<String> {
     let quoted = format!("\"{monitor}\"");
     for e in std::fs::read_dir(&base).ok()?.flatten() {
         let path = e.path();
-        if !matches!(path.extension().and_then(|x| x.to_str()), Some("lua" | "conf")) {
+        if !matches!(
+            path.extension().and_then(|x| x.to_str()),
+            Some("lua" | "conf")
+        ) {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&path) else { continue };
+        let Ok(src) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         for (n, line) in src.lines().enumerate() {
             let t = line.trim();
             if t.starts_with("--") || t.starts_with('#') {
                 continue;
             }
             if t.contains("icc") && (t.contains(&quoted) || t.contains(&format!("{monitor},"))) {
-                let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                let file = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 return Some(format!("{file}:{}", n + 1));
             }
         }
@@ -904,7 +1163,12 @@ fn remember_gamma(monitor: &str) {
 pub type Probe = (String, Result<u32, ()>);
 
 /// Écran sondé : identifiant, sortie, nom, résultat.
-type ProbeOut = (u32, wl_output::WlOutput, Option<String>, Option<Result<u32, ()>>);
+type ProbeOut = (
+    u32,
+    wl_output::WlOutput,
+    Option<String>,
+    Option<Result<u32, ()>>,
+);
 
 struct ProbeState {
     manager: Option<ZwlrGammaControlManagerV1>,
@@ -959,7 +1223,12 @@ impl Dispatch<wl_registry::WlRegistry, ()> for ProbeState {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             if interface == "wl_output" {
                 let o = registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
                 state.outs.push((name, o, None, None));
@@ -1008,7 +1277,9 @@ impl Dispatch<ZwlrGammaControlV1, u32> for ProbeState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        let Some(o) = state.outs.iter_mut().find(|o| o.0 == *id) else { return };
+        let Some(o) = state.outs.iter_mut().find(|o| o.0 == *id) else {
+            return;
+        };
         match event {
             zwlr_gamma_control_v1::Event::GammaSize { size } => {
                 if let Some(n) = &o.2 {
@@ -1023,7 +1294,10 @@ impl Dispatch<ZwlrGammaControlV1, u32> for ProbeState {
 }
 
 /// Boucle du fil : connexion Wayland à part, réglages reçus par `rx`.
-fn run(rx: mpsc::Receiver<Wanted>, status: Arc<Mutex<HashMap<String, String>>>) -> Result<(), String> {
+fn run(
+    rx: mpsc::Receiver<Wanted>,
+    status: Arc<Mutex<HashMap<String, String>>>,
+) -> Result<(), String> {
     use std::os::fd::AsRawFd;
     let conn = Connection::connect_to_env().map_err(|e| e.to_string())?;
     let mut queue = conn.new_event_queue::<State>();
@@ -1039,7 +1313,9 @@ fn run(rx: mpsc::Receiver<Wanted>, status: Arc<Mutex<HashMap<String, String>>>) 
     // tables ; une demande refusée verrouillerait l'écran, donc on l'attend.
     let t0 = std::time::Instant::now();
     while t0.elapsed() < std::time::Duration::from_secs(10)
-        && gamma_holders(true).iter().any(|h| h.starts_with("hyprdesk"))
+        && gamma_holders(true)
+            .iter()
+            .any(|h| h.starts_with("hyprdesk"))
     {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
@@ -1093,7 +1369,9 @@ fn run(rx: mpsc::Receiver<Wanted>, status: Arc<Mutex<HashMap<String, String>>>) 
                 guard.read().map_err(|e| e.to_string())?;
             }
         }
-        queue.dispatch_pending(&mut state).map_err(|e| e.to_string())?;
+        queue
+            .dispatch_pending(&mut state)
+            .map_err(|e| e.to_string())?;
     }
 }
 
@@ -1102,11 +1380,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn commandes_tronquees() {
+        // /proc/<pid>/comm garde 15 caractères.
+        assert_eq!(
+            known_comm("wl-gammarelay-r", GAMMA_CLIENTS),
+            Some("wl-gammarelay-rs")
+        );
+        assert_eq!(known_comm("wlsunset", GAMMA_CLIENTS), Some("wlsunset"));
+        assert_eq!(known_comm("hyprsunset", GAMMA_CLIENTS), None);
+        assert!(gone(u32::MAX));
+        assert!(!gone(std::process::id()));
+    }
+
+    #[test]
     fn neutre_et_reglages() {
         let a = Adjust::default();
         assert!(!a.needs_table());
         let [r, _, b] = a.ramps(256, None);
-        assert_eq!((r[0], r[255], r[128]), (0, 65535, (128.0 / 255.0 * 65535.0f32).round() as u16));
+        assert_eq!(
+            (r[0], r[255], r[128]),
+            (0, 65535, (128.0 / 255.0 * 65535.0f32).round() as u16)
+        );
         let mut c = a.clone();
         assert!(c.set("blue", 0.8) && c.needs_table());
         assert!(!c.set("inconnu", 1.0));
@@ -1130,11 +1424,17 @@ mod tests {
         let all = (0.0, 0.0, 200.0, 100.0);
         let (_, _, a) = span_image(all, (0.0, 0.0, 100.0, 100.0), 10, 4);
         let (_, _, b) = span_image(all, (100.0, 0.0, 100.0, 100.0), 10, 4);
-        assert!(a[(9 * 4) as usize] < b[0], "gris continu d'un écran à l'autre");
+        assert!(
+            a[(9 * 4) as usize] < b[0],
+            "gris continu d'un écran à l'autre"
+        );
         let mut g = Adjust::default();
         assert!(g.is_default());
         g.set("gamma_red", 1.4);
-        assert!(g.curve(0, 0.5, None) > g.curve(1, 0.5, None), "courbe du rouge relevée");
+        assert!(
+            g.curve(0, 0.5, None) > g.curve(1, 0.5, None),
+            "courbe du rouge relevée"
+        );
     }
 
     #[test]

@@ -14,8 +14,8 @@ mod capture;
 mod chat;
 mod cli_config;
 mod cli_tools;
-mod colors;
 mod clipboard;
+mod colors;
 mod config;
 mod control;
 mod desktop_files;
@@ -30,11 +30,11 @@ mod hyprbars;
 mod hyprcheck;
 mod i18n;
 mod idle;
-mod lid;
 mod inputs;
 mod keymap;
 mod launch;
 mod layout;
+mod lid;
 mod lock;
 mod mymfa;
 mod notifications;
@@ -161,7 +161,7 @@ Commandes :
   app-theme [status | apply]
                     thème de hyprdesk appliqué aux applications (kitty, Thunar)
   color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
-  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag]
+  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag | free [--disable]]
                     couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
   lid [status | close | open]
                     capot du portable : état et effet de sa fermeture (Réglages → Verrouillage → Veille)
@@ -1204,18 +1204,20 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
-        c @ ("autostart" | "lid" | "window" | "hyprland-check" | "hyprland-fix" | "window-places" | "icons"
-        | "app-theme" | "colors") => match cli_tools::run(c, &config_path, &args[1..]) {
-            Some(Ok(out)) => {
-                println!("{}", out.trim_end());
-                ExitCode::SUCCESS
+        c @ ("autostart" | "lid" | "window" | "hyprland-check" | "hyprland-fix"
+        | "window-places" | "icons" | "app-theme" | "colors") => {
+            match cli_tools::run(c, &config_path, &args[1..]) {
+                Some(Ok(out)) => {
+                    println!("{}", out.trim_end());
+                    ExitCode::SUCCESS
+                }
+                Some(Err(e)) => {
+                    eprintln!("hyprdesk {c} : {}", e.trim_end());
+                    ExitCode::FAILURE
+                }
+                None => ExitCode::FAILURE,
             }
-            Some(Err(e)) => {
-                eprintln!("hyprdesk {c} : {}", e.trim_end());
-                ExitCode::FAILURE
-            }
-            None => ExitCode::FAILURE,
-        },
+        }
         "snippet" => {
             println!("{}", i18n::tr_lines(SNIPPET));
             ExitCode::SUCCESS

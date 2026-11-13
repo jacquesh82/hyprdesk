@@ -167,7 +167,11 @@ its curves, an `.icc`/`.icm` profile is handed to Hyprland (`monitors.lua`).
 A reference image helps judge; the full-screen test pattern shows it on every
 active screen (or gradients spread across all of them), with each screen's
 controls on it to compare them (`hyprdesk color-test`, `hyprdesk colors …`,
-`hyprdesk colors diag`).
+`hyprdesk colors diag`). When another program holds the gamma tables
+(wlsunset, gammastep, redshift…), the page lists it with a kill switch: **Stop**
+ends it (its systemd user service if it has one) and the settings take over at
+once; **Stop and don't launch again** also disables its service or XDG
+autostart entry (`hyprdesk colors free [--disable]`).
 
 **Laptop lid** (Lock → Sleep): what closing the lid does, on battery, on AC
 power and with an external screen: same as the system (logind), suspend,

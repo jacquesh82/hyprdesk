@@ -986,7 +986,8 @@ impl App {
             let idle = n.idle.clone();
             tasks.push(Task::perform(
                 async move {
-                    let _ = tokio::task::spawn_blocking(move || crate::lid::install_binds(&idle)).await;
+                    let _ =
+                        tokio::task::spawn_blocking(move || crate::lid::install_binds(&idle)).await;
                 },
                 |_| Msg::Noop,
             ));
@@ -1036,7 +1037,8 @@ impl App {
         tasks.push(self.sync_lyra_drawer());
         // Thème appliqué aux autres applications (kitty…), à chaque changement.
         if plugins::apptheme::effective(&old) != plugins::apptheme::effective(&self.cfg)
-            || (crate::apptheme::options(&old.general) != crate::apptheme::options(&self.cfg.general)
+            || (crate::apptheme::options(&old.general)
+                != crate::apptheme::options(&self.cfg.general)
                 && !plugins::apptheme::effective(&self.cfg).is_empty())
             || (old.general.theme != self.cfg.general.theme
                 && !plugins::apptheme::effective(&self.cfg).is_empty())
@@ -1161,7 +1163,9 @@ impl App {
             && self.mode() == DesktopMode::FullDesktop
             && self.cfg.general.suspend_binds
             && self.session_windows.is_empty()
-            && !self.target_monitor().is_some_and(|m| self.windows_shown_on(&m));
+            && !self
+                .target_monitor()
+                .is_some_and(|m| self.windows_shown_on(&m));
         if want == self.in_submap {
             return Task::none();
         }
@@ -1174,7 +1178,10 @@ impl App {
     fn sync_hyprbars(&mut self) -> Task<Msg> {
         // Plugin global : chargé dès qu'un écran est en plein bureau.
         let want = self.cfg.general.hyprbars
-            && self.applied.values().any(|(m, _)| *m == DesktopMode::FullDesktop);
+            && self
+                .applied
+                .values()
+                .any(|(m, _)| *m == DesktopMode::FullDesktop);
         if want == self.hyprbars_on {
             return self.sync_bar_tags();
         }
@@ -1188,7 +1195,10 @@ impl App {
             self.nobar = w.clone();
             (w.into_iter().collect(), Vec::new())
         } else {
-            (Vec::new(), std::mem::take(&mut self.nobar).into_iter().collect())
+            (
+                Vec::new(),
+                std::mem::take(&mut self.nobar).into_iter().collect(),
+            )
         };
         Task::perform(
             async move {
@@ -1253,8 +1263,10 @@ impl App {
         }
         Task::perform(
             async move {
-                let _ = tokio::task::spawn_blocking(move || crate::hyprbars::set_tags(&add, &remove, false))
-                    .await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::hyprbars::set_tags(&add, &remove, false)
+                })
+                .await;
             },
             |_| Msg::Noop,
         )
@@ -1466,7 +1478,10 @@ impl App {
 
     /// Mode mémorisé d'un workspace (no-desktop par défaut).
     fn ws_mode(&self, ws: &str) -> DesktopMode {
-        self.ws_modes.get(ws).copied().unwrap_or(DesktopMode::NoDesktop)
+        self.ws_modes
+            .get(ws)
+            .copied()
+            .unwrap_or(DesktopMode::NoDesktop)
     }
 
     /// Mode voulu d'un écran : celui du workspace affiché ; écran imposé en
@@ -1579,7 +1594,11 @@ impl App {
             .surfaces
             .iter()
             .map(|(id, mon)| {
-                let w = if self.shows_on(mon) { self.monitor_mode(mon) } else { No };
+                let w = if self.shows_on(mon) {
+                    self.monitor_mode(mon)
+                } else {
+                    No
+                };
                 (*id, mon.clone(), w)
             })
             .collect();
@@ -1652,11 +1671,16 @@ impl App {
             // (ouvert au clavier) le rend, sinon aucune fenêtre ne le reçoit.
             if had == Launcher
                 && *want != Launcher
-                && self.launcher_runtime.focus.as_ref().is_some_and(|(f, _)| f == mon)
+                && self
+                    .launcher_runtime
+                    .focus
+                    .as_ref()
+                    .is_some_and(|(f, _)| f == mon)
             {
                 tasks.push(self.launcher_release());
             }
-            self.applied.insert(mon.clone(), (*want, m.workspace.clone()));
+            self.applied
+                .insert(mon.clone(), (*want, m.workspace.clone()));
         }
         // Fondu : seulement quand le bureau apparaît ou disparaît partout.
         if now_visible != was_visible {
@@ -1679,7 +1703,10 @@ impl App {
                 tasks.push(self.finish_fade());
             }
             tasks.push(self.refresh_walls());
-        } else if wanted.iter().any(|(id, _, w)| *w != No && !self.raised.contains(id)) {
+        } else if wanted
+            .iter()
+            .any(|(id, _, w)| *w != No && !self.raised.contains(id))
+        {
             tasks.push(self.refresh_walls());
         }
         // Fenêtres en attente du bureau : elles reviennent en plein bureau.
@@ -2158,7 +2185,9 @@ impl App {
             self.desk_windows.remove(&a);
             self.session_windows.remove(&a);
         }
-        vec![Self::window_result(self.windows.release_workspaces(workspaces))]
+        vec![Self::window_result(
+            self.windows.release_workspaces(workspaces),
+        )]
     }
 
     /// Taille d'une fenêtre flottante sur le bureau : 60 % × 70 % de l'écran actif.
@@ -2902,7 +2931,9 @@ impl App {
                 .map(|(_, i)| i)
         };
         let next = match (key, cur) {
-            (keyboard::Key::Named(Named::Enter), Some((i, _))) => return self.launch_from(Some(id), i),
+            (keyboard::Key::Named(Named::Enter), Some((i, _))) => {
+                return self.launch_from(Some(id), i);
+            }
             (keyboard::Key::Named(Named::Enter), None) => None,
             (_, None) => placed
                 .iter()
@@ -3101,11 +3132,13 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
-                control::Command::ColorTest => self.colors_update(if self.color_test.wins.is_empty() {
-                    plugins::colors::Msg::TestOpen
-                } else {
-                    plugins::colors::Msg::TestClose
-                }),
+                control::Command::ColorTest => {
+                    self.colors_update(if self.color_test.wins.is_empty() {
+                        plugins::colors::Msg::TestOpen
+                    } else {
+                        plugins::colors::Msg::TestClose
+                    })
+                }
                 control::Command::ForgetWindowPlaces => Self::window_result(self.windows.forget()),
                 control::Command::Problem(t) => self.show_problem(t, false),
                 control::Command::ProblemShow(t) => self.show_problem(t, true),
@@ -3365,7 +3398,10 @@ impl App {
                     self.install_rules(),
                     Task::perform(
                         async move {
-                            let _ = tokio::task::spawn_blocking(move || crate::lid::install_binds(&idle)).await;
+                            let _ = tokio::task::spawn_blocking(move || {
+                                crate::lid::install_binds(&idle)
+                            })
+                            .await;
                         },
                         |_| Msg::Noop,
                     ),
@@ -4428,6 +4464,14 @@ impl App {
         if self.screens_pending.is_some() {
             subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::ScreensTick));
         }
+        // Couleurs des écrans ouvertes : problèmes des tables et programmes
+        // gênants revus (un wlsunset lancé après coup apparaît, killswitch).
+        if self.panel.as_ref().is_some_and(|p| p.tab == "colors") {
+            subs.push(
+                iced::time::every(Duration::from_secs(3))
+                    .map(|_| plugins::colors::wrap(plugins::colors::Msg::Status)),
+            );
+        }
         subs.push(self.chat_subscription());
         // Glisser-déposer de fichiers : toujours écouté ; pendant un survol, la
         // position du pointeur est suivie pour savoir où déposer.
@@ -4603,13 +4647,13 @@ impl App {
             };
             layers.push(
                 container(content)
-                .padding(Padding {
-                    top: rt + shift,
-                    right,
-                    bottom: rb,
-                    left: rl,
-                })
-                .into(),
+                    .padding(Padding {
+                        top: rt + shift,
+                        right,
+                        bottom: rb,
+                        left: rl,
+                    })
+                    .into(),
             );
         }
         Stack::with_children(layers)
@@ -5046,7 +5090,11 @@ mod regression_tests {
         assert!(app.shows_on("DP-1") && !app.shows_on("HDMI-A-2"));
         // Focus sur l'autre écran : chacun garde le sien.
         let _ = app.set_monitors(vec![at("DP-1", "5", false), at("HDMI-A-2", "6", true)]);
-        assert_eq!(app.mode(), DesktopMode::NoDesktop, "écran actif : workspace 6");
+        assert_eq!(
+            app.mode(),
+            DesktopMode::NoDesktop,
+            "écran actif : workspace 6"
+        );
         assert_eq!(app.monitor_mode("DP-1"), DesktopMode::FullDesktop);
         // Changement à la main : le workspace de l'écran actif seulement.
         app.fade = None;
@@ -5072,11 +5120,19 @@ mod regression_tests {
         let _ = app.set_mode(DesktopMode::FullDesktop);
         assert_eq!(app.mode(), DesktopMode::FullDesktop);
         let _ = app.set_monitors(vec![on("2")]);
-        assert_eq!(app.mode(), DesktopMode::NoDesktop, "workspace 2 jamais réglé");
+        assert_eq!(
+            app.mode(),
+            DesktopMode::NoDesktop,
+            "workspace 2 jamais réglé"
+        );
         assert!(!app.visible);
         let _ = app.set_mode(DesktopMode::LauncherOnly);
         let _ = app.set_monitors(vec![on("1")]);
-        assert_eq!(app.mode(), DesktopMode::FullDesktop, "le 1 retrouve le sien");
+        assert_eq!(
+            app.mode(),
+            DesktopMode::FullDesktop,
+            "le 1 retrouve le sien"
+        );
         assert!(app.visible);
         let _ = app.set_monitors(vec![on("2")]);
         assert_eq!(app.mode(), DesktopMode::LauncherOnly, "le 2 aussi");

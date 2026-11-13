@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 
 use crate::colors::{Adjust, FIELDS};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, image, pick_list, row, slider, stack, text_input};
+use iced::widget::{
+    Space, button, column, container, image, pick_list, row, slider, stack, text_input,
+};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -41,6 +43,10 @@ pub struct State {
     pub profiles: Vec<String>,
     /// Problèmes des tables gamma : écran → message (clé vide : le service).
     pub status: std::collections::HashMap<String, String>,
+    /// Programmes qui empêchent ou faussent les réglages (killswitch).
+    pub blockers: Vec<crate::colors::Blocker>,
+    /// Arrêt en cours.
+    pub stopping: bool,
     pub info: Option<String>,
     pub error: Option<String>,
 }
@@ -73,6 +79,10 @@ pub enum Msg {
     CalRemove,
     Imported(Result<String, String>),
     Status,
+    Blockers(Vec<crate::colors::Blocker>),
+    /// Killswitch : arrêter les programmes gênants ; `true` : ne plus les lancer.
+    Stop(bool),
+    Stopped(Result<String, String>),
     TestOpen,
     TestClose,
     /// Bouton − / + de la mire : écran, réglage, pas.
@@ -126,12 +136,22 @@ impl App {
             .as_ref()
             .and_then(|p| p.colors.selected.clone())
             .filter(|s| self.monitors.iter().any(|m| &m.name == s))
-            .or_else(|| self.monitors.iter().find(|m| m.focused).map(|m| m.name.clone()))
+            .or_else(|| {
+                self.monitors
+                    .iter()
+                    .find(|m| m.focused)
+                    .map(|m| m.name.clone())
+            })
             .or_else(|| self.monitors.first().map(|m| m.name.clone()))
     }
 
     /// Change les réglages d'un écran ; `save` : les garder (settings.lua).
-    fn colors_edit(&mut self, monitor: &str, save: bool, f: impl FnOnce(&mut Adjust)) -> Task<UiMsg> {
+    fn colors_edit(
+        &mut self,
+        monitor: &str,
+        save: bool,
+        f: impl FnOnce(&mut Adjust),
+    ) -> Task<UiMsg> {
         let mut map = self.colors_map();
         let a = map.entry(monitor.to_string()).or_default();
         f(a);
@@ -157,7 +177,9 @@ impl App {
 
     /// Courbes de l'écran choisi, redessinées.
     fn colors_curves(&mut self) {
-        let Some(m) = self.colors_selected() else { return };
+        let Some(m) = self.colors_selected() else {
+            return;
+        };
         let a = self.colors_of(&m);
         let cal = crate::colors::load_cal(&a).ok().flatten();
         let img = handle(crate::colors::curves_image(&a, cal.as_ref(), 260, 170));
@@ -175,7 +197,11 @@ impl App {
         };
         let s = &p.colors;
         let Some(mon) = self.colors_selected() else {
-            return text("Aucun écran détecté.").font(self.font).size(13).color(dim).into();
+            return text("Aucun écran détecté.")
+                .font(self.font)
+                .size(13)
+                .color(dim)
+                .into();
         };
         let a = self.colors_of(&mon);
         let mut col = column![
@@ -189,18 +215,34 @@ impl App {
         let mut screens = row![].spacing(8).align_y(Alignment::Center);
         for m in &self.monitors {
             let on = m.name == mon;
-            let tuned = self.colors_map().get(&m.name).is_some_and(|x| !x.is_default());
-            let label = if tuned { format!("{} ●", m.name) } else { m.name.clone() };
+            let tuned = self
+                .colors_map()
+                .get(&m.name)
+                .is_some_and(|x| !x.is_default());
+            let label = if tuned {
+                format!("{} ●", m.name)
+            } else {
+                m.name.clone()
+            };
             screens = screens.push(
                 button(iced::widget::text(label).font(self.font).size(13))
                     .padding([6, 12])
-                    .style(if on { button::primary } else { button::secondary })
+                    .style(if on {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
                     .on_press(wrap(Msg::Select(m.name.clone()))),
             );
         }
         col = col.push(screens);
         if let Some(e) = s.status.get("") {
-            col = col.push(iced::widget::text(e.clone()).font(self.font).size(12).color(warn));
+            col = col.push(
+                iced::widget::text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(warn),
+            );
         }
         if let Some(e) = s.status.get(&mon) {
             col = col.push(
@@ -223,6 +265,9 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
+        if !s.blockers.is_empty() {
+            col = col.push(self.colors_blockers(s));
+        }
         // Curseurs et courbes.
         let mut sliders = column![].spacing(6).width(Length::Fill);
         for (key, label, lo, hi, neutral) in FIELDS {
@@ -244,7 +289,9 @@ impl App {
                     button(iced::widget::text("↺").size(12))
                         .padding([2, 8])
                         .style(button::text)
-                        .on_press_maybe(((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))),
+                        .on_press_maybe(
+                            ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
+                        ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -273,7 +320,10 @@ impl App {
                     .on_press_maybe((!a.is_default()).then(|| wrap(Msg::ResetScreen))),
                 button(
                     iced::widget::text(if self.monitors.len() > 1 {
-                        crate::tr!("Mire plein écran sur les {n} écrans", n = self.monitors.len())
+                        crate::tr!(
+                            "Mire plein écran sur les {n} écrans",
+                            n = self.monitors.len()
+                        )
                     } else {
                         crate::i18n::tr("Mire plein écran").to_string()
                     })
@@ -302,7 +352,9 @@ impl App {
                 button(text("Retirer").font(self.font).size(12))
                     .padding([4, 10])
                     .style(button::secondary)
-                    .on_press_maybe((!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))),
+                    .on_press_maybe(
+                        (!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))
+                    ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -325,9 +377,11 @@ impl App {
             col = col.push(
                 row![
                     text("Profils du poste").font(self.font).size(13).color(fg),
-                    pick_list(s.profiles.clone(), None::<String>, |v| wrap(Msg::CalPick(v)))
-                        .placeholder(crate::i18n::tr("choisir…"))
-                        .text_size(13),
+                    pick_list(s.profiles.clone(), None::<String>, |v| wrap(Msg::CalPick(
+                        v
+                    )))
+                    .placeholder(crate::i18n::tr("choisir…"))
+                    .text_size(13),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -340,10 +394,20 @@ impl App {
                 .color(dim),
         );
         if let Some(m) = &s.info {
-            col = col.push(iced::widget::text(m.clone()).font(self.font).size(12).color(accent));
+            col = col.push(
+                iced::widget::text(m.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(accent),
+            );
         }
         if let Some(e) = &s.error {
-            col = col.push(iced::widget::text(e.clone()).font(self.font).size(12).color(warn));
+            col = col.push(
+                iced::widget::text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(warn),
+            );
         }
         // Image de référence.
         col = col.push(self.section(crate::i18n::tr("Image de référence")));
@@ -357,6 +421,83 @@ impl App {
                 .color(dim),
         );
         col.into()
+    }
+
+    /// Killswitch : programmes qui tiennent les tables gamma (wlsunset,
+    /// gammastep…), et de quoi les arrêter pour rendre la main aux réglages.
+    fn colors_blockers<'a>(&'a self, s: &'a State) -> Element<'a, UiMsg> {
+        let ink = self.ink();
+        let (fg, dim) = (ink.fg, ink.dim);
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let mut list = column![
+            text("Programmes qui gênent les réglages de couleur")
+                .font(self.font)
+                .size(13)
+                .color(warn),
+        ]
+        .spacing(4);
+        for b in &s.blockers {
+            let what =
+                crate::i18n::tr("tient les tables gamma : les réglages d'ici ne passent pas");
+            let mut from = Vec::new();
+            if let Some(u) = &b.unit {
+                from.push(crate::tr!("service {u}", u = u));
+            }
+            if let Some(a) = &b.autostart {
+                from.push(crate::tr!("démarrage automatique « {a} »", a = a));
+            }
+            let mut line = format!("{} ({}) — {what}", b.name, b.pid);
+            if !from.is_empty() {
+                line += &format!(" ({})", from.join(", "));
+            }
+            list = list.push(iced::widget::text(line).font(self.font).size(12).color(fg));
+        }
+        let busy = s.stopping;
+        let mut buttons = row![
+            button(
+                iced::widget::text(if busy {
+                    crate::i18n::tr("Arrêt…").to_string()
+                } else if s.blockers.len() > 1 {
+                    crate::tr!("Arrêter les {n}", n = s.blockers.len())
+                } else {
+                    crate::tr!("Arrêter {p}", p = s.blockers[0].name)
+                })
+                .font(self.font)
+                .size(13)
+            )
+            .padding([6, 12])
+            .style(button::danger)
+            .on_press_maybe((!busy).then(|| wrap(Msg::Stop(false)))),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        if s.blockers.iter().any(|b| b.relaunched()) {
+            buttons = buttons.push(
+                button(text("Arrêter et ne plus lancer").font(self.font).size(13))
+                    .padding([6, 12])
+                    .style(button::secondary)
+                    .on_press_maybe((!busy).then(|| wrap(Msg::Stop(true)))),
+            );
+        }
+        list = list.push(buttons);
+        list = list.push(
+            text("Arrêter : son service s'il en a un, sinon le programme lui-même ; les réglages d'ici reprennent la main aussitôt. Sans « ne plus lancer », il revient à la session suivante.")
+                .font(self.font)
+                .size(11)
+                .color(dim),
+        );
+        container(list)
+            .padding(10)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: Color { a: 0.6, ..warn },
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
     }
 
     pub(in crate::ui) fn colors_update(&mut self, m: Msg) -> Task<UiMsg> {
@@ -449,7 +590,64 @@ impl App {
                 if let Some(p) = self.panel.as_mut() {
                     p.colors.status = st;
                 }
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::colors::blockers)
+                            .await
+                            .unwrap_or_default()
+                    },
+                    |b| wrap(Msg::Blockers(b)),
+                )
+            }
+            Msg::Blockers(b) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.colors.blockers = b;
+                }
                 Task::none()
+            }
+            Msg::Stop(disable) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                if p.colors.stopping || p.colors.blockers.is_empty() {
+                    return Task::none();
+                }
+                p.colors.stopping = true;
+                let list = p.colors.blockers.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::colors::stop_blockers(&list, disable)
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::Stopped(r)),
+                )
+            }
+            Msg::Stopped(r) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.colors.stopping = false;
+                    match r {
+                        Ok(m) => {
+                            p.colors.info = Some(m);
+                            p.colors.error = None;
+                        }
+                        Err(e) => {
+                            p.colors.info = None;
+                            p.colors.error = Some(e);
+                        }
+                    }
+                }
+                // Tables libérées : les réglages sont redemandés tout de suite
+                // (sans attendre la revue des 5 s du fil des couleurs).
+                if self.cfg.plugin_on(INFO.id) {
+                    self.gamma.set(self.colors_map());
+                }
+                Task::perform(
+                    async { tokio::time::sleep(std::time::Duration::from_millis(800)).await },
+                    |_| wrap(Msg::Status),
+                )
             }
             Msg::TestOpen => self.color_test_open(),
             Msg::TestClose => Task::batch(
@@ -496,8 +694,14 @@ impl App {
         }
         let x0 = ms.iter().map(|m| m.x).fold(f32::MAX, f32::min);
         let y0 = ms.iter().map(|m| m.y).fold(f32::MAX, f32::min);
-        let x1 = ms.iter().map(|m| m.x + m.width as f32).fold(f32::MIN, f32::max);
-        let y1 = ms.iter().map(|m| m.y + m.height as f32).fold(f32::MIN, f32::max);
+        let x1 = ms
+            .iter()
+            .map(|m| m.x + m.width as f32)
+            .fold(f32::MIN, f32::max);
+        let y1 = ms
+            .iter()
+            .map(|m| m.y + m.height as f32)
+            .fold(f32::MIN, f32::max);
         let all = (x0, y0, x1 - x0, y1 - y0);
         if self.color_test.mire.is_none() {
             self.color_test.mire = Some(image::Handle::from_bytes(crate::colors::MIRE));
@@ -532,7 +736,10 @@ impl App {
     }
 
     /// Surface de la mire, si `id` en est une.
-    pub(in crate::ui) fn color_test_of(&self, id: iced::window::Id) -> Option<(&str, &image::Handle)> {
+    pub(in crate::ui) fn color_test_of(
+        &self,
+        id: iced::window::Id,
+    ) -> Option<(&str, &image::Handle)> {
         self.color_test
             .wins
             .iter()
@@ -541,7 +748,11 @@ impl App {
     }
 
     /// Mire sur un écran, avec les réglages de cet écran en bas.
-    pub(in crate::ui) fn view_color_test<'a>(&'a self, mon: &'a str, img: &'a image::Handle) -> Element<'a, UiMsg> {
+    pub(in crate::ui) fn view_color_test<'a>(
+        &'a self,
+        mon: &'a str,
+        img: &'a image::Handle,
+    ) -> Element<'a, UiMsg> {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let bg = color(th.bg, 0.9);
@@ -555,15 +766,22 @@ impl App {
                 .color(accent),
             Space::new().width(Length::Fill),
             button(small(
-                crate::i18n::tr(if self.color_test.span { "Mire" } else { "Dégradés étalés" }).to_string()
+                crate::i18n::tr(if self.color_test.span {
+                    "Mire"
+                } else {
+                    "Dégradés étalés"
+                })
+                .to_string()
             ))
             .padding([4, 10])
             .style(button::secondary)
             .on_press(wrap(Msg::TestSpan)),
-            button(small(crate::i18n::tr(if folded { "Réglages" } else { "Replier" }).to_string()))
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::TestFold(mon.to_string()))),
+            button(small(
+                crate::i18n::tr(if folded { "Réglages" } else { "Replier" }).to_string()
+            ))
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press(wrap(Msg::TestFold(mon.to_string()))),
             button(small(crate::i18n::tr("Fermer la mire").to_string()))
                 .padding([4, 10])
                 .on_press(wrap(Msg::TestClose)),
@@ -575,7 +793,9 @@ impl App {
                 button(small(crate::i18n::tr("Neutre").to_string()))
                     .padding([4, 10])
                     .style(button::secondary)
-                    .on_press_maybe((!a.neutral_values()).then(|| wrap(Msg::TestNeutral(mon.to_string())))),
+                    .on_press_maybe(
+                        (!a.neutral_values()).then(|| wrap(Msg::TestNeutral(mon.to_string()))),
+                    ),
             );
         }
         let mut panel = column![head].spacing(6);
@@ -626,7 +846,10 @@ impl App {
             .max_width(if folded { 420.0 } else { 900.0 })
             .style(move |_| container::Style {
                 background: Some(bg.into()),
-                border: Border::default().rounded(14).width(1).color(Color { a: 0.4, ..accent }),
+                border: Border::default()
+                    .rounded(14)
+                    .width(1)
+                    .color(Color { a: 0.4, ..accent }),
                 ..Default::default()
             });
         match (&self.color_test.mire, self.color_test.span) {
@@ -641,7 +864,9 @@ impl App {
                             .width(Length::Fill)
                             .height(Length::Fill)
                             .content_fit(iced::ContentFit::Contain),
-                        container(card).width(Length::Fill).align_x(Alignment::Center),
+                        container(card)
+                            .width(Length::Fill)
+                            .align_x(Alignment::Center),
                     ]
                     .spacing(10),
                 )

@@ -21,7 +21,9 @@ use crate::config::{IconDef, IconKind, Origin};
 pub fn run(cmd: &str, config_path: &Path, args: &[String]) -> Option<Result<String, String>> {
     Some(match cmd {
         "autostart" => autostart(config_path, args),
-        "hyprland-check" => hyprland_check(config_path, args.first().is_some_and(|a| a == "--json")),
+        "hyprland-check" => {
+            hyprland_check(config_path, args.first().is_some_and(|a| a == "--json"))
+        }
         "hyprland-fix" => hyprland_fix(config_path, args),
         "window-places" => window_places(args),
         "icons" => icons(config_path, args),
@@ -49,7 +51,10 @@ fn autostart(config_path: &Path, args: &[String]) -> Result<String, String> {
     use crate::session_start as ss;
     let (ours, theirs) = ss::read(config_path);
     let list = |items: &[ss::Item]| -> Vec<(bool, String)> {
-        items.iter().map(|i| (i.enabled, i.command.clone())).collect()
+        items
+            .iter()
+            .map(|i| (i.enabled, i.command.clone()))
+            .collect()
     };
     match args.first().map(String::as_str).unwrap_or("list") {
         "list" | "ls" => {
@@ -69,7 +74,8 @@ fn autostart(config_path: &Path, args: &[String]) -> Result<String, String> {
             for i in &ours {
                 s += &format!("  [{}] {}\n", state(i), i.command);
             }
-            s += &(crate::i18n::tr("Dans hyprland.lua (hl.on(\"hyprland.start\")) :").to_string() + "\n");
+            s += &(crate::i18n::tr("Dans hyprland.lua (hl.on(\"hyprland.start\")) :").to_string()
+                + "\n");
             for i in &theirs {
                 s += &format!("  {} · [{}] {}\n", i.line + 1, state(i), i.command);
             }
@@ -102,7 +108,10 @@ fn autostart(config_path: &Path, args: &[String]) -> Result<String, String> {
                 ss::save_ours(config_path, &l)?;
             } else if let Some(it) = theirs.iter().find(|i| i.command == cmd) {
                 if it.locked {
-                    return Err(crate::i18n::tr("ligne qui prépare la session : laissée en place").to_string());
+                    return Err(
+                        crate::i18n::tr("ligne qui prépare la session : laissée en place")
+                            .to_string(),
+                    );
                 }
                 match verb {
                     "remove" => ss::remove_hyprland(config_path, it)?,
@@ -182,7 +191,11 @@ fn hyprland_check(config_path: &Path, json: bool) -> Result<String, String> {
             s += &format!(" — {}", x.detail);
         }
         if x.fix.is_some() {
-            s += if x.safe { " (corrigeable, sûr)" } else { " (corrigeable)" };
+            s += if x.safe {
+                " (corrigeable, sûr)"
+            } else {
+                " (corrigeable)"
+            };
         }
         s.push('\n');
     }
@@ -305,7 +318,12 @@ fn icons(config_path: &Path, args: &[String]) -> Result<String, String> {
                     }
                     id
                 }
-                _ => return Err(crate::i18n::tr("icons add app <id> | path <chemin> | exec <commande>").to_string()),
+                _ => {
+                    return Err(crate::i18n::tr(
+                        "icons add app <id> | path <chemin> | exec <commande>",
+                    )
+                    .to_string());
+                }
             };
             s.save(config_path).map_err(|e| e.to_string())?;
             Ok(crate::tr!("icône ajoutée : {id}", id = id))
@@ -341,7 +359,10 @@ fn focused() -> (String, String) {
                 .map(|m| {
                     (
                         m["name"].as_str().unwrap_or_default().to_string(),
-                        m["activeWorkspace"]["name"].as_str().unwrap_or_default().to_string(),
+                        m["activeWorkspace"]["name"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string(),
                     )
                 })
         })
@@ -365,8 +386,16 @@ fn app_theme(config_path: &Path, args: &[String]) -> Result<String, String> {
                 s += &format!(
                     "{} — {} — {} — {}\n",
                     t.id,
-                    if (t.installed)() { "installé" } else { "absent" },
-                    if enabled.contains(t.id) { "thème appliqué" } else { "thème coupé" },
+                    if (t.installed)() {
+                        "installé"
+                    } else {
+                        "absent"
+                    },
+                    if enabled.contains(t.id) {
+                        "thème appliqué"
+                    } else {
+                        "thème coupé"
+                    },
                     (t.file)(&opts).display()
                 );
             }
@@ -375,7 +404,10 @@ fn app_theme(config_path: &Path, args: &[String]) -> Result<String, String> {
         "apply" => {
             let report = crate::apptheme::sync(&enabled, &cfg.general.theme, &opts);
             if report.is_empty() {
-                return Ok(crate::i18n::tr("aucune application cochée (hyprdesk config set app_themes …)").to_string());
+                return Ok(crate::i18n::tr(
+                    "aucune application cochée (hyprdesk config set app_themes …)",
+                )
+                .to_string());
             }
             let mut s = String::new();
             let mut failed = false;
@@ -405,10 +437,11 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
         .clone()
         .unwrap_or_else(|| full.general.screen_colors.clone());
     let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
-    let mut save = |map: std::collections::BTreeMap<String, crate::colors::Adjust>| -> Result<(), String> {
-        s.screen_colors = Some(map.into_iter().filter(|(_, a)| !a.is_default()).collect());
-        s.save(config_path).map(|_| ()).map_err(|e| e.to_string())
-    };
+    let mut save =
+        |map: std::collections::BTreeMap<String, crate::colors::Adjust>| -> Result<(), String> {
+            s.screen_colors = Some(map.into_iter().filter(|(_, a)| !a.is_default()).collect());
+            s.save(config_path).map(|_| ()).map_err(|e| e.to_string())
+        };
     match args.first().map(String::as_str).unwrap_or("list") {
         "list" | "ls" => {
             let names: Vec<String> = hyprpanel_core::ipc::query_json("monitors")
@@ -434,21 +467,26 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
                     .iter()
                     .map(|(k, _, _, _, _)| format!("{k}={:.2}", a.get(k).unwrap_or(1.0)))
                     .collect();
-                let cal = if a.calibration.is_empty() { "—".to_string() } else { a.calibration.clone() };
+                let cal = if a.calibration.is_empty() {
+                    "—".to_string()
+                } else {
+                    a.calibration.clone()
+                };
                 out += &format!("{m} : {} ; calibration={cal}\n", v.join(" "));
             }
             if !full.plugin_on("colors") {
-                out += crate::i18n::tr("(paquet « Couleurs des écrans » coupé : réglages non appliqués)");
+                out += crate::i18n::tr(
+                    "(paquet « Couleurs des écrans » coupé : réglages non appliqués)",
+                );
                 out.push('\n');
             }
             Ok(out)
         }
         "set" => {
             let (m, k) = (arg(1), arg(2));
-            let v: f32 = arg(3)
-                .replace(',', ".")
-                .parse()
-                .map_err(|_| crate::i18n::tr("colors set <écran> <réglage> <nombre>").to_string())?;
+            let v: f32 = arg(3).replace(',', ".").parse().map_err(|_| {
+                crate::i18n::tr("colors set <écran> <réglage> <nombre>").to_string()
+            })?;
             if m.is_empty() || !map.entry(m.to_string()).or_default().set(k, v) {
                 return Err(crate::tr!(
                     "réglage inconnu « {k} » (brightness, contrast, gamma, red, green, blue, gamma_red, gamma_green, gamma_blue)",
@@ -469,9 +507,15 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
             Ok(crate::tr!("{m} : couleurs d'origine", m = m))
         }
         "calibration" => {
-            let (m, f) = (arg(1), args.get(2..).map(|x| x.join(" ")).unwrap_or_default());
+            let (m, f) = (
+                arg(1),
+                args.get(2..).map(|x| x.join(" ")).unwrap_or_default(),
+            );
             if m.is_empty() || f.trim().is_empty() {
-                return Err(crate::i18n::tr("colors calibration <écran> <fichier .icc|.icm|.cal> | none").to_string());
+                return Err(crate::i18n::tr(
+                    "colors calibration <écran> <fichier .icc|.icm|.cal> | none",
+                )
+                .to_string());
             }
             let kept = if f.trim() == "none" {
                 String::new()
@@ -490,20 +534,31 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
             crate::colors::set_icc_map(&map);
             let names: Vec<String> = hyprpanel_core::ipc::query_json("monitors")
                 .ok()
-                .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str().map(str::to_string)).collect()))
+                .and_then(|v| {
+                    v.as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|m| m["name"].as_str().map(str::to_string))
+                            .collect()
+                    })
+                })
                 .unwrap_or_default();
             let holders = crate::colors::gamma_holders(true);
             let daemon = holders.iter().any(|h| h.starts_with("hyprdesk"));
             let others = holders.iter().any(|h| !h.starts_with("hyprdesk"));
             // Jamais de sonde sur un écran tenu : Hyprland le verrouillerait.
-            let held = |m: &String| others || (daemon && map.get(m).is_some_and(|a| a.needs_table()));
+            let held =
+                |m: &String| others || (daemon && map.get(m).is_some_and(|a| a.needs_table()));
             let free: Vec<String> = names.iter().filter(|m| !held(m)).cloned().collect();
             let probed = crate::colors::probe(&free)?;
             let mut out = String::new();
             for name in &names {
                 let r = probed.iter().find(|(n, _)| n == name).map(|(_, r)| *r);
                 out += &match r {
-                    Some(Ok(n)) => crate::tr!("{m} : table gamma disponible ({n} entrées)", m = name, n = n),
+                    Some(Ok(n)) => crate::tr!(
+                        "{m} : table gamma disponible ({n} entrées)",
+                        m = name,
+                        n = n
+                    ),
                     Some(Err(())) => crate::tr!(
                         "{m} : refusée — {e}",
                         m = name,
@@ -514,7 +569,10 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
                         m = name,
                         e = crate::colors::refusal_reason(name, false, false)
                     ),
-                    None => crate::tr!("{m} : table tenue par hyprdesk (réglages actifs) — normal", m = name),
+                    None => crate::tr!(
+                        "{m} : table tenue par hyprdesk (réglages actifs) — normal",
+                        m = name
+                    ),
                 };
                 out.push('\n');
                 if let Some(icc) = crate::colors::icc_in_use(name) {
@@ -524,13 +582,28 @@ fn colors(config_path: &Path, args: &[String]) -> Result<String, String> {
             }
             out += &crate::tr!(
                 "programmes de tables gamma en cours : {p}",
-                p = if holders.is_empty() { crate::i18n::tr("aucun").to_string() } else { holders.join(", ") }
+                p = if holders.is_empty() {
+                    crate::i18n::tr("aucun").to_string()
+                } else {
+                    holders.join(", ")
+                }
             );
             out.push('\n');
             Ok(out)
         }
+        // Killswitch : arrêter les programmes qui tiennent les tables gamma
+        // ou changent la matrice de couleur ; `--disable` : ne plus les lancer.
+        "free" | "stop" => {
+            let list = crate::colors::blockers();
+            if list.is_empty() {
+                return Ok(
+                    crate::i18n::tr("aucun programme ne gêne les réglages de couleur").to_string(),
+                );
+            }
+            crate::colors::stop_blockers(&list, args.iter().any(|a| a == "--disable"))
+        }
         other => Err(crate::tr!(
-            "colors {o} : list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag",
+            "colors {o} : list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag | free [--disable]",
             o = other
         )),
     }
@@ -542,13 +615,22 @@ fn window(args: &[String]) -> Result<String, String> {
     use hyprpanel_core::ipc;
     let dispatch = |lua: &str| -> Result<String, String> {
         let r = ipc::dispatch(lua).map_err(|e| e.to_string())?;
-        if r.trim() == "ok" { Ok(String::new()) } else { Err(r.trim().to_string()) }
+        if r.trim() == "ok" {
+            Ok(String::new())
+        } else {
+            Err(r.trim().to_string())
+        }
     };
     match args.first().map(String::as_str).unwrap_or("") {
         "minimize" => crate::hypr::minimize_active()
             .map(|a| crate::tr!("fenêtre {a} réduite (le dock la rappelle)", a = a)),
-        "maximize" => dispatch(r#"hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })"#),
+        "maximize" => {
+            dispatch(r#"hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })"#)
+        }
         "close" => dispatch("hl.dsp.window.close()"),
-        other => Err(crate::tr!("window {o} : minimize | maximize | close", o = other)),
+        other => Err(crate::tr!(
+            "window {o} : minimize | maximize | close",
+            o = other
+        )),
     }
 }
