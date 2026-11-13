@@ -59,13 +59,19 @@ pub fn load_places() -> HashMap<String, hypr::Rect> {
     std::fs::read_to_string(places_path())
         .ok()
         .and_then(|s| serde_json::from_str::<HashMap<String, [i32; 4]>>(&s).ok())
-        .map(|m| m.into_iter().map(|(k, r)| (k, (r[0], r[1], r[2], r[3]))).collect())
+        .map(|m| {
+            m.into_iter()
+                .map(|(k, r)| (k, (r[0], r[1], r[2], r[3])))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn save_places(places: &HashMap<String, hypr::Rect>) {
-    let m: HashMap<&String, [i32; 4]> =
-        places.iter().map(|(k, r)| (k, [r.0, r.1, r.2, r.3])).collect();
+    let m: HashMap<&String, [i32; 4]> = places
+        .iter()
+        .map(|(k, r)| (k, [r.0, r.1, r.2, r.3]))
+        .collect();
     let path = places_path();
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);
@@ -215,7 +221,10 @@ impl WindowManager {
     }
 
     /// Comme `release`, pour les fenêtres de ces workspaces seulement.
-    pub fn release_workspaces(&self, workspaces: Vec<String>) -> oneshot::Receiver<Result<(), String>> {
+    pub fn release_workspaces(
+        &self,
+        workspaces: Vec<String>,
+    ) -> oneshot::Receiver<Result<(), String>> {
         self.enqueue(|reply| Request::Release(Some(workspaces), reply))
     }
 
@@ -304,7 +313,6 @@ impl Floating {
         }
     }
 
-
     fn forget(&mut self) -> Result<(), String> {
         self.touched.clear();
         self.memory.clear();
@@ -319,7 +327,10 @@ impl Floating {
     fn arrange(&mut self, workspace: &str, area: hypr::Rect) -> Result<(), String> {
         let all = Self::clients()?;
         self.note_user_moves(&all);
-        let list: Vec<hypr::Geometry> = all.into_iter().filter(|g| g.workspace == workspace).collect();
+        let list: Vec<hypr::Geometry> = all
+            .into_iter()
+            .filter(|g| g.workspace == workspace)
+            .collect();
         let remembered = self.memory.get(workspace).cloned().unwrap_or_default();
         let places = self.places.get_or_insert_with(load_places).clone();
         let mut errors = Vec::new();
@@ -399,8 +410,9 @@ impl Floating {
         }
         self.memory.retain(|_, places| !places.is_empty());
         // Fenêtres que le plein bureau a fait flotter, sur ces workspaces.
-        let (floated, keep): (HashSet<String>, HashSet<String>) =
-            std::mem::take(&mut self.floated).into_iter().partition(|a| {
+        let (floated, keep): (HashSet<String>, HashSet<String>) = std::mem::take(&mut self.floated)
+            .into_iter()
+            .partition(|a| {
                 scope.is_none()
                     || list
                         .iter()

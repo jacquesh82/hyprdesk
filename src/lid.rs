@@ -71,7 +71,9 @@ pub fn switch_names() -> Vec<String> {
 /// Sur secteur : une alimentation « Mains » (ou USB) branchée ; un poste
 /// sans batterie compte comme sur secteur.
 pub fn on_ac() -> bool {
-    let Ok(rd) = std::fs::read_dir("/sys/class/power_supply") else { return true };
+    let Ok(rd) = std::fs::read_dir("/sys/class/power_supply") else {
+        return true;
+    };
     let mut battery = false;
     for e in rd.flatten() {
         let p = e.path();
@@ -99,8 +101,11 @@ fn active_monitors() -> Vec<String> {
     ipc::query_json("monitors")
         .ok()
         .and_then(|v| {
-            v.as_array()
-                .map(|a| a.iter().filter_map(|m| m["name"].as_str().map(str::to_string)).collect())
+            v.as_array().map(|a| {
+                a.iter()
+                    .filter_map(|m| m["name"].as_str().map(str::to_string))
+                    .collect()
+            })
         })
         .unwrap_or_default()
 }
@@ -154,7 +159,14 @@ fn logind_action(s: Situation) -> String {
             let s = String::from_utf8_lossy(&o.stdout).to_string();
             s.split('"').nth(1).map(str::to_string)
         })
-        .unwrap_or_else(|| if s == Situation::Docked { "ignore" } else { "suspend" }.into())
+        .unwrap_or_else(|| {
+            if s == Situation::Docked {
+                "ignore"
+            } else {
+                "suspend"
+            }
+            .into()
+        })
 }
 
 fn exe() -> String {
@@ -238,7 +250,10 @@ pub fn close(c: &IdleCfg) -> Result<String, String> {
             systemctl(if verb == "sleep" { "suspend" } else { &verb })?;
         }
         "poweroff" | "reboot" | "halt" => systemctl(&verb)?,
-        other => tracing::warn!("{}", crate::tr!("capot : action logind « {a} » ignorée", a = other)),
+        other => tracing::warn!(
+            "{}",
+            crate::tr!("capot : action logind « {a} » ignorée", a = other)
+        ),
     }
     Ok(verb)
 }
@@ -286,7 +301,10 @@ pub fn build_binds_lua(active: bool, switches: &[String], exe: &str) -> String {
         switches.to_vec()
     };
     for n in names {
-        for (state, arg, desc) in [("on", "close", "capot fermé"), ("off", "open", "capot ouvert")] {
+        for (state, arg, desc) in [
+            ("on", "close", "capot fermé"),
+            ("off", "open", "capot ouvert"),
+        ] {
             let cmd = format!("{} lid {arg}", crate::launch::sh_quote(exe));
             lua += &format!(
                 "pcall(function() table.insert(__hyprdesk_lid, hl.bind(\"switch:{state}:{}\", hl.dsp.exec_cmd(\"{}\"), {{ locked = true, description = \"hyprdesk : {desc}\" }})) end)\n",
@@ -341,7 +359,8 @@ pub fn run(c: &IdleCfg, args: &[String]) -> Result<String, String> {
                         Situation::Docked => crate::i18n::tr("avec un écran externe"),
                     },
                     a = match action_for(c, sit) {
-                        LidAction::System => crate::tr!("comme le système ({v})", v = logind_action(sit)),
+                        LidAction::System =>
+                            crate::tr!("comme le système ({v})", v = logind_action(sit)),
                         a => crate::i18n::tr(a.label()).to_string(),
                     }
                 )
@@ -385,7 +404,9 @@ mod tests {
         assert!(off.contains("b:remove()"));
         let on = build_binds_lua(true, &[], "/bin/hyprdesk");
         assert!(on.contains(r#"hl.bind("switch:on:Lid Switch", hl.dsp.exec_cmd("'/bin/hyprdesk' lid close"), { locked = true"#));
-        assert!(on.contains(r#"hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("'/bin/hyprdesk' lid open")"#));
+        assert!(on.contains(
+            r#"hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("'/bin/hyprdesk' lid open")"#
+        ));
         for a in LidAction::ALL {
             assert_eq!(LidAction::parse(a.as_str()), Some(a));
         }

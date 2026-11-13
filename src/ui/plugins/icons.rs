@@ -144,8 +144,10 @@ impl App {
             }
         }
         let scope_radio = |label: &'static str, v: IconScope| {
-            radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| wrap(Msg::Scope(v)))
-                .font(self.font)
+            radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| {
+                wrap(Msg::Scope(v))
+            })
+            .font(self.font)
         };
         column![
             self.section("Comportement"),

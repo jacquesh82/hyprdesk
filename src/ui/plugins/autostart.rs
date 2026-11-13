@@ -141,7 +141,10 @@ fn edit_ours(
     ours: &[Item],
     f: impl FnOnce(&mut Vec<(bool, String)>),
 ) -> Task<UiMsg> {
-    let mut list: Vec<(bool, String)> = ours.iter().map(|i| (i.enabled, i.command.clone())).collect();
+    let mut list: Vec<(bool, String)> = ours
+        .iter()
+        .map(|i| (i.enabled, i.command.clone()))
+        .collect();
     f(&mut list);
     act(move || crate::session_start::save_ours(&config_path, &list).map(|_| None))
 }
@@ -153,27 +156,39 @@ impl App {
         }
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
-        let Some(s) = self.panel.as_ref().map(|p| &p.autostart).filter(|s| s.loaded) else {
+        let Some(s) = self
+            .panel
+            .as_ref()
+            .map(|p| &p.autostart)
+            .filter(|s| s.loaded)
+        else {
             return text("Lecture…").font(self.font).size(13).color(dim).into();
         };
         let font = self.font;
         let small = move |t: String, c: Color| iced::widget::text(t).font(font).size(12).color(c);
         // Pastille d'état : « actif » en couleur, « coupé » en retrait.
         let chip = move |on: bool, label: &'static str| -> Element<'_, UiMsg> {
-            container(text(label).font(font).size(11).color(if on { fg } else { dim }))
-                .padding([2, 8])
-                .style(move |_| container::Style {
-                    background: on.then(|| Color { a: 0.30, ..accent }.into()),
-                    border: Border::default().rounded(8).width(1).color(Color {
-                        a: if on { 0.9 } else { 0.4 },
-                        ..if on { accent } else { dim }
-                    }),
-                    ..Default::default()
-                })
-                .into()
+            container(
+                text(label)
+                    .font(font)
+                    .size(11)
+                    .color(if on { fg } else { dim }),
+            )
+            .padding([2, 8])
+            .style(move |_| container::Style {
+                background: on.then(|| Color { a: 0.30, ..accent }.into()),
+                border: Border::default().rounded(8).width(1).color(Color {
+                    a: if on { 0.9 } else { 0.4 },
+                    ..if on { accent } else { dim }
+                }),
+                ..Default::default()
+            })
+            .into()
         };
         let action = move |label: &'static str, m: Msg| {
-            button(text(label).font(font).size(12)).padding([4, 10]).on_press(wrap(m))
+            button(text(label).font(font).size(12))
+                .padding([4, 10])
+                .on_press(wrap(m))
         };
         // Une entrée : interrupteur (sauf verrouillée), état, commande et détail, actions.
         let entry = |it: &Item,
@@ -193,10 +208,12 @@ impl App {
             } else {
                 chip(false, "coupé")
             });
-            let mut label = column![iced::widget::text(it.command.clone())
-                .font(font)
-                .size(13)
-                .color(if it.enabled { fg } else { dim })];
+            let mut label = column![
+                iced::widget::text(it.command.clone())
+                    .font(font)
+                    .size(13)
+                    .color(if it.enabled { fg } else { dim })
+            ];
             if !detail.is_empty() {
                 label = label.push(small(detail.join(" — "), dim));
             }
@@ -257,7 +274,12 @@ impl App {
         // -- Lancés par hyprdesk --------------------------------------------------
         col = col.push(self.section("Lancés par hyprdesk"));
         if s.ours.is_empty() {
-            col = col.push(text("Aucun pour l'instant : ajoutez une application ou une commande ci-dessus.").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("Aucun pour l'instant : ajoutez une application ou une commande ci-dessus.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
         }
         for (i, it) in s.ours.iter().enumerate() {
             col = col.push(entry(
@@ -274,9 +296,19 @@ impl App {
         // -- hyprland.lua --------------------------------------------------------
         col = col.push(self.section("Dans hyprland.lua"));
         if !s.has_hyprland {
-            col = col.push(text("hyprland.lua introuvable à côté de hyprdesk.lua.").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("hyprland.lua introuvable à côté de hyprdesk.lua.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
         } else if s.theirs.is_empty() {
-            col = col.push(text("Aucune commande dans le bloc de démarrage (hl.on(\"hyprland.start\", …)).").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("Aucune commande dans le bloc de démarrage (hl.on(\"hyprland.start\", …)).")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
         } else {
             col = col.push(text("Couper une ligne la met en commentaire ; Supprimer la retire. hyprland.lua est sauvegardé avant la première modification.").font(self.font).size(12).color(dim));
         }
@@ -288,18 +320,17 @@ impl App {
             if let Some(n) = &it.note {
                 detail.push(n.clone());
             }
-            let (toggle, actions): (Option<Toggle>, Vec<Element<'static, UiMsg>>) =
-                if it.locked {
-                    (None, Vec::new())
-                } else {
-                    (
-                        Some(Box::new(move |v| wrap(Msg::ToggleTheirs(i, v)))),
-                        vec![
-                            action("Lancer", Msg::RunNow(it.command.clone())).into(),
-                            action("Supprimer", Msg::RemoveTheirs(i)).into(),
-                        ],
-                    )
-                };
+            let (toggle, actions): (Option<Toggle>, Vec<Element<'static, UiMsg>>) = if it.locked {
+                (None, Vec::new())
+            } else {
+                (
+                    Some(Box::new(move |v| wrap(Msg::ToggleTheirs(i, v)))),
+                    vec![
+                        action("Lancer", Msg::RunNow(it.command.clone())).into(),
+                        action("Supprimer", Msg::RemoveTheirs(i)).into(),
+                    ],
+                )
+            };
             col = col.push(entry(it, toggle, detail, actions));
         }
         col.into()

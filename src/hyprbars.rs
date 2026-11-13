@@ -218,7 +218,8 @@ pub fn add_buttons(fg: crate::config::Rgba, bg: crate::config::Rgba) -> Result<(
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
-    let r = hyprpanel_core::ipc::eval(&buttons_lua(&exe, fg, bg, glyphs())).map_err(|e| e.to_string())?;
+    let r = hyprpanel_core::ipc::eval(&buttons_lua(&exe, fg, bg, glyphs()))
+        .map_err(|e| e.to_string())?;
     if r.trim() == "ok" {
         Ok(())
     } else {
@@ -242,14 +243,27 @@ mod tests {
         assert!(lines[1].contains(r#"mode = \"maximized\""#));
         assert!(lines[2].contains("'/opt/hyprdesk' window minimize"));
         // Symboles seuls, lisibles, aux couleurs du thème.
-        assert!(lines.iter().all(|l| l.contains("rgba(00000000)") && l.contains("rgb(f6f7ff)")));
-        assert!(lines[0].contains("size = 32") && lines[2].contains("size = 38") && lines[2].contains("⎽"));
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.contains("rgba(00000000)") && l.contains("rgb(f6f7ff)"))
+        );
+        assert!(
+            lines[0].contains("size = 32")
+                && lines[2].contains("size = 38")
+                && lines[2].contains("⎽")
+        );
         assert!(lua.contains("bar_height = 34") && lua.contains("bar_color = \"rgb(22212c)\""));
         // Règle « pas de barre » des fenêtres étiquetées, dans le bloc gardé.
         assert!(lua.contains(r#"match = { tag = "hyprdesk-nobar" }, ["hyprbars:no_bar"] = true"#));
         // Une seule pose par cycle (pas de retrait dans le plugin).
-        assert!(lua.starts_with("if hl.plugin and hl.plugin.hyprbars and not __hyprdesk_bar_buttons then"));
-        assert!(lua.trim_end().ends_with("__hyprdesk_bar_buttons = true\nend"));
+        assert!(lua.starts_with(
+            "if hl.plugin and hl.plugin.hyprbars and not __hyprdesk_bar_buttons then"
+        ));
+        assert!(
+            lua.trim_end()
+                .ends_with("__hyprdesk_bar_buttons = true\nend")
+        );
     }
 
     #[test]

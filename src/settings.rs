@@ -1302,7 +1302,8 @@ impl Settings {
                         .iter()
                         .filter_map(|(key, _, _, _, n)| {
                             let x = a.get(key)?;
-                            ((x - n).abs() >= 1e-3).then(|| format!("{key} = {}", (x * 1000.0).round() / 1000.0))
+                            ((x - n).abs() >= 1e-3)
+                                .then(|| format!("{key} = {}", (x * 1000.0).round() / 1000.0))
                         })
                         .collect();
                     if !a.calibration.trim().is_empty() {
@@ -1946,7 +1947,13 @@ mod tests {
         );
         s.set_workspace_mode("4", Some(Mode::Opaque));
         s.add_app("firefox", Selector::default());
-        s.add_app("code", Selector { workspaces: Some(vec!["2".into()]), monitors: None });
+        s.add_app(
+            "code",
+            Selector {
+                workspaces: Some(vec!["2".into()]),
+                monitors: None,
+            },
+        );
         s.add_app("firefox", Selector::default()); // doublon ignoré
         s.workspaces = Some(7);
         s.workspace_monitors = Some(BTreeMap::from([
@@ -2036,23 +2043,34 @@ mod tests {
             Some(format!("path:{}", tilde(&dir)).as_str())
         );
         assert_eq!(s.icons[0].icon.as_deref(), Some("folder"));
-        assert_eq!(s.add_dropped(&dir, Selector::default()), None, "pas de doublon");
+        assert_eq!(
+            s.add_dropped(&dir, Selector::default()),
+            None,
+            "pas de doublon"
+        );
         let id = s
-            .add_dropped(std::path::Path::new("/home/moi/photo.JPG"), Selector::default())
+            .add_dropped(
+                std::path::Path::new("/home/moi/photo.JPG"),
+                Selector::default(),
+            )
             .unwrap();
         let i = s.icons.iter().find(|i| i.id == id).unwrap();
         assert_eq!(i.icon.as_deref(), Some("image-x-generic"));
         assert_eq!(i.label.as_deref(), Some("photo.JPG"));
         let id = s
-            .add_dropped(std::path::Path::new(
-                "/usr/share/applications/firefox.desktop",
-            ), Selector::default())
+            .add_dropped(
+                std::path::Path::new("/usr/share/applications/firefox.desktop"),
+                Selector::default(),
+            )
             .unwrap();
         assert_eq!(id, "app:firefox");
         assert!(matches!(&s.icons.last().unwrap().kind, IconKind::App(a) if a == "firefox"));
         // Un .desktop hors des dossiers d'applications reste un fichier.
         let id = s
-            .add_dropped(std::path::Path::new("/tmp/lanceur.desktop"), Selector::default())
+            .add_dropped(
+                std::path::Path::new("/tmp/lanceur.desktop"),
+                Selector::default(),
+            )
             .unwrap();
         assert!(id.starts_with("path:"));
         // Aller-retour par settings.lua.

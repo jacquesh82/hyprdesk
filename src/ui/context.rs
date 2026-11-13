@@ -144,7 +144,10 @@ fn home(p: &Path) -> String {
 
 /// Dossier Bureau de l'utilisateur (xdg-user-dir DESKTOP).
 fn dirs_desktop() -> Option<PathBuf> {
-    let o = std::process::Command::new("xdg-user-dir").arg("DESKTOP").output().ok()?;
+    let o = std::process::Command::new("xdg-user-dir")
+        .arg("DESKTOP")
+        .output()
+        .ok()?;
     let p = PathBuf::from(String::from_utf8_lossy(&o.stdout).trim());
     p.is_dir().then_some(p)
 }
@@ -197,7 +200,8 @@ fn id_name(file: &str, id: u32) -> String {
 
 fn date(t: std::time::SystemTime) -> String {
     let d: chrono::DateTime<chrono::Local> = t.into();
-    d.format_localized("%-d %B %Y, %H:%M", crate::lock::locale()).to_string()
+    d.format_localized("%-d %B %Y, %H:%M", crate::lock::locale())
+        .to_string()
 }
 
 fn run_out(cmd: &str, args: &[&str]) -> Option<String> {
@@ -213,7 +217,9 @@ pub(super) fn path_properties(p: &Path) -> Vec<(String, String)> {
     let mut v = Vec::new();
     v.push((
         tr("Nom"),
-        p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     ));
     let link = std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
     let Ok(meta) = std::fs::metadata(p) else {
@@ -225,7 +231,8 @@ pub(super) fn path_properties(p: &Path) -> Vec<(String, String)> {
     let mime = if meta.is_dir() {
         None
     } else {
-        run_out("xdg-mime", &["query", "filetype", &ps]).or_else(|| run_out("file", &["--mime-type", "-b", &ps]))
+        run_out("xdg-mime", &["query", "filetype", &ps])
+            .or_else(|| run_out("file", &["--mime-type", "-b", &ps]))
     };
     v.push((
         tr("Type"),
@@ -255,7 +262,14 @@ pub(super) fn path_properties(p: &Path) -> Vec<(String, String)> {
         v.push((tr("Ouvert"), date(t)));
     }
     v.push((tr("Droits"), mode_string(meta.permissions().mode())));
-    v.push((tr("Propriétaire"), format!("{} / {}", id_name("/etc/passwd", meta.uid()), id_name("/etc/group", meta.gid()))));
+    v.push((
+        tr("Propriétaire"),
+        format!(
+            "{} / {}",
+            id_name("/etc/passwd", meta.uid()),
+            id_name("/etc/group", meta.gid())
+        ),
+    ));
     if let Some(m) = &mime
         && let Some(id) = run_out("xdg-mime", &["query", "default", m])
     {
@@ -445,7 +459,11 @@ impl App {
         };
         // Taille fixe (renommage compris) : la carte ne change pas de surface.
         let h = self.icon_menu_height(&menu) + 48.0 + 2.0 * SHADOW;
-        let w = if menu.props.is_some() { PROPS_WIDTH } else { WIDTH } + 2.0 * SHADOW;
+        let w = if menu.props.is_some() {
+            PROPS_WIDTH
+        } else {
+            WIDTH
+        } + 2.0 * SHADOW;
         let (mut x, mut y) = (at.x - SHADOW, at.y - SHADOW);
         if let Some(s) = size {
             x = x.min(s.width - w).max(0.0);
@@ -522,7 +540,11 @@ impl App {
             }
             CMsg::Rename => {
                 // Fichier : son nom ; autre icône : son libellé affiché.
-                let label = self.icons.get(idx).map(|r| r.label.clone()).unwrap_or_default();
+                let label = self
+                    .icons
+                    .get(idx)
+                    .map(|r| r.label.clone())
+                    .unwrap_or_default();
                 let Some(menu) = self.icon_menu.as_mut() else {
                     return Task::none();
                 };
@@ -780,7 +802,10 @@ impl App {
                             v.push((tr("Identifiant"), a.clone()));
                             match &file {
                                 Some(f) => v.push((tr("Fichier"), home(f))),
-                                None => v.push((tr("Fichier"), tr("introuvable (application désinstallée ?)"))),
+                                None => v.push((
+                                    tr("Fichier"),
+                                    tr("introuvable (application désinstallée ?)"),
+                                )),
                             }
                             if let Some(e) = &entry {
                                 v.push((tr("Commande"), e.exec.clone()));
@@ -871,7 +896,10 @@ impl App {
                             )
                         }
                         Some((crate::config::WallSource::Color(c), _)) => {
-                            crate::tr!("couleur {c}", c = format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2))
+                            crate::tr!(
+                                "couleur {c}",
+                                c = format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2)
+                            )
                         }
                         None => tr("aucun (couleur du thème)"),
                     };
@@ -889,7 +917,11 @@ impl App {
     }
 
     /// Carte des propriétés : libellé au-dessus de sa valeur, puis Copier / Fermer.
-    fn view_properties<'a>(&'a self, name: &str, props: &'a [(String, String)]) -> Element<'a, Msg> {
+    fn view_properties<'a>(
+        &'a self,
+        name: &str,
+        props: &'a [(String, String)],
+    ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
         let dim = Color { a: 0.6, ..fg };
@@ -920,21 +952,30 @@ impl App {
             );
         }
         let btn = |label: &'static str, msg: CMsg| {
-            button(text(crate::i18n::tr(label)).font(self.font).size(13).color(fg))
-                .padding([5, 12])
-                .style(move |_, st| button::Style {
-                    background: Some(
-                        Color {
-                            a: if matches!(st, button::Status::Hovered) { 0.22 } else { 0.12 },
-                            ..accent
-                        }
-                        .into(),
-                    ),
-                    border: Border::default().rounded(8),
-                    text_color: fg,
-                    ..Default::default()
-                })
-                .on_press(Msg::IconMenu(msg))
+            button(
+                text(crate::i18n::tr(label))
+                    .font(self.font)
+                    .size(13)
+                    .color(fg),
+            )
+            .padding([5, 12])
+            .style(move |_, st| button::Style {
+                background: Some(
+                    Color {
+                        a: if matches!(st, button::Status::Hovered) {
+                            0.22
+                        } else {
+                            0.12
+                        },
+                        ..accent
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(8),
+                text_color: fg,
+                ..Default::default()
+            })
+            .on_press(Msg::IconMenu(msg))
         };
         col = col.push(
             iced::widget::row![
@@ -1102,7 +1143,10 @@ mod tests {
         assert_eq!(mode_string(0o100644), "rw-r--r-- (644)");
         assert_eq!(mode_string(0o40755), "rwxr-xr-x (755)");
         assert!(human_size(512).starts_with("512 "));
-        assert!(human_size(1_468_006).contains("1 468 006") || human_size(1_468_006).contains("1468006"));
+        assert!(
+            human_size(1_468_006).contains("1 468 006")
+                || human_size(1_468_006).contains("1468006")
+        );
     }
 
     #[test]

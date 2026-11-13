@@ -20,7 +20,12 @@ const OPTIONS: &[Opt] = &[
         key: "file",
         label: "Fichier de couleurs",
         help: "Écrit par hyprdesk à chaque changement de thème.",
-        default: || config_dir("gtk-3.0").join("hyprdesk-thunar.css").display().to_string(),
+        default: || {
+            config_dir("gtk-3.0")
+                .join("hyprdesk-thunar.css")
+                .display()
+                .to_string()
+        },
     },
     Opt {
         key: "conf",
@@ -51,7 +56,11 @@ pub const TARGET: Target = Target {
 
 fn file(o: &Opts) -> PathBuf {
     let f = opt(o, "thunar", &OPTIONS[0]);
-    PathBuf::from(if f.is_empty() { (OPTIONS[0].default)() } else { f })
+    PathBuf::from(if f.is_empty() {
+        (OPTIONS[0].default)()
+    } else {
+        f
+    })
 }
 
 fn conf_path(o: &Opts) -> Option<PathBuf> {
@@ -171,7 +180,10 @@ mod tests {
         // Chaque sélecteur commence par .thunar : rien d'autre ne change.
         for l in c.lines().filter(|l| l.contains('{') || l.ends_with(',')) {
             for sel in l.trim_end_matches(['{', ' ', ',']).split(',') {
-                assert!(sel.trim().starts_with(".thunar"), "sélecteur hors de Thunar : {sel}");
+                assert!(
+                    sel.trim().starts_with(".thunar"),
+                    "sélecteur hors de Thunar : {sel}"
+                );
             }
         }
         assert!(c.contains("#171b27") && c.contains("#a69cff"), "{c}");
@@ -184,18 +196,34 @@ mod tests {
         let gtk = dir.join("gtk.css");
         std::fs::write(&gtk, "@define-color accent_color #9580ff;\n").unwrap();
         let mut o = Opts::new();
-        o.insert("thunar.file".into(), dir.join("hyprdesk-thunar.css").display().to_string());
+        o.insert(
+            "thunar.file".into(),
+            dir.join("hyprdesk-thunar.css").display().to_string(),
+        );
         o.insert("thunar.conf".into(), gtk.display().to_string());
         apply(&Theme::default(), &o).unwrap();
         let g = std::fs::read_to_string(&gtk).unwrap();
-        let first_rule = g.lines().find(|l| !l.trim().is_empty() && !l.starts_with("/*")).unwrap();
+        let first_rule = g
+            .lines()
+            .find(|l| !l.trim().is_empty() && !l.starts_with("/*"))
+            .unwrap();
         assert_eq!(first_rule, "@import url(\"hyprdesk-thunar.css\");", "{g}");
         assert!(g.contains("@define-color accent_color"));
         // Deuxième passage : pas de second import.
         apply(&Theme::default(), &o).unwrap();
-        assert_eq!(std::fs::read_to_string(&gtk).unwrap().matches("@import").count(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&gtk)
+                .unwrap()
+                .matches("@import")
+                .count(),
+            1
+        );
         clear(&o).unwrap();
-        assert!(!std::fs::read_to_string(dir.join("hyprdesk-thunar.css")).unwrap().contains(".thunar"));
+        assert!(
+            !std::fs::read_to_string(dir.join("hyprdesk-thunar.css"))
+                .unwrap()
+                .contains(".thunar")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

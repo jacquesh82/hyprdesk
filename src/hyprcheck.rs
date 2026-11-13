@@ -94,19 +94,31 @@ pub fn managed(
         "hyprdesk est l'agent polkit de la session",
     )];
     if wallpaper {
-        v.push((&["hyprpaper", "swaybg", "swww-daemon", "wpaperd"], "hyprdesk dessine le fond d'écran"));
+        v.push((
+            &["hyprpaper", "swaybg", "swww-daemon", "wpaperd"],
+            "hyprdesk dessine le fond d'écran",
+        ));
     }
     if bar {
         v.push((&["waybar", "ags", "eww"], "la barre de hyprdesk est active"));
     }
     if notifications {
-        v.push((&["mako", "dunst", "swaync", "fnott", "wayle"], "hyprdesk affiche les notifications"));
+        v.push((
+            &["mako", "dunst", "swaync", "fnott", "wayle"],
+            "hyprdesk affiche les notifications",
+        ));
     }
     if idle {
-        v.push((&["hypridle", "swayidle"], "hyprdesk lance et règle la veille (hypridle)"));
+        v.push((
+            &["hypridle", "swayidle"],
+            "hyprdesk lance et règle la veille (hypridle)",
+        ));
     }
     if clipboard {
-        v.push((&["cliphist"], "hyprdesk tient l'historique du presse-papiers"));
+        v.push((
+            &["cliphist"],
+            "hyprdesk tient l'historique du presse-papiers",
+        ));
     }
     v
 }
@@ -132,14 +144,17 @@ pub fn program_of(cmd: &str) -> Option<String> {
 /// restent : ce ne sont pas des lignes mortes.
 fn hyprdesk_comment(line: &str) -> bool {
     let t = line.trim_start();
-    let code = t
-        .strip_prefix("--")
-        .map(str::trim_start)
-        .is_some_and(|c| c.starts_with("hl.") || c.starts_with("exec") || c.starts_with("require("));
-    code
-        && ["géré par hyprdesk", "gérée par hyprdesk", "gérées par hyprdesk", "retiré : hyprdesk"]
-            .iter()
-            .any(|m| t.contains(m))
+    let code = t.strip_prefix("--").map(str::trim_start).is_some_and(|c| {
+        c.starts_with("hl.") || c.starts_with("exec") || c.starts_with("require(")
+    });
+    code && [
+        "géré par hyprdesk",
+        "gérée par hyprdesk",
+        "gérées par hyprdesk",
+        "retiré : hyprdesk",
+    ]
+    .iter()
+    .any(|m| t.contains(m))
 }
 
 /// Analyse de hyprland.lua : `dir` son dossier (require), `exists` : le
@@ -303,7 +318,10 @@ pub fn analyse(
                     kind: Kind::MissingRequire,
                     line: Some(n + 1),
                     excerpt: t.to_string(),
-                    detail: crate::tr!("{f} n'existe pas : Hyprland s'arrête sur cette ligne", f = file.display()),
+                    detail: crate::tr!(
+                        "{f} n'existe pas : Hyprland s'arrête sur cette ligne",
+                        f = file.display()
+                    ),
                     fix: Some(Fix::Comment(n, l.to_string())),
                     safe: false,
                 });
@@ -338,7 +356,10 @@ pub fn old_backups(dir: &Path) -> Vec<PathBuf> {
         }
         // Sorte : le nom sans horodatage ni chiffres.
         let kind: String = name.chars().filter(|c| !c.is_ascii_digit()).collect();
-        let t = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+        let t = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
         by_kind.entry(kind).or_default().push((t, e.path()));
     }
     let mut out = Vec::new();
@@ -383,7 +404,13 @@ pub fn full(config_path: &Path, managed: &Managed, session: &Session) -> Vec<Fin
         })
         .collect();
     if let Ok(src) = std::fs::read_to_string(&hypr) {
-        out.extend(analyse(&src, &dir, managed, session, crate::launch::executable));
+        out.extend(analyse(
+            &src,
+            &dir,
+            managed,
+            session,
+            crate::launch::executable,
+        ));
     }
     let old = old_backups(&dir);
     if !old.is_empty() {
@@ -424,7 +451,10 @@ pub fn apply(config_path: &Path, fixes: &[Fix]) -> Result<usize, String> {
                     }
                 }
                 Fix::Delete(i, text) => {
-                    if lines.get(*i).is_some_and(|l| l.as_deref() == Some(text.as_str())) {
+                    if lines
+                        .get(*i)
+                        .is_some_and(|l| l.as_deref() == Some(text.as_str()))
+                    {
                         lines[*i] = None;
                         done += 1;
                     }
@@ -458,8 +488,15 @@ pub fn apply(config_path: &Path, fixes: &[Fix]) -> Result<usize, String> {
 pub fn report(findings: &[Finding]) -> String {
     let mut s = String::new();
     for f in findings {
-        let line = f.line.map(|l| crate::tr!("ligne {l} : ", l = l)).unwrap_or_default();
-        s += &format!("- {} — {line}{}", crate::i18n::tr(f.kind.label()), f.excerpt);
+        let line = f
+            .line
+            .map(|l| crate::tr!("ligne {l} : ", l = l))
+            .unwrap_or_default();
+        s += &format!(
+            "- {} — {line}{}",
+            crate::i18n::tr(f.kind.label()),
+            f.excerpt
+        );
         if !f.detail.is_empty() {
             s += &format!(" ({})", f.detail);
         }
@@ -505,16 +542,37 @@ end)
         let f = analyse(SRC, &dir, &m, &session, |p| p != "programme-inconnu");
         let kinds: Vec<(Kind, Option<usize>)> = f.iter().map(|f| (f.kind, f.line)).collect();
         assert!(kinds.contains(&(Kind::DuplicateBind, Some(5))), "{kinds:?}");
-        assert!(kinds.contains(&(Kind::DuplicateStart, Some(9))), "{kinds:?}");
-        assert!(kinds.contains(&(Kind::MissingProgram, Some(10))), "{kinds:?}");
-        assert!(kinds.contains(&(Kind::Managed, Some(7))), "waybar : {kinds:?}");
-        assert!(kinds.contains(&(Kind::Managed, Some(11))), "hyprpaper : {kinds:?}");
-        assert!(kinds.contains(&(Kind::Managed, Some(12))), "cliphist : {kinds:?}");
-        assert!(kinds.contains(&(Kind::MissingRequire, Some(3))), "{kinds:?}");
+        assert!(
+            kinds.contains(&(Kind::DuplicateStart, Some(9))),
+            "{kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Kind::MissingProgram, Some(10))),
+            "{kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Kind::Managed, Some(7))),
+            "waybar : {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Kind::Managed, Some(11))),
+            "hyprpaper : {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Kind::Managed, Some(12))),
+            "cliphist : {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Kind::MissingRequire, Some(3))),
+            "{kinds:?}"
+        );
         assert!(!kinds.contains(&(Kind::MissingRequire, Some(2))));
         assert!(kinds.contains(&(Kind::StaleComment, Some(13))), "{kinds:?}");
         // Commentaire explicatif : gardé.
-        assert!(!kinds.contains(&(Kind::StaleComment, Some(14))), "{kinds:?}");
+        assert!(
+            !kinds.contains(&(Kind::StaleComment, Some(14))),
+            "{kinds:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -546,12 +604,18 @@ end)
 
     #[test]
     fn programme_d_une_commande() {
-        assert_eq!(program_of("nm-applet --indicator").as_deref(), Some("nm-applet"));
+        assert_eq!(
+            program_of("nm-applet --indicator").as_deref(),
+            Some("nm-applet")
+        );
         assert_eq!(
             program_of("sh -c 'sleep 5 && hyprpaper'").as_deref(),
             Some("sleep")
         );
-        assert_eq!(program_of("env GDK_BACKEND=x11 slack").as_deref(), Some("slack"));
+        assert_eq!(
+            program_of("env GDK_BACKEND=x11 slack").as_deref(),
+            Some("slack")
+        );
     }
 
     #[test]
@@ -560,11 +624,21 @@ end)
 -- hl.workspace_rule({ workspace = \"2\", monitor = \"DP-1\" })\n\
 hl.workspace_rule({ workspace = \"3\", monitor = \"eDP-1\" })\n";
         assert_eq!(workspace_rules(src).len(), 2);
-        let s = Session { monitors: vec!["eDP-1".into()], workspaces: false };
+        let s = Session {
+            monitors: vec!["eDP-1".into()],
+            workspaces: false,
+        };
         let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
-        assert_eq!(f.len(), 1, "seul l'écran absent, hyprdesk ne place rien : {f:?}");
+        assert_eq!(
+            f.len(),
+            1,
+            "seul l'écran absent, hyprdesk ne place rien : {f:?}"
+        );
         assert!(f[0].detail.contains("HDMI-A-2"));
-        let s = Session { monitors: vec!["eDP-1".into()], workspaces: true };
+        let s = Session {
+            monitors: vec!["eDP-1".into()],
+            workspaces: true,
+        };
         let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
         assert_eq!(f.len(), 2, "et le conflit avec hyprdesk : {f:?}");
     }

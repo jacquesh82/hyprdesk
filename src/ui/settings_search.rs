@@ -132,10 +132,25 @@ fn tab_functions(src: &str, tabs: &[plugins::SubTab]) -> Vec<(String, &'static s
 fn build() -> Vec<Entry> {
     let mut v = Vec::new();
     for info in plugins::BUILTIN {
-        v.push(Entry { page: info.id, tab: None, text: info.label.to_string(), kind: Kind::Page });
-        v.push(Entry { page: info.id, tab: None, text: info.summary.to_string(), kind: Kind::Help });
+        v.push(Entry {
+            page: info.id,
+            tab: None,
+            text: info.label.to_string(),
+            kind: Kind::Page,
+        });
+        v.push(Entry {
+            page: info.id,
+            tab: None,
+            text: info.summary.to_string(),
+            kind: Kind::Help,
+        });
         for (t, l) in plugins::tabs(info.id) {
-            v.push(Entry { page: info.id, tab: Some(t), text: l.to_string(), kind: Kind::Tab });
+            v.push(Entry {
+                page: info.id,
+                tab: Some(t),
+                text: l.to_string(),
+                kind: Kind::Tab,
+            });
         }
     }
     for (page, src) in SOURCES {
@@ -154,35 +169,65 @@ fn build() -> Vec<Entry> {
         let end = src.find("#[cfg(test)]").unwrap_or(src.len());
         // Tables de choix et de curseurs : `("id", "Libellé"…)`.
         for (pos, _) in src[..end].match_indices("(\"") {
-            let Some((id, after)) = literal(src, pos + 1) else { continue };
+            let Some((id, after)) = literal(src, pos + 1) else {
+                continue;
+            };
             let is_id = !id.is_empty()
-                && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-.:".contains(c));
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-.:".contains(c));
             if !is_id || !src[after..].starts_with(", \"") {
                 continue;
             }
-            let Some((s, _)) = literal(src, after + 2) else { continue };
+            let Some((s, _)) = literal(src, after + 2) else {
+                continue;
+            };
             let s = s.trim().to_string();
             let first_upper = s.chars().next().is_some_and(|c| c.is_uppercase());
             if !first_upper || s.contains('{') || s.chars().count() > 70 {
                 continue;
             }
-            let tab = starts.iter().rev().find(|(p, _)| *p < pos).and_then(|x| x.1);
+            let tab = starts
+                .iter()
+                .rev()
+                .find(|(p, _)| *p < pos)
+                .and_then(|x| x.1);
             if !v.iter().any(|e: &Entry| e.page == *page && e.text == s) {
-                v.push(Entry { page, tab, text: s, kind: Kind::Label });
+                v.push(Entry {
+                    page,
+                    tab,
+                    text: s,
+                    kind: Kind::Label,
+                });
             }
         }
         for pat in PATTERNS {
             for (pos, _) in src[..end].match_indices(pat) {
-                let Some((s, _)) = literal(src, pos + pat.len() - 1) else { continue };
+                let Some((s, _)) = literal(src, pos + pat.len() - 1) else {
+                    continue;
+                };
                 let s = s.trim().to_string();
                 let letters = s.chars().filter(|c| c.is_alphabetic()).count();
                 if letters < 3 || s.contains('{') || s.chars().count() > 260 {
                     continue;
                 }
-                let tab = starts.iter().rev().find(|(p, _)| *p < pos).and_then(|x| x.1);
-                let kind = if s.chars().count() > 70 { Kind::Help } else { Kind::Label };
+                let tab = starts
+                    .iter()
+                    .rev()
+                    .find(|(p, _)| *p < pos)
+                    .and_then(|x| x.1);
+                let kind = if s.chars().count() > 70 {
+                    Kind::Help
+                } else {
+                    Kind::Label
+                };
                 if !v.iter().any(|e: &Entry| e.page == *page && e.text == s) {
-                    v.push(Entry { page, tab, text: s, kind });
+                    v.push(Entry {
+                        page,
+                        tab,
+                        text: s,
+                        kind,
+                    });
                 }
             }
         }
@@ -276,8 +321,20 @@ pub fn search(query: &str, visible: impl Fn(&str) -> bool) -> Vec<&'static Entry
         .filter(|e| visible(e.page))
         .filter(|e| matches(&e.text, query) || matches(crate::i18n::tr(&e.text), query))
         .collect();
-    let order = |p: &str| plugins::BUILTIN.iter().position(|i| i.id == p).unwrap_or(usize::MAX);
-    r.sort_by_key(|e| (order(e.page), e.kind, e.tab.is_some(), e.text.chars().count()));
+    let order = |p: &str| {
+        plugins::BUILTIN
+            .iter()
+            .position(|i| i.id == p)
+            .unwrap_or(usize::MAX)
+    };
+    r.sort_by_key(|e| {
+        (
+            order(e.page),
+            e.kind,
+            e.tab.is_some(),
+            e.text.chars().count(),
+        )
+    });
     r
 }
 
@@ -289,16 +346,27 @@ mod tests {
     fn recherche_dans_les_reglages() {
         // Libellés relus dans les pages, rattachés à leur onglet.
         let r = search("gamma", |_| true);
-        assert!(r.iter().any(|e| e.page == "colors" && e.text == "Gamma rouge"), "{r:?}");
+        assert!(
+            r.iter()
+                .any(|e| e.page == "colors" && e.text == "Gamma rouge"),
+            "{r:?}"
+        );
         let r = search("raccourcis", |_| true);
-        assert!(r.iter().any(|e| e.page == "desktop" && e.tab == Some("raccourcis")));
+        assert!(
+            r.iter()
+                .any(|e| e.page == "desktop" && e.tab == Some("raccourcis"))
+        );
         // Sans accents ni casse ; tous les mots.
         assert!(matches("Écran de connexion", "ecran CONNEX"));
         assert!(!matches("Écran de connexion", "ecran wifi"));
         assert_eq!(ranges("Fond d'écran", "ecran"), vec![(7, 13)]);
         assert!(search("   ", |_| true).is_empty());
         // Paquet masqué : absent.
-        assert!(search("gamma", |p| p != "colors").iter().all(|e| e.page != "colors"));
+        assert!(
+            search("gamma", |p| p != "colors")
+                .iter()
+                .all(|e| e.page != "colors")
+        );
         assert!(INDEX.len() > 300, "{}", INDEX.len());
     }
 }

@@ -291,18 +291,23 @@ impl App {
                         .on_input(move |v| wrap(Msg::Draft(k2.clone(), v)))
                         .on_submit(wrap(Msg::Submit(key)))
                         .width(Length::Fill),
-                    text(crate::i18n::tr(o.help)).font(self.font).size(12).color(dim),
+                    text(crate::i18n::tr(o.help))
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
                 ]
                 .spacing(4),
             );
         }
         col = col.push(
             row![
-                text(crate::i18n::tr("Valider un champ avec Entrée ; le thème est réappliqué aussitôt."))
-                    .font(self.font)
-                    .size(12)
-                    .color(dim)
-                    .width(Length::Fill),
+                text(crate::i18n::tr(
+                    "Valider un champ avec Entrée ; le thème est réappliqué aussitôt."
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim)
+                .width(Length::Fill),
                 button(text("Valeurs par défaut").font(self.font).size(12))
                     .padding([3, 8])
                     .style(button::text)
@@ -315,7 +320,10 @@ impl App {
     }
 
     /// Enregistre les options du paquet (toutes : `<cible>.<option>` → texte).
-    fn set_apptheme_opts(&mut self, f: impl FnOnce(&mut std::collections::BTreeMap<String, crate::tiling::OptValue>)) -> Task<UiMsg> {
+    fn set_apptheme_opts(
+        &mut self,
+        f: impl FnOnce(&mut std::collections::BTreeMap<String, crate::tiling::OptValue>),
+    ) -> Task<UiMsg> {
         let mut all = self
             .settings
             .plugin_options
@@ -360,7 +368,11 @@ impl App {
                 Task::none()
             }
             Msg::Submit(key) => {
-                let Some(v) = self.panel.as_mut().and_then(|p| p.apptheme.drafts.remove(&key)) else {
+                let Some(v) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.apptheme.drafts.remove(&key))
+                else {
                     return Task::none();
                 };
                 self.set_apptheme_opts(move |m| {

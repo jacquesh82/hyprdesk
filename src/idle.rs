@@ -156,7 +156,13 @@ mod tests {
             s.contains(r#"on-timeout = hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'"#)
         );
         assert!(!s.contains("systemctl suspend"));
-        let all = conf(&IdleCfg { suspend: 1800, ..c.clone() }, "hyprdesk");
+        let all = conf(
+            &IdleCfg {
+                suspend: 1800,
+                ..c.clone()
+            },
+            "hyprdesk",
+        );
         assert!(all.contains("timeout = 1800\n    on-timeout = systemctl suspend"));
     }
 

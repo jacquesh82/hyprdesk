@@ -79,14 +79,24 @@ mod reset_tests {
         std::fs::create_dir_all(dir.join("hyprdesk")).unwrap();
         let cfg = dir.join("hyprdesk.lua");
         std::fs::write(&cfg, "-- ma config").unwrap();
-        std::fs::write(dir.join("hyprdesk/settings.lua"), "hd.config({ show_on = \"focused\" })").unwrap();
+        std::fs::write(
+            dir.join("hyprdesk/settings.lua"),
+            "hd.config({ show_on = \"focused\" })",
+        )
+        .unwrap();
         std::fs::write(dir.join("monitors.lua"), "-- écrans").unwrap();
         let backup = reset_to_defaults(&cfg).unwrap();
         assert_eq!(std::fs::read_to_string(&cfg).unwrap(), example());
         assert!(!dir.join("hyprdesk/settings.lua").exists());
-        assert_eq!(std::fs::read_to_string(backup.join("hyprdesk.lua")).unwrap(), "-- ma config");
+        assert_eq!(
+            std::fs::read_to_string(backup.join("hyprdesk.lua")).unwrap(),
+            "-- ma config"
+        );
         assert!(backup.join("settings.lua").is_file());
-        assert_eq!(std::fs::read_to_string(dir.join("monitors.lua")).unwrap(), "-- écrans");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("monitors.lua")).unwrap(),
+            "-- écrans"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

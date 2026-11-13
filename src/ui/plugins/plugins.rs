@@ -139,7 +139,9 @@ impl App {
                 button(text("Configurer").font(self.font).size(12))
                     .padding([4, 10])
                     .style(button::secondary)
-                    .on_press(UiMsg::Control(crate::control::Command::Settings(info.id.into())))
+                    .on_press(UiMsg::Control(crate::control::Command::Settings(
+                        info.id.into(),
+                    )))
                     .into()
             } else {
                 iced::widget::Space::new().into()

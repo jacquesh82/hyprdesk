@@ -534,7 +534,11 @@ impl App {
             let active = p.tab == tab;
             let n = count(tab);
             // Recherche : les paquets sans correspondance s'effacent.
-            let fg = if searching && n == 0 { Color { a: 0.35, ..fg } } else { fg };
+            let fg = if searching && n == 0 {
+                Color { a: 0.35, ..fg }
+            } else {
+                fg
+            };
             let glyph: Element<'_, Msg> = super::icons::get(icon)
                 .map(|handle| {
                     iced::widget::svg(handle)
@@ -736,9 +740,12 @@ impl App {
         let content: Element<'_, Msg> = if searching && p.search_list {
             self.search_results(&query, &found)
         } else if searching {
-            column![self.search_banner(&query, count(p.tab)), plugins::view(self, p, p.tab)]
-                .spacing(14)
-                .into()
+            column![
+                self.search_banner(&query, count(p.tab)),
+                plugins::view(self, p, p.tab)
+            ]
+            .spacing(14)
+            .into()
         } else {
             plugins::view(self, p, p.tab)
         };
@@ -809,7 +816,12 @@ impl App {
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let mut head = row![self.marked(crate::i18n::tr(label), 14, Color { a: 0.85, ..fg }, self.font)]
+        let mut head = row![self.marked(
+            crate::i18n::tr(label),
+            14,
+            Color { a: 0.85, ..fg },
+            self.font
+        )]
         .spacing(10)
         .align_y(Alignment::Center);
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
@@ -853,7 +865,13 @@ impl App {
     }
 
     /// Texte dont les mots recherchés sont surlignés.
-    pub(in crate::ui) fn marked<'a>(&self, s: &str, size: u32, c: Color, font: iced::Font) -> Element<'a, Msg> {
+    pub(in crate::ui) fn marked<'a>(
+        &self,
+        s: &str,
+        size: u32,
+        c: Color,
+        font: iced::Font,
+    ) -> Element<'a, Msg> {
         let q = self.search_query();
         let hits = if q.is_empty() {
             Vec::new()
@@ -861,7 +879,11 @@ impl App {
             super::settings_search::ranges(s, q)
         };
         if hits.is_empty() {
-            return iced::widget::text(s.to_string()).font(font).size(size).color(c).into();
+            return iced::widget::text(s.to_string())
+                .font(font)
+                .size(size)
+                .color(c)
+                .into();
         }
         let accent = color(self.cfg.general.theme.accent, 1.0);
         let fg = self.ink().fg;
@@ -869,7 +891,12 @@ impl App {
         let mut at = 0;
         for (a, b) in hits {
             if a > at {
-                spans.push(iced::widget::span(s[at..a].to_string()).font(font).size(size).color(c));
+                spans.push(
+                    iced::widget::span(s[at..a].to_string())
+                        .font(font)
+                        .size(size)
+                        .color(c),
+                );
             }
             spans.push(
                 iced::widget::span(s[a..b].to_string())
@@ -883,7 +910,12 @@ impl App {
             at = b;
         }
         if at < s.len() {
-            spans.push(iced::widget::span(s[at..].to_string()).font(font).size(size).color(c));
+            spans.push(
+                iced::widget::span(s[at..].to_string())
+                    .font(font)
+                    .size(size)
+                    .color(c),
+            );
         }
         iced::widget::rich_text(spans).into()
     }
@@ -918,7 +950,10 @@ impl App {
         .padding([6, 10])
         .style(move |_| container::Style {
             background: Some(Color { a: 0.12, ..accent }.into()),
-            border: Border::default().rounded(10).width(1).color(Color { a: 0.35, ..accent }),
+            border: Border::default()
+                .rounded(10)
+                .width(1)
+                .color(Color { a: 0.35, ..accent }),
             ..Default::default()
         })
         .into()
@@ -933,11 +968,14 @@ impl App {
         let ink = self.ink();
         let fg = ink.fg;
         if found.is_empty() {
-            return iced::widget::text(crate::tr!("Aucun réglage ne correspond à « {q} ».", q = query))
-                .font(self.font)
-                .size(13)
-                .color(ink.dim)
-                .into();
+            return iced::widget::text(crate::tr!(
+                "Aucun réglage ne correspond à « {q} ».",
+                q = query
+            ))
+            .font(self.font)
+            .size(13)
+            .color(ink.dim)
+            .into();
         }
         let mut col = column![
             iced::widget::text(crate::tr!(
@@ -967,13 +1005,24 @@ impl App {
                 Some(t) => format!("{} › {t}", crate::i18n::tr(info.label)),
                 None => crate::i18n::tr(info.label).to_string(),
             };
-            let size = if e.kind == super::settings_search::Kind::Help { 12 } else { 14 };
-            let label_color = if e.kind == super::settings_search::Kind::Help { ink.dim } else { fg };
+            let size = if e.kind == super::settings_search::Kind::Help {
+                12
+            } else {
+                14
+            };
+            let label_color = if e.kind == super::settings_search::Kind::Help {
+                ink.dim
+            } else {
+                fg
+            };
             col = col.push(
                 button(
                     column![
                         self.marked(crate::i18n::tr(&e.text), size, label_color, self.font),
-                        iced::widget::text(place).font(self.font).size(11).color(ink.dim),
+                        iced::widget::text(place)
+                            .font(self.font)
+                            .size(11)
+                            .color(ink.dim),
                     ]
                     .spacing(2),
                 )
@@ -991,10 +1040,13 @@ impl App {
         }
         if found.len() > 120 {
             col = col.push(
-                iced::widget::text(crate::tr!("… et {n} autres : précisez la recherche.", n = found.len() - 120))
-                    .font(self.font)
-                    .size(12)
-                    .color(ink.dim),
+                iced::widget::text(crate::tr!(
+                    "… et {n} autres : précisez la recherche.",
+                    n = found.len() - 120
+                ))
+                .font(self.font)
+                .size(12)
+                .color(ink.dim),
             );
         }
         col.into()

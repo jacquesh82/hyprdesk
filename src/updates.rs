@@ -445,7 +445,10 @@ pub fn send_problem(text: &str, show: bool) {
     match crate::control::send(cmd) {
         Ok(r) if r == "ok" => {}
         Ok(r) => {
-            tracing::warn!("{}", crate::tr!("problème non transmis au démon : {r}", r = r));
+            tracing::warn!(
+                "{}",
+                crate::tr!("problème non transmis au démon : {r}", r = r)
+            );
             crate::hypr::notify(
                 3,
                 8000,

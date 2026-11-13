@@ -300,17 +300,29 @@ impl App {
             );
         }
         for (case, label, key, cur) in [
-            (LidCase::Battery, "Sur batterie", "idle_lid_battery", i.lid_battery),
+            (
+                LidCase::Battery,
+                "Sur batterie",
+                "idle_lid_battery",
+                i.lid_battery,
+            ),
             (LidCase::Ac, "Sur secteur", "idle_lid_ac", i.lid_ac),
-            (LidCase::Docked, "Avec un écran externe", "idle_lid_docked", i.lid_docked),
+            (
+                LidCase::Docked,
+                "Avec un écran externe",
+                "idle_lid_docked",
+                i.lid_docked,
+            ),
         ] {
-            col = col.push(self.field(
-                label,
-                key,
-                pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
-                    .font(self.font)
-                    .text_size(13),
-            ));
+            col = col.push(
+                self.field(
+                    label,
+                    key,
+                    pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
+                        .font(self.font)
+                        .text_size(13),
+                ),
+            );
         }
         col = col.push(
             text("« Éteindre l'écran du portable » : avec un écran externe, l'écran du portable est désactivé et ses workspaces passent sur l'externe ; il revient à l'ouverture. Seul, il s'éteint simplement. Hibernation : il faut une partition d'échange assez grande et le réveil configuré (resume).")

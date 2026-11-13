@@ -866,31 +866,39 @@ impl App {
                 let seg = |m: M, icon: &str, cmd: control::Command, tip: &'static str| {
                     let active = mode == m;
                     let tint = if active { on_accent } else { fg };
-                    let glyph = self
-                        .icon_named(icon, isz * 0.9, tint)
-                        .unwrap_or_else(|| self.label(m.as_str().chars().take(1).collect::<String>(), size, tint));
+                    let glyph = self.icon_named(icon, isz * 0.9, tint).unwrap_or_else(|| {
+                        self.label(m.as_str().chars().take(1).collect::<String>(), size, tint)
+                    });
                     iced::widget::tooltip(
-                        button(container(glyph).center_x(Length::Fill).center_y(Length::Fill))
-                            .width(h * 1.25)
-                            .height(h)
-                            .padding(0)
-                            .on_press(Msg::On(monitor.clone(), Box::new(Msg::Control(cmd))))
-                            .style(move |_, st| button::Style {
-                                background: if active {
-                                    Some(Background::Color(accent))
-                                } else if matches!(st, button::Status::Hovered) {
-                                    Some(Background::Color(Color { a: 0.14, ..fgc }))
-                                } else {
-                                    None
-                                },
-                                text_color: tint,
-                                border: Border::default().rounded(h / 2.0),
-                                ..Default::default()
-                            }),
+                        button(
+                            container(glyph)
+                                .center_x(Length::Fill)
+                                .center_y(Length::Fill),
+                        )
+                        .width(h * 1.25)
+                        .height(h)
+                        .padding(0)
+                        .on_press(Msg::On(monitor.clone(), Box::new(Msg::Control(cmd))))
+                        .style(move |_, st| button::Style {
+                            background: if active {
+                                Some(Background::Color(accent))
+                            } else if matches!(st, button::Status::Hovered) {
+                                Some(Background::Color(Color { a: 0.14, ..fgc }))
+                            } else {
+                                None
+                            },
+                            text_color: tint,
+                            border: Border::default().rounded(h / 2.0),
+                            ..Default::default()
+                        }),
                         container(
-                            text(crate::tr!("{m} — {t}", m = m.as_str(), t = crate::i18n::tr(tip)))
-                                .font(self.font)
-                                .size(12),
+                            text(crate::tr!(
+                                "{m} — {t}",
+                                m = m.as_str(),
+                                t = crate::i18n::tr(tip)
+                            ))
+                            .font(self.font)
+                            .size(12),
                         )
                         .padding([4, 8])
                         .style(move |_| container::Style {
@@ -904,14 +912,24 @@ impl App {
                 };
                 container(
                     row![
-                        seg(M::NoDesktop, DESKTOP_OFF_ICON, control::Command::Hide, "bureau masqué"),
+                        seg(
+                            M::NoDesktop,
+                            DESKTOP_OFF_ICON,
+                            control::Command::Hide,
+                            "bureau masqué"
+                        ),
                         seg(
                             M::LauncherOnly,
                             DESKTOP_WINDOWS_ICON,
                             control::Command::LauncherOnly,
                             "fenêtres et lanceur"
                         ),
-                        seg(M::FullDesktop, "user-desktop-symbolic", control::Command::Show, "bureau complet"),
+                        seg(
+                            M::FullDesktop,
+                            "user-desktop-symbolic",
+                            control::Command::Show,
+                            "bureau complet"
+                        ),
                     ]
                     .spacing(2)
                     .align_y(Alignment::Center),

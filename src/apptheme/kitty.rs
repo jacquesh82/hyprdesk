@@ -16,7 +16,12 @@ const OPTIONS: &[Opt] = &[
         key: "file",
         label: "Fichier de couleurs",
         help: "Écrit par hyprdesk à chaque changement de thème.",
-        default: || config_dir("kitty").join("hyprdesk-theme.conf").display().to_string(),
+        default: || {
+            config_dir("kitty")
+                .join("hyprdesk-theme.conf")
+                .display()
+                .to_string()
+        },
     },
     Opt {
         key: "conf",
@@ -48,7 +53,11 @@ pub const TARGET: Target = Target {
 fn file(o: &Opts) -> PathBuf {
     let f = opt(o, "kitty", &OPTIONS[0]);
     // Vide : le fichier par défaut (il en faut un).
-    PathBuf::from(if f.is_empty() { (OPTIONS[0].default)() } else { f })
+    PathBuf::from(if f.is_empty() {
+        (OPTIONS[0].default)()
+    } else {
+        f
+    })
 }
 
 fn conf_path(o: &Opts) -> Option<PathBuf> {
@@ -125,7 +134,11 @@ fn apply(t: &Theme, o: &Opts) -> Result<String, String> {
         ));
     };
     let line = include_line(&file, &kconf);
-    let name = file.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let included = include_once(
         &kconf,
         &line,
@@ -179,20 +192,37 @@ mod tests {
     fn options_reglables() {
         let dir = std::env::temp_dir().join(format!("hyprdesk-kopt-{}", std::process::id()));
         let mut o = Opts::new();
-        o.insert("kitty.file".into(), dir.join("couleurs.conf").display().to_string());
-        o.insert("kitty.conf".into(), dir.join("kitty.conf").display().to_string());
+        o.insert(
+            "kitty.file".into(),
+            dir.join("couleurs.conf").display().to_string(),
+        );
+        o.insert(
+            "kitty.conf".into(),
+            dir.join("kitty.conf").display().to_string(),
+        );
         o.insert("kitty.reload".into(), String::new());
         let r = apply(&Theme::default(), &o).unwrap();
         assert!(r.contains("kitty.conf"), "{r}");
         let k = std::fs::read_to_string(dir.join("kitty.conf")).unwrap();
         assert!(k.contains("include couleurs.conf"), "{k}");
-        assert!(std::fs::read_to_string(dir.join("couleurs.conf")).unwrap().contains("foreground"));
+        assert!(
+            std::fs::read_to_string(dir.join("couleurs.conf"))
+                .unwrap()
+                .contains("foreground")
+        );
         // Configuration vide : on n'y touche pas, le fichier est quand même écrit.
         o.insert("kitty.conf".into(), String::new());
-        o.insert("kitty.file".into(), dir.join("autre.conf").display().to_string());
+        o.insert(
+            "kitty.file".into(),
+            dir.join("autre.conf").display().to_string(),
+        );
         let r = apply(&Theme::default(), &o).unwrap();
         assert!(r.contains("à inclure"), "{r}");
-        assert!(!std::fs::read_to_string(dir.join("kitty.conf")).unwrap().contains("autre.conf"));
+        assert!(
+            !std::fs::read_to_string(dir.join("kitty.conf"))
+                .unwrap()
+                .contains("autre.conf")
+        );
         assert_eq!(
             include_line(Path::new("/a/x.conf"), Path::new("/b/kitty.conf")),
             "include /a/x.conf"
@@ -220,7 +250,10 @@ mod tests {
         println!("1er : {:?}", apply(&t, &Opts::new()));
         println!("2e  : {:?}", apply(&t, &Opts::new()));
         let kconf = std::fs::read_to_string(kdir.join("kitty.conf")).unwrap();
-        println!("inclusions : {}", kconf.matches("include hyprdesk-theme.conf").count());
+        println!(
+            "inclusions : {}",
+            kconf.matches("include hyprdesk-theme.conf").count()
+        );
         let tail: Vec<&str> = kconf.lines().rev().take(3).collect();
         println!(
             "fin de kitty.conf :\n{}",

@@ -149,7 +149,9 @@ pub fn scan_hyprland(src: &str) -> Vec<Item> {
         let indent = l.len() - t.len();
         match block {
             None => {
-                if t.starts_with("hl.on(\"hyprland.start\"") || t.starts_with("hl.on('hyprland.start'") {
+                if t.starts_with("hl.on(\"hyprland.start\"")
+                    || t.starts_with("hl.on('hyprland.start'")
+                {
                     block = Some(indent);
                 }
             }
@@ -301,9 +303,8 @@ fn backup(path: &Path, src: &str) -> std::io::Result<()> {
 /// Enregistre `autostart.lua`, puis s'assure que hyprland.lua le charge.
 pub fn save_ours(config_path: &Path, items: &[(bool, String)]) -> Result<(), String> {
     let hypr = hyprland_path(config_path);
-    let src = std::fs::read_to_string(&hypr).map_err(|e| {
-        crate::tr!("{p} illisible : {e}", p = hypr.display(), e = e)
-    })?;
+    let src = std::fs::read_to_string(&hypr)
+        .map_err(|e| crate::tr!("{p} illisible : {e}", p = hypr.display(), e = e))?;
     crate::storage::write(
         &lua_path(config_path),
         render(items).as_bytes(),
@@ -374,7 +375,10 @@ hl.exec_cmd("hors-bloc")
         assert!(items[1].enabled && !items[1].locked);
         assert_eq!(cmds[2], "wayle shell");
         assert!(!items[2].enabled);
-        assert_eq!(items[2].note.as_deref(), Some("notifications gérées par hyprdesk"));
+        assert_eq!(
+            items[2].note.as_deref(),
+            Some("notifications gérées par hyprdesk")
+        );
         assert_eq!(cmds[3], "scriptsDir .. \"/battery\"");
         assert!(!cmds.contains(&"hors-bloc"));
     }
@@ -430,6 +434,11 @@ hl.exec_cmd("hors-bloc")
         assert!(with_require(&s).is_none());
         let bare = with_require("local a = 1\n").unwrap();
         assert!(bare.ends_with(&format!("{}\n", bare.lines().last().unwrap())));
-        assert!(bare.lines().last().unwrap().starts_with("require(\"autostart\")"));
+        assert!(
+            bare.lines()
+                .last()
+                .unwrap()
+                .starts_with("require(\"autostart\")")
+        );
     }
 }

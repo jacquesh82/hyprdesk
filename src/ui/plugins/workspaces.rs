@@ -44,8 +44,9 @@ pub fn load_foreign(config_path: std::path::PathBuf) -> Task<UiMsg> {
     Task::perform(
         async move {
             tokio::task::spawn_blocking(move || {
-                let src = std::fs::read_to_string(crate::session_start::hyprland_path(&config_path))
-                    .unwrap_or_default();
+                let src =
+                    std::fs::read_to_string(crate::session_start::hyprland_path(&config_path))
+                        .unwrap_or_default();
                 let lines: Vec<&str> = src.lines().collect();
                 crate::hyprcheck::workspace_rules(&src)
                     .into_iter()

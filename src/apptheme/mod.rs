@@ -321,7 +321,10 @@ mod tests {
         let conf = dir.join("kitty.conf");
         std::os::unix::fs::symlink(dir.join("absent/dotfiles/kitty.conf"), &conf).unwrap();
         let e = include_once(&conf, "include t.conf", &[], "# hd").unwrap_err();
-        assert!(e.contains("kitty.conf") && e.contains("absent/dotfiles"), "{e}");
+        assert!(
+            e.contains("kitty.conf") && e.contains("absent/dotfiles"),
+            "{e}"
+        );
         let e = write_if_changed(&conf, "x").unwrap_err();
         assert!(e.contains("absent/dotfiles"), "{e}");
         // Dossier manquant : créé, sans erreur.

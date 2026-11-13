@@ -87,10 +87,23 @@ impl App {
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
-        let Some(s) = self.panel.as_ref().map(|p| &p.hyprconfig).filter(|s| s.loaded) else {
-            return text("Analyse de hyprland.lua…").font(self.font).size(13).color(dim).into();
+        let Some(s) = self
+            .panel
+            .as_ref()
+            .map(|p| &p.hyprconfig)
+            .filter(|s| s.loaded)
+        else {
+            return text("Analyse de hyprland.lua…")
+                .font(self.font)
+                .size(13)
+                .color(dim)
+                .into();
         };
-        let safe = s.findings.iter().filter(|f| f.safe && f.fix.is_some()).count();
+        let safe = s
+            .findings
+            .iter()
+            .filter(|f| f.safe && f.fix.is_some())
+            .count();
         let mut head = row![
             button(text("Analyser à nouveau").font(self.font).size(13))
                 .padding([6, 12])
@@ -122,10 +135,20 @@ impl App {
         ]
         .spacing(12);
         if let Some(m) = &s.info {
-            col = col.push(iced::widget::text(m.clone()).font(self.font).size(12).color(accent));
+            col = col.push(
+                iced::widget::text(m.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(accent),
+            );
         }
         if let Some(e) = &s.error {
-            col = col.push(iced::widget::text(e.clone()).font(self.font).size(12).color(warn));
+            col = col.push(
+                iced::widget::text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(warn),
+            );
         }
         if s.findings.is_empty() {
             col = col.push(
@@ -154,7 +177,12 @@ impl App {
             .spacing(2)
             .width(Length::Fill);
             if !f.detail.is_empty() {
-                info = info.push(iced::widget::text(f.detail.clone()).font(self.font).size(12).color(dim));
+                info = info.push(
+                    iced::widget::text(f.detail.clone())
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
+                );
             }
             let mut line = row![info].spacing(10).align_y(Alignment::Center);
             if let Some(fix) = &f.fix {
@@ -169,17 +197,15 @@ impl App {
                         .on_press(wrap(Msg::Fix(i))),
                 );
             }
-            col = col.push(
-                container(line)
-                    .padding([8, 10])
-                    .style(move |_| container::Style {
-                        border: Border::default()
-                            .rounded(10)
-                            .width(1)
-                            .color(Color { a: 0.12, ..fg }),
-                        ..Default::default()
-                    }),
-            );
+            col = col.push(container(line).padding([8, 10]).style(move |_| {
+                container::Style {
+                    border: Border::default()
+                        .rounded(10)
+                        .width(1)
+                        .color(Color { a: 0.12, ..fg }),
+                    ..Default::default()
+                }
+            }));
         }
         col.into()
     }

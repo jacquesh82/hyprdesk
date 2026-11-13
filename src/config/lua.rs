@@ -1125,7 +1125,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 let (key, val) = f?;
                 if key == "calibration" {
                     let Value::String(p) = val else {
-                        return Err(err(crate::tr!("{C} : calibration attend un chemin de fichier", C = C)));
+                        return Err(err(crate::tr!(
+                            "{C} : calibration attend un chemin de fichier",
+                            C = C
+                        )));
                     };
                     a.calibration = p.to_str()?.to_string();
                     continue;

@@ -2579,10 +2579,19 @@ impl Fenetre {
                 .color(dim)
                 .into();
         };
-        let titre = |t: &str| text(t.to_string()).font(app.title_font()).size(15).color(fg);
+        let titre = |t: &str| {
+            text(t.to_string())
+                .font(app.title_font())
+                .size(15)
+                .color(fg)
+        };
         let ligne = |etiquette: String, valeur: String, c: Color| -> Element<'static, Msg> {
             row![
-                text(etiquette).font(app.font).size(13).color(dim).width(Length::Fixed(220.0)),
+                text(etiquette)
+                    .font(app.font)
+                    .size(13)
+                    .color(dim)
+                    .width(Length::Fixed(220.0)),
                 text(valeur).font(app.font).size(13).color(c),
             ]
             .spacing(10)
@@ -2611,28 +2620,47 @@ impl Fenetre {
         let ouverture = if b(&coffre, "scelle") {
             (tr("à la connexion (sceau de session)"), ok)
         } else if b(&coffre, "sansSceau") {
-            (tr("par son mot de passe (ouverture à la connexion refusée)"), dim)
+            (
+                tr("par son mot de passe (ouverture à la connexion refusée)"),
+                dim,
+            )
         } else {
-            (tr("par son mot de passe (sceau au prochain déverrouillage)"), dim)
+            (
+                tr("par son mot de passe (sceau au prochain déverrouillage)"),
+                dim,
+            )
         };
         let liaison = if b(&synchro, "lie") {
-            (tr("lié au coffre partagé de Drive : fusion à chaque synchro"), ok)
+            (
+                tr("lié au coffre partagé de Drive : fusion à chaque synchro"),
+                ok,
+            )
         } else if b(&synchro, "connecte") {
             (tr("coffre partagé de Drive non lié (Réglages)"), warn)
         } else {
-            (tr("pas de synchronisation (Réglages → Connecter Google Drive)"), dim)
+            (
+                tr("pas de synchronisation (Réglages → Connecter Google Drive)"),
+                dim,
+            )
         };
         let mut c1 = column![
             titre(&tr("Cet appareil")),
             ligne(
                 tr("Appareil"),
-                format!("{} · Linux", if nom.is_empty() { tr("sans nom") } else { nom }),
+                format!(
+                    "{} · Linux",
+                    if nom.is_empty() { tr("sans nom") } else { nom }
+                ),
                 fg
             ),
             ligne(tr("Identifiant de synchro"), s(&ap, "id"), dim),
             ligne(
                 tr("Coffre d'appareil"),
-                if b(&coffre, "ouvert") { tr("ouvert") } else { tr("verrouillé") },
+                if b(&coffre, "ouvert") {
+                    tr("ouvert")
+                } else {
+                    tr("verrouillé")
+                },
                 if b(&coffre, "ouvert") { ok } else { warn }
             ),
             ligne(tr("Ouverture"), ouverture.0, ouverture.1),
@@ -2696,7 +2724,9 @@ impl Fenetre {
             let Some(mut elements) = elements else {
                 continue;
             };
-            elements.sort_by_key(|e| std::cmp::Reverse(e.get("modifie").and_then(Value::as_u64).unwrap_or(0)));
+            elements.sort_by_key(|e| {
+                std::cmp::Reverse(e.get("modifie").and_then(Value::as_u64).unwrap_or(0))
+            });
             for e in elements {
                 let attributs = e.get("attributs").and_then(Value::as_object);
                 let source = attributs
@@ -2711,11 +2741,19 @@ impl Fenetre {
                     .get("modifie")
                     .and_then(Value::as_i64)
                     .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
-                    .map(|d| d.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M").to_string())
+                    .map(|d| {
+                        d.with_timezone(&chrono::Local)
+                            .format("%d/%m/%Y %H:%M")
+                            .to_string()
+                    })
                     .unwrap_or_default();
                 c2 = c2.push(
                     row![
-                        text(s(&e, "label")).font(app.font).size(12).color(fg).width(Length::Fill),
+                        text(s(&e, "label"))
+                            .font(app.font)
+                            .size(12)
+                            .color(fg)
+                            .width(Length::Fill),
                         text(source).font(app.font).size(11).color(dim),
                         text(quand).font(app.font).size(11).color(dim),
                     ]
@@ -2726,27 +2764,37 @@ impl Fenetre {
         }
         if !b(&trousseau, "ouvert") {
             c2 = c2.push(
-                text(tr("Coffre verrouillé : les libellés des secrets n'apparaissent qu'ouvert."))
-                    .font(app.font)
-                    .size(12)
-                    .color(dim),
+                text(tr(
+                    "Coffre verrouillé : les libellés des secrets n'apparaissent qu'ouvert.",
+                ))
+                .font(app.font)
+                .size(12)
+                .color(dim),
             );
         }
         col = col.push(carte(c2.into()));
 
         // ── Appareils qui partagent le coffre (registre de la synchro).
-        let appareils = a.get("appareils").and_then(Value::as_array).cloned().unwrap_or_default();
+        let appareils = a
+            .get("appareils")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let mut c3 = column![titre(&tr("Appareils du coffre partagé"))].spacing(6);
         if appareils.is_empty() {
             c3 = c3.push(
-                text(tr("Aucun pour l'instant : le registre se remplit à la première synchro."))
-                    .font(app.font)
-                    .size(12)
-                    .color(dim),
+                text(tr(
+                    "Aucun pour l'instant : le registre se remplit à la première synchro.",
+                ))
+                .font(app.font)
+                .size(12)
+                .color(dim),
             );
         }
         let mut appareils = appareils;
-        appareils.sort_by_key(|x| std::cmp::Reverse(x.get("actifLe").and_then(Value::as_i64).unwrap_or(0)));
+        appareils.sort_by_key(|x| {
+            std::cmp::Reverse(x.get("actifLe").and_then(Value::as_i64).unwrap_or(0))
+        });
         for x in appareils {
             let type_ = match s(&x, "type").as_str() {
                 "web" => tr("Web"),
@@ -2762,20 +2810,32 @@ impl Fenetre {
                 .and_then(Value::as_i64)
                 .filter(|t| *t > 0)
                 .and_then(chrono::DateTime::from_timestamp_millis)
-                .map(|d| d.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M").to_string())
+                .map(|d| {
+                    d.with_timezone(&chrono::Local)
+                        .format("%d/%m/%Y %H:%M")
+                        .to_string()
+                })
                 .unwrap_or_else(|| tr("activité inconnue"));
             let moi = b(&x, "moi");
             c3 = c3.push(
                 row![
-                    text(if nom.is_empty() { type_.clone() } else { format!("{type_} · {nom}") })
-                        .font(app.font)
-                        .size(13)
-                        .color(fg)
-                        .width(Length::Fill),
-                    text(if moi { tr("cet appareil") } else { String::new() })
-                        .font(app.font)
-                        .size(11)
-                        .color(ok),
+                    text(if nom.is_empty() {
+                        type_.clone()
+                    } else {
+                        format!("{type_} · {nom}")
+                    })
+                    .font(app.font)
+                    .size(13)
+                    .color(fg)
+                    .width(Length::Fill),
+                    text(if moi {
+                        tr("cet appareil")
+                    } else {
+                        String::new()
+                    })
+                    .font(app.font)
+                    .size(11)
+                    .color(ok),
                     text(quand).font(app.font).size(11).color(dim),
                 ]
                 .spacing(12),

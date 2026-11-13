@@ -293,33 +293,36 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                         return;
                     }
                     let reply = match (too_long, Command::parse(&line)) {
-                        (true, _) => crate::tr!(
-                            "commande trop longue ({n} octets au plus)",
-                            n = MAX_LINE
-                        ),
+                        (true, _) => {
+                            crate::tr!("commande trop longue ({n} octets au plus)", n = MAX_LINE)
+                        }
                         (false, c) => match c {
-                        Some(Command::Status) => {
-                            STATUS.lock().map(|s| s.clone()).unwrap_or_default()
-                        }
-                        Some(c) => {
-                            // L'arrêt est toujours tracé, avec son expéditeur.
-                            if c == Command::Quit {
-                                let why = crate::tr!("commande « quit » de {from}", from = from);
-                                tracing::warn!(
-                                    "{}",
-                                    crate::tr!("arrêt demandé : {why}", why = why)
-                                );
-                                set_exit_reason(why);
-                                QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
-                            } else {
-                                tracing::debug!("commande « {} » de {from}", c.as_str());
+                            Some(Command::Status) => {
+                                STATUS.lock().map(|s| s.clone()).unwrap_or_default()
                             }
-                            match tokio::time::timeout(Duration::from_secs(2), out.send(c)).await {
-                                Ok(Ok(())) => "ok".to_string(),
-                                _ => crate::i18n::tr("démon occupé").to_string(),
+                            Some(c) => {
+                                // L'arrêt est toujours tracé, avec son expéditeur.
+                                if c == Command::Quit {
+                                    let why =
+                                        crate::tr!("commande « quit » de {from}", from = from);
+                                    tracing::warn!(
+                                        "{}",
+                                        crate::tr!("arrêt demandé : {why}", why = why)
+                                    );
+                                    set_exit_reason(why);
+                                    QUIT_REQUESTED
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                                } else {
+                                    tracing::debug!("commande « {} » de {from}", c.as_str());
+                                }
+                                match tokio::time::timeout(Duration::from_secs(2), out.send(c))
+                                    .await
+                                {
+                                    Ok(Ok(())) => "ok".to_string(),
+                                    _ => crate::i18n::tr("démon occupé").to_string(),
+                                }
                             }
-                        }
-                        None => crate::tr!("commande inconnue : {p0}", p0 = line.trim()),
+                            None => crate::tr!("commande inconnue : {p0}", p0 = line.trim()),
                         },
                     };
                     let _ = tokio::time::timeout(
@@ -402,7 +405,8 @@ mod tests {
     fn rapport_long_transmis() {
         // Rapport d'une mise à jour ratée : fin du journal, bien plus que
         // l'ancienne limite de 1 Kio ; une seule ligne, sous MAX_LINE.
-        let report = "Fin du journal :\n".to_string() + &"==> Making package: brave-bin\n".repeat(150);
+        let report =
+            "Fin du journal :\n".to_string() + &"==> Making package: brave-bin\n".repeat(150);
         let line = Command::ProblemShow(report.clone()).to_line();
         assert!(line.len() > 1024 && line.len() < MAX_LINE && !line.contains('\n'));
         assert_eq!(

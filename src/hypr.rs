@@ -180,7 +180,10 @@ pub fn minimize_active() -> Result<String, String> {
         .as_str()
         .filter(|a| !a.is_empty())
         .ok_or_else(|| crate::i18n::tr("aucune fenêtre active").to_string())?;
-    if v["workspace"]["name"].as_str().is_some_and(|w| w.starts_with("special:")) {
+    if v["workspace"]["name"]
+        .as_str()
+        .is_some_and(|w| w.starts_with("special:"))
+    {
         return Err(crate::i18n::tr("fenêtre déjà dans un workspace spécial").to_string());
     }
     move_window(address, MINIMIZED).map_err(|e| e.to_string())?;
@@ -296,7 +299,11 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
                 width: (w / scale).round() as u32,
                 height: (h / scale).round() as u32,
                 workspace,
-                base: if active != STASH { active.to_string() } else { String::new() },
+                base: if active != STASH {
+                    active.to_string()
+                } else {
+                    String::new()
+                },
                 focused: m["focused"].as_bool().unwrap_or(false),
                 reserved: (r(0), r(1), r(2), r(3)),
                 x: m["x"].as_f64().unwrap_or(0.0) as f32,
@@ -854,10 +861,8 @@ pub fn orphan_workspaces(rules: &Value, live: &[String], placement: &[Placement]
             continue;
         };
         let ws = ws.strip_prefix("name:").unwrap_or(ws);
-        let plain = !ws.is_empty()
-            && !ws.contains('[')
-            && !ws.starts_with("special")
-            && !ws.contains(' ');
+        let plain =
+            !ws.is_empty() && !ws.contains('[') && !ws.starts_with("special") && !ws.contains(' ');
         if !plain
             || mon.is_empty()
             || mon.starts_with("desc:")

@@ -10,8 +10,8 @@ use std::path::Path;
 
 use crate::config::lua::{load_file, load_settings_only};
 use crate::config::{
-    AppMatch, BarPosition, Config, Fit, LauncherGroup, LidAction, MAX_WORKSPACES, Mode, Place, Rgba,
-    RunningApps, Selector, ShowOn, Transition, WallSource,
+    AppMatch, BarPosition, Config, Fit, LauncherGroup, LidAction, MAX_WORKSPACES, Mode, Place,
+    Rgba, RunningApps, Selector, ShowOn, Transition, WallSource,
 };
 use crate::settings::{BarSettings, Settings, hex};
 
@@ -1136,7 +1136,8 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                 )
                 .to_string());
             }
-            let backup = crate::config::reset_to_defaults(config_path).map_err(|e| e.to_string())?;
+            let backup =
+                crate::config::reset_to_defaults(config_path).map_err(|e| e.to_string())?;
             Ok(crate::tr!(
                 "configuration par défaut remise ; copie de l'ancienne : {b}",
                 b = backup.display()

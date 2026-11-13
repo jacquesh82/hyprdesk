@@ -18,17 +18,17 @@ pub mod animations;
 pub mod apps;
 pub mod apptheme;
 pub mod assistant;
+pub mod autostart;
 pub mod bar;
 pub mod bluetooth;
+pub mod colors;
 pub mod datetime;
 pub mod desktop;
 pub mod effects;
 pub mod energy;
+pub mod hyprconfig;
 pub mod icons;
 pub mod input;
-pub mod autostart;
-pub mod colors;
-pub mod hyprconfig;
 pub mod launcher;
 pub mod layouts;
 pub mod lock;
@@ -298,14 +298,20 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "thème" | "themes" | "thèmes" | "couleurs" | "apparence" => "theme",
         "kitty" | "theme-apps" | "thème-applications" => "apptheme",
         "ecrans" | "écrans" => "screens",
-        "couleurs-ecrans" | "couleurs-écrans" | "calibration" | "gamma" | "icc" | "mire" => "colors",
+        "couleurs-ecrans" | "couleurs-écrans" | "calibration" | "gamma" | "icc" | "mire" => {
+            "colors"
+        }
         "lanceur" | "dock" => "launcher",
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
         "applications" | "defaults" => "apps",
         "hyprland" | "hyprland.lua" | "menage" | "ménage" | "conflits" => "hyprconfig",
-        "demarrage" | "démarrage" | "demarrage-automatique" | "démarrage-automatique"
-        | "exec-once" | "startup" => "autostart",
+        "demarrage"
+        | "démarrage"
+        | "demarrage-automatique"
+        | "démarrage-automatique"
+        | "exec-once"
+        | "startup" => "autostart",
         "extensions" | "paquets" => "plugins",
         "ia" | "ai" | "lyra" | "smartui" | "services-ia" => "assistant",
         "partage" | "export" | "import" => "share",
