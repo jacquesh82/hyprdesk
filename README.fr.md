@@ -164,6 +164,46 @@ ou rend le clavier au bureau complet.
 
 </details>
 
+## Ce que hyprdesk remplace
+
+hyprdesk prend en charge ce qui demandait, dans une session, un outil à lui
+tout seul. La page Configuration de Hyprland signale ce qui reste en marche,
+et LYRA peut le ranger avec vous.
+
+**Remplacés** — hyprdesk fait le travail :
+
+- **Fond d'écran** (`hyprpaper`) : dessiné nativement, par workspace et par
+  écran, avec diaporamas et fondus ; l'installateur peut retirer hyprpaper de
+  l'autostart.
+- **Écran de connexion** (`GDM`, `SDDM`, `LightDM`) : un greeter sous greetd
+  et cage prend la place au prochain démarrage ; `sudo hyprdesk greeter
+  setup restore` revient à l'écran d'avant.
+- **Écran de verrouillage** (`hyprlock`) : verrouillage natif
+  (ext-session-lock-v1) avec PAM et empreinte au besoin ; la liaison
+  SUPER + L est réécrite vers `hyprdesk lock`.
+- **Secret Service** (`gnome-keyring`) : avec myMFA, son démon tient le
+  Secret Service — hyprdesk importe les secrets de gnome-keyring, masque ses
+  unités, et un clic les lui rend.
+- **Couleurs des écrans** (`wlsunset`, `gammastep`, `redshift`) : luminosité,
+  contraste et gamma par écran, par tables gamma ; `hyprdesk colors free`
+  arrête — et peut désactiver — un programme qui les tient encore.
+- **Disposition des écrans** (écrite dans `monitors.lua`) : position,
+  rotation, échelle, écran principal et branchement à chaud, appliqués en
+  direct ; un `monitors.lua` existant est repris, pas écrasé.
+
+**Fournis, en cohabitation** — hyprdesk ne prend le service que si personne
+ne le tient : le démon de notifications (`mako`, `dunst`… restent maîtres
+s'ils tournent), l'agent polkit (un agent déjà enregistré garde la session),
+et le StatusNotifierWatcher de la zone de notification.
+
+**Orchestrés** — l'outil externe reste, hyprdesk le pilote : `hypridle`
+(configuration écrite et supervisée), `cliphist` + `wl-clipboard`
+(l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),
+`hyprshot` et `wf-recorder` (captures, enregistrement). La barre, le dock et
+le lanceur sont natifs aussi : la page Configuration de Hyprland signale les
+barres en double (waybar, ags, eww), et une liaison de lanceur existante est
+reprise.
+
 ## Configuration
 
 Ouvrez les Réglages depuis le dock, ou lancez `hyprdesk settings screens` pour

@@ -158,6 +158,45 @@ closes the dock or returns focus to the full desktop.
 
 </details>
 
+## What hyprdesk replaces
+
+hyprdesk takes over the parts of a session that usually need a tool of their
+own. The Hyprland configuration page reports anything left running, and LYRA
+can tidy it with you.
+
+**Replaced** — hyprdesk does the work:
+
+- **Wallpaper** (`hyprpaper`): drawn natively per workspace and screen, with
+  slideshows and crossfades; the installer can remove hyprpaper from
+  autostart.
+- **Login screen** (`GDM`, `SDDM`, `LightDM`): an optional greeter under
+  greetd and cage takes over at the next boot; `sudo hyprdesk greeter setup
+  restore` switches back to the previous one.
+- **Lock screen** (`hyprlock`): a native ext-session-lock-v1 screen with PAM
+  and optional fingerprint; the SUPER + L binding is rewritten to
+  `hyprdesk lock`.
+- **Secret Service** (`gnome-keyring`): with myMFA, its daemon serves the
+  Secret Service — hyprdesk imports gnome-keyring secrets, masks its units,
+  and one click gives them back.
+- **Screen colours** (`wlsunset`, `gammastep`, `redshift`): brightness,
+  contrast and gamma per screen through gamma tables; `hyprdesk colors free`
+  stops — and can disable — a program still holding them.
+- **Monitor arrangement** (written to `monitors.lua`): position, rotation,
+  scale, primary and hotplug, applied live; an existing `monitors.lua` is
+  taken over, not overwritten.
+
+**Built in, with cohabitation** — hyprdesk provides the service and only
+takes it if nobody else holds it: the notification daemon (`mako`, `dunst`…
+stay in charge if they run), the polkit agent (an already-registered one
+keeps the session), and the tray's StatusNotifierWatcher.
+
+**Orchestrated** — the external tool stays, hyprdesk drives it: `hypridle`
+(config written and supervised), `cliphist` + `wl-clipboard` (the clipboard
+history behind `:clip`), `hyprsunset` (night light), `hyprshot` and
+`wf-recorder` (screenshots, recording). The bar, dock and launcher are native
+too: the Hyprland configuration page reports duplicate bars (waybar, ags,
+eww), and an existing launcher binding is taken over.
+
 ## Configuration
 
 Open Settings from the dock or run `hyprdesk settings screens` to go straight
