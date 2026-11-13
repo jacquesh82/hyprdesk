@@ -427,8 +427,17 @@ pull request workflow.
 
 ## Credits and license
 
-hyprdesk is released under the [MIT license](LICENSE). The bundled
-[Mindlog typeface](https://github.com/jacquesh82/mindlog.fonts) is licensed under
-the [SIL Open Font License 1.1](assets/fonts/mindlog/OFL.txt).
-[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)
-provides LYRA and the `hyprpanel-core` Hyprland IPC library.
+hyprdesk is released under the [MIT license](LICENSE).
+
+- [Hyprland](https://hyprland.org), the compositor hyprdesk lives in;
+- [iced](https://github.com/iced-rs/iced), the GUI toolkit — with patched
+  copies of [exwlshelleventloop](https://github.com/waycrate/exwlshelleventloop)'s
+  `layershellev` and `iced_layershell` under `vendor/` (MIT);
+- the [Mindlog typeface](https://github.com/jacquesh82/mindlog.fonts),
+  bundled under the [SIL Open Font License 1.1](assets/fonts/mindlog/OFL.txt);
+- [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools),
+  home of LYRA and of the `hyprpanel-core` Hyprland IPC library;
+- the myMFA keyring, from
+  [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients).
+
+The full dependency list lives in `Cargo.lock`.

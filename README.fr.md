@@ -446,8 +446,18 @@ détaille build et vérifications, et le [guide de contribution](CONTRIBUTING.md
 
 ## Crédits et licence
 
-hyprdesk est sous [licence MIT](LICENSE). La police
-[Mindlog](https://github.com/jacquesh82/mindlog.fonts), embarquée, est sous
-[SIL Open Font License 1.1](assets/fonts/mindlog/OFL.txt).
-[mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools)
-fournit LYRA et la bibliothèque d'IPC Hyprland `hyprpanel-core`.
+hyprdesk est sous [licence MIT](LICENSE).
+
+- [Hyprland](https://hyprland.org), le compositeur dans lequel vit hyprdesk ;
+- [iced](https://github.com/iced-rs/iced), la boîte à outils d'interface — avec
+  des copies patchées de `layershellev` et `iced_layershell`
+  ([exwlshelleventloop](https://github.com/waycrate/exwlshelleventloop)) dans
+  `vendor/` (MIT) ;
+- la police [Mindlog](https://github.com/jacquesh82/mindlog.fonts), embarquée
+  sous [SIL Open Font License 1.1](assets/fonts/mindlog/OFL.txt) ;
+- [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools),
+  maison de LYRA et de l'IPC Hyprland `hyprpanel-core` ;
+- le trousseau myMFA, de
+  [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients).
+
+La liste complète des dépendances vit dans `Cargo.lock`.
