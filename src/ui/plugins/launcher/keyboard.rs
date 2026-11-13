@@ -308,6 +308,36 @@ mod tests {
         assert_eq!(app.mode(), DesktopMode::FullDesktop);
     }
 
+    /// Le sélecteur de la barre (un clic) ne prend pas le clavier : on doit
+    /// pouvoir écrire dans une fenêtre en mode lanceur.
+    #[test]
+    fn the_bar_selector_leaves_the_keyboard_to_the_windows() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::On(
+            "A".into(),
+            Box::new(Msg::Control(crate::control::Command::LauncherOnly)),
+        ));
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        assert!(app.launcher_runtime.focus.is_none());
+    }
+
+    /// Dock ouvert au clavier puis plein bureau (ou no-desktop) : le dock
+    /// rend le clavier, sinon aucune fenêtre ne le reçoit plus.
+    #[test]
+    fn leaving_launcher_mode_gives_the_keyboard_back() {
+        for (to, mode) in [
+            (crate::control::Command::Show, DesktopMode::FullDesktop),
+            (crate::control::Command::Hide, DesktopMode::NoDesktop),
+        ] {
+            let mut app = app();
+            let _ = app.update_inner(Msg::Control(crate::control::Command::LauncherOnly));
+            assert!(app.launcher_runtime.focus.is_some());
+            let _ = app.update_inner(Msg::Control(to));
+            assert_eq!(app.mode(), mode);
+            assert!(app.launcher_runtime.focus.is_none(), "{mode:?}");
+        }
+    }
+
     #[test]
     fn a_click_also_gives_the_keyboard_back() {
         let mut app = app();

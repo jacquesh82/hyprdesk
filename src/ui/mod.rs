@@ -1646,6 +1646,14 @@ impl App {
                 }
                 _ => {}
             }
+            // L'écran quitte le mode lanceur : le dock qui tenait le clavier
+            // (ouvert au clavier) le rend, sinon aucune fenêtre ne le reçoit.
+            if had == Launcher
+                && *want != Launcher
+                && self.launcher_runtime.focus.as_ref().is_some_and(|(f, _)| f == mon)
+            {
+                tasks.push(self.launcher_release());
+            }
             self.applied.insert(mon.clone(), (*want, m.workspace.clone()));
         }
         // Fondu : seulement quand le bureau apparaît ou disparaît partout.
@@ -3054,8 +3062,10 @@ impl App {
                 }
                 control::Command::Show => self.show(),
                 control::Command::Hide => self.hide(),
+                // Au clavier (raccourci, hyprdesk launcher-only), le dock prend
+                // le clavier ; d'un clic (barre), il le laisse aux fenêtres.
                 control::Command::LauncherOnly => {
-                    if self.mode() == DesktopMode::LauncherOnly {
+                    if self.mode() == DesktopMode::LauncherOnly || self.click_monitor.is_some() {
                         return self.show_with_windows();
                     }
                     let grab = self.launcher_grab_focused();
