@@ -297,6 +297,23 @@ mymfa_ready() {
     done
     return 1
 }
+# Le démon répond ; sinon, un essai de remise en route avant de conclure : le
+# bus relit ses fichiers d'activation (dbus-broker ne suit pas un dossier créé
+# après son lancement : ServiceUnknown à la première installation), puis l'unit
+# est démarrée. Un démon installé qui ne répond toujours pas est réinstallé.
+mymfa_answers() {
+    local b i
+    b="$(mymfa_bin)"
+    [[ -n "$b" ]] || return 1
+    "$b" status >/dev/null 2>&1 && return 0
+    busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
+    timeout 20 systemctl --user start mymfa.service >/dev/null 2>&1 || true
+    for i in 1 2 3 4 5 6; do
+        "$b" status >/dev/null 2>&1 && return 0
+        sleep 0.5
+    done
+    return 1
+}
 # Dépôt privé : le premier accès qui marche, sans rien demander (clé SSH,
 # identifiants HTTPS enregistrés, ou gh connecté). Rend « ssh|https <url> »
 # ou « gh <dépôt> ».
@@ -331,11 +348,14 @@ if [[ "$MYMFA" == 1 ]]; then
     hd_step "🔑" "myMFA, le trousseau" "myMFA, the keyring" \
         "Mots de passe et codes 2FA dans le lanceur (:mdp, :2fa), coffre ouvert à la connexion." \
         "Passwords and 2FA codes in the launcher (:mdp, :2fa), vault opened at login."
-    if mymfa_ready; then
+    if mymfa_ready && mymfa_answers; then
         hd_ok "$(t "déjà installé :" "already installed:") $(mymfa_bin)"
-        hd_log_note "myMFA : déjà installé ($(mymfa_bin))"
+        hd_log_note "myMFA : déjà installé ($(mymfa_bin)), répond"
     else
-        if [[ -n "$(mymfa_bin)" ]]; then
+        if mymfa_ready; then
+            hd_warn "$(t "myMFA installé mais le démon ne répond pas : installation refaite" "myMFA installed but the daemon does not answer: installing again")"
+            hd_log_note "myMFA : $(mymfa_bin) installé, démon muet même après relecture du bus et démarrage de l'unit — réinstallation ; $( "$(mymfa_bin)" status 2>&1 | tail -1 )"
+        elif [[ -n "$(mymfa_bin)" ]]; then
             hd_warn "$(t "myMFA présent mais pas enregistré auprès de D-Bus : installation à refaire" "myMFA present but not registered with D-Bus: install again")"
             hd_log_note "myMFA : $(mymfa_bin) sans activation D-Bus, réinstallation"
         fi
@@ -373,8 +393,15 @@ if [[ "$MYMFA" == 1 ]]; then
                 bash "$MYMFA_SRC/linux/scripts/installer.sh"; then
                 MYMFA_NEW=1
                 hd_ok "$(t "installé :" "installed:") $BIN_DIR/mymfa"
+            elif mymfa_ready && mymfa_answers; then
+                # Installé, seul son contrôle final a échoué (démon pas encore
+                # joignable) : remis en route ici, l'étape est réussie.
+                MYMFA_NEW=1
+                hd_ok "$(t "installé, démon remis en route :" "installed, daemon restarted:") $BIN_DIR/mymfa"
+                hd_log_note "myMFA : installer.sh a échoué sur le démon, qui répond après relecture du bus et démarrage de l'unit"
             else
                 hd_warn "$(t "myMFA ne s'est pas installé : le reste continue sans lui" "myMFA did not install: the rest goes on without it")"
+                hd_hint "$(t "le détail (réponse du démon, journal de l'unit) est dans" "details (daemon answer, unit journal) in") $HD_LOG"
                 hd_log_note "myMFA : échec de linux/scripts/installer.sh (voir ci-dessus)"
             fi
         fi
@@ -865,7 +892,7 @@ if [[ "$MYMFA" == 1 ]]; then
     if mymfa_ready; then
         check 0 "myMFA, le trousseau, répond" "myMFA, the keyring, answers" \
             "voir pourquoi : journalctl --user -u mymfa -n 50" "see why: journalctl --user -u mymfa -n 50" \
-            "$(mymfa_bin)" status
+            mymfa_answers
     fi
 fi
 if [[ "$HYPRBARS" == 1 ]] && [[ "$IN_SESSION" == 1 ]]; then
