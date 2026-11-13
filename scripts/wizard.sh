@@ -312,15 +312,15 @@ else
         fi
     fi
 fi
-# LYRA : proposée (cochée) si elle n'est pas déjà là.
-LYRA_ITEM=(lyra "$(t "Installer LYRA, l'assistante IA (compilée depuis GitHub, 3 à 8 min)" "Install LYRA, the AI assistant (built from GitHub, 3 to 8 min)")" on)
+# LYRA : proposée (décochée : installation minimale) si elle n'est pas déjà là.
+LYRA_ITEM=(lyra "$(t "Installer LYRA, l'assistante IA (compilée depuis GitHub, 3 à 8 min)" "Install LYRA, the AI assistant (built from GitHub, 3 to 8 min)")" off)
 LYRA_STATE=""
 if command -v hyprpanel-chat >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/hyprpanel-chat" ]]; then
     LYRA_ITEM=()
     LYRA_STATE="$(t "déjà installée" "already installed")"
 fi
-# myMFA : proposé (coché) s'il n'est pas déjà là.
-MYMFA_ITEM=(mymfa "$(t "Installer myMFA, le trousseau (mots de passe, codes 2FA ; dépôt public GitHub)" "Install myMFA, the keyring (passwords, 2FA codes; public GitHub repository)")" on)
+# myMFA : proposé (décoché : installation minimale) s'il n'est pas déjà là.
+MYMFA_ITEM=(mymfa "$(t "Installer myMFA, le trousseau (mots de passe, codes 2FA ; dépôt public GitHub)" "Install myMFA, the keyring (passwords, 2FA codes; public GitHub repository)")" off)
 MYMFA_STATE=""
 if command -v mymfa >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/mymfa" ]]; then
     MYMFA_ITEM=()
@@ -354,8 +354,8 @@ has lockkey || ARGS+=(--no-lock-key)
 has hyprpaper && ARGS+=(--remove-hyprpaper)
 has syskb && ARGS+=(--system-keyboard)
 if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
-[[ ${#LYRA_ITEM[@]} -eq 0 ]] || has lyra || ARGS+=(--no-lyra)
-[[ ${#MYMFA_ITEM[@]} -eq 0 ]] || has mymfa || ARGS+=(--no-mymfa)
+if [[ ${#LYRA_ITEM[@]} -gt 0 ]]; then has lyra && ARGS+=(--lyra) || ARGS+=(--no-lyra); fi
+if [[ ${#MYMFA_ITEM[@]} -gt 0 ]]; then has mymfa && ARGS+=(--mymfa) || ARGS+=(--no-mymfa); fi
 [[ ${#HYPRBARS_ITEM[@]} -eq 0 ]] || has hyprbars || ARGS+=(--no-hyprbars)
 # Colonnes alignées en caractères (printf et ${#x} peuvent compter des octets).
 row() { local n=$((28 - $(hd_strlen "$1"))); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }

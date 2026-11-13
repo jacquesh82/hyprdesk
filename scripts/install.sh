@@ -11,6 +11,11 @@
 #   ./scripts/install.sh [options]     installation directe, sans assistant (aussi
 #                                      sans terminal : scripts, conteneurs)
 #
+# Par défaut, l'installation s'en tient au bureau : l'écran de connexion, LYRA et
+# myMFA ne s'installent que demandés (cochés dans l'assistant, ou --greeter,
+# --lyra, --mymfa) ; LYRA ou myMFA déjà présents sont gardés et suivis.
+# Désinstallation : ./scripts/uninstall.sh.
+#
 #   --defaults               choix par défaut, sans assistant
 #   --lang fr|en|auto        langue de hyprdesk et de ces messages (sans : la langue
 #                            de hyprdesk ne change pas, messages dans celle du système)
@@ -21,17 +26,18 @@
 #   --no-lock-key            ne pas poser SUPER + L -> hyprdesk lock
 #   --remove-hyprpaper       retirer hyprpaper de l'autostart (hyprdesk dessine le fond)
 #   --greeter | --no-greeter remplacer GDM (SDDM…) par l'écran de hyprdesk, ou non
-#                            (sans l'un ni l'autre : question posée)
+#                            (sans l'un ni l'autre : inchangé)
 #   --optional-deps ask|all|none
 #                            dépendances facultatives absentes (veille, captures,
 #                            écran de connexion…) : proposées à l'étape dédiée
 #                            (ask, par défaut au terminal), toutes installées, ou non
-#   --no-lyra                ne pas installer LYRA, l'assistante IA (installée par
-#                            défaut : compilée depuis mindlog.hyprland_tools ; dépôt,
-#                            branche et dossier : HYPRDESK_LYRA_REPO, _REF, _SRC)
-#   --no-mymfa               ne pas installer myMFA, le trousseau (mots de passe,
-#                            codes 2FA ; installé par défaut si son dépôt est
-#                            accessible : HYPRDESK_MYMFA_REPO, _SRC)
+#   --lyra | --no-lyra       installer LYRA, l'assistante IA, ou non (sans l'un ni
+#                            l'autre : gardée si déjà là ; compilée depuis
+#                            mindlog.hyprland_tools ; dépôt, branche et dossier :
+#                            HYPRDESK_LYRA_REPO, _REF, _SRC)
+#   --mymfa | --no-mymfa     installer myMFA, le trousseau (mots de passe, codes 2FA),
+#                            ou non (sans l'un ni l'autre : gardé si déjà là ; dépôt
+#                            public : HYPRDESK_MYMFA_REPO, _SRC)
 #   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
 #                            bureau (plugin Hyprland compilé par hyprpm ; installé
 #                            par défaut, refait par update.sh quand Hyprland change)
@@ -57,10 +63,10 @@ SYSTEM_KEYBOARD=0
 AUTOSTART=1
 LOCK_KEY=1
 REMOVE_HYPRPAPER=0
-GREETER=ask
+GREETER=no
 OPT_DEPS=""
-LYRA=1
-MYMFA=1
+LYRA=auto
+MYMFA=auto
 HYPRBARS=1
 ARGC=$#
 ORIG_ARGS=("$@")
@@ -77,11 +83,13 @@ while [ $# -gt 0 ]; do
         --greeter) GREETER=yes ;;
         --no-greeter) GREETER=no ;;
         --optional-deps) OPT_DEPS="${2:?--optional-deps ask|all|none}"; shift ;;
+        --lyra) LYRA=1 ;;
         --no-lyra) LYRA=0 ;;
+        --mymfa) MYMFA=1 ;;
         --no-mymfa) MYMFA=0 ;;
         --no-hyprbars) HYPRBARS=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '6,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
@@ -116,6 +124,15 @@ FONT_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fonts/hyprdesk/Mindlog"
 HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+
+# LYRA et myMFA sans choix explicite : gardés (et mis à jour) s'ils sont déjà
+# là, laissés de côté sinon (installation minimale par défaut).
+if [[ "$LYRA" == auto ]]; then
+    { command -v hyprpanel-chat >/dev/null 2>&1 || [[ -x "$BIN_DIR/hyprpanel-chat" ]]; } && LYRA=1 || LYRA=0
+fi
+if [[ "$MYMFA" == auto ]]; then
+    { command -v mymfa >/dev/null 2>&1 || [[ -x "$BIN_DIR/mymfa" ]]; } && MYMFA=1 || MYMFA=0
+fi
 
 # Copie de sauvegarde de hyprland.lua, une fois par étape.
 BACKUPS=()
@@ -350,7 +367,7 @@ pam_dir() {
     done
     echo /usr/lib/security
 }
-[[ "$MYMFA" == 1 ]] || hd_log_note "myMFA : non demandé (--no-mymfa)"
+[[ "$MYMFA" == 1 ]] || hd_log_note "myMFA : non demandé (--mymfa pour l'installer)"
 if [[ "$MYMFA" == 1 ]]; then
     hd_step "🔑" "myMFA, le trousseau" "myMFA, the keyring" \
         "Mots de passe et codes 2FA dans le lanceur (:mdp, :2fa), coffre ouvert à la connexion." \
@@ -777,17 +794,6 @@ elif [[ "$GREETER_READY" == 0 && "$GREETER_INSTALLABLE" == 0 ]]; then
     [[ "$GREETER" == yes ]] && hd_warn "$(t "--greeter demandé, mais" "--greeter asked, but") $GREETER_WHY"
     hd_info "$(t "non proposé :" "not offered:") $GREETER_WHY"
     GREETER=no
-elif [[ "$GREETER" == ask ]]; then
-    if [[ -t 0 ]]; then
-        printf '  %s?%s ' "$C_ACCENT$C_BOLD" "$C_RESET"
-        EXTRA=""
-        [[ "$GREETER_READY" == 0 ]] && EXTRA="$(t " (installe greetd et cage)" " (installs greetd and cage)")"
-        read -r -p "$(t "Remplacer ${DM_UNIT:-le gestionnaire actuel} par l'écran de connexion de hyprdesk$EXTRA ? [o/N] " "Replace ${DM_UNIT:-the current display manager} with the hyprdesk login screen$EXTRA? [y/N] ")" reply
-        [[ "$reply" =~ ^[oOyY] ]] && GREETER=yes || GREETER=no
-    else
-        hd_info "$(t "non interactif : relancez avec --greeter pour le mettre en place" "non-interactive: run again with --greeter to set it up")"
-        GREETER=no
-    fi
 fi
 if [[ "$GREETER" == no ]] && ! greeter_ours && [[ -z "$GREETER_WHY" ]]; then
     hd_info "$(t "inchangé" "unchanged")${DM_UNIT:+ ($DM_UNIT)}"
@@ -976,7 +982,13 @@ if [[ "$MYMFA" == 1 ]] && [[ -n "$(mymfa_bin)" ]] && [[ "$("$(mymfa_bin)" status
     optional "$(t "myMFA : créer le coffre, ou reprendre la sauvegarde du web" "myMFA: create the vault, or restore the web backup")" "hyprdesk settings mots-de-passe"
 fi
 if [[ "$MYMFA" == 1 ]] && ! mymfa_ready; then
-    optional "$(t "myMFA : dépôt public non joint à l'installation, à retenter (réseau, ou HYPRDESK_MYMFA_SRC)" "myMFA: public repository not reached during install, try again (network, or HYPRDESK_MYMFA_SRC)")" "./scripts/install.sh --defaults"
+    optional "$(t "myMFA : dépôt public non joint à l'installation, à retenter (réseau, ou HYPRDESK_MYMFA_SRC)" "myMFA: public repository not reached during install, try again (network, or HYPRDESK_MYMFA_SRC)")" "./scripts/install.sh --mymfa"
+fi
+if [[ "$LYRA" == 0 ]]; then
+    optional "$(t "LYRA, l'assistante IA (tiroir du dock, « Demander à LYRA »)" "LYRA, the AI assistant (dock drawer, “Ask LYRA”)")" "./scripts/install.sh --lyra"
+fi
+if [[ "$MYMFA" == 0 ]]; then
+    optional "$(t "myMFA, le trousseau (mots de passe, codes 2FA)" "myMFA, the keyring (passwords, 2FA codes)")" "./scripts/install.sh --mymfa"
 fi
 optional "$(t "lignes conseillées pour hyprland.lua (raccourcis, règles)" "suggested hyprland.lua lines (shortcuts, rules)")" "hyprdesk snippet"
 

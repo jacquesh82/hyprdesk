@@ -44,7 +44,9 @@ cd hyprdesk
 ```
 
 L'assistant propose la langue et le clavier, passe en revue les dépendances et
-demande quelles intégrations activer. Si Hyprland est plus ancien que 0.57,
+demande quelles intégrations activer. Par défaut, il n'installe que le bureau :
+l'écran de connexion, LYRA et myMFA restent décochés tant que vous ne les
+choisissez pas, et rien ne change hors de votre session. Si Hyprland est plus ancien que 0.57,
 l'assistant propose de le mettre à jour ; reconnectez-vous ensuite à Hyprland.
 
 L'installateur compile hyprdesk, l'installe dans `~/.local/bin` et met en place
@@ -71,10 +73,10 @@ dans `~/.cargo` si la Rust du système est trop ancienne.
 | `--lang fr\|en\|auto` | langue de l'interface et de l'installateur |
 | `--keyboard fr:azerty` | clavier de la session, `disposition[:variante[:options]]` |
 | `--system-keyboard` | applique la même disposition à tout le système |
-| `--greeter` / `--no-greeter` | active ou saute l'écran de connexion greetd, qui utilise cage |
+| `--greeter` / `--no-greeter` | remplace le gestionnaire de connexion par l'écran greetd, qui utilise cage (non, sauf demandé) |
 | `--optional-deps ask\|all\|none` | comment traiter les dépendances facultatives |
-| `--no-lyra` | passe l'assistante LYRA |
-| `--no-mymfa` | passe le trousseau myMFA, l'intégration Secret Service et le module PAM |
+| `--lyra` / `--no-lyra` | installe l'assistante LYRA, ou non (non, sauf demandée ; gardée si déjà là) |
+| `--mymfa` / `--no-mymfa` | installe le trousseau myMFA, l'intégration Secret Service et le module PAM, ou non (non, sauf demandé ; gardé si déjà là) |
 | `--no-hyprbars` | passe le plugin de barres de titre Hyprbars |
 | `--no-deps` | gérez les prérequis vous-même ; `scripts/deps.sh --dry-run` les vérifie |
 | `--no-autostart` | passe l'entrée de démarrage de Hyprland |
@@ -312,7 +314,7 @@ installée.
 
 myMFA est un trousseau facultatif de mots de passe et de codes 2FA. Installé
 avec hyprdesk depuis son [dépôt public](https://github.com/lelabnet-creator/mindlog.mymfa.clients)
-(`--no-mymfa` pour l'écarter), son démon tient le Secret Service — les
+quand vous le demandez (`--mymfa`, ou coché dans l'assistant), son démon tient le Secret Service — les
 secrets que vos applications confient vont au coffre myMFA — et le module
 `pam_mymfa` peut ouvrir ce coffre à la connexion. hyprdesk en est
 l'interface :

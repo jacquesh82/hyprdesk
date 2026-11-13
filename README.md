@@ -41,7 +41,9 @@ cd hyprdesk
 ```
 
 The setup assistant lets you choose a language and keyboard layout, review
-dependencies, and decide which integrations to enable. If your Hyprland
+dependencies, and decide which integrations to enable. By default it installs
+the desktop only: the login screen, LYRA, and myMFA stay unchecked until you
+pick them, and nothing outside your session changes. If your Hyprland
 version is older than 0.57, the assistant offers to update it. Log back into
 Hyprland after that update.
 
@@ -68,10 +70,10 @@ The installer can install missing build dependencies and use rustup in
 | `--lang fr\|en\|auto` | Choose the interface and installer language |
 | `--keyboard fr:azerty` | Set the session keyboard using `layout[:variant[:options]]` |
 | `--system-keyboard` | Apply the same layout system-wide |
-| `--greeter` / `--no-greeter` | Enable or skip the greetd login screen, which uses cage |
+| `--greeter` / `--no-greeter` | Replace your display manager with the greetd login screen, which uses cage (off unless asked) |
 | `--optional-deps ask\|all\|none` | Choose how to handle optional dependencies |
-| `--no-lyra` | Skip the LYRA assistant |
-| `--no-mymfa` | Skip the myMFA keyring, Secret Service integration, and PAM module |
+| `--lyra` / `--no-lyra` | Install the LYRA assistant, or not (off unless asked; kept if already installed) |
+| `--mymfa` / `--no-mymfa` | Install the myMFA keyring, its Secret Service integration, and PAM module, or not (off unless asked; kept if already installed) |
 | `--no-hyprbars` | Skip the Hyprbars title-bar plugin |
 | `--no-deps` | Manage prerequisites yourself. Check them with `scripts/deps.sh --dry-run` |
 | `--no-autostart` | Skip the Hyprland startup entry |
@@ -298,7 +300,7 @@ enabled by default when LYRA is installed.
 
 myMFA is an optional keyring for passwords and 2FA codes. Installed with
 hyprdesk from its [public repository](https://github.com/lelabnet-creator/mindlog.mymfa.clients)
-(`--no-mymfa` skips it), its daemon serves the Secret Service — the secrets
+when you ask for it (`--mymfa`, or checked in the setup assistant), its daemon serves the Secret Service — the secrets
 your applications keep go to the myMFA vault — and the `pam_mymfa` module
 can open that vault when you log in. hyprdesk is its interface:
 
