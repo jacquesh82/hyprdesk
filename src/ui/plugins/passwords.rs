@@ -136,7 +136,7 @@ impl App {
                 crate::i18n::tr("client Linux installé (démon mymfa)").to_string()
             } else {
                 crate::i18n::tr(
-                    "client Linux absent : mindlog.mymfa.clients, linux/scripts/installer.sh",
+                    "client Linux absent : relancez ./scripts/install.sh, qui l'installe s'il a accès au dépôt privé mindlog.mymfa.clients (clé SSH, gh auth login, ou HYPRDESK_MYMFA_SRC=<copie des sources>) ; le détail est dans ~/.local/state/hyprdesk/install-*.log",
                 )
                 .to_string()
             },

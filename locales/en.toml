@@ -1969,7 +1969,7 @@
 "Trousseau myMFA : codes 2FA, mots de passe, secrets des applications." = "myMFA keyring: 2FA codes, passwords, application secrets."
 "Trousseau myMFA : coffre verrouillé ou ouvert, codes 2FA et mots de passe." = "myMFA keyring: vault locked or unlocked, 2FA codes and passwords."
 "Verrouiller le coffre" = "Lock the vault"
-"client Linux absent : mindlog.mymfa.clients, linux/scripts/installer.sh" = "Linux client missing: mindlog.mymfa.clients, linux/scripts/installer.sh"
+"client Linux absent : relancez ./scripts/install.sh, qui l'installe s'il a accès au dépôt privé mindlog.mymfa.clients (clé SSH, gh auth login, ou HYPRDESK_MYMFA_SRC=<copie des sources>) ; le détail est dans ~/.local/state/hyprdesk/install-*.log" = "Linux client missing: run ./scripts/install.sh again, it installs it if it can reach the private mindlog.mymfa.clients repository (SSH key, gh auth login, or HYPRDESK_MYMFA_SRC=<copy of the sources>); details in ~/.local/state/hyprdesk/install-*.log"
 "client Linux installé (démon mymfa)" = "Linux client installed (mymfa daemon)"
 "copier le mot de passe" = "copy the password"
 "gnome-keyring est rétabli." = "gnome-keyring is restored."

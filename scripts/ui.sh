@@ -204,6 +204,13 @@ hd_log_tail_line() {
         | grep -v '^[[:space:]]*$' | tail -1 | sed 's/^[[:space:]]*//' | cut -c "1-$1" || true
 }
 
+# hd_log_note <texte> : une ligne dans le journal (ce que l'écran a dit d'une
+# étape sautée ou déjà faite, pour qu'on le retrouve après coup).
+hd_log_note() {
+    hd_log_init
+    printf '\n### %s — %s\n' "$(date +%T)" "$*" >>"$HD_LOG"
+}
+
 # hd_run <libellé> <commande…> : lance la commande, sortie dans le journal,
 # attente animée avec la dernière ligne produite et le temps écoulé ; ✔ ou ✖
 # avec les dernières lignes du journal. Rend le code de la commande.
