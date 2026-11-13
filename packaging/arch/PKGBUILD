@@ -1,4 +1,4 @@
-# Maintainer: Jacques HULLU
+# Maintainer: Jacques HULLU <jacquesh82 at users dot noreply dot github dot com>
 #
 # PKGBUILD de l'AUR (https://aur.archlinux.org/packages/hyprdesk) : construit
 # depuis l'archive du tag v$pkgver, selon les Arch package guidelines et les
@@ -8,7 +8,7 @@
 pkgname=hyprdesk
 pkgver=0.1.0
 pkgrel=1
-pkgdesc='On-demand desktop for Hyprland: per-workspace wallpaper, icons and widgets, bar, launcher, lock, Lua config'
+pkgdesc='Desktop for Hyprland: bar, launcher, lock, per-workspace wallpapers and widgets'
 arch=('x86_64')
 url='https://github.com/jacquesh82/hyprdesk'
 # MIT pour le code, OFL-1.1 pour la police Mindlog embarquée.

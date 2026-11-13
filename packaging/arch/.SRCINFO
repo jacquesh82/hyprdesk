@@ -1,5 +1,5 @@
 pkgbase = hyprdesk
-	pkgdesc = On-demand desktop for Hyprland: per-workspace wallpaper, icons and widgets, bar, launcher, lock, Lua config
+	pkgdesc = Desktop for Hyprland: bar, launcher, lock, per-workspace wallpapers and widgets
 	pkgver = 0.1.0
 	pkgrel = 1
 	url = https://github.com/jacquesh82/hyprdesk
