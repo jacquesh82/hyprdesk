@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2005
+# shellcheck disable=SC2034,SC2005,SC2153
 # (SC2034 : HYPRDESK_ROOT et HD_STEP_TOTAL lus par deps.sh et ui.sh sourcés ;
+#  SC2153 : LYRA_REF et MYMFA_REF viennent de versions.sh sourcé ;
 #  SC2005 : t() écrit par printf %s sans saut de ligne — le echo l'ajoute.)
 # Mise à jour de hyprdesk : relève ce qui a changé, puis l'applique.
 #
@@ -16,7 +17,8 @@
 #     traductions, documentation) ;
 #   - Hyprbars (hyprpm) : recompilé quand la version de Hyprland change ;
 #   - LYRA et myMFA, s'ils ont été installés par hyprdesk : leurs sources
-#     (~/.local/share/hyprdesk/src) en retard sur leur dépôt.
+#     (~/.local/share/hyprdesk/src) qui ne sont pas à la release attendue par
+#     la version de hyprdesk tirée (scripts/versions.sh).
 # Application : git pull --ff-only ; install.sh avec les options de la
 # dernière installation (install-options) ; LYRA et myMFA recompilés s'ils
 # ont changé ; copie du binaire de l'écran de connexion rafraîchie ; bilan.
@@ -128,13 +130,23 @@ if [[ -n "$DIRTY" ]] && ((BEHIND > 0)); then
 fi
 
 # -- Relevé : LYRA et myMFA (sources gardées par install.sh) -----------------------------
+# Leurs releases : celles de la version de hyprdesk qui sera installée
+# (scripts/versions.sh du dépôt distant quand il sera tiré), sinon de la
+# version locale. HYPRDESK_LYRA_REF et HYPRDESK_MYMFA_REF passent outre.
+# shellcheck source=versions.sh disable=SC1091
+source scripts/versions.sh
+if ((BEHIND > 0)) && [[ -z "$DIRTY" ]]; then
+    # shellcheck disable=SC1090
+    source <(git show "$UP_C:scripts/versions.sh" 2>/dev/null) || true
+fi
+# Le commit d'un tag annoté (FETCH_HEAD désigne l'objet tag) ou d'une branche.
+fetched() { git -C "$1" rev-parse 'FETCH_HEAD^{commit}'; }
 LYRA_NEW=""
 if [[ -d "$LYRA_SRC/.git" ]]; then
-    REF="$(git -C "$LYRA_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-    [[ "$REF" == HEAD ]] && REF="${HYPRDESK_LYRA_REF:-main}"
-    git -C "$LYRA_SRC" ls-remote --exit-code --heads origin "$REF" >/dev/null 2>&1 || REF=main
+    REF="$LYRA_REF"
+    git -C "$LYRA_SRC" ls-remote --exit-code origin "refs/tags/$REF" "refs/heads/$REF" >/dev/null 2>&1 || REF=main
     if git -C "$LYRA_SRC" fetch -q --depth 1 origin "$REF" >/dev/null 2>&1; then
-        if [[ "$(git -C "$LYRA_SRC" rev-parse HEAD)" != "$(git -C "$LYRA_SRC" rev-parse FETCH_HEAD)" ]]; then
+        if [[ "$(git -C "$LYRA_SRC" rev-parse HEAD)" != "$(fetched "$LYRA_SRC")" ]]; then
             LYRA_NEW="$(git -C "$LYRA_SRC" log -1 --format='%h %s' FETCH_HEAD)"
             hd_info "LYRA : $(t "nouvelle version" "new version") ($REF) — $LYRA_NEW"
             PENDING+=("LYRA")
@@ -149,11 +161,11 @@ elif command -v hyprpanel-chat >/dev/null 2>&1; then
 fi
 MYMFA_NEW=""
 if [[ -d "$MYMFA_SRC/.git" ]]; then
-    if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" git -C "$MYMFA_SRC" fetch -q origin >/dev/null 2>&1; then
-        MU="$(git -C "$MYMFA_SRC" rev-parse '@{u}' 2>/dev/null || true)"
-        if [[ -n "$MU" && "$(git -C "$MYMFA_SRC" rev-parse HEAD)" != "$MU" ]]; then
-            MYMFA_NEW="$(git -C "$MYMFA_SRC" log -1 --format='%h %s' "$MU")"
-            hd_info "myMFA : $(t "nouvelle version" "new version") — $MYMFA_NEW"
+    if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" \
+        git -C "$MYMFA_SRC" fetch -q --depth 1 origin "$MYMFA_REF" >/dev/null 2>&1; then
+        if [[ "$(git -C "$MYMFA_SRC" rev-parse HEAD)" != "$(fetched "$MYMFA_SRC")" ]]; then
+            MYMFA_NEW="$(git -C "$MYMFA_SRC" log -1 --format='%h %s' FETCH_HEAD)"
+            hd_info "myMFA : $(t "nouvelle version" "new version") ($MYMFA_REF) — $MYMFA_NEW"
             PENDING+=("myMFA")
         else
             hd_ok "myMFA $(t "à jour" "up to date")"
@@ -254,7 +266,7 @@ if [[ -n "$LYRA_NEW" ]]; then
 fi
 if [[ -n "$MYMFA_NEW" ]]; then
     hd_step "🔑" "myMFA" "myMFA"
-    if hd_run "$(t "sources" "sources")" git -C "$MYMFA_SRC" pull -q --ff-only \
+    if hd_run "$(t "sources" "sources")" git -C "$MYMFA_SRC" checkout -q FETCH_HEAD \
         && hd_run "$(t "compilation et installation de myMFA" "building and installing myMFA")" \
             bash "$MYMFA_SRC/linux/scripts/installer.sh"; then
         hd_ok "myMFA : $MYMFA_NEW"

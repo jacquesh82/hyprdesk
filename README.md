@@ -122,8 +122,8 @@ The installer can install missing build dependencies and use rustup in
 | `--remove-hyprpaper` | Remove hyprpaper from autostart |
 | `--verbose` | Show full command output in the terminal |
 
-- **LYRA** is built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). Set `HYPRDESK_LYRA_SRC` to use a local checkout or `HYPRDESK_LYRA_REF` to select the branch.
-- **myMFA** provides a keyring for passwords and 2FA codes. Set `HYPRDESK_MYMFA_SRC` to use a local checkout of [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients). If the installer cannot access the repository, it logs the reason and continues.
+- **LYRA** is built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). The installer builds the release that ships with this version of hyprdesk ([`scripts/versions.sh`](scripts/versions.sh)). Set `HYPRDESK_LYRA_SRC` to use a local checkout or `HYPRDESK_LYRA_REF` to select another tag or branch (`main` follows development).
+- **myMFA** provides a keyring for passwords and 2FA codes. Set `HYPRDESK_MYMFA_SRC` to use a local checkout of [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients) or `HYPRDESK_MYMFA_REF` to select another tag or branch than the Linux client release in `scripts/versions.sh`. If the installer cannot access the repository, it logs the reason and continues.
 - **Hyprbars** adds minimize, maximize, and close buttons in full desktop mode. The installer builds it with `hyprpm` against the running Hyprland version. The updater rebuilds it when that version changes.
 
 Set `HYPRDESK_INSTALLER_TUI=0` to use terminal prompts in place of whiptail.

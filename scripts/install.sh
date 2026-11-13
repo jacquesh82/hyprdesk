@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC1111
+# shellcheck disable=SC2034,SC1111,SC2153
 # (SC2034 : variables lues par ui.sh et deps.sh sourcés (HYPRDESK_ROOT,
 #  HD_HINT, MYMFA_NEW…), shellcheck ne voit pas les scripts entre eux ;
+#  SC2153 : LYRA_REF et MYMFA_REF viennent de versions.sh sourcé ;
 #  SC1111 : “ ” typographiques des traductions anglaises.)
 # Installation de hyprdesk sur la machine locale.
 #
@@ -33,11 +34,13 @@
 #                            (ask, par défaut au terminal), toutes installées, ou non
 #   --lyra | --no-lyra       installer LYRA, l'assistante IA, ou non (sans l'un ni
 #                            l'autre : gardée si déjà là ; compilée depuis
-#                            mindlog.hyprland_tools ; dépôt, branche et dossier :
+#                            mindlog.hyprland_tools, à la release de
+#                            scripts/versions.sh ; dépôt, tag ou branche, dossier :
 #                            HYPRDESK_LYRA_REPO, _REF, _SRC)
 #   --mymfa | --no-mymfa     installer myMFA, le trousseau (mots de passe, codes 2FA),
 #                            ou non (sans l'un ni l'autre : gardé si déjà là ; dépôt
-#                            public : HYPRDESK_MYMFA_REPO, _SRC)
+#                            public, à la release de scripts/versions.sh :
+#                            HYPRDESK_MYMFA_REPO, _REF, _SRC)
 #   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
 #                            bureau (plugin Hyprland compilé par hyprpm ; installé
 #                            par défaut, refait par update.sh quand Hyprland change)
@@ -115,6 +118,8 @@ export UI
 HYPRDESK_ROOT="$PWD"
 # shellcheck source=deps.sh disable=SC1091
 source scripts/deps.sh
+# shellcheck source=versions.sh disable=SC1091
+source scripts/versions.sh
 t() { hyprdesk_t "$@"; }
 
 BIN_DIR="$HOME/.local/bin"
@@ -154,8 +159,7 @@ HD_STEP_TOTAL=10
 
 # LYRA : sources, et place à prévoir pour la compiler si elle manque.
 LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
-# Le mode « serve » (tiroir de hyprdesk) est fusionné dans main.
-LYRA_REF="${HYPRDESK_LYRA_REF:-main}"
+# LYRA_REF : la release publiée avec cette version de hyprdesk (scripts/versions.sh).
 LYRA_SRC="${HYPRDESK_LYRA_SRC:-${XDG_DATA_HOME:-$HOME/.local/share}/hyprdesk/src/mindlog.hyprland_tools}"
 lyra_bin() {
     command -v hyprpanel-chat 2>/dev/null || { [[ -x "$BIN_DIR/hyprpanel-chat" ]] && echo "$BIN_DIR/hyprpanel-chat"; } || true
@@ -260,15 +264,16 @@ if [[ "$LYRA" == 1 ]]; then
             hd_run "$(t "mise à jour des sources" "updating the sources") ($LYRA_REF)" \
                 bash -c "git -C '$LYRA_SRC' fetch -q --depth 1 origin '$LYRA_REF' && git -C '$LYRA_SRC' checkout -q FETCH_HEAD"
         else
-            git ls-remote --exit-code --heads "$LYRA_REPO" "$LYRA_REF" >/dev/null 2>&1 || LYRA_REF=main
             rm -rf "$LYRA_SRC"
             if command -v git >/dev/null 2>&1; then
+                # Tag ou branche ; introuvable (dépôt d'un fork…) : main.
+                git ls-remote --exit-code "$LYRA_REPO" "refs/tags/$LYRA_REF" "refs/heads/$LYRA_REF" >/dev/null 2>&1 || LYRA_REF=main
                 hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
                     git clone -q --depth 1 -b "$LYRA_REF" "$LYRA_REPO" "$LYRA_SRC"
             else
                 mkdir -p "$LYRA_SRC"
                 hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
-                    bash -c "curl -fsSL '$LYRA_REPO/archive/refs/heads/$LYRA_REF.tar.gz' | tar xz --strip-components=1 -C '$LYRA_SRC'"
+                    bash -c "curl -fsSL '$LYRA_REPO/archive/$LYRA_REF.tar.gz' | tar xz --strip-components=1 -C '$LYRA_SRC'"
             fi
         fi
         hd_run "$(t "compilation de LYRA" "building LYRA")" \
@@ -388,7 +393,9 @@ if [[ "$MYMFA" == 1 ]]; then
             hd_ok "$(t "sources locales :" "local sources:") $MYMFA_SRC"
             MYMFA_OK=1
         elif [[ -d "$MYMFA_SRC/.git" ]]; then
-            if hd_run "$(t "mise à jour des sources" "updating the sources")" git -C "$MYMFA_SRC" pull -q --ff-only; then
+            if hd_run "$(t "mise à jour des sources" "updating the sources") ($MYMFA_REF)" \
+                env GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" \
+                bash -c "git -C '$MYMFA_SRC' fetch -q --depth 1 origin '$MYMFA_REF' && git -C '$MYMFA_SRC' checkout -q FETCH_HEAD"; then
                 MYMFA_OK=1
             fi
         else
@@ -398,11 +405,11 @@ if [[ "$MYMFA" == 1 ]]; then
                 mkdir -p "$(dirname "$MYMFA_SRC")"
                 hd_log_note "myMFA : dépôt joint par $MYMFA_HOW ($MYMFA_REPO)"
                 case "$MYMFA_HOW" in
-                    gh) MYMFA_CLONE=(gh repo clone "$MYMFA_REPO" "$MYMFA_SRC" -- -q --depth 1) ;;
-                    https) MYMFA_CLONE=(env GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 "$MYMFA_REPO" "$MYMFA_SRC") ;;
-                    *) MYMFA_CLONE=(env GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -q --depth 1 "$MYMFA_REPO" "$MYMFA_SRC") ;;
+                    gh) MYMFA_CLONE=(gh repo clone "$MYMFA_REPO" "$MYMFA_SRC" -- -q --depth 1 -b "$MYMFA_REF") ;;
+                    https) MYMFA_CLONE=(env GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 -b "$MYMFA_REF" "$MYMFA_REPO" "$MYMFA_SRC") ;;
+                    *) MYMFA_CLONE=(env GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -q --depth 1 -b "$MYMFA_REF" "$MYMFA_REPO" "$MYMFA_SRC") ;;
                 esac
-                if hd_run "$(t "téléchargement des sources" "downloading the sources")" "${MYMFA_CLONE[@]}"; then
+                if hd_run "$(t "téléchargement des sources" "downloading the sources") ($MYMFA_REF)" "${MYMFA_CLONE[@]}"; then
                     MYMFA_OK=1
                 fi
             else

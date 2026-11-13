@@ -126,8 +126,8 @@ dans `~/.cargo` si la Rust du système est trop ancienne.
 | `--remove-hyprpaper` | retire hyprpaper du démarrage automatique |
 | `--verbose` | sortie complète des commandes au terminal |
 
-- **LYRA** est compilée depuis [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). `HYPRDESK_LYRA_SRC` pointe vers une copie locale, `HYPRDESK_LYRA_REF` choisit la branche.
-- **myMFA** est un trousseau pour mots de passe et codes 2FA. `HYPRDESK_MYMFA_SRC` pointe vers une copie locale de [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients). Si l'installateur n'atteint pas le dépôt, il en note la raison au journal et continue.
+- **LYRA** est compilée depuis [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). L'installateur compile la release publiée avec cette version de hyprdesk ([`scripts/versions.sh`](scripts/versions.sh)). `HYPRDESK_LYRA_SRC` pointe vers une copie locale, `HYPRDESK_LYRA_REF` choisit un autre tag ou une branche (`main` suit le développement).
+- **myMFA** est un trousseau pour mots de passe et codes 2FA. `HYPRDESK_MYMFA_SRC` pointe vers une copie locale de [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients), `HYPRDESK_MYMFA_REF` choisit un autre tag ou une branche que la release du client Linux de `scripts/versions.sh`. Si l'installateur n'atteint pas le dépôt, il en note la raison au journal et continue.
 - **Hyprbars** ajoute les boutons réduire, agrandir et fermer en bureau complet. L'installateur le compile avec `hyprpm` contre le Hyprland qui tourne ; la mise à jour le recompile quand cette version change.
 
 `HYPRDESK_INSTALLER_TUI=0` remplace whiptail par des questions au terminal.
