@@ -11,7 +11,7 @@ maintainer: "@MAINTAINER@"
 description: |
   Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par
   workspace, barre, lanceur, verrouillage, configuré en Lua.
-vendor: LeLab
+vendor: hyprdesk
 homepage: https://github.com/jacquesh82/hyprdesk
 # MIT pour le code, OFL-1.1 pour la police Mindlog embarquée (SPDX).
 license: MIT AND OFL-1.1

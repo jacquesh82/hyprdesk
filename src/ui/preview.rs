@@ -783,7 +783,7 @@ impl Preview {
                 preview: preview.into(),
             };
             let _ = self.app.search_update(super::search::SMsg::Clips(vec![
-                entry(42, "https://plane.le-lab.net/mlg/issues/13"),
+                entry(42, "https://example.com/lists/13"),
                 entry(41, "cargo test --release -- --nocapture"),
                 entry(40, "Rendez-vous jeudi 14 h, salle B"),
                 entry(39, "[[ binary data 48 KiB png 640x480 ]]"),

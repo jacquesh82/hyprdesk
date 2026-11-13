@@ -6,7 +6,7 @@
 #   scripts/package.sh deb rpm         seulement ceux-là
 #   scripts/package.sh --release 2     itération du paquet (défaut : 1)
 #   scripts/package.sh --no-build      réutilise target/release/hyprdesk
-#   MAINTAINER="Nom <mail>" scripts/package.sh   (défaut : identité git)
+#   MAINTAINER="Nom <mail>" scripts/package.sh   (défaut : Jacques HULLU)
 #
 # Un seul outil, nfpm, produit les trois formats depuis packaging/nfpm.yaml.in :
 # celui du PATH s'il est installé, sinon son image Docker (version épinglée).
@@ -44,7 +44,7 @@ case "$(uname -m)" in
     aarch64) ARCH=arm64 ;;
     *) echo "architecture non prise en charge : $(uname -m)" >&2; exit 1 ;;
 esac
-MAINTAINER="${MAINTAINER:-$(git config user.name 2>/dev/null || echo hyprdesk) <$(git config user.email 2>/dev/null || echo hyprdesk@localhost)>}"
+MAINTAINER="${MAINTAINER:-Jacques HULLU <jacquesh82@users.noreply.github.com>}"
 
 if [ "$BUILD" = 1 ]; then
     # Prérequis manquants (paquets, Rust assez récente) : installés d'abord.

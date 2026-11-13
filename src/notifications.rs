@@ -285,7 +285,7 @@ impl Server {
     fn get_server_information(&self) -> (String, String, String, String) {
         (
             "hyprdesk".into(),
-            "LeLab".into(),
+            "hyprdesk".into(),
             env!("CARGO_PKG_VERSION").into(),
             "1.2".into(),
         )
