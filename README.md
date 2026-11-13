@@ -80,7 +80,7 @@ The installer can install missing build dependencies and use rustup in
 | `--verbose` | Show full command output in the terminal |
 
 - **LYRA** is built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). Set `HYPRDESK_LYRA_SRC` to use a local checkout or `HYPRDESK_LYRA_REF` to select the branch.
-- **myMFA** provides a keyring for passwords and 2FA codes. Set `HYPRDESK_MYMFA_SRC` to use a local checkout of [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients). If the repository is unreachable, the installer records the outcome and continues.
+- **myMFA** provides a keyring for passwords and 2FA codes. Set `HYPRDESK_MYMFA_SRC` to use a local checkout of [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients). If the installer cannot access the repository, it logs the reason and continues.
 - **Hyprbars** adds minimize, maximize, and close buttons in full desktop mode. The installer builds it with `hyprpm` against the running Hyprland version. The updater rebuilds it when that version changes.
 
 Set `HYPRDESK_INSTALLER_TUI=0` to use terminal prompts in place of whiptail.
@@ -305,7 +305,7 @@ an update is available), or `--yes` to apply without prompting.
 - **hyprdesk won’t start.** Run `journalctl --user -u hyprdesk -n 50` and
   `hyprdesk doctor`.
 - **myMFA is missing.** Check **Settings → Passwords** and the install log for
-  the cause. If GitHub is unreachable, rerun the installer with
+  the cause. If the installer cannot access the myMFA repository, rerun it with
   `HYPRDESK_MYMFA_SRC` pointing to a local checkout.
 - **Hyprbars is missing.** From a terminal inside Hyprland, run
   `hyprpm update`, then
@@ -350,14 +350,14 @@ and isolated D-Bus checks. Add `--visual` to capture the demo views at 1440,
 uses demo data and leaves session settings untouched. Check compositor blur and
 multi-monitor behavior in a Hyprland session.
 
-See the [contributing guide](CONTRIBUTING.md) for the pull request workflow.
+See the [development guide](docs/ADVANCED.md#development) for more build and verification details.
 
 ## Documentation
 
 - [Advanced guide](docs/ADVANCED.md)
 - [Writing a plugin](docs/WRITING_PLUGINS.md)
 - [Plugin, widget, and launcher internals](docs/PLUGINS.en.md)
-- [Changelog](CHANGELOG.md)
+- [Project work log](WORKLOG.md) (French)
 
 ## Credits and license
 
