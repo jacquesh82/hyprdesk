@@ -78,7 +78,7 @@ install=hyprdesk.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # Renseigné par la CI au moment du tag (job release de ci.yml) : hash du
 # tarball GitHub, committé sur main. 'SKIP' en attendant.
-sha256sums=('c7f9a4ab40debe385b651c7603a596e6e7ee7b1fe890a15ffe9f50dd8eaf9a80')
+sha256sums=('e7d5b33e3fef48a7260cf3daedcef34328983664bbe09e1e9550e3dc242f2237')
 
 prepare() {
   cd "$pkgname-$pkgver"
