@@ -273,6 +273,36 @@ fn screen_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Rectangle d'un écran dans la disposition : coin global, puis taille
+/// logique (pixels divisés par l'échelle, côtés échangés si pivoté) — les
+/// unités des dispatchs de fenêtre de Hyprland.
+fn logical_rect(x: i64, y: i64, w: f64, h: f64, scale: f64, transform: i64) -> (i64, i64, i64, i64) {
+    let s = if scale > 0.0 { scale } else { 1.0 };
+    let (w, h) = ((w / s).round() as i64, (h / s).round() as i64);
+    if transform % 2 == 1 {
+        (x, y, h, w)
+    } else {
+        (x, y, w, h)
+    }
+}
+
+/// L'écran `name` tel que Hyprland le dispose en ce moment.
+fn live_rect(name: &str) -> Option<(i64, i64, i64, i64)> {
+    let v = hyprpanel_core::ipc::query_json("monitors").ok()?;
+    let m = v
+        .as_array()?
+        .iter()
+        .find(|m| m["name"].as_str() == Some(name))?;
+    Some(logical_rect(
+        m["x"].as_i64()?,
+        m["y"].as_i64()?,
+        m["width"].as_f64()?,
+        m["height"].as_f64()?,
+        m["scale"].as_f64().unwrap_or(1.0),
+        m["transform"].as_i64().unwrap_or(0),
+    ))
+}
+
 /// Lancement de mpv derrière le greeter (l'écran du greeter devient
 /// transparent sur lui). Un mpv d'un fond précédent qui traînerait s'en va.
 fn spawn_player(path: &std::path::Path) -> Option<Video> {
@@ -296,12 +326,15 @@ fn spawn_player(path: &std::path::Path) -> Option<Video> {
 /// retenu par la surface du greeter. Sa fenêtre se fait attendre : essais
 /// jusqu'à deux secondes. Hors Hyprland (cage), rien à faire : mpv seul,
 /// plein écran de toute façon.
-fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) -> Task<GMsg> {
+fn position_player(monitor: Option<String>, rect: Option<(i64, i64, i64, i64)>) -> Task<GMsg> {
     Task::perform(
         async move {
             tokio::task::spawn_blocking(move || {
+                // `dispatch` enveloppe lui-même la commande : la passer déjà
+                // enveloppée en fait un `hl.dsp.global` vide, répondu « ok »
+                // sans effet.
                 let d = |t: &str| {
-                    let _ = hyprpanel_core::ipc::dispatch(&hyprpanel_core::ipc::build_dispatch(t));
+                    let _ = hyprpanel_core::ipc::dispatch(t);
                 };
                 // La fenêtre de mpv, retrouvée tant qu'elle n'est pas mappée —
                 // et bien celle de hyprdesk (titre), pas un mpv traînant.
@@ -344,12 +377,17 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                     }
                 }
                 let w = format!("address:{addr}");
+                // L'écran tel que Hyprland le voit en ce moment (coin global,
+                // taille logique) ; à défaut, celui du profil.
+                let rect = monitor
+                    .as_deref()
+                    .and_then(live_rect)
+                    .or(rect);
                 // Placement en deux passes : la première floate la fenêtre,
                 // la deuxième ne refait que resize et move — re-floater une
                 // fenêtre déjà flottée la re-tuile (toggle côté compositeur).
-                // Le positionnement est (0, 0) : la fenêtre a déjà été mise
-                // sur l'écran cible, son coin est celui de l'écran dans les
-                // deux interprétations (globale ou locale).
+                // Coordonnées globales et taille logique (échelle appliquée) :
+                // le coin de l'écran dans la disposition, pas (0, 0).
                 let mut floated = false;
                 for _ in 0..2 {
                     if !floated {
@@ -359,16 +397,15 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                         std::thread::sleep(Duration::from_millis(120));
                         floated = true;
                     }
-                    let Some((_, _, width, height)) = rect else {
+                    let Some((x, y, width, height)) = rect else {
                         break;
                     };
-                    let (width, height) = (width as i64, height as i64);
                     d(&format!(
                         "hl.dsp.window.resize({{ x = {width}, y = {height}, relative = false, window = \"{w}\" }})"
                     ));
                     std::thread::sleep(Duration::from_millis(120));
                     d(&format!(
-                        "hl.dsp.window.move({{ x = 0, y = 0, relative = false, window = \"{w}\" }})"
+                        "hl.dsp.window.move({{ x = {x}, y = {y}, relative = false, window = \"{w}\" }})"
                     ));
                     std::thread::sleep(Duration::from_millis(400));
                     let ok = hyprpanel_core::ipc::query_json("clients")
@@ -390,6 +427,12 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                         break;
                     }
                 }
+                // Plein écran : au-dessus des surfaces « top » (barre,
+                // Réglages ouverts en démo), qu'une fenêtre flottante laisse
+                // passer entre elle et le greeter.
+                d(&format!(
+                    "hl.dsp.window.fullscreen({{ mode = \"fullscreen\", action = \"set\", window = \"{w}\" }})"
+                ));
             })
             .await
             .ok();
@@ -1212,7 +1255,16 @@ fn boot(demo: bool, window: bool) -> (Greeter, Task<GMsg>) {
         position_player(
             mon.map(|m| m.name.clone())
                 .or_else(crate::greeter_setup::login_screen),
-            mon.map(|m| (m.x, m.y, m.width, m.height)),
+            mon.map(|m| {
+                logical_rect(
+                    m.x as i64,
+                    m.y as i64,
+                    m.width as f64,
+                    m.height as f64,
+                    m.scale as f64,
+                    m.transform as i64,
+                )
+            }),
         )
     } else {
         Task::none()
@@ -1316,6 +1368,18 @@ mod tests {
         assert_eq!(anchor_aligns(6), (Start, End, End));
         // Hors bornes (impossible au profil, écarté à la lecture) : sans effet.
         assert_eq!(anchor_aligns(3), (Start, Center, End));
+    }
+
+    /// Placement de mpv : coin global de l'écran, taille logique.
+    #[test]
+    fn rectangle_logique() {
+        assert_eq!(
+            logical_rect(2560, 0, 1920.0, 1080.0, 1.2, 0),
+            (2560, 0, 1600, 900),
+            "échelle 1,2 : 1600 × 900, au coin de l'écran (pas 0, 0)"
+        );
+        assert_eq!(logical_rect(0, 0, 1920.0, 1080.0, 1.0, 1), (0, 0, 1080, 1920), "pivoté");
+        assert_eq!(logical_rect(0, 0, 1920.0, 1080.0, 0.0, 0), (0, 0, 1920, 1080), "échelle inconnue");
     }
 
     /// Rythme du fond vidéo : un diviseur entier du rafraîchissement de
