@@ -3,7 +3,7 @@
 # (construit par le job release de .github/workflows/ci.yml sur un tag v*).
 # Sourcé par scripts/install.sh et scripts/update.sh.
 #
-#   release_latest            → « 0.1.1 » (vide : injoignable, pas de release)
+#   release_latest            → « 0.1.2 » (vide : injoignable, pas de release)
 #   release_pkg_url <v> <pm>  → URL du paquet pour ce gestionnaire (vide : rien
 #                               pour cette architecture ou distribution)
 #   release_pkg_install <fichier> <pm> → installe le paquet téléchargé

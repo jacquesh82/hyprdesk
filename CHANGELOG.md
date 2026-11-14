@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-15
+
 ### Added
 
 - **Video wallpapers.** A rule takes an image or a looping video

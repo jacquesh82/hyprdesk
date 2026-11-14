@@ -87,11 +87,11 @@ compilateur pour hyprdesk), ou **compiler le dépôt en l'état**
 (`scripts/install_nightly_build.sh` : le dernier commit, ou votre arbre de
 travail modifié).
 
-| Distribution | Paquet de la release 0.1.1 |
+| Distribution | Paquet de la release 0.1.2 |
 | --- | --- |
-| Debian, Ubuntu (amd64) | [hyprdesk_0.1.1-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk_0.1.1-1_amd64.deb) |
-| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.1-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1.x86_64.rpm) |
-| Arch Linux (x86_64) | [hyprdesk-0.1.1-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1-x86_64.pkg.tar.zst), ou le [paquet AUR](https://aur.archlinux.org/packages/hyprdesk) (construit depuis le tag) |
+| Debian, Ubuntu (amd64) | [hyprdesk_0.1.2-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.2/hyprdesk_0.1.2-1_amd64.deb) |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.2-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.2/hyprdesk-0.1.2-1.x86_64.rpm) |
+| Arch Linux (x86_64) | [hyprdesk-0.1.2-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.2/hyprdesk-0.1.2-1-x86_64.pkg.tar.zst), ou le [paquet AUR](https://aur.archlinux.org/packages/hyprdesk) (construit depuis le tag) |
 
 Installation manuelle : `apt install ./hyprdesk_*.deb`,
 `dnf install hyprdesk-*.rpm`, `pacman -U hyprdesk-*.pkg.tar.zst`. Et
