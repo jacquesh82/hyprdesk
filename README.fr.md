@@ -37,10 +37,12 @@ et LYRA peut le ranger avec vous.
 
 - **Fond d'écran** (`hyprpaper`) : dessiné nativement, par workspace et par
   écran, avec diaporamas et fondus ; l'installateur peut retirer hyprpaper de
-  l'autostart.
+  l'autostart. Une image ou une **vidéo en boucle** (mp4, webm…) par règle.
 - **Écran de connexion** (`GDM`, `SDDM`, `LightDM`) : un greeter sous greetd
   et cage prend la place au prochain démarrage ; `sudo hyprdesk greeter
-  setup restore` revient à l'écran d'avant.
+  setup restore` revient à l'écran d'avant. Fond image ou **vidéo en boucle**
+  (rendue par mpv en GPU quand il est là, décodée par hyprdesk sinon), vidéo
+  livrée par défaut, et formulaire placable en neuf points de l'écran.
 - **Écran de verrouillage** (`hyprlock`) : verrouillage natif
   (ext-session-lock-v1) avec PAM et empreinte au besoin ; la liaison
   SUPER + L est réécrite vers `hyprdesk lock`.

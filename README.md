@@ -35,10 +35,13 @@ can tidy it with you.
 
 - **Wallpaper** (`hyprpaper`): drawn natively per workspace and screen, with
   slideshows and crossfades; the installer can remove hyprpaper from
-  autostart.
+  autostart. An image or a **looping video** (mp4, webm…) per rule.
 - **Login screen** (`GDM`, `SDDM`, `LightDM`): an optional greeter under
   greetd and cage takes over at the next boot; `sudo hyprdesk greeter setup
-  restore` switches back to the previous one.
+  restore` switches back to the previous one. Image or **looping video**
+  background (played by mpv on the GPU when present, decoded by hyprdesk
+  otherwise), a bundled default video, and a login form placeable on nine
+  screen anchors.
 - **Lock screen** (`hyprlock`): a native ext-session-lock-v1 screen with PAM
   and optional fingerprint; the SUPER + L binding is rewritten to
   `hyprdesk lock`.

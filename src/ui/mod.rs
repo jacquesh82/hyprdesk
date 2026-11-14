@@ -92,9 +92,18 @@ const SLIDE_PX: f32 = 48.0;
 
 /// Clé du cache d'images décodées : fichier, taille cible, ajustement.
 /// Clé du cache d'images décodées : fichier, taille cible, ajustement, flou (mode verre).
-/// Image, taille de l'écran, ajustement, flou (mode verre), et place de
-/// l'écran dans la disposition si la scène est étalée sur tous les écrans.
-type WallKey = (PathBuf, u32, u32, Fit, bool, Option<crate::span::Placement>);
+/// Image ou vidéo, taille de l'écran, ajustement, flou (mode verre), place de
+/// l'écran dans la disposition si la scène est étalée sur tous les écrans,
+/// et taille du canevas de cette disposition (les trames vidéo la demandent).
+type WallKey = (
+    PathBuf,
+    u32,
+    u32,
+    Fit,
+    bool,
+    Option<crate::span::Placement>,
+    Option<(u32, u32)>,
+);
 
 /// Mode verre : l'image est décodée à 1/BLUR_DOWNSCALE de sa taille puis
 /// légèrement floutée ; l'agrandissement par le GPU achève le flou, pour un
@@ -214,6 +223,8 @@ pub enum Msg {
     /// Génération, icônes du bureau, puis icônes des commandes média.
     IconsResolved(u64, Vec<launch::Resolved>, Vec<Option<PathBuf>>),
     WallLoaded(WallKey, Result<DecodedWall, String>),
+    /// Trame suivante d'un fond vidéo (boucle ffmpeg, par clé de fond).
+    VideoFrame(WallKey, crate::video::Frame),
     Rotate,
     /// L'affichage à l'écran (OSD) s'efface-t-il ?
     OsdTick,
@@ -585,7 +596,8 @@ fn format_now(fmt: &str) -> String {
     s
 }
 
-fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
+/// Images (et vidéos si `videos`) d'un dossier de fonds, triées.
+fn list_images(dir: &std::path::Path, videos: bool) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
@@ -593,6 +605,7 @@ fn list_images(dir: &std::path::Path) -> Vec<PathBuf> {
                 .filter(|p| {
                     p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
                         matches!(e.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp")
+                            || (videos && crate::video::is_video(p))
                     })
                 })
                 .collect()
@@ -610,7 +623,7 @@ pub struct DecodedWall {
 }
 
 fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
-    let (path, w, h, fit, blur, span) = key;
+    let (path, w, h, fit, blur, span, _canvas) = key;
     let img = ::image::open(path).map_err(|e| format!("{} : {e}", path.display()))?;
     // Scène étalée : la part de cet écran, à sa taille (l'ajustement ne joue plus).
     let (img, fit) = match span {
@@ -658,6 +671,41 @@ fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
     Ok(DecodedWall {
         handle: image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()),
         backdrop,
+    })
+}
+
+/// Recette ffmpeg d'une clé de fond vidéo : trame au grand côté borné (ou
+/// divisé par le flou du mode verre), flou demandé, part étalée.
+fn video_recipe(key: &WallKey) -> crate::video::Recipe {
+    let (path, w, h, _fit, blur, place, canvas) = key;
+    let (w, h) = if *blur {
+        crate::video::target_size(w / BLUR_DOWNSCALE, h / BLUR_DOWNSCALE, u32::MAX)
+    } else {
+        crate::video::target_size(*w, *h, 1920)
+    };
+    crate::video::Recipe {
+        path: path.clone(),
+        w,
+        h,
+        fps: if *blur { 30 } else { 24 },
+        blur: (*blur).then_some(2.5),
+        span: (*canvas).zip(*place),
+    }
+}
+
+/// Boucle d'un fond vidéo : trames du décodeur partagé, en messages du
+/// bureau (une souscription par clé affichée).
+fn video_wall(key: &WallKey) -> impl Stream<Item = Msg> + use<> {
+    let k = key.clone();
+    let recipe = video_recipe(key);
+    iced::stream::channel(2, async move |mut tx| {
+        use iced::futures::StreamExt;
+        let mut frames = Box::pin(crate::video::frames(recipe));
+        while let Some(f) = frames.next().await {
+            if tx.send(Msg::VideoFrame(k.clone(), f)).await.is_err() {
+                break;
+            }
+        }
     })
 }
 
@@ -2470,7 +2518,8 @@ impl App {
         shuffle: bool,
     ) -> Option<PathBuf> {
         let r = self.rot.entry(idx).or_insert_with(|| {
-            let mut files = list_images(dir);
+            // Le diaporama reste image-seul ; les vidéos se choisissent une à une.
+            let mut files = list_images(dir, false);
             if shuffle {
                 use rand::seq::SliceRandom;
                 files.shuffle(&mut rand::rng());
@@ -2520,15 +2569,29 @@ impl App {
                 (None, _) | (_, None) => Wall::Color(cfg.general.background),
                 (Some(rule), Some(idx)) => match &rule.source {
                     WallSource::Color(c) => Wall::Color(*c),
-                    WallSource::Path(p) => {
-                        Wall::Image((p.clone(), m.width, m.height, rule.fit, blur, place(rule)))
-                    }
+                    WallSource::Path(p) => Wall::Image((
+                        p.clone(),
+                        m.width,
+                        m.height,
+                        rule.fit,
+                        blur,
+                        place(rule),
+                        canvas.map(|c| (c.w.round() as u32, c.h.round() as u32)),
+                    )),
                     WallSource::Rotate {
                         dir,
                         interval,
                         shuffle,
                     } => match self.rot_file(idx, dir, *interval, *shuffle) {
-                        Some(p) => Wall::Image((p, m.width, m.height, rule.fit, blur, place(rule))),
+                        Some(p) => Wall::Image((
+                            p,
+                            m.width,
+                            m.height,
+                            rule.fit,
+                            blur,
+                            place(rule),
+                            canvas.map(|c| (c.w.round() as u32, c.h.round() as u32)),
+                        )),
                         None => Wall::Color(cfg.general.background),
                     },
                 },
@@ -2536,24 +2599,28 @@ impl App {
             if self.shown.get(&m.name).is_some_and(|s| s.current == want) {
                 continue;
             }
-            if let Wall::Image(key) = &want
-                && !self.walls.contains_key(key)
-            {
-                // On garde l'ancien fond jusqu'à la fin du décodage.
-                if self.loading.insert(key.clone()) {
-                    let k = key.clone();
-                    tasks.push(Task::perform(
-                        async move {
-                            let k2 = k.clone();
-                            let r = tokio::task::spawn_blocking(move || decode_wall(&k2))
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()));
-                            (k, r)
-                        },
-                        |(k, r)| Msg::WallLoaded(k, r),
-                    ));
+            if let Wall::Image(key) = &want {
+                if crate::video::is_video(&key.0) {
+                    // Fond vidéo : la boucle ffmpeg apporte les trames ; le
+                    // fond est affiché tout de suite (couleur de fond, puis
+                    // premières trames) et l'ancien fond reste en fondu.
+                } else if !self.walls.contains_key(key) {
+                    // On garde l'ancien fond jusqu'à la fin du décodage.
+                    if self.loading.insert(key.clone()) {
+                        let k = key.clone();
+                        tasks.push(Task::perform(
+                            async move {
+                                let k2 = k.clone();
+                                let r = tokio::task::spawn_blocking(move || decode_wall(&k2))
+                                    .await
+                                    .unwrap_or_else(|e| Err(e.to_string()));
+                                (k, r)
+                            },
+                            |(k, r)| Msg::WallLoaded(k, r),
+                        ));
+                    }
+                    continue;
                 }
-                continue;
             }
             let prev = self.shown.remove(&m.name).map(|s| s.current);
             self.shown.insert(
@@ -3849,6 +3916,21 @@ impl App {
                 }
                 self.refresh_walls()
             }
+            Msg::VideoFrame(key, f) => {
+                // Trame d'un fond vidéo : affichée seulement s'il est encore
+                // montré (la souscription s'arrête juste après un changement).
+                if self
+                    .shown
+                    .values()
+                    .any(|s| matches!(&s.current, Wall::Image(k) if k == &key))
+                {
+                    if let Some(b) = f.backdrop {
+                        self.launcher_runtime.backdrops.insert(key.clone(), b);
+                    }
+                    self.walls.insert(key, f.handle);
+                }
+                Task::none()
+            }
             Msg::OsdTick => self.osd_tick(),
             Msg::Polkit(m) => self.polkit_update(m),
             Msg::Mymfa(m) => self.mfa_update(m),
@@ -4672,6 +4754,21 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        // Fonds vidéo affichés : une boucle ffmpeg par clé (une par écran, ou
+        // par écran en mode verre).
+        let mut video_keys: HashSet<WallKey> = HashSet::new();
+        for s in self.shown.values() {
+            if let Wall::Image(k) = &s.current
+                && crate::video::is_video(&k.0)
+            {
+                video_keys.insert(k.clone());
+            }
+        }
+        for k in video_keys {
+            subs.push(Subscription::run_with(k.clone(), |key: &WallKey| {
+                video_wall(key)
+            }));
+        }
         if !self.toasts.list.is_empty() {
             subs.push(
                 iced::time::every(Duration::from_millis(500))

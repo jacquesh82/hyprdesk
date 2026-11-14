@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Video wallpapers.** A rule takes an image or a looping video
+  (mp4, m4v, mkv, webm, mov, avi) — desktop, lock screen, and login screen
+  alike. Decoded by ffmpeg into RGBA frames at a refresh-aligned pace
+  (the largest frame rate that divides the screen's refresh rate, so it
+  never beats), looped seamlessly, restarted on failure; scaled, cropped and
+  blurred per rule, spanning screens like images do. The login screen goes
+  further: its background video is played by mpv on the GPU when present
+  (transparent greeter on top, buttery motion at any refresh rate), a
+  bundled loop ships as the default, and the login form can sit
+  on any of nine screen anchors (Settings shows the grid; demo overrides
+  `HYPRDESK_GREETER_VIDEO` and `HYPRDESK_GREETER_ANCHOR`).
+- **Settings.** The wallpaper and login-screen pickers list videos with
+  thumbnails (first frame), the login page warns when mpv/ffmpeg are
+  missing, and `hyprdesk doctor` reports both.
+
 ## [0.1.1] - 2026-11-14
 
 ### Added

@@ -52,6 +52,8 @@ pub struct State {
     pub screens: Vec<MonitorRule>,
     /// Écran qui porte la connexion (les autres restent noirs).
     pub login_monitor: String,
+    /// Emplacement du formulaire : 0 (haut-gauche) … 8 (bas-droite).
+    pub anchor: usize,
     /// Empreinte digitale à la connexion (appliquée à l'écriture).
     pub fingerprint: bool,
 }
@@ -67,6 +69,8 @@ pub enum Msg {
     /// Fond (vertical : `true`).
     Wallpaper(bool, WallChoice),
     LoginMonitor(String),
+    /// Emplacement du formulaire (grille 3 × 3).
+    Anchor(u8),
     Fingerprint(bool),
     /// `packages`, `install`, `enable`, `restore`.
     Act(&'static str),
@@ -94,9 +98,10 @@ pub fn load() -> Task<UiMsg> {
         async {
             tokio::task::spawn_blocking(|| {
                 let i = crate::inputs::read();
-                let images = super::super::list_images(&super::wallpaper::expand(
-                    &super::wallpaper::default_folder(),
-                ));
+                let images = super::super::list_images(
+                    &super::wallpaper::expand(&super::wallpaper::default_folder()),
+                    true,
+                );
                 let screens = crate::screens::detect()
                     .map(|l| l.iter().map(MonitorRule::from_screen).collect())
                     .unwrap_or_default();
@@ -152,6 +157,8 @@ impl App {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             wallpaper_vertical: String::new(),
+            // Bas-droite (la place d'origine) : aucun champ au profil.
+            anchor: (st.anchor != 8).then_some(st.anchor as u8),
             lang: std::env::var("LANG").unwrap_or_default(),
             monitors: st.screens.clone(),
             login_monitor: st.login_monitor.clone(),
@@ -188,6 +195,7 @@ impl App {
 
     pub(in crate::ui) fn login_page(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
+        let accent = color(self.cfg.general.theme.accent, 1.0);
         let dim = self.ink().dim;
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
         let Some(st) = self
@@ -362,6 +370,94 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
+        col = col.push(small(
+            crate::i18n::tr(
+                "Une image s'affiche telle quelle ; une vidéo (MP4, WebM…) joue en boucle.",
+            )
+            .to_string(),
+            dim,
+        ));
+        let video = st
+            .wallpaper
+            .as_deref()
+            .is_some_and(|p| crate::video::is_video(std::path::Path::new(p)))
+            || st
+                .wallpaper_vertical
+                .as_deref()
+                .is_some_and(|p| crate::video::is_video(std::path::Path::new(p)));
+        if video {
+            col = col.push(self.login_check(
+                s.mpv || s.ffmpeg,
+                "mpv",
+                if s.mpv {
+                    crate::i18n::tr(
+                        "lecture fluide des fonds vidéo (rendu GPU, repli : ffmpeg)",
+                    )
+                    .to_string()
+                } else if s.ffmpeg {
+                    crate::i18n::tr(
+                        "absent : la vidéo est décodée trame par trame par ffmpeg (mpv conseillé)",
+                    )
+                    .to_string()
+                } else {
+                    crate::i18n::tr(
+                        "absent avec ffmpeg : les fonds vidéo ne joueront pas (paquets mpv, ffmpeg)",
+                    )
+                    .to_string()
+                },
+            ));
+        }
+        // Emplacement du formulaire : grille de neuf cases (haut-gauche …
+        // bas-droite), la case choisie dans la couleur d'accent.
+        let mut grid = column![].spacing(4);
+        for r in 0..3u8 {
+            let mut line = row![].spacing(4);
+            for c in 0..3u8 {
+                let i = r * 3 + c;
+                let on = st.anchor == i as usize;
+                line = line.push(
+                    button(
+                        Space::new()
+                            .width(Length::Fixed(18.0))
+                            .height(Length::Fixed(18.0)),
+                    )
+                    .padding(0)
+                    .style(move |_, status| button::Style {
+                        background: Some(
+                            Color {
+                                a: if on {
+                                    1.0
+                                } else if matches!(status, button::Status::Hovered) {
+                                    0.25
+                                } else {
+                                    0.12
+                                },
+                                ..accent
+                            }
+                            .into(),
+                        ),
+                        border: iced::Border::default().rounded(6).width(1).color(Color {
+                            a: if on { 1.0 } else { 0.3 },
+                            ..accent
+                        }),
+                        ..Default::default()
+                    })
+                    .on_press(wrap(Msg::Anchor(i))),
+                );
+            }
+            grid = grid.push(line);
+        }
+        col = col.push(
+            row![
+                text(crate::i18n::tr("Emplacement du formulaire"))
+                    .font(self.font)
+                    .size(13)
+                    .color(fg),
+                grid,
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        );
         col = col.push(self.login_check(
             !want.lang.is_empty(),
             "Langue",
@@ -580,6 +676,12 @@ impl App {
                         .as_ref()
                         .map(|pr| PathBuf::from(&pr.wallpaper_source))
                         .filter(|w| !w.as_os_str().is_empty());
+                    p.login.anchor = s
+                        .profile
+                        .as_ref()
+                        .and_then(|pr| pr.anchor)
+                        .map(usize::from)
+                        .unwrap_or(8);
                 }
                 p.login.images = images;
                 p.login.screens = screens;
@@ -597,6 +699,10 @@ impl App {
             }
             Msg::LoginMonitor(n) => {
                 p.login.login_monitor = n;
+                Task::none()
+            }
+            Msg::Anchor(i) => {
+                p.login.anchor = i as usize;
                 Task::none()
             }
             Msg::Fingerprint(v) => {

@@ -487,7 +487,7 @@ pub static KEYS: &[Key] = keys![
         |c| format!("{}", c.general.lock.dim),
         |s, v, c| { s.lock_dim = Some(number(v, 0.0f32, 0.9)?); Ok(()) },
         |s| s.lock_dim = None;
-    "lock_image", "lock", "chemin | none — image propre au verrouillage (sinon le fond du bureau)",
+    "lock_image", "lock", "chemin d'image ou de vidéo | none — fond propre au verrouillage (sinon le fond du bureau)",
         |c| c.general.lock.image.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
         |s, v, c| {
             s.lock_image = if v == "none" { None } else {
@@ -573,7 +573,7 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.assistant_mode.as_str().into(),
         |s, v, c| { s.assistant_mode = Some(choice(v, crate::assistant::AssistantMode::parse, "window, terminal")?); Ok(()) },
         |s| s.assistant_mode = None;
-    "wallpaper", "wallpaper", "chemin d'image | #couleur — fond de tous les bureaux",
+    "wallpaper", "wallpaper", "chemin d'image ou de vidéo | #couleur — fond de tous les bureaux",
         |c| wall_all(c),
         |s, v, c| {
             let source = match Rgba::parse(v) {

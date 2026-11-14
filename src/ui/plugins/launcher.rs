@@ -8,7 +8,7 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-mod contrast;
+pub(crate) mod contrast;
 mod keyboard;
 mod lifecycle;
 mod motion;

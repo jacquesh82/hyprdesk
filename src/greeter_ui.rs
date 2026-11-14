@@ -49,6 +49,8 @@ pub enum GMsg {
     /// Veille, redémarrage, extinction (`systemctl suspend|reboot|poweroff`).
     Power(&'static str),
     PowerFailed(String),
+    /// Trame suivante du fond vidéo (boucle ffmpeg).
+    Frame(image::Handle),
 }
 
 /// Dernière connexion réussie (dossier d'état du greeter).
@@ -110,10 +112,50 @@ pub struct Greeter {
     /// de session.
     film: bool,
     /// Fond : la copie posée par Réglages → Écran de connexion, sinon celui
-    /// de hyprdesk (horizontal ou vertical selon l'écran).
+    /// de hyprdesk (horizontal ou vertical selon l'écran). Vidéo déléguée à
+    /// mpv : aucun fond dessiné (l'écran est transparent sur mpv). Vidéo
+    /// décodée à la maison : la trame courante de la boucle ffmpeg.
     wallpaper: Option<image::Handle>,
+    /// Fond vidéo en cours : porté par mpv (son process, l'écran est
+    /// transparent au-dessus), ou décodé ici (fichier, trame, fps — un
+    /// diviseur entier du rafraîchissement de l'écran, pour ne pas battre).
+    video: Option<Video>,
+    /// Emplacement du formulaire : 0 (haut-gauche) … 8 (bas-droite).
+    anchor: u8,
     /// Logo de hyprdesk, en haut à gauche.
     logo: image::Handle,
+}
+
+/// Comment le fond vidéo est porté : par mpv en GPU (le rendu vsyncé de
+/// mpv, l'écran du greeter étant transparent au-dessus), ou décodé ici par
+/// ffmpeg trame par trame (cage, ou sans mpv).
+enum Video {
+    Mpv(#[allow(dead_code)] Player),
+    Frames {
+        path: std::path::PathBuf,
+        w: u32,
+        h: u32,
+        fps: u32,
+    },
+}
+
+impl Video {
+    /// Porté par mpv : l'écran du greeter est transparent sur lui.
+    fn playing(&self) -> bool {
+        matches!(self, Video::Mpv(_))
+    }
+}
+
+/// Le mpv lancé : quitté avec le greeter (session ouverte, démo fermée),
+/// pour ne jamais laisser un fond jouer derrière la session. Le process est
+/// gardé vivant par le champ (un Child abandonné rend la main au système).
+struct Player(#[allow(dead_code)] std::process::Child);
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// Fonds et logo livrés avec hyprdesk (dans le binaire : le greeter n'a
@@ -121,9 +163,221 @@ pub struct Greeter {
 pub const DEFAULT_WALLPAPER: &[u8] = include_bytes!("../assets/greeter/fond.jpg");
 pub const DEFAULT_WALLPAPER_VERTICAL: &[u8] = include_bytes!("../assets/greeter/fond-vertical.jpg");
 pub const LOGO: &[u8] = include_bytes!("../assets/greeter/logo.png");
+/// Vidéo du fond livré (H.264 1280×720, boucle) : posée une fois dans un
+/// dossier inscriptible, les lecteurs y lisent leurs trames. Le paquet
+/// livre aussi le fichier (PACKAGED_VIDEO), lisible sans pose.
+pub const DEFAULT_VIDEO: &[u8] = include_bytes!("../assets/greeter/fond.mp4");
+/// Copie de la vidéo livrée par le paquet.
+const PACKAGED_VIDEO: &str = "/usr/share/hyprdesk/greeter/fond.mp4";
+
+/// Alignements d'un ancrage (0 = haut-gauche … 8 = bas-droite) : ceux du
+/// formulaire, et la colonne des repères (logo, alimentation), à l'opposé
+/// (le centre passe à gauche, pour ne jamais recouvrir le formulaire).
+fn anchor_aligns(anchor: u8) -> (Alignment, Alignment, Alignment) {
+    let h = |i: u8| match i % 3 {
+        0 => Alignment::Start,
+        1 => Alignment::Center,
+        _ => Alignment::End,
+    };
+    let v = |i: u8| match i / 3 {
+        0 => Alignment::Start,
+        1 => Alignment::Center,
+        _ => Alignment::End,
+    };
+    let aux = if anchor.is_multiple_of(3) {
+        Alignment::End
+    } else {
+        Alignment::Start
+    };
+    (h(anchor), v(anchor), aux)
+}
+
+/// La vidéo de fond livrée : la copie posée dans un dossier inscriptible
+/// (état du greeter, session), ou celle du paquet en lecture directe.
+fn default_video_path() -> Option<std::path::PathBuf> {
+    static POSED: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    POSED
+        .get_or_init(|| {
+            let dirs = [
+                std::env::var_os("XDG_RUNTIME_DIR")
+                    .map(|d| std::path::PathBuf::from(d).join("hyprdesk")),
+                Some(std::path::PathBuf::from(crate::greeter_setup::STATE_DIR)),
+                Some(std::env::temp_dir().join("hyprdesk")),
+            ];
+            for dir in dirs.into_iter().flatten() {
+                let p = dir.join("fond.mp4");
+                let same = std::fs::metadata(&p)
+                    .map(|m| m.len() == DEFAULT_VIDEO.len() as u64)
+                    .unwrap_or(false);
+                if same {
+                    return Some(p);
+                }
+                let tmp = dir.join("fond.nouveau");
+                if std::fs::create_dir_all(&dir).is_err() {
+                    continue;
+                }
+                if std::fs::write(&tmp, DEFAULT_VIDEO).is_ok() && std::fs::rename(&tmp, &p).is_ok()
+                {
+                    return Some(p);
+                }
+            }
+            None
+        })
+        .clone()
+        // Le paquet livre aussi la vidéo, lisible sans pose (système de
+        // fichiers en lecture seule, utilisateur greeter sans HOME).
+        .or_else(|| {
+            let p = std::path::PathBuf::from(PACKAGED_VIDEO);
+            p.is_file().then_some(p)
+        })
+}
 
 fn rgba(c: crate::config::Rgba, a: f32) -> Color {
     Color::from_rgba8(c.0, c.1, c.2, (c.3 as f32 / 255.0) * a)
+}
+
+/// Grand côté des trames du fond vidéo : l'écran les agrandit, et un fond
+/// animé ne souffre pas d'être décodé au-delà — chaque trame coûte un
+/// repaint complet de la surface (le plein débit clignote).
+const VIDEO_FRAME: u32 = 1280;
+
+/// Rythme du fond vidéo décodé ici : le plus grand nombre de trames par
+/// seconde qui **divise le rafraîchissement de l'écran** (une trame pendant
+/// un nombre entier de rafraîchissements) et reste sous 12 — chaque trame
+/// coûte un repaint complet de la surface, et un rythme qui ne tombe pas
+/// pile (15 sur 144 Hz : 9,6) fait battre la vidéo. 12 par défaut, 10 sur
+/// 90 Hz, 11 sur 165 Hz…
+fn video_fps(refresh: f32) -> u32 {
+    let refresh = refresh.round() as u32;
+    if refresh <= 12 && refresh > 0 {
+        return refresh;
+    }
+    // Un rythme trop lent (75 Hz ne donne que 5) saccade plus qu'il ne bat :
+    // on garde 12 et on accepte le battement.
+    (1..=12u32)
+        .rev()
+        .find(|f| refresh.is_multiple_of(*f))
+        .filter(|f| *f >= 8)
+        .unwrap_or(12)
+}
+
+/// L'écran est branché (Hyprland le connaît) ; sans réponse (pas d'IPC), faux :
+/// le greeter retombe sur l'écran actif du compositeur.
+fn screen_exists(name: &str) -> bool {
+    hyprpanel_core::ipc::query_json("monitors")
+        .ok()
+        .and_then(|v| {
+            v.as_array()
+                .map(|a| a.iter().any(|m| m["name"].as_str() == Some(name)))
+        })
+        .unwrap_or(false)
+}
+
+/// Lancement de mpv derrière le greeter (l'écran du greeter devient
+/// transparent sur lui). Un mpv d'un fond précédent qui traînerait s'en va.
+fn spawn_player(path: &std::path::Path) -> Option<Video> {
+    crate::video::stop_players();
+    let a = crate::video::mpv_args(path);
+    match std::process::Command::new(&a[0]).args(&a[1..]).spawn() {
+        Ok(c) => Some(Video::Mpv(Player(c))),
+        Err(e) => {
+            tracing::warn!(
+                "{}",
+                crate::tr!("fond vidéo : mpv ne démarre pas — {e}", e = e)
+            );
+            None
+        }
+    }
+}
+
+/// mpv sur l'écran de la connexion (celui du greeter), à la taille de cet
+/// écran : il s'ouvre où le curseur traîne (flotté dans un tuile occupé en
+/// démo), ce n'est pas forcément là. Ciblé par son `address` — le focus est
+/// retenu par la surface du greeter. Sa fenêtre se fait attendre : essais
+/// jusqu'à deux secondes. Hors Hyprland (cage), rien à faire : mpv seul,
+/// plein écran de toute façon.
+fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) -> Task<GMsg> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let d = |t: &str| {
+                    let _ = hyprpanel_core::ipc::dispatch(&hyprpanel_core::ipc::build_dispatch(t));
+                };
+                // La fenêtre de mpv, retrouvée tant qu'elle n'est pas mappée.
+                let mut addr = None;
+                for _ in 0..7 {
+                    std::thread::sleep(Duration::from_millis(300));
+                    addr = hyprpanel_core::ipc::query_json("clients")
+                        .ok()
+                        .and_then(|v| {
+                            crate::hypr::parse_clients(&v)
+                                .into_iter()
+                                .find(|c| c.class == "mpv")
+                                .map(|c| c.address)
+                        });
+                    if addr.is_some() {
+                        break;
+                    }
+                }
+                let Some(addr) = addr else {
+                    return;
+                };
+                if let Some(m) = monitor.as_deref() {
+                    d(&format!("movetomonitorsilent {m}"));
+                    std::thread::sleep(Duration::from_millis(150));
+                    // Sur le workspace affiché de l'écran (mpv s'ouvre sur le
+                    // workspace du curseur : invisible s'il n'est pas montré).
+                    if let Some(ws) = hyprpanel_core::ipc::query_json("monitors")
+                        .ok()
+                        .and_then(|v| {
+                            v.as_array()
+                                .and_then(|a| a.iter().find(|w| w["name"].as_str() == Some(m)))
+                                .and_then(|w| w["activeWorkspace"]["name"].as_str())
+                                .map(str::to_string)
+                        })
+                    {
+                        let _ = crate::hypr::move_window(&addr, &ws);
+                    }
+                }
+                let w = format!("address:{addr}");
+                d(&format!(
+                    "hl.dsp.window.float({{ action = \"enable\", window = \"{w}\" }})"
+                ));
+                std::thread::sleep(Duration::from_millis(120));
+                if let Some((x, y, width, height)) = rect {
+                    // Le redimensionnement recentre la fenêtre : le placement
+                    // se fait en dernier, sinon il est écrasé.
+                    d(&format!(
+                        "hl.dsp.window.resize({{ x = {width}, y = {height}, relative = false, window = \"{w}\" }})"
+                    ));
+                    std::thread::sleep(Duration::from_millis(120));
+                    d(&format!(
+                        "hl.dsp.window.move({{ x = {x}, y = {y}, relative = false, window = \"{w}\" }})"
+                    ));
+                }
+            })
+            .await
+            .ok();
+        },
+        |_| GMsg::Tick,
+    )
+}
+
+/// Boucle du fond vidéo : les trames du décodeur partagé, en messages.
+fn greeter_video(
+    key: &(std::path::PathBuf, u32, u32, u32),
+) -> impl iced::futures::Stream<Item = GMsg> + use<> {
+    let (path, w, h, fps) = key.clone();
+    let recipe = crate::video::Recipe {
+        path,
+        w,
+        h,
+        fps: fps.max(1),
+        blur: None,
+        span: None,
+    };
+    use iced::futures::StreamExt;
+    crate::video::frames(recipe).map(|f| GMsg::Frame(f.handle))
 }
 
 /// Échange avec greetd hors du fil de l'interface.
@@ -150,14 +404,17 @@ fn send(stream: Arc<Mutex<Option<UnixStream>>>, req: Request) -> Task<GMsg> {
 }
 
 impl Greeter {
-    pub fn new() -> Self {
+    pub fn new(window: bool) -> Self {
         let sessions = greeter::sessions();
         // Profil posé par Réglages → Écran de connexion (thème de
         // l'utilisateur), et dernière connexion : identifiant et session.
         let profile = crate::greeter_setup::Profile::installed().unwrap_or_default();
         let theme = profile.theme();
         // Fond : le vertical si l'écran de la connexion est pivoté (et qu'il
-        // y en a un), sinon le fond ordinaire.
+        // y en a un), sinon le fond ordinaire. Une vidéo joue en boucle, par
+        // mpv en GPU derrière le greeter transparent quand une fenêtre
+        // ordinaire peut s'ouvrir (pas sous cage), sinon par le décodeur
+        // trame par trame de hyprdesk.
         let vertical = crate::greeter_setup::login_monitor(&profile).is_some_and(|m| m.vertical());
         let usable = |w: &String| !w.is_empty() && std::path::Path::new(w).is_file();
         let chosen = if vertical && usable(&profile.wallpaper_vertical) {
@@ -165,11 +422,45 @@ impl Greeter {
         } else {
             Some(profile.wallpaper.clone()).filter(usable)
         };
-        let wallpaper = Some(match chosen {
-            Some(path) => image::Handle::from_path(path),
-            None if vertical => image::Handle::from_bytes(DEFAULT_WALLPAPER_VERTICAL),
-            None => image::Handle::from_bytes(DEFAULT_WALLPAPER),
-        });
+        let monitor = crate::greeter_setup::login_monitor(&profile);
+        let fps = video_fps(monitor.map(|m| m.refresh).unwrap_or(0.0));
+        let target = match monitor {
+            Some(m) if m.width > 0 && m.height > 0 => {
+                crate::video::target_size(m.width, m.height, VIDEO_FRAME)
+            }
+            _ if vertical => (720, 1280),
+            _ => (1280, 720),
+        };
+        let play = |p: std::path::PathBuf| -> Option<Video> {
+            if !window && crate::video::has_player() {
+                return spawn_player(&p);
+            }
+            crate::video::has_decoder().then_some(Video::Frames {
+                path: p,
+                w: target.0,
+                h: target.1,
+                fps,
+            })
+        };
+        let video = chosen
+            .as_deref()
+            .filter(|p| crate::video::is_video(std::path::Path::new(p)))
+            .and_then(|p| play(std::path::PathBuf::from(p)))
+            // Fond livré : la vidéo (écran horizontal), sinon les images
+            // livrées.
+            .or_else(|| {
+                (chosen.is_none() && !vertical)
+                    .then(|| default_video_path().and_then(play))
+                    .flatten()
+            });
+        let wallpaper = match &video {
+            Some(_) => None, // mpv dessine, ou la première trame suivra.
+            None => Some(match chosen {
+                Some(path) => image::Handle::from_path(path),
+                None if vertical => image::Handle::from_bytes(DEFAULT_WALLPAPER_VERTICAL),
+                None => image::Handle::from_bytes(DEFAULT_WALLPAPER),
+            }),
+        };
         let last = read_last();
         let session = sessions
             .iter()
@@ -194,17 +485,68 @@ impl Greeter {
             demo: false,
             film: false,
             wallpaper,
+            anchor: profile.anchor.unwrap_or(8),
+            video,
             logo: image::Handle::from_bytes(LOGO),
         }
     }
 
-    fn demo() -> Self {
-        Greeter {
+    fn demo(window: bool) -> Self {
+        let mut g = Greeter {
             demo: true,
             film: std::env::var_os("HYPRDESK_GREETER_FILM").is_some(),
             user: std::env::var("USER").unwrap_or_default(),
-            ..Greeter::new()
+            ..Greeter::new(window)
+        };
+        // La démo montre la vidéo : celle imposée par HYPRDESK_GREETER_VIDEO,
+        // celle du profil si elle en a une, sinon la vidéo livrée (au lieu de
+        // l'image du profil).
+        if std::env::var_os("HYPRDESK_GREETER_VIDEO").is_none()
+            && g.video.is_none()
+            && let Some(p) = default_video_path()
+        {
+            if !window && crate::video::has_player() {
+                g.video = spawn_player(&p);
+            } else if crate::video::has_decoder() {
+                g.video = Some(Video::Frames {
+                    path: p,
+                    w: 1280,
+                    h: 720,
+                    fps: 12,
+                });
+            }
+            g.wallpaper = None;
         }
+        // Essais sans rien enregistrer : HYPRDESK_GREETER_VIDEO impose un
+        // fond vidéo, HYPRDESK_GREETER_ANCHOR (0..8) la place du formulaire.
+        if let Some(p) = std::env::var_os("HYPRDESK_GREETER_VIDEO") {
+            let p = std::path::PathBuf::from(p);
+            if p.is_file() && crate::video::is_video(&p) {
+                // La vidéo d'essai remplace celle du profil (et le mpv éventuel
+                // du profil s'en va avec).
+                if let Some(Video::Mpv(player)) = g.video.take() {
+                    drop(player);
+                }
+                if !window && crate::video::has_player() {
+                    g.video = spawn_player(&p);
+                } else if crate::video::has_decoder() {
+                    g.video = Some(Video::Frames {
+                        path: p,
+                        w: 1280,
+                        h: 720,
+                        fps: 12,
+                    });
+                }
+                g.wallpaper = None;
+            }
+        }
+        if let Ok(a) = std::env::var("HYPRDESK_GREETER_ANCHOR")
+            && let Ok(v) = a.trim().parse::<u8>()
+            && v <= 8
+        {
+            g.anchor = v;
+        }
+        g
     }
 
     /// Démo : ce qui se passerait à la validation du mot de passe.
@@ -222,7 +564,7 @@ impl Greeter {
 
     /// État d'exemple pour `hyprdesk preview` (mot de passe demandé).
     fn preview() -> Self {
-        let mut g = Greeter::new();
+        let mut g = Greeter::new(true);
         g.sessions = vec![
             Session {
                 id: "hyprland".into(),
@@ -238,7 +580,9 @@ impl Greeter {
             },
         ];
         // Aperçu de la documentation : le fond livré, pas celui du poste.
+        g.video = None;
         g.wallpaper = Some(image::Handle::from_bytes(DEFAULT_WALLPAPER));
+        g.anchor = 8;
         g.user = "jacques".into();
         g.answer = "secret".into();
         g.phase = Phase::Ask(AuthKind::Secret, "Mot de passe :".into());
@@ -429,6 +773,14 @@ impl Greeter {
                 self.error = Some(e);
                 Task::none()
             }
+            GMsg::Frame(h) => {
+                // Le lecteur rythme déjà les trames (un diviseur entier du
+                // rafraîchissement de l'écran) : chaque trame reçue s'applique.
+                if self.video.is_some() {
+                    self.wallpaper = Some(h);
+                }
+                Task::none()
+            }
             GMsg::FocusNext(back) => {
                 if back {
                     iced::widget::operation::focus_previous()
@@ -601,8 +953,16 @@ impl Greeter {
             .on_press(GMsg::Power(verb))
         };
         // Zone de connexion en bas à droite, sur un voile du thème (lisible
-        // sur n'importe quelle image) ; alimentation en bas à gauche.
-        let veil = rgba(th.bg, if self.wallpaper.is_some() { 0.72 } else { 0.0 });
+        // sur n'importe quelle image ou vidéo) ; alimentation en bas à gauche.
+        let transparent = self.video.as_ref().is_some_and(|v| v.playing());
+        let veil = rgba(
+            th.bg,
+            if self.wallpaper.is_some() || self.video.is_some() {
+                0.72
+            } else {
+                0.0
+            },
+        );
         let card = container(col).padding(28).style(move |_| container::Style {
             background: Some(veil.into()),
             border: Border::default().rounded(28),
@@ -622,12 +982,21 @@ impl Greeter {
             border: Border::default().rounded(16),
             ..Default::default()
         });
-        let page = row![power_row, Space::new().width(Length::Fill), card].align_y(Alignment::End);
-        let overlay = container(page)
+        // Formulaire à son ancrage ; logo et alimentation en face (colonne
+        // opposée, à l'autre bout de l'écran).
+        let (h_card, v_card, h_aux) = anchor_aligns(self.anchor);
+        let overlay = container(card)
             .width(Length::Fill)
             .height(Length::Fill)
-            .align_bottom(Length::Fill)
-            .padding(48);
+            .padding(48)
+            .align_x(h_card)
+            .align_y(v_card);
+        let power_overlay = container(power_row)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(48)
+            .align_x(h_aux)
+            .align_y(Alignment::End);
         let back: Element<'_, GMsg> = match &self.wallpaper {
             Some(h) => image(h.clone())
                 .content_fit(iced::ContentFit::Cover)
@@ -636,16 +1005,20 @@ impl Greeter {
                 .into(),
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        // Logo en haut à gauche, à la largeur de la zone de connexion.
+        // Logo en haut, à la largeur de la zone de connexion.
         let logo = container(image(self.logo.clone()).width(300))
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(48);
-        container(stack![back, logo, overlay])
+            .padding(48)
+            .align_x(h_aux)
+            .align_y(Alignment::Start);
+        container(stack![back, logo, power_overlay, overlay])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| container::Style {
-                background: Some(bg.into()),
+                // mpv porte la vidéo : l'écran du greeter est transparent
+                // sur lui (sinon : l'aplat du thème, ou la trame).
+                background: Some(if transparent { Color::TRANSPARENT } else { bg }.into()),
                 text_color: Some(fg),
                 ..Default::default()
             })
@@ -729,17 +1102,25 @@ impl Greeter {
             }) => Some(GMsg::FocusNext(modifiers.shift())),
             _ => None,
         });
-        if !self.demo {
-            return Subscription::batch([tick, tab]);
+        let mut subs = vec![tick, tab];
+        // Fond vidéo décodé ici : la boucle ffmpeg alimente l'écran trame
+        // par trame (mpv, lui, est un processus à part).
+        if let Some(Video::Frames { path, w, h, fps }) = &self.video {
+            subs.push(Subscription::run_with(
+                (path.clone(), *w, *h, *fps),
+                |k: &(std::path::PathBuf, u32, u32, u32)| greeter_video(k),
+            ));
         }
-        let esc = iced::event::listen_with(|e, _, _| match e {
-            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
-                ..
-            }) => Some(GMsg::Quit),
-            _ => None,
-        });
-        Subscription::batch([tick, tab, esc])
+        if self.demo {
+            subs.push(iced::event::listen_with(|e, _, _| match e {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                    ..
+                }) => Some(GMsg::Quit),
+                _ => None,
+            }));
+        }
+        Subscription::batch(subs)
     }
 }
 
@@ -781,25 +1162,58 @@ pub fn run(demo: bool, window: bool) -> std::process::ExitCode {
     }
 }
 
-fn boot(demo: bool) -> (Greeter, Task<GMsg>) {
+fn boot(demo: bool, window: bool) -> (Greeter, Task<GMsg>) {
     let g = if demo {
-        Greeter::demo()
+        Greeter::demo(window)
     } else {
-        Greeter::new()
+        Greeter::new(window)
     };
-    (g, iced::widget::operation::focus(USER_ID))
+    // mpv lancé : à sa place, sur l'écran de la connexion.
+    let task = if matches!(g.video, Some(Video::Mpv(_))) {
+        let profile = crate::greeter_setup::Profile::installed();
+        let mon = profile
+            .as_ref()
+            .and_then(crate::greeter_setup::login_monitor);
+        position_player(
+            mon.map(|m| m.name.clone())
+                .or_else(crate::greeter_setup::login_screen),
+            mon.map(|m| (m.x, m.y, m.width, m.height)),
+        )
+    } else {
+        Task::none()
+    };
+    (
+        g,
+        Task::batch([iced::widget::operation::focus(USER_ID), task]),
+    )
 }
 
 /// Surface layer-shell plein écran, clavier exclusif.
 fn run_layer(demo: bool) -> Result<(), String> {
     // Pas de presse-papiers : rien à coller dans le champ du mot de passe.
     iced_layershell::disable_clipboard();
+    // Sur l'écran configuré de la connexion s'il est branché (mpv y est
+    // envoyé aussi) ; sinon l'écran actif du compositeur.
+    let start_mode = match crate::greeter_setup::login_screen() {
+        Some(m) if screen_exists(&m) => StartMode::TargetScreen(m),
+        _ => StartMode::Active,
+    };
     let mut app = iced_layershell::application(
-        move || boot(demo),
+        move || boot(demo, false),
         "hyprdesk-greeter",
         Greeter::update,
         Greeter::view,
     )
+    // Le clear de la surface suit l'état : transparent quand mpv porte la
+    // vidéo (l'écran du greeter se pose sur lui), l'aplat du thème sinon.
+    .style(|g: &Greeter, _| iced::theme::Style {
+        background_color: if g.video.as_ref().is_some_and(|v| v.playing()) {
+            Color::TRANSPARENT
+        } else {
+            rgba(g.theme.bg, 1.0)
+        },
+        text_color: rgba(g.theme.fg, 1.0),
+    })
     .subscription(Greeter::subscription)
     .default_font(crate::fonts::DEFAULT)
     .layer_settings(LayerShellSettings {
@@ -807,7 +1221,7 @@ fn run_layer(demo: bool) -> Result<(), String> {
         layer: Layer::Overlay,
         exclusive_zone: -1,
         keyboard_interactivity: KeyboardInteractivity::Exclusive,
-        start_mode: StartMode::Active,
+        start_mode,
         ..Default::default()
     });
     for face in crate::fonts::bundled() {
@@ -819,7 +1233,7 @@ fn run_layer(demo: bool) -> Result<(), String> {
 /// Fenêtre ordinaire plein écran, sans décorations (cage, ou tout
 /// compositeur sans layer-shell).
 fn run_window(demo: bool) -> Result<(), String> {
-    iced::application(move || boot(demo), Greeter::update, Greeter::view)
+    iced::application(move || boot(demo, true), Greeter::update, Greeter::view)
         .subscription(Greeter::subscription)
         .settings(iced::Settings {
             fonts: crate::fonts::bundled(),
@@ -843,11 +1257,52 @@ fn run_window(demo: bool) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// La vidéo du fond livré, posée une fois dans l'état du greeter.
+    #[test]
+    fn video_livree_posee() {
+        let Some(p) = default_video_path() else {
+            panic!("aucun dossier inscriptible pour la vidéo livrée");
+        };
+        assert!(p.is_file(), "la vidéo livrée est posée : {}", p.display());
+        let m = std::fs::metadata(&p).unwrap();
+        assert_eq!(m.len(), DEFAULT_VIDEO.len() as u64, "copie complète");
+        assert!(crate::video::is_video(&p));
+    }
+
+    /// Ancrages : le formulaire à sa place, les repères en face.
+    #[test]
+    fn ancrages() {
+        use Alignment::{Center, End, Start};
+        // Par défaut : bas-droite, repères à gauche (comme toujours).
+        assert_eq!(anchor_aligns(8), (End, End, Start));
+        // Haut-gauche : repères à droite ; centre : repères à gauche.
+        assert_eq!(anchor_aligns(0), (Start, Start, End));
+        assert_eq!(anchor_aligns(4), (Center, Center, Start));
+        assert_eq!(anchor_aligns(6), (Start, End, End));
+        // Hors bornes (impossible au profil, écarté à la lecture) : sans effet.
+        assert_eq!(anchor_aligns(3), (Start, Center, End));
+    }
+
+    /// Rythme du fond vidéo : un diviseur entier du rafraîchissement de
+    /// l'écran (sinon la vidéo bat), 12 au plus.
+    #[test]
+    fn rythme_video() {
+        assert_eq!(video_fps(144.0), 12, "144 / 12 = 12 rafraîchissements");
+        assert_eq!(video_fps(144.04), 12, "arrondi");
+        assert_eq!(video_fps(60.0), 12, "60 / 12 = 5");
+        assert_eq!(video_fps(165.0), 11, "165 / 11 = 15");
+        assert_eq!(video_fps(120.0), 12, "120 / 12 = 10");
+        assert_eq!(video_fps(90.0), 10, "90 / 10 = 9");
+        assert_eq!(video_fps(0.0), 12, "inconnu : 12");
+        assert_eq!(video_fps(24.0), 12, "écran lentement rythmé : sa cadence");
+        assert_eq!(video_fps(75.0), 12, "5 fps saccade : 12, battement accepté");
+    }
+
     /// Démo : identifiant, mot de passe, puis ce qui serait lancé ; rien
     /// ne part vers greetd et la réponse est effacée.
     #[test]
     fn demo_sans_greetd() {
-        let mut g = Greeter::demo();
+        let mut g = Greeter::demo(true);
         g.user = "alice".into();
         g.sessions = vec![Session {
             id: "hyprland".into(),
@@ -864,7 +1319,7 @@ mod tests {
         assert!(g.messages[0].contains("Hyprland") && g.messages[0].contains("alice"));
         assert!(g.stream.lock().unwrap().is_none());
         // Hors démo, Quit ne ferme pas l'écran de connexion.
-        let mut real = Greeter::new();
+        let mut real = Greeter::new(true);
         let _ = real.update(GMsg::Quit);
         assert_eq!(real.phase, Phase::User);
     }

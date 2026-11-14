@@ -69,7 +69,7 @@ pub enum Msg {
     FolderSubmit,
     Images(Vec<PathBuf>),
     /// Vignette et dimensions d'origine.
-    Thumb(PathBuf, Option<(image::Handle, (u32, u32))>),
+    Thumb(PathBuf, Option<(image::Handle, Option<(u32, u32)>)>),
     PickImage(PathBuf),
     Kind(WallKind),
     RotInterval(u64),
@@ -133,7 +133,7 @@ pub(in crate::ui) fn load_images(folder: String) -> Task<UiMsg> {
         async move {
             let dir = expand(&folder);
             tokio::task::spawn_blocking(move || {
-                list_images(&dir)
+                list_images(&dir, true)
                     .into_iter()
                     .take(MAX_IMAGES)
                     .collect::<Vec<_>>()
@@ -150,13 +150,20 @@ pub(in crate::ui) fn load_thumb(p: PathBuf) -> Task<UiMsg> {
             let p2 = p.clone();
             static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
             let _permit = DECODERS.acquire().await;
+            // Vidéo : la première trame (ffmpeg) ; image : décodage normal.
+            // Dimensions si elles se lisent (ffprobe) : l'avis de résolution.
             let h = tokio::task::spawn_blocking(move || {
+                if crate::video::is_video(&p2) {
+                    let dims = crate::video::dimensions(&p2);
+                    return crate::video::first_frame(&p2, THUMB.0 * 2, THUMB.1 * 2)
+                        .map(|d| (image::Handle::from_rgba(THUMB.0 * 2, THUMB.1 * 2, d), dims));
+                }
                 let full = ::image::open(&p2).ok()?;
                 let dims = (full.width(), full.height());
                 let img = full.thumbnail(THUMB.0 * 2, THUMB.1 * 2).to_rgba8();
                 Some((
                     image::Handle::from_rgba(img.width(), img.height(), img.into_raw()),
-                    dims,
+                    Some(dims),
                 ))
             })
             .await
@@ -338,7 +345,7 @@ impl App {
                 });
                 if p.wallpaper.images.is_empty() {
                     col = col.push(
-                        text("Aucune image (jpg, png, webp) dans ce dossier.")
+                        text("Aucune image ni vidéo (jpg, png, webp, mp4…) dans ce dossier.")
                             .font(self.font)
                             .size(13)
                             .color(dim),
@@ -711,7 +718,9 @@ impl App {
             }
             Msg::Thumb(p, h) => {
                 if let Some((h, dims)) = h {
-                    panel.wallpaper.dims.insert(p.clone(), dims);
+                    if let Some(d) = dims {
+                        panel.wallpaper.dims.insert(p.clone(), d);
+                    }
                     panel.wallpaper.thumbs.insert(p, h);
                 }
                 Task::none()

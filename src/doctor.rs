@@ -164,6 +164,20 @@ pub const DEPS: &[Dep] = &[
         essential: false,
     },
     Dep {
+        name: "ffmpeg",
+        probe: Probe::Program(&["ffmpeg"]),
+        package: "ffmpeg",
+        feature: "Fonds d'écran vidéo (bureau, verrouillage, connexion)",
+        essential: false,
+    },
+    Dep {
+        name: "mpv",
+        probe: Probe::Program(&["mpv"]),
+        package: "mpv",
+        feature: "Fond vidéo fluide de l'écran de connexion (rendu GPU)",
+        essential: false,
+    },
+    Dep {
         name: "wvkbd",
         probe: Probe::Program(&["wvkbd-mobintl", "wvkbd-deskintl", "wvkbd"]),
         package: "wvkbd",

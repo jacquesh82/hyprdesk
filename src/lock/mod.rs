@@ -38,8 +38,12 @@ enum Msg {
     Submit,
     Auth(pam::Outcome),
     Background(Option<image::Handle>),
+    /// Trame suivante du fond vidéo commun (boucle ffmpeg).
+    VideoBackground(image::Handle),
     /// Scène étalée : la part de chaque écran (nom, image).
     Parts(Vec<(String, Option<image::Handle>)>),
+    /// Trame suivante du fond vidéo d'un écran (boucle ffmpeg).
+    VideoPart(String, image::Handle),
     /// Taille d'une surface (associe la surface à son écran).
     Resized(iced::window::Id, iced::Size),
     Avatar(Option<image::Handle>),
@@ -223,6 +227,8 @@ impl Lock {
         // Verrouillé tout de suite sur la couleur de fond ; l'image suit.
         let mut tasks = vec![iced::widget::operation::focus(INPUT_ID)];
         // Scène étalée : la part de chaque écran ; sinon une seule image.
+        // Les vidéos de fond ne passent pas par le décodage d'image : la
+        // boucle ffmpeg les apporte (souscription).
         if !lock.st.outputs.is_empty() {
             let blur = lock.st.blur;
             let parts: Vec<(String, PathBuf)> = lock
@@ -230,6 +236,7 @@ impl Lock {
                 .outputs
                 .iter()
                 .filter_map(|o| Some((o.name.clone(), o.image.clone()?)))
+                .filter(|(_, p)| !crate::video::is_video(p))
                 .collect();
             tasks.push(Task::perform(
                 async move {
@@ -245,7 +252,7 @@ impl Lock {
                 Msg::Parts,
             ));
         }
-        if let Some(p) = lock.st.image.clone() {
+        if let Some(p) = lock.st.image.clone().filter(|p| !crate::video::is_video(p)) {
             let blur = lock.st.blur;
             tasks.push(Task::perform(
                 async move {
@@ -368,11 +375,19 @@ impl Lock {
                 self.background = h;
                 Task::none()
             }
+            Msg::VideoBackground(h) => {
+                self.background = Some(h);
+                Task::none()
+            }
             Msg::Parts(list) => {
                 self.parts = list
                     .into_iter()
                     .filter_map(|(n, h)| Some((n, h?)))
                     .collect();
+                Task::none()
+            }
+            Msg::VideoPart(n, h) => {
+                self.parts.insert(n, h);
                 Task::none()
             }
             Msg::Resized(id, size) => {
@@ -660,7 +675,7 @@ impl Lock {
     }
 
     fn subscription(&self) -> Subscription<Msg> {
-        Subscription::batch([
+        let mut subs = vec![
             iced::time::every(Duration::from_secs(1)).map(|_| Msg::Tick),
             iced::event::listen_with(|e, _, _| match e {
                 iced::Event::Keyboard(_)
@@ -673,8 +688,74 @@ impl Lock {
                 }
                 _ => None,
             }),
-        ])
+        ];
+        // Fonds vidéo : une boucle ffmpeg pour le fond commun, une par écran
+        // qui a le sien. Sans ffmpeg : la couleur de fond reste.
+        if crate::video::has_decoder() {
+            let blur = self.st.blur;
+            if let Some(p) = self.st.image.as_ref().filter(|p| crate::video::is_video(p)) {
+                let (w, h) = if blur {
+                    crate::video::target_size(1920, 1080, 480)
+                } else {
+                    crate::video::target_size(1920, 1080, 1920)
+                };
+                subs.push(Subscription::run_with(
+                    (p.clone(), w, h, blur),
+                    |k: &(PathBuf, u32, u32, bool)| video_background(k),
+                ));
+            }
+            for o in &self.st.outputs {
+                if let Some(p) = o.image.as_ref().filter(|p| crate::video::is_video(p)) {
+                    let (w, h) = crate::video::target_size(
+                        o.width.max(1),
+                        o.height.max(1),
+                        if blur { 480 } else { 1920 },
+                    );
+                    subs.push(Subscription::run_with(
+                        (o.name.clone(), p.clone(), w, h, blur),
+                        |k: &(String, PathBuf, u32, u32, bool)| video_part(k),
+                    ));
+                }
+            }
+        }
+        Subscription::batch(subs)
     }
+}
+
+/// Boucle du fond vidéo commun : trames du décodeur partagé (flouté comme
+/// l'image du verrouillage l'est).
+fn video_background(
+    key: &(PathBuf, u32, u32, bool),
+) -> impl iced::futures::Stream<Item = Msg> + use<> {
+    let (path, w, h, blur) = key.clone();
+    let recipe = crate::video::Recipe {
+        path,
+        w,
+        h,
+        fps: 30,
+        blur: blur.then_some(6.0),
+        span: None,
+    };
+    use iced::futures::StreamExt;
+    crate::video::frames(recipe).map(|f| Msg::VideoBackground(f.handle))
+}
+
+/// Boucle du fond vidéo d'un écran (son propre fond) : trames pour sa
+/// surface.
+fn video_part(
+    key: &(String, PathBuf, u32, u32, bool),
+) -> impl iced::futures::Stream<Item = Msg> + use<> {
+    let (name, path, w, h, blur) = key.clone();
+    let recipe = crate::video::Recipe {
+        path,
+        w,
+        h,
+        fps: 30,
+        blur: blur.then_some(6.0),
+        span: None,
+    };
+    use iced::futures::StreamExt;
+    crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.handle))
 }
 
 /// Une seule instance : verrou exclusif sur un fichier de la session.

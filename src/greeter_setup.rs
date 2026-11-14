@@ -29,8 +29,12 @@ pub const PROFILE: &str = "/etc/greetd/hyprdesk.json";
 pub const PAM: &str = "/etc/pam.d/greetd";
 /// Fond de l'écran, copié (et réduit) depuis la bibliothèque de l'utilisateur.
 pub const WALLPAPER: &str = "/etc/greetd/hyprdesk-fond.jpg";
+/// Fond vidéo (MP4, WebM…), copié tel quel : joué en boucle par le greeter.
+pub const WALLPAPER_VIDEO: &str = "/etc/greetd/hyprdesk-fond.mp4";
 /// Fond pour un écran de connexion vertical (écran pivoté).
 pub const WALLPAPER_VERTICAL: &str = "/etc/greetd/hyprdesk-fond-vertical.jpg";
+/// Fond vidéo pour un écran de connexion vertical.
+pub const WALLPAPER_VIDEO_VERTICAL: &str = "/etc/greetd/hyprdesk-fond-vertical.mp4";
 /// Configuration du Hyprland réduit qui porte l'écran de connexion.
 pub const HYPRLAND_CONFIG: &str = "/etc/greetd/hyprdesk-hyprland.lua";
 /// Dossier d'état du greeter (à l'utilisateur `greeter`) : dernier
@@ -74,14 +78,18 @@ pub struct Profile {
     pub accent: [u8; 4],
     /// Empreinte digitale à la connexion (pam_fprintd).
     pub fingerprint: bool,
-    /// Image choisie par l'utilisateur (son chemin, souvent dans son dossier,
-    /// que l'utilisateur greeter ne lit pas).
+    /// Image ou vidéo choisie par l'utilisateur (son chemin, souvent dans
+    /// son dossier, que l'utilisateur greeter ne lit pas).
     pub wallpaper_source: String,
-    /// Sa copie lisible par le greeter (posée par `install`), vide : aucun fond.
+    /// Sa copie lisible par le greeter (posée par `install`), vide : aucun
+    /// fond. Image (jpg) ou vidéo (mp4), d'après la source.
     pub wallpaper: String,
     /// Même chose pour un écran de connexion vertical.
     pub wallpaper_vertical_source: String,
     pub wallpaper_vertical: String,
+    /// Emplacement du formulaire : 0 (haut-gauche) … 8 (bas-droite), rangée
+    /// par rangée ; absent : bas-droite (comme depuis le début).
+    pub anchor: Option<u8>,
     /// Langue de l'écran (LANG de la session, « fr_FR.UTF-8 »).
     pub lang: String,
     /// Disposition des écrans de la session, reprise telle quelle.
@@ -176,6 +184,16 @@ pub fn login_monitor(p: &Profile) -> Option<&MonitorRule> {
         .or_else(|| p.monitors.iter().find(|m| m.enabled))
 }
 
+/// Nom de l'écran qui porte la connexion, dans le profil installé. C'est
+/// l'écran visé par la surface du greeter et par les fenêtres qui l'accompagnent (le mpv
+/// d'un fond vidéo) ; vide : à la charge du compositeur.
+pub fn login_screen() -> Option<String> {
+    Profile::installed()
+        .as_ref()
+        .and_then(login_monitor)
+        .map(|m| m.name.clone())
+}
+
 impl Profile {
     /// Thème de l'écran (thème par défaut si le profil n'en a pas).
     pub fn theme(&self) -> crate::config::Theme {
@@ -245,6 +263,12 @@ pub struct Status {
     pub keyring_module: bool,
     /// Hyprland disponible pour porter l'écran (sinon cage).
     pub hyprland: bool,
+    /// ffmpeg présent : les fonds vidéo de l'écran jouent (sinon le fond
+    /// livré s'affiche).
+    pub ffmpeg: bool,
+    /// mpv présent : les fonds vidéo sont portés par mpv en GPU (rendu
+    /// vsyncé), à la place du décodage trame par trame.
+    pub mpv: bool,
     /// gnome-keyring sert encore dans la session (pas remplacé par myMFA).
     pub gnome_keyring: bool,
     pub fprintd: bool,
@@ -599,6 +623,8 @@ pub fn status() -> Status {
         mymfa_module: mymfa_module(),
         keyring_module: keyring_module(),
         hyprland: matches!(compositor(), Some(Compositor::Hyprland(_))),
+        ffmpeg: crate::doctor::has("ffmpeg"),
+        mpv: crate::doctor::has("mpv"),
         gnome_keyring: crate::mymfa::gnome_keyring_in_use(),
         fprintd: crate::doctor::has("fprintd"),
         loaded: true,
@@ -734,6 +760,9 @@ fn read_profile(path: Option<&str>) -> Result<Profile, String> {
     }
     p.wallpaper.clear();
     p.wallpaper_vertical.clear();
+    if p.anchor.is_some_and(|a| a > 8) {
+        p.anchor = None;
+    }
     if !lang_ok(&p.lang) {
         p.lang.clear();
     }
@@ -766,6 +795,69 @@ fn install_wallpaper(src: &str, dest: &str) -> Result<(), String> {
     std::fs::rename(&tmp, dest).map_err(|e| e.to_string())
 }
 
+/// Copie de la copie posée pour le greeter, d'après la source et l'écran
+/// (horizontal ou pivoté) : image en JPEG, vidéo copiée telle quelle.
+fn dest_of(vertical: bool, video: bool) -> &'static str {
+    match (vertical, video) {
+        (false, false) => WALLPAPER,
+        (true, false) => WALLPAPER_VERTICAL,
+        (false, true) => WALLPAPER_VIDEO,
+        (true, true) => WALLPAPER_VIDEO_VERTICAL,
+    }
+}
+
+/// Vidéo lisible ? ffprobe s'il est là (sinon : le greeter fera le tri).
+fn probe_video(src: &str) -> Result<(), String> {
+    if !crate::launch::executable("ffprobe") {
+        return Ok(());
+    }
+    let out = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            src,
+        ])
+        .output()
+        .map_err(|e| format!("{src} : {e}"))?;
+    let ok = out.status.success()
+        && String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .any(|l| l.trim() == "video");
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::tr!("{src} : vidéo illisible (ffprobe)", src = src))
+    }
+}
+
+/// Copie de la vidéo pour le greeter : telle quelle (le décodage la réduira
+/// à l'écran), lisible par tous, posée d'un coup (un greeter lancé ne voit
+/// jamais une copie à moitié écrite).
+fn copy_video(src: &str, dest: &str) -> Result<(), String> {
+    let tmp = format!("{dest}.nouveau");
+    std::fs::copy(src, &tmp).map_err(|e| format!("{src} : {e}"))?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, dest).map_err(|e| e.to_string())
+}
+
+/// Pose du fond : image ou vidéo, d'après la source.
+fn install_backdrop(src: &str, dest: &str) -> Result<(), String> {
+    if crate::video::is_video(Path::new(src)) {
+        probe_video(src)?;
+        copy_video(src, dest)
+    } else {
+        install_wallpaper(src, dest)
+    }
+}
+
 /// Copie hyprdesk dans /usr/local/bin (sauf binaire du paquet), installe le
 /// profil, écrit la configuration de greetd et ses lignes PAM, prépare le
 /// dossier d'état du greeter.
@@ -789,23 +881,33 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         SYSTEM_BIN
     };
     std::fs::create_dir_all("/etc/greetd").map_err(io)?;
-    for (src, dest, field) in [
-        (p.wallpaper_source.clone(), WALLPAPER, &mut p.wallpaper),
+    for (src, vertical, field) in [
+        (p.wallpaper_source.clone(), false, &mut p.wallpaper),
         (
             p.wallpaper_vertical_source.clone(),
-            WALLPAPER_VERTICAL,
+            true,
             &mut p.wallpaper_vertical,
         ),
     ] {
         if src.is_empty() {
-            let _ = std::fs::remove_file(dest);
-        } else if !Path::new(&src).is_file() && Path::new(dest).is_file() {
-            // Image d'origine retirée depuis (mise à jour, autre machine) :
+            // Plus de fond : les copies image et vidéo s'en vont.
+            for d in [dest_of(vertical, false), dest_of(vertical, true)] {
+                let _ = std::fs::remove_file(d);
+            }
+            continue;
+        }
+        let video = crate::video::is_video(Path::new(&src));
+        let dest = dest_of(vertical, video);
+        if !Path::new(&src).is_file() && Path::new(dest).is_file() {
+            // Fond d'origine retiré depuis (mise à jour, autre machine) :
             // la copie déjà installée reste.
             *field = dest.into();
         } else {
-            install_wallpaper(&src, dest)?;
+            install_backdrop(&src, dest)?;
             *field = dest.into();
+            // L'ancienne copie de l'autre type (image remplacée par vidéo,
+            // ou l'inverse) ne sert plus.
+            let _ = std::fs::remove_file(dest_of(vertical, !video));
         }
     }
     let comp = compositor().ok_or_else(|| {
@@ -1136,6 +1238,32 @@ mod tests {
         };
         assert_eq!(p.theme().bg, crate::config::Rgba(1, 2, 3, 255));
         assert_eq!(p.theme().name, "Nuit");
+    }
+
+    #[test]
+    fn fonds_videos_poses() {
+        assert_eq!(dest_of(false, false), WALLPAPER);
+        assert_eq!(dest_of(true, false), WALLPAPER_VERTICAL);
+        assert_eq!(dest_of(false, true), WALLPAPER_VIDEO);
+        assert_eq!(dest_of(true, true), WALLPAPER_VIDEO_VERTICAL);
+        // Copie de la vidéo telle quelle, lisible par tous.
+        let dir = std::env::temp_dir().join(format!("hyprdesk-greeter-v{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("fond.mp4");
+        std::fs::write(&src, b"donnees").unwrap();
+        let dest = dir.join("copie.mp4");
+        copy_video(src.to_str().unwrap(), dest.to_str().unwrap()).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"donnees");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dest).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o644);
+        // Source devenue vidéo : les sources image et vidéo restent absolues.
+        let mut p = fr();
+        p.wallpaper_source = "/murs/fond.mp4".into();
+        let lu = serde_json::from_str::<Profile>(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(lu.wallpaper_source, "/murs/fond.mp4");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

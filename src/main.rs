@@ -61,6 +61,7 @@ mod tiling;
 mod tray;
 mod ui;
 mod updates;
+mod video;
 mod widgets;
 mod windows;
 

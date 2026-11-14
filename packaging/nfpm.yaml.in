@@ -32,6 +32,11 @@ contents:
     dst: /usr/share/fonts/hyprdesk/Mindlog/
     file_info:
       mode: 0644
+  # Vidéo du fond livré de l'écran de connexion (lisible sans pose).
+  - src: assets/greeter/fond.mp4
+    dst: /usr/share/hyprdesk/greeter/fond.mp4
+    file_info:
+      mode: 0644
   - src: assets/fonts/mindlog/OFL.txt
     dst: /usr/share/licenses/hyprdesk/OFL-Mindlog.txt
     file_info:
@@ -104,6 +109,7 @@ overrides:
     suggests:
       - greetd
       - cage
+      - ffmpeg
       - network-manager
       - network-manager-gnome
       - bluez
@@ -156,6 +162,7 @@ overrides:
     suggests:
       - greetd
       - cage
+      - ffmpeg
       - NetworkManager
       - nm-connection-editor
       - bluez
@@ -206,6 +213,7 @@ overrides:
     suggests:
       - "greetd: écran de connexion de hyprdesk (hyprdesk greeter setup)"
       - "cage: écran de connexion de hyprdesk (compositeur du greeter)"
+      - "ffmpeg: fonds d'écran vidéo (dont celui de l'écran de connexion)"
       - "hypridle: veille et verrouillage automatique"
       - "wireplumber: son (wpctl)"
       - "wl-clipboard: copier-coller (wl-copy, wl-paste)"

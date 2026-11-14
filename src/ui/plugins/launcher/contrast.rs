@@ -7,7 +7,7 @@ use iced::{Color, Rectangle, Size};
 const GRID: usize = 24;
 
 #[derive(Clone, Debug)]
-pub(in crate::ui) struct Backdrop {
+pub(crate) struct Backdrop {
     size: Size,
     cells: Vec<(f32, f32)>,
 }
@@ -24,7 +24,7 @@ pub(super) fn luminance(c: Color) -> f32 {
 }
 
 impl Backdrop {
-    pub(in crate::ui) fn from_rgba(image: &::image::RgbaImage) -> Self {
+    pub(crate) fn from_rgba(image: &::image::RgbaImage) -> Self {
         let (w, h) = image.dimensions();
         let mut cells = Vec::with_capacity(GRID * GRID);
         for gy in 0..GRID {
