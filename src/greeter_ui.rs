@@ -303,7 +303,8 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                 let d = |t: &str| {
                     let _ = hyprpanel_core::ipc::dispatch(&hyprpanel_core::ipc::build_dispatch(t));
                 };
-                // La fenêtre de mpv, retrouvée tant qu'elle n'est pas mappée.
+                // La fenêtre de mpv, retrouvée tant qu'elle n'est pas mappée —
+                // et bien celle de hyprdesk (titre), pas un mpv traînant.
                 let mut addr = None;
                 for _ in 0..7 {
                     std::thread::sleep(Duration::from_millis(300));
@@ -312,7 +313,7 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                         .and_then(|v| {
                             crate::hypr::parse_clients(&v)
                                 .into_iter()
-                                .find(|c| c.class == "mpv")
+                                .find(|c| c.class == "mpv" && c.title == "hyprdesk-greeter-video")
                                 .map(|c| c.address)
                         });
                     if addr.is_some() {
@@ -322,6 +323,9 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                 let Some(addr) = addr else {
                     return;
                 };
+                // Laisser mpv finir son mapping initial : les dispatchs partis
+                // trop tôt sont avalés sans effet.
+                std::thread::sleep(Duration::from_millis(600));
                 if let Some(m) = monitor.as_deref() {
                     d(&format!("movetomonitorsilent {m}"));
                     std::thread::sleep(Duration::from_millis(150));
@@ -340,20 +344,46 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                     }
                 }
                 let w = format!("address:{addr}");
-                d(&format!(
-                    "hl.dsp.window.float({{ action = \"enable\", window = \"{w}\" }})"
-                ));
-                std::thread::sleep(Duration::from_millis(120));
-                if let Some((x, y, width, height)) = rect {
-                    // Le redimensionnement recentre la fenêtre : le placement
-                    // se fait en dernier, sinon il est écrasé.
+                // Placement en deux passes, vérifiées : le redimensionnement
+                // recentre la fenêtre, et un mpv qui mappe encore peut avaler
+                // la première passe. Le positionnement est (0, 0) : la fenêtre
+                // a déjà été mise sur l'écran cible, son coin est celui de
+                // l'écran dans les deux interprétations (globale ou locale).
+                for _ in 0..2 {
+                    d(&format!(
+                        "hl.dsp.window.float({{ action = \"enable\", window = \"{w}\" }})"
+                    ));
+                    std::thread::sleep(Duration::from_millis(120));
+                    let Some((_, _, width, height)) = rect else {
+                        break;
+                    };
+                    let (width, height) = (width as i64, height as i64);
                     d(&format!(
                         "hl.dsp.window.resize({{ x = {width}, y = {height}, relative = false, window = \"{w}\" }})"
                     ));
                     std::thread::sleep(Duration::from_millis(120));
                     d(&format!(
-                        "hl.dsp.window.move({{ x = {x}, y = {y}, relative = false, window = \"{w}\" }})"
+                        "hl.dsp.window.move({{ x = 0, y = 0, relative = false, window = \"{w}\" }})"
                     ));
+                    std::thread::sleep(Duration::from_millis(400));
+                    let ok = hyprpanel_core::ipc::query_json("clients")
+                        .ok()
+                        .and_then(|v| {
+                            v.as_array().and_then(|a| {
+                                a.iter()
+                                    .find(|c| c["address"].as_str() == Some(addr.as_str()))
+                                    .and_then(|c| {
+                                        let size = c["size"].as_array()?;
+                                        let dw = size.first()?.as_i64()? - width;
+                                        let dh = size.get(1)?.as_i64()? - height;
+                                        Some(dw.abs() <= 2 && dh.abs() <= 2)
+                                    })
+                            })
+                        })
+                        .unwrap_or(false);
+                    if ok {
+                        break;
+                    }
                 }
             })
             .await
