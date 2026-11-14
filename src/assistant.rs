@@ -347,6 +347,15 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
         p3 = dir.join("hyprdesk/widgets").display()
     );
     o += crate::i18n::tr(
+        "\n## Index de fichiers (recherche :f du lanceur)\n\n\
+          - `hyprdesk index status` : état de l'index (JSON) — fichiers indexés, racines,\n\
+            snapshot, progression d'un scan\n\
+          - `hyprdesk index query <mot> [--limit N] [--json]` : recherche par nom de fichier\n\
+            (un chemin avec « / » cherche dans le chemin complet) ; sans --json : une ligne par\n\
+            résultat « type\ttaille\tchemin » ; avec --json : nom, type, chemin, taille, mtime\n\
+          - `hyprdesk index rebuild` : rescan complet ; `hyprdesk index stop` : arrêt propre\n",
+    );
+    o += crate::i18n::tr(
         "\n## Agir sur hyprdesk\n\n\
           - `hyprdesk config` : toutes les clés réglables, par paquet ; `hyprdesk config set <clé> <valeur>`\n\
           - `hyprdesk settings <paquet>` : ouvre l'écran Réglages\n\

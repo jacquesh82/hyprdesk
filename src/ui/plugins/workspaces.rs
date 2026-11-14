@@ -3,7 +3,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, row, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, text_input, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
@@ -23,6 +23,7 @@ pub const INFO: PluginInfo = PluginInfo {
 /// Onglets du paquet.
 pub const TABS: &[super::SubTab] = &[
     ("ecrans", "Nombre et écrans"),
+    ("selecteur", "Sélecteur"),
     ("applications", "Applications"),
 ];
 
@@ -89,6 +90,8 @@ pub enum Msg {
     WsMonitor(String, Option<String>),
     /// Écran dédié : n'accueille que ses workspaces.
     Dedicated(String, bool),
+    /// Style du sélecteur de workspaces dans la barre.
+    Selector(crate::config::WsSelector),
 }
 
 /// Choix d'écran d'un workspace.
@@ -191,6 +194,63 @@ impl App {
                 }))
                 .spacing(8),
             )),
+        ]
+        .spacing(14)
+        .into()
+    }
+
+    /// Onglet « Sélecteur » : le style du sélecteur de workspaces de la barre.
+    fn selector_page(&self) -> Element<'_, UiMsg> {
+        use crate::config::WsSelector;
+        let g = &self.cfg.general;
+        let dim = self.ink().dim;
+        let choice = |label: &'static str, v: WsSelector| {
+            radio(crate::i18n::tr(label), v, Some(g.workspace_selector), |v| {
+                wrap(Msg::Selector(v))
+            })
+            .font(self.font)
+        };
+        column![
+            self.section("Style du sélecteur"),
+            self.field(
+                "Sélecteur de la barre",
+                "workspace_selector",
+                column![
+                    choice("Touches en relief — une touche par espace, l'active enfoncée", WsSelector::Relief),
+                    choice("Rail segmenté — un rail continu, pilule glissante sur l'actif", WsSelector::Rail),
+                    choice("Miniatures — minimap des fenêtres de chaque espace", WsSelector::Miniatures),
+                    choice(
+                        "Icônes d'activité — l'icône d'une application ouverte dans chaque espace",
+                        WsSelector::Icones
+                    ),
+                    text(crate::i18n::tr(
+                        "La barre change aussitôt. Les miniatures et les icônes suivent les fenêtres de chaque espace."
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+                    // Graphite réserve le centre au lanceur.
+                    (self.cfg.bar.as_ref().is_some_and(|b| b.style == crate::config::BarStyle::Graphite))
+                        .then(|| {
+                            text(crate::i18n::tr(
+                                "Graphite centre le lanceur ; les espaces de travail ajoutés à la barre restent à droite.",
+                            ))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim)
+                        }),
+                ]
+                .spacing(8),
+            ),
+            self.section("Écran d'organisation"),
+            text(crate::i18n::tr(
+                "SUPER+Tab ouvre l'écran « Espaces de travail » : les fenêtres de chaque espace en \
+                 minimap, à glisser d'un espace à l'autre. Double-clic sur un titre pour renommer \
+                 l'espace, « + Nouvel espace » pour en créer un."
+            ))
+            .font(self.font)
+            .size(12)
+            .color(dim),
         ]
         .spacing(14)
         .into()
@@ -419,6 +479,9 @@ impl App {
             .spacing(14)
             .into();
         }
+        if self.on_subtab(INFO.id, "selecteur") {
+            return self.selector_page();
+        }
         column![
             self.section("Applications"),
             small(
@@ -525,6 +588,10 @@ impl App {
                     set.remove(&mon);
                 }
                 self.settings.workspace_dedicated = Some(set);
+                self.commit()
+            }
+            Msg::Selector(v) => {
+                self.settings.workspace_selector = Some(v);
                 self.commit()
             }
             Msg::WsMonitor(ws, mon) => {

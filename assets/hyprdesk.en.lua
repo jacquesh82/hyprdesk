@@ -25,6 +25,14 @@ hd.config({
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
     -- icon_scope      = "global",   -- icons: "global", "screen" (per screen) or "workspace"
+    -- workspace_selector = "rail",  -- bar selector: "relief", "rail", "miniatures" or "icones"
+    -- index_paths     = { "~", "/media/usb-drive" }, -- :f search: indexed roots
+                                                    -- (default: home and mounted volumes)
+    -- index_exclude   = { "music" }, -- folders excluded in addition to the defaults
+    -- index_exclude_regex = { "\\.iso$" }, -- exclusions by regular expression (full path)
+    -- index_exclude_ext   = { "iso", "vdi" }, -- skipped extensions
+    -- index_max_size      = 512,     -- max indexed size per file (MiB; 0: unlimited)
+    -- index_interval  = 21600,     -- safety rescan (seconds; default 6 h)
     -- icon_double_click = true,    -- double click to open (one click selects)
     -- icon_theme      = "Papirus-Dark",
     -- font            = "Mindlog",   -- embedded font by default, or an installed family
@@ -64,9 +72,10 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 -- Modules: "workspaces", "window", "volume", "desktop", or any widget/plugin.
 hd.bar({
     position = "top", height = 36,
+    -- style = "graphite",  -- engraved monochrome slab: bottom, 40 px, 10 px margin by default,
     left   = { "workspaces", "window" },
     center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
+    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session", "controls" },
 })
 
 -- Session: components launched and supervised by hyprdesk (restarted if they

@@ -25,6 +25,14 @@ hd.config({
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
     -- icon_scope      = "global",   -- icônes : "global", "screen" (par écran) ou "workspace"
+    -- workspace_selector = "rail",  -- sélecteur de la barre : "relief", "rail", "miniatures" ou "icones"
+    -- index_paths     = { "~", "/media/cle-usb" }, -- recherche :f : racines indexées
+                                                   -- (défaut : home et volumes montés)
+    -- index_exclude   = { "musiques" }, -- dossiers exclus en plus des défauts
+    -- index_exclude_regex = { "\\.iso$" }, -- exclusions par expression régulière (chemin complet)
+    -- index_exclude_ext   = { "iso", "vdi" }, -- extensions écartées
+    -- index_max_size      = 512,     -- taille max indexée par fichier (Mio ; 0 : illimité)
+    -- index_interval  = 21600,     -- rescan de sûreté (secondes ; défaut 6 h)
     -- icon_double_click = true,    -- double clic pour ouvrir (un clic sélectionne)
     -- icon_theme      = "Papirus-Dark",
     -- font            = "Mindlog",   -- police embarquée par défaut, ou une famille installée
@@ -64,9 +72,10 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 -- Modules : "workspaces", "window", "volume", "desktop", ou tout widget/plugin.
 hd.bar({
     position = "top", height = 36,
+    -- style = "graphite",  -- lame gravée monochrome : bas, 40 px, marge 10 par défaut,
     left   = { "workspaces", "window" },
     center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session" },
+    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session", "controls" },
 })
 
 -- Session : composants lancés et supervisés par hyprdesk (relancés s'ils

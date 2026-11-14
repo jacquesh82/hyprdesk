@@ -122,6 +122,40 @@ impl IconScope {
     }
 }
 
+/// Style du sélecteur de workspaces dans la barre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WsSelector {
+    /// Touches en relief : une touche par workspace, l'active enfoncée.
+    Relief,
+    /// Rail continu segmenté, pilule glissante sur l'actif.
+    #[default]
+    Rail,
+    /// Minimap des fenêtres de chaque workspace.
+    Miniatures,
+    /// Icône de l'application au premier plan de chaque workspace.
+    Icones,
+}
+
+impl WsSelector {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "relief" => WsSelector::Relief,
+            "rail" => WsSelector::Rail,
+            "miniatures" => WsSelector::Miniatures,
+            "icones" => WsSelector::Icones,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WsSelector::Relief => "relief",
+            WsSelector::Rail => "rail",
+            WsSelector::Miniatures => "miniatures",
+            WsSelector::Icones => "icones",
+        }
+    }
+}
+
 /// Animation d'apparition du bureau.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Transition {
@@ -585,7 +619,7 @@ impl Place {
     pub fn default_effect(self) -> Effect {
         let opacity = match self {
             Place::Bar => 0.72,
-            Place::Menus => 0.90,
+            Place::Menus => 0.94,
             Place::Launcher => 0.88,
             Place::Settings => 0.97,
             Place::Widgets => 0.84,
@@ -669,7 +703,7 @@ impl RenderState {
     }
 }
 
-/// Ce qu'un widget Lua rend : du texte, ou une table { text, icon, tooltip, state }.
+/// Rendu Lua : texte, icône, info-bulle, état et interrupteur confirmé facultatif.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Rendered {
     pub text: String,
@@ -677,6 +711,8 @@ pub struct Rendered {
     pub icon: Option<String>,
     pub tooltip: Option<String>,
     pub state: RenderState,
+    /// État confirmé d'un interrupteur proposé dans le centre de contrôle.
+    pub toggled: Option<bool>,
 }
 
 /// Entrée d'un menu déroulant (plugin, zone de notification).
@@ -765,11 +801,16 @@ pub struct BarDef {
     pub monitors: Option<Vec<String>>,
     pub position: BarPosition,
     pub height: u16,
+    /// Distance au bord de l'écran (0 = collée) ; la zone réservée aux
+    /// fenêtres compte la hauteur et cette marge.
+    pub margin: u16,
     /// Gauche, centre, droite.
     pub zones: [Vec<BarItem>; 3],
     /// Modules des écrans verticaux (portrait), s'ils diffèrent.
     pub portrait: Option<[Vec<BarItem>; 3]>,
     pub compact: BarCompact,
+    /// Style visuel de la barre (`ui::bar_style`).
+    pub style: BarStyle,
     /// Couleurs propres à la barre (sinon celles du thème).
     pub colors: BarColors,
 }
@@ -825,10 +866,129 @@ impl BarColors {
     }
 }
 
+/// Styles visuels de la barre : chaque style est un rendu complet (surface,
+/// modules, workspaces) porté par `ui::bar_style`, avec ses jetons de mouvement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarStyle {
+    /// Le style d'origine : verre fumé, capsules au survol, capsule mobile
+    /// sur le workspace actif. Voir `design-plans/barre-continuite.md`.
+    #[default]
+    Continuite,
+    /// Barre des tâches : lanceur centré et widgets à droite, bord à bord.
+    Graphite,
+}
+
+/// Styles de barre réglables : (id Lua, libellé).
+pub const BAR_STYLES: &[(BarStyle, &str, &str)] = &[
+    (BarStyle::Continuite, "continuite", "Continuité"),
+    (BarStyle::Graphite, "graphite", "Graphite"),
+];
+
+impl BarStyle {
+    pub fn parse(s: &str) -> Option<Self> {
+        BAR_STYLES
+            .iter()
+            .find(|(_, id, _)| *id == s)
+            .map(|(style, _, _)| *style)
+    }
+    pub fn as_str(self) -> &'static str {
+        BAR_STYLES
+            .iter()
+            .find(|(style, _, _)| *style == self)
+            .map_or("continuite", |&(_, id, _)| id)
+    }
+    /// Hauteur proposée quand `hd.bar` ne la fixe pas.
+    pub fn default_height(self) -> u16 {
+        match self {
+            BarStyle::Continuite => 36,
+            BarStyle::Graphite => 48,
+        }
+    }
+    /// Bord proposé quand `hd.bar` ne le fixe pas.
+    pub fn default_position(self) -> BarPosition {
+        match self {
+            BarStyle::Continuite => BarPosition::Top,
+            BarStyle::Graphite => BarPosition::Bottom,
+        }
+    }
+    /// Marge au bord proposée quand `hd.bar` ne la fixe pas (0 = collée).
+    pub fn default_margin(self) -> u16 {
+        match self {
+            BarStyle::Continuite => 0,
+            BarStyle::Graphite => 0,
+        }
+    }
+    /// La composition proposée par le style (gauche, centre, droite) :
+    /// choisir un style pose toute la barre — rendu, pose et modules. Une
+    /// zone écrite explicitement dans `hd.bar` reste maîtresse ; Graphite
+    /// conserve son lanceur dans la zone centrale.
+    pub fn preset(self) -> [Vec<BarPreset>; 3] {
+        match self {
+            BarStyle::Continuite => [
+                vec![sans_option("workspaces"), sans_option("window")],
+                vec![BarPreset {
+                    type_id: "clock",
+                    options: &[("format", "%a %d %b  %H:%M")],
+                }],
+                vec![
+                    sans_option("tray"),
+                    sans_option("media"),
+                    sans_option("reseau"),
+                    sans_option("bluetooth"),
+                    sans_option("batterie"),
+                    sans_option("volume"),
+                    sans_option("brightness"),
+                    // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
+                    sans_option("clavier"),
+                    sans_option("nuit"),
+                    sans_option("supports"),
+                    sans_option("capture"),
+                    sans_option("majs"),
+                    sans_option("notifications"),
+                    // Accès au bureau vide, toujours en bout de barre.
+                    sans_option("desktop"),
+                    sans_option("session"),
+                    sans_option("controls"),
+                ],
+            ],
+            // Graphite : le plugin Lanceur au centre, les widgets à droite.
+            BarStyle::Graphite => [
+                vec![],
+                vec![sans_option("launcher")],
+                vec![
+                    sans_option("tray"),
+                    sans_option("reseau"),
+                    sans_option("volume"),
+                    sans_option("batterie"),
+                    BarPreset {
+                        type_id: "clock",
+                        options: &[("format", "%H:%M\n%d/%m/%Y")],
+                    },
+                ],
+            ],
+        }
+    }
+}
+
+/// Un module du préréglage d'un style : son type et ses options.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarPreset {
+    pub type_id: &'static str,
+    pub options: &'static [(&'static str, &'static str)],
+}
+
+/// Entrée de préréglage sans option.
+fn sans_option(type_id: &'static str) -> BarPreset {
+    BarPreset {
+        type_id,
+        options: &[],
+    }
+}
+
 /// Barre compacte : titres raccourcis, heure seule, icônes sans libellé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BarCompact {
-    /// Sur les écrans étroits (moins de 1600 px) ou verticaux.
+    /// Selon la largeur mesurée des modules, et sur les écrans verticaux.
     #[default]
     Auto,
     Always,
@@ -934,6 +1094,24 @@ pub struct General {
     /// « hyprdesk »), sauf ceux marqués `submap_universal`.
     /// Historique du presse-papiers : hyprdesk lance cliphist (`crate::clipboard`).
     pub clipboard_history: bool,
+    /// Index de fichiers (recherche `:f`) : racines à indexer. Vide :
+    /// home et volumes montés (clés USB, partitions Windows…).
+    pub index_paths: Vec<String>,
+    /// Index de fichiers : noms de dossiers exclus, en plus des défauts
+    /// (.git, node_modules, target…).
+    pub index_exclude: Vec<String>,
+    /// Index de fichiers : expressions régulières exclues, appliquées au
+    /// chemin complet (ex. « \\.iso$ », « /Volumes/ »).
+    pub index_exclude_regex: Vec<String>,
+    /// Index de fichiers : extensions écartées (ex. « iso », « vdi »).
+    pub index_exclude_ext: Vec<String>,
+    /// Index de fichiers : catégories exclues (documents, images, vidéos…).
+    pub index_exclude_cat: Vec<String>,
+    /// Index de fichiers : taille maximale indexée en Mio (0 : illimité).
+    pub index_max_size: u64,
+    /// Index de fichiers : secondes entre deux rescans de sûreté (inotify
+    /// peut rater des changements sur FUSE/NTFS).
+    pub index_interval: u64,
     /// Démarrage automatique XDG (`crate::autostart`), une fois par session.
     pub autostart: bool,
     /// Bureau type gestionnaire de fichiers : le dossier Bureau XDG en icônes (`crate::desktop_files`).
@@ -968,6 +1146,8 @@ pub struct General {
     pub close_on_launch: bool,
     /// Portée des icônes : globales, par écran ou par workspace.
     pub icon_scope: IconScope,
+    /// Style du sélecteur de workspaces dans la barre.
+    pub workspace_selector: WsSelector,
     /// Icônes ouvertes d'un double clic (un clic : sélection) ; sinon un clic.
     pub icon_double_click: bool,
     /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
@@ -1044,6 +1224,13 @@ impl Default for General {
             keys: Keys::default(),
             suspend_binds: true,
             clipboard_history: true,
+            index_paths: Vec::new(),
+            index_exclude: Vec::new(),
+            index_exclude_regex: Vec::new(),
+            index_exclude_ext: Vec::new(),
+            index_exclude_cat: Vec::new(),
+            index_max_size: 0,
+            index_interval: crate::fileindex::DEFAULT_INTERVAL_SECS,
             autostart: false,
             desktop_files: false,
             float_launched: true,
@@ -1063,6 +1250,7 @@ impl Default for General {
             show_on: ShowOn::All,
             close_on_launch: true,
             icon_scope: IconScope::Global,
+            workspace_selector: WsSelector::Rail,
             icon_double_click: true,
             advanced_settings: false,
             tour_seen: false,
@@ -1262,6 +1450,10 @@ impl SysItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WidgetKind {
+    /// Présentation du plugin Lanceur, avec son état et ses actions partagés.
+    Launcher,
+    /// Widget composite : réglages fréquents, sources partagées avec les plugins.
+    Controls,
     Clock {
         format: String,
     },
@@ -1278,12 +1470,13 @@ pub enum WidgetKind {
         timeout: Duration,
     },
     /// Fonctions Lua (index dans le registre) : `render`, et les facultatives
-    /// `on_click`, `on_scroll` et `menu`.
+    /// `on_click`, `on_scroll`, `menu` et `on_toggle`.
     Lua {
         func: usize,
         click: Option<usize>,
         scroll: Option<usize>,
         menu: Option<usize>,
+        toggle: Option<usize>,
     },
 }
 
@@ -1566,6 +1759,33 @@ mod tests {
         );
         assert_eq!(Rgba::parse("bleu"), None);
         assert_eq!(Rgba::parse("#12"), None);
+    }
+
+    #[test]
+    fn styles_de_barre() {
+        // Aller-retour par l'id Lua, défauts de géométrie par style.
+        assert_eq!(BarStyle::parse("continuite"), Some(BarStyle::Continuite));
+        assert_eq!(BarStyle::parse("graphite"), Some(BarStyle::Graphite));
+        assert_eq!(BarStyle::parse("pastel"), None);
+        assert_eq!(BarStyle::Continuite.as_str(), "continuite");
+        assert_eq!(BarStyle::Graphite.as_str(), "graphite");
+        assert_eq!(BarStyle::default(), BarStyle::Continuite);
+        assert_eq!(
+            (
+                BarStyle::Continuite.default_position(),
+                BarStyle::Continuite.default_height(),
+                BarStyle::Continuite.default_margin()
+            ),
+            (BarPosition::Top, 36, 0)
+        );
+        assert_eq!(
+            (
+                BarStyle::Graphite.default_position(),
+                BarStyle::Graphite.default_height(),
+                BarStyle::Graphite.default_margin()
+            ),
+            (BarPosition::Bottom, 48, 0)
+        );
     }
 
     #[test]

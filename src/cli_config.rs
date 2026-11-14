@@ -215,6 +215,69 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.clipboard_history),
         |s, v, c| { s.clipboard_history = Some(parse_bool(v)?); Ok(()) },
         |s| s.clipboard_history = None;
+    "index.paths", "index", "dossier,dossier | none — racines indexées par la recherche :f (défaut : home et volumes montés)",
+        |c| c.general.index_paths.join(", "),
+        |s, v, c| {
+            s.index_paths = Some(if v.trim().is_empty() || v.trim() == "none" {
+                Vec::new()
+            } else {
+                v.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            });
+            Ok(())
+        },
+        |s| s.index_paths = None;
+    "index.exclude", "index", "nom,nom | none — dossiers exclus de l'index :f, en plus des défauts (.git, node_modules, target…)",
+        |c| c.general.index_exclude.join(", "),
+        |s, v, c| {
+            s.index_exclude = Some(if v.trim().is_empty() || v.trim() == "none" {
+                Vec::new()
+            } else {
+                v.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            });
+            Ok(())
+        },
+        |s| s.index_exclude = None;
+    "index.exclude_regex", "index", "regex,regex | none — exclusions par expression régulière sur le chemin complet",
+        |c| c.general.index_exclude_regex.join(", "),
+        |s, v, c| {
+            s.index_exclude_regex = Some(if v.trim().is_empty() || v.trim() == "none" {
+                Vec::new()
+            } else {
+                v.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            });
+            Ok(())
+        },
+        |s| s.index_exclude_regex = None;
+    "index.exclude_ext", "index", "ext,ext | none — extensions écartées de l'index (ex. iso,vdi)",
+        |c| c.general.index_exclude_ext.join(", "),
+        |s, v, c| {
+            s.index_exclude_ext = Some(if v.trim().is_empty() || v.trim() == "none" {
+                Vec::new()
+            } else {
+                v.split(',').map(|p| p.trim().trim_start_matches('.').to_lowercase()).filter(|p| !p.is_empty()).collect()
+            });
+            Ok(())
+        },
+        |s| s.index_exclude_ext = None;
+    "index.exclude_cat", "index", "catégorie,catégorie | none — catégories écartées de l'index (documents, images, vidéos, programmes, audio, archives, autres)",
+        |c| c.general.index_exclude_cat.join(", "),
+        |s, v, c| {
+            s.index_exclude_cat = Some(if v.trim().is_empty() || v.trim() == "none" {
+                Vec::new()
+            } else {
+                v.split(',').map(|p| p.trim().to_lowercase()).filter(|p| !p.is_empty()).collect()
+            });
+            Ok(())
+        },
+        |s| s.index_exclude_cat = None;
+    "index.max_size", "index", "Mio — taille maximale indexée par fichier (0 : illimité)",
+        |c| c.general.index_max_size.to_string(),
+        |s, v, c| { s.index_max_size = Some(v.trim().parse().map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?); Ok(()) },
+        |s| s.index_max_size = None;
+    "index.interval", "index", "secondes — rescan de sûreté de l'index :f (défaut 21600, soit 6 h)",
+        |c| c.general.index_interval.to_string(),
+        |s, v, c| { s.index_interval = Some(v.trim().parse().map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?); Ok(()) },
+        |s| s.index_interval = None;
     "autostart", "desktop", "on | off — lancer les applications de ~/.config/autostart et /etc/xdg/autostart (une fois par session)",
         |c| on_off(c.general.autostart),
         |s, v, c| { s.autostart = Some(parse_bool(v)?); Ok(()) },
@@ -594,6 +657,32 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| b.compact.as_str().to_string()).unwrap_or_default(),
         |s, v, c| { bar(s, c).compact = choice(v, crate::config::BarCompact::parse, "auto, always, never")?; Ok(()) },
         |s| { if let Some(b) = s.bar.as_mut() { b.compact = Default::default(); } };
+    "bar.style", "bar", "continuite | graphite — style de la barre : pose son rendu, sa composition et sa géométrie",
+        |c| c.bar.as_ref().map(|b| b.style.as_str().to_string()).unwrap_or_default(),
+        |s, v, c| {
+            let style = choice(v, crate::config::BarStyle::parse, "continuite, graphite")?;
+            let b = bar(s, c);
+            b.style = style;
+            b.position = style.default_position();
+            b.height = style.default_height();
+            b.margin = style.default_margin();
+            b.portrait = None;
+            b.zones = style.preset_settings();
+            Ok(())
+        },
+        |s| { if let Some(b) = s.bar.as_mut() {
+            let style = crate::config::BarStyle::default();
+            b.style = style;
+            b.position = style.default_position();
+            b.height = style.default_height();
+            b.margin = style.default_margin();
+            b.portrait = None;
+            b.zones = style.preset_settings();
+        } };
+    "bar.margin", "bar", "0..32 — marge entre la barre et le bord de l'écran (0 : collée)",
+        |c| c.bar.as_ref().map(|b| b.margin.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).margin = number(v, 0u16, 32)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.margin = BarSettings::default().margin; } };
     "bar.opacity", "bar", "0..1 | theme — opacité du fond de la barre (0 : transparente)",
         |c| c.bar.as_ref().and_then(|b| b.colors.opacity).map(|o| format!("{}", (o * 100.0).round() / 100.0)).unwrap_or_else(|| "theme".into()),
         |s, v, c| {
@@ -612,6 +701,10 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.workspaces = None;
+    "workspace_selector", "workspaces", "relief | rail | miniatures | icones — style du sélecteur de la barre",
+        |c| c.general.workspace_selector.as_str().into(),
+        |s, v, c| { s.workspace_selector = Some(choice(v, crate::config::WsSelector::parse, "relief, rail, miniatures, icones")?); Ok(()) },
+        |s| s.workspace_selector = None;
     "workspace_dedicated", "workspaces", "écran,écran,… | none — écrans dédiés (seulement leurs workspaces)",
         |c| c.general.workspace_dedicated.iter().cloned().collect::<Vec<_>>().join(","),
         |s, v, c| {
@@ -1450,6 +1543,34 @@ mod tests {
             run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(),
             "hyprland"
         );
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Style et marge de la barre en ligne de commande.
+    #[test]
+    fn style_et_marge_de_la_barre() {
+        let p = tmp();
+        // Barre absente : champs vides ; les défauts s'écrivent à l'activation.
+        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "");
+        assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "");
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        run_s(&p, &["set", "bar.style", "graphite"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "graphite");
+        // Le style pose toute la barre : géométrie et composition.
+        assert_eq!(run_s(&p, &["get", "bar.position"]).unwrap(), "bottom");
+        assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "48");
+        assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "0");
+        // La marge reste ajustable ensuite.
+        run_s(&p, &["set", "bar.margin", "12"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "12");
+        // Refus : style inconnu, marge hors bornes.
+        assert!(run_s(&p, &["set", "bar.style", "pastel"]).is_err());
+        assert!(run_s(&p, &["set", "bar.margin", "64"]).is_err());
+        run_s(&p, &["unset", "bar.style"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "continuite");
+        assert_eq!(run_s(&p, &["get", "bar.position"]).unwrap(), "top");
+        assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "36");
+        assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "0");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

@@ -158,11 +158,12 @@ fn load_plugin(
                 "render",
                 "on_click",
                 "on_scroll",
+                "on_toggle",
                 "menu",
             ],
             &ctx,
         )?;
-        for k in ["on_click", "on_scroll", "menu"] {
+        for k in ["on_click", "on_scroll", "on_toggle", "menu"] {
             opt_fn(&t, k, &ctx)?;
         }
         if !matches!(t.get::<Value>("render")?, Value::Function(_)) {
@@ -463,6 +464,33 @@ fn opt_bool(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<bool>> {
     }
 }
 
+/// Liste de chaînes (`index_paths = { "/home/moi", "/media/cle" }`).
+fn opt_strings(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Vec<String>>> {
+    let mauvais = |v: &Value| {
+        err(crate::tr!(
+            "{ctx} : « {key} » doit être une liste de chaînes, pas {p0}",
+            ctx = ctx,
+            key = key,
+            p0 = v.type_name()
+        ))
+    };
+    match t.get::<Value>(key)? {
+        Value::Nil => Ok(None),
+        Value::Table(l) => {
+            let mut out = Vec::new();
+            for v in l.sequence_values::<Value>() {
+                match v? {
+                    Value::String(s) => out.push(s.to_str()?.to_string()),
+                    Value::Integer(i) => out.push(i.to_string()),
+                    v => return Err(mauvais(&v)),
+                }
+            }
+            Ok(Some(out))
+        }
+        v => Err(mauvais(&v)),
+    }
+}
+
 fn opt_num(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<f64>> {
     match t.get::<Value>(key)? {
         Value::Nil => Ok(None),
@@ -576,6 +604,13 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "keys",
             "suspend_binds",
             "clipboard_history",
+            "index_paths",
+            "index_exclude",
+            "index_exclude_regex",
+            "index_exclude_ext",
+            "index_exclude_cat",
+            "index_max_size",
+            "index_interval",
             "autostart",
             "desktop_files",
             "float_launched",
@@ -614,6 +649,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "show_on",
             "close_on_launch",
             "icon_scope",
+            "workspace_selector",
             "icon_double_click",
             "advanced_settings",
             "tour_seen",
@@ -668,6 +704,35 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "clipboard_history", CTX)? {
         g.clipboard_history = v;
+    }
+    if let Some(v) = opt_strings(t, "index_paths", CTX)? {
+        g.index_paths = v.into_iter().filter(|s| !s.is_empty()).collect();
+    }
+    if let Some(v) = opt_strings(t, "index_exclude", CTX)? {
+        g.index_exclude = v.into_iter().filter(|s| !s.is_empty()).collect();
+    }
+    if let Some(v) = opt_strings(t, "index_exclude_regex", CTX)? {
+        g.index_exclude_regex = v.into_iter().filter(|s| !s.is_empty()).collect();
+    }
+    if let Some(v) = opt_strings(t, "index_exclude_ext", CTX)? {
+        g.index_exclude_ext = v
+            .into_iter()
+            .map(|x| x.trim_start_matches('.').to_lowercase())
+            .filter(|x| !x.is_empty())
+            .collect();
+    }
+    if let Some(v) = opt_strings(t, "index_exclude_cat", CTX)? {
+        g.index_exclude_cat = v
+            .into_iter()
+            .map(|x| x.trim().to_lowercase())
+            .filter(|x| !x.is_empty())
+            .collect();
+    }
+    if let Some(v) = opt_num(t, "index_max_size", CTX)? {
+        g.index_max_size = v.max(0.0) as u64;
+    }
+    if let Some(v) = opt_num(t, "index_interval", CTX)? {
+        g.index_interval = v.max(0.0) as u64;
     }
     if let Some(v) = opt_bool(t, "autostart", CTX)? {
         g.autostart = v;
@@ -1005,6 +1070,15 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         g.icon_scope = crate::config::IconScope::parse(&s).ok_or_else(|| {
             err(crate::tr!(
                 "{CTX} : icon_scope « {s} » inconnu (global, screen, workspace)",
+                CTX = CTX,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(s) = opt_string(t, "workspace_selector", CTX)? {
+        g.workspace_selector = crate::config::WsSelector::parse(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : workspace_selector « {s} » inconnu (relief, rail, miniatures, icones)",
                 CTX = CTX,
                 s = s
             ))
@@ -1580,6 +1654,8 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                 format: opt_string(t, "format", ctx)?.unwrap_or_else(|| "%H:%M".into()),
             },
             "calendar" => WidgetKind::Calendar,
+            "controls" => WidgetKind::Controls,
+            "launcher" => WidgetKind::Launcher,
             "system" => {
                 let show = match t.get::<Option<Table>>("show")? {
                     None => vec![SysItem::Cpu, SysItem::Ram, SysItem::Disk("/".into())],
@@ -1625,11 +1701,13 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                 let click = opt_fn(t, "on_click", ctx)?.map(&mut reg).transpose()?;
                 let scroll = opt_fn(t, "on_scroll", ctx)?.map(&mut reg).transpose()?;
                 let menu = opt_fn(t, "menu", ctx)?.map(&mut reg).transpose()?;
+                let toggle = opt_fn(t, "on_toggle", ctx)?.map(&mut reg).transpose()?;
                 WidgetKind::Lua {
                     func,
                     click,
                     scroll,
                     menu,
+                    toggle,
                 }
             }
             other => {
@@ -1684,6 +1762,9 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
             .map(&mut reg)
             .transpose()?;
         let menu = opt_fn(&table, "menu", ctx)?.map(&mut reg).transpose()?;
+        let toggle = opt_fn(&table, "on_toggle", ctx)?
+            .map(&mut reg)
+            .transpose()?;
         (
             p.interval,
             p.anchor,
@@ -1692,6 +1773,7 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
                 click,
                 scroll,
                 menu,
+                toggle,
             },
         )
     } else {
@@ -1769,6 +1851,35 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
 /// `hd.bar({ … })` ou `hd.bar(false)`. Un nouvel appel remplace la barre précédente.
 /// Zones d'une barre (`left`, `center`, `right`) : modules intégrés, ou widgets
 /// de barre créés à la volée (`bar:<préfixe><zone>:<n>`).
+/// Les zones du préréglage d'un style : mêmes règles que `bar_zones`, mais
+/// alimentées par la composition du style (`BarStyle::preset`).
+fn bar_preset_zones(
+    lua: &Lua,
+    b: &mut Builder,
+    style: &BarStyle,
+    ctx: &str,
+) -> mlua::Result<[Vec<BarItem>; 3]> {
+    let mut zones: [Vec<BarItem>; 3] = Default::default();
+    for (zi, zone) in ["left", "center", "right"].iter().enumerate() {
+        for entry in style.preset()[zi].clone() {
+            if let Some(item) = BarItem::builtin(entry.type_id) {
+                zones[zi].push(item);
+                continue;
+            }
+            let id = format!("bar:{}:{}", zone, zones[zi].len() + 1);
+            let opts = lua.create_table()?;
+            opts.set("id", id.as_str())?;
+            for (k, v) in entry.options {
+                opts.set(*k, *v)?;
+            }
+            hd_widget(lua, b, entry.type_id, &opts, true)
+                .map_err(|e| err(format!("{ctx} : {}", short_lua_error(&e))))?;
+            zones[zi].push(BarItem::Widget(id));
+        }
+    }
+    Ok(zones)
+}
+
 fn bar_zones(
     lua: &Lua,
     b: &mut Builder,
@@ -1851,19 +1962,40 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             "monitor",
             "position",
             "height",
+            "margin",
             "left",
             "center",
             "right",
             "portrait",
             "compact",
+            "style",
             "colors",
             "module_colors",
             "opacity",
         ],
         CTX,
     )?;
+    // Le style en premier : il propose des défauts de géométrie (le style
+    // Graphite se pose en bas, avec une marge). Ce qui est écrit explicitement
+    // l'emporte toujours.
+    let style = match opt_string(&t, "style", CTX)? {
+        None => BarStyle::default(),
+        Some(s) => BarStyle::parse(&s).ok_or_else(|| {
+            let all: Vec<&str> = crate::config::BAR_STYLES
+                .iter()
+                .map(|(_, id, _)| *id)
+                .collect();
+            err(crate::tr!(
+                "{CTX} : style « {s} » inconnu ({p0})",
+                CTX = CTX,
+                s = s,
+                p0 = all.join(", ")
+            ))
+        })?,
+    };
     let position = match opt_string(&t, "position", CTX)?.as_deref() {
-        None | Some("top") => BarPosition::Top,
+        None => style.default_position(),
+        Some("top") => BarPosition::Top,
         Some("bottom") => BarPosition::Bottom,
         Some(s) => {
             return Err(err(crate::tr!(
@@ -1873,9 +2005,13 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             )));
         }
     };
-    let height = opt_num(&t, "height", CTX)?
-        .unwrap_or(36.0)
+    let mut height = opt_num(&t, "height", CTX)?
+        .unwrap_or(style.default_height() as f64)
         .clamp(16.0, 160.0) as u16;
+    // Marge au bord de l'écran ; la zone réservée compte la hauteur et la marge.
+    let mut margin = opt_num(&t, "margin", CTX)?
+        .unwrap_or(style.default_margin() as f64)
+        .clamp(0.0, 32.0) as u16;
     let compact = match opt_string(&t, "compact", CTX)? {
         None => BarCompact::Auto,
         Some(s) => BarCompact::parse(&s).ok_or_else(|| {
@@ -1909,9 +2045,17 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             }
         }
     }
-    let zones = bar_zones(lua, b, &t, CTX, "")?;
+    let mut zones = if t.get::<Option<Table>>("left")?.is_none()
+        && t.get::<Option<Table>>("center")?.is_none()
+        && t.get::<Option<Table>>("right")?.is_none()
+    {
+        // Aucune zone écrite : la composition du style s'applique.
+        bar_preset_zones(lua, b, &style, CTX)?
+    } else {
+        bar_zones(lua, b, &t, CTX, "")?
+    };
     // Écrans verticaux : leurs propres zones.
-    let portrait = match t.get::<Option<Table>>("portrait")? {
+    let mut portrait = match t.get::<Option<Table>>("portrait")? {
         None => None,
         Some(p) => {
             const C: &str = "hd.bar.portrait";
@@ -1919,13 +2063,73 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             Some(bar_zones(lua, b, &p, C, "p:")?)
         }
     };
+    if style == BarStyle::Graphite {
+        // Les anciennes préférences Graphite décrivaient une lame flottante.
+        let legacy = zones[0] == [BarItem::Window] && zones[1] == [BarItem::Workspaces];
+        if legacy {
+            zones[0].clear();
+            zones[1].clear();
+            if height == 40 && margin == 10 {
+                height = style.default_height();
+                margin = style.default_margin();
+            }
+        }
+        let launcher = b
+            .config
+            .widgets
+            .iter()
+            .find(|w| w.in_bar && matches!(w.kind, WidgetKind::Launcher))
+            .map(|w| w.id.clone());
+        let id = match launcher {
+            Some(id) => id,
+            None => {
+                let opts = lua.create_table()?;
+                opts.set("id", "bar:launcher")?;
+                hd_widget(lua, b, "launcher", &opts, true)?;
+                "bar:launcher".into()
+            }
+        };
+        let launchers: std::collections::HashSet<_> = b
+            .config
+            .widgets
+            .iter()
+            .filter(|w| matches!(w.kind, WidgetKind::Launcher))
+            .map(|w| w.id.clone())
+            .collect();
+        let compose = |zones: &mut [Vec<BarItem>; 3]| {
+            for zone in [0, 2] {
+                zones[zone]
+                    .retain(|item| !matches!(item, BarItem::Widget(id) if launchers.contains(id)));
+            }
+            let mut found = false;
+            zones[1].retain_mut(|item| {
+                if matches!(item, BarItem::Widget(id) if launchers.contains(id)) {
+                    if found {
+                        return false;
+                    }
+                    *item = BarItem::Widget(id.clone());
+                    found = true;
+                }
+                true
+            });
+            if !found {
+                zones[1].insert(0, BarItem::Widget(id.clone()));
+            }
+        };
+        compose(&mut zones);
+        if let Some(p) = &mut portrait {
+            compose(p);
+        }
+    }
     b.config.bar = Some(BarDef {
         monitors: string_list(t.get("monitor")?, "monitor", CTX)?,
         position,
         height,
+        margin,
         zones,
         portrait,
         compact,
+        style,
         colors,
     });
     Ok(())
@@ -2251,6 +2455,7 @@ impl Loaded {
                     icon: s("icon")?,
                     tooltip: s("tooltip")?,
                     state,
+                    toggled: opt_bool(&t, "toggled", "render").map_err(|e| short_lua_error(&e))?,
                 })
             }
             other => Ok(Rendered {
@@ -2481,26 +2686,6 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         .into_inner();
     apply_places(&mut b);
     b.config.general.expand_workspace_monitors();
-    // Options réglées dans Réglages → Plugins : sur chaque instance, sauf
-    // celles écrites sur l'instance elle-même.
-    for (kind, opts, explicit) in std::mem::take(&mut b.plugin_opts) {
-        let Some(over) = b.config.general.plugin_options.get(&kind) else {
-            continue;
-        };
-        for (k, v) in over {
-            if explicit.contains(k) {
-                continue;
-            }
-            let v = match v {
-                crate::tiling::OptValue::Bool(x) => Value::Boolean(*x),
-                crate::tiling::OptValue::Num(n) => Value::Number(*n),
-                crate::tiling::OptValue::Str(s) => {
-                    Value::String(lua.create_string(s).map_err(|e| e.to_string())?)
-                }
-            };
-            opts.set(k.as_str(), v).map_err(|e| e.to_string())?;
-        }
-    }
     // Widgets désactivés depuis les réglages, quelle que soit leur origine.
     for (origin, id) in std::mem::take(&mut b.disabled) {
         match b.config.widgets.iter().position(|w| w.id == id) {
@@ -2524,6 +2709,45 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
             None => tracing::warn!("hd.disable : aucun widget « {id} »"),
         }
     }
+    // Dépendances du widget, après application des désactivations. Aucune
+    // source interne ne subsiste si le centre est retiré ou désactivé.
+    if b.config
+        .widgets
+        .iter()
+        .any(|w| matches!(w.kind, WidgetKind::Controls))
+    {
+        for &kind in crate::widgets::controls::SOURCES {
+            if !b.config.widgets.iter().any(|w| w.type_id == kind)
+                && !b.config.disabled.values().any(|disabled| disabled == kind)
+                && b.plugins.contains_key(kind)
+            {
+                let opts = lua.create_table().map_err(|e| short_lua_error(&e))?;
+                opts.set("id", format!("bar:controls:{kind}"))
+                    .map_err(|e| short_lua_error(&e))?;
+                hd_widget(&lua, &mut b, kind, &opts, true).map_err(|e| short_lua_error(&e))?;
+            }
+        }
+    }
+    // Options réglées dans Réglages → Plugins : sur chaque instance, sauf
+    // celles écrites sur l'instance elle-même.
+    for (kind, opts, explicit) in std::mem::take(&mut b.plugin_opts) {
+        let Some(over) = b.config.general.plugin_options.get(&kind) else {
+            continue;
+        };
+        for (k, v) in over {
+            if explicit.contains(k) {
+                continue;
+            }
+            let v = match v {
+                crate::tiling::OptValue::Bool(x) => Value::Boolean(*x),
+                crate::tiling::OptValue::Num(n) => Value::Number(*n),
+                crate::tiling::OptValue::Str(s) => {
+                    Value::String(lua.create_string(s).map_err(|e| e.to_string())?)
+                }
+            };
+            opts.set(k.as_str(), v).map_err(|e| e.to_string())?;
+        }
+    }
     static NEXT_FUNCTION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let func_base =
         NEXT_FUNCTION.fetch_add(b.funcs.len() + 1, std::sync::atomic::Ordering::Relaxed);
@@ -2533,10 +2757,11 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
             click,
             scroll,
             menu,
+            toggle,
         } = &mut widget.kind
         {
             *func += func_base;
-            for id in [click, scroll, menu].into_iter().flatten() {
+            for id in [click, scroll, menu, toggle].into_iter().flatten() {
                 *id += func_base;
             }
         }
@@ -2810,6 +3035,125 @@ impl LuaHandle {
 mod tests {
     use super::*;
 
+    #[test]
+    fn controls_share_plugin_sources_and_preserve_existing_bar_zones() {
+        let loaded = load("hd.widget('reseau',{id='network'}) hd.bar({left={'workspaces'},right={'controls','volume'}})").unwrap();
+        assert_eq!(
+            loaded
+                .config
+                .widgets
+                .iter()
+                .filter(|w| w.type_id == "reseau")
+                .count(),
+            1
+        );
+        assert_eq!(
+            loaded
+                .config
+                .widgets
+                .iter()
+                .filter(|w| w.type_id == "bluetooth")
+                .count(),
+            1
+        );
+        assert_eq!(
+            loaded.config.bar.as_ref().unwrap().zones[2],
+            vec![BarItem::Widget("bar:right:1".into()), BarItem::Volume]
+        );
+        let settings = crate::settings::BarSettings::from_config(&loaded.config);
+        assert_eq!(settings.zones[2][0].type_id, "controls");
+        let later = load("hd.bar({right={'controls'}}) hd.widget('reseau',{id='later'})").unwrap();
+        assert_eq!(
+            later
+                .config
+                .widgets
+                .iter()
+                .filter(|w| w.type_id == "reseau")
+                .count(),
+            1
+        );
+        // Une seconde déclaration remplace aussi les dépendances internes.
+        let replaced = load("hd.bar({right={'controls'}}) hd.bar({right={'volume'}})").unwrap();
+        assert!(
+            !replaced
+                .config
+                .widgets
+                .iter()
+                .any(|w| w.id.starts_with("bar:controls:"))
+        );
+    }
+
+    #[test]
+    fn controls_is_a_registered_widget_with_standard_lifecycle() {
+        assert!(BarItem::builtin("controls").is_none());
+        let loaded =
+            load("hd.widget('controls',{id='center',screen='all',x=24,card=true})").unwrap();
+        assert!(
+            loaded
+                .config
+                .catalog
+                .iter()
+                .any(|t| t.id == "controls" && t.toggleable && t.source == WidgetSource::Builtin)
+        );
+        let w = loaded
+            .config
+            .widgets
+            .iter()
+            .find(|w| w.id == "center")
+            .unwrap();
+        assert!(matches!(w.kind, WidgetKind::Controls));
+        assert!(!w.in_bar);
+        assert_eq!(w.x, 24.0);
+        assert_eq!(w.screen, WidgetScreen::All);
+        let disabled = load("hd.widget('controls',{id='center'}) hd.disable('center')").unwrap();
+        assert!(disabled.config.widgets.is_empty());
+        assert_eq!(
+            disabled.config.disabled.get("center").map(String::as_str),
+            Some("controls")
+        );
+        let disabled_bar = load("hd.bar({right={'controls'}}) hd.disable('bar:right:1')").unwrap();
+        assert!(disabled_bar.config.widgets.is_empty());
+        let shared = load("hd.widget('controls') hd.bar({right={'controls'}})").unwrap();
+        for kind in crate::widgets::controls::SOURCES {
+            assert_eq!(
+                shared
+                    .config
+                    .widgets
+                    .iter()
+                    .filter(|w| &w.type_id == kind)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn toggle_callbacks_are_stable_across_renders_and_reject_stale_states() {
+        let source = "local on=false hd.widget('lua',{render=function() return {text='Wi-Fi',toggled=on} end,on_toggle=function() on=not on end})";
+        let previous = load(source).unwrap();
+        let current = load(source).unwrap();
+        let WidgetKind::Lua {
+            func,
+            toggle: Some(toggle),
+            ..
+        } = current.config.widgets[0].kind
+        else {
+            panic!()
+        };
+        let WidgetKind::Lua {
+            toggle: Some(old), ..
+        } = previous.config.widgets[0].kind
+        else {
+            panic!()
+        };
+        assert!(current.call(old, None).is_err());
+        assert_eq!(current.render(func).unwrap().toggled, Some(false));
+        current.call(toggle, None).unwrap();
+        assert_eq!(current.render(func).unwrap().toggled, Some(true));
+        current.call(toggle, None).unwrap();
+        assert_eq!(current.render(func).unwrap().toggled, Some(false));
+    }
+
     fn load(src: &str) -> Result<Loaded, String> {
         load_source(src, "test.lua", Path::new("/cfg"))
     }
@@ -2993,6 +3337,98 @@ mod tests {
         assert_eq!(c.widgets.iter().filter(|w| w.in_bar).count(), 2);
         assert!(load(r#"hd.bar({ compact = "parfois" })"#).is_err());
         assert!(load(r#"hd.bar({ portrait = { haut = {} } })"#).is_err());
+    }
+
+    #[test]
+    fn style_de_barre_et_defauts_de_geometrie() {
+        // Graphite seul : posé en bas, 40 px, marge au bord.
+        let b = load(r#"hd.bar({ style = "graphite" })"#)
+            .unwrap()
+            .config
+            .bar
+            .unwrap();
+        assert_eq!(b.style, BarStyle::Graphite);
+        assert_eq!(
+            (b.position, b.height, b.margin),
+            (BarPosition::Bottom, 48, 0)
+        );
+        // Continuité par défaut, géométrie d'origine.
+        let b = load("hd.bar({})").unwrap().config.bar.unwrap();
+        assert_eq!(b.style, BarStyle::Continuite);
+        assert_eq!((b.position, b.height, b.margin), (BarPosition::Top, 36, 0));
+        // Ce qui est écrit explicitement l'emporte sur les défauts du style.
+        let b =
+            load(r#"hd.bar({ style = "graphite", position = "top", height = 30, margin = 0 })"#)
+                .unwrap()
+                .config
+                .bar
+                .unwrap();
+        assert_eq!((b.position, b.height, b.margin), (BarPosition::Top, 30, 0));
+        assert!(load(r#"hd.bar({ style = "pastel" })"#).is_err());
+        // La marge se borne sans erreur.
+        let b = load(r#"hd.bar({ margin = 64 })"#)
+            .unwrap()
+            .config
+            .bar
+            .unwrap();
+        assert_eq!(b.margin, 32);
+    }
+
+    #[test]
+    fn graphite_hosts_launcher_and_preserves_explicit_widget_zones() {
+        let c = load(r#"hd.bar({ style = "graphite" })"#).unwrap().config;
+        let b = c.bar.as_ref().unwrap();
+        assert!(b.zones[0].is_empty());
+        assert_eq!(b.zones[1].len(), 1);
+        let BarItem::Widget(id) = &b.zones[1][0] else {
+            panic!("launcher widget");
+        };
+        assert!(
+            c.widgets
+                .iter()
+                .any(|w| &w.id == id && w.in_bar && matches!(w.kind, WidgetKind::Launcher))
+        );
+        assert_eq!(b.zones[2][0], BarItem::Tray);
+        assert_eq!(b.zones[2][2], BarItem::Volume);
+        let c = load(r#"hd.bar({ style = "graphite", left = { "clock" }, center = { "system" }, right = { "volume" } })"#).unwrap().config;
+        let b = c.bar.unwrap();
+        assert_eq!(b.zones[0], vec![BarItem::Widget("bar:left:1".into())]);
+        assert_eq!(
+            b.zones[1],
+            vec![
+                BarItem::Widget("bar:launcher".into()),
+                BarItem::Widget("bar:center:1".into())
+            ]
+        );
+        assert_eq!(b.zones[2], vec![BarItem::Volume]);
+        let c = load("hd.bar({})").unwrap().config;
+        assert_eq!(
+            c.bar.unwrap().zones[0],
+            vec![BarItem::Workspaces, BarItem::Window]
+        );
+        assert!(
+            !c.widgets
+                .iter()
+                .any(|w| matches!(w.kind, WidgetKind::Launcher))
+        );
+    }
+
+    #[test]
+    fn old_graphite_preferences_migrate_without_losing_system_widgets() {
+        let c = load(
+            r#"hd.bar({ style = "graphite", height = 40, margin = 10,
+            left = { "window" }, center = { "workspaces" }, right = { "volume", "clock" } })"#,
+        )
+        .unwrap()
+        .config;
+        let b = c.bar.unwrap();
+        assert_eq!((b.height, b.margin), (48, 0));
+        assert!(b.zones[0].is_empty());
+        assert_eq!(b.zones[1], vec![BarItem::Widget("bar:launcher".into())]);
+        assert_eq!(
+            b.zones[2],
+            vec![BarItem::Volume, BarItem::Widget("bar:right:2".into())]
+        );
     }
 
     #[test]
@@ -3338,6 +3774,7 @@ mod tests {
             click: Some(c),
             scroll: Some(sc),
             menu: Some(m),
+            ..
         } = l.config.widgets[0].kind
         else {
             panic!()

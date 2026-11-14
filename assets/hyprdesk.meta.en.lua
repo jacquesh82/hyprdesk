@@ -37,6 +37,7 @@
 ---@field primary? string|false # primary screen (connector, e.g. "DP-1"): anchored at 0×0, desktop/bar/settings
 ---@field close_on_launch? boolean
 ---@field icon_scope? "global"|"screen"|"workspace"
+---@field workspace_selector? "relief"|"rail"|"miniatures"|"icones" # style du sélecteur de workspaces dans la barre
 ---@field icon_double_click? boolean
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" by default (embedded), or an installed family
@@ -108,6 +109,7 @@
 ---@field timeout? number # command, seconds
 ---@field render? fun(): string|number|HD.Rendered # lua
 ---@field on_click? fun()
+---@field on_toggle? fun()
 ---@field on_scroll? fun(direction: integer) # -1 or +1
 ---@field menu? fun(): (HD.MenuItem|string)[]
 
@@ -115,6 +117,7 @@
 ---@field text? string
 ---@field icon? string
 ---@field tooltip? string
+---@field toggled? boolean
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuItem
@@ -159,7 +162,7 @@ function hd.assign(spec) end
 ---@param spec HD.IconSpec
 function hd.icon(spec) end
 
----@param kind "clock"|"calendar"|"system"|"media"|"command"|"lua"|string # or a plugin name
+---@param kind "controls"|"clock"|"calendar"|"system"|"media"|"command"|"lua"|string # or a plugin name
 ---@param spec? HD.WidgetSpec
 function hd.widget(kind, spec) end
 
@@ -180,10 +183,12 @@ function hd.on(event, fn) end
 
 ---@class HD.BarSpec
 ---@field monitor? HD.Selector # "primary": the primary screen
----@field compact? "auto"|"always"|"never" # auto: screens narrower than 1600 px, or vertical ones
+---@field compact? "auto"|"always"|"never" # auto: measured module widths, or a vertical screen
 ---@field portrait? { left?: table, center?: table, right?: table } # modules for vertical screens
 ---@field position? "top"|"bottom"
----@field height? integer
+---@field height? integer # style default: 36 in Continuité, 48 in Graphite
+---@field margin? integer # gap to the screen edge (0: flush); style default: 0 in both styles
+---@field style? "continuite"|"graphite" # the bar's full rendering; graphite sits at the bottom by default
 ---@field left? HD.BarModule[]
 ---@field center? HD.BarModule[]
 ---@field right? HD.BarModule[]
@@ -201,6 +206,7 @@ function hd.component(name, spec) end
 ---@field text? string
 ---@field icon? string # theme icon name ("…-symbolic": tinted) or path
 ---@field tooltip? string
+---@field toggled? boolean
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuEntry

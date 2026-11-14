@@ -107,6 +107,21 @@ pub fn executable(prog: &str) -> bool {
         .is_some_and(|p| std::env::split_paths(&p).any(|d| runnable(&d.join(prog))))
 }
 
+/// Ouvre un chemin (fichier ou dossier) avec l'application par défaut,
+/// détaché du lanceur (`xdg-open`). Utilisé par le mode `:f` de la
+/// recherche.
+pub fn open_path(p: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    Command::new("xdg-open")
+        .arg(p)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("xdg-open {p:?} : {e}"))
+}
+
 /// Premier mot d'une ligne Exec (guillemets compris), après `env VAR=…`.
 pub fn exec_program(exec: &str) -> Option<String> {
     let mut words = Vec::new();

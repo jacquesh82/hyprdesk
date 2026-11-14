@@ -114,7 +114,7 @@ Keys per package:
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, or comma-separated screens) |
 | `screens` | `primary` |
-| `workspaces` | `workspaces`, `workspace.<n>` (screen: connector, `primary`, `auto`), `assign.<app>` |
+| `workspaces` | `workspaces`, `workspace.<n>` (screen: connector, `primary`, `auto`), `assign.<app>`, `workspace_selector` (`relief`, `rail`, `miniatures`, `icones`) |
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
 | `apptheme` | `app_themes` (`kitty`, `none`) |
 | `effects` | `transition`, `fade_ms`, `crossfade_ms` |
@@ -194,7 +194,7 @@ each CLI key points to an existing package.
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
 | `bar` | Bar | position, height, screens, modules | `ui/bar.rs` |
 | `screens` | Screens | detection, layout, orientation, mode, primary screen | `screens.rs` → `monitors.lua` |
-| `workspaces` | Workspaces | persistent workspaces, application assignment | `hypr.rs` (Hyprland rules) |
+| `workspaces` | Workspaces | persistent workspaces, application assignment, bar selector style, the “Workspaces” organising screen | `hypr.rs` (Hyprland rules), `ui/overview.rs` |
 | `layouts` | Layouts | default and per-workspace layout, Dwindle, Master, Scrolling options, custom layouts (`lua:<name>`), each layout's shortcuts | `tiling.rs` |
 | `effects` | Effects | transitions, crossfade between wallpapers | `config::General` |
 | `apps` | Applications | default applications (browser, terminal, files, editor, images, video, audio, PDF, mail, AI), applied to the system (`xdg-mime`); only installed applications are offered (`TryExec` / `Exec` program present), recognized by the role's file type or by their freedesktop category (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`); a choice that has gone missing is flagged “not installed” | `apps.rs` |
@@ -300,6 +300,19 @@ The bar adapts to each screen:
   their label (volume, plugins).
 - **Modules for vertical screens** (`portrait = { left, center, right }`):
   they can also be set in Bar → Modules → Vertical screens.
+- **Style** (`style = "continuite" | "graphite"`): a complete bar per style,
+  one rendering module in `src/ui/bar_style/`. `continuite` (default) is the
+  smoked glass with a gliding capsule; `graphite` is a machined neutral
+  acrylic slab — a rounded block floating above the screen edge, modules
+  engraved into the surface, the active workspace raised — and enforces its
+  relief keys (the workspace selector only applies to Continuité). Picking a
+  style also applies its **layout** (Graphite: window title left, workspaces
+  centered, network/battery/volume + short clock + one settings panel right)
+  and its **geometry** (bottom, 40 px, 10 px margin) — in Settings, through
+  the CLI (`bar.style`), and in `hd.bar` when no zone is written. Fields and
+  zones adjusted afterwards stay authoritative.
+- **Margin** (`margin = 0..32`, 0 by default in Continuité): distance between
+  the bar and the screen edge; the reserved area accounts for it.
 
 Each zone is clipped: even when too long, they no longer overlap.
 

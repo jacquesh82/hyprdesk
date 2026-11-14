@@ -1,0 +1,26 @@
+# Unit systemd user pour le démon d'indexation des fichiers de hyprdesk
+# (recherche :f du lanceur). Déposée à la main :
+#   install -m644 assets/hyprdesk-index.service \
+#     ~/.config/systemd/user/hyprdesk-index.service
+#   systemctl --user daemon-reload && systemctl --user enable --now hyprdesk-index
+# Sans elle, le lanceur démarre le démon tout seul au premier « :f ».
+[Unit]
+Description=hyprdesk - index de fichiers pour la recherche :f
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+# Racines par défaut : le home et les volumes montés. Pour resserrer :
+# ExecStart=%h/.local/bin/hyprdesk index daemon --paths %h/Documents,%h/Images
+# (les réglages hyprdesk — index.paths… — passés par le lanceur gardent le
+# dernier mot quand c'est lui qui démarre le démon).
+ExecStart=%h/.local/bin/hyprdesk index daemon
+# Relancé si un scan crashe ; l'arrêt voulu (hyprdesk index stop, stop
+# systemd) n'est pas une erreur à relancer.
+Restart=on-failure
+RestartSec=5
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

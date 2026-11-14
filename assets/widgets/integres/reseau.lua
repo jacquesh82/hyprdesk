@@ -108,18 +108,25 @@ return {
     interval    = 5,
     anchor      = "top-right",
     options     = { texte = false },
+    on_toggle = function()
+        local on = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
+        hd.exec("LC_ALL=C nmcli radio wifi " .. (on and "off" or "on"))
+        local after = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null")
+        if after ~= (on and "disabled" or "enabled") then error(hd.t("Le changement Wi-Fi n'a pas été confirmé")) end
+    end,
     render = function(o)
         local wifi, wired = connections()
+        local toggled = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
         if wired then
-            return { icon = "network-wired-symbolic", text = o.texte and wired or "",
+            return { icon = "network-wired-symbolic", text = o.texte and wired or "", toggled = toggled,
                      tooltip = hd.t("Filaire — ") .. wired .. (wifi and (hd.t("\nWi-Fi — ") .. wifi) or "") }
         end
         if wifi then
             local s = 0
             for _, n in ipairs(networks()) do if n.used then s = n.signal end end
-            return { icon = wifi_icon(s), text = o.texte and wifi or "", tooltip = hd.t("Wi-Fi — ") .. wifi .. " (" .. s .. " %)" }
+            return { icon = wifi_icon(s), text = o.texte and wifi or "", tooltip = hd.t("Wi-Fi — ") .. wifi .. " (" .. s .. " %)", toggled = toggled }
         end
-        return { icon = "network-offline-symbolic", text = o.texte and hd.t("Hors ligne") or "", tooltip = hd.t("Aucune connexion"), state = "warning" }
+        return { icon = "network-offline-symbolic", text = o.texte and hd.t("Hors ligne") or "", tooltip = hd.t("Aucune connexion"), state = "warning", toggled = toggled }
     end,
     menu = function()
         local wifi, wired = connections()

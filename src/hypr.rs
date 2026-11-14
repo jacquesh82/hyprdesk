@@ -101,12 +101,38 @@ pub fn parse_active_window(payload: &str) -> Option<(String, String)> {
     (!class.is_empty()).then(|| (class.to_string(), title.to_string()))
 }
 
+/// Argument `workspace` d'un dispatcher : relatif (`"+1"`) ou nom inconnu
+/// cité tel quel, id sinon. Le dispatcher résout son argument par id, pas
+/// par nom : un espace créé numériquement puis renommé (« code » pour
+/// l'id 2) ne répond pas à son nom — Hyprland fabrique alors un clone vide
+/// du même nom. Le nom est donc résolu en id avant l'appel.
+fn workspace_dispatch_arg(target: &str) -> String {
+    if target.starts_with('+') || target.starts_with('-') {
+        return format!("\"{}\"", ipc::lua_escape(target));
+    }
+    match target.parse::<i64>() {
+        Ok(n) => n.to_string(),
+        Err(_) => match workspace_id_by_name(target) {
+            Some(id) => id.to_string(),
+            None => format!("\"{}\"", ipc::lua_escape(target)),
+        },
+    }
+}
+
+/// Id d'un espace d'après son nom. Les espaces nommés dès leur création
+/// (id non numérique) ne passent pas dans la liste : leur nom reste la seule
+/// clé, l'appelant le garde en repli.
+fn workspace_id_by_name(name: &str) -> Option<i64> {
+    let v = ipc::query_json("workspaces").ok()?;
+    parse_workspaces(&v)
+        .into_iter()
+        .find(|w| w.name == name)
+        .map(|w| w.id)
+}
+
 /// Va au workspace indiqué (nom ou numéro) ; `"+1"` / `"-1"` : relatif.
 pub fn focus_workspace(target: &str) -> Result<(), ipc::IpcError> {
-    let arg = match target.parse::<i64>() {
-        Ok(n) if !target.starts_with('+') && !target.starts_with('-') => n.to_string(),
-        _ => format!("\"{}\"", ipc::lua_escape(target)),
-    };
+    let arg = workspace_dispatch_arg(target);
     let r = ipc::dispatch(&format!("hl.dsp.focus({{ workspace = {arg} }})"))?;
     if r.trim() != "ok" {
         tracing::warn!(
@@ -131,6 +157,8 @@ pub struct Client {
     pub class: String,
     pub title: String,
     pub workspace: String,
+    /// Écran où elle se trouve (la barre y lit les urgences).
+    pub monitor: String,
 }
 
 pub fn parse_clients(v: &Value) -> Vec<Client> {
@@ -152,6 +180,7 @@ pub fn parse_clients(v: &Value) -> Vec<Client> {
                 class,
                 title: c["title"].as_str().unwrap_or("").to_string(),
                 workspace: c["workspace"]["name"].as_str().unwrap_or("").to_string(),
+                monitor: c["monitor"].as_str().unwrap_or("").to_string(),
             })
         })
         .collect()
@@ -243,6 +272,9 @@ pub enum Update {
     Clients(Vec<Client>),
     Workspaces(Vec<Workspace>),
     ActiveWindow(Option<(String, String)>),
+    /// Une fenêtre est marquée urgente (`urgent>>adresse`) : la barre place
+    /// son losange sur son workspace tant qu'il n'est pas redevenu visible.
+    Urgent(String),
     /// Hyprland a relu sa config : ses raccourcis d'exécution ont disparu.
     Reloaded,
 }
@@ -396,6 +428,10 @@ pub fn stream() -> impl Stream<Item = Update> {
                             if let Some(p) = line.strip_prefix("activewindow>>") {
                                 let _ =
                                     out.send(Update::ActiveWindow(parse_active_window(p))).await;
+                            }
+                            if let Some(p) = line.strip_prefix("urgent>>") {
+                                let _ = out.send(Update::Urgent(p.trim().to_string())).await;
+                                let _ = out.send(Update::Clients(clients_async().await)).await;
                             }
                         }
                         tracing::info!("{}", crate::tr!("socket d'événements fermée, reconnexion"));
@@ -1299,6 +1335,70 @@ pub fn geometries(clients: &Value) -> Vec<Geometry> {
         .collect()
 }
 
+/// Fenêtre d'un workspace, avec titre et géométrie : pour l'écran « Espaces
+/// de travail » et les miniatures du sélecteur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowGeo {
+    pub address: String,
+    pub class: String,
+    pub title: String,
+    pub workspace: String,
+    pub floating: bool,
+    pub rect: Rect,
+}
+
+/// Fenêtres d'après `clients` : titres et géométrie en coordonnées globales.
+/// Les fenêtres des workspaces spéciaux (`special:`) sont écartées.
+pub fn parse_window_geometries(v: &Value) -> Vec<WindowGeo> {
+    let mut l: Vec<WindowGeo> = v
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| {
+            c["mapped"].as_bool().unwrap_or(true) && !c["hidden"].as_bool().unwrap_or(false)
+        })
+        .filter_map(|c| {
+            let class = c["class"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or(c["initialClass"].as_str())?
+                .to_string();
+            let n = |v: &Value, i: usize| v[i].as_i64().unwrap_or(0) as i32;
+            Some(WindowGeo {
+                address: c["address"].as_str()?.to_string(),
+                class,
+                title: c["title"].as_str().unwrap_or("").to_string(),
+                workspace: c["workspace"]["name"].as_str()?.to_string(),
+                floating: c["floating"].as_bool().unwrap_or(false),
+                rect: (
+                    n(&c["at"], 0),
+                    n(&c["at"], 1),
+                    n(&c["size"], 0),
+                    n(&c["size"], 1),
+                ),
+            })
+        })
+        .filter(|w| !w.workspace.starts_with("special:"))
+        .collect();
+    l.sort_by(|a, b| {
+        a.workspace
+            .cmp(&b.workspace)
+            .then(a.address.cmp(&b.address))
+    });
+    l
+}
+
+pub async fn window_geometries_async() -> Vec<WindowGeo> {
+    match tokio::task::spawn_blocking(|| ipc::query_json("clients")).await {
+        Ok(Ok(v)) => parse_window_geometries(&v),
+        Ok(Err(e)) => {
+            tracing::warn!("{}", crate::tr!("lecture des fenêtres : {e}", e = e));
+            Vec::new()
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Plein bureau : `n` fenêtres flottantes organisées dans la zone utile d'un
 /// écran. Une seule : centrée, 60 % × 70 % ; sinon une grille (colonnes ≈ √n),
 /// la dernière rangée centrée.
@@ -1456,9 +1556,9 @@ pub struct Stashed {
 
 /// Déplace une fenêtre sans la suivre.
 pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> {
+    let ws = workspace_dispatch_arg(workspace);
     let r = ipc::dispatch(&format!(
-        "hl.dsp.window.move({{ workspace = \"{}\", follow = false, window = \"address:{}\" }})",
-        ipc::lua_escape(workspace),
+        "hl.dsp.window.move({{ workspace = {ws}, follow = false, window = \"address:{}\" }})",
         ipc::lua_escape(address)
     ))?;
     if r.trim() != "ok" {
@@ -1466,6 +1566,25 @@ pub fn move_window(address: &str, workspace: &str) -> Result<(), ipc::IpcError> 
             "déplacement de {address} vers {workspace} : {r}",
             address = address,
             workspace = workspace,
+            r = r
+        ))));
+    }
+    Ok(())
+}
+
+/// Renomme un workspace pour la session (Hyprland ne le garde pas au
+/// redémarrage). Le dispatcher typé de Hyprland 0.57 : `hl.dsp.workspace.rename`
+/// (le passage brut `renameworkspace` via `hl.dsp.global` ne s'exécute pas).
+pub fn rename_workspace(id: i64, name: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&format!(
+        "hl.dsp.workspace.rename({{ workspace = {}, name = \"{}\" }})",
+        id,
+        ipc::lua_escape(name)
+    ))?;
+    if r.trim() != "ok" {
+        return Err(ipc::IpcError::Io(std::io::Error::other(crate::tr!(
+            "renommage du workspace {id} : {r}",
+            id = id,
             r = r
         ))));
     }

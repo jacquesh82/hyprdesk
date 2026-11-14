@@ -41,50 +41,49 @@ pub struct BarSettings {
     pub monitors: Option<Vec<String>>,
     pub position: BarPosition,
     pub height: u16,
+    /// Marge au bord de l'écran (0 = collée).
+    pub margin: u16,
     /// Gauche, centre, droite.
     pub zones: [Vec<BarEntry>; 3],
     /// Zones des écrans verticaux, si elles diffèrent.
     pub portrait: Option<[Vec<BarEntry>; 3]>,
     pub compact: crate::config::BarCompact,
+    pub style: crate::config::BarStyle,
     pub colors: crate::config::BarColors,
 }
 
+impl crate::config::BarStyle {
+    /// Le préréglage du style en entrées des réglages : choisir un style pose
+    /// sa composition (les modules restent ajustables ensuite).
+    pub fn preset_settings(self) -> [Vec<BarEntry>; 3] {
+        self.preset().map(|zone| {
+            zone.into_iter()
+                .map(|e| BarEntry {
+                    type_id: e.type_id.into(),
+                    fields: e
+                        .options
+                        .iter()
+                        .map(|(k, v)| format!("{k} = {}", q(v)))
+                        .collect(),
+                })
+                .collect()
+        })
+    }
+}
+
 impl Default for BarSettings {
-    /// Barre proposée à la première activation.
+    /// Barre proposée à la première activation : celle du style par défaut.
     fn default() -> Self {
         BarSettings {
             enabled: true,
             monitors: None,
             position: BarPosition::Top,
             height: 36,
-            zones: [
-                vec![BarEntry::new("workspaces"), BarEntry::new("window")],
-                vec![BarEntry {
-                    type_id: "clock".into(),
-                    fields: vec![format!("format = {}", q("%a %d %b  %H:%M"))],
-                }],
-                vec![
-                    BarEntry::new("tray"),
-                    BarEntry::new("media"),
-                    BarEntry::new("reseau"),
-                    BarEntry::new("bluetooth"),
-                    BarEntry::new("batterie"),
-                    BarEntry::new("volume"),
-                    BarEntry::new("brightness"),
-                    // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
-                    BarEntry::new("clavier"),
-                    BarEntry::new("nuit"),
-                    BarEntry::new("supports"),
-                    BarEntry::new("capture"),
-                    BarEntry::new("majs"),
-                    BarEntry::new("notifications"),
-                    // Accès au bureau vide, toujours en bout de barre.
-                    BarEntry::new("desktop"),
-                    BarEntry::new("session"),
-                ],
-            ],
+            margin: 0,
+            zones: crate::config::BarStyle::default().preset_settings(),
             portrait: None,
             compact: Default::default(),
+            style: Default::default(),
             colors: Default::default(),
         }
     }
@@ -112,6 +111,14 @@ pub struct Settings {
     pub key_essential_keys: Option<std::collections::BTreeMap<String, String>>,
     pub suspend_binds: Option<bool>,
     pub clipboard_history: Option<bool>,
+    /// Index de fichiers (recherche `:f`).
+    pub index_paths: Option<Vec<String>>,
+    pub index_exclude: Option<Vec<String>>,
+    pub index_exclude_regex: Option<Vec<String>>,
+    pub index_exclude_ext: Option<Vec<String>>,
+    pub index_exclude_cat: Option<Vec<String>>,
+    pub index_max_size: Option<u64>,
+    pub index_interval: Option<u64>,
     pub autostart: Option<bool>,
     pub desktop_files: Option<bool>,
     pub float_launched: Option<bool>,
@@ -122,6 +129,7 @@ pub struct Settings {
     pub glass_opacity: Option<f32>,
     pub close_on_launch: Option<bool>,
     pub icon_scope: Option<crate::config::IconScope>,
+    pub workspace_selector: Option<crate::config::WsSelector>,
     pub icon_double_click: Option<bool>,
     pub advanced_settings: Option<bool>,
     pub tour_seen: Option<bool>,
@@ -246,9 +254,11 @@ impl BarSettings {
                 monitors: b.monitors.clone(),
                 position: b.position,
                 height: b.height,
+                margin: b.margin,
                 zones: entries(&b.zones),
                 portrait: b.portrait.as_ref().map(entries),
                 compact: b.compact,
+                style: b.style,
                 colors: b.colors.clone(),
             },
         }
@@ -264,24 +274,45 @@ impl BarSettings {
         &mut self.portrait.get_or_insert(base)[(z - 3).min(2)]
     }
 
+    fn zone(&self, z: usize) -> Option<&[BarEntry]> {
+        match z {
+            0..=2 => Some(&self.zones[z]),
+            3..=5 => Some(&self.portrait.as_ref().unwrap_or(&self.zones)[z - 3]),
+            _ => None,
+        }
+    }
+
+    pub fn can_drag_entry(&self, from: (usize, usize)) -> bool {
+        self.zone(from.0)
+            .and_then(|z| z.get(from.1))
+            .is_some_and(|entry| {
+                self.style != crate::config::BarStyle::Graphite || entry.type_id != "launcher"
+            })
+    }
+
+    pub fn can_drop_entry(&self, from: (usize, usize), to: (usize, usize)) -> bool {
+        self.can_drag_entry(from)
+            && from.0 / 3 == to.0 / 3
+            && self.zone(to.0).is_some_and(|z| to.1 <= z.len())
+    }
+
     /// Déplace le module `from` (zone, rang) pour qu'il occupe la place
     /// `to` (zone, rang d'insertion, compté avant le retrait). Faux si rien
     /// ne bouge.
     pub fn move_entry(&mut self, from: (usize, usize), to: (usize, usize)) -> bool {
         let (fz, fi) = from;
         let (tz, mut ti) = to;
-        if fz > 2 || tz > 2 || fi >= self.zones[fz].len() {
+        if !self.can_drop_entry(from, to) {
             return false;
         }
         if fz == tz && (ti == fi || ti == fi + 1) {
             return false;
         }
-        let e = self.zones[fz].remove(fi);
+        let e = self.zone_mut(fz).remove(fi);
         if fz == tz && ti > fi {
             ti -= 1;
         }
-        let ti = ti.min(self.zones[tz].len());
-        self.zones[tz].insert(ti, e);
+        self.zone_mut(tz).insert(ti, e);
         true
     }
 }
@@ -315,6 +346,13 @@ impl Settings {
             key_essential_keys: has("keys.essential_keys").then(|| g.keys.essential_keys.clone()),
             suspend_binds: has("suspend_binds").then_some(g.suspend_binds),
             clipboard_history: has("clipboard_history").then_some(g.clipboard_history),
+            index_paths: has("index_paths").then(|| g.index_paths.clone()),
+            index_exclude: has("index_exclude").then(|| g.index_exclude.clone()),
+            index_exclude_regex: has("index_exclude_regex").then(|| g.index_exclude_regex.clone()),
+            index_exclude_ext: has("index_exclude_ext").then(|| g.index_exclude_ext.clone()),
+            index_exclude_cat: has("index_exclude_cat").then(|| g.index_exclude_cat.clone()),
+            index_max_size: has("index_max_size").then_some(g.index_max_size),
+            index_interval: has("index_interval").then_some(g.index_interval),
             autostart: has("autostart").then_some(g.autostart),
             desktop_files: has("desktop_files").then_some(g.desktop_files),
             float_launched: has("float_launched").then_some(g.float_launched),
@@ -325,6 +363,7 @@ impl Settings {
             glass_opacity: has("glass_opacity").then_some(g.glass_opacity),
             close_on_launch: has("close_on_launch").then_some(g.close_on_launch),
             icon_scope: has("icon_scope").then_some(g.icon_scope),
+            workspace_selector: has("workspace_selector").then_some(g.workspace_selector),
             icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
             tour_seen: has("tour_seen").then_some(g.tour_seen),
@@ -603,6 +642,17 @@ impl Settings {
         );
         set!(suspend_binds, "suspend_binds", g.suspend_binds);
         set!(clipboard_history, "clipboard_history", g.clipboard_history);
+        set!(index_paths, "index_paths", g.index_paths);
+        set!(index_exclude, "index_exclude", g.index_exclude);
+        set!(
+            index_exclude_regex,
+            "index_exclude_regex",
+            g.index_exclude_regex
+        );
+        set!(index_exclude_ext, "index_exclude_ext", g.index_exclude_ext);
+        set!(index_exclude_cat, "index_exclude_cat", g.index_exclude_cat);
+        set!(index_max_size, "index_max_size", g.index_max_size);
+        set!(index_interval, "index_interval", g.index_interval);
         set!(autostart, "autostart", g.autostart);
         set!(desktop_files, "desktop_files", g.desktop_files);
         set!(float_launched, "float_launched", g.float_launched);
@@ -617,6 +667,11 @@ impl Settings {
         set!(glass_opacity, "glass_opacity", g.glass_opacity);
         set!(close_on_launch, "close_on_launch", g.close_on_launch);
         set!(icon_scope, "icon_scope", g.icon_scope);
+        set!(
+            workspace_selector,
+            "workspace_selector",
+            g.workspace_selector
+        );
         set!(icon_double_click, "icon_double_click", g.icon_double_click);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
         set!(tour_seen, "tour_seen", g.tour_seen);
@@ -1055,6 +1110,32 @@ impl Settings {
         if let Some(v) = self.clipboard_history {
             cfg.push(format!("clipboard_history = {v}"));
         }
+        if let Some(l) = &self.index_paths {
+            let l: Vec<String> = l.iter().map(|p| q(p)).collect();
+            cfg.push(format!("index_paths = {{ {} }}", l.join(", ")));
+        }
+        if let Some(l) = &self.index_exclude {
+            let l: Vec<String> = l.iter().map(|p| q(p)).collect();
+            cfg.push(format!("index_exclude = {{ {} }}", l.join(", ")));
+        }
+        if let Some(l) = &self.index_exclude_regex {
+            let l: Vec<String> = l.iter().map(|p| q(p)).collect();
+            cfg.push(format!("index_exclude_regex = {{ {} }}", l.join(", ")));
+        }
+        if let Some(l) = &self.index_exclude_ext {
+            let l: Vec<String> = l.iter().map(|p| q(p)).collect();
+            cfg.push(format!("index_exclude_ext = {{ {} }}", l.join(", ")));
+        }
+        if let Some(l) = &self.index_exclude_cat {
+            let l: Vec<String> = l.iter().map(|p| q(p)).collect();
+            cfg.push(format!("index_exclude_cat = {{ {} }}", l.join(", ")));
+        }
+        if let Some(v) = self.index_max_size {
+            cfg.push(format!("index_max_size = {v}"));
+        }
+        if let Some(v) = self.index_interval {
+            cfg.push(format!("index_interval = {v}"));
+        }
         if let Some(v) = self.autostart {
             cfg.push(format!("autostart = {v}"));
         }
@@ -1081,6 +1162,9 @@ impl Settings {
         }
         if let Some(v) = self.icon_scope {
             cfg.push(format!("icon_scope = {}", q(v.as_str())));
+        }
+        if let Some(v) = self.workspace_selector {
+            cfg.push(format!("workspace_selector = {}", q(v.as_str())));
         }
         if let Some(v) = self.icon_double_click {
             cfg.push(format!("icon_double_click = {v}"));
@@ -1454,6 +1538,10 @@ impl Settings {
                     })
                 ));
                 f.push(format!("height = {}", b.height));
+                f.push(format!("margin = {}", b.margin));
+                if b.style != crate::config::BarStyle::default() {
+                    f.push(format!("style = {}", q(b.style.as_str())));
+                }
                 let zone = |l: &[BarEntry]| -> String {
                     l.iter()
                         .map(|e| {
@@ -1706,6 +1794,46 @@ mod tests {
     use super::*;
     use crate::config::lua::load_chunks;
     use std::time::Duration;
+
+    #[test]
+    fn controls_widget_round_trips_on_desktop_and_in_bar() {
+        let config = load_chunks(&[(
+            "hd.widget('controls',{id='center',anchor='bottom-left',x=18,screen='all'}) hd.bar({right={'controls'}})".into(),
+            "settings.lua".into(), Origin::Settings,
+        )], Path::new("/cfg")).unwrap().config;
+        let settings = Settings::from_config(&config);
+        assert_eq!(settings.widgets.len(), 1);
+        assert_eq!(settings.widgets[0].id, "center");
+        let generated = settings.to_lua();
+        assert!(
+            !generated.contains("bar:controls:"),
+            "internal dependencies must not be persisted"
+        );
+        let again = load_chunks(
+            &[(generated, "settings.lua".into(), Origin::Settings)],
+            Path::new("/cfg"),
+        )
+        .unwrap()
+        .config;
+        let center = again.widgets.iter().find(|w| w.id == "center").unwrap();
+        assert!(matches!(center.kind, WidgetKind::Controls));
+        assert_eq!(center.anchor, Anchor::BottomLeft);
+        assert_eq!(center.x, 18.0);
+        assert_eq!(center.screen, crate::config::WidgetScreen::All);
+        assert!(!center.in_bar);
+        assert_eq!(
+            BarSettings::from_config(&again).zones[2][0].type_id,
+            "controls"
+        );
+        assert_eq!(
+            again
+                .widgets
+                .iter()
+                .filter(|w| matches!(w.kind, WidgetKind::Controls))
+                .count(),
+            2
+        );
+    }
 
     #[test]
     fn standalone_settings_keep_user_widget_placements() {
@@ -2303,6 +2431,26 @@ mod tests {
     }
 
     #[test]
+    fn style_et_marge_de_la_barre_aller_retour() {
+        let mut s = Settings {
+            bar: Some(BarSettings::default()),
+            ..Default::default()
+        };
+        let b = s.bar.as_mut().unwrap();
+        b.style = crate::config::BarStyle::Graphite;
+        b.zones = b.style.preset_settings();
+        b.margin = 12;
+        let lua = s.to_lua();
+        let cfg = load_chunks(
+            &[(lua.clone(), "settings.lua".into(), Origin::Settings)],
+            Path::new("/cfg"),
+        )
+        .unwrap_or_else(|e| panic!("{e}\n{lua}"))
+        .config;
+        assert_eq!(Settings::from_config(&cfg).bar, s.bar, "\n{lua}");
+    }
+
+    #[test]
     fn barre_aller_retour() {
         let mut s = Settings {
             bar: Some(BarSettings::default()),
@@ -2346,6 +2494,32 @@ mod tests {
             Settings::from_config(&cfg).bar.map(|b| b.enabled),
             Some(false)
         );
+    }
+
+    #[test]
+    fn workspace_selector_va_et_vient() {
+        let s = Settings {
+            workspace_selector: Some(crate::config::WsSelector::Miniatures),
+            ..Settings::default()
+        };
+        let lua = s.to_lua();
+        assert!(lua.contains("workspace_selector = \"miniatures\""));
+        let config = load_chunks(
+            &[(lua, "s.lua".into(), Origin::Settings)],
+            Path::new("/cfg"),
+        )
+        .unwrap()
+        .config;
+        assert_eq!(
+            config.general.workspace_selector,
+            crate::config::WsSelector::Miniatures
+        );
+        assert_eq!(
+            Settings::from_config(&config).workspace_selector,
+            Some(crate::config::WsSelector::Miniatures)
+        );
+        // Défaut : rien d'écrit pour cette clé, le rail du style s'applique.
+        assert!(!Settings::default().to_lua().contains("workspace_selector"));
     }
 
     #[test]
@@ -2501,6 +2675,81 @@ mod tests {
             lua.lines().all(|l| l.starts_with("--") || l.is_empty()),
             "{lua}"
         );
+    }
+
+    #[test]
+    fn graphite_drag_persists_order_and_options_without_moving_launcher() {
+        let mut b = BarSettings {
+            style: crate::config::BarStyle::Graphite,
+            zones: [
+                vec![],
+                vec![BarEntry::new("launcher")],
+                vec![
+                    BarEntry::new("volume"),
+                    BarEntry {
+                        type_id: "clock".into(),
+                        fields: vec!["format = \"%H:%M %Z\"".into()],
+                    },
+                    BarEntry::new("desktop"),
+                ],
+            ],
+            ..Default::default()
+        };
+        assert!(!b.move_entry((1, 0), (2, 0)));
+        assert!(b.move_entry((2, 0), (0, 0)));
+        assert!(b.move_entry((0, 0), (1, 1)));
+        assert!(b.move_entry((1, 1), (2, 0)));
+        assert!(b.move_entry((2, 0), (2, 3)));
+        let s = Settings {
+            bar: Some(b.clone()),
+            ..Default::default()
+        };
+        let again = BarSettings::from_config(
+            &crate::config::lua::load_chunks(
+                &[(s.to_lua(), "settings.lua".into(), Origin::Settings)],
+                Path::new("/tmp/hyprdesk-bar-drag-test"),
+            )
+            .unwrap()
+            .config,
+        );
+        assert_eq!(again.zones, b.zones);
+        assert_eq!(again.zones[2][0].type_id, "clock");
+        assert_eq!(again.zones[2][0].fields, ["format = \"%H:%M %Z\""]);
+        assert_eq!(again.zones[1][0].type_id, "launcher");
+    }
+
+    #[test]
+    fn portrait_drag_copies_inherited_zones_and_preserves_horizontal_order() {
+        let mut b = BarSettings {
+            zones: [
+                vec![BarEntry::new("desktop")],
+                vec![],
+                vec![BarEntry::new("volume"), BarEntry::new("clock")],
+            ],
+            ..Default::default()
+        };
+        let horizontal = b.zones.clone();
+        assert!(!b.move_entry((2, 0), (5, 0)));
+        assert!(!b.move_entry((6, 0), (5, 0)));
+        assert!(b.portrait.is_none());
+        assert!(b.move_entry((5, 0), (5, 2)));
+        assert_eq!(b.zones, horizontal);
+        assert_eq!(b.portrait.as_ref().unwrap()[2][0].type_id, "clock");
+        assert!(b.move_entry((3, 0), (4, 0)));
+        let s = Settings {
+            bar: Some(b.clone()),
+            ..Default::default()
+        };
+        let again = BarSettings::from_config(
+            &crate::config::lua::load_chunks(
+                &[(s.to_lua(), "settings.lua".into(), Origin::Settings)],
+                Path::new("/tmp/hyprdesk-bar-drag-test"),
+            )
+            .unwrap()
+            .config,
+        );
+        assert_eq!(again.portrait, b.portrait);
+        assert_eq!(again.zones, horizontal);
     }
 
     #[test]

@@ -10,6 +10,8 @@
 //! est visible ; l'affichage vit dans `ui::widgets`.
 
 pub mod command;
+pub mod controls;
+pub mod launcher;
 pub mod media;
 pub mod plugins;
 pub mod system;
@@ -79,6 +81,8 @@ pub const COMMON_OPTIONS: &[&str] = &[
 
 /// Registre des widgets intégrés.
 pub const BUILTINS: &[Builtin] = &[
+    controls::DESCRIPTOR,
+    launcher::DESCRIPTOR,
     Builtin {
         id: "clock",
         name: "Horloge",
@@ -128,7 +132,7 @@ pub const BUILTINS: &[Builtin] = &[
         id: "lua",
         name: "Fonction Lua",
         description: "Texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
-        options: &["render", "on_click", "on_scroll", "menu"],
+        options: &["render", "on_click", "on_scroll", "menu", "on_toggle"],
         interval: 5.0,
         anchor: Anchor::Left,
         toggleable: false,

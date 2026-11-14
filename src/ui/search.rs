@@ -9,6 +9,13 @@
 //! (MLG-44, `crate::mymfa`) : Entrée copie le code ou le mot de passe (par
 //! le démon mymfa) ; coffre verrouillé, Entrée ouvre la carte de
 //! déverrouillage.
+//!
+//! `:f` (alias `:fichiers`) cherche dans l'index de fichiers
+//! (`crate::fileindex`) : chaque frappe interroge le démon d'indexation
+//! (socket unix, démarré au besoin), Entrée ouvre le fichier choisi avec
+//! l'application par défaut.
+
+use std::path::Path;
 
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::window::Id;
@@ -29,6 +36,22 @@ const SHADOW: f32 = 18.0;
 const CLIP_ICON: &str = "edit-paste-symbolic";
 /// Icône des codes et mots de passe du coffre.
 const MFA_ICON: &str = "system-lock-screen";
+
+/// État du mode fichiers (`:f`) : la dernière réponse du démon d'index.
+#[derive(Debug, Clone, Default)]
+pub struct FilesState {
+    /// Résultats du démon, dans son ordre (le classement fin se fait ici).
+    pub hits: Vec<crate::fileindex::index::Hit>,
+    /// Scan initial en cours : entrées déjà vues (aucun résultat servi).
+    pub scanning: Option<u64>,
+    /// Démon indisponible ou réponse d'erreur.
+    pub erreur: Option<String>,
+    /// Nature demandée ([`KIND_FILE`], [`KIND_DIR`], [`KIND_LINK`]) ;
+    /// `None` : toutes.
+    pub kind: Option<u8>,
+    /// Catégorie demandée (code [`categorie_de`]) ; `None` : toutes.
+    pub cat: Option<u8>,
+}
 
 /// Contenu du coffre en mode `:2fa` / `:mdp`.
 #[derive(Debug, Clone)]
@@ -51,6 +74,8 @@ pub struct Search {
     pub selected: usize,
     /// Historique du presse-papiers, lu à l'entrée en mode `:clip`.
     pub clips: Option<Vec<crate::clipboard::Entry>>,
+    /// Mode fichiers (`:f`) : dernière réponse du démon d'index.
+    pub files: Option<FilesState>,
     /// Grille plein écran des applications (`hyprdesk apps`, bouton du dock).
     pub grid: bool,
     /// Catégorie choisie dans la grille (indice dans `apps_grid::CATEGORIES`).
@@ -67,16 +92,39 @@ impl Search {
         crate::clipboard::query(&self.query)
     }
 
-    /// Vue de la carte (applications, presse-papiers, mots de passe) : en
-    /// changer remplace le champ de saisie.
+    /// Vue de la carte (applications, presse-papiers, fichiers, mots de
+    /// passe) : en changer remplace le champ de saisie.
     fn view_kind(&self) -> u8 {
         if crate::mymfa::query(&self.query).is_some() {
             2
         } else if self.clip_query().is_some() {
             1
+        } else if crate::fileindex::proto::query(&self.query).is_some() {
+            3
         } else {
             0
         }
+    }
+
+    /// Mode fichiers (`:f`) : classement fin des résultats du démon par la
+    /// recherche floue commune (les hits ont déjà été filtrés par le moteur
+    /// trigramme).
+    fn rank_files(&mut self) {
+        let Some(q) = crate::fileindex::proto::query(&self.query) else {
+            return;
+        };
+        let hits = self
+            .files
+            .as_ref()
+            .map(|f| f.hits.as_slice())
+            .unwrap_or(&[]);
+        self.results = if q.is_empty() {
+            (0..hits.len().min(SHOWN)).collect()
+        } else {
+            let noms: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
+            crate::search::rank(q, &noms, SHOWN)
+        };
+        self.selected = 0;
     }
 
     fn rank_mfa(&mut self) {
@@ -124,6 +172,14 @@ pub enum SMsg {
     Resolved(String),
     Clips(Vec<crate::clipboard::Entry>),
     Mfa(crate::mymfa::Mode, MfaList),
+    /// Réponse du démon d'index pour la requête `:f` donnée (le mot, sans
+    /// le préfixe — une réponse en retard pour un autre mot est jetée).
+    Files(String, FilesState),
+    /// Nature demandée dans l'UI fichiers (None : toutes) — relance la
+    /// requête avec le filtre.
+    FileFilter(Option<u8>),
+    /// Catégorie demandée dans l'UI fichiers (None : toutes).
+    CatFilter(Option<u8>),
     /// Carte affichée : le champ prend le focus (la surface existe enfin).
     Shown,
 }
@@ -284,6 +340,7 @@ impl App {
             results,
             selected: 0,
             clips: None,
+            files: None,
             grid: sheet,
             category: None,
             suggested,
@@ -343,6 +400,89 @@ impl App {
             s.selected = (s.selected as i64 + d).rem_euclid(n) as usize;
         }
         Task::none()
+    }
+
+    /// Interroge le démon d'index pour la requête `:f` en cours (après
+    /// l'avoir garanti : démarré s'il manque, avec les réglages
+    /// `index.*` de la configuration) ; la réponse revient en
+    /// `SMsg::Files`, hors du thread UI.
+    fn fichiers_requete(&mut self) -> Task<Msg> {
+        let mot = self
+            .search
+            .as_ref()
+            .and_then(|s| crate::fileindex::proto::query(&s.query))
+            .unwrap_or_default()
+            .to_string();
+        let (kind, cat) = self
+            .search
+            .as_ref()
+            .and_then(|s| s.files.as_ref())
+            .map(|f| (f.kind, f.cat))
+            .unwrap_or((None, None));
+        let mut reglage = crate::fileindex::IndexConfig::default();
+        if !self.cfg.general.index_paths.is_empty() {
+            reglage.roots = self
+                .cfg
+                .general
+                .index_paths
+                .iter()
+                .map(|p| crate::fileindex::expand_root(p))
+                .collect();
+        }
+        reglage.extra_excludes = self.cfg.general.index_exclude.clone();
+        reglage.exclude_regex = self.cfg.general.index_exclude_regex.clone();
+        reglage.exclude_ext = self.cfg.general.index_exclude_ext.clone();
+        reglage.exclude_cat = self.cfg.general.index_exclude_cat.clone();
+        reglage.max_size = self.cfg.general.index_max_size;
+        reglage.interval = self.cfg.general.index_interval;
+        let mot_reponse = mot.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    crate::fileindex::proto::ensure_daemon(&reglage).and_then(|_| {
+                        crate::fileindex::proto::request(&crate::fileindex::proto::Request::Query {
+                            q: mot,
+                            limit: crate::fileindex::proto::LIMIT_DEFAULT,
+                            kinds: kind.map(|k| vec![k]),
+                            cat,
+                        })
+                    })
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("{e}")))
+            },
+            move |rep| {
+                let st = match rep {
+                    Ok(crate::fileindex::proto::Reply::Hits { hits, scanning, .. }) => FilesState {
+                        hits,
+                        scanning,
+                        erreur: None,
+                        kind,
+                        cat,
+                    },
+                    Ok(crate::fileindex::proto::Reply::Err(m)) => FilesState {
+                        hits: Vec::new(),
+                        scanning: None,
+                        erreur: Some(m),
+                        kind,
+                        cat,
+                    },
+                    Err(e) => FilesState {
+                        hits: Vec::new(),
+                        scanning: None,
+                        erreur: Some(e),
+                        kind,
+                        cat,
+                    },
+                    Ok(_) => FilesState {
+                        hits: Vec::new(),
+                        kind,
+                        ..Default::default()
+                    },
+                };
+                Msg::Search(SMsg::Files(mot_reponse, st))
+            },
+        )
     }
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
@@ -485,6 +625,109 @@ impl App {
                     |c| Msg::Search(SMsg::Clips(c)),
                 )
             }
+            SMsg::Query(q) if crate::fileindex::proto::query(&q).is_some() => {
+                let avant = self
+                    .search
+                    .as_ref()
+                    .map(|s| s.view_kind())
+                    .unwrap_or_default();
+                let Some(s) = self.search.as_mut() else {
+                    return Task::none();
+                };
+                s.query = q;
+                if s.files.is_none() {
+                    s.files = Some(FilesState::default());
+                }
+                s.results.clear();
+                s.selected = 0;
+                let refocus = s.view_kind() != avant;
+                // Chaque frappe interroge le démon (le moteur trigramme
+                // répond en quelques millisecondes) ; le démon est garanti
+                // au passage (démarré s'il manque).
+                let mut t = self.fichiers_requete();
+                if refocus {
+                    t = Task::batch([t, iced::widget::operation::focus(INPUT_ID)]);
+                }
+                t
+            }
+            SMsg::Files(mot, st) => {
+                let mut a_jour = false;
+                if let Some(s) = self.search.as_mut()
+                    && crate::fileindex::proto::query(&s.query) == Some(mot.as_str())
+                {
+                    // réponse en retard pour un mot depuis changé : jetée
+                    s.files = Some(st);
+                    s.rank_files();
+                    a_jour = true;
+                }
+                let mut taches: Vec<Task<Msg>> = Vec::new();
+                if a_jour {
+                    // icônes des résultats, résolues hors du thread UI
+                    let noms: std::collections::HashSet<&'static str> = self
+                        .search
+                        .as_ref()
+                        .and_then(|s| s.files.as_ref())
+                        .map(|f| {
+                            f.hits
+                                .iter()
+                                .map(|h| crate::launch::path_icon_name(Path::new(&h.path)))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    taches.extend(noms.into_iter().map(|n| self.want_icon(n)));
+                }
+                Task::batch(taches)
+            }
+            SMsg::FileFilter(k) => {
+                if let Some(s) = self.search.as_mut()
+                    && crate::fileindex::proto::query(&s.query).is_some()
+                    && let Some(f) = s.files.as_mut()
+                {
+                    f.kind = k;
+                }
+                // la requête repart avec la nature demandée
+                self.fichiers_requete()
+            }
+            SMsg::CatFilter(c) => {
+                if let Some(s) = self.search.as_mut()
+                    && crate::fileindex::proto::query(&s.query).is_some()
+                    && let Some(f) = s.files.as_mut()
+                {
+                    f.cat = c;
+                }
+                self.fichiers_requete()
+            }
+            SMsg::Launch(k)
+                if self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| crate::fileindex::proto::query(&s.query).is_some()) =>
+            {
+                let hit = self.search.as_ref().and_then(|s| {
+                    let i = *s.results.get(k)?;
+                    s.files.as_ref()?.hits.get(i).cloned()
+                });
+                let Some(hit) = hit else {
+                    return Task::none();
+                };
+                let close = self.close_search();
+                let ouvre = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::launch::open_path(Path::new(&hit.path))
+                        })
+                        .await
+                        .unwrap_or(Err("tâche interrompue".into()))
+                    },
+                    |r| {
+                        if let Err(e) = r {
+                            tracing::warn!("{}", crate::tr!("ouverture : {e}", e = e));
+                        }
+                        Msg::Noop
+                    },
+                );
+                Task::batch([close, ouvre])
+            }
             SMsg::Clips(c) => {
                 if let Some(s) = self.search.as_mut() {
                     s.clips = Some(c);
@@ -626,6 +869,35 @@ impl App {
         if crate::mymfa::query(&s.query).is_some() {
             return self.view_mfa_search(s);
         }
+        if crate::fileindex::proto::query(&s.query).is_some() {
+            // Mode fichiers (`:f`) : la même carte, résultats de l'index.
+            let th = &self.cfg.general.theme;
+            let r = crate::theme::readable(th.fg, th.bg, th.accent);
+            let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
+            let bg = color(th.bg, 1.0);
+            let input = text_input(
+                crate::i18n::tr("Rechercher un fichier ou un dossier…"),
+                &s.query,
+            )
+            .id(INPUT_ID)
+            .on_input(|q| Msg::Search(SMsg::Query(q)))
+            .on_submit(Msg::Search(SMsg::Launch(s.selected)))
+            .font(self.font)
+            .size(20)
+            .padding(14)
+            .width(Length::Fill);
+            return container(self.search_card(
+                s,
+                input,
+                self.view_files(s, fg, dim, accent),
+                bg,
+                fg,
+            ))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .padding(SHADOW)
+            .into();
+        }
         if s.clip_query().is_none() {
             return if s.grid {
                 self.view_apps_grid(s)
@@ -639,7 +911,7 @@ impl App {
         let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
         let bg = color(th.bg, 1.0);
         let input = text_input(
-            crate::i18n::tr("Rechercher une application… (:clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
             &s.query,
         )
         .id(INPUT_ID)
@@ -656,6 +928,181 @@ impl App {
             .into()
     }
 
+    /// Résultats du mode fichiers (`:f`) : icône par type de fichier, nom,
+    /// taille et dossier parent.
+    fn view_files<'a>(
+        &'a self,
+        s: &'a Search,
+        fg: Color,
+        dim: Color,
+        accent: Color,
+    ) -> Element<'a, Msg> {
+        let mut list = column![].spacing(2);
+        use crate::i18n::tr;
+        let suffixe = crate::fileindex::proto::query(&s.query).unwrap_or_default();
+        let note = match s.files.as_ref() {
+            None => Some(tr("Démarrage du démon d'index…").to_string()),
+            Some(f) => match (&f.scanning, &f.erreur) {
+                (Some(n), _) => Some(format!("{} ({n})", tr("Indexation en cours…"))),
+                (_, Some(e)) => Some(format!("{} : {e}", tr("Index indisponible"))),
+                _ if suffixe.is_empty() => {
+                    Some(tr("Nom du fichier, ou chemin avec « / » (ex. docs/rapport).").to_string())
+                }
+                _ if f.hits.is_empty() => Some(tr("Aucun fichier ne correspond.").to_string()),
+                _ => None,
+            },
+        };
+        if let Some(msg) = note {
+            list = list.push(text(msg).font(self.font).size(13).color(dim));
+        }
+        // Puces de nature : tout, fichiers, dossiers, liens — la puce
+        // active relance la requête avec la nature demandée côté démon.
+        use crate::fileindex::index::{KIND_DIR, KIND_FILE, KIND_LINK};
+        let kind_active = s.files.as_ref().and_then(|f| f.kind);
+        let mut chips = row![].spacing(6);
+        for (k, label) in [
+            (None, tr("Tout").to_string()),
+            (Some(KIND_FILE), tr("Fichiers").to_string()),
+            (Some(KIND_DIR), tr("Dossiers").to_string()),
+            (Some(KIND_LINK), tr("Liens").to_string()),
+        ] {
+            let actif = kind_active == k;
+            chips = chips.push(
+                button(text(label).font(self.font).size(12).color(fg))
+                    .padding([4, 10])
+                    .style(move |_, status| button::Style {
+                        background: (actif || matches!(status, button::Status::Hovered)).then(
+                            || {
+                                Color {
+                                    a: if actif { 0.35 } else { 0.12 },
+                                    ..accent
+                                }
+                                .into()
+                            },
+                        ),
+                        border: Border::default().rounded(999),
+                        text_color: fg,
+                        ..Default::default()
+                    })
+                    .on_press(Msg::Search(SMsg::FileFilter(k))),
+            );
+        }
+        list = list.push(chips);
+        // Puces de catégorie : déduites de l'extension au vol, le filtre est
+        // appliqué côté démon.
+        let cat_active = s.files.as_ref().and_then(|f| f.cat);
+        let mut chats = row![].spacing(6);
+        for (c, label) in crate::fileindex::index::CATEGORIES {
+            let actif = cat_active == Some(*c);
+            chats = chats.push(
+                button(
+                    text(tr(label).to_string())
+                        .font(self.font)
+                        .size(12)
+                        .color(fg),
+                )
+                .padding([4, 10])
+                .style(move |_, status| button::Style {
+                    background: (actif || matches!(status, button::Status::Hovered)).then(|| {
+                        Color {
+                            a: if actif { 0.35 } else { 0.12 },
+                            ..accent
+                        }
+                        .into()
+                    }),
+                    border: Border::default().rounded(999),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::Search(SMsg::CatFilter(Some(*c)))),
+            );
+        }
+        chats = chats.push(
+            button(
+                text(tr("Toutes").to_string())
+                    .font(self.font)
+                    .size(12)
+                    .color(fg),
+            )
+            .padding([4, 10])
+            .style(move |_, status| button::Style {
+                background: (cat_active.is_none() || matches!(status, button::Status::Hovered))
+                    .then(|| {
+                        Color {
+                            a: if cat_active.is_none() { 0.35 } else { 0.12 },
+                            ..accent
+                        }
+                        .into()
+                    }),
+                border: Border::default().rounded(999),
+                text_color: fg,
+                ..Default::default()
+            })
+            .on_press(Msg::Search(SMsg::CatFilter(None))),
+        );
+        list = list.push(chats);
+        let hits = s.files.as_ref().map(|f| f.hits.as_slice()).unwrap_or(&[]);
+        for (k, &i) in s.results.iter().enumerate() {
+            let Some(h) = hits.get(i) else { continue };
+            let icone = crate::launch::path_icon_name(Path::new(&h.path));
+            let detail = {
+                let dir = Path::new(&h.path)
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let dir = if dir.chars().count() > 34 {
+                    let queue: String = dir
+                        .chars()
+                        .rev()
+                        .take(33)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect();
+                    format!("…{queue}")
+                } else {
+                    dir
+                };
+                format!("{} · {}", crate::fileindex::fmt_taille(h.size), dir)
+            };
+            let icon: Element<'_, Msg> = self
+                .icon_named(icone, 22.0, dim)
+                .unwrap_or_else(|| iced::widget::Space::new().width(22).height(22).into());
+            let selected = k == s.selected;
+            list = list.push(
+                button(
+                    row![
+                        icon,
+                        text(h.name.clone()).font(self.font).size(14).color(fg),
+                        iced::widget::Space::new().width(Length::Fill),
+                        text(detail).font(self.font).size(13).color(dim),
+                    ]
+                    .spacing(14)
+                    .align_y(Alignment::Center),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .height(ROW)
+                .style(move |_, status| button::Style {
+                    background: (selected || matches!(status, button::Status::Hovered)).then(
+                        || {
+                            Color {
+                                a: if selected { 0.22 } else { 0.1 },
+                                ..accent
+                            }
+                            .into()
+                        },
+                    ),
+                    border: Border::default().rounded(10),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::Search(SMsg::Launch(k))),
+            );
+        }
+        list.into()
+    }
+
     /// Mode coffre (`:2fa`, `:mdp`) : la même carte que le presse-papiers.
     fn view_mfa_search<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
@@ -663,7 +1110,7 @@ impl App {
         let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
         let bg = color(th.bg, 1.0);
         let input = text_input(
-            crate::i18n::tr("Rechercher une application… (:clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
             &s.query,
         )
         .id(INPUT_ID)

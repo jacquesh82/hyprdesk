@@ -57,12 +57,18 @@ impl App {
             .iter()
             .find(|(_, s)| s.monitor == monitor)
             .map(|(id, _)| *id)
+            .or_else(|| {
+                self.bar_surfaces
+                    .iter()
+                    .find(|(_, s)| s.monitor == monitor && self.launcher_in_bar(monitor))
+                    .map(|(id, _)| *id)
+            })
     }
 
     /// Montre la case choisie : vague et bulle, comme au survol.
     fn launcher_select(&mut self, monitor: &str, index: usize, slots: &[Slot]) -> Task<UiMsg> {
         self.launcher_runtime.focus = Some((monitor.to_string(), index));
-        match slots.get(index) {
+        let hover = match slots.get(index) {
             Some(Slot::Item(item)) => self.launcher_hover(Some((
                 monitor.to_string(),
                 item.key.clone(),
@@ -70,6 +76,25 @@ impl App {
                 index,
             ))),
             _ => Task::none(),
+        };
+        if self.launcher_in_bar(monitor) {
+            let pitch = self
+                .cfg
+                .bar
+                .as_ref()
+                .map_or(48.0, |b| (b.height as f32 - 20.0).clamp(16.0, 32.0) + 20.0);
+            Task::batch([
+                hover,
+                iced::widget::operation::scroll_to(
+                    format!("bar-launcher:{monitor}"),
+                    iced::widget::scrollable::AbsoluteOffset {
+                        x: Some(index as f32 * pitch),
+                        y: None,
+                    },
+                ),
+            ])
+        } else {
+            hover
         }
     }
 
@@ -134,7 +159,17 @@ impl App {
 
     /// Touche reçue par une surface du dock.
     pub(in crate::ui) fn launcher_key(&mut self, id: Id, key: &Key) -> Task<UiMsg> {
-        let Some(monitor) = self.launcher_surfaces.get(&id).map(|s| s.monitor.clone()) else {
+        let Some(monitor) = self
+            .launcher_surfaces
+            .get(&id)
+            .map(|s| s.monitor.clone())
+            .or_else(|| {
+                self.bar_surfaces
+                    .get(&id)
+                    .filter(|s| self.launcher_in_bar(&s.monitor))
+                    .map(|s| s.monitor.clone())
+            })
+        else {
             return Task::none();
         };
         let Some(m) = self.monitors.iter().find(|m| m.name == monitor).cloned() else {
@@ -239,6 +274,7 @@ mod tests {
                 class: class.into(),
                 title: class.into(),
                 workspace: "1".into(),
+                monitor: "A".into(),
             });
         }
         app
@@ -258,6 +294,63 @@ mod tests {
             Slot::Item(item) => Some(item.key),
             _ => None,
         }
+    }
+
+    #[test]
+    fn graphite_uses_bar_keyboard_and_popup_even_with_desktop_hidden() {
+        let mut app = app();
+        let loaded = crate::config::lua::load_chunks(
+            &[(
+                "hd.bar({ style = 'graphite' })".into(),
+                "test.lua".into(),
+                crate::config::Origin::User,
+            )],
+            std::path::Path::new("/tmp/hyprdesk-launcher-keys"),
+        )
+        .unwrap();
+        app.cfg = std::sync::Arc::new(loaded.config);
+        let _ = app.sync_bars();
+        let bar = *app.bar_surfaces.keys().next().unwrap();
+        app.visible = false;
+        let _ = app.sync_launchers();
+        assert!(
+            app.launcher_surfaces.is_empty(),
+            "no second dock or exclusive zone"
+        );
+        assert!(app.launcher_in_bar("A"));
+        let _ = app.launcher_grab("A");
+        assert!(app.listens_to_events());
+        assert_eq!(app.launcher_surface_of("A"), Some(bar));
+        assert_eq!(selected(&app).as_deref(), Some("dock-btn:apps"));
+        let _ = app.update_inner(Msg::Key(bar, Key::Named(Named::ArrowRight)));
+        assert_eq!(selected(&app).as_deref(), Some("dock-btn:search"));
+        let _ = app.launcher_anchor(
+            "A".into(),
+            "dock-btn:search".into(),
+            iced::Rectangle::new(iced::Point::new(600.0, 2.0), iced::Size::new(44.0, 44.0)),
+        );
+        let _ = app.launcher_popup_open(app.launcher_popup_token);
+        let popup = app
+            .launcher_popup
+            .as_ref()
+            .expect("bar popup works with desktop hidden");
+        assert!(popup.placement.bounds.y + popup.placement.bounds.height < 852.0);
+        let _ = app.update_inner(Msg::Key(bar, Key::Named(Named::Escape)));
+        assert!(app.launcher_runtime.focus.is_none());
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .bar
+            .as_mut()
+            .unwrap()
+            .style = crate::config::BarStyle::Continuite;
+        assert!(!app.launcher_in_bar("A"));
+        app.visible = true;
+        app.raised.extend(app.surfaces.keys().copied());
+        let _ = app.sync_launchers();
+        assert_eq!(
+            app.launcher_surfaces.len(),
+            1,
+            "Continuity restores its standalone dock"
+        );
     }
 
     #[test]

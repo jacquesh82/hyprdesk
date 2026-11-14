@@ -5,6 +5,90 @@ use iced::{Border, Color, Shadow, Theme, Vector};
 pub const RADIUS: f32 = 20.0;
 pub const SMALL_RADIUS: f32 = 10.0;
 
+/// Encre issue du thème qui reste lisible sur son accent, clair ou sombre.
+pub fn on_accent(accent: Color, fg: Color, bg: Color) -> Color {
+    if accent.relative_contrast(fg) >= accent.relative_contrast(bg) {
+        fg
+    } else {
+        bg
+    }
+}
+
+/// Barre et cartes associées : un reflet issu du texte du thème, jamais une
+/// teinte fixe ; pas d'animation de flou ou de géométrie de la surface.
+pub fn bar_surface(bg: Color, fg: Color, top: bool) -> container::Style {
+    let lifted = Color {
+        r: bg.r + (fg.r - bg.r) * 0.025,
+        g: bg.g + (fg.g - bg.g) * 0.025,
+        b: bg.b + (fg.b - bg.b) * 0.025,
+        ..bg
+    };
+    let gradient = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
+        .add_stop(0.0, lifted)
+        .add_stop(1.0, bg);
+    container::Style {
+        background: Some(iced::Background::Gradient(gradient.into())),
+        text_color: Some(fg),
+        shadow: Shadow {
+            color: Color {
+                a: 0.08 * bg.a,
+                ..fg
+            },
+            offset: Vector::new(0.0, if top { 1.0 } else { -1.0 }),
+            blur_radius: 0.0,
+        },
+        ..Default::default()
+    }
+}
+
+pub fn bar_card(bg: Color, fg: Color) -> container::Style {
+    let mut style = bar_surface(bg, fg, true);
+    style.border = Border::default()
+        .rounded(RADIUS)
+        .width(1)
+        .color(Color { a: 0.10, ..fg });
+    style.shadow = Shadow {
+        color: Color::from_rgba(0.0, 0.0, 0.0, 0.27),
+        offset: Vector::new(0.0, 8.0),
+        blur_radius: 22.0,
+    };
+    style
+}
+
+pub fn bar_slider(
+    theme: &Theme,
+    status: iced::widget::slider::Status,
+) -> iced::widget::slider::Style {
+    let mut style = iced::widget::slider::default(theme, status);
+    style.rail.width = 10.0;
+    style.rail.backgrounds = (
+        theme.palette().primary.into(),
+        Color {
+            a: 0.10,
+            ..theme.palette().text
+        }
+        .into(),
+    );
+    style.rail.border = Border::default().rounded(5);
+    style.handle.shape = iced::widget::slider::HandleShape::Circle { radius: 8.0 };
+    style.handle.border_width = 0.0;
+    style.handle.background = theme.palette().text.into();
+    style
+}
+
+pub fn bar_slider_alpha(
+    theme: &Theme,
+    status: iced::widget::slider::Status,
+    alpha: f32,
+) -> iced::widget::slider::Style {
+    let mut style = bar_slider(theme, status);
+    style.rail.backgrounds.0 = style.rail.backgrounds.0.scale_alpha(alpha);
+    style.rail.backgrounds.1 = style.rail.backgrounds.1.scale_alpha(alpha);
+    style.handle.background = style.handle.background.scale_alpha(alpha);
+    style.handle.border_color.a *= alpha;
+    style
+}
+
 /// Verre du lanceur : la teinte reste issue du thème, le flou est fourni
 /// par Hyprland sur les surfaces dédiées. Toutes les couches suivent le fondu
 /// (`opacity`) ; `base` est l'opacité du fond réglée par le thème (0.88 livrée),

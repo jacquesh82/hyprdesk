@@ -69,6 +69,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
         "session",
         include_str!("../../assets/widgets/integres/session.lua"),
     ),
+    (
+        "index",
+        include_str!("../../assets/widgets/integres/index.lua"),
+    ),
 ];
 
 /// Source d'un plugin : un fichier, ou un plugin livré.

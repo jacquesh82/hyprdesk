@@ -92,6 +92,12 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "preferences-system" | "emblem-system" => {
             r#"<path d="m9 3-.6 2.2-2 .9-2-.6-2 3.5 1.5 1.6v2.3L2.4 15l2 3.5 2-.6 2 .9L9 21h4l.6-2.2 2-.9 2 .6 2-3.5-1.5-1.6v-2.3l1.5-1.6-2-3.5-2 .6-2-.9L13 3Z"/><circle cx="11" cy="12" r="3"/>"#
         }
+        "preferences-system-controls" => {
+            r#"<path d="M3 7h8m5 0h5M3 17h3m5 0h10"/><circle cx="13" cy="7" r="3"/><circle cx="8" cy="17" r="3"/>"#
+        }
+        "view-more" => {
+            r#"<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>"#
+        }
         "audio-volume-high" => {
             r#"<path d="m11 4-5 4H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16"/>"#
         }
@@ -115,6 +121,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         // Bureau affiché avec les fenêtres : un écran, une fenêtre devant.
         "hyprdesk-desktop-windows" => {
             r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4"/><rect x="8" y="7" width="9" height="7" rx="1.5"/><path d="M8 9.5h9"/>"#
+        }
+        // Fenêtre urgente : un losange plein, posé à côté du numéro d'espace.
+        "hyprdesk-urgent" => {
+            r##"<path d="M12 6.2 17.8 12 12 17.8 6.2 12Z" fill="#ffffff" stroke="none"/>"##
         }
         // Lanceur : une rangée d'icônes sur un socle.
         // Applications par défaut : quatre pastilles.
@@ -140,6 +150,19 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         }
         "applications-other" => {
             r#"<circle cx="7" cy="7" r="3.5"/><circle cx="17" cy="7" r="3.5"/><circle cx="7" cy="17" r="3.5"/><path d="M17 13.5v7M13.5 17h7"/>"#
+        }
+        "grip-vertical" => {
+            r#"<g fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.3"/><circle cx="15" cy="5" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="19" r="1.3"/><circle cx="15" cy="19" r="1.3"/></g>"#
+        }
+        "system-search" | "edit-find" => {
+            r#"<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>"#
+        }
+        "hyprdesk-start" => {
+            // Le h plié du logo livré dans assets/greeter/logo.png.
+            r##"<defs><linearGradient id="hyprdesk-mark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#00d8b2"/><stop offset="1" stop-color="#00b9a5"/></linearGradient></defs><g fill="url(#hyprdesk-mark)" stroke="none"><path d="M2 14.8V4.8a3 3 0 0 1 3-3h2.2a3 3 0 0 1 3 3v5.8l6-2.1c2.9-1 5.8 1.1 5.8 4.2v6.5a3 3 0 0 1-3 3h-2.4a3 3 0 0 1-3-3v-3.9c0-1.8-.8-2.3-3.3-1.9-2.8.4-5.7 1.1-8.3 2z"/><path d="M2 17.2c0-1.4 1.9-1.7 3.8-2.2l4.4-1v5.2a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z"/></g>"##
+        }
+        "hyprdesk-task-view" => {
+            r#"<rect x="3" y="7" width="14" height="14" rx="2"/><rect x="7" y="3" width="14" height="14" rx="2"/>"#
         }
         "view-app-grid" => {
             r#"<rect x="3" y="15" width="18" height="6" rx="3"/><rect x="5" y="9" width="4" height="4" rx="1"/><rect x="10" y="9" width="4" height="4" rx="1"/><rect x="15" y="9" width="4" height="4" rx="1"/>"#

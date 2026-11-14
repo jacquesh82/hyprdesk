@@ -30,9 +30,6 @@ pub struct Switcher {
     pub loading: bool,
     /// Sens demandé avant la lecture.
     pub back: bool,
-    /// Vue d'ensemble (`hyprdesk overview`) : reste ouverte au relâchement
-    /// des touches ; un clic, Entrée ou Échap la referme.
-    pub sticky: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +62,6 @@ impl App {
             selected: 0,
             loading: true,
             back,
-            sticky: false,
         });
         let h = height(SHOWN) + 2.0 * SHADOW;
         // Plein bureau : aussi les fenêtres que le bureau a mises de côté.

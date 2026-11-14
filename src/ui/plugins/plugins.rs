@@ -15,7 +15,7 @@ use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
-use super::{BUILTIN, PluginInfo, PluginMsg};
+use super::{BUILTIN, GROUPS, PluginInfo, PluginMsg};
 use crate::config::{CORE_PLUGINS, WidgetSource};
 
 pub const INFO: PluginInfo = PluginInfo {
@@ -121,69 +121,82 @@ impl App {
             })
         };
 
-        // Paquets intégrés.
+        // Paquets intégrés, rangés par thème : les groupes de la navigation
+        // (le test `groupes` garantit un groupe unique pour chaque paquet).
         let mut packages = column![].spacing(10);
-        for info in BUILTIN {
-            let core = CORE_PLUGINS.contains(&info.id);
-            let on = self.cfg.plugin_on(info.id);
-            let id = info.id.to_string();
-            let switch: Element<'_, UiMsg> = if core {
-                badge(crate::i18n::tr("cœur"), true).into()
-            } else {
-                toggler(on)
-                    .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
-                    .into()
-            };
-            // Paquet configurable : « Configurer » ouvre sa page de réglages.
-            let configure: Element<'_, UiMsg> = if info.id == crate::apptheme::PLUGIN && on {
-                button(text("Configurer").font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(UiMsg::Control(crate::control::Command::Settings(
-                        info.id.into(),
-                    )))
-                    .into()
-            } else {
-                iced::widget::Space::new().into()
-            };
-            packages = packages.push(
-                row![
-                    column![
-                        row![
-                            text(info.label).font(self.title_font()).size(14),
-                            badge(
-                                if on {
-                                    "actif"
-                                } else {
-                                    crate::i18n::tr("coupé")
-                                },
-                                on
-                            ),
-                            badge(crate::i18n::tr("intégré"), false),
+        for g in GROUPS {
+            let mut group = column![].spacing(10);
+            for info in g
+                .ids
+                .iter()
+                .filter_map(|id| BUILTIN.iter().find(|i| i.id == *id))
+            {
+                let core = CORE_PLUGINS.contains(&info.id);
+                let on = self.cfg.plugin_on(info.id);
+                let id = info.id.to_string();
+                let switch: Element<'_, UiMsg> = if core {
+                    badge(crate::i18n::tr("cœur"), true).into()
+                } else {
+                    toggler(on)
+                        .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
+                        .into()
+                };
+                // Paquet configurable : « Configurer » ouvre sa page de réglages.
+                let configure: Element<'_, UiMsg> = if info.id == crate::apptheme::PLUGIN && on {
+                    button(text("Configurer").font(self.font).size(12))
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(UiMsg::Control(crate::control::Command::Settings(
+                            info.id.into(),
+                        )))
+                        .into()
+                } else {
+                    iced::widget::Space::new().into()
+                };
+                group = group.push(
+                    row![
+                        column![
+                            row![
+                                text(info.label).font(self.title_font()).size(14),
+                                badge(
+                                    if on {
+                                        "actif"
+                                    } else {
+                                        crate::i18n::tr("coupé")
+                                    },
+                                    on
+                                ),
+                                badge(crate::i18n::tr("intégré"), false),
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                            text(info.summary).font(self.font).size(12).color(dim),
                         ]
-                        .spacing(8)
-                        .align_y(Alignment::Center),
-                        text(info.summary).font(self.font).size(12).color(dim),
+                        .spacing(3)
+                        .width(Length::Fill),
+                        configure,
+                        switch,
                     ]
-                    .spacing(3)
-                    .width(Length::Fill),
-                    configure,
-                    switch,
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            );
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                );
+            }
+            packages = packages.push(self.section(g.label));
+            packages = packages.push(group);
         }
 
-        // Plugins Lua (et widgets intégrés), avec leur origine et leur état.
+        // Plugins Lua (et widgets intégrés), rangés par origine : intégrés
+        // (compilés avec hyprdesk), livrés (Lua embarqué) et tiers (installés).
         let user = user_dir(self);
-        let mut lua = column![].spacing(10);
+        let mut integres: Vec<Element<'_, UiMsg>> = Vec::new();
+        let mut livres: Vec<Element<'_, UiMsg>> = Vec::new();
+        let mut tiers: Vec<Element<'_, UiMsg>> = Vec::new();
         for t in &self.cfg.catalog {
             let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id);
-            let (origin, path) = match &t.source {
-                WidgetSource::Builtin => (crate::i18n::tr("intégré"), None),
-                WidgetSource::Bundled => (crate::i18n::tr("livré"), None),
-                WidgetSource::Plugin(path) => ("tiers", Some(path.clone())),
+            let (origin, path, bucket) = match &t.source {
+                WidgetSource::Builtin => (crate::i18n::tr("intégré"), None, &mut integres),
+                WidgetSource::Bundled => (crate::i18n::tr("livré"), None, &mut livres),
+                WidgetSource::Plugin(path) => ("tiers", Some(path.clone()), &mut tiers),
             };
             let mut head = row![
                 text(t.name.clone()).font(self.title_font()).size(14),
@@ -231,10 +244,19 @@ impl App {
                     super::widgets::wrap(super::widgets::Msg::WidgetToggle(id.clone(), v))
                 }));
             }
-            lua = lua.push(line);
+            bucket.push(line.into());
             if p.plugins.configuring.as_deref() == Some(t.id.as_str()) {
-                lua = lua.push(self.plugin_config(t));
+                bucket.push(self.plugin_config(t));
             }
+        }
+        // Sections sans contenu (aucun plugin tiers installé) : passées.
+        let mut lua = column![].spacing(10);
+        for (title, items) in [("Intégrés", integres), ("Livrés", livres), ("Tiers", tiers)] {
+            if items.is_empty() {
+                continue;
+            }
+            lua = lua.push(self.section(title));
+            lua = lua.push(column(items).spacing(10));
         }
 
         // Ajouter un plugin tiers.

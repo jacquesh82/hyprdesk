@@ -1,0 +1,187 @@
+<div id="graphite-study" aria-label="Graphite : barre des tâches, thèmes et dimensions">
+  <style>
+    #graphite-study { display:flow-root; font:400 13px/1.45 "Segoe UI",system-ui,sans-serif; color:light-dark(#202124,#f2f2f2); --g-motion:140ms; }
+    #graphite-study * { box-sizing:border-box; }
+    #graphite-study [hidden] { display:none!important; }
+    #graphite-study .g-caption { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin:16px 0 8px; font-weight:500; }
+    #graphite-study .g-caption small { font-size:12px; font-weight:400; }
+    #graphite-study .g-scene { --g-bg:rgba(32,32,32,.94); --g-panel:#292929; --g-ink:#f5f5f5; --g-dim:#c4c4c4; --g-edge:#ffffff16; --g-hover:#ffffff12; --g-press:#ffffff09; --g-accent:#9db9ff; --g-inset:#ffffff09; position:relative; height:280px; isolation:isolate; color:var(--g-ink); background:radial-gradient(ellipse at 60% 105%,#285998 0,transparent 55%),linear-gradient(125deg,#101926,#1d3255 58%,#253047); container-type:inline-size; }
+    #graphite-study .g-scene.g-light { --g-bg:rgba(243,243,243,.94); --g-panel:#fafafa; --g-ink:#202020; --g-dim:#606060; --g-edge:#00000014; --g-hover:#00000009; --g-press:#00000010; --g-accent:#345bbb; --g-inset:#00000006; height:180px; background:radial-gradient(ellipse at 60% 110%,#94c5f5 0,transparent 60%),linear-gradient(125deg,#c4d8ef,#e7e8f1 65%,#b4cde9); }
+    #graphite-study .g-scene:has(.g-popup),#graphite-study .g-light:has(.g-panel) { min-height:360px; }
+    #graphite-study .g-wall { position:absolute; inset:0 0 48px; overflow:hidden; pointer-events:none; }
+    #graphite-study .g-wall:before,#graphite-study .g-wall:after { content:""; position:absolute; width:65%; height:135%; border-radius:48%; border:28px solid #78a9e11a; transform:rotate(-30deg); top:32%; left:30%; box-shadow:0 0 0 28px #83aff00a,0 0 0 56px #83aff008; }
+    #graphite-study .g-wall:after { left:48%; top:12%; transform:rotate(35deg); }
+    #graphite-study button,#graphite-study input { font:inherit; color:inherit; }
+    #graphite-study button { cursor:var(--cursor-interaction,pointer); }
+    #graphite-study button:focus-visible,#graphite-study input:focus-visible { outline:2px solid var(--g-accent); outline-offset:-3px; }
+    #graphite-study .g-bar { position:absolute; inset:auto 0 0; height:48px; border-top:1px solid var(--g-edge); background:var(--g-bg); backdrop-filter:blur(24px); }
+    #graphite-study .g-center { position:absolute; left:50%; top:1px; transform:translateX(-50%); display:flex; align-items:center; gap:4px; height:46px; }
+    #graphite-study .g-button { display:grid; place-items:center; flex:none; position:relative; width:44px; height:44px; padding:0; border:0; border-radius:4px; background:transparent; transition:background var(--g-motion); }
+    #graphite-study .g-button:hover,#graphite-study .g-button[data-open=true] { background:var(--g-hover); }
+    #graphite-study .g-button:active { background:var(--g-press); }
+    #graphite-study .g-button:active .g-icon { transform:scale(.94); }
+    #graphite-study .g-icon { display:grid; place-items:center; width:24px; height:24px; transition:transform 90ms; }
+    #graphite-study .g-icon svg { width:24px!important; height:24px!important; stroke-width:1.6; }
+    #graphite-study .g-start-mark { display:grid; grid-template-columns:repeat(2,10px); gap:2px; color:var(--g-accent); }
+    #graphite-study .g-start-mark b { width:10px; height:10px; background:currentColor; }
+    #graphite-study .g-search { width:160px; display:flex; gap:10px; justify-content:flex-start; padding:0 12px; height:32px; border-radius:16px; background:var(--g-inset); border:1px solid var(--g-edge); }
+    #graphite-study .g-search .g-icon,#graphite-study .g-search svg { width:18px!important; height:18px!important; }
+    #graphite-study .g-app .g-icon { border-radius:5px; }
+    #graphite-study .g-files { color:#e9b846; }
+    #graphite-study .g-browser { color:#82b5fb; }
+    #graphite-study .g-terminal { background:var(--g-inset); border:1px solid var(--g-edge); }
+    #graphite-study .g-app[data-state=active] { background:var(--g-hover); }
+    #graphite-study .g-app:after { content:""; position:absolute; bottom:3px; height:3px; width:0; border-radius:2px; transition:width var(--g-motion),background var(--g-motion); }
+    #graphite-study .g-app[data-state=running]:after { width:6px; background:var(--g-dim); }
+    #graphite-study .g-app[data-state=active]:after { width:16px; background:var(--g-accent); }
+    #graphite-study .g-system { display:flex; align-items:center; gap:2px; position:absolute; right:8px; top:1px; height:46px; }
+    #graphite-study .g-tray { width:32px; }
+    #graphite-study .g-quick { display:flex; justify-content:center; gap:10px; width:88px; }
+    #graphite-study .g-system svg { width:16px!important; height:16px!important; stroke-width:1.7; }
+    #graphite-study .g-clock { width:84px; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; padding:0 8px; font-size:11px; font-variant-numeric:tabular-nums; line-height:16px; }
+    #graphite-study .g-overflow { display:none; }
+    #graphite-study .g-panel { position:absolute; z-index:4; bottom:60px; width:320px; max-width:calc(100% - 24px); padding:16px; border-radius:8px; background:var(--g-panel); border:1px solid var(--g-edge); box-shadow:0 8px 24px #00000040; animation:g-enter var(--g-motion) ease-out; }
+    #graphite-study .g-preview { left:50%; transform:translateX(-50%); width:264px; padding:10px; }
+    #graphite-study .g-preview header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    #graphite-study .g-preview header span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #graphite-study .g-close { background:none; border:0; border-radius:4px; width:28px; height:28px; display:grid; place-items:center; }
+    #graphite-study .g-close:hover { background:var(--g-hover); }
+    #graphite-study .g-close svg { width:16px!important; height:16px!important; }
+    #graphite-study .g-thumbnail { display:block; border:1px solid var(--g-edge); padding:0; width:100%; height:132px; background:var(--g-inset); border-radius:4px; text-align:left; overflow:hidden; }
+    #graphite-study .g-mini-toolbar { height:20px; border-bottom:1px solid var(--g-edge); display:flex; align-items:center; gap:4px; padding:0 7px; }
+    #graphite-study .g-mini-toolbar b { width:4px; height:4px; border-radius:50%; background:var(--g-dim); }
+    #graphite-study .g-mini-page { display:grid; grid-template-columns:42px 1fr; gap:10px; padding:12px; height:110px; }
+    #graphite-study .g-mini-side { background:var(--g-hover); border-radius:3px; }
+    #graphite-study .g-mini-content { display:flex; flex-direction:column; gap:7px; padding:4px; }
+    #graphite-study .g-mini-content b { display:block; height:6px; background:var(--g-dim); opacity:.45; width:80%; }
+    #graphite-study .g-mini-content b:first-child { width:55%; background:var(--g-accent); height:10px; opacity:1; }
+    #graphite-study .g-mini-content b:last-child { width:65%; }
+    #graphite-study .g-popup { right:12px; }
+    #graphite-study .g-popup[data-kind=start],#graphite-study .g-popup[data-kind=search],#graphite-study .g-popup[data-kind=tasks] { right:auto; left:50%; transform:translateX(-50%); }
+    #graphite-study .g-popup h3 { font-size:14px; font-weight:500; margin:0 0 12px; }
+    #graphite-study .g-popup input[type=search] { width:100%; background:var(--g-inset); border:1px solid var(--g-edge); border-bottom:2px solid var(--g-accent); border-radius:4px; padding:8px; margin-bottom:12px; }
+    #graphite-study .g-menu-item { display:flex; gap:12px; align-items:center; width:100%; background:none; border:0; border-radius:4px; padding:9px; text-align:left; }
+    #graphite-study .g-menu-item svg { width:20px!important; height:20px!important; }
+    #graphite-study .g-menu-item:hover { background:var(--g-hover); }
+    #graphite-study .g-control-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+    #graphite-study .g-control-grid button { display:grid; justify-items:center; gap:8px; background:var(--g-hover); padding:10px 3px; border:1px solid var(--g-edge); border-radius:4px; font-size:11px; }
+    #graphite-study .g-control-grid button[aria-pressed=true] { background:var(--g-accent); color:var(--g-panel); }
+    #graphite-study .g-range { display:flex; align-items:center; gap:10px; margin-top:14px; }
+    #graphite-study .g-range input { width:100%; accent-color:var(--g-accent); }
+    #graphite-study .g-calendar { display:grid; grid-template-columns:repeat(7,1fr); text-align:center; gap:3px; }
+    #graphite-study .g-calendar span { padding:4px 0; font-size:11px; }
+    #graphite-study .g-calendar .g-today { background:var(--g-accent); color:var(--g-panel); border-radius:50%; }
+    #graphite-study .g-task-row { display:flex; gap:8px; }
+    #graphite-study .g-task-row button { flex:1; height:70px; border:1px solid var(--g-edge); background:var(--g-inset); border-radius:4px; }
+    #graphite-study .g-state-key { display:flex; gap:24px; flex-wrap:wrap; margin:8px 0 16px; font-size:12px; }
+    #graphite-study .g-state-key span { display:flex; gap:7px; align-items:center; }
+    #graphite-study .g-state-key b { width:6px; height:3px; border-radius:2px; background:light-dark(#606060,#c4c4c4); }
+    #graphite-study .g-state-key .g-key-closed { background:none; width:12px; height:12px; border:1px solid currentColor; }
+    #graphite-study .g-state-key .g-key-active { width:16px; background:light-dark(#345bbb,#9db9ff); }
+    #graphite-study .g-annotated { height:178px; background:#1d293c; }
+    #graphite-study .g-annotated .g-button { outline:1px dashed var(--g-accent); outline-offset:-1px; }
+    #graphite-study .g-dimensions { position:absolute; inset:16px 12px auto; display:flex; justify-content:space-between; gap:16px; font-size:12px; color:var(--g-ink); }
+    #graphite-study .g-dimensions span { max-width:45%; }
+    #graphite-study .g-axis { position:absolute; left:50%; top:62px; bottom:0; width:1px; background:var(--g-accent); opacity:.6; pointer-events:none; }
+    #graphite-study .g-measure { position:absolute; bottom:52px; left:12px; border-left:1px solid var(--g-accent); padding:0 7px; font-size:11px; }
+    #graphite-study .g-annotation-key { display:flex; flex-wrap:wrap; gap:8px 24px; margin-top:8px; font-size:12px; }
+    #graphite-study .g-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    #graphite-study .g-light .g-panel { bottom:60px; }
+    @keyframes g-enter { from { opacity:0; margin-bottom:-6px; } to { opacity:1; margin-bottom:0; } }
+    @container (max-width:900px) { #graphite-study .g-search { width:44px; height:44px; padding:0; justify-content:center; background:none; border:0; } #graphite-study .g-search-label { display:none; } }
+    @container (max-width:720px) { #graphite-study .g-overflow { display:grid; } #graphite-study .g-center>.g-app { display:none; } }
+    @container (max-width:620px) { #graphite-study .g-center { left:8px; transform:none; } }
+    @container (max-width:440px) { #graphite-study .g-center>.g-tasks { display:none; } #graphite-study .g-quick { width:44px; } #graphite-study .g-quick .g-secondary { display:none; } #graphite-study .g-clock { width:72px; padding-right:4px; } #graphite-study .g-system { right:4px; gap:0; } #graphite-study .g-tray { width:44px; } #graphite-study .g-center { gap:2px; left:4px; } #graphite-study .g-dimensions { font-size:11px; } #graphite-study .g-annotated { height:196px; } }
+    @media (pointer:coarse) { #graphite-study .g-close { width:44px; height:44px; } #graphite-study .g-tray { width:44px; } #graphite-study .g-menu-item { min-height:44px; } }
+    @media (prefers-reduced-motion:reduce) { #graphite-study { --g-motion:0ms; } #graphite-study *,#graphite-study *:before,#graphite-study *:after { animation:none!important; transition:none!important; } }
+  </style>
+  <div class="g-caption"><span>Graphite · Sombre</span><small>Aperçu de Firefox au-dessus de la barre</small></div>
+  <section class="g-scene" data-scene="dark" aria-label="Bureau sombre, aperçu d’une fenêtre Firefox"><div class="g-wall"></div></section>
+  <div class="g-state-key" aria-label="États initiaux des trois applications, de gauche à droite"><span><b class="g-key-closed"></b>Fichiers · épinglée, fermée</span><span><b></b>Firefox · ouverte en arrière-plan</span><span><b class="g-key-active"></b>Terminal · active</span></div>
+  <div class="g-caption"><span>Graphite · Clair</span><small>Mêmes zones, mêmes états</small></div>
+  <section class="g-scene g-light" data-scene="light" aria-label="Bureau clair, barre Graphite"><div class="g-wall"></div></section>
+  <div class="g-caption"><span>Vue cotée · pixels logiques</span><small>Pointillés : zones cliquables</small></div>
+  <section class="g-scene g-annotated" data-scene="annotated" aria-label="Dimensions de la barre Graphite" inert>
+    <div class="g-dimensions"><span>Centre du groupe = centre de l’écran<br>Icônes 24 × 24 · pas de 48</span><span>Zone système ancrée à droite<br>Horloge 84 × 44 · deux lignes</span></div>
+    <div class="g-axis"></div><div class="g-measure">Barre 48 · filet supérieur 1 · marge au bord 0</div>
+  </section>
+  <div class="g-annotation-key"><span>Boutons 44 × 44 · intervalle 4</span><span>Indicateurs 6 × 3 / 16 × 3</span><span>Rayons : barre 0 · boutons 4 · aperçu 8</span><span>Aperçu 264 · retrait 12 au-dessus de la barre</span></div>
+  <span class="g-sr" aria-live="polite" data-status></span>
+  <script>
+    (() => {
+      const root = document.getElementById('graphite-study');
+      const glyph = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+      const icon = name => `<span class="g-icon">${glyph(name)}</span>`;
+      const apps = [ ['files','Fichiers','folder','g-files','closed'], ['browser','Firefox','globe','g-browser','running'], ['terminal','Terminal','terminal','g-terminal','active'] ];
+      const state = { motion:true, accent:'#9db9ff' };
+      const saved = window.openai?.widgetState?.privateContent;
+      if (saved && typeof saved.motion === 'boolean') state.motion = saved.motion;
+      if (saved && /^#[0-9a-f]{6}$/i.test(saved.accent)) state.accent = saved.accent;
+      const announce = value => { root.querySelector('[data-status]').textContent = value; };
+      const save = () => { if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{direction:'Graphite — barre des tâches',motion:state.motion},privateContent:{...state}}).catch(()=>{}); };
+      function renderSettings() { root.style.setProperty('--g-motion',state.motion?'140ms':'0ms'); root.querySelectorAll('.g-scene:not(.g-light)').forEach(s=>s.style.setProperty('--g-accent',state.accent)); }
+      const bar = () => `<nav class="g-bar" aria-label="Barre des tâches"><div class="g-center"><button type="button" class="g-button" data-action="start" aria-label="Démarrer" aria-expanded="false"><span class="g-start-mark" aria-hidden="true"><b></b><b></b><b></b><b></b></span></button><button type="button" class="g-button g-search" data-action="search" aria-label="Rechercher" aria-expanded="false">${icon('search')}<span class="g-search-label">Rechercher</span></button><button type="button" class="g-button g-tasks" data-action="tasks" aria-label="Vue des tâches" aria-expanded="false">${icon('panels-top-left')}</button>${apps.map(([id,name,g,cls,st])=>`<button type="button" class="g-button g-app" data-app="${id}" data-state="${st}" aria-label="${name}, ${st==='closed'?'épinglée et fermée':st==='running'?'ouverte en arrière-plan':'active'}"><span class="g-icon ${cls}">${glyph(g)}</span></button>`).join('')}<button type="button" class="g-button g-overflow" data-action="overflow" aria-label="Applications supplémentaires" aria-expanded="false">${icon('ellipsis')}</button></div><div class="g-system"><button type="button" class="g-button g-tray" data-action="tray" aria-label="Icônes masquées" aria-expanded="false">${glyph('chevron-up')}</button><button type="button" class="g-button g-quick" data-action="quick" aria-label="Réglages rapides : réseau, volume et batterie" aria-expanded="false">${glyph('wifi')}<span class="g-secondary">${glyph('volume-2')}</span><span class="g-secondary">${glyph('battery-full')}</span></button><button type="button" class="g-button g-clock" data-action="calendar" aria-label="14 novembre 2026, 14 heures 32, calendrier et notifications" aria-expanded="false"><span>14:32</span><span>14/11/2026</span></button></div></nav>`;
+      function enhance() { if(globalThis.lucide) globalThis.lucide.createIcons({attrs:{width:20,height:20}}); }
+      function close(scene) { scene.querySelectorAll('.g-panel').forEach(p=>p.remove()); scene.querySelectorAll('[aria-expanded]').forEach(b=>b.setAttribute('aria-expanded','false')); scene.querySelectorAll('[data-open]').forEach(b=>delete b.dataset.open); }
+      function preview(scene, id='browser') {
+        close(scene);
+        const app = apps.find(a=>a[0]===id);
+        if (!app) return;
+        const name = app[1], panel = document.createElement('section');
+        panel.className='g-panel g-preview'; panel.dataset.anchor=id; panel.setAttribute('aria-label',`Aperçu de ${name}`);
+        panel.innerHTML=`<header><span>${name} · ${id==='browser'?'Guide Graphite':'Espace de travail'}</span><button type="button" class="g-close" data-close-window="${id}" aria-label="Fermer la fenêtre ${name}">${glyph('x')}</button></header><button type="button" class="g-thumbnail" data-activate="${id}" aria-label="Activer la fenêtre ${name}"><span class="g-mini-toolbar"><b></b><b></b><b></b></span><span class="g-mini-page"><span class="g-mini-side"></span><span class="g-mini-content"><b></b><b></b><b></b><b></b></span></span></button>`;
+        scene.append(panel);
+        anchor(scene,panel,scene.querySelector(`[data-app="${id}"]`)); enhance();
+      }
+      function anchor(scene,panel,target) {
+        const s=scene.getBoundingClientRect(),b=target?.getBoundingClientRect(),w=panel.getBoundingClientRect().width;
+        const center=b?.width?b.left-s.left+b.width/2:s.width/2;
+        panel.style.left=`${Math.max(12,Math.min(center-w/2,s.width-w-12))}px`;
+        panel.style.right='auto'; panel.style.transform='none';
+      }
+      const menuItem=(id,name,g='app-window')=>`<button type="button" class="g-menu-item" data-activate="${id}">${glyph(g)}${name}</button>`;
+      function open(scene,kind,target) {
+        const previous=scene.querySelector('.g-popup')?.dataset.kind;
+        close(scene); if(previous===kind) return;
+        const panel=document.createElement('section'); panel.className='g-panel g-popup'; panel.dataset.kind=kind;
+        panel.setAttribute('aria-label',({start:'Démarrer',search:'Recherche',tasks:'Vue des tâches',quick:'Réglages rapides',calendar:'Calendrier et notifications',tray:'Icônes masquées',overflow:'Applications supplémentaires',context:'Menu de l’application'})[kind]||kind);
+        if(kind==='start'||kind==='search') panel.innerHTML=`<h3>${kind==='start'?'Démarrer':'Rechercher'}</h3><input type="search" aria-label="Rechercher une application" placeholder="Rechercher une application…"><div data-results>${apps.map(a=>menuItem(a[0],a[1],a[2])).join('')}</div>`;
+        if(kind==='tasks') panel.innerHTML=`<h3>Fenêtres ouvertes</h3><div class="g-task-row"><button type="button" data-activate="browser">Firefox</button><button type="button" data-activate="terminal">Terminal</button></div><h3 style="margin-top:14px">Bureaux virtuels</h3><div class="g-task-row"><button type="button" data-workspace="1">Bureau 1</button><button type="button" data-workspace="2">Bureau 2</button></div>`;
+        if(kind==='overflow') panel.innerHTML=`<h3>Applications</h3>${apps.map(a=>menuItem(a[0],a[1],a[2])).join('')}<button type="button" class="g-menu-item" data-action="tasks">${glyph('panels-top-left')}Vue des tâches</button>`;
+        if(kind==='tray') panel.innerHTML=`<h3>Icônes masquées</h3><div class="g-menu-item">${glyph('bluetooth')}Bluetooth · activé</div><div class="g-menu-item">${glyph('cloud')}Synchronisation · à jour</div>`;
+        if(kind==='quick') panel.innerHTML=`<h3>Réglages rapides</h3><div class="g-control-grid"><button type="button" aria-pressed="true" data-toggle> ${glyph('wifi')}Wi-Fi</button><button type="button" aria-pressed="true" data-toggle>${glyph('bluetooth')}Bluetooth</button><button type="button" aria-pressed="false" data-toggle>${glyph('moon')}Silence</button></div><label class="g-range">${glyph('volume-2')}<input aria-label="Volume" type="range" value="64"><output>64 %</output></label><label class="g-range">${glyph('sun')}<input aria-label="Luminosité" type="range" value="72"><output>72 %</output></label><div style="margin-top:14px">Batterie · 86 %</div>`;
+        if(kind==='calendar') { const days=['L','M','M','J','V','S','D'].map(d=>`<span>${d}</span>`).join(''); panel.innerHTML=`<h3>Notifications · Aucune nouvelle notification</h3><h3>Novembre 2026</h3><div class="g-calendar">${days}${'<span></span>'.repeat(6)}${Array.from({length:30},(_,i)=>`<span class="${i===13?'g-today':''}">${i+1}</span>`).join('')}</div>`; }
+        scene.append(panel); if(target){ target.setAttribute('aria-expanded','true'); target.dataset.open='true'; }
+        if(kind==='overflow') anchor(scene,panel,target);
+        if(kind==='start'||kind==='search') panel.querySelector('input').focus(); enhance();
+      }
+      function activate(scene,id) {
+        scene.querySelectorAll('[data-app]').forEach(b=>{ if(b.dataset.state==='active') b.dataset.state='running'; if(b.dataset.app===id) b.dataset.state='active'; const name=apps.find(a=>a[0]===b.dataset.app)[1]; b.setAttribute('aria-label',`${name}, ${b.dataset.state==='active'?'active':b.dataset.state==='running'?'ouverte en arrière-plan':'épinglée et fermée'}`); }); close(scene); announce(`${apps.find(a=>a[0]===id)[1]} active · démonstration`);
+      }
+      root.querySelectorAll('[data-scene]').forEach(scene=>{
+        scene.insertAdjacentHTML('beforeend',bar()); let hoverTimer, closeTimer;
+        new ResizeObserver(()=>{ const panel=scene.querySelector('.g-preview'); if(panel)anchor(scene,panel,scene.querySelector(`[data-app="${panel.dataset.anchor}"]`)); const popup=scene.querySelector('.g-popup'); if(popup?.dataset.kind==='overflow')anchor(scene,popup,scene.querySelector('[data-action=overflow]')); }).observe(scene);
+        scene.addEventListener('click',e=>{
+          const app=e.target.closest('[data-app]'),action=e.target.closest('[data-action]'),pick=e.target.closest('[data-activate]'),toggle=e.target.closest('[data-toggle]'),closing=e.target.closest('[data-close-window]'),ws=e.target.closest('[data-workspace]');
+          clearTimeout(hoverTimer); clearTimeout(closeTimer);
+          if(closing){ const b=scene.querySelector(`[data-app="${closing.dataset.closeWindow}"]`); if(b){ b.dataset.state='closed'; b.setAttribute('aria-label',`${apps.find(a=>a[0]===b.dataset.app)[1]}, épinglée et fermée`); } close(scene); return; }
+          if(pick){ activate(scene,pick.dataset.activate); return; }
+          if(app){ activate(scene,app.dataset.app); return; }
+          if(action){ open(scene,action.dataset.action,action); return; }
+          if(toggle){ toggle.setAttribute('aria-pressed',String(toggle.getAttribute('aria-pressed')!=='true')); return; }
+          if(ws){ close(scene); announce(`Bureau ${ws.dataset.workspace} sélectionné · démonstration`); return; }
+          if(!e.target.closest('.g-panel')) close(scene);
+        });
+        scene.addEventListener('contextmenu',e=>{const app=e.target.closest('[data-app]'); if(!app)return; e.preventDefault(); clearTimeout(hoverTimer); close(scene); const p=document.createElement('section'); p.className='g-panel g-popup'; p.dataset.kind='context'; p.innerHTML=`<h3>${apps.find(a=>a[0]===app.dataset.app)[1]}</h3>${menuItem(app.dataset.app,'Ouvrir une nouvelle fenêtre','plus')}<button type="button" class="g-menu-item" data-pin="${app.dataset.app}">${glyph('pin-off')}Détacher de la barre</button>${app.dataset.state==='closed'?'':`<button type="button" class="g-menu-item" data-close-window="${app.dataset.app}">${glyph('x')}Fermer la fenêtre</button>`}`; scene.append(p); anchor(scene,p,app); enhance(); });
+        scene.addEventListener('pointerover',e=>{clearTimeout(closeTimer); const app=e.target.closest('[data-app]'); if(!app||app.contains(e.relatedTarget))return; clearTimeout(hoverTimer); if(app.dataset.state!=='closed') hoverTimer=setTimeout(()=>preview(scene,app.dataset.app),450);});
+        scene.addEventListener('pointerout',e=>{ if(e.target.closest('[data-app],.g-preview')){clearTimeout(hoverTimer); closeTimer=setTimeout(()=>{scene.querySelector('.g-preview')?.remove();},250);} });
+        scene.addEventListener('input',e=>{if(e.target.type==='range')e.target.nextElementSibling.textContent=e.target.value+' %'; if(e.target.type==='search') scene.querySelector('[data-results]').innerHTML=apps.filter(a=>a[1].toLowerCase().includes(e.target.value.toLowerCase())).map(a=>menuItem(a[0],a[1],a[2])).join(''); enhance();});
+        scene.addEventListener('keydown',e=>{if(e.key==='Escape'){close(scene);scene.querySelector('[data-action=start]').focus();}});
+        scene.addEventListener('click',e=>{const pin=e.target.closest('[data-pin]');if(pin){pin.textContent=pin.dataset.unpinned?'Détacher de la barre':'Épingler à la barre';pin.dataset.unpinned=pin.dataset.unpinned?'':'true';announce('Épinglage modifié · démonstration');}});
+      });
+      preview(root.querySelector('[data-scene=dark]')); renderSettings();
+      if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{renderSettings();save();}});tweak.addToggle(state,'motion',{label:'Animations'});tweak.addColorPicker(state,'accent',{label:'Accent sombre',reference:'--g-accent'});}
+      window.addEventListener('openai:set_globals',e=>{const s=e.detail?.globals?.widgetState?.privateContent;if(!s)return;if(typeof s.motion==='boolean')state.motion=s.motion;if(/^#[0-9a-f]{6}$/i.test(s.accent))state.accent=s.accent;renderSettings();});
+    })();
+  </script>
+</div>

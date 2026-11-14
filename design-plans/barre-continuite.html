@@ -1,0 +1,215 @@
+<div id="hyprdesk-continuite" aria-label="Proposition hyprdesk — barre et centre de contrôle">
+  <style>
+    #hyprdesk-continuite { --hd-accent: #a69cff; --hd-ink: light-dark(#242535,#f2f4fc); --hd-muted: light-dark(#626473,#b2b5c7); --hd-glass: light-dark(#f0f1f4,#232633); --hd-panel: light-dark(#f4f5f8,#282b38); --hd-inset: light-dark(#e5e6ed,#343846); --hd-line: light-dark(#d7d9e3,#444857); --hd-shadow: light-dark(#22283b30,#080b1675); --hd-bar-height: 44px; --hd-speed: 1; color:var(--hd-ink); font: 400 13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; position:relative; isolation:isolate; }
+    #hyprdesk-continuite * { box-sizing:border-box; }
+    #hyprdesk-continuite button, #hyprdesk-continuite input { font:inherit; }
+    #hyprdesk-continuite button { color:inherit; border:0; background:none; cursor:var(--cursor-interaction,pointer); }
+    #hyprdesk-continuite svg { width:17px; height:17px; stroke-width:1.7; flex-shrink:0; }
+    #hyprdesk-continuite [hidden] { display:none !important; }
+    #hyprdesk-continuite .hd-stage { position:relative; min-height:620px; overflow:hidden; background:linear-gradient(145deg,light-dark(#c4d6d9,#122d3b) 0%,light-dark(#d9cddc,#30354c) 53%,light-dark(#edd9ce,#5c4657) 100%); }
+    #hyprdesk-continuite .hd-landscape { position:absolute; inset:var(--hd-bar-height) 0 0; overflow:hidden; pointer-events:none; }
+    #hyprdesk-continuite .hd-landscape::before { content:""; position:absolute; width:135%; height:95%; top:31%; left:-28%; border-radius:48% 60% 0 0; transform:rotate(-13deg); background:linear-gradient(150deg,light-dark(#86b2b8,#214750),light-dark(#b9c5d0,#203345) 63%); box-shadow:inset 0 1px 0 #e6f5ff18; }
+    #hyprdesk-continuite .hd-landscape::after { content:""; position:absolute; width:135%; height:88%; top:65%; right:-30%; border-radius:52% 70% 0 0; transform:rotate(-21deg); background:linear-gradient(150deg,light-dark(#8ba7ba,#172f42),light-dark(#c0b1c6,#252b41)); box-shadow:inset 0 1px 0 #effaff16; }
+    #hyprdesk-continuite .hd-bar { position:relative; z-index:4; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; height:var(--hd-bar-height); padding:0 12px; background:var(--hd-glass); box-shadow:0 1px 0 light-dark(#ffffff70,#ffffff0c),0 4px 18px #111a2910; }
+    #hyprdesk-continuite .hd-zone { display:flex; align-items:center; gap:2px; min-width:0; position:relative; z-index:1; }
+    #hyprdesk-continuite .hd-right { justify-content:flex-end; }
+    #hyprdesk-continuite .hd-mark { width:26px; height:26px; display:grid; place-items:center; font-size:18px; font-weight:600; margin-right:10px; color:var(--hd-accent); }
+    #hyprdesk-continuite .hd-workspaces { display:flex; position:relative; gap:1px; }
+    #hyprdesk-continuite .hd-workspaces button { width:28px; height:28px; position:relative; z-index:1; font-variant-numeric:tabular-nums; color:var(--hd-muted); transition:color calc(120ms * var(--hd-speed)); border-radius:8px; }
+    #hyprdesk-continuite .hd-workspaces button[aria-pressed=true] { color:var(--hd-ink); font-weight:600; }
+    #hyprdesk-continuite .hd-workspace-pill { position:absolute; left:0; top:0; height:28px; width:28px; border-radius:9px; background:color-mix(in srgb,var(--hd-accent) 27%,var(--hd-glass)); box-shadow:inset 0 1px 0 #ffffff12; transition:transform calc(180ms * var(--hd-speed)) cubic-bezier(.2,.8,.2,1); pointer-events:none; }
+    #hyprdesk-continuite .hd-window-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0 12px; color:var(--hd-muted); font-size:12px; }
+    #hyprdesk-continuite .hd-bar-button { display:flex; align-items:center; justify-content:center; gap:6px; height:30px; min-width:32px; padding:0 8px; border-radius:10px; white-space:nowrap; position:relative; transition:transform calc(90ms * var(--hd-speed)),background calc(120ms * var(--hd-speed)); }
+    #hyprdesk-continuite .hd-bar-button:active { transform:scale(.95); background:color-mix(in srgb,var(--hd-ink) 15%,transparent); }
+    #hyprdesk-continuite .hd-bar-button[aria-expanded=true] { background:color-mix(in srgb,var(--hd-ink) 12%,transparent); }
+    #hyprdesk-continuite .hd-clock { font-variant-numeric:tabular-nums; font-weight:500; }
+    #hyprdesk-continuite .hd-clock span { color:var(--hd-muted); font-weight:400; }
+    #hyprdesk-continuite .hd-hover { position:absolute; z-index:0; left:0; top:7px; height:30px; width:32px; background:color-mix(in srgb,var(--hd-ink) 7%,transparent); border-radius:10px; opacity:0; pointer-events:none; transition:transform calc(140ms * var(--hd-speed)) cubic-bezier(.2,.8,.2,1),opacity calc(100ms * var(--hd-speed)); }
+    #hyprdesk-continuite .hd-clock { z-index:1; }
+    #hyprdesk-continuite .hd-desktop-caption { position:absolute; left:44px; bottom:44px; color:light-dark(#253b4b,#edf3fc); z-index:1; }
+    #hyprdesk-continuite .hd-desktop-caption time { display:block; font-size:70px; line-height:1.1; font-weight:300; font-variant-numeric:tabular-nums; letter-spacing:-3px; }
+    #hyprdesk-continuite .hd-desktop-caption p { margin:10px 0 0; font-size:14px; opacity:.8; }
+    #hyprdesk-continuite .hd-popover { position:absolute; z-index:3; top:calc(var(--hd-bar-height) + 10px); right:14px; width:328px; max-width:calc(100% - 28px); padding:18px; border-radius:20px; background:var(--hd-panel); border:1px solid color-mix(in srgb,var(--hd-ink) 10%,transparent); box-shadow:0 18px 48px var(--hd-shadow),inset 0 1px 0 #ffffff10; transform-origin:var(--hd-origin,90%) top; }
+    #hyprdesk-continuite .hd-popover[data-kind=calendar] { right:auto; left:50%; margin-left:-164px; --hd-origin:50%; }
+    #hyprdesk-continuite .hd-popover header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
+    #hyprdesk-continuite .hd-popover h2 { font-family:inherit; font-size:15px; font-weight:600; margin:0; }
+    #hyprdesk-continuite .hd-sub { color:var(--hd-muted); font-size:12px; }
+    #hyprdesk-continuite .hd-close { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--hd-inset); }
+    #hyprdesk-continuite .hd-connections { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:20px; }
+    #hyprdesk-continuite .hd-tile { display:flex; align-items:center; gap:10px; padding:12px 10px; border-radius:14px; background:var(--hd-inset); text-align:left; min-width:0; transition:transform calc(100ms * var(--hd-speed)); }
+    #hyprdesk-continuite .hd-tile:active { transform:scale(.97); }
+    #hyprdesk-continuite .hd-orb { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:color-mix(in srgb,var(--hd-muted) 18%,transparent); flex-shrink:0; transition:background calc(140ms * var(--hd-speed)); }
+    #hyprdesk-continuite .hd-tile[aria-pressed=true] .hd-orb { background:var(--hd-accent); color:#1b1c2c; }
+    #hyprdesk-continuite .hd-tile small { display:block; font-size:11px; color:var(--hd-muted); margin-top:2px; }
+    #hyprdesk-continuite .hd-tile strong { font-weight:500; font-size:12px; }
+    #hyprdesk-continuite .hd-setting { margin:18px 0; }
+    #hyprdesk-continuite .hd-setting label { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; font-weight:500; }
+    #hyprdesk-continuite .hd-setting output { color:var(--hd-muted); font-size:12px; font-weight:400; font-variant-numeric:tabular-nums; }
+    #hyprdesk-continuite .hd-range-row { display:flex; align-items:center; gap:10px; color:var(--hd-muted); }
+    #hyprdesk-continuite input[type=range] { appearance:none; width:100%; margin:0; height:24px; background:transparent; cursor:var(--cursor-interaction,pointer); }
+    #hyprdesk-continuite input[type=range]::-webkit-slider-runnable-track { height:14px; border-radius:9px; background:linear-gradient(to right,var(--hd-accent) 0 var(--hd-fill),var(--hd-inset) var(--hd-fill) 100%); }
+    #hyprdesk-continuite input[type=range]::-webkit-slider-thumb { appearance:none; height:20px; width:20px; margin-top:-3px; border:0; border-radius:50%; background:#f4f5fa; box-shadow:0 1px 5px #11152538; }
+    #hyprdesk-continuite input[type=range]::-moz-range-track { height:14px; border:0; border-radius:9px; background:var(--hd-inset); }
+    #hyprdesk-continuite input[type=range]::-moz-range-progress { height:14px; border-radius:9px; background:var(--hd-accent); }
+    #hyprdesk-continuite input[type=range]::-moz-range-thumb { height:20px; width:20px; border:0; border-radius:50%; background:#f4f5fa; box-shadow:0 1px 5px #11152538; }
+    #hyprdesk-continuite .hd-divider { height:1px; background:color-mix(in srgb,var(--hd-ink) 10%,transparent); margin:18px 0; }
+    #hyprdesk-continuite .hd-section-label { color:var(--hd-muted); font-size:11px; margin-bottom:9px; }
+    #hyprdesk-continuite .hd-modes { display:flex; padding:3px; border-radius:12px; background:var(--hd-inset); gap:2px; }
+    #hyprdesk-continuite .hd-modes button { flex:1; display:flex; justify-content:center; align-items:center; gap:6px; padding:8px 4px; font-size:11px; border-radius:9px; }
+    #hyprdesk-continuite .hd-modes button[aria-pressed=true] { background:var(--hd-panel); box-shadow:0 1px 4px #00000018; }
+    #hyprdesk-continuite .hd-modes svg { width:14px; height:14px; }
+    #hyprdesk-continuite .hd-bottom { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:16px; color:var(--hd-muted); font-size:11px; }
+    #hyprdesk-continuite .hd-bottom span { display:flex; align-items:center; gap:6px; }
+    #hyprdesk-continuite .hd-status-dot { height:5px; width:5px; border-radius:50%; background:var(--hd-accent); }
+    #hyprdesk-continuite .hd-device { display:flex; width:100%; align-items:center; justify-content:space-between; padding:11px 10px; text-align:left; border-radius:10px; margin-top:3px; }
+    #hyprdesk-continuite .hd-device:hover { background:var(--hd-inset); }
+    #hyprdesk-continuite .hd-device[aria-pressed=true] { background:color-mix(in srgb,var(--hd-accent) 15%,var(--hd-panel)); }
+    #hyprdesk-continuite .hd-device span { display:flex; align-items:center; gap:9px; }
+    #hyprdesk-continuite .hd-device small { font-size:11px; color:var(--hd-muted); }
+    #hyprdesk-continuite .hd-month { font-size:20px; font-weight:500; margin-bottom:16px; }
+    #hyprdesk-continuite .hd-calendar { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
+    #hyprdesk-continuite .hd-calendar span { display:grid; place-items:center; min-height:28px; border-radius:50%; font-variant-numeric:tabular-nums; }
+    #hyprdesk-continuite .hd-calendar .hd-today { background:var(--hd-accent); color:#1b1c2c; }
+    #hyprdesk-continuite .hd-calendar .hd-weekday { color:var(--hd-muted); font-size:11px; }
+    #hyprdesk-continuite .hd-sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+    #hyprdesk-continuite[data-still=true] { --hd-speed:0; }
+    @media (max-width:760px) { #hyprdesk-continuite .hd-window-title,#hyprdesk-continuite .hd-clock span,#hyprdesk-continuite .hd-battery-label { display:none; } #hyprdesk-continuite .hd-mark { margin-right:3px; } #hyprdesk-continuite .hd-bar { padding:0 8px; } #hyprdesk-continuite .hd-bar-button { padding:0 5px; min-width:29px; } #hyprdesk-continuite .hd-right { gap:0; } }
+    @media (max-width:480px) { #hyprdesk-continuite .hd-secondary { display:none; } #hyprdesk-continuite .hd-mark { display:none; } #hyprdesk-continuite .hd-workspaces button,#hyprdesk-continuite .hd-workspace-pill { width:25px; } #hyprdesk-continuite .hd-stage { min-height:650px; } #hyprdesk-continuite .hd-popover[data-kind=calendar] { left:14px; right:14px; margin:0; width:auto; } #hyprdesk-continuite .hd-desktop-caption { bottom:24px; left:24px; } #hyprdesk-continuite .hd-desktop-caption time { font-size:52px; } }
+    @media (pointer:coarse) { #hyprdesk-continuite { --hd-bar-height:48px; } #hyprdesk-continuite .hd-bar-button { min-height:44px; } #hyprdesk-continuite .hd-close { min-width:44px; min-height:44px; } #hyprdesk-continuite .hd-workspaces button { height:44px; } #hyprdesk-continuite .hd-workspace-pill { top:8px; } }
+    @media (prefers-reduced-motion:reduce) { #hyprdesk-continuite { --hd-speed:0; } }
+  </style>
+  <section class="hd-stage" aria-label="Bureau hyprdesk, données de démonstration">
+    <div class="hd-landscape" aria-hidden="true"></div>
+    <nav class="hd-bar" aria-label="Barre du bureau">
+      <div class="hd-hover" aria-hidden="true"></div>
+      <div class="hd-zone">
+        <div class="hd-mark" aria-hidden="true">h.</div>
+        <div class="hd-workspaces" aria-label="Espaces de travail">
+          <div class="hd-workspace-pill" aria-hidden="true"></div>
+          <button type="button" class="cursor-interaction" data-workspace="0" aria-pressed="true" aria-label="Espace 1, Design">1</button>
+          <button type="button" class="cursor-interaction" data-workspace="1" aria-pressed="false" aria-label="Espace 2, Écriture">2</button>
+          <button type="button" class="cursor-interaction" data-workspace="2" aria-pressed="false" aria-label="Espace 3, Code">3</button>
+          <button type="button" class="cursor-interaction" data-workspace="3" aria-pressed="false" aria-label="Espace 4, Personnel">4</button>
+        </div>
+        <span class="hd-window-title">Design · hyprdesk</span>
+      </div>
+      <button type="button" class="hd-bar-button hd-clock cursor-interaction" data-open="calendar" aria-label="Vendredi 13 novembre, 13 heures 42, ouvrir le calendrier" aria-expanded="false" aria-controls="hd-continuite-popover"><span>Ven. 13 nov.</span> 13:42</button>
+      <div class="hd-zone hd-right">
+        <button type="button" class="hd-bar-button hd-secondary cursor-interaction" data-open="network" aria-label="Réseau, connecté à Maison" data-tooltip="Réseau · Maison" aria-expanded="false" aria-controls="hd-continuite-popover"><i data-lucide="wifi" aria-hidden="true"></i></button>
+        <button type="button" class="hd-bar-button cursor-interaction" data-open="sound" aria-label="Son, volume 64 pour cent" data-tooltip="Son" aria-expanded="false" aria-controls="hd-continuite-popover"><i data-lucide="volume-2" aria-hidden="true"></i></button>
+        <button type="button" class="hd-bar-button hd-secondary cursor-interaction" data-open="battery" aria-label="Batterie, 86 pour cent" data-tooltip="Batterie · 86 %" aria-expanded="false" aria-controls="hd-continuite-popover"><i data-lucide="battery-full" aria-hidden="true"></i><span class="hd-battery-label">86 %</span></button>
+        <button type="button" class="hd-bar-button cursor-interaction" data-open="control" aria-label="Centre de contrôle" data-tooltip="Centre de contrôle" aria-expanded="true" aria-controls="hd-continuite-popover"><i data-lucide="sliders-horizontal" aria-hidden="true"></i></button>
+      </div>
+    </nav>
+    <div class="hd-desktop-caption"><time datetime="2026-11-13T13:42">13:42</time><p>Vendredi 13 novembre</p></div>
+    <section class="hd-popover" id="hd-continuite-popover" data-kind="control" aria-label="Centre de contrôle"></section>
+    <span class="hd-sr" aria-live="polite" id="hd-continuite-status"></span>
+  </section>
+  <script>
+    (() => {
+      const root = document.getElementById('hyprdesk-continuite');
+      const stage = root.querySelector('.hd-stage');
+      const bar = root.querySelector('.hd-bar');
+      const panel = root.querySelector('.hd-popover');
+      const hover = root.querySelector('.hd-hover');
+      const status = root.querySelector('#hd-continuite-status');
+      const preferences = { accent:'#a69cff', height:44, motion:true };
+      const titles = ['Design · hyprdesk','Écriture · Notes','Code · Terminal','Personnel · Navigateur'];
+      const initial = window.openai?.widgetState?.privateContent || {};
+      const state = { kind:'control', workspace:0, volume:64, brightness:72, wifi:true, bluetooth:true, quiet:false, mode:'full', device:'speakers', ...initial };
+      if (!['control','sound','network','battery','calendar',null].includes(state.kind)) state.kind = 'control';
+      if (!Number.isInteger(state.workspace) || state.workspace < 0 || state.workspace > 3) state.workspace = 0;
+      let trigger = root.querySelector('[data-open="control"]');
+      let animation;
+      let closing = false;
+      function save() {
+        if (window.openai?.setWidgetState) window.openai.setWidgetState({ modelContent:{direction:'Continuité', espace:state.workspace+1, menu:state.kind}, privateContent:{...state} }).catch(() => {});
+      }
+      const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+      const reduced = () => !preferences.motion || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      function enhance() { if (globalThis.lucide) globalThis.lucide.createIcons({attrs:{width:17,height:17}}); }
+      function head(title, sub='') { return `<header><div><h2>${title}</h2>${sub?`<div class="hd-sub">${sub}</div>`:''}</div><button type="button" class="hd-close cursor-interaction" data-close aria-label="Fermer le menu">${icon('x')}</button></header>`; }
+      function range(key,label,value,glyph) { return `<div class="hd-setting"><label for="hd-${key}">${label}<output for="hd-${key}">${value} %</output></label><div class="hd-range-row">${icon(glyph)}<input id="hd-${key}" type="range" min="0" max="100" value="${value}" style="--hd-fill:${value}%" data-range="${key}"></div></div>`; }
+      function tile(key,label,sub,glyph) { return `<button type="button" class="hd-tile cursor-interaction" data-toggle="${key}" aria-pressed="${state[key]}"><span class="hd-orb">${icon(glyph)}</span><span><strong>${label}</strong><small>${state[key]?sub:'Désactivé'}</small></span></button>`; }
+      function modes() { return `<div class="hd-section-label">Affichage du bureau</div><div class="hd-modes" aria-label="Mode du bureau">${[['hidden','Masqué','panel-top-close'],['launcher','Lanceur','panel-bottom'],['full','Complet','monitor']].map(([key,label,glyph])=>`<button type="button" class="cursor-interaction" data-mode="${key}" aria-pressed="${state.mode===key}">${icon(glyph)}${label}</button>`).join('')}</div>`; }
+      function content(kind) {
+        if (kind==='control') return head('Centre de contrôle') + `<div class="hd-connections">${tile('wifi','Wi-Fi','Maison','wifi')}${tile('bluetooth','Bluetooth','Activé','bluetooth')}</div>` + range('brightness','Luminosité',state.brightness,'sun') + range('volume','Son',state.volume,'volume-2') + `<div class="hd-divider"></div>` + modes() + `<div class="hd-bottom"><span><b class="hd-status-dot"></b>Batterie · 86 %</span><span>hyprdesk</span></div>`;
+        if (kind==='sound') return head('Son','Sortie audio') + range('volume','Volume',state.volume,'volume-2') + `<div class="hd-divider"></div><div class="hd-section-label">Écouter avec</div>` + [['speakers','Haut-parleurs','monitor'],['headphones','Casque Bluetooth','headphones']].map(([key,label,glyph])=>`<button type="button" class="hd-device cursor-interaction" data-device="${key}" aria-pressed="${state.device===key}"><span>${icon(glyph)}${label}</span>${state.device===key?icon('check'):''}</button>`).join('');
+        if (kind==='network') return head('Réseau','Connexion de démonstration') + `<div class="hd-connections">${tile('wifi','Wi-Fi','Maison','wifi')}</div><div class="hd-device"><span>${icon('wifi')}Maison</span><small>${state.wifi?'Connecté':'Déconnecté'}</small></div><div class="hd-divider"></div><div class="hd-sub">${state.wifi?'Réseau privé · Signal excellent':'Le Wi-Fi est désactivé.'}</div>`;
+        if (kind==='battery') return head('Batterie','86 % · Sur batterie') + `<div class="hd-section-label">Profil d’énergie</div><div class="hd-device"><span>${icon('leaf')}Équilibré</span>${icon('check')}</div><div class="hd-divider"></div><div class="hd-sub">Votre batterie fonctionne normalement.</div>`;
+        if (kind==='calendar') {
+          const cells = ['L','M','M','J','V','S','D'].map(d=>`<span class="hd-weekday">${d}</span>`).join('') + '<span></span>'.repeat(6) + Array.from({length:30},(_,i)=>`<span${i===12?' class="hd-today" aria-label="Vendredi 13 novembre, aujourd’hui"':''}>${i+1}</span>`).join('');
+          return head('Vendredi 13 novembre') + `<div class="hd-month">Novembre 2026</div><div class="hd-calendar" aria-label="Novembre 2026">${cells}</div>`;
+        }
+        return '';
+      }
+      function updateWorkspace() {
+        const buttons = [...root.querySelectorAll('[data-workspace]')];
+        buttons.forEach((b,i)=>b.setAttribute('aria-pressed',String(i===state.workspace)));
+        root.querySelector('.hd-workspace-pill').style.transform = `translateX(${buttons[state.workspace].offsetLeft}px)`;
+        root.querySelector('.hd-window-title').textContent = titles[state.workspace];
+      }
+      function updateBar() {
+        root.querySelectorAll('[data-open]').forEach(b=>b.setAttribute('aria-expanded',String(b.dataset.open===state.kind && !closing)));
+        root.querySelector('[data-open="sound"]').setAttribute('aria-label',`Son, volume ${state.volume} pour cent`);
+        updateWorkspace();
+      }
+      function positionPanel() {
+        if (!state.kind || state.kind==='calendar') return;
+        const button = root.querySelector(`[data-open="${state.kind}"]`);
+        const a = button.getBoundingClientRect(), b = stage.getBoundingClientRect();
+        const width = panel.getBoundingClientRect().width;
+        const left = Math.max(14, Math.min(a.right-b.left-width, b.width-width-14));
+        panel.style.right = `${Math.max(14,b.width-left-width)}px`;
+        panel.style.setProperty('--hd-origin',`${Math.max(16,Math.min(width-16,a.left+a.width/2-b.left-left))}px`);
+      }
+      function renderPanel() { panel.dataset.kind=state.kind||'control'; panel.innerHTML=content(state.kind); panel.setAttribute('aria-label',({control:'Centre de contrôle',sound:'Son',network:'Réseau',battery:'Batterie',calendar:'Calendrier'})[state.kind]||'Menu'); panel.hidden=!state.kind; enhance(); positionPanel(); updateBar(); }
+      function show(kind, source) {
+        const wasOpen = !!state.kind && !panel.hidden && !closing;
+        const previous = state.kind;
+        const oldBox = panel.getBoundingClientRect();
+        if (animation) animation.cancel();
+        closing=false;
+        state.kind=kind;
+        if (source) trigger=source;
+        renderPanel();
+        if (!reduced()) {
+          const box=panel.getBoundingClientRect();
+          const dx=wasOpen ? Math.max(-90,Math.min(90,oldBox.left-box.left)) : 0;
+          const frames = wasOpen && previous!==kind ? [{opacity:.78,transform:`translateX(${dx}px) scale(.99)`},{opacity:1,transform:'translateX(0) scale(1)'}] : [{opacity:0,transform:'translateY(-6px) scale(.975)'},{opacity:1,transform:'translateY(0) scale(1)'}];
+          animation=panel.animate(frames,{duration:wasOpen?160:180,easing:'cubic-bezier(.2,.8,.2,1)'});
+        }
+        save();
+      }
+      function close(returnFocus=false) {
+        if(!state.kind) return;
+        if(animation) animation.cancel();
+        closing=true; state.kind=null; updateBar(); save();
+        const finish=()=>{ if(!closing) return; panel.hidden=true; closing=false; if(returnFocus) trigger?.focus(); };
+        if(reduced()) finish();
+        else { animation=panel.animate([{opacity:1,transform:'translateY(0) scale(1)'},{opacity:0,transform:'translateY(-3px) scale(.985)'}],{duration:120,easing:'ease-in',fill:'forwards'}); animation.finished.then(finish).catch(()=>{}); }
+      }
+      root.addEventListener('click',e=>{
+        const button=e.target.closest('button');
+        if(!button) { if(!panel.contains(e.target) && !bar.contains(e.target)) close(); return; }
+        if(button.hasAttribute('data-open')) { const kind=button.dataset.open; if(kind===state.kind) close(); else show(kind,button); if(e.detail===0) panel.querySelector('button,input')?.focus(); }
+        if(button.hasAttribute('data-close')) close(true);
+        if(button.hasAttribute('data-workspace')) { state.workspace=Number(button.dataset.workspace); updateWorkspace(); status.textContent=`Espace ${state.workspace+1} · ${titles[state.workspace]}`; close(); save(); }
+        if(button.hasAttribute('data-toggle')) { const key=button.dataset.toggle; state[key]=!state[key]; button.setAttribute('aria-pressed',String(state[key])); button.querySelector('small').textContent=state[key]?(key==='wifi'?'Maison':'Activé'):'Désactivé'; if(state.kind==='network') renderPanel(); save(); }
+        if(button.hasAttribute('data-mode')) { state.mode=button.dataset.mode; panel.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode))); root.querySelector('.hd-desktop-caption').hidden=state.mode!=='full'; save(); }
+        if(button.hasAttribute('data-device')) { state.device=button.dataset.device; renderPanel(); panel.querySelector(`[data-device="${state.device}"]`).focus(); save(); }
+      });
+      root.addEventListener('input',e=>{ if(e.target.dataset.range) { const key=e.target.dataset.range; state[key]=Number(e.target.value); e.target.style.setProperty('--hd-fill',`${state[key]}%`); e.target.closest('.hd-setting').querySelector('output').textContent=`${state[key]} %`; updateBar(); } });
+      root.addEventListener('change',e=>{ if(e.target.dataset.range) save(); });
+      root.addEventListener('keydown',e=>{ if(e.key==='Escape' && state.kind) { e.preventDefault(); close(true); } });
+      bar.addEventListener('pointerover',e=>{ const b=e.target.closest('.hd-bar-button'); if(!b) return; const x=b.getBoundingClientRect(), y=bar.getBoundingClientRect(); hover.style.width=`${x.width}px`; hover.style.transform=`translateX(${x.left-y.left}px)`; hover.style.top=`${x.top-y.top}px`; hover.style.opacity='1'; });
+      bar.addEventListener('pointerleave',()=>hover.style.opacity='0');
+      function applyPreferences() { root.style.setProperty('--hd-accent',preferences.accent); root.style.setProperty('--hd-bar-height',`${preferences.height}px`); root.dataset.still=String(!preferences.motion); if(!preferences.motion && animation) animation.finish(); updateWorkspace(); positionPanel(); }
+      new ResizeObserver(()=>{updateWorkspace();positionPanel();}).observe(stage);
+      window.addEventListener('openai:set_globals',e=>{const saved=e.detail?.globals?.widgetState?.privateContent; if(saved) {Object.assign(state,saved); renderPanel();root.querySelector('.hd-desktop-caption').hidden=state.mode!=='full';}});
+      renderPanel();
+      root.querySelector('.hd-desktop-caption').hidden=state.mode!=='full';
+      if(globalThis.Tweak) { const tweak=new Tweak({container:root,onChange:applyPreferences}); tweak.addColorPicker(preferences,'accent',{label:'Accent iris',reference:'--hd-accent'}); tweak.addSlider(preferences,'height',{label:'Hauteur de la barre',min:36,max:48,step:2,unit:'px'}); tweak.addToggle(preferences,'motion',{label:'Mouvements'}); }
+    })();
+  </script>
+</div>

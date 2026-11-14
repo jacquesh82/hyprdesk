@@ -112,7 +112,7 @@ Clés par paquet :
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, ou des écrans séparés par des virgules) |
 | `screens` | `primary` |
-| `workspaces` | `workspaces`, `workspace.<n>` (écran : connecteur, `primary`, `auto`), `assign.<app>` |
+| `workspaces` | `workspaces`, `workspace.<n>` (écran : connecteur, `primary`, `auto`), `assign.<app>`, `workspace_selector` (`relief`, `rail`, `miniatures`, `icones`) |
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
 | `apptheme` | `app_themes` (`kitty`, `none`) |
 | `effects` | `transition`, `fade_ms`, `crossfade_ms` |
@@ -130,10 +130,12 @@ de commande n'aurait pas ce filet de sécurité.
 ### Navigation et configuration avancée
 
 La navigation des Réglages range les paquets par groupes (`plugins::GROUPS`) :
-Bureau, Apparence, Barre et lanceur, Fenêtres et écrans, Applications, Système.
-Un nouveau paquet s'ajoute à un groupe (un test vérifie que chaque paquet est
-dans un seul). Tiroir large : les onglets du paquet choisi s'affichent sous lui,
-en sous-entrées ; tiroir étroit : en pastilles au-dessus de la page.
+Bureau, Apparence, Barre et lanceur, Fenêtres et écrans, Périphériques et
+réseau, Système, Applications, hyprdesk. Un nouveau paquet s'ajoute à un
+groupe (un test vérifie que chaque paquet est dans un seul, et que les
+libellés de groupes sont uniques). Tiroir large : les onglets du paquet
+choisi s'affichent sous lui, en sous-entrées ; tiroir étroit : en pastilles
+au-dessus de la page.
 
 « Configuration avancée » (en-tête du tiroir, clé `advanced_settings`) : cochée,
 tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
@@ -192,7 +194,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
 | `bar` | Barre | position, hauteur, écrans, modules | `ui/bar.rs` |
 | `screens` | Écrans | détection, disposition, orientation, mode, écran principal | `screens.rs` → `monitors.lua` |
-| `workspaces` | Workspaces | workspaces permanents, affectation des applications | `hypr.rs` (règles Hyprland) |
+| `workspaces` | Workspaces | workspaces permanents, affectation des applications, style du sélecteur de la barre, écran « Espaces de travail » | `hypr.rs` (règles Hyprland), `ui/overview.rs` |
 | `layouts` | Layouts | layout par défaut et par workspace, options de Dwindle, Master, Scrolling, layouts personnalisés (`lua:<nom>`), raccourcis de chaque layout | `tiling.rs` |
 | `effects` | Effets | transitions, fondu entre fonds | `config::General` |
 | `apps` | Applications | applications par défaut (navigateur, terminal, fichiers, éditeur, images, vidéo, audio, PDF, mail, IA), appliquées au système (`xdg-mime`) ; seules les applications installées sont proposées (programme de `TryExec` / `Exec` présent), reconnues au type de fichier du rôle ou à leur catégorie freedesktop (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`), un choix devenu absent est signalé « non installée » | `apps.rs` |
@@ -214,7 +216,7 @@ leurs vues ont besoin de l'état de l'application (`App`).
 Un widget, c'est un **type** et une **instance** :
 
 - **Type** (`config::WidgetType`, catalogue `Config::catalog`) :
-  - intégré, déclaré dans `widgets::BUILTINS` : `clock`, `calendar`,
+  - intégré, déclaré dans `widgets::BUILTINS` : `controls`, `clock`, `calendar`,
     `system`, `media`, `command`, `lua` ;
   - ou plugin Lua détecté (§ 2.3).
 - **Instance** (`config::WidgetDef`) : un type et ses options, plus son
@@ -293,13 +295,28 @@ principal.
 La barre s'adapte à chaque écran :
 
 - **Mode compact** (`compact = "auto" | "always" | "never"`, `auto` par
-  défaut) : sur un écran de moins de 1600 px de large ou vertical, le titre de
+  défaut) : quand la largeur mesurée des modules dépasse l'espace disponible ou sur un écran vertical, le titre de
   fenêtre est raccourci, l'horloge réduite à l'heure, et les icônes perdent
   leur libellé (volume, plugins).
 - **Modules des écrans verticaux** (`portrait = { left, center, right }`) :
   ils se règlent aussi dans Barre → Modules → Écrans verticaux.
+- **Style** (`style = "continuite" | "graphite"`) : une barre complète par
+  style, un module de rendu dans `src/ui/bar_style/`. `continuite` (défaut)
+  est le verre fumé à capsule glissante ; `graphite` est une lame acrylique
+  neutre usinée — bloc arrondi flottant au-dessus du bord, modules gravés
+  dans la surface, espace actif surélevé — et impose ses touches en relief
+  (le sélecteur de workspaces ne s'applique qu'à Continuité). Choisir un
+  style pose aussi sa **composition** (Graphite : titre de l'application à
+  gauche, espaces centrés, réseau/batterie/volume + horloge courte + centre
+  de contrôle à droite) et sa **géométrie** (bas, 40 px, marge 10 px) — en
+  Réglages, au CLI (`bar.style`) et dans `hd.bar` quand aucune zone n'est
+  écrite. Les champs et zones ajustés ensuite restent prioritaires.
+- **Marge** (`margin = 0..32`, 0 par défaut en Continuité) : distance entre
+  la barre et le bord de l'écran ; la zone réservée aux fenêtres la compte.
 
-Chaque zone est rognée : même trop longues, elles ne se chevauchent plus.
+Les modules sont mesurés avant leur placement. L'horloge reste au centre géométrique ; les modules excédentaires se retrouvent dans « Autres commandes », dans leur ordre d'origine. Les contrôles critiques, le workspace, l'horloge et le centre de contrôle sont prioritaires. Le mode d'édition garde les zones originales pour déplacer les modules.
+
+`controls` est un **widget intégré**, enregistré dans le catalogue Widgets. Il peut être activé et placé sur le bureau avec `hd.widget("controls", { anchor = "top-right" })`, ou ajouté dans une zone de `hd.bar` comme tout widget. Il se retire et se sauvegarde par les réglages ordinaires des widgets et de la barre. Sa désactivation arrête ses relevés ; ses sources partagées continuent uniquement si un autre widget actif les utilise. Il réutilise les widgets `reseau`, `bluetooth` et `batterie` déjà présents. Si l'un manque, une instance interne est créée, sans carte supplémentaire sur le bureau. Les opérations audio et luminosité restent celles des modules natifs. Un plugin peut exposer `on_toggle(o)` et rendre `toggled = true | false` pour proposer un interrupteur confirmé dans cette composition ; ses clics et menus habituels gardent leur rôle.
 
 ## 3. Le lanceur
 

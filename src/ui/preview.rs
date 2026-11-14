@@ -11,6 +11,7 @@ enum PreviewMsg {
     Captured(iced::window::Screenshot),
     Inspect,
     Inspected(iced::window::Screenshot),
+    BarGesture,
 }
 
 struct Preview {
@@ -23,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 77] = [
+const SCENES: [&str; 100] = [
     "desktop",
     "typography",
     "icons",
@@ -101,6 +102,29 @@ const SCENES: [&str; 77] = [
     "chat-still",
     "raccourcis",
     "raccourcis-essentiels",
+    "bar-idle",
+    "bar-hover",
+    "bar-pressed",
+    "bar-workspace-switch",
+    "bar-controls",
+    "bar-menu-switch",
+    "bar-menu-closing",
+    "bar-bottom",
+    "bar-overflow",
+    "bar-still",
+    "bar-graphite-idle",
+    "bar-graphite-pressed",
+    "bar-graphite-switch",
+    "bar-graphite-bottom",
+    "bar-graphite-urgent",
+    "controls-desktop",
+    "overview",
+    "bar-selector-relief",
+    "bar-selector-rail",
+    "bar-selector-miniatures",
+    "bar-selector-icones",
+    "bar-selector-notif",
+    "bar-graphite-edit",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -148,6 +172,13 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
                 key: keyboard::Key::Named(keyboard::key::Named::F12),
                 ..
             }) => Some(PreviewMsg::Inspect),
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                Some(PreviewMsg::Ui(Box::new(Msg::Released)))
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                ..
+            }) => Some(PreviewMsg::Ui(Box::new(Msg::BarDragCancel))),
             _ => None,
         });
         Subscription::batch([frames, capture])
@@ -246,6 +277,7 @@ impl Preview {
                 monitor: crate::i18n::tr("APERÇU").into(),
                 position: BarPosition::Top,
                 height: 44,
+                margin: 0,
             },
         );
         let mut cfg = Config::default();
@@ -299,19 +331,64 @@ impl Preview {
         barclock.in_bar = true;
         barclock.type_id = "clock".into();
         cfg.widgets.push(barclock);
+        let mut controls = widget("barcontrols", WidgetKind::Controls, Anchor::TopRight);
+        controls.type_id = "controls".into();
+        controls.in_bar = true;
+        cfg.widgets.push(controls);
         cfg.bar = Some(BarDef {
             monitors: None,
             position: BarPosition::Top,
             height: 44,
+            margin: 0,
             zones: [
                 vec![BarItem::Workspaces, BarItem::Window],
                 vec![BarItem::Widget("barclock".into())],
-                vec![BarItem::Brightness, BarItem::Volume, BarItem::Desktop],
+                vec![
+                    BarItem::Brightness,
+                    BarItem::Volume,
+                    BarItem::Desktop,
+                    BarItem::Widget("barcontrols".into()),
+                ],
             ],
             portrait: None,
             compact: Default::default(),
+            style: Default::default(),
             colors: Default::default(),
         });
+        for (type_id, icon, detail) in [
+            (
+                "reseau",
+                "network-wireless-signal-excellent-symbolic",
+                "Maison",
+            ),
+            ("bluetooth", "bluetooth-active-symbolic", "Activé"),
+        ] {
+            let mut source = widget(
+                &format!("bar:controls:{type_id}"),
+                WidgetKind::Lua {
+                    func: 0,
+                    click: None,
+                    scroll: None,
+                    menu: Some(0),
+                    toggle: Some(0),
+                },
+                Anchor::TopRight,
+            );
+            source.type_id = type_id.into();
+            source.in_bar = true;
+            app.values.insert(
+                source.id.clone(),
+                widgets::Value::Rich(config::Rendered {
+                    icon: Some(icon.into()),
+                    tooltip: Some(detail.into()),
+                    toggled: Some(true),
+                    ..Default::default()
+                }),
+            );
+            cfg.widgets.push(source);
+            let img = app.builtin_icon(icon);
+            app.named_icons.insert(icon.into(), img);
+        }
         app.icons = cfg
             .icons
             .iter()
@@ -326,6 +403,7 @@ impl Preview {
                 class: icon.id.clone(),
                 title: icon.label.clone().unwrap_or_default(),
                 workspace: "1".into(),
+                monitor: crate::i18n::tr("APERÇU").into(),
             });
             app.class_imgs.insert(icon.id.clone(), app.icon_imgs[index]);
         }
@@ -356,7 +434,11 @@ impl Preview {
                 windows: if id == 1 { 2 } else { 0 },
             })
             .collect();
-        let cfg = app.settings.apply_to(&cfg);
+        let mut cfg = app.settings.apply_to(&cfg);
+        if std::env::var("HYPRDESK_PREVIEW_THEME").as_deref() == Ok("light") {
+            cfg.general.theme.fg = config::Rgba(0x24, 0x25, 0x35, 0xff);
+            cfg.general.theme.bg = config::Rgba(0xf2, 0xf4, 0xfa, 0xff);
+        }
         app.theme = make_theme(&cfg);
         app.cfg = Arc::new(cfg);
         // Permet de vérifier une surface sans recapturer tous les réglages.
@@ -390,18 +472,81 @@ impl Preview {
     }
 
     fn next_capture(&self) -> Task<PreviewMsg> {
-        if self.output.is_some() {
-            Task::perform(tokio::time::sleep(Duration::from_millis(500)), |_| {
-                PreviewMsg::Capture
-            })
+        if self.output.is_none() {
+            return Task::none();
+        }
+        let gesture = matches!(
+            SCENES[self.scene],
+            "bar-hover"
+                | "bar-pressed"
+                | "bar-workspace-switch"
+                | "bar-menu-switch"
+                | "bar-menu-closing"
+                | "bar-graphite-pressed"
+                | "bar-graphite-switch"
+        );
+        let capture = Task::perform(
+            tokio::time::sleep(Duration::from_millis(if gesture { 150 } else { 500 })),
+            |_| PreviewMsg::Capture,
+        );
+        if gesture {
+            Task::batch([
+                capture,
+                Task::perform(tokio::time::sleep(Duration::from_millis(65)), |_| {
+                    PreviewMsg::BarGesture
+                }),
+            ])
         } else {
-            Task::none()
+            capture
         }
     }
 
     fn set_scene(&mut self) {
         self.app.panel = None;
         self.app.chat = None;
+        self.app.bar_preview = None;
+        self.app.workspaces.retain(|w| w.id <= 4);
+        let cfg = Arc::make_mut(&mut self.app.cfg);
+        cfg.widgets
+            .retain(|w| !w.id.starts_with("preview-module-") && w.id != "barlauncher");
+        if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
+            w.kind = WidgetKind::Clock {
+                format: "%a %-d %b  ·  %H:%M".into(),
+            };
+        }
+        if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barcontrols") {
+            w.in_bar = true;
+            w.y = 0.0;
+        }
+        if let Some(bar) = cfg.bar.as_mut() {
+            bar.zones = [
+                vec![BarItem::Workspaces, BarItem::Window],
+                vec![BarItem::Widget("barclock".into())],
+                vec![
+                    BarItem::Brightness,
+                    BarItem::Volume,
+                    BarItem::Desktop,
+                    BarItem::Widget("barcontrols".into()),
+                ],
+            ];
+            // Retour à la pose de référence : les scènes Graphite se règlent
+            // ensuite elles-mêmes (style, pose en bas, marge).
+            bar.style = config::BarStyle::Continuite;
+            bar.position = BarPosition::Top;
+            bar.height = 44;
+            bar.margin = 0;
+        }
+        self.app.urgent.clear();
+        self.app.clients.retain(|c| c.address != "preview-urgent");
+        self.app.bar_hidden.clear();
+        self.app.bar_full_width.clear();
+        if let Some(bar) = self.app.bar_surfaces.get_mut(&self.bar) {
+            bar.position = BarPosition::Top;
+            bar.height = 44;
+            bar.margin = 0;
+        }
+        self.app.monitors[0].reserved = (0.0, 44.0, 0.0, 0.0);
+        self.app.monitors[0].workspace = "1".into();
         self.app.popover = None;
         self.app.launcher_popup = None;
         self.app.launcher_runtime.docks.clear();
@@ -453,6 +598,7 @@ impl Preview {
                     class: "firefox".into(),
                     title: crate::i18n::tr("Mindlog · Notes du jour").into(),
                     workspace: "2".into(),
+                    monitor: crate::i18n::tr("APERÇU").into(),
                 });
             }
             self.app.hover_fades.clear();
@@ -504,6 +650,7 @@ impl Preview {
                         class: "firefox".into(),
                         title: format!("Document {} — Notes de travail", index + 1),
                         workspace: "2".into(),
+                        monitor: crate::i18n::tr("APERÇU").into(),
                     });
                 }
             }
@@ -558,6 +705,7 @@ impl Preview {
             "ia-services" | "smartui" => Some("assistant"),
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
+            "bar-graphite-edit" => Some("bar"),
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
@@ -1364,7 +1512,6 @@ impl Preview {
                 selected: 1,
                 loading: false,
                 back: false,
-                sticky: false,
             });
         } else {
             self.app.switcher = None;
@@ -1465,14 +1612,392 @@ impl Preview {
                 .app
                 .open_popover(self.bar, "brightness".into(), popover::Kind::Brightness);
         }
+        if SCENES[self.scene] == "controls-desktop" {
+            let controls = Arc::make_mut(&mut self.app.cfg)
+                .widgets
+                .iter_mut()
+                .find(|w| w.id == "barcontrols")
+                .unwrap();
+            controls.in_bar = false;
+            controls.anchor = Anchor::TopRight;
+            controls.y = 40.0;
+            self.app.light.screen = Some(crate::brightness::Device {
+                subsystem: "backlight",
+                name: "preview".into(),
+                current: 72,
+                max: 100,
+            });
+        }
+        if SCENES[self.scene].starts_with("bar-") {
+            // Une scène isolée et une capture après le parcours complet doivent
+            // partir du même bureau, indépendamment des scènes noir/blanc ou masqué.
+            self.app.visible = true;
+            self.app.raised.insert(self.desktop);
+            self.app.fade = None;
+            let general = &mut Arc::make_mut(&mut self.app.cfg).general;
+            general.background = config::General::default().background;
+            general.theme.effects.remove(&config::Place::Launcher);
+            Arc::make_mut(&mut self.app.cfg).general.transition =
+                if SCENES[self.scene] == "bar-still" {
+                    Transition::None
+                } else {
+                    Transition::Fade
+                };
+            self.app.light.screen = Some(crate::brightness::Device {
+                subsystem: "backlight",
+                name: "preview".into(),
+                current: 72,
+                max: 100,
+            });
+            if SCENES[self.scene] == "bar-bottom" {
+                self.app.bar_surfaces.get_mut(&self.bar).unwrap().position = BarPosition::Bottom;
+                self.app.monitors[0].reserved = (0.0, 0.0, 0.0, 44.0);
+            }
+            if SCENES[self.scene].starts_with("bar-graphite-") {
+                // La composition du préréglage : le titre de l'application au
+                // premier plan à gauche, les espaces centrés, et à droite les
+                // indicateurs du quotidien, l'horloge courte et le seul
+                // panneau de réglages rapides.
+                let cfg = Arc::make_mut(&mut self.app.cfg);
+                for (id, type_id, icon) in [
+                    (
+                        "preview-module-reseau",
+                        "reseau",
+                        "network-wireless-signal-excellent-symbolic",
+                    ),
+                    (
+                        "preview-module-batterie",
+                        "batterie",
+                        "battery-level-good-symbolic",
+                    ),
+                ] {
+                    let mut w = widget(
+                        id,
+                        WidgetKind::Lua {
+                            func: 0,
+                            click: None,
+                            scroll: None,
+                            menu: None,
+                            toggle: None,
+                        },
+                        Anchor::TopRight,
+                    );
+                    w.type_id = type_id.into();
+                    w.in_bar = true;
+                    self.app.values.insert(
+                        id.to_string(),
+                        widgets::Value::Rich(config::Rendered {
+                            icon: Some(icon.into()),
+                            ..Default::default()
+                        }),
+                    );
+                    cfg.widgets.push(w);
+                }
+                let bar = cfg.bar.as_mut().unwrap();
+                bar.style = config::BarStyle::Graphite;
+                if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
+                    w.kind = WidgetKind::Clock {
+                        format: "%H:%M".into(),
+                    };
+                }
+                let mut launcher = widget("barlauncher", WidgetKind::Launcher, Anchor::Bottom);
+                launcher.type_id = "launcher".into();
+                launcher.in_bar = true;
+                cfg.widgets.retain(|w| w.id != "barlauncher");
+                cfg.widgets.push(launcher);
+                bar.zones = [
+                    vec![],
+                    vec![BarItem::Widget("barlauncher".into())],
+                    vec![
+                        BarItem::Widget("preview-module-reseau".into()),
+                        BarItem::Volume,
+                        BarItem::Widget("preview-module-batterie".into()),
+                        BarItem::Widget("barclock".into()),
+                    ],
+                ];
+                bar.position = BarPosition::Bottom;
+                bar.height = 48;
+                bar.margin = 0;
+                let surface = self.app.bar_surfaces.get_mut(&self.bar).unwrap();
+                surface.position = BarPosition::Bottom;
+                surface.height = 48;
+                surface.margin = 0;
+                self.app.monitors[0].reserved = (0.0, 0.0, 0.0, 48.0);
+            }
+
+            if SCENES[self.scene] == "bar-graphite-urgent" {
+                // Une fenêtre marquée urgente sur un espace non actif : le
+                // losange se pose à côté de son numéro.
+                self.app.clients.push(Client {
+                    address: "preview-urgent".into(),
+                    class: "firefox".into(),
+                    title: crate::i18n::tr("Mindlog · Notes du jour").into(),
+                    workspace: "2".into(),
+                    monitor: crate::i18n::tr("APERÇU").into(),
+                });
+                self.app.urgent.insert("preview-urgent".into());
+            }
+            if matches!(
+                SCENES[self.scene],
+                "bar-controls"
+                    | "bar-menu-switch"
+                    | "bar-menu-closing"
+                    | "bar-bottom"
+                    | "bar-still"
+            ) {
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "barcontrols".into(),
+                    popover::Kind::Widget("barcontrols".into()),
+                );
+            }
+            if SCENES[self.scene] == "bar-overflow" {
+                self.app
+                    .workspaces
+                    .extend((5..=40).map(|id| hypr::Workspace {
+                        id,
+                        name: id.to_string(),
+                        monitor: self.app.monitors[0].name.clone(),
+                        windows: 0,
+                    }));
+                for i in 0..10 {
+                    let id = format!("preview-module-{i}");
+                    let mut w = widget(
+                        &id,
+                        WidgetKind::Lua {
+                            func: 0,
+                            click: None,
+                            scroll: None,
+                            menu: Some(0),
+                            toggle: None,
+                        },
+                        Anchor::TopRight,
+                    );
+                    w.in_bar = true;
+                    self.app.values.insert(
+                        id.clone(),
+                        widgets::Value::Rich(config::Rendered {
+                            text: format!("Module {}", i + 1),
+                            ..Default::default()
+                        }),
+                    );
+                    let cfg = Arc::make_mut(&mut self.app.cfg);
+                    cfg.widgets.push(w);
+                    cfg.bar.as_mut().unwrap().zones[2].push(BarItem::Widget(id));
+                }
+            }
+        }
+        if matches!(
+            SCENES[self.scene],
+            "overview"
+                | "bar-selector-relief"
+                | "bar-selector-rail"
+                | "bar-selector-miniatures"
+                | "bar-selector-icones"
+                | "bar-selector-notif"
+        ) {
+            self.demo_window_data();
+        }
+        if SCENES[self.scene] == "overview" {
+            let win = Id::unique();
+            self.app.overview = Some(overview::Overview::new(
+                win,
+                self.app.monitors[0].name.clone(),
+                Fade {
+                    from: 1.0,
+                    to: 1.0,
+                    start: Instant::now(),
+                    dur: Duration::ZERO,
+                },
+            ));
+            self.app.sizes.insert(win, self.size);
+            self.app.overview.as_mut().unwrap().selected = 1;
+            // Une fenêtre en cours de glissement, saisie dans la carte 0.
+            self.app.overview.as_mut().unwrap().press = Some(overview::Press {
+                card: 0,
+                window: Some(overview::Win {
+                    address: "0x6".into(),
+                    class: "kitty".into(),
+                    title: "cargo run — zsh".into(),
+                }),
+                start: Point::new(420.0, 300.0),
+                title: false,
+            });
+            self.app.cursor.insert(win, Point::new(560.0, 560.0));
+        }
+        if matches!(
+            SCENES[self.scene],
+            "bar-selector-relief"
+                | "bar-selector-rail"
+                | "bar-selector-miniatures"
+                | "bar-selector-icones"
+                | "bar-selector-notif"
+        ) {
+            let mode = match SCENES[self.scene] {
+                "bar-selector-relief" => crate::config::WsSelector::Relief,
+                "bar-selector-miniatures" | "bar-selector-notif" => {
+                    crate::config::WsSelector::Miniatures
+                }
+                "bar-selector-icones" => crate::config::WsSelector::Icones,
+                _ => crate::config::WsSelector::Rail,
+            };
+            Arc::make_mut(&mut self.app.cfg).general.workspace_selector = mode;
+            // Une notification d'une application de l'espace 2 : le bord de la
+            // miniature passe à la couleur d'alerte (comme sur la maquette).
+            // L'icône « Éditeur » du bureau (posée en fausse fenêtre sur
+            // l'espace 1, même classe `code`) ferait tousser l'espace 1.
+            if SCENES[self.scene] == "bar-selector-notif" {
+                self.app
+                    .clients
+                    .retain(|c| !(c.workspace == "1" && c.class == "code"));
+                self.app.toasts.list.push(toasts::Toast {
+                    n: crate::notifications::Notification {
+                        id: 1,
+                        app: "Visual Studio Code".into(),
+                        icon: String::new(),
+                        summary: "Compilation terminée".into(),
+                        body: "0 erreur, 2 avertissements (2,4 s).".into(),
+                        actions: Vec::new(),
+                        urgency: crate::notifications::Urgency::Normal,
+                        timeout_ms: -1,
+                        resident: false,
+                        transient: false,
+                        desktop_entry: Some("code".into()),
+                        category: None,
+                    },
+                    since: Instant::now(),
+                });
+            }
+        }
+
         // Touche de volume : la carte d'affichage à l'écran.
         if SCENES[self.scene] == "osd" {
             let _ = self.app.show_osd(crate::osd::Kind::Volume, 0.62, false);
+        }
+        // Les scènes statiques sont des poses finales. Un rendu logiciel lent
+        // ne doit pas transformer leur capture en une image d'apparition.
+        // Les gestes suivants partent de cette pose puis jouent leurs vrais fades.
+        if self.output.is_some()
+            && let Some(p) = self.app.popover.as_mut()
+        {
+            p.visibility = Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: Duration::ZERO,
+            };
+        }
+    }
+
+    /// Fenêtres de démonstration sur les espaces 1 à 3 : clients (icônes
+    /// d'activité) et géométries (miniatures du sélecteur, écran d'organisation).
+    #[allow(clippy::type_complexity)]
+    fn demo_window_data(&mut self) {
+        let mon = self.app.monitors[0].name.clone();
+        let wins: [(&str, &str, &str, &str, (i32, i32, i32, i32), bool); 6] = [
+            (
+                "0x1",
+                "firefox",
+                "The Rust Programming Language — Mozilla Firefox",
+                "1",
+                (0, 44, 700, 856),
+                false,
+            ),
+            (
+                "0x2",
+                "discord",
+                "Hyprdesk · #général — Discord",
+                "1",
+                (700, 44, 740, 856),
+                false,
+            ),
+            (
+                "0x3",
+                "code",
+                "main.rs — hyprdesk — Visual Studio Code",
+                "2",
+                (0, 44, 960, 856),
+                false,
+            ),
+            (
+                "0x4",
+                "kitty",
+                "hyprdesk on  main — zsh",
+                "2",
+                (1010, 180, 400, 260),
+                true,
+            ),
+            (
+                "0x5",
+                "gimp",
+                "Affiche — GIMP",
+                "3",
+                (0, 44, 860, 856),
+                false,
+            ),
+            (
+                "0x6",
+                "kitty",
+                "cargo run — zsh",
+                "3",
+                (880, 44, 560, 420),
+                true,
+            ),
+        ];
+        for (i, (addr, class, title, ws, rect, floating)) in wins.into_iter().enumerate() {
+            self.app.clients.push(Client {
+                address: addr.into(),
+                class: class.into(),
+                title: title.into(),
+                workspace: ws.into(),
+                monitor: mon.clone(),
+            });
+            self.app.ws_geos.push(hypr::WindowGeo {
+                address: addr.into(),
+                class: class.into(),
+                title: title.into(),
+                workspace: ws.into(),
+                floating,
+                rect,
+            });
+            // Une icône plausible pour chaque classe (les images de bureau
+            // résolues de l'aperçu, prises en rond).
+            if !self.app.icon_imgs.is_empty() {
+                let img = self.app.icon_imgs[i % self.app.icon_imgs.len()];
+                self.app.class_imgs.entry(class.into()).or_insert(img);
+            }
+        }
+        for w in self.app.workspaces.iter_mut() {
+            w.windows = self
+                .app
+                .ws_geos
+                .iter()
+                .filter(|g| g.workspace == w.name)
+                .count() as u32;
         }
     }
 
     fn update(&mut self, msg: PreviewMsg) -> Task<PreviewMsg> {
         match msg {
+            PreviewMsg::BarGesture => {
+                match SCENES[self.scene] {
+                    "bar-hover" => self.app.bar_preview = Some((6, false)),
+                    "bar-pressed" => self.app.bar_preview = Some((6, true)),
+                    "bar-workspace-switch" => self.app.monitors[0].workspace = "3".into(),
+                    "bar-graphite-pressed" => self.app.bar_preview = Some((6, true)),
+                    "bar-graphite-switch" => self.app.monitors[0].workspace = "3".into(),
+                    "bar-menu-switch" => {
+                        let _ =
+                            self.app
+                                .open_popover(self.bar, "volume".into(), popover::Kind::Volume);
+                    }
+                    "bar-menu-closing" => {
+                        let _ = self.app.close_popover();
+                    }
+                    _ => {}
+                }
+                Task::none()
+            }
             PreviewMsg::Inspect => iced::window::oldest()
                 .and_then(iced::window::screenshot)
                 .map(PreviewMsg::Inspected),
@@ -1521,6 +2046,33 @@ impl Preview {
 
     fn update_ui(&mut self, message: Msg) -> Task<PreviewMsg> {
         match message {
+            Msg::BarDragEnd | Msg::Released if self.app.bar_drag.is_some() => {
+                let drag = self.app.bar_drag;
+                if self.app.finish_bar_drag()
+                    && let Some(((fz, fi), Some((tz, ti)))) = drag
+                    && let Some(bar) = Arc::make_mut(&mut self.app.cfg).bar.as_mut()
+                {
+                    let zones = if fz < 3 {
+                        &mut bar.zones
+                    } else {
+                        bar.portrait.get_or_insert_with(|| bar.zones.clone())
+                    };
+                    let item = zones[fz % 3].remove(fi);
+                    let i = if fz == tz && ti > fi { ti - 1 } else { ti };
+                    zones[tz % 3].insert(i, item);
+                }
+                Task::none()
+            }
+            m @ (Msg::BarDragStart(..) | Msg::BarDragOver(..) | Msg::BarDragLeave(..)) => self
+                .app
+                .update_inner(m)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::BarDragCancel => {
+                if self.app.bar_drag.take().is_none() {
+                    let _ = self.app.close_popover();
+                }
+                Task::none()
+            }
             Msg::OpenPanel => {
                 self.scene = 1;
                 self.set_scene();
@@ -1544,11 +2096,96 @@ impl Preview {
                 Arc::make_mut(&mut self.app.cfg).general.font_size = v;
                 Task::none()
             }
-            Msg::OpenPopover(_, _, popover::Request::Volume) => {
-                self.scene = 7;
-                self.set_scene();
+            Msg::OpenPopover(_, key, request) => {
+                if self
+                    .app
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.key == key && !p.closing())
+                {
+                    let _ = self.app.close_popover();
+                    return Task::none();
+                }
+                let kind = match request {
+                    popover::Request::Volume => popover::Kind::Volume,
+                    popover::Request::Brightness => popover::Kind::Brightness,
+                    popover::Request::Calendar => popover::Kind::Calendar,
+                    popover::Request::Widget(id) => popover::Kind::Widget(id),
+                    popover::Request::Workspaces => popover::Kind::Workspaces,
+                    popover::Request::Overflow => {
+                        popover::Kind::Overflow(self.app.bar_overflow_items(self.bar))
+                    }
+                    popover::Request::LuaMenu { widget, .. } => popover::Kind::Menu {
+                        entries: vec![config::MenuEntry::Header(widget)],
+                        source: popover::MenuSource::Lua {
+                            widget: "preview".into(),
+                        },
+                    },
+                    _ => return Task::none(),
+                };
+                let _ = self.app.open_popover(self.bar, key, kind);
                 Task::none()
             }
+            Msg::On(_, inner) => self.update_ui(*inner),
+            Msg::Control(command) => {
+                let mode = match command {
+                    control::Command::Show => DesktopMode::FullDesktop,
+                    control::Command::Hide => DesktopMode::NoDesktop,
+                    control::Command::LauncherOnly => DesktopMode::LauncherOnly,
+                    _ => return Task::none(),
+                };
+                self.app
+                    .ws_modes
+                    .insert(self.app.monitors[0].workspace.clone(), mode);
+                Task::none()
+            }
+            Msg::BarWorkspace(_, name) => {
+                self.app.monitors[0].workspace = name;
+                let _ = self.app.close_popover();
+                Task::none()
+            }
+            Msg::VolumeSet(value) => {
+                self.app.volume = Some((value, false));
+                Task::none()
+            }
+            Msg::VolumeMute => {
+                if let Some((_, muted)) = self.app.volume.as_mut() {
+                    *muted = !*muted;
+                }
+                Task::none()
+            }
+            Msg::LightSet(target, value) => {
+                self.app.light.set_level(target, value);
+                Task::none()
+            }
+            Msg::AudioDefault(id) => {
+                for device in &mut self.app.audio.outputs {
+                    device.default = device.id == id;
+                }
+                Task::none()
+            }
+            Msg::ControlToggle(id) => {
+                if let Some(widgets::Value::Rich(r)) = self.app.values.get_mut(&id) {
+                    r.toggled = r.toggled.map(|v| !v);
+                    r.tooltip = Some(
+                        if r.toggled == Some(true) {
+                            "Activé"
+                        } else {
+                            "Désactivé"
+                        }
+                        .into(),
+                    );
+                }
+                Task::none()
+            }
+            Msg::ClosePopover => {
+                let _ = self.app.close_popover();
+                Task::none()
+            }
+            m @ (Msg::BarAnchor(..) | Msg::BarLayout(..) | Msg::CalendarMonth(_)) => self
+                .app
+                .update_inner(m)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
             Msg::IconHover(h) => self
                 .app
                 .update_inner(Msg::IconHover(h))
@@ -1563,14 +2200,10 @@ impl Preview {
             }
             Msg::LauncherAnchor(monitor, key, bounds) => {
                 let m = &self.app.monitors[0];
-                let l = &self.app.cfg.general.launcher;
-                let origin = plugins::launcher::screen_anchor(
-                    m,
-                    l.position,
-                    l.size,
-                    iced::Rectangle::default(),
-                )
-                .position();
+                let origin = self
+                    .app
+                    .launcher_screen_anchor(m, iced::Rectangle::default())
+                    .position();
                 self.app
                     .launcher_anchor(monitor, key, bounds - iced::Vector::new(origin.x, origin.y))
                     .map(|m| PreviewMsg::Ui(Box::new(m)))
@@ -1631,17 +2264,29 @@ impl Preview {
     }
 
     fn view(&self) -> Element<'_, PreviewMsg> {
+        // La barre prend sa hauteur et sa marge réelles : une lame flottante
+        // (Graphite) montre son jour au-dessus du bord.
+        let bar_def = self.app.cfg.bar.as_ref();
+        let bh = bar_def.map(|b| b.height as f32).unwrap_or(44.0);
+        let bm = bar_def.map(|b| b.margin as f32).unwrap_or(0.0);
+        let bottom = self.app.bar_surfaces[&self.bar].position == BarPosition::Bottom;
         let mut layers: Vec<Element<'_, Msg>> = vec![
             self.app.view(self.desktop),
-            container(self.app.view_bar(self.bar))
-                .height(44)
-                .width(Length::Fill)
-                .into(),
+            pin(container(self.app.view_bar(self.bar))
+                .height(bh)
+                .width(self.size.width))
+            .y(if bottom {
+                self.size.height - bh - bm
+            } else {
+                bm
+            })
+            .into(),
         ];
         // Le lanceur a sa propre surface : par-dessus le bureau, sous la barre.
         // Bureau masqué : le dock n'existe plus.
         if let Some(m) = self.app.monitors.first()
             && SCENES[self.scene] != "mode-hidden"
+            && !self.app.launcher_in_bar(&m.name)
         {
             // Le compositeur tient compte de la barre avant de placer le dock.
             layers.insert(
@@ -1650,7 +2295,17 @@ impl Preview {
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .padding(Padding {
-                        top: 44.0,
+                        top: if self.app.bar_surfaces[&self.bar].position == BarPosition::Top {
+                            44.0
+                        } else {
+                            0.0
+                        },
+                        bottom: if self.app.bar_surfaces[&self.bar].position == BarPosition::Bottom
+                        {
+                            44.0
+                        } else {
+                            0.0
+                        },
                         ..Padding::ZERO
                     })
                     .into(),
@@ -1689,7 +2344,8 @@ impl Preview {
                 .height(Length::Fill)
                 .align_x(iced::Alignment::End)
                 .padding(iced::Padding {
-                    top: 44.0,
+                    top: if bottom { 0.0 } else { bh },
+                    bottom: if bottom { bh } else { 0.0 },
                     ..iced::Padding::ZERO
                 })
                 .into(),
@@ -1697,17 +2353,40 @@ impl Preview {
         }
         if let Some(p) = &self.app.popover {
             layers.push(
+                pin(container(self.app.view_catcher())
+                    .width(self.size.width)
+                    .height(self.size.height - 44.0))
+                .y(if p.position == BarPosition::Top {
+                    44.0
+                } else {
+                    0.0
+                })
+                .into(),
+            );
+            layers.push(
                 pin(container(self.app.view_popover())
                     .width(p.size.width)
                     .height(p.size.height))
-                .x(self.size.width - p.size.width - 18.0)
-                .y(44.0)
+                .x(p.left)
+                .y(if p.position == BarPosition::Top {
+                    44.0 + popover::GAP - popover::SHADOW
+                } else {
+                    self.size.height - 44.0 - popover::GAP + popover::SHADOW - p.size.height
+                })
                 .into(),
             );
         }
         // Écran de connexion (greetd), par-dessus tout : application à part.
         if SCENES[self.scene] == "connexion" {
             layers.push(crate::greeter_ui::preview_view().map(|_| Msg::Noop));
+        }
+        if self.app.overview.is_some() {
+            layers.push(
+                container(self.app.view_overview())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into(),
+            );
         }
         if self.app.switcher.is_some() {
             layers.push(

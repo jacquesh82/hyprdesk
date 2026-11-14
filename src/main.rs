@@ -22,6 +22,7 @@ mod control;
 mod desktop_files;
 mod doctor;
 mod essentials;
+mod fileindex;
 mod fonts;
 mod fx;
 mod greeter;
@@ -83,6 +84,7 @@ Commandes :
                     ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
+  files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
   overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
   notifications [list | dnd [on|off] | clear]
@@ -177,6 +179,11 @@ Commandes :
                     sinon appliqué et écrit dans inputs.lua (ex. keyboard fr azerty)
   stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
   snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
+  index daemon      démon d'indexation des fichiers (recherche :f du lanceur) ;
+                    options : --paths /a,/b --exclude nom --interval secondes
+  index query <mot> cherche dans l'index (--limit N) : nom, type, chemin, taille
+  index status      état de l'indexation (JSON) ; rebuild : rescan complet ;
+                    stop : arrêt propre (sauvegarde du snapshot)
 
 Configuration : $HYPRDESK_CONFIG, sinon ~/.config/hypr/hyprdesk.lua";
 
@@ -511,6 +518,232 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
         .build()
         .expect("runtime tokio")
         .block_on(f)
+}
+
+/// `hyprdesk index daemon|query|status|rebuild|stop` — démon et client de
+/// l'index de fichiers (recherche :f du lanceur).
+fn index_cli(args: &[String]) -> ExitCode {
+    use fileindex::proto::{Reply, Request, request};
+
+    let sous = args.first().map(String::as_str).unwrap_or("");
+    match sous {
+        "daemon" => {
+            init_tracing();
+            let config = config_demon_index(&args[1..]);
+            match fileindex::daemon::run(config) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("démon d'index : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "query" => {
+            let mut q = String::new();
+            let mut limit = fileindex::proto::LIMIT_DEFAULT;
+            let mut json = false;
+            let mut lits = args[1..].iter();
+            while let Some(a) = lits.next() {
+                match a.as_str() {
+                    "--limit" => {
+                        limit = lits
+                            .next()
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(fileindex::proto::LIMIT_DEFAULT);
+                    }
+                    "--json" => json = true,
+                    _ => {
+                        if !q.is_empty() {
+                            q.push(' ');
+                        }
+                        q.push_str(a);
+                    }
+                }
+            }
+            if q.trim().is_empty() {
+                eprintln!("{}", crate::tr!("index query attend un mot à chercher"));
+                return ExitCode::from(2);
+            }
+            match request(&Request::Query {
+                q,
+                limit,
+                kinds: None,
+                cat: None,
+            }) {
+                Ok(Reply::Hits { hits, .. }) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&hits).unwrap_or_default()
+                        );
+                        return ExitCode::SUCCESS;
+                    }
+                    if hits.is_empty() {
+                        println!("{}", crate::tr!("aucun résultat dans l'index"));
+                        return ExitCode::SUCCESS;
+                    }
+                    for h in &hits {
+                        let genre = match h.kind {
+                            fileindex::index::KIND_DIR => crate::tr!("dossier"),
+                            fileindex::index::KIND_LINK => crate::tr!("lien"),
+                            _ => crate::tr!("fichier"),
+                        };
+                        println!("{genre}\t{}\t{}", fileindex::fmt_taille(h.size), h.path);
+                    }
+                    ExitCode::SUCCESS
+                }
+                Ok(Reply::Err(m)) => {
+                    eprintln!("{m}");
+                    ExitCode::FAILURE
+                }
+                Ok(_) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        crate::tr!(
+                            "démon d'index injoignable : {e} — lancez « hyprdesk index daemon »",
+                            e = e
+                        )
+                    );
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "status" => match request(&Request::Status) {
+            Ok(Reply::Status(j)) => match serde_json::from_str::<serde_json::Value>(&j) {
+                Ok(v) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&v).unwrap_or_else(|_| j.clone())
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(_) => {
+                    println!("{j}");
+                    ExitCode::SUCCESS
+                }
+            },
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    crate::tr!(
+                        "démon d'index injoignable : {e} — lancez « hyprdesk index daemon »",
+                        e = e
+                    )
+                );
+                ExitCode::FAILURE
+            }
+        },
+        "rebuild" => match request(&Request::Rebuild) {
+            Ok(Reply::Ok) => {
+                println!("{}", crate::tr!("rescan complet demandé"));
+                ExitCode::SUCCESS
+            }
+            Ok(Reply::Err(m)) => {
+                eprintln!("{m}");
+                ExitCode::FAILURE
+            }
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", crate::tr!("démon d'index injoignable : {e}", e = e));
+                ExitCode::FAILURE
+            }
+        },
+        "stop" => match fileindex::proto::stop() {
+            Ok(()) => {
+                println!("{}", crate::tr!("démon d'index arrêté"));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => {
+            eprintln!(
+                "{}",
+                crate::tr!("usage : hyprdesk index daemon|query <mot>|status|rebuild|stop")
+            );
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// Réglages du démon passés en ligne de commande (le lanceur les reprend
+/// de la configuration) : --paths /a,/b --exclude nom --interval N.
+fn config_demon_index(args: &[String]) -> fileindex::IndexConfig {
+    let mut config = fileindex::IndexConfig::default();
+    let mut lits = args.iter();
+    while let Some(a) = lits.next() {
+        match a.as_str() {
+            "--paths" => {
+                if let Some(v) = lits.next() {
+                    let chemins: Vec<PathBuf> = v
+                        .split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(fileindex::expand_root)
+                        .collect();
+                    if !chemins.is_empty() {
+                        config.roots = chemins;
+                    }
+                }
+            }
+            "--exclude" => {
+                if let Some(v) = lits.next() {
+                    config.extra_excludes = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            "--exclude-regex" => {
+                if let Some(v) = lits.next() {
+                    config.exclude_regex = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            "--exclude-ext" => {
+                if let Some(v) = lits.next() {
+                    config.exclude_ext = v
+                        .split(',')
+                        .map(|s| s.trim().trim_start_matches('.').to_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            "--exclude-cat" => {
+                if let Some(v) = lits.next() {
+                    config.exclude_cat = v
+                        .split(',')
+                        .map(|s| s.trim().to_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            "--max-size" => {
+                if let Some(v) = lits.next()
+                    && let Ok(m) = v.parse::<u64>()
+                {
+                    config.max_size = m;
+                }
+            }
+            "--interval" => {
+                if let Some(v) = lits.next()
+                    && let Ok(s) = v.parse()
+                {
+                    config.interval = s;
+                }
+            }
+            _ => {}
+        }
+    }
+    config
 }
 
 fn main() -> ExitCode {
@@ -1306,6 +1539,8 @@ fn main() -> ExitCode {
             println!("{}", i18n::tr_lines(SNIPPET));
             ExitCode::SUCCESS
         }
+        // Index de fichiers : démon + client (recherche :f du lanceur).
+        "index" => index_cli(&args[1..]),
         other => match control::Command::parse(&args.join(" ")) {
             Some(c) => match control::send(c) {
                 Ok(r) => {

@@ -4,9 +4,9 @@
 
 use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, pick_list, radio, row, slider, toggler, tooltip,
+    Space, button, column, container, mouse_area, pick_list, radio, row, slider, toggler, tooltip,
 };
-use iced::{Alignment, Border, Color, Element, Length, Task};
+use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
 use crate::config::{BAR_COLOR_SLOTS, BarColors, Rgba};
 use crate::ui::color_picker::{Picker, PickerMsg};
@@ -40,6 +40,10 @@ pub enum Msg {
     Enable(bool),
     Pos(crate::config::BarPosition),
     Height(u16),
+    /// Marge au bord de l'écran (glissé).
+    Margin(u16),
+    /// Style visuel de la barre (`ui::bar_style`).
+    Style(crate::config::BarStyle),
     AllMonitors(bool),
     /// Barre seulement sur l'écran principal.
     Primary,
@@ -92,6 +96,17 @@ impl std::fmt::Display for BarChoice {
 }
 
 impl App {
+    /// Même transaction pour les poignées de barre et la liste des réglages.
+    pub(in crate::ui) fn finish_bar_drag(&mut self) -> bool {
+        let Some((from, Some(to))) = self.bar_drag.take() else {
+            return false;
+        };
+        self.settings
+            .bar
+            .as_mut()
+            .is_some_and(|b| b.move_entry(from, to))
+    }
+
     pub(in crate::ui) fn tab_bar(&self) -> Element<'_, UiMsg> {
         use crate::config::BarPosition;
         let g = &self.cfg.general;
@@ -214,6 +229,50 @@ impl App {
                         .spacing(12),
                     ),
                 )
+                .push(
+                    self.field(
+                        "Marge au bord de l'écran",
+                        crate::i18n::tr("0 = collée au bord"),
+                        row![
+                            slider(0..=24u16, b.margin.min(24), |v| wrap(Msg::Margin(v)))
+                                .on_release(wrap(Msg::Commit))
+                                .width(260),
+                            text(format!("{} px", b.margin)).font(self.font).size(13),
+                        ]
+                        .spacing(12),
+                    ),
+                )
+                .push({
+                    // Le style : un rendu complet, chaque style son geste.
+                    use crate::config::{BarStyle, BAR_STYLES};
+                    self.field(
+                        "Style",
+                        match b.style {
+                            BarStyle::Continuite => {
+                                crate::i18n::tr("Verre fumé, capsules au survol, capsule glissante sur l'espace actif.")
+                            }
+                            BarStyle::Graphite => crate::i18n::tr(
+                                "Barre des tâches : lanceur centré, widgets à droite, surface rectangulaire au bord inférieur.",
+                            ),
+                        },
+                        row(
+                            BAR_STYLES
+                                .iter()
+                                .map(|&(style, _, label)| {
+                                    radio(
+                                        crate::i18n::tr(label),
+                                        style,
+                                        Some(b.style),
+                                        |v| { wrap(Msg::Style(v)) }
+                                    )
+                                    .font(self.font)
+                                    .into()
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .spacing(16),
+                    )
+                })
                 .push(self.field("Écrans", "", {
                     // 0 : tous ; 1 : l'écran principal ; 2 : cet écran.
                     let which = match &b.monitors {
@@ -255,7 +314,7 @@ impl App {
                     "",
                     row![
                         compact(
-                            crate::i18n::tr("Auto : écrans étroits et verticaux"),
+                            crate::i18n::tr("Auto : selon l’écran et le contenu"),
                             BarCompact::Auto
                         ),
                         compact("Toujours", BarCompact::Always),
@@ -314,6 +373,22 @@ impl App {
             (None, true) => (&b.zones, 3),
             _ => (&b.zones, 0),
         };
+        let graphite = b.style == crate::config::BarStyle::Graphite;
+        let accent = color(g.theme.accent, 1.0);
+        col = col.push(
+            text("Faites glisser un module pour le déplacer.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
+        if graphite {
+            col = col.push(
+                text("Le lanceur reste au centre ; placez vos modules à gauche, au centre ou à droite.")
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
         for (zi, zname) in ["Gauche", "Centre", "Droite"].iter().enumerate() {
             let z = zi + off;
             col = col.push(
@@ -322,37 +397,111 @@ impl App {
                     .size(15)
                     .color(color(g.theme.accent, 1.0)),
             );
+            let mut group = column![].spacing(0);
+            let marker = |i| {
+                container(Space::new().height(2).width(Length::Fill)).style(move |_| {
+                    container::Style {
+                        background: self
+                            .bar_drag
+                            .is_some_and(|(_, to)| to == Some((z, i)))
+                            .then(|| accent.into()),
+                        ..Default::default()
+                    }
+                })
+            };
             if zones[zi].is_empty() {
-                col = col.push(text("vide").font(self.font).size(12).color(dim));
+                let empty = container(text("vide").font(self.font).size(12).color(dim))
+                    .width(Length::Fill)
+                    .padding([6, 0]);
+                group = group.push({
+                    Element::from(
+                        mouse_area(empty)
+                            .on_enter(UiMsg::BarDragOver(z, 0))
+                            .on_release(UiMsg::BarDragEnd),
+                    )
+                });
             }
             for (i, e) in zones[zi].iter().enumerate() {
-                let mut r = row![
-                    text(label_of(&e.type_id))
-                        .font(self.font)
-                        .size(14)
+                let draggable = b.can_drag_entry((z, i));
+                let dragged = self.bar_drag.is_some_and(|(from, _)| from == (z, i));
+                let label = text(label_of(&e.type_id)).font(self.font).size(14);
+                let label: Element<'_, UiMsg> = if draggable {
+                    let grip = iced::widget::svg(
+                        super::super::icons::get("grip-vertical").expect("drag grip"),
+                    )
+                    .width(14)
+                    .height(16)
+                    .style(move |_, _| iced::widget::svg::Style {
+                        color: Some(if dragged { accent } else { dim }),
+                    });
+                    mouse_area(
+                        container(row![grip, label].spacing(8).align_y(Alignment::Center))
+                            .width(Length::Fill)
+                            .height(32)
+                            .align_y(Alignment::Center),
+                    )
+                    .interaction(if dragged {
+                        mouse::Interaction::Grabbing
+                    } else {
+                        mouse::Interaction::Grab
+                    })
+                    .on_press(UiMsg::BarDragStart(z, i))
+                    .into()
+                } else {
+                    container(label)
                         .width(Length::Fill)
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center);
-                if i > 0 {
+                        .height(32)
+                        .align_y(Alignment::Center)
+                        .into()
+                };
+                let mut r = row![label].spacing(4).align_y(Alignment::Center);
+                if draggable && i > 0 {
                     r = r.push(small("↑", wrap(Msg::Move(z, i, -1))));
                 }
-                if i + 1 < zones[zi].len() {
+                if draggable && i + 1 < zones[zi].len() {
                     r = r.push(small("↓", wrap(Msg::Move(z, i, 1))));
                 }
-                if zi > 0 {
+                if draggable && zi > 0 {
                     r = r.push(small("←", wrap(Msg::Zone(z, i, -1))));
                 }
-                if zi < 2 {
+                if draggable && zi < 2 {
                     r = r.push(small("→", wrap(Msg::Zone(z, i, 1))));
                 }
-                r = r.push(small("×", wrap(Msg::Remove(z, i))));
-                col = col.push(r);
+                if draggable {
+                    r = r.push(small("×", wrap(Msg::Remove(z, i))));
+                }
+                group = group.push(marker(i));
+                let item = container(r)
+                    .width(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: dragged.then(|| Color { a: 0.10, ..accent }.into()),
+                        border: Border::default().rounded(4),
+                        ..Default::default()
+                    });
+                group = group.push(
+                    mouse_area(item)
+                        .on_move(move |p| UiMsg::BarDragOver(z, i + usize::from(p.y >= 16.0)))
+                        .on_release(UiMsg::BarDragEnd),
+                );
             }
+            {
+                group = group.push(marker(zones[zi].len())).push(
+                    mouse_area(Space::new().width(Length::Fill).height(12))
+                        .on_enter(UiMsg::BarDragOver(z, zones[zi].len()))
+                        .on_release(UiMsg::BarDragEnd),
+                );
+            }
+            col = col.push(mouse_area(group).on_exit(UiMsg::BarDragLeave(z)));
             col = col.push(
-                pick_list(choices.clone(), None::<BarChoice>, move |c| {
-                    wrap(Msg::Add(z, c))
-                })
+                pick_list(
+                    choices
+                        .iter()
+                        .filter(|c| !graphite || c.type_id != "launcher")
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    None::<BarChoice>,
+                    move |c| wrap(Msg::Add(z, c)),
+                )
                 .font(self.font)
                 .placeholder(crate::i18n::tr("Ajouter un module…"))
                 .width(260),
@@ -451,6 +600,27 @@ impl App {
                     .bar
                     .get_or_insert_with(Default::default)
                     .compact = c;
+                self.commit_reload()
+            }
+            Msg::Margin(m) => {
+                self.settings
+                    .bar
+                    .get_or_insert_with(Default::default)
+                    .margin = m;
+                Task::none()
+            }
+            Msg::Style(s) => {
+                let b = self.settings.bar.get_or_insert_with(Default::default);
+                // Choisir un style pose toute la barre du style : rendu,
+                // composition des zones, pose, hauteur et marge. Les réglages
+                // fins (Modules, Position, Hauteur, Marge) restent ajustables
+                // ensuite et redeviennent prioritaires.
+                b.style = s;
+                b.position = s.default_position();
+                b.height = s.default_height();
+                b.margin = s.default_margin();
+                b.portrait = None;
+                b.zones = s.preset_settings();
                 self.commit_reload()
             }
             Msg::EditPortrait(v) => {

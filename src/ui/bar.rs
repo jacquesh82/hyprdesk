@@ -18,6 +18,7 @@ use iced_layershell::reexport::{
 
 use super::popover::Request;
 use super::{App, IconImg, Msg, color, format_now};
+use super::{bar_motion, design};
 use crate::config::{BarItem, BarPosition, RenderState, Rgba, WidgetKind};
 use crate::{control, hypr, widgets};
 
@@ -31,6 +32,10 @@ pub const DESKTOP_WINDOWS_ICON: &str = "hyprdesk-desktop-windows-symbolic";
 
 /// Icône du bureau masqué (no-desktop), dessinée par hyprdesk.
 pub const DESKTOP_OFF_ICON: &str = "hyprdesk-desktop-off-symbolic";
+
+/// Losange « fenêtre urgente » dessiné par hyprdesk, à côté du numéro d'un
+/// espace qui porte une fenêtre demandant l'attention.
+pub const URGENT_ICON: &str = "hyprdesk-urgent-symbolic";
 
 /// Icônes symboliques demandées dès que la barre existe.
 pub const STATIC_ICONS: &[&str] = &[
@@ -48,14 +53,19 @@ pub const STATIC_ICONS: &[&str] = &[
     "microphone-sensitivity-muted-symbolic",
     // Élément de la zone de notification sans image.
     "application-x-executable-symbolic",
+    "preferences-system-controls-symbolic",
+    "view-more-symbolic",
+    "display-brightness-symbolic",
+    URGENT_ICON,
 ];
 
-/// Surface de barre : écran, position et hauteur à sa création.
+/// Surface de barre : écran, position, hauteur et marge au bord à sa création.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BarSurface {
     pub monitor: String,
     pub position: BarPosition,
     pub height: u16,
+    pub margin: u16,
 }
 
 /// Couleurs effectives de la barre.
@@ -326,7 +336,7 @@ pub fn volume_icon(v: Option<(f32, bool)>) -> &'static str {
     }
 }
 
-fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
+pub(super) fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
     let y = match d {
         mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => y,
     };
@@ -334,6 +344,61 @@ fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
 }
 
 impl App {
+    pub(super) fn bar_duration(&self, millis: u64) -> Duration {
+        if self.cfg.general.transition == crate::config::Transition::None {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(millis)
+        }
+    }
+
+    pub(super) fn bar_overflow_items(&self, id: Id) -> Vec<BarItem> {
+        let (Some(surface), Some(bar)) = (self.bar_surfaces.get(&id), self.cfg.bar.as_ref()) else {
+            return Vec::new();
+        };
+        let zones = if self.bar_vertical(&surface.monitor) {
+            bar.portrait.as_ref().unwrap_or(&bar.zones)
+        } else {
+            &bar.zones
+        };
+        zones
+            .iter()
+            .flatten()
+            .enumerate()
+            .filter(|(i, _)| {
+                self.bar_hidden
+                    .get(&id)
+                    .is_some_and(|hidden| hidden.contains(i))
+            })
+            .map(|(_, item)| item.clone())
+            .collect()
+    }
+
+    fn bar_priority(&self, item: &BarItem) -> u8 {
+        match item {
+            BarItem::Workspaces => 95,
+            BarItem::Window => 0,
+            BarItem::Volume => 60,
+            BarItem::Widget(id) => match self
+                .cfg
+                .widgets
+                .iter()
+                .find(|w| &w.id == id)
+                .map(|w| &w.kind)
+            {
+                Some(WidgetKind::Controls) => 100,
+                Some(WidgetKind::Launcher) => 101,
+                Some(WidgetKind::Clock { .. }) => 90,
+                _ => match self.values.get(id) {
+                    Some(widgets::Value::Rich(r)) if r.state == RenderState::Critical => 100,
+                    Some(widgets::Value::Rich(r)) if r.state == RenderState::Warning => 85,
+                    _ => 20,
+                },
+            },
+            _ => 30,
+        }
+    }
+
     /// Crée, recrée ou ferme les surfaces de barre selon la config et les écrans.
     pub(super) fn sync_bars(&mut self) -> Task<Msg> {
         // `"primary"` dans la liste : l'écran principal, quel que soit son nom.
@@ -354,17 +419,21 @@ impl App {
                 .map(|m| m.name.clone())
                 .collect(),
         };
-        let spec = self.cfg.bar.as_ref().map(|b| (b.position, b.height));
+        let spec = self
+            .cfg
+            .bar
+            .as_ref()
+            .map(|b| (b.position, b.height, b.margin));
         let mut tasks = Vec::new();
         let mut changed = false;
         for (id, s) in self.bar_surfaces.clone() {
-            if !(want.contains(&s.monitor) && spec == Some((s.position, s.height))) {
+            if !(want.contains(&s.monitor) && spec == Some((s.position, s.height, s.margin))) {
                 self.bar_surfaces.remove(&id);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
         }
-        if let Some((position, height)) = spec {
+        if let Some((position, height, margin)) = spec {
             for mon in want {
                 if self.bar_surfaces.values().any(|s| s.monitor == mon) {
                     continue;
@@ -381,6 +450,7 @@ impl App {
                         monitor: mon.clone(),
                         position,
                         height,
+                        margin,
                     },
                 );
                 tasks.push(Task::done(Msg::NewLayerShell {
@@ -388,7 +458,14 @@ impl App {
                         size: Some((0, height as u32)),
                         layer: Layer::Top,
                         anchor: edge | LsAnchor::Left | LsAnchor::Right,
+                        // La zone réservée aux fenêtres compte la hauteur et la
+                        // marge : la lame flotte au-dessus du bord.
                         exclusive_zone: Some(height as i32),
+                        margin: Some(if position == BarPosition::Top {
+                            (margin as i32, 0, 0, 0)
+                        } else {
+                            (0, 0, margin as i32, 0)
+                        }),
                         keyboard_interactivity: KeyboardInteractivity::None,
                         output_option: OutputOption::OutputName(mon),
                         namespace: Some(BAR_NAMESPACE.into()),
@@ -403,6 +480,19 @@ impl App {
             }
         }
         if changed {
+            self.bar_anchors
+                .retain(|(id, _), _| self.bar_surfaces.contains_key(id));
+            self.bar_hidden
+                .retain(|id, _| self.bar_surfaces.contains_key(id));
+            self.bar_full_width
+                .retain(|id, _| self.bar_surfaces.contains_key(id));
+            if self
+                .popover
+                .as_ref()
+                .is_some_and(|p| !self.bar_surfaces.contains_key(&p.bar))
+            {
+                tasks.push(self.destroy_popover());
+            }
             // La zone réservée a changé : Hyprland ne l'annonce pas, on relit les écrans.
             tasks.push(Task::perform(
                 async {
@@ -417,10 +507,13 @@ impl App {
 
     /// Ids des widgets affichés dans la barre.
     pub(super) fn bar_widget_ids(&self) -> Vec<String> {
+        if !self.cfg.plugin_on("bar") || self.bar_surfaces.is_empty() {
+            return Vec::new();
+        }
         self.cfg
             .bar
             .iter()
-            .flat_map(|b| b.zones.iter().flatten())
+            .flat_map(|b| b.zones.iter().chain(b.portrait.iter().flatten()).flatten())
             .filter_map(|i| {
                 if let BarItem::Widget(id) = i {
                     Some(id.clone())
@@ -432,10 +525,13 @@ impl App {
     }
 
     pub(super) fn bar_has(&self, item: &BarItem) -> bool {
+        if !self.cfg.plugin_on("bar") || self.bar_surfaces.is_empty() {
+            return false;
+        }
         self.cfg
             .bar
             .iter()
-            .flat_map(|b| b.zones.iter().flatten())
+            .flat_map(|b| b.zones.iter().chain(b.portrait.iter().flatten()).flatten())
             .any(|i| i == item)
     }
 
@@ -470,21 +566,43 @@ impl App {
 
     /// Couleurs de la barre : les siennes, sinon celles du thème.
     pub(super) fn bar_palette(&self) -> BarPalette {
+        use crate::config::BarStyle;
         let th = &self.cfg.general.theme;
         let c = self.cfg.bar.as_ref().map(|b| &b.colors);
         let pick =
             |f: fn(&crate::config::BarColors) -> Option<Rgba>, d: Rgba| c.and_then(f).unwrap_or(d);
+        // La matière Graphite : le gris du thème, sans sa teinte — la lame
+        // reste neutre quel que soit le fond d'écran (les couleurs posées
+        // explicitement pour la barre restent celles de l'utilisateur).
+        let graphite = self
+            .cfg
+            .bar
+            .as_ref()
+            .is_some_and(|b| b.style == BarStyle::Graphite);
+        let neutre = |v: Rgba| {
+            if graphite {
+                super::bar_style::neutral(v)
+            } else {
+                v
+            }
+        };
         BarPalette {
-            fg: pick(|c| c.text, th.fg),
-            bg: pick(|c| c.background, th.bg),
+            fg: pick(|c| c.text, neutre(th.fg)),
+            bg: pick(|c| c.background, neutre(th.bg)),
             accent: pick(|c| c.accent, th.accent),
             warning: pick(|c| c.warning, crate::config::BarColors::WARNING),
             critical: pick(|c| c.critical, crate::config::BarColors::CRITICAL),
-            opacity: c
-                .and_then(|c| c.opacity)
-                .unwrap_or_else(|| th.effect(crate::config::Place::Bar).opacity)
-                .clamp(0.0, 1.0),
+            // Graphite privilégie un fond stable sur tout fond d’écran.
+            opacity: match c.and_then(|c| c.opacity) {
+                Some(o) => o.clamp(0.0, 1.0),
+                None if graphite => super::bar_style::ACRYLIC,
+                None => th.effect(crate::config::Place::Bar).opacity.clamp(0.0, 1.0),
+            },
         }
+    }
+
+    fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
+        matches!(item, BarItem::Widget(id) if self.cfg.widgets.iter().any(|w| &w.id == id && matches!(w.kind, WidgetKind::Launcher)))
     }
 
     /// Couleur propre d'un module (par son identifiant, puis par son type).
@@ -499,7 +617,7 @@ impl App {
         }
     }
 
-    fn state_color(&self, s: RenderState, normal: Color) -> Color {
+    pub(super) fn state_color(&self, s: RenderState, normal: Color) -> Color {
         let p = self.bar_palette();
         match s {
             RenderState::Warning => color(p.warning, 1.0),
@@ -514,58 +632,246 @@ impl App {
             return Space::new().into();
         };
         let pal = self.bar_palette();
-        let bg = color(pal.bg, pal.opacity);
-        let hair = color(pal.fg, 0.07 * pal.opacity.max(0.3));
+        let style = bar.style;
+        let t = super::bar_style::durations(self);
         // Écran vertical : ses propres zones, si la barre en déclare.
-        let zones = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
-            (Some(p), true) => p,
-            _ => &bar.zones,
+        let (zones, zone_offset) = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
+            (Some(p), true) => (p, 3),
+            _ => (&bar.zones, 0),
         };
         // Chaque zone est rognée : sur un écran étroit, elles ne se chevauchent pas.
         // Réglages ouverts : les modules se déplacent en les glissant (zones
         // ordinaires seulement ; les écrans verticaux gardent les leurs).
-        let edit = self.panel.is_some() && std::ptr::eq(zones, &bar.zones);
-        let content = row![
-            container(self.bar_zone(id, s, &zones[0], edit.then_some(0)))
-                .width(Length::Fill)
-                .align_x(Alignment::Start)
-                .clip(true),
-            container(self.bar_zone(id, s, &zones[1], edit.then_some(1)))
-                .align_x(Alignment::Center)
-                .clip(true),
-            container(self.bar_zone(id, s, &zones[2], edit.then_some(2)))
-                .width(Length::Fill)
-                .align_x(Alignment::End)
-                .clip(true),
-        ]
-        .align_y(Alignment::Center)
-        .height(Length::Fill);
-        // Filet d'un pixel du côté des fenêtres, comme une barre de menus.
+        let edit = self.panel.is_some();
+        let graphite = style == crate::config::BarStyle::Graphite;
+        let content: Element<'_, Msg> = if !edit || graphite {
+            let mut slots: Vec<_> = zones
+                .iter()
+                .enumerate()
+                .flat_map(|(zone, items)| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(move |(i, item)| (zone, i, item))
+                })
+                .enumerate()
+                .map(|(index, (zone, i, item))| super::bar_layout::Slot {
+                    zone,
+                    priority: self.bar_priority(item),
+                    flexible: self.bar_item_is_launcher(item),
+                    content: {
+                        let content = self.bar_item(id, s, item);
+                        let content = if edit && !self.bar_item_is_launcher(item) {
+                            self.bar_edit_item(content, zone + zone_offset, i, s.height)
+                        } else if edit {
+                            mouse_area(content)
+                                .on_enter(Msg::BarDragOver(zone + zone_offset, i))
+                                .on_release(Msg::BarDragEnd)
+                                .into()
+                        } else {
+                            content
+                        };
+                        let content = if self.bar_preview == Some((index, true)) {
+                            bar_motion::surface(
+                                content,
+                                0.97,
+                                iced::Vector::ZERO,
+                                iced::Point::new(0.5, 0.5),
+                            )
+                        } else {
+                            content
+                        };
+                        if self.bar_item_is_launcher(item) {
+                            content
+                        } else {
+                            bar_motion::anchor(
+                                content,
+                                id,
+                                bar_item_key(item).into(),
+                                self.bar_duration(t.hover),
+                            )
+                        }
+                    },
+                })
+                .collect();
+            if edit {
+                for (zone, items) in zones.iter().enumerate() {
+                    let z = zone + zone_offset;
+                    let i = items.len();
+                    let accent = color(pal.accent, 1.0);
+                    let over = self.bar_drag.is_some_and(|(_, over)| over == Some((z, i)));
+                    let target = mouse_area(
+                        container(
+                            Space::new()
+                                .width(if items.is_empty() { 48 } else { 16 })
+                                .height((s.height as f32 - 10.0).max(12.0)),
+                        )
+                        .style(move |_| container::Style {
+                            background: over.then(|| color(pal.accent, 0.18).into()),
+                            border: Border::default().rounded(4).width(1).color(Color {
+                                a: if over { 1.0 } else { 0.25 },
+                                ..accent
+                            }),
+                            ..Default::default()
+                        }),
+                    )
+                    .on_enter(Msg::BarDragOver(z, i))
+                    .on_release(Msg::BarDragEnd);
+                    slots.push(super::bar_layout::Slot {
+                        zone,
+                        priority: 102,
+                        flexible: false,
+                        content: target.into(),
+                    });
+                }
+            }
+            let mut eligible: Vec<_> = zones
+                .iter()
+                .flatten()
+                .map(|item| {
+                    !self.bar_item_is_launcher(item)
+                        && !matches!(
+                            item,
+                            BarItem::Workspaces
+                                | BarItem::Window
+                                | BarItem::Desktop
+                                | BarItem::Tray
+                        )
+                })
+                .collect();
+            if edit {
+                eligible.extend([false; 3]);
+            }
+            eligible.push(true);
+            let mut more_content = row![].spacing(5).align_y(Alignment::Center);
+            if self.bar_overflow_items(id).contains(&BarItem::Workspaces)
+                && let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor)
+            {
+                more_content = more_content.push(self.label(
+                    truncate(&m.workspace, 8),
+                    13.0,
+                    super::bar_style::ink(style, &pal),
+                ));
+            }
+            more_content = more_content.push(
+                self.icon_named("view-more-symbolic", 18.0, color(pal.fg, 1.0))
+                    .unwrap_or_else(|| self.label("…", 18.0, color(pal.fg, 1.0))),
+            );
+            let more = bar_motion::anchor(
+                self.module(
+                    s,
+                    1.0,
+                    more_content.into(),
+                    Some(Msg::OpenPopover(id, "overflow".into(), Request::Overflow)),
+                    None,
+                    None,
+                    None,
+                    Some(crate::i18n::tr("Autres commandes").into()),
+                    self.popover
+                        .as_ref()
+                        .is_some_and(|p| p.key == "overflow" && !p.closing()),
+                ),
+                id,
+                "overflow".into(),
+                self.bar_duration(t.hover),
+            );
+            bar_motion::rail(
+                super::bar_layout::strip(
+                    id,
+                    slots,
+                    more,
+                    self.bar_compact(&s.monitor),
+                    style == crate::config::BarStyle::Graphite,
+                ),
+                self.bar_preview.map(|(i, _)| i),
+                eligible,
+                super::bar_style::rail_look(style, &pal),
+                self.bar_duration(t.hover),
+            )
+        } else {
+            row![
+                container(self.bar_zone(id, s, &zones[0], edit.then_some(zone_offset)))
+                    .width(Length::Fill)
+                    .align_x(Alignment::Start)
+                    .clip(true),
+                container(self.bar_zone(id, s, &zones[1], edit.then_some(1 + zone_offset)))
+                    .align_x(Alignment::Center)
+                    .clip(true),
+                container(self.bar_zone(id, s, &zones[2], edit.then_some(2 + zone_offset)))
+                    .width(Length::Fill)
+                    .align_x(Alignment::End)
+                    .clip(true),
+            ]
+            .align_y(Alignment::Center)
+            .height(Length::Fill)
+            .into()
+        };
+        let content: Element<'_, Msg> = if edit {
+            mouse_area(content)
+                .on_exit(Msg::BarDragLeave(usize::MAX))
+                .on_release(Msg::BarDragCancel)
+                .into()
+        } else {
+            content
+        };
+        // La lame du style porte elle-même ses filets et son reflet.
         let top = s.position == BarPosition::Top;
-        container(content)
-            .padding(Padding {
-                top: if top { 0.0 } else { 1.0 },
-                bottom: if top { 1.0 } else { 0.0 },
-                left: 8.0,
-                right: 8.0,
-            })
+        // Un seul filet, côté supérieur en Graphite.
+        let mut pad = Padding::new(0.0);
+        if graphite {
+            pad.top = 1.0;
+        } else {
+            pad.top = if top { 0.0 } else { 1.0 };
+            pad.bottom = if top { 1.0 } else { 0.0 };
+        }
+        pad.left = 8.0;
+        pad.right = 8.0;
+        let slab = container(content)
+            .padding(pad)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                border: Border {
-                    color: hair,
-                    width: 0.0,
-                    radius: 0.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: hair,
-                    offset: iced::Vector::new(0.0, if top { 1.0 } else { -1.0 }),
-                    blur_radius: 0.0,
-                },
-                ..Default::default()
+            .style(move |_| super::bar_style::surface(style, &pal, top));
+        if graphite {
+            container(slab)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(color(pal.fg, 0.12).into()),
+                    ..Default::default()
+                })
+                .into()
+        } else {
+            slab.into()
+        }
+    }
+
+    /// Un espace de cet écran porte-t-il une fenêtre urgente ? Hyprland
+    /// l'annonce par `urgent>>`, on la retrouve dans la liste des fenêtres.
+    pub(super) fn bar_urgent(&self, monitor: &str, ws: &str) -> bool {
+        !self.urgent.is_empty()
+            && self.clients.iter().any(|c| {
+                self.urgent.contains(&c.address) && c.workspace == ws && c.monitor == monitor
             })
-            .into()
+    }
+
+    /// Une bulle de notification est-elle affichée pour une fenêtre de cet
+    /// espace ? L'application d'origine (`desktop-entry`, sinon `app_name`)
+    /// est rapprochée de la classe d'une fenêtre ; l'indicateur suit la vie
+    /// de la bulle (fermée, expirée : l'espace redevient normal).
+    pub(super) fn bar_notif(&self, monitor: &str, ws: &str) -> bool {
+        !self.toasts.list.is_empty()
+            && self.toasts.list.iter().any(|t| {
+                let entry =
+                    t.n.desktop_entry
+                        .as_deref()
+                        .map(|e| e.strip_suffix(".desktop").unwrap_or(e));
+                self.clients.iter().any(|c| {
+                    c.workspace == ws
+                        && c.monitor == monitor
+                        && (entry.is_some_and(|e| c.class.eq_ignore_ascii_case(e))
+                            || (!t.n.app.is_empty() && c.class.eq_ignore_ascii_case(&t.n.app)))
+                })
+            })
     }
 
     /// Écran plus haut que large (rotation à 90° ou 270°).
@@ -588,24 +894,99 @@ impl App {
                         .monitors
                         .iter()
                         .find(|m| m.name == monitor)
-                        .is_some_and(|m| m.width < 1600)
+                        .is_some_and(|m| {
+                            self.bar_surfaces
+                                .iter()
+                                .filter(|(_, s)| s.monitor == monitor)
+                                .any(|(id, _)| {
+                                    self.bar_full_width
+                                        .get(id)
+                                        .is_some_and(|width| *width as f32 > m.width as f32 - 16.0)
+                                })
+                        })
             }
         }
+    }
+
+    fn bar_edit_item<'a>(
+        &'a self,
+        content: Element<'a, Msg>,
+        zone: usize,
+        index: usize,
+        height: u16,
+    ) -> Element<'a, Msg> {
+        let accent = color(self.bar_palette().accent, 1.0);
+        let dragged = self.bar_drag.is_some_and(|(from, _)| from == (zone, index));
+        let h = (height as f32 - 10.0).max(12.0);
+        let mark = |index| {
+            container(Space::new().width(3).height(h)).style(move |_| container::Style {
+                background: self
+                    .bar_drag
+                    .is_some_and(|(_, over)| over == Some((zone, index)))
+                    .then(|| accent.into()),
+                ..Default::default()
+            })
+        };
+        let item = container(content).style(move |_| container::Style {
+            border: Border::default().rounded(4).width(1).color(Color {
+                a: if dragged { 0.9 } else { 0.35 },
+                ..accent
+            }),
+            ..Default::default()
+        });
+        let handle = mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+            .interaction(if dragged {
+                mouse::Interaction::Grabbing
+            } else {
+                mouse::Interaction::Grab
+            })
+            .on_press(Msg::BarDragStart(zone, index))
+            .on_enter(Msg::BarDragOver(zone, index))
+            .on_release(Msg::BarDragEnd);
+        let body = row![mark(index), iced::widget::stack![item, handle]].align_y(Alignment::Center);
+        body.into()
     }
 
     fn bar_zone<'a>(
         &'a self,
         id: Id,
-        s: &BarSurface,
+        s: &'a BarSurface,
         items: &'a [BarItem],
         edit: Option<usize>,
     ) -> Element<'a, Msg> {
         let compact = self.bar_compact(&s.monitor);
         let Some(z) = edit else {
-            return row(items.iter().map(|it| self.bar_item(id, s, it)))
-                .spacing(if compact { 0 } else { 2 })
-                .align_y(Alignment::Center)
-                .into();
+            let content = row(items.iter().map(|it| {
+                bar_motion::anchor(
+                    self.bar_item(id, s, it),
+                    id,
+                    bar_item_key(it).into(),
+                    self.bar_duration(140),
+                )
+            }))
+            .spacing(if compact { 0 } else { 2 })
+            .align_y(Alignment::Center);
+            return bar_motion::rail(
+                content,
+                None,
+                items
+                    .iter()
+                    .map(|it| {
+                        !matches!(
+                            it,
+                            BarItem::Workspaces
+                                | BarItem::Window
+                                | BarItem::Desktop
+                                | BarItem::Tray
+                        )
+                    })
+                    .collect(),
+                super::bar_style::rail_look(
+                    self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default(),
+                    &self.bar_palette(),
+                ),
+                self.bar_duration(super::bar_style::durations(self).hover),
+            );
         };
         // Mode réglage : chaque module est une poignée ; un repère d'accent
         // marque la place où il ira.
@@ -661,6 +1042,7 @@ impl App {
     fn module<'a>(
         &self,
         bar: &BarSurface,
+        alpha: f32,
         content: Element<'a, Msg>,
         left: Option<Msg>,
         right: Option<Msg>,
@@ -670,7 +1052,8 @@ impl App {
         active: bool,
     ) -> Element<'a, Msg> {
         let pal = self.bar_palette();
-        let fg = color(pal.fg, 1.0);
+        let fg = color(pal.fg, alpha);
+        let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
         let h = (bar.height as f32 - 8.0).max(16.0);
         let interactive = left.is_some() || right.is_some() || middle.is_some() || scroll.is_some();
         let b = button(
@@ -682,21 +1065,7 @@ impl App {
         .padding([0, 9])
         .on_press_maybe(left.or(interactive.then_some(Msg::Noop)))
         .style(move |_, st| {
-            let a = if active {
-                0.16
-            } else {
-                match st {
-                    button::Status::Hovered => 0.11,
-                    button::Status::Pressed => 0.18,
-                    _ => 0.0,
-                }
-            };
-            button::Style {
-                background: (a > 0.0).then_some(Background::Color(Color { a, ..fg })),
-                text_color: fg,
-                border: Border::default().rounded(7),
-                ..Default::default()
-            }
+            super::bar_style::module_button(style, alpha, fg, color(pal.bg, 1.0), active, st)
         });
         let mut m = mouse_area(b);
         if let Some(r) = right {
@@ -747,85 +1116,47 @@ impl App {
         }
     }
 
-    fn label<'a>(&self, s: impl Into<String>, size: f32, c: Color) -> Element<'a, Msg> {
+    pub(super) fn label<'a>(&self, s: impl Into<String>, size: f32, c: Color) -> Element<'a, Msg> {
         text(s.into())
             .font(self.font)
             .size(size)
             .color(c)
-            .font(self.title_font())
+            .font(self.ui_font(iced::font::Weight::Medium))
             .wrapping(iced::widget::text::Wrapping::None)
             .into()
     }
 
-    fn bar_item<'a>(&'a self, bar_id: Id, bar: &BarSurface, item: &'a BarItem) -> Element<'a, Msg> {
+    pub(super) fn bar_item<'a>(
+        &'a self,
+        bar_id: Id,
+        bar: &'a BarSurface,
+        item: &'a BarItem,
+    ) -> Element<'a, Msg> {
+        self.bar_item_alpha(bar_id, bar, item, 1.0)
+    }
+
+    pub(super) fn bar_item_alpha<'a>(
+        &'a self,
+        bar_id: Id,
+        bar: &'a BarSurface,
+        item: &'a BarItem,
+        alpha: f32,
+    ) -> Element<'a, Msg> {
         let pal = self.bar_palette();
+        let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+        let t = super::bar_style::durations(self);
         // Couleur du module, sinon le texte de la barre.
         let base = self.bar_item_color(item).unwrap_or(pal.fg);
-        let fg = color(base, 0.92);
-        let dim = color(base, 0.5);
+        let fg = color(base, 0.92 * alpha);
+        let dim = color(base, 0.65 * alpha);
         let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
         let isz = (size * 1.2).round();
         let monitor = bar.monitor.clone();
         let compact = self.bar_compact(&monitor);
         match item {
-            BarItem::Workspaces => {
-                let current = self
-                    .monitors
-                    .iter()
-                    .find(|m| m.name == monitor)
-                    .map(|m| m.workspace.clone())
-                    .unwrap_or_default();
-                let accent = color(pal.accent, 1.0);
-                let on_accent = color(pal.bg, 1.0);
-                let pills = self
-                    .workspaces
-                    .iter()
-                    .filter(|w| w.monitor == monitor)
-                    .map(|w| {
-                        let active = w.name == current;
-                        let (txt, fill) = if active {
-                            (on_accent, Some(accent))
-                        } else if w.windows > 0 {
-                            (fg, None)
-                        } else {
-                            (dim, None)
-                        };
-                        let h = (bar.height as f32 * 0.6).round();
-                        let fgc = color(base, 1.0);
-                        button(
-                            container(self.label(w.name.clone(), size * 0.92, txt))
-                                .center_x(Length::Shrink)
-                                .center_y(Length::Fill),
-                        )
-                        .height(h)
-                        .padding([0, if w.name.chars().count() > 1 { 8 } else { 0 }])
-                        .width(if w.name.chars().count() > 1 {
-                            Length::Shrink
-                        } else {
-                            Length::Fixed(h)
-                        })
-                        .on_press(Msg::BarWorkspace(monitor.clone(), w.name.clone()))
-                        .style(move |_, st| button::Style {
-                            background: match (fill, st) {
-                                (Some(f), _) => Some(Background::Color(f)),
-                                (None, button::Status::Hovered) => {
-                                    Some(Background::Color(Color { a: 0.12, ..fgc }))
-                                }
-                                _ => None,
-                            },
-                            text_color: txt,
-                            border: Border::default().rounded(h / 2.0),
-                            ..Default::default()
-                        })
-                        .into()
-                    });
-                let mon = monitor.clone();
-                mouse_area(
-                    container(row(pills).spacing(3).align_y(Alignment::Center)).padding([0, 4]),
-                )
-                .on_scroll(move |d| Msg::BarScroll(mon.clone(), -scroll_dir(d) as i32))
-                .into()
-            }
+            // Les touches d'espaces sont le geste du style : chaque rendu son
+            // langage (capsule glissante en Continuité, touche soulevée en Graphite).
+            BarItem::Workspaces => super::bar_style::workspaces(self, bar_id, bar, alpha),
             BarItem::Window => {
                 if self
                     .monitors
@@ -846,7 +1177,7 @@ impl App {
                         .font(self.font)
                         .size(size)
                         .color(dim)
-                        .font(self.title_font()),
+                        .font(self.ui_font(iced::font::Weight::Normal)),
                 )
                 .padding([0, 8])
                 .into()
@@ -859,9 +1190,10 @@ impl App {
                 // Le mode de cet écran (celui du workspace qu'il affiche) ;
                 // un clic le change pour cet écran.
                 let mode = self.monitor_mode(&monitor);
-                let accent = color(pal.accent, 1.0);
-                let on_accent = color(pal.bg, 1.0);
-                let fgc = color(base, 1.0);
+                let accent = color(pal.accent, alpha);
+                let on_accent =
+                    design::on_accent(accent, color(pal.fg, alpha), color(pal.bg, alpha));
+                let fgc = color(base, alpha);
                 let h = (bar.height as f32 * 0.66).round();
                 let seg = |m: M, icon: &str, cmd: control::Command, tip: &'static str| {
                     let active = mode == m;
@@ -870,27 +1202,33 @@ impl App {
                         self.label(m.as_str().chars().take(1).collect::<String>(), size, tint)
                     });
                     iced::widget::tooltip(
-                        button(
-                            container(glyph)
-                                .center_x(Length::Fill)
-                                .center_y(Length::Fill),
-                        )
-                        .width(h * 1.25)
-                        .height(h)
-                        .padding(0)
-                        .on_press(Msg::On(monitor.clone(), Box::new(Msg::Control(cmd))))
-                        .style(move |_, st| button::Style {
-                            background: if active {
-                                Some(Background::Color(accent))
-                            } else if matches!(st, button::Status::Hovered) {
-                                Some(Background::Color(Color { a: 0.14, ..fgc }))
-                            } else {
-                                None
-                            },
-                            text_color: tint,
-                            border: Border::default().rounded(h / 2.0),
-                            ..Default::default()
-                        }),
+                        bar_motion::press(
+                            button(
+                                container(glyph)
+                                    .center_x(Length::Fill)
+                                    .center_y(Length::Fill),
+                            )
+                            .width(h * 1.25)
+                            .height(h)
+                            .padding(0)
+                            .on_press(Msg::On(monitor.clone(), Box::new(Msg::Control(cmd))))
+                            .style(move |_, st| button::Style {
+                                background: if active {
+                                    Some(Background::Color(accent))
+                                } else if matches!(st, button::Status::Hovered) {
+                                    Some(Background::Color(Color {
+                                        a: 0.14 * alpha,
+                                        ..fgc
+                                    }))
+                                } else {
+                                    None
+                                },
+                                text_color: tint,
+                                border: Border::default().rounded(h / 2.0),
+                                ..Default::default()
+                            }),
+                            self.bar_duration(90),
+                        ),
                         container(
                             text(crate::tr!(
                                 "{m} — {t}",
@@ -907,7 +1245,11 @@ impl App {
                             text_color: Some(fgc),
                             ..Default::default()
                         }),
-                        iced::widget::tooltip::Position::Bottom,
+                        if bar.position == BarPosition::Top {
+                            tooltip::Position::Bottom
+                        } else {
+                            tooltip::Position::Top
+                        },
                     )
                 };
                 container(
@@ -936,7 +1278,10 @@ impl App {
                 )
                 .padding(2)
                 .style(move |_| container::Style {
-                    background: Some(Background::Color(Color { a: 0.10, ..fgc })),
+                    background: Some(Background::Color(Color {
+                        a: 0.10 * alpha,
+                        ..fgc
+                    })),
                     border: Border::default().rounded(h / 2.0 + 2.0),
                     ..Default::default()
                 })
@@ -944,7 +1289,9 @@ impl App {
             }
             BarItem::Volume => {
                 let label = match self.volume {
-                    Some((v, false)) if !compact => format!("{:.0} %", v * 100.0),
+                    Some((v, false)) if !compact && style != crate::config::BarStyle::Graphite => {
+                        format!("{:.0} %", v * 100.0)
+                    }
                     _ => String::new(),
                 };
                 let mut content = row![
@@ -958,13 +1305,16 @@ impl App {
                 }
                 self.module(
                     bar,
+                    alpha,
                     content.into(),
                     Some(Msg::OpenPopover(bar_id, "volume".into(), Request::Volume)),
                     None,
                     Some(Msg::VolumeMute),
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
                     None,
-                    self.popover.as_ref().is_some_and(|p| p.key == "volume"),
+                    self.popover
+                        .as_ref()
+                        .is_some_and(|p| p.key == "volume" && !p.closing()),
                 )
             }
             BarItem::Brightness => {
@@ -983,6 +1333,7 @@ impl App {
                 let target = self.light.target_for(&monitor);
                 self.module(
                     bar,
+                    alpha,
                     content.into(),
                     Some(Msg::OpenPopover(
                         bar_id,
@@ -996,14 +1347,17 @@ impl App {
                             as Box<dyn Fn(i64) -> Msg>
                     }),
                     Some(crate::i18n::tr("Luminosité").to_string()),
-                    self.popover.as_ref().is_some_and(|p| p.key == "brightness"),
+                    self.popover
+                        .as_ref()
+                        .is_some_and(|p| p.key == "brightness" && !p.closing()),
                 )
             }
             BarItem::Tray => {
+                let count = self.tray.len();
                 let icons = self.tray.iter().map(|t| {
                     // Sans image : icône générique plutôt qu'un « ? ».
                     let img: Element<'_, Msg> = self
-                        .tray_icon(t, isz)
+                        .tray_icon(t, isz, alpha)
                         .or_else(|| self.icon_named("application-x-executable-symbolic", isz, fg))
                         .unwrap_or_else(|| {
                             self.label(
@@ -1036,8 +1390,9 @@ impl App {
                             false,
                         ))
                     };
-                    self.module(
+                    let module = self.module(
                         bar,
+                        alpha,
                         img,
                         left,
                         menu,
@@ -1051,21 +1406,72 @@ impl App {
                         Some(t.title.clone()),
                         self.popover
                             .as_ref()
-                            .is_some_and(|p| p.key == format!("tray:{}", t.key)),
-                    )
+                            .is_some_and(|p| p.key == format!("tray:{}", t.key) && !p.closing()),
+                    );
+                    if self.bar_overflow_items(bar_id).contains(&BarItem::Tray) {
+                        module
+                    } else {
+                        bar_motion::anchor(
+                            module,
+                            bar_id,
+                            format!("tray:{}", t.key),
+                            self.bar_duration(140),
+                        )
+                    }
                 });
-                row(icons).spacing(0).align_y(Alignment::Center).into()
+                bar_motion::rail(
+                    row(icons).spacing(0).align_y(Alignment::Center),
+                    None,
+                    vec![true; count],
+                    super::bar_style::rail_look(style, &pal),
+                    self.bar_duration(t.hover),
+                )
             }
             BarItem::Widget(id) => {
                 let Some(w) = self.cfg.widgets.iter().find(|w| &w.id == id) else {
                     return Space::new().into();
                 };
                 let value = self.values.get(id);
-                let open = self.popover.as_ref().is_some_and(|p| &p.key == id);
+                let open = self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| &p.key == id && !p.closing());
                 match &w.kind {
+                    WidgetKind::Launcher => self
+                        .monitors
+                        .iter()
+                        .find(|m| m.name == monitor)
+                        .map_or_else(|| Space::new().into(), |m| self.view_launcher_bar(m, alpha)),
+                    WidgetKind::Controls => self.module(
+                        bar,
+                        alpha,
+                        self.icon_named("preferences-system-controls-symbolic", isz, fg)
+                            .unwrap_or_else(|| self.label(crate::i18n::tr("Réglages"), size, fg)),
+                        Some(Msg::OpenPopover(
+                            bar_id,
+                            id.clone(),
+                            Request::Widget(id.clone()),
+                        )),
+                        None,
+                        None,
+                        None,
+                        Some(crate::i18n::tr("Centre de contrôle").into()),
+                        open,
+                    ),
                     WidgetKind::Clock { format } => self.module(
                         bar,
-                        self.label(format_now(if compact { "%H:%M" } else { format }), size, fg),
+                        alpha,
+                        if style == crate::config::BarStyle::Graphite {
+                            iced::widget::column![
+                                self.label(format_now("%H:%M"), 12.0, fg),
+                                self.label(format_now("%d/%m/%Y"), 11.0, fg),
+                            ]
+                            .align_x(Alignment::End)
+                            .spacing(0)
+                            .into()
+                        } else {
+                            self.label(format_now(if compact { "%H:%M" } else { format }), size, fg)
+                        },
                         Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
                         None,
                         None,
@@ -1075,6 +1481,7 @@ impl App {
                     ),
                     WidgetKind::Calendar => self.module(
                         bar,
+                        alpha,
                         self.label(format_now("%a %-d %b"), size, fg),
                         Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
                         None,
@@ -1100,6 +1507,7 @@ impl App {
                             });
                             self.module(
                                 bar,
+                                alpha,
                                 row(parts).spacing(10).align_y(Alignment::Center).into(),
                                 None,
                                 None,
@@ -1125,6 +1533,7 @@ impl App {
                             };
                             self.module(
                                 bar,
+                                alpha,
                                 row![
                                     self.icon_named(icon, isz * 0.85, fg).unwrap_or_else(
                                         || self.label(crate::i18n::tr("▶"), size, fg)
@@ -1163,6 +1572,7 @@ impl App {
                     WidgetKind::Command { .. } => match value {
                         Some(widgets::Value::Text(t)) if !t.is_empty() => self.module(
                             bar,
+                            alpha,
                             self.label(truncate(t.lines().next().unwrap_or(""), 60), size, fg),
                             None,
                             None,
@@ -1196,9 +1606,9 @@ impl App {
                         // sur l'accent ; avertissement et critique restent visibles.
                         let tint = match r.state {
                             RenderState::Active if self.bar_item_color(item).is_some() => {
-                                color(base, 1.0)
+                                color(base, alpha)
                             }
-                            s => self.state_color(s, fg),
+                            s => self.state_color(s, color(base, 0.92)).scale_alpha(alpha),
                         };
                         let mut content = row![].spacing(6).align_y(Alignment::Center);
                         let mut has_icon = false;
@@ -1236,6 +1646,7 @@ impl App {
                         });
                         self.module(
                             bar,
+                            alpha,
                             content.into(),
                             left,
                             right,
@@ -1250,10 +1661,16 @@ impl App {
         }
     }
 
-    fn tray_icon(&self, t: &crate::tray::TrayItem, size: f32) -> Option<Element<'_, Msg>> {
+    fn tray_icon(
+        &self,
+        t: &crate::tray::TrayItem,
+        size: f32,
+        alpha: f32,
+    ) -> Option<Element<'_, Msg>> {
         if let Some((_, h)) = self.tray_imgs.get(&t.key) {
             return Some(
                 iced::widget::image(h.clone())
+                    .opacity(alpha)
                     .width(size)
                     .height(size)
                     .into(),
@@ -1263,7 +1680,7 @@ impl App {
         // Les icônes de la zone de notification gardent leurs couleurs.
         match self.named_icons.get(name).copied().unwrap_or(IconImg::None) {
             IconImg::None => None,
-            img => self.img_element(img, size, 1.0),
+            img => self.img_element(img, size, alpha),
         }
     }
 }

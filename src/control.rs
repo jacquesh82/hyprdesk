@@ -41,6 +41,8 @@ pub enum Command {
     Tour,
     /// Ouvre ou referme le lanceur avec recherche.
     Search,
+    /// Ouvre ou referme la recherche de fichiers (loupe du dock, mode `:f`).
+    Files,
     /// Ouvre ou referme la grille des applications (plein écran).
     Apps,
     /// Vue d'ensemble des fenêtres (plugin de Hyprland, sinon le sélecteur).
@@ -82,6 +84,7 @@ impl Command {
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
             "search" => Command::Search,
+            "files" => Command::Files,
             "apps" => Command::Apps,
             "overview" => Command::Overview,
             "switch" | "switch next" => Command::Switch(false),
@@ -148,6 +151,7 @@ impl Command {
             Command::Assistant => "assistant",
             Command::Tour => "tour",
             Command::Search => "search",
+            Command::Files => "files",
             Command::Apps => "apps",
             Command::Overview => "overview",
             Command::Notifications(_) => "notifications",

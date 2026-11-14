@@ -14,6 +14,9 @@ use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 mod apps_grid;
 pub(crate) mod bar;
+mod bar_layout;
+mod bar_motion;
+mod bar_style;
 mod chat;
 pub(crate) mod color_picker;
 mod context;
@@ -23,7 +26,9 @@ mod icons;
 mod mymfa;
 mod mymfa_fenetre;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
+mod controls;
 mod osd;
+mod overview;
 mod panel;
 pub(crate) mod plugins;
 mod polkit;
@@ -109,6 +114,8 @@ pub enum DropEvent {
 pub enum Msg {
     Control(control::Command),
     Hypr(hypr::Update),
+    /// État périodique du démon d'index (loupe du dock, page Réglages).
+    IndexStatus(Option<crate::ui::plugins::index::StatusView>),
     Apps(Vec<AppInfo>),
     ClassIcons(u64, Vec<(String, Option<PathBuf>)>),
     FocusWindow(String),
@@ -124,6 +131,10 @@ pub enum Msg {
     BarWorkspace(String, String),
     /// Barre : molette sur les workspaces (écran, ±1).
     BarScroll(String, i32),
+    BarAnchor(Id, String, iced::Rectangle),
+    BarLayout(Id, Vec<usize>, u32),
+    ControlToggle(String),
+    ControlToggled(u64, String, Result<(), String>),
     VolumeMute,
     VolumeStep(i32),
     VolumeSet(f32),
@@ -132,6 +143,9 @@ pub enum Msg {
     BarDragStart(usize, usize),
     /// Survol pendant le glisser : place d'insertion (zone, rang).
     BarDragOver(usize, usize),
+    /// Sortie d'une zone de dépôt (barre ou liste des réglages).
+    BarDragLeave(usize),
+    BarDragCancel,
     /// Relâché : le module va à la place survolée.
     BarDragEnd,
     /// Luminosité relue (rétroéclairage, écrans DDC/CI).
@@ -182,7 +196,6 @@ pub enum Msg {
     /// Ouvre (ou referme) un menu sous un module de la barre : (barre, clé du module, contenu).
     OpenPopover(Id, String, popover::Request),
     PopoverReady(u64, Id, String, popover::Kind),
-    PopoverPositioned(u64, Id, String, popover::Kind, Option<(f32, f32)>),
     ClosePopover,
     PopoverMeasured(Id, f32),
     Popover(popover::PMsg),
@@ -222,6 +235,10 @@ pub enum Msg {
     DeskContext(Id),
     IconMenu(context::CMsg),
     Switcher(switcher::SwMsg),
+    /// Écran « Espaces de travail » (organisation des fenêtres).
+    Overview(overview::OMsg),
+    /// Ouvre l'écran « Espaces de travail » depuis un menu de la barre.
+    BarOrganize,
     /// Calendrier : mois suivant (+1), précédent (-1), en cours (0).
     CalendarMonth(i32),
     /// Menu du tray relu pendant qu'il est ouvert (clé du popover, entrées).
@@ -413,17 +430,35 @@ pub struct App {
     problem: Option<problem::Problem>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
+    /// État du démon d'index (loupe du dock : pastille et bulle).
+    index_status: Option<crate::ui::plugins::index::StatusView>,
     /// Calendrier du popover : mois affiché, relatif au mois en cours.
     cal_months: i32,
     /// Sélecteur de fenêtres (Alt+Tab) ouvert.
     switcher: Option<switcher::Switcher>,
+    /// Écran « Espaces de travail » ouvert (organisation des fenêtres).
+    overview: Option<overview::Overview>,
     /// Menu contextuel d'une icône du bureau ouvert.
     icon_menu: Option<context::IconMenu>,
     /// Dossier Bureau suivi (réglage desktop_files) : empreinte, dernier relevé.
     desk_stamp: Option<(crate::desktop_files::Stamp, Instant)>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
+    bar_anchors: HashMap<(Id, String), iced::Rectangle>,
+    control_actions: HashMap<String, Option<String>>,
+    bar_hidden: HashMap<Id, Vec<usize>>,
+    bar_full_width: HashMap<Id, u32>,
+    /// Poses de démonstration, jamais activées par le démon de session.
+    bar_preview: Option<(usize, bool)>,
     workspaces: Vec<hypr::Workspace>,
+    /// Fenêtres avec géométrie : minimaps de l'écran d'organisation et des
+    /// miniatures du sélecteur de la barre.
+    ws_geos: Vec<hypr::WindowGeo>,
+    /// Dernière relecture de ces géométries (rappel périodique).
+    ws_geos_at: Option<Instant>,
+    /// Fenêtres marquées urgentes par Hyprland (adresses) ; une fenêtre
+    /// redevient visible ou ferme, elle sort de là.
+    urgent: HashSet<String>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
     /// Touches de modification tenues (Maj + Tab : champ précédent).
@@ -734,6 +769,7 @@ impl App {
             wdrag: None,
             settings: DeskSettings::default(),
             settings_revision: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            index_status: None,
             panel: None,
             chat: None,
             chat_session: 0,
@@ -742,6 +778,7 @@ impl App {
             drop_count: 0,
             apps: Arc::new(Vec::new()),
             clients: Vec::new(),
+            urgent: HashSet::new(),
             class_imgs: HashMap::new(),
             class_pending: HashSet::new(),
             theme: make_theme(&Config::default()),
@@ -765,9 +802,17 @@ impl App {
             search: None,
             icon_menu: None,
             switcher: None,
+            overview: None,
+            ws_geos: Vec::new(),
+            ws_geos_at: None,
             cal_months: 0,
             desk_stamp: None,
             bar_surfaces: HashMap::new(),
+            bar_anchors: HashMap::new(),
+            control_actions: HashMap::new(),
+            bar_hidden: HashMap::new(),
+            bar_full_width: HashMap::new(),
+            bar_preview: None,
             workspaces: Vec::new(),
             active_window: None,
             volume: None,
@@ -957,6 +1002,8 @@ impl App {
             || o.disabled_plugins != n.disabled_plugins
         {
             tasks.push(self.sync_bars());
+            tasks.push(self.sync_launchers());
+            tasks.push(self.close_launcher_popup());
             self.last_poll.retain(|k, _| !k.starts_with("bar:"));
             tasks.push(Task::done(Msg::Poll));
         }
@@ -1368,20 +1415,23 @@ impl App {
     fn sync_window_gaps(&mut self) -> Task<Msg> {
         // launcher-only : le dock en bas ; réglages ouverts, quel que soit le
         // mode : le tiroir à droite.
-        let drawer_on = self.panel.as_ref().map(|p| p.win).or_else(|| {
-            self.chat
-                .as_ref()
-                .filter(|c| c.surface.is_some())
-                .map(|c| c.win)
-        });
+        let panel_on = self.panel.as_ref().map(|p| p.win);
+        let chat_on = self
+            .chat
+            .as_ref()
+            .filter(|c| c.surface.is_some())
+            .map(|c| c.win);
         let mut want: Vec<(String, [i32; 4])> = self
             .surfaces
             .iter()
             .filter_map(|(id, mon)| {
                 // Le lanceur réserve lui-même sa place (zone exclusive de sa surface).
                 let mut m = [0; 4];
-                if drawer_on == Some(*id) {
+                // Réglages ou assistant : chacun à sa largeur de tiroir.
+                if panel_on == Some(*id) {
                     m[1] = m[1].max(self.panel_width().round() as i32);
+                } else if chat_on == Some(*id) {
+                    m[1] = m[1].max(self.chat_width().round() as i32);
                 }
                 (m != [0; 4]).then(|| (mon.clone(), m))
             })
@@ -1412,9 +1462,11 @@ impl App {
             || self.chat_shown()
             || self.search.is_some()
             || self.switcher.is_some()
+            || self.overview.is_some()
             || self.mfa_dialog.is_some()
             || self.mfa_fenetre.is_some()
             || !self.launcher_surfaces.is_empty()
+            || self.launcher_runtime.focus.is_some()
     }
 
     /// Mode du bureau, tel que l'utilisateur le nomme.
@@ -1845,10 +1897,20 @@ impl App {
             .cfg
             .bar
             .iter()
-            .flat_map(|b| b.zones.iter().flatten().cloned())
+            .flat_map(|b| {
+                let zones = if self.bar_vertical(&self.bar_surfaces[&bar_id].monitor) {
+                    b.portrait.as_ref().unwrap_or(&b.zones)
+                } else {
+                    &b.zones
+                };
+                zones.iter().flatten().cloned()
+            })
             .collect();
         for it in items {
             let req = match &it {
+                config::BarItem::Workspaces if kind == "workspaces" => {
+                    Some(("workspaces".into(), popover::Request::Workspaces))
+                }
                 config::BarItem::Volume if kind == "volume" => {
                     Some(("volume".to_string(), popover::Request::Volume))
                 }
@@ -1872,6 +1934,9 @@ impl App {
                     .iter()
                     .find(|w| &w.id == id && w.type_id == kind)
                     .and_then(|w| match &w.kind {
+                        config::WidgetKind::Controls => {
+                            Some((id.clone(), popover::Request::Widget(id.clone())))
+                        }
                         config::WidgetKind::Clock { .. } | config::WidgetKind::Calendar => {
                             Some((id.clone(), popover::Request::Calendar))
                         }
@@ -2059,7 +2124,11 @@ impl App {
             || self
                 .popover
                 .as_ref()
-                .is_some_and(|p| p.started.elapsed() < self.motion_duration())
+                .is_some_and(|p| p.animating(Instant::now()))
+            || self
+                .overview
+                .as_ref()
+                .is_some_and(|o| o.animating(Instant::now()))
     }
 
     fn motion_duration(&self) -> Duration {
@@ -2078,6 +2147,7 @@ impl App {
     }
 
     fn close_panel(&mut self) -> Task<Msg> {
+        self.bar_drag = None;
         // Capture en cours : Hyprland retrouve ses raccourcis.
         let end = if self
             .panel
@@ -2273,6 +2343,19 @@ impl App {
         }
         let old = std::mem::replace(&mut self.monitors, list);
         let mut tasks = Vec::new();
+        // Un espace redevenu actif sur son écran montre ses fenêtres urgentes :
+        // leur losange quitte la barre.
+        if !self.urgent.is_empty() {
+            self.urgent.retain(|a| {
+                !self.clients.iter().any(|c| {
+                    &c.address == a
+                        && self
+                            .monitors
+                            .iter()
+                            .any(|m| m.name == c.monitor && m.workspace == c.workspace)
+                })
+            });
+        }
         // Disposition ou workspace affiché changés (ou premiers écrans connus) :
         // l'état du verrouillage suit (fond de chaque écran).
         // Le workspace affiché compte aussi : son fond est celui du verrouillage.
@@ -2532,7 +2615,28 @@ impl App {
 
     fn poll(&mut self) -> Task<Msg> {
         let refresh = self.refresh_tray_menu();
-        Task::batch([refresh, self.poll_widgets()])
+        // Minimaps vivantes (écran d'organisation, miniatures du sélecteur) :
+        // les événements fenêtres rafraîchissent, un rappel périodique les
+        // garde à jour même si un événement a été manqué.
+        let fresh = if self.overview.is_some()
+            || self.cfg.general.workspace_selector == crate::config::WsSelector::Miniatures
+        {
+            let now = Instant::now();
+            let stale = self
+                .ws_geos_at
+                .is_none_or(|at| now.duration_since(at) >= Duration::from_secs(5));
+            if stale {
+                self.ws_geos_at = Some(now);
+                Task::perform(crate::hypr::window_geometries_async(), |l| {
+                    Msg::Overview(crate::ui::overview::OMsg::Geos(l))
+                })
+            } else {
+                Task::none()
+            }
+        } else {
+            Task::none()
+        };
+        Task::batch([refresh, fresh, self.poll_widgets()])
     }
 
     fn poll_widgets(&mut self) -> Task<Msg> {
@@ -2556,7 +2660,7 @@ impl App {
         let cfg = self.cfg.clone();
         // Widgets à relever : ceux des bureaux affichés, et ceux de la barre (toujours visible).
         let mut todo: Vec<&config::WidgetDef> = Vec::new();
-        for id in raised {
+        for id in raised.into_iter().filter(|_| cfg.plugin_on("widgets")) {
             let Some(m) = self.monitor(id) else { continue };
             let mut d = resolve(&cfg, &m.name, &m.workspace);
             self.keep_widgets_of(&m.name, &mut d);
@@ -2564,7 +2668,15 @@ impl App {
         }
         let bar_ids = self.bar_widget_ids();
         todo.extend(cfg.widgets.iter().filter(|w| bar_ids.contains(&w.id)));
-        if self.bar_has(&config::BarItem::Volume)
+        let controls_visible = todo.iter().any(|w| matches!(w.kind, WidgetKind::Controls));
+        if controls_visible {
+            todo.extend(
+                cfg.widgets
+                    .iter()
+                    .filter(|w| crate::widgets::controls::SOURCES.contains(&w.type_id.as_str())),
+            );
+        }
+        if (self.bar_has(&config::BarItem::Volume) || controls_visible)
             && !self.pending_widgets.contains("bar:volume")
             && self
                 .last_poll
@@ -2575,7 +2687,7 @@ impl App {
             self.last_poll.insert("bar:volume".into(), now);
             tasks.push(Task::perform(bar::read_volume(), Msg::VolumeValue));
         }
-        if self.bar_has(&config::BarItem::Brightness)
+        if (self.bar_has(&config::BarItem::Brightness) || controls_visible)
             && !self.pending_widgets.contains("bar:light")
             && self
                 .last_poll
@@ -2627,7 +2739,10 @@ impl App {
                 let wid = w.id.clone();
                 let generation = self.widget_generation;
                 let task: Option<Task<Msg>> = match &w.kind {
-                    WidgetKind::Clock { .. } | WidgetKind::Calendar => None,
+                    WidgetKind::Clock { .. }
+                    | WidgetKind::Calendar
+                    | WidgetKind::Controls
+                    | WidgetKind::Launcher => None,
                     WidgetKind::System { show } => {
                         let show = show.clone();
                         Some(Task::perform(
@@ -3086,6 +3201,13 @@ impl App {
 
     fn update_inner(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
+            Msg::IndexStatus(st) => {
+                self.index_status = st.clone();
+                if let Some(p) = self.panel.as_mut() {
+                    p.index.status = st;
+                }
+                Task::none()
+            }
             Msg::Control(c) => match c {
                 // Le raccourci d'un mode y mène, ou rend no-desktop s'il y est déjà.
                 control::Command::Toggle => {
@@ -3170,6 +3292,7 @@ impl App {
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
+                control::Command::Files => self.open_search_with(":f "),
                 control::Command::Mymfa(a) => match a.as_str() {
                     "lock" => self.mfa_update(mymfa::MMsg::Lock),
                     "setup" => self.mfa_update(mymfa::MMsg::Setup(None)),
@@ -3187,14 +3310,12 @@ impl App {
                 control::Command::Overview => {
                     let cmd = self.cfg.general.overview_command.trim().to_string();
                     if cmd.is_empty() {
-                        if self.switcher.is_some() {
-                            return self.close_switcher();
+                        // SUPER+Tab : l'écran « Espaces de travail » (Alt+Tab
+                        // garde le sélecteur de fenêtres).
+                        if self.overview.is_some() {
+                            return self.close_overview();
                         }
-                        let t = self.switch_windows(false);
-                        if let Some(s) = self.switcher.as_mut() {
-                            s.sticky = true;
-                        }
-                        t
+                        self.open_overview()
                     } else {
                         Task::perform(
                             async move {
@@ -3240,16 +3361,25 @@ impl App {
                 self.active_window = w;
                 Task::none()
             }
-            Msg::BarWorkspace(mon, ws) => Task::perform(
-                async move {
-                    let _ = tokio::task::spawn_blocking(move || {
-                        hypr::focus_monitor(&mon);
-                        hypr::focus_workspace(&ws)
-                    })
-                    .await;
-                },
-                |_| Msg::Noop,
-            ),
+            Msg::Hypr(hypr::Update::Urgent(addr)) => {
+                // La relecture des fenêtres suit dans le flux : la barre saura
+                // où placer son losange.
+                self.urgent.insert(addr);
+                Task::none()
+            }
+            Msg::BarWorkspace(mon, ws) => {
+                let focus = Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || {
+                            hypr::focus_monitor(&mon);
+                            hypr::focus_workspace(&ws)
+                        })
+                        .await;
+                    },
+                    |_| Msg::Noop,
+                );
+                Task::batch([focus, self.close_popover()])
+            }
             Msg::BarScroll(mon, dir) => Task::perform(
                 async move {
                     let _ = tokio::task::spawn_blocking(move || {
@@ -3518,8 +3648,18 @@ impl App {
                     .retain(|address| list.iter().any(|c| &c.address == address));
                 self.desk_windows
                     .retain(|address| list.iter().any(|c| &c.address == address));
+                // Une fenêtre fermée n'est plus urgente.
+                self.urgent.retain(|a| list.iter().any(|c| &c.address == a));
                 tasks.push(self.sync_submap());
                 self.clients = list;
+                // Minimap vivante : fenêtres ouvertes, fermées, déplacées.
+                if self.overview.is_some()
+                    || self.cfg.general.workspace_selector == crate::config::WsSelector::Miniatures
+                {
+                    tasks.push(Task::perform(crate::hypr::window_geometries_async(), |l| {
+                        Msg::Overview(crate::ui::overview::OMsg::Geos(l))
+                    }));
+                }
                 tasks.push(self.launcher_frame());
                 tasks.push(self.sync_raised());
                 tasks.push(self.resolve_class_icons());
@@ -3605,10 +3745,14 @@ impl App {
             Msg::ConfigChanged => self.load_config(),
             Msg::ConfigLoaded(Ok(cfg)) => {
                 self.widget_generation += 1;
+                self.bar_hidden.clear();
+                self.bar_full_width.clear();
+                self.bar_anchors.clear();
+                self.control_actions.clear();
                 self.values.clear();
                 self.last_poll.clear();
                 self.menu_request += 1;
-                let close = self.close_popover();
+                let close = self.destroy_popover();
                 tracing::info!(
                     "{}",
                     crate::tr!(
@@ -3726,6 +3870,8 @@ impl App {
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
             Msg::Switcher(m) => self.switcher_update(m),
+            Msg::Overview(m) => self.overview_update(m),
+            Msg::BarOrganize => Task::batch([self.close_popover(), self.open_overview()]),
             Msg::MenuRefreshed(key, new) => {
                 if let Some(p) = self.popover.as_mut()
                     && p.key == key
@@ -3749,11 +3895,7 @@ impl App {
             }
             Msg::Modifiers(m) => {
                 self.mods = m;
-                if self.switcher.as_ref().is_some_and(|s| !s.sticky)
-                    && !m.alt()
-                    && !m.logo()
-                    && !m.control()
-                {
+                if self.switcher.is_some() && !m.alt() && !m.logo() && !m.control() {
                     return self.switcher_commit();
                 }
                 Task::none()
@@ -3804,7 +3946,13 @@ impl App {
                     }
                 }
                 let launcher = self.launcher_frame();
-                Task::batch([closed, launcher, self.finish_fade()])
+                Task::batch([
+                    closed,
+                    launcher,
+                    self.popover_frame(),
+                    self.overview_frame(),
+                    self.finish_fade(),
+                ])
             }
             Msg::Poll => self.poll(),
             Msg::WidgetValue(generation, id, v) => {
@@ -3837,28 +3985,58 @@ impl App {
                 Task::none()
             }
             Msg::OpenPopover(bar_id, key, req) => {
-                let toggling = self.popover.as_ref().is_some_and(|p| p.key == key);
-                let close = self.close_popover();
+                let toggling = self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.bar == bar_id && p.key == key && !p.closing());
                 self.menu_request += 1;
                 let request = self.menu_request;
                 if toggling {
-                    return close;
+                    return self.close_popover();
                 }
-                let task = match req {
-                    // Les périphériques d'abord : ils fixent la hauteur du menu.
-                    popover::Request::Volume => {
-                        Task::perform(bar::read_audio(), |a| a).then(move |a| {
-                            Task::batch([
-                                Task::done(Msg::AudioValue(a)),
-                                Task::done(Msg::PopoverReady(
-                                    request,
-                                    bar_id,
-                                    key.clone(),
-                                    popover::Kind::Volume,
-                                )),
-                            ])
-                        })
+                match req {
+                    // Ouverture immédiate ; le relevé des périphériques affine
+                    // ensuite la carte via la mesure de son contenu.
+                    popover::Request::Widget(widget) => {
+                        if !self
+                            .cfg
+                            .widgets
+                            .iter()
+                            .any(|w| w.id == widget && matches!(w.kind, WidgetKind::Controls))
+                        {
+                            return Task::none();
+                        }
+                        Task::batch([
+                            Task::done(Msg::PopoverReady(
+                                request,
+                                bar_id,
+                                key,
+                                popover::Kind::Widget(widget),
+                            )),
+                            Task::perform(bar::read_audio(), Msg::AudioValue),
+                        ])
                     }
+                    popover::Request::Volume => Task::batch([
+                        Task::done(Msg::PopoverReady(
+                            request,
+                            bar_id,
+                            key,
+                            popover::Kind::Volume,
+                        )),
+                        Task::perform(bar::read_audio(), Msg::AudioValue),
+                    ]),
+                    popover::Request::Overflow => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Overflow(self.bar_overflow_items(bar_id)),
+                    )),
+                    popover::Request::Workspaces => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Workspaces,
+                    )),
                     popover::Request::Brightness => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,
@@ -3930,34 +4108,11 @@ impl App {
                             }
                         },
                     ),
-                };
-                Task::batch([close, task])
+                }
             }
             Msg::PopoverReady(request, bar_id, key, kind) => {
                 if request != self.menu_request {
                     return Task::none();
-                }
-                Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(hypr::cursor_pos)
-                            .await
-                            .ok()
-                            .flatten()
-                    },
-                    move |point| {
-                        Msg::PopoverPositioned(request, bar_id, key.clone(), kind.clone(), point)
-                    },
-                )
-            }
-            Msg::PopoverPositioned(request, bar_id, key, kind, point) => {
-                if request != self.menu_request {
-                    return Task::none();
-                }
-                if let Some((x, y)) = point
-                    && let Some(bar) = self.bar_surfaces.get(&bar_id)
-                    && let Some(m) = self.monitors.iter().find(|m| m.name == bar.monitor)
-                {
-                    self.cursor.insert(bar_id, Point::new(x - m.x, y - m.y));
                 }
                 self.open_popover(bar_id, key, kind)
             }
@@ -3984,25 +4139,85 @@ impl App {
                 self.poll()
             }
             Msg::BarDragStart(z, i) => {
-                self.bar_drag = Some(((z, i), None));
+                let b = self
+                    .settings
+                    .bar
+                    .get_or_insert_with(|| crate::settings::BarSettings::from_config(&self.cfg));
+                self.bar_drag = b.can_drag_entry((z, i)).then_some(((z, i), None));
                 Task::none()
             }
+            Msg::BarAnchor(id, key, bounds) => {
+                self.bar_anchors.insert((id, key), bounds);
+                self.refresh_popover_anchor()
+            }
+            Msg::BarLayout(id, hidden, full) => {
+                self.bar_hidden.insert(id, hidden);
+                if full > 0 {
+                    self.bar_full_width.insert(id, full);
+                }
+                self.refresh_popover_anchor()
+            }
+            Msg::ControlToggle(id) => {
+                if self.control_actions.get(&id).is_some_and(Option::is_none) {
+                    return Task::none();
+                }
+                let Some(config::WidgetKind::Lua {
+                    toggle: Some(func), ..
+                }) = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| w.id == id)
+                    .map(|w| &w.kind)
+                else {
+                    return Task::none();
+                };
+                let (lua, func, generation) = (self.lua.clone(), *func, self.widget_generation);
+                self.control_actions.insert(id.clone(), None);
+                Task::perform(async move { lua.call(func, None).await }, move |r| {
+                    Msg::ControlToggled(generation, id.clone(), r)
+                })
+            }
+            Msg::ControlToggled(generation, id, result) => {
+                if generation != self.widget_generation {
+                    return Task::none();
+                }
+                match result {
+                    Ok(()) => {
+                        self.control_actions.remove(&id);
+                    }
+                    Err(error) => {
+                        self.control_actions.insert(id.clone(), Some(error));
+                    }
+                }
+                self.last_poll.remove(&id);
+                self.poll()
+            }
             Msg::BarDragOver(z, i) => {
-                if let Some((_, over)) = self.bar_drag.as_mut() {
-                    *over = Some((z, i));
+                if let Some((from, over)) = self.bar_drag.as_mut() {
+                    *over = self
+                        .settings
+                        .bar
+                        .as_ref()
+                        .filter(|b| b.can_drop_entry(*from, (z, i)))
+                        .map(|_| (z, i));
                 }
                 Task::none()
             }
+            Msg::BarDragLeave(z) => {
+                if let Some((_, over)) = self.bar_drag.as_mut()
+                    && over.is_some_and(|(zone, _)| z == usize::MAX || zone == z)
+                {
+                    *over = None;
+                }
+                Task::none()
+            }
+            Msg::BarDragCancel => {
+                self.bar_drag = None;
+                Task::none()
+            }
             Msg::BarDragEnd => {
-                let Some((from, Some(to))) = self.bar_drag.take() else {
-                    return Task::none();
-                };
-                let moved = self
-                    .settings
-                    .bar
-                    .get_or_insert_with(|| crate::settings::BarSettings::from_config(&self.cfg))
-                    .move_entry(from, to);
-                if moved {
+                if self.finish_bar_drag() {
                     self.commit_reload()
                 } else {
                     Task::none()
@@ -4147,7 +4362,7 @@ impl App {
                     .is_some_and(|p| p.win == id || p.catcher == id)
                 {
                     // Fermé par le compositeur : on referme l'autre surface aussi.
-                    return self.close_popover();
+                    return self.destroy_popover();
                 }
                 if self.panel.as_ref().is_some_and(|p| p.surface == id) {
                     self.panel = None;
@@ -4198,6 +4413,10 @@ impl App {
                 }
                 Task::none()
             }
+            // Écran « Espaces de travail » : clic ou dépôt d'une fenêtre glissée.
+            Msg::Released if self.overview.as_ref().is_some_and(|o| o.press.is_some()) => {
+                self.overview_release()
+            }
             Msg::Released if self.wdrag.is_some() => {
                 let moved = self.wdrag.take().is_some_and(|d| d.moved);
                 if moved {
@@ -4206,6 +4425,7 @@ impl App {
                     Task::none()
                 }
             }
+            Msg::Released if self.bar_drag.is_some() => self.update_inner(Msg::BarDragEnd),
             Msg::Released => match self.drag.take() {
                 Some(d) if d.active => {
                     self.drop_icon(d.win, d.icon);
@@ -4233,6 +4453,12 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
+                if self.bar_drag.is_some()
+                    && key == keyboard::Key::Named(keyboard::key::Named::Escape)
+                {
+                    self.bar_drag = None;
+                    return Task::none();
+                }
                 // Capture d'un raccourci (Réglages → Raccourcis) : les touches
                 // vont à la capture, Échap compris.
                 if self
@@ -4262,6 +4488,11 @@ impl App {
                     && key == keyboard::Key::Named(keyboard::key::Named::Tab)
                 {
                     return self.mfa_update(mymfa::MMsg::Tab);
+                }
+                // Écran « Espaces de travail » : Échap referme (ou annule le
+                // renommage), Entrée ouvre l'espace choisi, les flèches choisissent.
+                if self.overview.is_some() {
+                    return self.overview_key(&key);
                 }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {
@@ -4299,7 +4530,10 @@ impl App {
                     };
                 }
                 // Le dock tient le clavier : il garde ses touches.
-                if self.launcher_surfaces.contains_key(&id) {
+                if self.launcher_surfaces.contains_key(&id)
+                    || (self.bar_surfaces.contains_key(&id)
+                        && self.launcher_runtime.focus.is_some())
+                {
                     return self.launcher_key(id, &key);
                 }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
@@ -4421,6 +4655,8 @@ impl App {
     fn subscription(&self) -> Subscription<Msg> {
         let mut subs = vec![
             Subscription::run(control::server_stream).map(Msg::Control),
+            // État du démon d'index : la loupe du dock affiche la pastille.
+            Subscription::run(crate::ui::plugins::index::status_stream),
             // Agent polkit (fenêtre de saisie) ; inactif si un autre agent est en place.
             Subscription::run(polkit::stream).map(|e| Msg::Polkit(polkit::PMsg::Event(e))),
             // Trousseau myMFA : état et demandes de déverrouillage (sans client : rien).
@@ -4597,6 +4833,9 @@ impl App {
         }
         if self.switcher.as_ref().is_some_and(|s| s.win == id) {
             return self.view_switcher();
+        }
+        if self.overview.as_ref().is_some_and(|o| o.win == id) {
+            return self.view_overview();
         }
         if let Some(m) = &self.icon_menu {
             if m.win == id {
@@ -5083,6 +5322,118 @@ mod regression_tests {
         }
     }
 
+    #[test]
+    fn graphite_drag_shared_by_settings_and_bar_reorders_and_cancels() {
+        let mut app = app();
+        app.settings.bar = Some(crate::settings::BarSettings {
+            style: config::BarStyle::Graphite,
+            zones: [
+                vec![],
+                vec![crate::settings::BarEntry::new("launcher")],
+                vec![
+                    crate::settings::BarEntry::new("volume"),
+                    crate::settings::BarEntry::new("clock"),
+                ],
+            ],
+            ..Default::default()
+        });
+        let initial = app.settings.bar.clone();
+        let _ = app.update_inner(Msg::BarDragStart(1, 0));
+        assert!(app.bar_drag.is_none(), "launcher stays fixed");
+        let _ = app.update_inner(Msg::BarDragStart(2, 0));
+        let _ = app.update_inner(Msg::BarDragOver(2, 2));
+        let _ = app.update_inner(Msg::BarDragLeave(2));
+        let _ = app.update_inner(Msg::Released);
+        assert!(app.bar_drag.is_none());
+        assert_eq!(app.settings.bar, initial, "release outside cancels");
+        let _ = app.update_inner(Msg::BarDragStart(2, 0));
+        let _ = app.update_inner(Msg::BarDragOver(2, 2));
+        let _ = app.update_inner(Msg::Key(
+            Id::unique(),
+            keyboard::Key::Named(keyboard::key::Named::Escape),
+        ));
+        assert!(app.bar_drag.is_none());
+        assert_eq!(app.settings.bar, initial, "Escape cancels");
+        let _ = app.update_inner(Msg::BarDragStart(2, 0));
+        let _ = app.update_inner(Msg::BarDragOver(2, 2));
+        let _ = app.update_inner(Msg::BarDragEnd);
+        assert!(app.bar_drag.is_none());
+        let b = app.settings.bar.as_ref().unwrap();
+        assert_eq!(b.zones[2][0].type_id, "clock");
+        assert_eq!(b.zones[2][1].type_id, "volume");
+        assert_eq!(b.zones[1][0].type_id, "launcher");
+    }
+
+    #[test]
+    fn controls_sources_follow_widget_visibility_and_disable() {
+        fn load(source: &str) -> config::lua::Loaded {
+            config::lua::load_chunks(
+                &[(source.into(), "test.lua".into(), config::Origin::User)],
+                std::path::Path::new("/tmp/hyprdesk-control-tests"),
+            )
+            .unwrap()
+        }
+        let mut app = app();
+        let desk = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(desk, "A".into());
+        app.cfg = Arc::new(load("hd.widget('controls',{id='center',screen='all'})").config);
+        let _ = app.poll_widgets();
+        assert!(
+            app.pending_widgets.is_empty(),
+            "hidden desktop must not poll controls"
+        );
+        app.raised.insert(desk);
+        let _ = app.poll_widgets();
+        assert!(app.pending_widgets.contains("bar:volume"));
+        for kind in widgets::controls::SOURCES {
+            assert!(
+                app.pending_widgets
+                    .contains(&format!("bar:controls:{kind}"))
+            );
+        }
+        app.pending_widgets.clear();
+        app.last_poll.clear();
+        Arc::make_mut(&mut app.cfg)
+            .general
+            .disabled_plugins
+            .insert("widgets".into());
+        let _ = app.poll_widgets();
+        assert!(
+            app.pending_widgets.is_empty(),
+            "disabled desktop widgets must stop polling"
+        );
+        app.cfg = Arc::new(load("hd.widget('controls',{id='center'}) hd.disable('center')").config);
+        let _ = app.poll_widgets();
+        assert!(
+            app.pending_widgets.is_empty(),
+            "disabled controls must stop all owned polling"
+        );
+        app.cfg = Arc::new(load("hd.bar({right={'controls'}})").config);
+        app.bar_surfaces.insert(
+            Id::unique(),
+            bar::BarSurface {
+                monitor: "A".into(),
+                position: config::BarPosition::Top,
+                height: 44,
+                margin: 0,
+            },
+        );
+        let _ = app.poll_widgets();
+        assert!(app.pending_widgets.contains("bar:volume"));
+        app.pending_widgets.clear();
+        app.last_poll.clear();
+        Arc::make_mut(&mut app.cfg)
+            .general
+            .disabled_plugins
+            .insert("bar".into());
+        let _ = app.poll_widgets();
+        assert!(
+            app.pending_widgets.is_empty(),
+            "disabled bar must stop its widgets and their dependencies"
+        );
+    }
+
     /// Modes imposés : arriver sur le workspace imposé change le mode, en
     /// repartir le rend ; un écran imposé en no-desktop n'a jamais de bureau.
     #[test]
@@ -5230,6 +5581,7 @@ mod regression_tests {
             class: "kitty".into(),
             title: String::new(),
             workspace: "special:magic".into(),
+            monitor: "A".into(),
         }];
         let _ = app.set_monitors(vec![magic]);
         let _ = app.set_mode(DesktopMode::FullDesktop);
@@ -5265,7 +5617,6 @@ mod regression_tests {
                 selected: 0,
                 loading: false,
                 back: false,
-                sticky: false,
             });
         };
         let mut app = app();
@@ -5530,9 +5881,11 @@ mod regression_tests {
             monitors: None,
             position: config::BarPosition::Top,
             height: 40,
+            margin: 0,
             zones: Default::default(),
             portrait: None,
             compact: config::BarCompact::Auto,
+            style: config::BarStyle::Continuite,
             colors: Default::default(),
         });
         assert!(app.bar_vertical("V") && !app.bar_vertical("H"));
@@ -5601,6 +5954,7 @@ mod regression_tests {
             class: "kitty".into(),
             title: String::new(),
             workspace: hypr::DESK.into(),
+            monitor: "A".into(),
         }];
         app.fade = None;
         let _ = app.show();
@@ -5624,6 +5978,7 @@ mod regression_tests {
             class: "kitty".into(),
             title: String::new(),
             workspace: hypr::DESK.into(),
+            monitor: "A".into(),
         }];
         // Depuis le bureau masqué, le mode lanceur ne les ramène pas.
         let _ = app.hide();

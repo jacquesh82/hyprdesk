@@ -264,8 +264,7 @@ impl App {
         else {
             return Task::none();
         };
-        let l = &self.cfg.general.launcher;
-        let anchor = screen_anchor(m, l.position, l.size, *local);
+        let anchor = self.launcher_screen_anchor(m, *local);
         let requested = Size::new(
             p.placement.bounds.width,
             content_height
@@ -275,8 +274,8 @@ impl App {
                 }),
         );
         let placement = place_popup(
-            l.position,
-            workarea(m, l.position, l.size),
+            self.launcher_bar_position(&m.name),
+            self.launcher_popup_area(m),
             anchor,
             requested,
         );
@@ -416,6 +415,7 @@ mod tests {
             class: "firefox".into(),
             title: String::new(),
             workspace: "1".into(),
+            monitor: "A".into(),
         });
         let _ = app.launcher_launch_started("firefox".into());
         let old = app.launcher_runtime.launches["firefox"].started;
@@ -429,6 +429,7 @@ mod tests {
             class: "firefox".into(),
             title: String::new(),
             workspace: "1".into(),
+            monitor: "A".into(),
         });
         let _ = app.launcher_frame();
         assert!(app.launcher_runtime.launches.is_empty());

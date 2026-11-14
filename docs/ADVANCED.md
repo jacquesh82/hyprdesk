@@ -302,6 +302,46 @@ module is installed, alongside `pam_gnome_keyring` while gnome-keyring is
 still in use. The first unlock after such a login seals the vault password
 with the session key, and after that the vault opens on its own.
 
+## Indexed file search: `:f`
+
+Linux filesystems have no central table of files, so hyprdesk builds one —
+the way `plocate` does: an inverted index of trigrams over file names,
+served by a small daemon and kept fresh. In the launcher, `:f` (or
+`:fichiers`) searches it — typing answers in a few milliseconds, Enter opens
+the file with its default application. The dock's loupe opens it too (in the
+Graphite bar), and carries the index state as a small mark: accent when
+ready, amber while the first scan runs, nothing when the daemon is down
+(`hyprdesk files` does the same from a shortcut). A query with a `/`
+searches paths (`docs/rapport`), a plain one searches names. Every result
+carries its name, type (file, folder, link), path and size.
+
+- **Scope**: the home directory and mounted volumes (`/media`,
+  `/run/media/$USER` — USB drives, Windows NTFS partitions) by default,
+  one filesystem per volume; the Settings screen edits roots graphically
+  (add/remove rows), or `index.paths` from Lua/CLI. Build artifacts and
+  caches are skipped (`.git`, `node_modules`, `target`, `.cache`…),
+  `.gitignore`/`.ignore` files are respected inside repos, and hidden files
+  are indexed. Exclusions also accept **regular expressions** applied to the
+  full path (`index.exclude_regex`, validated on entry), **excluded
+  extensions** (`index.exclude_ext`, e.g. `iso, vdi`) and a **maximum
+  indexed size** per file (`index.max_size`, MiB).
+- **Freshness**: inotify watches every volume it can; when a volume refuses
+  watching (watch limit, FUSE quirks) a periodic rescan covers it
+  (`index.interval`, 6 h by default). The trigram index survives restarts as
+  a compressed snapshot in `~/.cache/hyprdesk/index/`, and unloads from RAM
+  after 10 idle minutes.
+- **Daemon**: the launcher starts `hyprdesk index daemon` on the first `:f`
+  query with the resolved settings; or enable `hyprdesk-index.service`
+  (shipped in `assets/`) to index at login. `hyprdesk index query <word>
+  [--json]`, `index status` and `index rebuild` drive it from a terminal —
+  and agents (LYRA, MCP clients) see those commands in `hyprdesk context`.
+  The Settings screen shows the snapshot's location and size, and the
+  search view filters results by kind (all / files / folders / links).
+- **Cost**: about 150 bytes of RAM per indexed file — a large home
+  (~1 M files) holds ~150 MB while active, and the snapshot compresses to a
+  few tens of MB. While the first scan runs, `:f` reports its progress
+  instead of lying about results.
+
 ## Configuration reference
 
 The whole API is described in LuaLS definitions (`hyprdesk stubs` writes
@@ -321,7 +361,7 @@ name, a number, a list, or `"*"`.
 | App launcher | `apps_unified` (`true` by default: `keys.search` opens hyprdesk's launcher in every mode, taken from `hyprland.lua` if it binds that key; `false`: `hyprland.lua` keeps it outside the full desktop), `apps_style` (`"auto"`: large sheet on the full desktop, centered card otherwise; or `"plein"` / `"central"` to always use one), `apps_suggestions` (0 to 16 most launched apps, 8 by default), `apps_categories`, `terminal` |
 | Workspaces and layouts | `workspaces` (1 to 30, or `false`), `workspace_monitors`, `layout` (`dwindle`, `master`, `scrolling`, `monocle`, `grid`, `columns`, `rows`, `centered`, `lua:<name>`), `layout_workspaces`, `dwindle`, `master`, `scrolling` |
 | Keys | `keys = { toggle, launcher, hide, settings, lock, leave, switch, search, search_desktop, overview, media, take }` (`false` disables a key; `search` is `SUPER + R`; `search_desktop` replaces it on the full desktop; `take` lists `hyprland.lua` combinations hyprdesk unbinds and uses — given back when removed), `suspend_binds`, `overview_command` (a Hyprland plugin's overview, such as hyprexpo or Hyprspace; otherwise hyprdesk's switcher, which stays open until you click, press Enter or Escape) |
-| Session | `autostart`, `clipboard_history`, `idle_manage`, `idle_dim`, `idle_lock`, `idle_dpms`, `idle_suspend`, `lock_fingerprint`, `update_commands` |
+| Session | `autostart`, `clipboard_history`, `index_paths` (roots of the `:f` file index; default: home and mounted volumes), `index_exclude` (folder names skipped, on top of the defaults), `index_interval` (safety rescan, seconds), `idle_manage`, `idle_dim`, `idle_lock`, `idle_dpms`, `idle_suspend`, `lock_fingerprint`, `update_commands` |
 | Plugins | `plugin_options = { [plugin] = { option = value } }`: defaults for every instance |
 | Interface | `language` (`"auto"`/`"fr"`/`"en"`), `advanced_settings`, `tour_seen` |
 
@@ -353,9 +393,14 @@ hd.place("clock#0", { anchor = "top", y = 40 })   -- reposition by id
 hd.disable("calendar#0")                          -- remove by id
 
 -- Bar: modules are widgets; "primary" targets the primary screen.
-hd.bar({ monitor = "primary", position = "top", compact = "auto",
+-- Graphite integrates the launcher in the center zone; other widgets default
+-- to the right. Explicit zones and drag-and-drop placements are preserved. Defaults: bottom, height 48, margin 0, rectangular surface.
+-- The launcher plugin owns pinned/running apps and actions; no duplicate dock.
+-- Explicit position/height/margin remain configurable. Legacy 40/10 slab presets
+-- are migrated when their old window/workspaces layout is detected.
+hd.bar({ monitor = "primary", position = "top", compact = "auto", margin = 0,
          left = { "workspaces", "window" }, center = { { "clock", format = "%a %d %H:%M" } },
-         right = { "tray", "volume", "brightness", "reseau", "session" },
+         right = { "tray", "volume", "brightness", "reseau", "session", "controls" },
          portrait = { left = { "workspaces" }, right = { "clock" } } })
 
 -- Window rules and session components.

@@ -99,7 +99,7 @@ impl App {
             1.0,
         );
         let input = text_input(
-            crate::i18n::tr("Rechercher une application… (:clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
             &s.query,
         )
         .id(super::search::INPUT_ID)

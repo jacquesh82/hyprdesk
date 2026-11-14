@@ -156,9 +156,9 @@ also remove LYRA and myMFA.
 | `SUPER + ALT + D` | Toggle the dock and keep windows in place |
 | `SUPER + CTRL + D` | Hide the desktop and dock |
 | `SUPER + SHIFT + D` | Open Settings |
-| `SUPER + R` | Search apps in any mode. Use `:clip` to search clipboard history |
+| `SUPER + R` | Search apps in any mode. `:f` searches all your files (indexed), `:clip` searches clipboard history |
 | `ALT + Tab` | Switch windows |
-| `SUPER + Tab` | Open the window overview with hyprexpo, Hyprspace, or hyprdesk’s own switcher |
+| `SUPER + Tab` | The “Workspaces” screen: each workspace’s windows in a minimap, draggable from one workspace to another (hyprexpo, Hyprspace, or hyprdesk’s own screen) |
 | `SUPER + Escape` | Emergency exit |
 
 Desktop modes are saved per workspace across sessions. With multiple monitors,
@@ -209,6 +209,14 @@ closes the dock or returns focus to the full desktop.
   screen with fingerprint support, notifications, screenshots, and screen
   recording. The installer also offers a greetd login screen and a
   [myMFA keyring](#the-mymfa-keyring).
+- **Find any file in one keystroke.** The dock's loupe (or `:f` in the
+  launcher, or `hyprdesk files`) searches an index of all your files — home
+  and mounted volumes (NTFS, FAT…) — by name, path, or category: answers in a
+  few milliseconds. Filter by kind (files, folders, links) and by category
+  (documents, images, videos, programs…). The index runs in the background,
+  kept fresh by inotify and a periodic rescan, and is tuned in
+  **Settings → File index**: roots, exclusions by name or regular
+  expression, ignored extensions and categories, maximum file size.
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 
@@ -246,6 +254,14 @@ hd.bar({ left = { "workspaces", "window" }, right = { "tray", "volume", "session
 hd.icon({ app = "firefox" })
 hd.widget("clock", { anchor = "top-right", format = "%H:%M" })
 ```
+
+The bar has two styles. Continuité keeps its Unix-style menu bar and separate
+floating dock. `style = "graphite"` integrates the launcher into a rectangular
+bottom taskbar (48 logical pixels, no edge gap): Start, Search, Task View and
+applications are centered on the screen; bar widgets default to the right, with
+the clock and date on two lines. Modules can be added or dragged to the left,
+center or right, both on the bar and in Settings → Bar → Modules. The launcher's pinned applications and actions
+are shared, and no second floating dock is created on these screens.
 
 Your Lua configuration takes precedence over settings saved by the drawer.
 Both files reload when saved. If a configuration contains an error, hyprdesk
@@ -352,7 +368,12 @@ hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 ```
 
 The bar includes `workspaces`, `window`, `volume`, `brightness`, `tray`,
-and `desktop`. To add a Lua widget or plugin, see [Writing a plugin](docs/WRITING_PLUGINS.md).
+`desktop`. Control Center (`controls`) is a built-in widget in the **Widgets** catalog, available on the desktop with `hd.widget("controls", {})`. Add it in
+**Settings → Bar → Modules**, or to a zone in `hd.bar`. Hover highlights and
+workspace selection glide without moving click targets; menus open from their
+trigger and close with a reversible transition. Modules that do not fit remain
+available under **More controls**. To add a Lua widget or plugin, see
+[Writing a plugin](docs/WRITING_PLUGINS.md).
 
 <details>
 <summary>Bundled plugins and their dependencies</summary>
@@ -383,6 +404,8 @@ The installer places two editable examples, `meteo` and `notes`, in
 | --- | --- |
 | `hyprdesk show` / `hyprdesk launcher-only` / `hyprdesk hide` | Set the workspace’s desktop mode |
 | `hyprdesk settings [package]` | Open Settings or jump to a page |
+| `hyprdesk files` | Open the file search (the dock's loupe) |
+| `hyprdesk index query <word>` / `index status` / `index rebuild` | Search the file index, show its state (JSON), or run a full rescan. `--json` for structured results |
 | `hyprdesk theme new <image>` | Build a theme from an image |
 | `hyprdesk wallpaper split <image>` | Split a scene across your monitors |
 | `hyprdesk export [file]` / `hyprdesk import <archive>` | Share or restore a setup. Add `--theme` for just the theme or `--screens` to include display settings |

@@ -29,6 +29,16 @@ impl App {
         let font = self.font;
         let base = g.font_size;
         let content: Element<'_, Msg> = match &w.kind {
+            WidgetKind::Launcher => self
+                .monitor(win)
+                .map_or_else(|| Space::new().into(), |m| self.view_launcher_bar(m, t)),
+            WidgetKind::Controls => container(self.controls_view(
+                t,
+                self.monitor(win).map_or("", |m| m.name.as_str()),
+                None,
+            ))
+            .width(304)
+            .into(),
             WidgetKind::Clock { format } => {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
                 let time = text(format_now(format))
@@ -352,7 +362,15 @@ impl App {
                     .font(self.font)
                     .size(size)
                     .font(self.font)
-                    .color(if is_today { Color::WHITE } else { fg });
+                    .color(if is_today {
+                        super::design::on_accent(
+                            accent,
+                            fg,
+                            color(self.cfg.general.theme.bg, accent.a),
+                        )
+                    } else {
+                        fg
+                    });
                 container(label)
                     .width(w)
                     .align_x(Alignment::Center)

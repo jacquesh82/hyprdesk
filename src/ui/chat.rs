@@ -450,7 +450,7 @@ impl App {
         c.cur_mut().unread = false;
         let create = Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
-                size: Some((self.panel_width() as u32, 0)),
+                size: Some((self.chat_width() as u32, 0)),
                 layer: Layer::Top,
                 anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Right,
                 exclusive_zone: Some(0),
@@ -1047,7 +1047,7 @@ impl App {
             .padding([8, 14])
             .style(|t, s| appearance::pill(t, s, false))
             .on_press(Msg::Chat(ChatMsg::NewConversation));
-        let header: Element<'_, Msg> = if self.panel_width() < 760.0 {
+        let header: Element<'_, Msg> = if self.chat_width() < 760.0 {
             column![
                 row![identity, close].spacing(8).align_y(Alignment::Center),
                 row![provider, Space::new().width(Length::Fill), new_conversation]
@@ -2004,7 +2004,7 @@ mod tests {
         let win = app.chat.as_ref().unwrap().win;
         for (screen, expected) in [(640.0, 640.0), (900.0, 900.0), (1440.0, 780.0)] {
             app.sizes.insert(win, iced::Size::new(screen, 900.0));
-            assert_eq!(app.panel_width(), expected);
+            assert_eq!(app.chat_width(), expected);
         }
     }
 }

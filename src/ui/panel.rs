@@ -84,6 +84,7 @@ pub struct Panel {
     pub plugins: plugins::plugins::State,
     pub assistant: plugins::assistant::State,
     pub launcher: plugins::launcher::State,
+    pub index: plugins::index::State,
     pub share: plugins::share::State,
     pub bar: plugins::bar::State,
     pub theme: plugins::theme::State,
@@ -106,8 +107,12 @@ pub(in crate::ui) const SWATCHES: [Rgba; 8] = [
 /// Espace de noms de la surface du tiroir des réglages.
 pub const SETTINGS_NAMESPACE: &str = "hyprdesk-settings";
 
-/// Largeur du tiroir des réglages, marge comprise.
-pub const DRAWER_W: f32 = 780.0;
+/// Largeur du tiroir des réglages, marge comprise : 20 % de plus que
+/// l'assistant, la navigation et ses onglets s'y déploient.
+pub const DRAWER_W: f32 = 936.0;
+/// Largeur du tiroir de l'assistant : le fil de discussion se lit mieux
+/// sur une colonne étroite.
+pub const CHAT_W: f32 = 780.0;
 const DRAWER_GAP: f32 = 12.0;
 
 impl Panel {
@@ -127,6 +132,7 @@ impl Panel {
             layouts: Default::default(),
             animations: Default::default(),
             sound: Default::default(),
+            index: Default::default(),
             energy: Default::default(),
             network: Default::default(),
             bluetooth: Default::default(),
@@ -446,20 +452,28 @@ impl App {
     // -- Vue -----------------------------------------------------------------------
 
     pub(super) fn panel_width(&self) -> f32 {
-        self.panel
-            .as_ref()
-            .map(|p| p.win)
-            .or_else(|| {
-                self.chat
-                    .as_ref()
-                    .filter(|c| c.surface.is_some())
-                    .map(|c| c.win)
-            })
-            .map(|win| {
-                let width = self.size_of(win).width;
-                if width < 1200.0 { width } else { DRAWER_W }
-            })
-            .unwrap_or(DRAWER_W)
+        self.drawer_width(self.panel.as_ref().map(|p| p.win), DRAWER_W)
+    }
+
+    /// Largeur du tiroir de l'assistant.
+    pub(super) fn chat_width(&self) -> f32 {
+        self.drawer_width(
+            self.chat
+                .as_ref()
+                .filter(|c| c.surface.is_some())
+                .map(|c| c.win),
+            CHAT_W,
+        )
+    }
+
+    /// Largeur d'un tiroir affiché : celle de son écran s'il est plus étroit
+    /// que le tiroir, sinon la largeur du tiroir.
+    fn drawer_width(&self, win: Option<Id>, w: f32) -> f32 {
+        win.map(|win| {
+            let width = self.size_of(win).width;
+            if width < 1200.0 { width } else { w }
+        })
+        .unwrap_or(w)
     }
 
     /// Onglets du paquet affiché, en pastilles (rien s'il n'en a pas).

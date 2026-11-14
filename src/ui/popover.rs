@@ -8,24 +8,23 @@
 use crate::i18n::text;
 use iced::widget::{Space, button, column, container, mouse_area, row, rule, slider, toggler};
 use iced::window::Id;
-use iced::{
-    Alignment, Background, Border, Color, Element, Length, Padding, Shadow, Size, Task, Vector,
-};
+use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Vector};
 use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
-use super::{App, Msg, color, format_now};
+use super::{App, Fade, Msg, color, format_now};
 use crate::config::{BarPosition, MenuEntry};
+mod bar_menus;
 
 pub const POPOVER_NAMESPACE: &str = "hyprdesk-popover";
 /// Marge transparente autour de la carte, pour son ombre.
 pub const SHADOW: f32 = 18.0;
-const WIDTH: f32 = 300.0;
+const WIDTH: f32 = 328.0;
 /// Côté d'une image de menu (pochette).
 const IMAGE: f32 = 120.0;
 /// Écart entre la barre et le haut de la carte.
-const GAP: f32 = 6.0;
+pub(super) const GAP: f32 = 10.0;
 
 /// Ce qu'on demande d'ouvrir (le contenu peut devoir être calculé avant).
 #[derive(Debug, Clone)]
@@ -33,6 +32,9 @@ pub enum Request {
     Volume,
     Brightness,
     Calendar,
+    Widget(String),
+    Workspaces,
+    Overflow,
     /// Menu d'un widget Lua : sa fonction `menu`, et l'id du widget à rafraîchir après une action.
     LuaMenu {
         widget: String,
@@ -43,6 +45,144 @@ pub enum Request {
         bus: String,
         menu_path: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::{Point, Rectangle};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    fn app() -> (App, Id) {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-bar-tests/config.lua"),
+            true,
+        );
+        let bar = Id::unique();
+        app.monitors = vec![crate::hypr::Monitor {
+            name: "A".into(),
+            width: 900,
+            height: 640,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            reserved: (0.0, 44.0, 0.0, 0.0),
+        }];
+        app.bar_surfaces.insert(
+            bar,
+            super::super::bar::BarSurface {
+                monitor: "A".into(),
+                position: BarPosition::Top,
+                height: 44,
+                margin: 0,
+            },
+        );
+        Arc::make_mut(&mut app.cfg).general.transition = crate::config::Transition::Fade;
+        (app, bar)
+    }
+
+    #[test]
+    fn cards_are_bounded_and_anchored_without_a_pointer() {
+        for width in [320.0, 640.0, 900.0, 1440.0] {
+            for x in [0.0, width / 2.0, width - 1.0] {
+                let (left, w, origin) = placement(
+                    width,
+                    Rectangle::new(Point::new(x, 0.0), Size::new(1.0, 44.0)),
+                );
+                assert!(left + SHADOW >= 12.0 - 0.01);
+                assert!(left + w - SHADOW <= width - 12.0 + 0.01);
+                assert!((0.05..=0.95).contains(&origin));
+            }
+        }
+        let (mut app, bar) = app();
+        app.bar_anchors.insert(
+            (bar, "volume".into()),
+            Rectangle::new(Point::new(820.0, 0.0), Size::new(30.0, 44.0)),
+        );
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        assert!(app.popover.as_ref().unwrap().left > 500.0);
+        assert!(app.cursor.is_empty());
+        app.bar_anchors.insert(
+            (bar, "controls".into()),
+            Rectangle::new(Point::new(850.0, 0.0), Size::new(30.0, 44.0)),
+        );
+        app.bar_anchors.insert(
+            (bar, "overflow".into()),
+            Rectangle::new(Point::new(20.0, 0.0), Size::new(30.0, 44.0)),
+        );
+        let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
+        let _ = app.open_popover(
+            bar,
+            "bar:controls:reseau".into(),
+            Kind::Widget("controls".into()),
+        );
+        assert!(
+            app.popover.as_ref().unwrap().left > 500.0,
+            "une ancienne ancre de débordement ne déplace pas les sous-menus du centre de contrôle"
+        );
+    }
+
+    #[test]
+    fn close_can_reverse_and_switches_reuse_both_surfaces() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let (win, catcher) = {
+            let p = app.popover.as_mut().unwrap();
+            p.visibility.from = 1.0;
+            p.visibility.to = 1.0;
+            (p.win, p.catcher)
+        };
+        let _ = app.close_popover();
+        assert!(app.popover.as_ref().unwrap().closing());
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        assert!(!app.popover.as_ref().unwrap().closing());
+        assert_eq!(app.popover.as_ref().unwrap().win, win);
+        let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
+        let p = app.popover.as_ref().unwrap();
+        assert_eq!((p.win, p.catcher), (win, catcher));
+        assert!(matches!(p.previous, Some(Kind::Volume)));
+        app.popover.as_mut().unwrap().change.as_mut().unwrap().start =
+            Instant::now() - Duration::from_secs(1);
+        app.popover.as_mut().unwrap().visibility.start = Instant::now() - Duration::from_secs(1);
+        let _ = app.popover_frame();
+        assert!(app.popover.as_ref().unwrap().previous.is_none());
+        assert!(!app.popover.as_ref().unwrap().animating(Instant::now()));
+        let _ = app.close_popover();
+        app.popover.as_mut().unwrap().visibility.start = Instant::now() - Duration::from_secs(1);
+        let _ = app.popover_frame();
+        assert!(app.popover.is_none());
+    }
+
+    #[test]
+    fn final_frame_is_committed_even_after_a_slow_first_present() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
+        app.popover.as_mut().unwrap().visibility.start = Instant::now() - Duration::from_secs(1);
+        assert!(app.popover.as_ref().unwrap().animating(Instant::now()));
+        let _ = app.popover_frame();
+        assert!(!app.popover.as_ref().unwrap().animating(Instant::now()));
+        Arc::make_mut(&mut app.cfg).general.transition = crate::config::Transition::None;
+        let _ = app.close_popover();
+        assert!(app.popover.is_none());
+    }
+
+    #[test]
+    fn opening_before_the_first_layout_follows_the_late_anchor() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
+        let win = app.popover.as_ref().unwrap().win;
+        let _ = app.update_inner(Msg::BarAnchor(
+            bar,
+            "controls".into(),
+            Rectangle::new(Point::new(850.0, 0.0), Size::new(30.0, 44.0)),
+        ));
+        assert_eq!(app.popover.as_ref().unwrap().win, win);
+        assert!(app.popover.as_ref().unwrap().left > 500.0);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +196,9 @@ pub enum Kind {
     Volume,
     Brightness,
     Calendar,
+    Widget(String),
+    Workspaces,
+    Overflow(Vec<crate::config::BarItem>),
     Menu {
         entries: Vec<MenuEntry>,
         source: MenuSource,
@@ -79,11 +222,19 @@ pub enum PMsg {
 pub struct Popover {
     pub win: Id,
     pub catcher: Id,
+    pub bar: Id,
+    pub position: BarPosition,
+    pub left: f32,
+    pub origin: f32,
+    pub visibility: Fade,
+    pub change: Option<Fade>,
+    pub previous: Option<Kind>,
+    pub slide_from: f32,
     /// Module d'origine : recliquer dessus referme.
     pub key: String,
+    anchor_key: String,
     pub kind: Kind,
     pub size: Size,
-    pub started: std::time::Instant,
     /// Dernière relecture du menu (menus du tray : suivis ouverts).
     pub refreshed: std::time::Instant,
     max_height: f32,
@@ -91,6 +242,35 @@ pub struct Popover {
     pub confirm: Option<usize>,
     /// Texte des champs de saisie, par entrée.
     pub inputs: std::collections::HashMap<usize, String>,
+}
+
+impl Popover {
+    pub(super) fn closing(&self) -> bool {
+        self.visibility.to == 0.0
+    }
+    pub(super) fn animating(&self, now: std::time::Instant) -> bool {
+        !self.visibility.done(now)
+            || self.visibility.from != self.visibility.to
+            || self.change.is_some()
+    }
+}
+
+impl Drop for Popover {
+    fn drop(&mut self) {
+        for input in self.inputs.values_mut() {
+            crate::lock::pam::wipe(input);
+        }
+    }
+}
+
+/// Carte ancrée à la boîte rendue du module, même à l'ouverture au clavier.
+pub(super) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
+    let width = WIDTH.min((screen_width - 24.0).max(80.0));
+    let card_left =
+        (anchor.center_x() - width / 2.0).clamp(12.0, (screen_width - width - 12.0).max(12.0));
+    let left = card_left - SHADOW;
+    let origin = ((anchor.center_x() - left) / (width + 2.0 * SHADOW)).clamp(0.05, 0.95);
+    (left, width + 2.0 * SHADOW, origin)
 }
 
 /// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
@@ -119,6 +299,9 @@ fn card_height(
     light: &super::bar::Light,
 ) -> f32 {
     let inner = match kind {
+        Kind::Widget(_) => 420.0,
+        Kind::Workspaces => 300.0,
+        Kind::Overflow(items) => 44.0 + items.len() as f32 * 48.0,
         // Sortie, séparateur, micro (ou « aucun »), séparateur, réglages.
         Kind::Volume => {
             let mic = if audio.mic.is_some() {
@@ -165,30 +348,155 @@ fn card_height(
 }
 
 impl App {
+    /// L'ouverture peut précéder le premier relevé des limites (démarrage,
+    /// accès clavier, aperçu isolé). Recaler la carte dès que son ancre existe.
+    pub(super) fn refresh_popover_anchor(&mut self) -> Task<Msg> {
+        let Some(p) = self.popover.as_ref().filter(|p| !p.closing()) else {
+            return Task::none();
+        };
+        let Some(bar) = self.bar_surfaces.get(&p.bar) else {
+            return Task::none();
+        };
+        let Some(m) = self.monitors.iter().find(|m| m.name == bar.monitor) else {
+            return Task::none();
+        };
+        let hidden = self.bar_overflow_items(p.bar);
+        let overflowed = hidden.iter().any(|item| {
+            super::bar::bar_item_key(item) == p.key
+                || (matches!(item, crate::config::BarItem::Tray) && p.key.starts_with("tray:"))
+        });
+        let key = if overflowed {
+            "overflow"
+        } else {
+            p.anchor_key.as_str()
+        };
+        let Some(anchor) = self.bar_anchors.get(&(p.bar, key.into())).copied() else {
+            return Task::none();
+        };
+        let (left, width, origin) = placement(m.width as f32, anchor);
+        let p = self.popover.as_mut().unwrap();
+        p.origin = origin;
+        let mut tasks = Vec::new();
+        if (p.left - left).abs() > 0.5 {
+            if p.change.is_some() {
+                p.slide_from = (p.slide_from + p.left - left).clamp(-90.0, 90.0);
+            }
+            p.left = left;
+            let v = (GAP - SHADOW) as i32;
+            tasks.push(Task::done(Msg::MarginChange {
+                id: p.win,
+                margin: if p.position == BarPosition::Top {
+                    (v, 0, 0, left as i32)
+                } else {
+                    (0, 0, v, left as i32)
+                },
+            }));
+        }
+        if (p.size.width - width).abs() > 0.5 {
+            p.size.width = width;
+            tasks.push(Task::done(Msg::SizeChange {
+                id: p.win,
+                size: (width as u32, p.size.height as u32),
+            }));
+        }
+        Task::batch(tasks)
+    }
+
     /// Ouvre un menu sous le module cliqué de la barre `bar` (ou le referme).
     pub(super) fn open_popover(&mut self, bar: Id, key: String, kind: Kind) -> Task<Msg> {
-        let toggling = self.popover.as_ref().is_some_and(|p| p.key == key);
-        let mut tasks = vec![self.close_popover()];
-        if toggling {
-            return Task::batch(tasks);
-        }
+        let now = std::time::Instant::now();
         let Some(b) = self.bar_surfaces.get(&bar).cloned() else {
-            return Task::batch(tasks);
+            return Task::none();
         };
         let Some(m) = self.monitors.iter().find(|m| m.name == b.monitor).cloned() else {
-            return Task::batch(tasks);
+            return Task::none();
         };
-        let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(100.0);
+        let hidden = self.bar_overflow_items(bar);
+        let overflowed = hidden.iter().any(|item| {
+            super::bar::bar_item_key(item) == key
+                || (matches!(item, crate::config::BarItem::Tray) && key.starts_with("tray:"))
+        });
+        let anchor_key = if overflowed {
+            "overflow".to_string()
+        } else if self.bar_anchors.contains_key(&(bar, key.clone())) {
+            key.clone()
+        } else {
+            self.popover
+                .as_ref()
+                .filter(|p| p.bar == bar)
+                .map_or_else(|| key.clone(), |p| p.anchor_key.clone())
+        };
+        let anchor = self
+            .bar_anchors
+            .get(&(bar, anchor_key.clone()))
+            .copied()
+            .unwrap_or_else(|| {
+                iced::Rectangle::new(
+                    iced::Point::new(m.width as f32 / 2.0, 0.0),
+                    Size::new(1.0, b.height as f32),
+                )
+            });
+        let (left, width, origin) = placement(m.width as f32, anchor);
+        let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(80.0);
         let h = (card_height(&kind, None, &self.audio, &self.light) + 2.0 * SHADOW).min(max_height);
-        let size = Size::new(WIDTH + 2.0 * SHADOW, h);
-        // Centré sous le curseur (position demandée à Hyprland), sans déborder de l'écran.
-        let cx = self
-            .cursor
-            .get(&bar)
-            .map(|p| p.x)
-            .filter(|x| (0.0..=m.width as f32).contains(x))
-            .unwrap_or(m.width as f32 - WIDTH / 2.0 - 16.0);
-        let left = (cx - WIDTH / 2.0).clamp(8.0, (m.width as f32 - WIDTH - 8.0).max(8.0)) - SHADOW;
+        let size = Size::new(width, h);
+        let duration = self.bar_duration(180);
+        let change_duration = self.bar_duration(160);
+        let v = (GAP - SHADOW) as i32;
+        let margin = if b.position == BarPosition::Top {
+            (v, 0, 0, left as i32)
+        } else {
+            (0, 0, v, left as i32)
+        };
+        let mut tasks = Vec::new();
+        if let Kind::Menu { entries, .. } = &kind {
+            for e in entries {
+                if let MenuEntry::Item { icon: Some(i), .. } = e {
+                    tasks.push(self.want_icon(i));
+                }
+            }
+        }
+        if let Some(p) = self
+            .popover
+            .as_mut()
+            .filter(|p| p.bar == bar && p.position == b.position)
+        {
+            let reversing = p.closing() && p.key == key;
+            p.visibility = Fade {
+                from: p.visibility.value(now),
+                to: 1.0,
+                start: now,
+                dur: duration,
+            };
+            if !reversing {
+                p.previous = Some(std::mem::replace(&mut p.kind, kind));
+                p.change = Some(Fade {
+                    from: 0.0,
+                    to: 1.0,
+                    start: now,
+                    dur: change_duration,
+                });
+                p.slide_from = (p.left - left).clamp(-90.0, 90.0);
+            }
+            p.key = key;
+            p.anchor_key = anchor_key;
+            p.left = left;
+            p.origin = origin;
+            p.size = size;
+            p.max_height = max_height;
+            p.confirm = None;
+            for input in p.inputs.values_mut() {
+                crate::lock::pam::wipe(input);
+            }
+            p.inputs.clear();
+            tasks.push(Task::done(Msg::MarginChange { id: p.win, margin }));
+            tasks.push(Task::done(Msg::SizeChange {
+                id: p.win,
+                size: (size.width as u32, size.height as u32),
+            }));
+            return Task::batch(tasks);
+        }
+        tasks.push(self.destroy_popover());
         let (catcher, win) = (Id::unique(), Id::unique());
         // Le capteur d'abord : la carte, créée ensuite et sur le calque overlay, passe au-dessus.
         tasks.push(Task::done(Msg::NewLayerShell {
@@ -198,6 +506,13 @@ impl App {
                 anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
                 exclusive_zone: Some(-1),
                 keyboard_interactivity: KeyboardInteractivity::None,
+                // La barre garde ses événements pour passer directement d'un
+                // menu à l'autre, sans traverser le capteur plein écran.
+                margin: Some(if b.position == BarPosition::Top {
+                    (b.height as i32, 0, 0, 0)
+                } else {
+                    (0, 0, b.height as i32, 0)
+                }),
                 output_option: OutputOption::OutputName(m.name.clone()),
                 namespace: Some("hyprdesk-catcher".into()),
                 ..Default::default()
@@ -208,14 +523,6 @@ impl App {
             LsAnchor::Top
         } else {
             LsAnchor::Bottom
-        };
-        // Zone exclusive 0 : la carte se place après les barres ; la marge (négative)
-        // ramène la carte à GAP pixels de la barre malgré la marge d'ombre.
-        let v = (GAP - SHADOW) as i32;
-        let margin = if b.position == BarPosition::Top {
-            (v, 0, 0, left as i32)
-        } else {
-            (0, 0, v, left as i32)
         };
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -242,10 +549,23 @@ impl App {
         self.popover = Some(Popover {
             win,
             catcher,
+            bar,
+            position: b.position,
+            left,
+            origin,
+            visibility: Fade {
+                from: 0.0,
+                to: 1.0,
+                start: now,
+                dur: duration,
+            },
+            change: None,
+            previous: None,
+            slide_from: 0.0,
             key,
+            anchor_key,
             kind,
             size,
-            started: std::time::Instant::now(),
             refreshed: std::time::Instant::now(),
             max_height,
             confirm: None,
@@ -257,13 +577,14 @@ impl App {
     /// Champ de saisie d'un menu (`{ input = "…", secret = true, action = … }`).
     fn pop_input<'a>(
         &'a self,
+        alpha: f32,
         i: usize,
         label: Option<&'a str>,
         placeholder: &'a str,
         secret: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
+        let fg = color(th.fg, alpha);
         let value = self
             .popover
             .as_ref()
@@ -272,12 +593,10 @@ impl App {
             .unwrap_or("");
         let mut col = column![].spacing(4).padding([4, 10]);
         if let Some(l) = label {
-            col = col.push(
-                text(l.to_string())
-                    .font(self.font)
-                    .size(12)
-                    .color(Color { a: 0.7, ..fg }),
-            );
+            col = col.push(text(l.to_string()).font(self.font).size(12).color(Color {
+                a: 0.7 * alpha,
+                ..fg
+            }));
         }
         col.push(
             iced::widget::text_input(placeholder, value)
@@ -286,18 +605,69 @@ impl App {
                 .on_submit(Msg::Popover(PMsg::Submit(i)))
                 .font(self.font)
                 .size(13)
-                .padding(8),
+                .padding(8)
+                .style(move |theme, status| {
+                    let mut style = iced::widget::text_input::default(theme, status);
+                    style.background = style.background.scale_alpha(alpha);
+                    style.border.color.a *= alpha;
+                    style.icon.a *= alpha;
+                    style.placeholder.a *= alpha;
+                    style.value.a *= alpha;
+                    style.selection.a *= alpha;
+                    style
+                }),
         )
         .into()
     }
 
-    pub(super) fn close_popover(&mut self) -> Task<Msg> {
-        // Le calendrier rouvre toujours sur le mois en cours.
+    pub(super) fn destroy_popover(&mut self) -> Task<Msg> {
         self.cal_months = 0;
         match self.popover.take() {
             Some(p) => Task::batch([iced::window::close(p.win), iced::window::close(p.catcher)]),
             None => Task::none(),
         }
+    }
+
+    pub(super) fn close_popover(&mut self) -> Task<Msg> {
+        let duration = self.bar_duration(120);
+        if duration.is_zero() {
+            return self.destroy_popover();
+        }
+        if let Some(p) = self.popover.as_mut()
+            && !p.closing()
+        {
+            let now = std::time::Instant::now();
+            p.visibility = Fade {
+                from: p.visibility.value(now),
+                to: 0.0,
+                start: now,
+                dur: duration,
+            };
+        }
+        Task::none()
+    }
+
+    pub(super) fn popover_frame(&mut self) -> Task<Msg> {
+        let now = std::time::Instant::now();
+        let still = self.bar_duration(180).is_zero();
+        if self
+            .popover
+            .as_ref()
+            .is_some_and(|p| p.closing() && (still || p.visibility.done(now)))
+        {
+            return self.destroy_popover();
+        }
+        if let Some(p) = self.popover.as_mut() {
+            if p.change.is_some_and(|f| still || f.done(now)) {
+                p.previous = None;
+                p.change = None;
+            }
+            if still || p.visibility.done(now) {
+                p.visibility.from = p.visibility.to;
+                p.visibility.dur = std::time::Duration::ZERO;
+            }
+        }
+        Task::none()
     }
 
     pub(super) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
@@ -416,7 +786,7 @@ impl App {
         let Some(p) = self.popover.as_mut().filter(|p| p.win == win) else {
             return Task::none();
         };
-        let height = (content_height + 12.0 + 2.0 * SHADOW)
+        let height = (content_height + 24.0 + 2.0 * SHADOW)
             .ceil()
             .min(p.max_height);
         if (height - p.size.height).abs() < 1.0 {
@@ -440,69 +810,127 @@ impl App {
         .into()
     }
 
+    fn pop_content<'a>(
+        &'a self,
+        kind: &'a Kind,
+        confirm: Option<usize>,
+        alpha: f32,
+    ) -> Element<'a, Msg> {
+        let content = match kind {
+            Kind::Volume => self.pop_volume(alpha),
+            Kind::Brightness => self.pop_brightness(alpha),
+            Kind::Calendar => self.pop_calendar(alpha),
+            Kind::Widget(id) => match self
+                .cfg
+                .widgets
+                .iter()
+                .find(|w| &w.id == id)
+                .map(|w| &w.kind)
+            {
+                Some(crate::config::WidgetKind::Controls) => {
+                    let bar = self.popover.as_ref().map(|p| p.bar);
+                    let monitor = bar
+                        .and_then(|id| self.bar_surfaces.get(&id))
+                        .map_or("", |b| b.monitor.as_str());
+                    self.controls_view(alpha, monitor, bar)
+                }
+                _ => Space::new().into(),
+            },
+            Kind::Workspaces => self.pop_workspaces(alpha),
+            Kind::Overflow(items) => self.pop_overflow(alpha, items),
+            Kind::Menu { entries, .. } => self.pop_menu(alpha, entries, confirm),
+        };
+        let fg = color(self.cfg.general.theme.fg, alpha);
+        container(content)
+            .style(move |_| container::Style {
+                text_color: Some(fg),
+                ..Default::default()
+            })
+            .into()
+    }
+
     pub(super) fn view_popover(&self) -> Element<'_, Msg> {
         let Some(p) = &self.popover else {
             return Space::new().into();
         };
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
-        let content: Element<'_, Msg> = match &p.kind {
-            Kind::Volume => self.pop_volume(),
-            Kind::Brightness => self.pop_brightness(),
-            Kind::Calendar => self.pop_calendar(),
-            Kind::Menu { entries, .. } => self.pop_menu(entries, p.confirm),
+        let now = std::time::Instant::now();
+        let still = self.bar_duration(180).is_zero();
+        let alpha = if still {
+            p.visibility.to
+        } else {
+            p.visibility.value(now)
         };
-        let bg = color(th.bg, th.effect(crate::config::Place::Menus).opacity);
-        let edge = Color { a: 0.12, ..fg };
-        let win = p.win;
-        let measured = iced::widget::sensor(content)
-            .key(win)
-            .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
-        let content = iced::widget::scrollable(measured).height(Length::Fill);
-        let card = container(content)
-            .padding(6)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                border: Border::default()
-                    .rounded(super::design::RADIUS)
-                    .width(1)
-                    .color(edge),
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
-                    offset: Vector::new(0.0, 8.0),
-                    blur_radius: 22.0,
-                },
-                text_color: Some(fg),
-                ..Default::default()
-            });
-        let duration = self.motion_duration();
-        let t = if duration.is_zero() {
+        let mix = if still {
             1.0
         } else {
-            (p.started.elapsed().as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0)
+            p.change.map_or(1.0, |f| f.value(now))
         };
-        let settle = 1.0 - (1.0 - t).powi(3);
-        container(
-            iced::widget::float(card)
-                .scale(0.98 + 0.02 * settle)
-                .translate(move |_, _| Vector::new(0.0, -4.0 * (1.0 - settle))),
-        )
+        let th = &self.cfg.general.theme;
+        let fg = color(th.fg, alpha);
+        let bg = color(
+            th.bg,
+            th.effect(crate::config::Place::Menus).opacity * alpha,
+        );
+        let win = p.win;
+        let current = iced::widget::sensor(self.pop_content(&p.kind, p.confirm, alpha * mix))
+            .key(win)
+            .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
+        let mut content = iced::widget::stack![];
+        if let Some(previous) = &p.previous {
+            content = content.push(super::bar_motion::inert(self.pop_content(
+                previous,
+                None,
+                alpha * (1.0 - mix),
+            )));
+        }
+        content = content.push(current);
+        let card: Element<'_, Msg> =
+            container(iced::widget::scrollable(content).height(Length::Fill))
+                .padding(12)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| {
+                    let mut style = super::design::bar_card(bg, fg);
+                    style.border.color.a *= alpha;
+                    style.shadow.color.a *= alpha;
+                    style
+                })
+                .into();
+        let card = if p.closing() {
+            super::bar_motion::inert(card)
+        } else {
+            card
+        };
+        let direction = if p.position == BarPosition::Top {
+            -1.0
+        } else {
+            1.0
+        };
+        let origin = if p.position == BarPosition::Top {
+            iced::Point::new(p.origin, 0.0)
+        } else {
+            iced::Point::new(p.origin, 1.0)
+        };
+        container(super::bar_motion::surface(
+            card,
+            0.975 + 0.025 * alpha,
+            Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
+            origin,
+        ))
         .padding(SHADOW)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
     }
 
-    fn pop_header(&self, label: String) -> Element<'_, Msg> {
-        let dim = color(self.cfg.general.theme.fg, 0.5);
+    pub(super) fn pop_header(&self, alpha: f32, label: String) -> Element<'_, Msg> {
+        let dim = color(self.cfg.general.theme.fg, 0.65 * alpha);
         container(
             text(label)
                 .font(self.font)
                 .size(11.5)
                 .color(dim)
-                .font(self.title_font()),
+                .font(self.ui_font(iced::font::Weight::Semibold)),
         )
         .padding(Padding {
             top: 6.0,
@@ -514,8 +942,8 @@ impl App {
         .into()
     }
 
-    fn pop_separator(&self) -> Element<'_, Msg> {
-        let line = color(self.cfg.general.theme.fg, 0.10);
+    pub(super) fn pop_separator(&self, alpha: f32) -> Element<'_, Msg> {
+        let line = color(self.cfg.general.theme.fg, 0.10 * alpha);
         container(rule::horizontal(1).style(move |_| rule::Style {
             color: line,
             radius: 0.0.into(),
@@ -530,8 +958,10 @@ impl App {
     /// Ligne de menu à la macOS : surlignage plein en couleur d'accent au survol.
     /// `enabled` à faux : entrée grisée ; sans action (`clickable` faux) : ligne
     /// d'information, lisible mais sans survol.
+    #[allow(clippy::too_many_arguments)]
     fn pop_row<'a>(
         &'a self,
+        alpha: f32,
         lead: Element<'a, Msg>,
         label: String,
         detail: Option<String>,
@@ -540,8 +970,8 @@ impl App {
         msg: Option<Msg>,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = color(th.fg, if enabled { 0.55 } else { 0.3 });
+        let (fg, accent) = (color(th.fg, 1.0 * alpha), color(th.accent, 1.0 * alpha));
+        let dim = color(th.fg, (if enabled { 0.65 } else { 0.3 }) * alpha);
         let font = self.ui_font(iced::font::Weight::Normal);
         let long = stacked(&label, detail.as_deref());
         let active = enabled && clickable;
@@ -582,11 +1012,15 @@ impl App {
         .style(move |_, st| {
             let hot = active && matches!(st, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: hot.then_some(Background::Color(Color { a: 0.18, ..accent })),
+                background: hot.then_some(Background::Color(Color {
+                    a: 0.12 * alpha,
+                    ..accent
+                })),
                 text_color: if !enabled {
-                    Color { a: 0.35, ..fg }
-                } else if hot {
-                    Color::WHITE
+                    Color {
+                        a: 0.35 * alpha,
+                        ..fg
+                    }
                 } else {
                     fg
                 },
@@ -599,14 +1033,16 @@ impl App {
 
     fn pop_menu<'a>(
         &'a self,
+        alpha: f32,
         entries: &'a [MenuEntry],
         confirm: Option<usize>,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
+        let fg = color(th.fg, 1.0 * alpha);
         let mut col = column![].spacing(0);
         if entries.is_empty() {
             col = col.push(self.pop_row(
+                alpha,
                 Space::new().into(),
                 crate::i18n::tr("Rien à afficher").into(),
                 None,
@@ -617,24 +1053,25 @@ impl App {
         }
         for (i, e) in entries.iter().enumerate() {
             col = col.push(match e {
-                MenuEntry::Header(h) => self.pop_header(h.clone()),
+                MenuEntry::Header(h) => self.pop_header(alpha, h.clone()),
                 MenuEntry::Image(p) => container(
                     iced::widget::image(iced::widget::image::Handle::from_path(p))
                         .width(IMAGE)
                         .height(IMAGE)
+                        .opacity(alpha)
                         .content_fit(iced::ContentFit::Cover)
                         .border_radius(10),
                 )
                 .center_x(Length::Fill)
                 .padding([6, 0])
                 .into(),
-                MenuEntry::Separator => self.pop_separator(),
+                MenuEntry::Separator => self.pop_separator(alpha),
                 MenuEntry::Input {
                     label,
                     placeholder,
                     secret,
                     ..
-                } => self.pop_input(i, label.as_deref(), placeholder, *secret),
+                } => self.pop_input(alpha, i, label.as_deref(), placeholder, *secret),
                 MenuEntry::Item {
                     label,
                     detail,
@@ -654,6 +1091,7 @@ impl App {
                         _ => Space::new().into(),
                     };
                     let row_el = self.pop_row(
+                        alpha,
                         lead,
                         label.clone(),
                         detail.clone(),
@@ -723,28 +1161,31 @@ impl App {
         col.into()
     }
 
-    fn pop_volume(&self) -> Element<'_, Msg> {
+    fn pop_volume(&self, alpha: f32) -> Element<'_, Msg> {
         let a = &self.audio;
-        let mut col = column![self.pop_header(crate::i18n::tr("Sortie").into())];
+        let mut col = column![self.pop_header(alpha, crate::i18n::tr("Sortie").into())];
         col = col.push(self.audio_controls(
+            alpha,
             self.volume,
             super::bar::volume_icon(self.volume),
             Msg::VolumeSet,
             Msg::VolumeMute,
         ));
-        col = col.push(self.device_list(&a.outputs));
-        col = col.push(self.pop_separator());
-        col = col.push(self.pop_header(crate::i18n::tr("Micro").into()));
+        col = col.push(self.device_list(alpha, &a.outputs));
+        col = col.push(self.pop_separator(alpha));
+        col = col.push(self.pop_header(alpha, crate::i18n::tr("Micro").into()));
         if a.mic.is_some() {
             col = col.push(self.audio_controls(
+                alpha,
                 a.mic,
                 super::bar::mic_icon(a.mic),
                 Msg::MicSet,
                 Msg::MicMute,
             ));
-            col = col.push(self.device_list(&a.inputs));
+            col = col.push(self.device_list(alpha, &a.inputs));
         } else {
             col = col.push(self.pop_row(
+                alpha,
                 Space::new().into(),
                 crate::i18n::tr("Aucun micro").into(),
                 None,
@@ -753,8 +1194,9 @@ impl App {
                 None,
             ));
         }
-        col.push(self.pop_separator())
+        col.push(self.pop_separator(alpha))
             .push(self.pop_row(
+                alpha,
                 Space::new().into(),
                 crate::i18n::tr("Réglages audio…").into(),
                 None,
@@ -766,7 +1208,7 @@ impl App {
     }
 
     /// Menu Luminosité : un curseur par rétroéclairage et par écran DDC/CI.
-    fn pop_brightness(&self) -> Element<'_, Msg> {
+    fn pop_brightness(&self, alpha: f32) -> Element<'_, Msg> {
         use super::bar::LightTarget;
         let l = &self.light;
         let mut rows: Vec<(String, LightTarget)> = Vec::new();
@@ -781,21 +1223,23 @@ impl App {
         }
         let mut col = column![];
         if rows.is_empty() {
-            col = col.push(self.pop_header(crate::i18n::tr("Aucune luminosité réglable").into()));
+            col = col
+                .push(self.pop_header(alpha, crate::i18n::tr("Aucune luminosité réglable").into()));
         }
         for (title, t) in rows {
-            col = col.push(self.pop_header(title));
-            col = col.push(self.light_slider(t));
+            col = col.push(self.pop_header(alpha, title));
+            col = col.push(self.light_slider(alpha, t));
         }
         col.into()
     }
 
-    fn light_slider(&self, t: super::bar::LightTarget) -> Element<'_, Msg> {
+    pub(super) fn light_slider(&self, alpha: f32, t: super::bar::LightTarget) -> Element<'_, Msg> {
         let v = self.light.level(t).unwrap_or(0.0);
         row![
             slider(0.0..=1.0f32, v, move |x| Msg::LightSet(t, x))
                 .on_release(Msg::LightApply(t))
                 .step(0.01f32)
+                .style(move |theme, status| super::design::bar_slider_alpha(theme, status, alpha))
                 .width(Length::Fill),
             text(format!("{:.0} %", v * 100.0))
                 .size(12.5)
@@ -813,12 +1257,13 @@ impl App {
     /// Curseur de volume et interrupteur « Muet » d'un périphérique.
     fn audio_controls(
         &self,
+        alpha: f32,
         value: Option<(f32, bool)>,
         icon: &str,
         set: fn(f32) -> Msg,
         mute: Msg,
     ) -> Element<'_, Msg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let fg = color(self.cfg.general.theme.fg, 1.0 * alpha);
         let (v, muted) = value.unwrap_or((0.0, false));
         let font = self.ui_font(iced::font::Weight::Medium);
         column![
@@ -827,6 +1272,9 @@ impl App {
                     .unwrap_or_else(|| Space::new().into()),
                 slider(0.0..=1.5f32, v.min(1.5), set)
                     .step(0.01f32)
+                    .style(move |theme, status| super::design::bar_slider_alpha(
+                        theme, status, alpha
+                    ))
                     .width(Length::Fill),
                 text(format!("{:.0} %", v * 100.0))
                     .font(self.font)
@@ -845,7 +1293,17 @@ impl App {
                     .size(13.5)
                     .font(self.ui_font(iced::font::Weight::Normal))
                     .width(Length::Fill),
-                toggler(muted).on_toggle(move |_| mute.clone())
+                toggler(muted)
+                    .on_toggle(move |_| mute.clone())
+                    .style(move |theme, status| {
+                        let mut style = toggler::default(theme, status);
+                        style.background = style.background.scale_alpha(alpha);
+                        style.foreground = style.foreground.scale_alpha(alpha);
+                        style.background_border_color.a *= alpha;
+                        style.foreground_border_color.a *= alpha;
+                        style.text_color = style.text_color.map(|c| c.scale_alpha(alpha));
+                        style
+                    })
             ]
             .align_y(Alignment::Center)
             .padding([4, 10])
@@ -855,11 +1313,15 @@ impl App {
     }
 
     /// Choix du périphérique par défaut (coché), s'il y en a plusieurs.
-    fn device_list<'a>(&'a self, list: &'a [super::bar::AudioDevice]) -> Element<'a, Msg> {
+    fn device_list<'a>(
+        &'a self,
+        alpha: f32,
+        list: &'a [super::bar::AudioDevice],
+    ) -> Element<'a, Msg> {
         if list.len() < 2 {
             return Space::new().into();
         }
-        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let fg = color(self.cfg.general.theme.fg, 1.0 * alpha);
         column(list.iter().map(|d| {
             let lead = if d.default {
                 self.icon_named("object-select-symbolic", 14.0, fg)
@@ -868,6 +1330,7 @@ impl App {
                 Space::new().into()
             };
             self.pop_row(
+                alpha,
                 lead,
                 super::bar::truncate(&d.name, 28),
                 None,
@@ -879,9 +1342,13 @@ impl App {
         .into()
     }
 
-    fn pop_calendar(&self) -> Element<'_, Msg> {
+    fn pop_calendar(&self, alpha: f32) -> Element<'_, Msg> {
         let th = &self.cfg.general.theme;
-        let (fg, dim, accent) = (color(th.fg, 1.0), color(th.fg, 0.55), color(th.accent, 1.0));
+        let (fg, dim, accent) = (
+            color(th.fg, 1.0 * alpha),
+            color(th.fg, 0.55 * alpha),
+            color(th.accent, 1.0 * alpha),
+        );
         let title = format_now("%A %-d %B %Y");
         let mut t = title.chars();
         let title = t
@@ -894,7 +1361,7 @@ impl App {
                     text(title)
                         .font(self.font)
                         .size(15)
-                        .font(self.title_font())
+                        .font(self.ui_font(iced::font::Weight::Semibold))
                         .color(fg),
                     text(format_now("%H:%M"))
                         .font(self.font)
@@ -905,28 +1372,39 @@ impl App {
                 .spacing(2)
             )
             .padding([6, 10]),
-            container(self.calendar_nav(fg, accent)).padding([0, 10]),
-            container(self.view_calendar(
-                12.5,
-                fg,
-                dim,
-                accent,
-                Some(WIDTH - 32.0),
-                Some(self.cal_months)
-            ))
+            container(self.calendar_nav(alpha, fg, accent)).padding([0, 10]),
+            container(
+                self.view_calendar(
+                    12.5,
+                    fg,
+                    dim,
+                    accent,
+                    Some(
+                        self.popover
+                            .as_ref()
+                            .map_or(WIDTH - 44.0, |p| p.size.width - 2.0 * SHADOW - 44.0)
+                    ),
+                    Some(self.cal_months)
+                )
+            )
             .padding([4, 10]),
         ]
         .into()
     }
 
     /// Mois précédent, aujourd'hui, mois suivant.
-    fn calendar_nav(&self, fg: Color, accent: Color) -> Element<'_, Msg> {
+    fn calendar_nav(&self, alpha: f32, fg: Color, accent: Color) -> Element<'_, Msg> {
         let nav = |label: &str, delta: i32| {
             button(text(label.to_string()).font(self.font).size(13).color(fg))
                 .padding([2, 10])
                 .style(move |_, st| button::Style {
-                    background: matches!(st, button::Status::Hovered)
-                        .then(|| Color { a: 0.14, ..accent }.into()),
+                    background: matches!(st, button::Status::Hovered).then(|| {
+                        Color {
+                            a: 0.10 * alpha,
+                            ..accent
+                        }
+                        .into()
+                    }),
                     border: Border::default().rounded(8),
                     text_color: fg,
                     ..Default::default()
@@ -941,7 +1419,7 @@ impl App {
         let mut r = row![
             nav("‹", -1),
             text(month)
-                .font(self.title_font())
+                .font(self.ui_font(iced::font::Weight::Semibold))
                 .size(14)
                 .color(fg)
                 .width(Length::Fill)

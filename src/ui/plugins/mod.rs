@@ -28,6 +28,7 @@ pub mod effects;
 pub mod energy;
 pub mod hyprconfig;
 pub mod icons;
+pub mod index;
 pub mod input;
 pub mod keys;
 pub mod launcher;
@@ -61,12 +62,13 @@ pub struct PluginInfo {
     pub builtin: bool,
 }
 
-/// Paquets intégrés, dans l'ordre de la navigation.
+/// Paquets intégrés (l'ordre de la navigation vient de [`GROUPS`]).
 pub const BUILTIN: &[PluginInfo] = &[
     desktop::INFO,
     keys::INFO,
     icons::INFO,
     launcher::INFO,
+    index::INFO,
     apps::INFO,
     autostart::INFO,
     assistant::INFO,
@@ -102,7 +104,10 @@ pub struct Group {
     pub ids: &'static [&'static str],
 }
 
-/// Navigation des Réglages, par groupes (chaque paquet dans un seul groupe).
+/// Navigation des Réglages, par groupes (chaque paquet dans un seul groupe,
+/// libellés uniques) : d'abord ce qui se voit (bureau, apparence, barre),
+/// puis le matériel, le système, les applications, et enfin la configuration
+/// de hyprdesk elle-même.
 pub const GROUPS: &[Group] = &[
     Group {
         label: "Bureau",
@@ -121,25 +126,20 @@ pub const GROUPS: &[Group] = &[
         ids: &["screens", "colors", "workspaces", "layouts"],
     },
     Group {
+        label: "Périphériques et réseau",
+        ids: &["network", "bt", "sound", "input"],
+    },
+    Group {
         label: "Système",
-        ids: &[
-            "sound",
-            "network",
-            "bt",
-            "input",
-            "energy",
-            "datetime",
-            "login",
-            "passwords",
-        ],
+        ids: &["energy", "datetime", "lock", "login", "passwords"],
     },
     Group {
         label: "Applications",
-        ids: &["apps", "autostart", "assistant"],
+        ids: &["apps", "autostart", "assistant", "index"],
     },
     Group {
-        label: "Système",
-        ids: &["lock", "share", "plugins", "hyprconfig", "about"],
+        label: "hyprdesk",
+        ids: &["plugins", "hyprconfig", "share", "about"],
     },
 ];
 
@@ -343,6 +343,7 @@ pub enum PluginMsg {
     Keys(keys::Msg),
     Icons(icons::Msg),
     Launcher(launcher::Msg),
+    Index(index::Msg),
     Apps(apps::Msg),
     Assistant(assistant::Msg),
     Plugins(plugins::Msg),
@@ -378,6 +379,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Keys(m) => app.keys_update(m),
         PluginMsg::Icons(m) => app.icons_update(m),
         PluginMsg::Launcher(m) => app.launcher_update(m),
+        PluginMsg::Index(m) => app.index_update(m),
         PluginMsg::Apps(m) => app.apps_update(m),
         PluginMsg::Assistant(m) => app.assistant_update(m),
         PluginMsg::Plugins(m) => app.plugins_update(m),
@@ -413,6 +415,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "icons" => app.tab_icons(p),
         "keys" => app.keys_page(),
         "launcher" => app.launcher_page(),
+        "index" => app.index_page(),
         "apps" => app.apps_page(),
         "assistant" => app.assistant_page(),
         "plugins" => app.plugins_page(),
@@ -456,6 +459,10 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         ]),
         "screens" => App::detect_screens(),
         "keys" => app.keys_load(),
+        "index" => {
+            index::init_fields(app);
+            index::load()
+        }
         "layouts" => Task::batch([
             layouts::load_current(),
             layouts::load_binds(app.config_path.clone()),
@@ -543,10 +550,15 @@ mod tests {
         assert!(missing.is_empty(), "sans traduction : {missing:?}");
     }
 
-    /// Chaque paquet est dans un seul groupe de la navigation ; les paquets
-    /// et onglets avancés existent.
+    /// Chaque paquet est dans un seul groupe de la navigation ; les libellés
+    /// de groupes sont uniques (deux « Système » se confondraient) ; les
+    /// paquets et onglets avancés existent.
     #[test]
     fn groupes() {
+        let mut labels: Vec<&str> = GROUPS.iter().map(|g| g.label).collect();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), GROUPS.len(), "libellés de groupes uniques");
         for p in BUILTIN {
             let n = GROUPS.iter().filter(|g| g.ids.contains(&p.id)).count();
             assert_eq!(n, 1, "{} : dans {n} groupe(s)", p.id);

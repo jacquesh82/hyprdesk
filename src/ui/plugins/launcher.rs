@@ -14,7 +14,7 @@ mod lifecycle;
 mod motion;
 
 pub(in crate::ui) use contrast::Backdrop;
-pub(in crate::ui) use lifecycle::{Placement, Runtime, screen_anchor};
+pub(in crate::ui) use lifecycle::{Placement, Runtime};
 
 use crate::i18n::text;
 use iced::widget::{Space, button, column, container, mouse_area, radio, row};
@@ -117,6 +117,9 @@ pub(in crate::ui) struct DockItem {
     active: bool,
     pub popup: PopupContent,
     pub msg: UiMsg,
+    /// Pastille d'état propre au bouton (loupe : état de l'index), rendue
+    /// même pour un bouton de commande.
+    pub status: Option<crate::ui::plugins::index::IndexInk>,
 }
 
 /// Case du dock, dans l'ordre affiché. Le rang d'une case sert d'index à la
@@ -246,6 +249,61 @@ fn wave_weight(distance: f32) -> f32 {
 }
 
 impl App {
+    /// Le même plugin est hébergé par la barre Graphite de cet écran.
+    pub(in crate::ui) fn launcher_in_bar(&self, monitor: &str) -> bool {
+        self.cfg.plugin_on("bar")
+            && self.cfg.plugin_on("launcher")
+            && self
+                .cfg
+                .bar
+                .as_ref()
+                .is_some_and(|b| b.style == crate::config::BarStyle::Graphite)
+            && self.bar_surfaces.values().any(|s| s.monitor == monitor)
+    }
+
+    pub(in crate::ui) fn launcher_bar_position(&self, monitor: &str) -> LauncherPosition {
+        self.bar_surfaces
+            .values()
+            .find(|s| s.monitor == monitor)
+            .filter(|_| self.launcher_in_bar(monitor))
+            .map_or(self.cfg.general.launcher.position, |s| match s.position {
+                crate::config::BarPosition::Top => LauncherPosition::Top,
+                crate::config::BarPosition::Bottom => LauncherPosition::Bottom,
+            })
+    }
+
+    pub(in crate::ui) fn launcher_screen_anchor(&self, m: &Monitor, local: Rectangle) -> Rectangle {
+        if self.launcher_in_bar(&m.name)
+            && let Some(bar) = self.bar_surfaces.values().find(|s| s.monitor == m.name)
+        {
+            let y = match bar.position {
+                crate::config::BarPosition::Top => bar.margin as f32,
+                crate::config::BarPosition::Bottom => {
+                    m.height as f32 - bar.height as f32 - bar.margin as f32
+                }
+            };
+            return local + iced::Vector::new(0.0, y);
+        }
+        let l = &self.cfg.general.launcher;
+        lifecycle::screen_anchor(m, l.position, l.size, local)
+    }
+
+    pub(in crate::ui) fn launcher_popup_area(&self, m: &Monitor) -> Rectangle {
+        if self.launcher_in_bar(&m.name) {
+            let (left, top, right, bottom) = m.reserved;
+            Rectangle::new(
+                Point::new(left, top),
+                Size::new(
+                    (m.width as f32 - left - right).max(1.0),
+                    (m.height as f32 - top - bottom).max(1.0),
+                ),
+            )
+        } else {
+            let l = &self.cfg.general.launcher;
+            lifecycle::workarea(m, l.position, l.size)
+        }
+    }
+
     /// Réemploie les transitions interruptibles du bureau, sans minuterie au repos.
     pub(in crate::ui) fn launcher_pointer(
         &mut self,
@@ -303,7 +361,7 @@ impl App {
         let want: Vec<String> = if self.visible && self.cfg.plugin_on("launcher") {
             self.surfaces
                 .iter()
-                .filter(|(id, _)| self.raised.contains(id))
+                .filter(|(id, mon)| self.raised.contains(id) && !self.launcher_in_bar(mon))
                 .map(|(_, m)| m.clone())
                 .collect()
         } else {
@@ -394,15 +452,60 @@ impl App {
     /// Le lanceur dans sa surface : applications épinglées, fenêtres, puis
     /// boutons de l'assistant et des réglages, contre le bord choisi.
     pub(in crate::ui) fn view_launcher<'a>(&'a self, m: &Monitor, t: f32) -> Element<'a, UiMsg> {
-        let progress = self.launcher_progress(&m.name);
+        self.view_launcher_content(m, t, false)
+    }
+
+    pub(in crate::ui) fn view_launcher_bar<'a>(
+        &'a self,
+        m: &Monitor,
+        t: f32,
+    ) -> Element<'a, UiMsg> {
+        if !self.cfg.plugin_on("launcher") {
+            return Space::new().into();
+        }
+        self.view_launcher_content(m, t, true)
+    }
+
+    fn view_launcher_content<'a>(
+        &'a self,
+        m: &Monitor,
+        t: f32,
+        embedded: bool,
+    ) -> Element<'a, UiMsg> {
+        let progress = if embedded {
+            1.0
+        } else {
+            self.launcher_progress(&m.name)
+        };
         let t = t * progress;
         let g = &self.cfg.general;
         let l = &g.launcher;
-        let vertical = l.position.vertical();
-        let fg = color(g.theme.fg, t);
+        let vertical = !embedded && l.position.vertical();
+        let fg = color(
+            if embedded {
+                self.bar_palette().fg
+            } else {
+                g.theme.fg
+            },
+            t,
+        );
         let dim = color(g.theme.fg, 0.55 * t);
-        let size = l.size as f32;
-        let accent = color(g.theme.accent, t);
+        let size = if embedded {
+            self.cfg
+                .bar
+                .as_ref()
+                .map_or(28.0, |b| (b.height as f32 - 20.0).clamp(16.0, 32.0))
+        } else {
+            l.size as f32
+        };
+        let accent = color(
+            if embedded {
+                self.bar_palette().accent
+            } else {
+                g.theme.accent
+            },
+            t,
+        );
         let face = |class: &str, px: f32| -> Element<'a, UiMsg> {
             let img = self.class_imgs.get(class).copied().unwrap_or(IconImg::None);
             self.img_element(img, px, t).unwrap_or_else(|| {
@@ -442,10 +545,24 @@ impl App {
                         iced::widget::svg(h)
                             .width(size * scale)
                             .height(size * scale)
-                            .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                            .style({
+                                let ink = if *name == "hyprdesk-start" {
+                                    None
+                                } else {
+                                    Some(fg)
+                                };
+                                move |_, _| iced::widget::svg::Style { color: ink }
+                            })
                             .into()
                     })
                     .unwrap_or_else(|| text(*fallback).font(self.font).size(13).color(fg).into()),
+                Glyph::Settings if embedded => iced::widget::svg(
+                    super::super::icons::get("preferences-system").expect("settings icon"),
+                )
+                .width(size * 0.85)
+                .height(size * 0.85)
+                .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                .into(),
                 Glyph::Settings => self
                     .img_element(
                         self.ui_imgs
@@ -480,7 +597,10 @@ impl App {
                 active,
                 popup,
                 msg,
+                status,
             } = entry;
+            // Loupe : la pastille porte l'état de l'index, pas un « ouvert ».
+            let pret = status == Some(crate::ui::plugins::index::IndexInk::Ready);
             let face = glyph(&look);
             // Sélection au clavier : anneau plein, au contraste du texte.
             let ring = selected == Some(index);
@@ -497,7 +617,7 @@ impl App {
                             .sin()
                 }
             });
-            let motion = if g.transition == crate::config::Transition::None {
+            let motion = if embedded || g.transition == crate::config::Transition::None {
                 0.0
             } else {
                 over
@@ -519,28 +639,29 @@ impl App {
                 .style(move |_| container::Style {
                     background: Some(
                         Color {
-                            a: 0.07 * over * t,
+                            a: if embedded { 0.0 } else { 0.07 * over * t },
                             ..accent
                         }
                         .into(),
                     ),
-                    border: Border::default().rounded(12),
+                    border: Border::default().rounded(if embedded { 4 } else { 12 }),
                     ..Default::default()
                 })
                 .into();
-            // La piste de 4 px est réservée même pour une application fermée.
+            let command = embedded && key.starts_with("dock-btn:");
+            // La piste est réservée même pour une application fermée.
             let mark = container(Space::new())
                 .width(if vertical {
                     4.0
-                } else if active || launching.is_some() {
-                    12.0
+                } else if active || launching.is_some() || pret {
+                    if embedded { 16.0 } else { 12.0 }
                 } else {
-                    4.0
+                    if embedded { 6.0 } else { 4.0 }
                 })
-                .height(if vertical && (active || launching.is_some()) {
+                .height(if vertical && (active || launching.is_some() || pret) {
                     12.0
                 } else {
-                    4.0
+                    if embedded { 3.0 } else { 4.0 }
                 })
                 .style(move |_| container::Style {
                     background: if let Some(pulse) = pulse {
@@ -551,8 +672,16 @@ impl App {
                             }
                             .into(),
                         )
+                    } else if let Some(encre) = status {
+                        // état du démon d'index : accent quand prêt, ambre en scan
+                        Some(Background::Color(match encre {
+                            crate::ui::plugins::index::IndexInk::Ready => accent,
+                            crate::ui::plugins::index::IndexInk::Scan => {
+                                Color::from_rgb8(0xff, 0xb8, 0x6c)
+                            }
+                        }))
                     } else {
-                        (badge > 0).then_some(Background::Color(if active {
+                        (badge > 0 && !command).then_some(Background::Color(if active {
                             accent
                         } else {
                             Color { a: 0.5 * t, ..fg }
@@ -564,32 +693,59 @@ impl App {
             let indicator: Element<'a, UiMsg> = if vertical {
                 container(mark).width(4).height(size).center_y(size).into()
             } else {
-                container(mark).width(size).height(4).center_x(size).into()
+                container(mark)
+                    .width(size)
+                    .height(if embedded { 3 } else { 4 })
+                    .center_x(size)
+                    .into()
             };
-            let body: Element<'a, UiMsg> = match l.position {
+            let position = if embedded {
+                self.launcher_bar_position(&m.name)
+            } else {
+                l.position
+            };
+            let body: Element<'a, UiMsg> = match position {
                 LauncherPosition::Bottom => column![icon, indicator].spacing(4).into(),
                 LauncherPosition::Top => column![indicator, icon].spacing(4).into(),
                 LauncherPosition::Left => row![indicator, icon].spacing(4).into(),
                 LauncherPosition::Right => row![icon, indicator].spacing(4).into(),
             };
+            let body: Element<'a, UiMsg> = if embedded {
+                container(body).center(size + 8.0).into()
+            } else {
+                body
+            };
             let pointer_monitor = monitor.clone();
             let area = mouse_area(
                 button(body)
-                    .padding(6)
+                    .padding(if embedded { 4 } else { 6 })
+                    .width(if embedded {
+                        Length::Fixed(size + 16.0)
+                    } else {
+                        Length::Shrink
+                    })
+                    .height(if embedded {
+                        Length::Fixed(size + 16.0)
+                    } else {
+                        Length::Shrink
+                    })
                     .on_press(UiMsg::LauncherActivate(Box::new(msg)))
                     .style(move |_, status| {
                         let alpha = match status {
                             button::Status::Pressed => 0.15,
                             button::Status::Hovered => 0.025 + 0.035 * over,
-                            _ if ring => 0.06,
+                            _ if ring || (embedded && active) => 0.07,
                             _ => 0.025 * over,
                         };
                         button::Style {
                             background: Some(Color { a: alpha * t, ..fg }.into()),
                             border: if ring {
-                                Border::default().rounded(12).width(2).color(fg)
+                                Border::default()
+                                    .rounded(if embedded { 4 } else { 12 })
+                                    .width(2)
+                                    .color(fg)
                             } else {
-                                Border::default().rounded(12)
+                                Border::default().rounded(if embedded { 4 } else { 12 })
                             },
                             ..Default::default()
                         }
@@ -646,6 +802,18 @@ impl App {
         } else {
             row(items).spacing(4).align_y(Alignment::Center).into()
         };
+        if embedded {
+            return iced::widget::scrollable(inner)
+                .id(format!("bar-launcher:{}", m.name))
+                .direction(iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(0)
+                        .scroller_width(0),
+                ))
+                .width(Length::Shrink)
+                .height(size + 16.0)
+                .into();
+        }
         let roi = self
             .launcher_runtime
             .anchors
@@ -705,6 +873,7 @@ impl App {
     /// épinglées, fenêtres, séparateur, puis boutons de commande. Une seule
     /// source pour le rendu et pour la navigation au clavier.
     pub(in crate::ui) fn dock_slots(&self, m: &Monitor) -> Vec<Slot> {
+        let embedded = self.launcher_in_bar(&m.name);
         let g = &self.cfg.general;
         let l = &g.launcher;
         let vertical = l.position.vertical();
@@ -717,9 +886,13 @@ impl App {
         let command_width = (commands as f32 * (size + 16.0) - 4.0).max(0.0);
         // Deux marges de 8 px et deux de 10 px. Le séparateur occupe 9 px,
         // avec 4 px de chaque côté ; les boutons de commande gardent leur place.
-        let room = ((extent - 36.0 - command_width - if commands > 0 { 13.0 } else { -4.0 })
-            / (size + 16.0))
-            .max(0.0) as usize;
+        let room = if embedded {
+            usize::MAX
+        } else {
+            ((extent - 36.0 - command_width - if commands > 0 { 13.0 } else { -4.0 })
+                / (size + 16.0))
+                .max(0.0) as usize
+        };
         let wins = windows(&self.clients, g.running_apps, &m.workspace);
         let focused = |c: &Client| {
             m.focused
@@ -762,13 +935,23 @@ impl App {
                 active: open.iter().any(|c| focused(c)),
                 popup,
                 msg,
+                status: None,
             })));
         }
         let unpinned = wins
             .into_iter()
             .filter(|c| !l.pinned.iter().any(|id| self.app_matches(id, &c.class)))
             .collect();
-        for e in entries(unpinned, g.launcher_group).into_iter() {
+        for e in entries(
+            unpinned,
+            if embedded {
+                LauncherGroup::App
+            } else {
+                g.launcher_group
+            },
+        )
+        .into_iter()
+        {
             if slots.len() >= room {
                 break;
             }
@@ -784,6 +967,7 @@ impl App {
                         c.title.clone()
                     }),
                     msg: UiMsg::FocusWindow(c.address.clone()),
+                    status: None,
                 })),
                 Entry::App(class, list) => Slot::Item(Box::new(DockItem {
                     key: format!("dock-app:{class}"),
@@ -792,6 +976,7 @@ impl App {
                     active: list.iter().any(|c| focused(c)),
                     popup: PopupContent::Windows(class.clone()),
                     msg: UiMsg::LauncherApp(m.name.clone(), class),
+                    status: None,
                 })),
                 Entry::Label(ws) => Slot::Label(ws),
             });
@@ -818,6 +1003,7 @@ impl App {
                 m.name.clone(),
                 Box::new(UiMsg::Control(crate::control::Command::Apps)),
             ),
+            status: None,
         })));
         if assistant {
             slots.push(Slot::Item(Box::new(DockItem {
@@ -827,6 +1013,7 @@ impl App {
                 active: assistant_open,
                 popup: PopupContent::Label("Assistant IA (LYRA)".into()),
                 msg: UiMsg::On(m.name.clone(), Box::new(UiMsg::OpenAssistant)),
+                status: None,
             })));
         }
         if l.show_settings {
@@ -837,7 +1024,72 @@ impl App {
                 active: settings_open,
                 popup: PopupContent::Label(crate::i18n::tr("Réglages").into()),
                 msg: UiMsg::On(m.name.clone(), Box::new(UiMsg::OpenPanel)),
+                status: None,
             })));
+        }
+        if embedded {
+            slots.retain(|s| matches!(s, Slot::Item(_)));
+            if let Some(i) = slots
+                .iter()
+                .position(|s| matches!(s, Slot::Item(item) if item.key == "dock-btn:apps"))
+            {
+                let mut start = slots.remove(i);
+                if let Slot::Item(item) = &mut start {
+                    item.glyph = Glyph::Symbol("hyprdesk-start", 0.85, "h");
+                }
+                slots.insert(0, start);
+            }
+            // La loupe ouvre la recherche de fichiers ; sa pastille dit
+            // l'état de l'index (accent : prêt, ambre : scan, rien : arrêté).
+            let (etiquette, encre) = match self.index_status.as_ref() {
+                Some(st) if st.phase == "scan" => (
+                    crate::tr!("Recherche de fichiers — indexation en cours…").to_string(),
+                    Some(crate::ui::plugins::index::IndexInk::Scan),
+                ),
+                Some(st) => (
+                    crate::tr!(
+                        "Recherche de fichiers — index prêt ({n} fichiers)",
+                        n = st.files
+                    )
+                    .to_string(),
+                    Some(crate::ui::plugins::index::IndexInk::Ready),
+                ),
+                None => (
+                    crate::tr!("Recherche de fichiers — index arrêté (démarre au premier « :f »)")
+                        .to_string(),
+                    None,
+                ),
+            };
+            slots.insert(
+                1,
+                Slot::Item(Box::new(DockItem {
+                    key: "dock-btn:search".into(),
+                    glyph: Glyph::Symbol("system-search", 0.85, "…"),
+                    badge: 0,
+                    active: false,
+                    popup: PopupContent::Label(etiquette),
+                    msg: UiMsg::On(
+                        m.name.clone(),
+                        Box::new(UiMsg::Control(crate::control::Command::Files)),
+                    ),
+                    status: encre,
+                })),
+            );
+            slots.insert(
+                2,
+                Slot::Item(Box::new(DockItem {
+                    key: "dock-btn:tasks".into(),
+                    glyph: Glyph::Symbol("hyprdesk-task-view", 0.85, "…"),
+                    badge: 0,
+                    active: false,
+                    popup: PopupContent::Label(crate::i18n::tr("Vue des tâches").into()),
+                    msg: UiMsg::On(
+                        m.name.clone(),
+                        Box::new(UiMsg::Control(crate::control::Command::Overview)),
+                    ),
+                    status: None,
+                })),
+            );
         }
         slots
     }
@@ -905,7 +1157,12 @@ impl App {
         use iced_layershell::reexport::{
             Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
         };
-        if !self.visible
+        if (!self.visible
+            && !self
+                .launcher_runtime
+                .pending
+                .as_ref()
+                .is_some_and(|p| self.launcher_in_bar(&p.monitor)))
             || !self.cfg.plugin_on("launcher")
             || token != self.launcher_popup_token
             || !self
@@ -928,8 +1185,8 @@ impl App {
         let Some(m) = self.monitors.iter().find(|m| m.name == pending.monitor) else {
             return Task::none();
         };
-        let l = &self.cfg.general.launcher;
-        let anchor = lifecycle::screen_anchor(m, l.position, l.size, local);
+        let anchor = self.launcher_screen_anchor(m, local);
+        let position = self.launcher_bar_position(&m.name);
         let lines = match &pending.content {
             PopupContent::Windows(class) => self.popup_windows(&pending.monitor, class).len(),
             PopupContent::Label(_) => 1,
@@ -937,8 +1194,8 @@ impl App {
         let (w, h) = popup_size(&pending.content, lines);
         let max_height = (m.height as f32 - m.reserved.1 - m.reserved.3 - 16.0).max(36.0);
         let placement = lifecycle::place_popup(
-            l.position,
-            lifecycle::workarea(m, l.position, l.size),
+            position,
+            self.launcher_popup_area(m),
             anchor,
             Size::new(w as f32, (h as f32).min(max_height)),
         );
@@ -1144,7 +1401,7 @@ impl App {
         let card = motion::surface(
             card,
             0.97 + 0.03 * t,
-            lifecycle::edge_offset(g.launcher.position, (1.0 - t) * 6.0),
+            lifecycle::edge_offset(self.launcher_bar_position(&p.monitor), (1.0 - t) * 6.0),
             p.placement.pivot,
         );
         container(card)
@@ -1823,6 +2080,7 @@ mod tests {
             class: class.into(),
             title: String::new(),
             workspace: workspace.into(),
+            monitor: "A".into(),
         }
     }
 

@@ -161,9 +161,9 @@ LYRA et myMFA.
 | `SUPER + ALT + D` | Fait apparaître ou disparaître le dock, fenêtres en place |
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
 | `SUPER + SHIFT + D` | Ouvre les Réglages |
-| `SUPER + R` | Recherche des applications, dans tous les modes. `:clip` fouille l'historique du presse-papiers |
+| `SUPER + R` | Recherche des applications, dans tous les modes. `:f` fouille tous vos fichiers (indexés), `:clip` l'historique du presse-papiers |
 | `ALT + Tab` | Change de fenêtre |
-| `SUPER + Tab` | Aperçu des fenêtres — hyprexpo, Hyprspace, ou le sélecteur de hyprdesk |
+| `SUPER + Tab` | Écran « Espaces de travail » : les fenêtres de chaque espace en minimap, à glisser d'un espace à l'autre (hyprexpo, Hyprspace, ou l'écran de hyprdesk) |
 | `SUPER + Échap` | Sortie de secours |
 
 Le mode du bureau est mémorisé par workspace, d'une session à l'autre. Avec
@@ -218,6 +218,15 @@ ou rend le clavier au bureau complet.
   verrouillage avec lecteur d'empreintes, notifications, captures et
   enregistrement d'écran. L'installateur propose aussi un écran de connexion
   greetd et un [trousseau myMFA](#le-trousseau-mymfa).
+- **Retrouvez n'importe quel fichier en une frappe.** La loupe du dock (ou
+  `:f` dans le lanceur, ou `hyprdesk files`) cherche dans un index de tous
+  vos fichiers — home et volumes montés (NTFS, FAT…) — par nom, chemin ou
+  catégorie : réponse en quelques millisecondes. Filtrez par nature
+  (fichiers, dossiers, liens) et par catégorie (documents, images, vidéos,
+  programmes…). L'index vit en arrière-plan, tenu à jour par inotify et un
+  rescan périodique, et se règle dans **Réglages → Index de fichiers** :
+  racines, exclusions par nom ou par expression régulière, extensions et
+  catégories à ignorer, taille maximale par fichier.
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.
@@ -257,6 +266,15 @@ hd.bar({ left = { "workspaces", "window" }, right = { "tray", "volume", "session
 hd.icon({ app = "firefox" })
 hd.widget("clock", { anchor = "top-right", format = "%H:%M" })
 ```
+
+La barre propose deux styles. Continuité conserve sa barre Unix et son dock
+flottant séparé. `style = "graphite"` intègre le lanceur dans une barre des tâches
+rectangulaire en bas (48 pixels logiques, sans marge) : Démarrer, Recherche,
+Vue des tâches et applications sont centrés sur l’écran ; les widgets sont
+à droite par défaut, avec heure et date sur deux lignes. Les modules peuvent
+être ajoutés ou glissés à gauche, au centre ou à droite, dans la barre comme
+dans Réglages → Barre → Modules. Les épingles et actions du lanceur
+sont partagées ; aucun second dock flottant n’est créé sur ces écrans.
 
 Votre configuration Lua prime sur les réglages enregistrés par le tiroir. Les
 deux fichiers sont relus à l'enregistrement. Une configuration fautive est
@@ -368,8 +386,13 @@ hd.widget("clock", { screen = "DP-2", if_missing = "primary" })
 hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 ```
 
-La barre propose `workspaces`, `window`, `volume`, `brightness`, `tray` et
-`desktop`. Pour ajouter un widget ou un plugin en Lua :
+La barre propose `workspaces`, `window`, `volume`, `brightness`, `tray`,
+`desktop`. Le centre de contrôle (`controls`) est un widget intégré du catalogue **Widgets**, utilisable sur le bureau avec `hd.widget("controls", {})`. Ajoutez-le dans
+**Réglages → Barre → Modules**, ou dans une zone de `hd.bar`. Le survol et la
+sélection des workspaces glissent sans déplacer les zones de clic ; les menus
+s'ouvrent depuis leur commande et se referment avec une transition réversible.
+Les modules qui débordent restent accessibles dans **Autres commandes**.
+Pour ajouter un widget ou un plugin en Lua :
 [Écrire un plugin](docs/WRITING_PLUGINS.md) (en anglais).
 
 <details>
@@ -401,6 +424,8 @@ L'installateur place deux exemples modifiables, `meteo` et `notes`, dans
 | --- | --- |
 | `hyprdesk show` / `hyprdesk launcher-only` / `hyprdesk hide` | Règle le mode du bureau du workspace |
 | `hyprdesk settings [paquet]` | Ouvre les Réglages, ou saute à une page |
+| `hyprdesk files` | Ouvre la recherche de fichiers (la loupe du dock) |
+| `hyprdesk index query <mot>` / `index status` / `index rebuild` | Cherche dans l'index de fichiers, affiche son état (JSON), ou lance un rescan complet. `--json` : résultats structurés |
 | `hyprdesk theme new <image>` | Crée un thème depuis une image |
 | `hyprdesk wallpaper split <image>` | Découpe une scène selon la disposition des écrans |
 | `hyprdesk export [fichier]` / `hyprdesk import <archive>` | Partager ou restaurer un setup. `--theme` pour le thème seul, `--screens` pour les écrans |

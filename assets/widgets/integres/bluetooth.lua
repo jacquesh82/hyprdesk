@@ -35,10 +35,16 @@ return {
     interval    = 10,
     anchor      = "top-right",
     options     = { texte = false },
+    on_toggle = function()
+        local on = powered()
+        if on == nil then error(hd.t("Aucun adaptateur Bluetooth")) end
+        hd.exec("LC_ALL=C bluetoothctl power " .. (on and "off" or "on"))
+        if powered() == on then error(hd.t("Le changement Bluetooth n'a pas été confirmé")) end
+    end,
     render = function(o)
         local on = powered()
         if on == nil then return { state = "hidden" } end
-        if not on then return { icon = "bluetooth-disabled-symbolic", tooltip = hd.t("Bluetooth désactivé") } end
+        if not on then return { icon = "bluetooth-disabled-symbolic", tooltip = hd.t("Bluetooth désactivé"), toggled = false } end
         local c = devices("Connected")
         local names = {}
         for _, d in ipairs(c) do names[#names + 1] = d.name end
@@ -47,6 +53,7 @@ return {
             text = (o.texte and #c > 0) and table.concat(names, ", ") or "",
             tooltip = #c > 0 and (hd.t("Connectés : ") .. table.concat(names, ", ")) or hd.t("Bluetooth activé"),
             state = #c > 0 and "active" or "normal",
+            toggled = true,
         }
     end,
     menu = function()
