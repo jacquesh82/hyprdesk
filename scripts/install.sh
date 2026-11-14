@@ -12,6 +12,12 @@
 #   ./scripts/install.sh [options]     installation directe, sans assistant (aussi
 #                                      sans terminal : scripts, conteneurs)
 #
+# hyprdesk est installé depuis la dernière release publiée : le paquet
+# précompilé (deb, rpm ou pkg.tar.zst selon le gestionnaire de paquets) est
+# téléchargé depuis GitHub et installé. Pour compiler le dépôt en l'état
+# (dernier commit, ou l'arbre de travail modifié — hors release) :
+# ./scripts/install_nightly_build.sh, ou --from-source ici.
+#
 # Par défaut, l'installation s'en tient au bureau : l'écran de connexion, LYRA et
 # myMFA ne s'installent que demandés (cochés dans l'assistant, ou --greeter,
 # --lyra, --mymfa) ; LYRA ou myMFA déjà présents sont gardés et suivis.
@@ -44,6 +50,9 @@
 #   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
 #                            bureau (plugin Hyprland compilé par hyprpm ; installé
 #                            par défaut, refait par update.sh quand Hyprland change)
+#   --from-source            compile hyprdesk depuis ce dépôt (dernier commit ou
+#                            arbre de travail) au lieu d'installer la release ;
+#                            c'est ce que fait scripts/install_nightly_build.sh
 #   --verbose                sortie complète des commandes (sinon : journal)
 #
 # Étapes numérotées : contrôles préalables (arrêt avant toute modification si un
@@ -80,6 +89,7 @@ while [ $# -gt 0 ]; do
         --keyboard) KEYBOARD="${2:?--keyboard disposition[:variante[:options]]}"; shift ;;
         --system-keyboard) SYSTEM_KEYBOARD=1 ;;
         --no-deps) export HYPRDESK_NO_DEPS=1 ;;
+        --from-source) FROM_SOURCE=1 ;;
         --no-autostart) AUTOSTART=0 ;;
         --no-lock-key) LOCK_KEY=0 ;;
         --remove-hyprpaper) REMOVE_HYPRPAPER=1 ;;
@@ -120,6 +130,8 @@ HYPRDESK_ROOT="$PWD"
 source scripts/deps.sh
 # shellcheck source=versions.sh disable=SC1091
 source scripts/versions.sh
+# shellcheck source=release.sh disable=SC1091
+source scripts/release.sh
 t() { hyprdesk_t "$@"; }
 
 BIN_DIR="$HOME/.local/bin"
@@ -206,13 +218,37 @@ hyprdesk_preflight || PREFLIGHT=$?
 # -- Prérequis -------------------------------------------------------------------------
 hyprdesk_deps
 
-# -- Compilation -----------------------------------------------------------------------
-hd_step "🦀" "Compilation" "Build" \
-    "cargo build --release : 3 à 10 min la première fois, quelques secondes ensuite." \
-    "cargo build --release: 3 to 10 min the first time, a few seconds afterwards."
-HD_HINT="$(t "lisez l'erreur ci-dessus ; une bibliothèque de développement absente se règle en relançant sans --no-deps" \
-             "read the error above; a missing development library is fixed by running again without --no-deps")"
-hd_run "$(t "compilation de hyprdesk" "building hyprdesk")" cargo build --release --locked
+# -- Release ou compilation ------------------------------------------------------------
+# Par défaut : le paquet précompilé de la dernière release publiée (pas de
+# Rust requis pour hyprdesk). --from-source : compilation du dépôt en l'état.
+if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
+    hd_step "🦀" "Compilation" "Build" \
+        "cargo build --release : 3 à 10 min la première fois, quelques secondes ensuite." \
+        "cargo build --release: 3 to 10 min the first time, a few seconds afterwards."
+    HD_HINT="$(t "lisez l'erreur ci-dessus ; une bibliothèque de développement absente se règle en relançant sans --no-deps" \
+                 "read the error above; a missing development library is fixed by running again without --no-deps")"
+    hd_run "$(t "compilation de hyprdesk" "building hyprdesk")" cargo build --release --locked
+    PKG_FILE=""
+else
+    hd_step "🏷" "Dernière release" "Latest release" \
+        "Le paquet précompilé pour ce système, téléchargé depuis GitHub." \
+        "The prebuilt package for this system, downloaded from GitHub."
+    HD_HINT="$(t "rejoignable ? réseau, ou install_nightly_build.sh pour compiler le dépôt" \
+                 "reachable? network, or install_nightly_build.sh to build this repository")"
+    REL="$(release_latest)"
+    [[ -n "$REL" ]] || { hd_die_line "$(t "dernière release injoignable (api.github.com)" \
+        "latest release unreachable (api.github.com)")"; exit 1; }
+    PM="$(hyprdesk_pm)"
+    PKG_URL="$(release_pkg_url "$REL" "$PM")"
+    [[ -n "$PKG_URL" ]] || { hd_die_line "$(t "pas de paquet $REL pour $(uname -m) / $PM : install_nightly_build.sh compile le dépôt" \
+        "no $REL package for $(uname -m) / $PM: install_nightly_build.sh builds this repository")"; exit 1; }
+    PKG_FILE="$(mktemp -d)/$(basename "$PKG_URL")"
+    hd_run "$(t "téléchargement de" "downloading") hyprdesk $REL" \
+        curl -fsSL --max-time 300 -o "$PKG_FILE" "$PKG_URL"
+    hd_sudo_ready "$(t "installer le paquet hyprdesk $REL" "install the hyprdesk $REL package")" || exit 1
+    hd_run "$(t "installation du paquet" "installing the package")" release_pkg_install "$PKG_FILE" "$PM"
+    hd_ok "hyprdesk $REL → /usr/bin/hyprdesk"
+fi
 
 # -- Police ----------------------------------------------------------------------------
 hd_step "🔤" "Police Mindlog" "Mindlog font" \
@@ -228,11 +264,18 @@ fi
 hd_step "📥" "Binaire" "Binary" "$BIN" "$BIN"
 HD_HINT="$(t "vérifiez que $BIN_DIR est accessible en écriture" "check that $BIN_DIR is writable")"
 mkdir -p "$BIN_DIR"
-HYPRDESK_INSTALL_STAGE=$(mktemp "$BIN_DIR/.hyprdesk-install.XXXXXX")
-trap 'rm -f -- "$HYPRDESK_INSTALL_STAGE"' EXIT
-install -m755 target/release/hyprdesk "$HYPRDESK_INSTALL_STAGE"
-mv -f -- "$HYPRDESK_INSTALL_STAGE" "$BIN"
-trap - EXIT
+if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
+    HYPRDESK_INSTALL_STAGE=$(mktemp "$BIN_DIR/.hyprdesk-install.XXXXXX")
+    trap 'rm -f -- "$HYPRDESK_INSTALL_STAGE"' EXIT
+    install -m755 target/release/hyprdesk "$HYPRDESK_INSTALL_STAGE"
+    mv -f -- "$HYPRDESK_INSTALL_STAGE" "$BIN"
+    trap - EXIT
+else
+    # Le paquet a posé /usr/bin/hyprdesk ; ~/.local/bin est en tête de PATH :
+    # la copie locale reste la référence (l'écran de connexion et l'unité
+    # systemd utilisateur la visent).
+    [[ "$BIN" == /usr/bin/hyprdesk ]] || install -m755 /usr/bin/hyprdesk "$BIN"
+fi
 hd_ok "$("$BIN" --version 2>/dev/null || echo hyprdesk) → $BIN"
 
 # -- Configuration ---------------------------------------------------------------------

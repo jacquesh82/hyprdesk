@@ -11,10 +11,11 @@
 #   --verbose                      sortie complète des commandes
 #
 # Relevé :
-#   - hyprdesk : commits de la branche suivie pas encore tirés, et commit
-#     installé (~/.local/state/hyprdesk/installed-commit, écrit par install.sh)
-#     en retard sur le dépôt ; domaines touchés (code, scripts, ressources,
-#     traductions, documentation) ;
+#   - hyprdesk : la dernière release publiée (paquet précompilé, installé par
+#     install.sh) comparée à la version installée ; le dépôt cloné est tiré
+#     au passage (scripts, ressources, traductions). Installé depuis le dépôt
+#     en l'état (install_nightly_build.sh) ? la release ne sera pas plus
+#     récente que votre binaire : mettez à jour avec le même script ;
 #   - Hyprbars (hyprpm) : recompilé quand la version de Hyprland change ;
 #   - LYRA et myMFA, s'ils ont été installés par hyprdesk : leurs sources
 #     (~/.local/share/hyprdesk/src) qui ne sont pas à la release attendue par
@@ -75,53 +76,31 @@ HEAD_C="$(git rev-parse HEAD)"
 UP_C="$(git rev-parse "$UP" 2>/dev/null || echo "$HEAD_C")"
 BEHIND="$(git rev-list --count "HEAD..$UP_C" 2>/dev/null || echo 0)"
 AHEAD="$(git rev-list --count "$UP_C..HEAD" 2>/dev/null || echo 0)"
-INSTALLED="$(cat "$STATE_DIR/installed-commit" 2>/dev/null || true)"
 DIRTY="$(git status --porcelain --untracked-files=no)"
 
-# Domaines touchés entre ce qui est installé et ce qui le sera.
-FROM="${INSTALLED:-$HEAD_C}"
-git cat-file -e "$FROM^{commit}" 2>/dev/null || FROM="$HEAD_C"
-TO="$UP_C"
-((BEHIND > 0)) || TO="$HEAD_C"
-domains() {
-    local code=0 scripts=0 assets=0 locales=0 docs=0 f
-    while IFS= read -r f; do
-        case "$f" in
-            src/*|vendor/*|Cargo.toml|Cargo.lock|build.rs) code=1 ;;
-            scripts/*) scripts=1 ;;
-            assets/*) assets=1 ;;
-            locales/*) locales=1 ;;
-            *.md|docs/*) docs=1 ;;
-        esac
-    done < <(git diff --name-only "$FROM" "$TO" 2>/dev/null)
-    ((code)) && echo "$(t "code (recompilation)" "code (rebuild)")"
-    ((scripts)) && echo "$(t "scripts d'installation" "install scripts")"
-    ((assets)) && echo "$(t "ressources (images, configuration d'exemple)" "assets (images, example configuration)")"
-    ((locales)) && echo "$(t "traductions" "translations")"
-    ((docs)) && echo "$(t "documentation" "documentation")"
-    return 0
-}
-
-if ((BEHIND > 0)); then
-    hd_info "$(t "hyprdesk : $BEHIND commit(s) à tirer de $UP" "hyprdesk: $BEHIND commit(s) to pull from $UP")"
-    git log --format='%h %s' -n 12 "HEAD..$UP_C" | while IFS= read -r l; do hd_note "$l"; done
-    ((BEHIND > 12)) && hd_note "…"
+# La release publiée pilote la mise à jour de hyprdesk : son paquet
+# précompilé est installé par install.sh (scripts/release.sh).
+# shellcheck source=release.sh disable=SC1091
+source scripts/release.sh
+REL="$(release_latest || true)"
+if [[ -z "$REL" ]]; then
+    hd_warn "$(t "dernière release injoignable : relevé local seulement" "latest release unreachable: local check only")"
+    REL="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+fi
+INSTALLED_V="$("$BIN_DIR/hyprdesk" --version 2>/dev/null | sed -n 's/^hyprdesk //p')"
+if [[ -z "$INSTALLED_V" ]]; then
+    hd_warn "$(t "version installée inconnue : installation proposée" "installed version unknown: install offered")"
     PENDING+=("hyprdesk")
-elif [[ -n "$INSTALLED" && "$INSTALLED" != "$HEAD_C" ]]; then
-    hd_info "$(t "hyprdesk : le dépôt ($(git rev-parse --short HEAD)) est en avance sur la version installée ($(git rev-parse --short "$INSTALLED" 2>/dev/null || echo "${INSTALLED:0:7}"))" \
-                 "hyprdesk: the repository ($(git rev-parse --short HEAD)) is ahead of the installed version ($(git rev-parse --short "$INSTALLED" 2>/dev/null || echo "${INSTALLED:0:7}"))")"
-    PENDING+=("hyprdesk")
-elif [[ -z "$INSTALLED" ]]; then
-    hd_warn "$(t "version installée inconnue (installée avant update.sh) : réinstallation proposée" "installed version unknown (installed before update.sh): reinstall offered")"
+elif [[ "$REL" != "$INSTALLED_V" ]]; then
+    hd_info "$(t "hyprdesk : release v$REL disponible (installée : v$INSTALLED_V)" \
+                 "hyprdesk: release v$REL available (installed: v$INSTALLED_V)")"
     PENDING+=("hyprdesk")
 else
-    hd_ok "$(t "hyprdesk à jour" "hyprdesk up to date") ($(git rev-parse --short HEAD))"
+    hd_ok "$(t "hyprdesk à jour" "hyprdesk up to date") (v$INSTALLED_V)"
 fi
-if [[ " ${PENDING[*]:-} " == *" hyprdesk "* ]]; then
-    mapfile -t DOMAINS < <(domains)
-    # sed (plutôt que ${var//…}) : joint par la virgule IFS puis « , » -> « ,  ».
-    # shellcheck disable=SC2001
-    ((${#DOMAINS[@]} > 0)) && hd_note "$(t "touche :" "touches:") $(IFS=,; echo "${DOMAINS[*]}" | sed 's/,/, /g')"
+if ((BEHIND > 0)); then
+    hd_info "$(t "dépôt : $BEHIND commit(s) à tirer de $UP (scripts et ressources)" \
+                 "repository: $BEHIND commit(s) to pull from $UP (scripts and assets)")"
 fi
 ((AHEAD > 0)) && hd_note "$(t "$AHEAD commit(s) locaux pas encore poussés : gardés" "$AHEAD local commit(s) not pushed yet: kept")"
 if [[ -n "$DIRTY" ]] && ((BEHIND > 0)); then

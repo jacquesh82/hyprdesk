@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-14
+
+### Added
+
+- **Indexed file search.** An inverted trigram index of every file on the
+  home and mounted volumes (ext4, btrfs, xfs, mounted NTFS/FAT), served by a
+  background daemon: instant answers in the launcher (`:f`, or the dock's
+  loupe, or `hyprdesk files`), kept fresh by inotify with a periodic rescan
+  fallback, persisted as a compressed snapshot and unloaded after ten idle
+  minutes. Results carry name, type, path and size; filters by kind (files,
+  folders, links) and by category (documents, images, videos, programs,
+  audio, archives); Enter opens with the default application.
+- **File index settings.** A dedicated Settings screen: graphically edited
+  roots, exclusions by name or regular expression (validated on entry),
+  ignored extensions and categories, maximum indexed size per file, safety
+  rescan interval, and the snapshot's location and size.
+- **Dock loupe.** In the Graphite bar, the loupe opens the file search and
+  carries the index state as a small mark (accent: ready, amber: scanning,
+  none: down); hover says the file count.
+- **Installers.** `scripts/install.sh` installs the latest published release
+  as a prebuilt package (deb, rpm, or pkg.tar.zst) instead of building from
+  source; `scripts/install_nightly_build.sh` builds this repository as it
+  stands (last commit, or the working tree) — outside releases;
+  `scripts/update.sh` follows published releases.
+- **Assistant and agents.** `hyprdesk context` documents
+  `hyprdesk index query <word> [--json]`, `status` and `rebuild`, so LYRA
+  and MCP agents can search the index.
+
 ## [0.1.0] - 2026-11-13
 
 First release.
