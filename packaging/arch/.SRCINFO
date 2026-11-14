@@ -57,6 +57,6 @@ pkgbase = hyprdesk
 	optdepends = wayle: notifications through wayle (AUR; without it, hyprdesk shows them)
 	options = !lto
 	source = hyprdesk-0.1.0.tar.gz::https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = e7d5b33e3fef48a7260cf3daedcef34328983664bbe09e1e9550e3dc242f2237
+	sha256sums = 9e115563a351379276d14efc6ea4fe51c554fe16e16ffde31979d2a384f7562e
 
 pkgname = hyprdesk
