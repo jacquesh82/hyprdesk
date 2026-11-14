@@ -344,16 +344,21 @@ fn position_player(monitor: Option<String>, rect: Option<(i32, i32, u32, u32)>) 
                     }
                 }
                 let w = format!("address:{addr}");
-                // Placement en deux passes, vérifiées : le redimensionnement
-                // recentre la fenêtre, et un mpv qui mappe encore peut avaler
-                // la première passe. Le positionnement est (0, 0) : la fenêtre
-                // a déjà été mise sur l'écran cible, son coin est celui de
-                // l'écran dans les deux interprétations (globale ou locale).
+                // Placement en deux passes : la première floate la fenêtre,
+                // la deuxième ne refait que resize et move — re-floater une
+                // fenêtre déjà flottée la re-tuile (toggle côté compositeur).
+                // Le positionnement est (0, 0) : la fenêtre a déjà été mise
+                // sur l'écran cible, son coin est celui de l'écran dans les
+                // deux interprétations (globale ou locale).
+                let mut floated = false;
                 for _ in 0..2 {
-                    d(&format!(
-                        "hl.dsp.window.float({{ action = \"enable\", window = \"{w}\" }})"
-                    ));
-                    std::thread::sleep(Duration::from_millis(120));
+                    if !floated {
+                        d(&format!(
+                            "hl.dsp.window.float({{ action = \"enable\", window = \"{w}\" }})"
+                        ));
+                        std::thread::sleep(Duration::from_millis(120));
+                        floated = true;
+                    }
                     let Some((_, _, width, height)) = rect else {
                         break;
                     };
