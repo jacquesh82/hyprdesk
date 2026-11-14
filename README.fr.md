@@ -2,6 +2,7 @@
 
 [English version](README.md)
 
+[![Vérifications](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml)
 [![Licence : MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 ![Hyprland 0.57+](https://img.shields.io/badge/Hyprland-0.57%2B-58e1ff)
 ![Rust 1.99+](https://img.shields.io/badge/Rust-1.99%2B-dea584)

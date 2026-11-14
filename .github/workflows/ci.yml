@@ -4,10 +4,14 @@ on:
     branches: ['**']
     tags: ['v*']
   pull_request:
+  # Lancement à la main : Actions → Vérifications → Run workflow. Le job
+  # packages construit deb, rpm et pkg.tar.zst et les dépose en artefacts du
+  # run (sans release ni commit) — pour tester un paquet sans couper un tag.
+  workflow_dispatch:
 jobs:
   # Branches et pull requests seulement : un tag v* pointe un commit déjà
   # vérifié par le push ou la PR qui l'a produit, il ne relance donc ni rust ni
-  # shellcheck — seul le job release s'exécute sur les tags.
+  # shellcheck — seuls les jobs packages (et release sur tag) s'exécutent là.
   rust:
     if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
@@ -17,7 +21,7 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
-      # Mêmes paquets que le job release : libpam0g-dev (liaison PAM de
+      # Mêmes paquets que le job packages : libpam0g-dev (liaison PAM de
       # src/lock/pam.rs) et libssl-dev manquent sur le runner Ubuntu nu.
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11 libpam0g-dev libssl-dev
       - uses: Swatinem/rust-cache@v2
@@ -29,10 +33,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: shellcheck scripts/*.sh
-  release:
-    # Uniquement les tags v* : paquets (deb, rpm, arch), release GitHub, et
-    # sha256 du tarball committé dans packaging/arch/PKGBUILD sur main.
-    if: startsWith(github.ref, 'refs/tags/v')
+  packages:
+    # Sur un tag v* : les paquets alimentent la release GitHub et le sha256
+    # committé dans le PKGBUILD. Sur un lancement à la main
+    # (Actions → Run workflow) : les mêmes paquets sont déposés en artefacts
+    # du run, sans toucher à la release ni au PKGBUILD.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -53,12 +59,25 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11 libpam0g-dev libssl-dev binutils
       - uses: Swatinem/rust-cache@v2
       - run: MAINTAINER="Jacques HULLU <jacquesh82@users.noreply.github.com>" bash scripts/package.sh deb rpm arch
+      # Lancement à la main : les paquets en artefacts du run (90 jours).
+      - name: "Artefacts du run (deb, rpm, arch)"
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyprdesk-${{ github.sha }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+          if-no-files-found: error
       - name: Empreinte du tarball du tag
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           HASH="$(curl -fsSL "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | awk '{print $1}')"
           echo "Tarball ${GITHUB_REF_NAME}.tar.gz : sha256 $HASH"
           echo "HASH=$HASH" >> "$GITHUB_ENV"
       - name: "PKGBUILD et .SRCINFO : sha256 committé sur main"
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           git config user.name "hyprdesk-ci"
           git config user.email "hyprdesk-ci@users.noreply.github.com"
@@ -71,6 +90,7 @@ jobs:
           git commit -m "arch : sha256 du tarball ${GITHUB_REF_NAME} (job release)"
           git push
       - name: Release GitHub
+        if: startsWith(github.ref, 'refs/tags/v')
         run: gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.pkg.tar.zst --title "hyprdesk ${GITHUB_REF_NAME#v}" --generate-notes
         env:
           GITHUB_TOKEN: ${{ github.token }}
