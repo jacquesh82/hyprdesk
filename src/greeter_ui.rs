@@ -276,7 +276,14 @@ fn screen_exists(name: &str) -> bool {
 /// Rectangle d'un écran dans la disposition : coin global, puis taille
 /// logique (pixels divisés par l'échelle, côtés échangés si pivoté) — les
 /// unités des dispatchs de fenêtre de Hyprland.
-fn logical_rect(x: i64, y: i64, w: f64, h: f64, scale: f64, transform: i64) -> (i64, i64, i64, i64) {
+fn logical_rect(
+    x: i64,
+    y: i64,
+    w: f64,
+    h: f64,
+    scale: f64,
+    transform: i64,
+) -> (i64, i64, i64, i64) {
     let s = if scale > 0.0 { scale } else { 1.0 };
     let (w, h) = ((w / s).round() as i64, (h / s).round() as i64);
     if transform % 2 == 1 {
@@ -1378,8 +1385,16 @@ mod tests {
             (2560, 0, 1600, 900),
             "échelle 1,2 : 1600 × 900, au coin de l'écran (pas 0, 0)"
         );
-        assert_eq!(logical_rect(0, 0, 1920.0, 1080.0, 1.0, 1), (0, 0, 1080, 1920), "pivoté");
-        assert_eq!(logical_rect(0, 0, 1920.0, 1080.0, 0.0, 0), (0, 0, 1920, 1080), "échelle inconnue");
+        assert_eq!(
+            logical_rect(0, 0, 1920.0, 1080.0, 1.0, 1),
+            (0, 0, 1080, 1920),
+            "pivoté"
+        );
+        assert_eq!(
+            logical_rect(0, 0, 1920.0, 1080.0, 0.0, 0),
+            (0, 0, 1920, 1080),
+            "échelle inconnue"
+        );
     }
 
     /// Rythme du fond vidéo : un diviseur entier du rafraîchissement de
