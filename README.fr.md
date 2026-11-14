@@ -78,7 +78,23 @@ ce soit.
 | Système | Linux x86_64 ou aarch64, systemd, une session utilisateur ordinaire, et un accès `sudo` |
 | Bureau | Hyprland 0.57+ et un pilote Vulkan ou GL |
 | Gestionnaire de paquets | pacman (Arch), apt (Debian/Ubuntu), dnf (Fedora) ou zypper (openSUSE) |
-| Construction | environ 4 Gio libres, 8 Gio si LYRA est à compiler, et un accès à GitHub et crates.io |
+| Construction | Rust et ~4 Gio libres, seulement pour compiler le dépôt (`install_nightly_build.sh`) ou LYRA et myMFA |
+
+Deux chemins : le **paquet de la dernière release** (recommandé — aucun
+compilateur pour hyprdesk), ou **compiler le dépôt en l'état**
+(`scripts/install_nightly_build.sh` : le dernier commit, ou votre arbre de
+travail modifié).
+
+| Distribution | Paquet de la release 0.1.1 |
+| --- | --- |
+| Debian, Ubuntu (amd64) | [hyprdesk_0.1.1-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk_0.1.1-1_amd64.deb) |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.1-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1.x86_64.rpm) |
+| Arch Linux (x86_64) | [hyprdesk-0.1.1-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1-x86_64.pkg.tar.zst), ou le [paquet AUR](https://aur.archlinux.org/packages/hyprdesk) (construit depuis le tag) |
+
+Installation manuelle : `apt install ./hyprdesk_*.deb`,
+`dnf install hyprdesk-*.rpm`, `pacman -U hyprdesk-*.pkg.tar.zst`. Et
+[les releases publiées](https://github.com/jacquesh82/hyprdesk/releases) pour
+toutes les versions.
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk
@@ -86,18 +102,24 @@ cd hyprdesk
 ./scripts/install.sh
 ```
 
+`scripts/install.sh` fait tout lui-même : il télécharge le paquet de la
+[dernière release](https://github.com/jacquesh82/hyprdesk/releases/latest),
+l'installe avec votre gestionnaire de paquets et met en place le reste. Pour
+compiler le dépôt au lieu d'installer la release :
+`scripts/install_nightly_build.sh` (ou `--from-source`).
+
 L'assistant propose la langue et le clavier, passe en revue les dépendances et
 demande quelles intégrations activer. Par défaut, il n'installe que le bureau :
 l'écran de connexion, LYRA et myMFA restent décochés tant que vous ne les
 choisissez pas, et rien ne change hors de votre session. Si Hyprland est plus ancien que 0.57,
 l'assistant propose de le mettre à jour ; reconnectez-vous ensuite à Hyprland.
 
-L'installateur compile hyprdesk, l'installe dans `~/.local/bin` et met en place
-son service systemd utilisateur. Il crée `~/.config/hypr/hyprdesk.lua` s'il
-manque et sauvegarde `hyprland.lua` avant d'y toucher
-(`hyprland.lua.avant-hyprdesk-*.bak`). Le bilan final montre les composants en
-marche et ce qu'il reste à faire. Au premier démarrage, les Réglages
-s'ouvrent d'eux-mêmes.
+Le binaire est installé dans `~/.local/bin` (copie du paquet, ou compilation
+avec `--from-source`) et le service systemd utilisateur est mis en place. Le
+script crée `~/.config/hypr/hyprdesk.lua` s'il manque et sauvegarde
+`hyprland.lua` avant d'y toucher (`hyprland.lua.avant-hyprdesk-*.bak`). Le
+bilan final montre les composants en marche et ce qu'il reste à faire. Au
+premier démarrage, les Réglages s'ouvrent d'eux-mêmes.
 
 <details>
 <summary>Options d'installation et intégrations</summary>
@@ -121,6 +143,7 @@ dans `~/.cargo` si la Rust du système est trop ancienne.
 | `--lyra` / `--no-lyra` | installe l'assistante LYRA, ou non (non, sauf demandée ; gardée si déjà là) |
 | `--mymfa` / `--no-mymfa` | installe le trousseau myMFA, l'intégration Secret Service et le module PAM, ou non (non, sauf demandé ; gardé si déjà là) |
 | `--no-hyprbars` | passe le plugin de barres de titre Hyprbars |
+| `--from-source` | compile hyprdesk depuis ce dépôt au lieu d'installer la release (ce que fait `scripts/install_nightly_build.sh`) |
 | `--no-deps` | gérez les prérequis vous-même ; `scripts/deps.sh --dry-run` les vérifie |
 | `--no-autostart` | passe l'entrée de démarrage de Hyprland |
 | `--no-lock-key` | passe le raccourci de verrouillage `SUPER + L` |

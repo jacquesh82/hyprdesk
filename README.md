@@ -74,13 +74,35 @@ system and shows the selected options before making changes.
 | System | Linux on x86_64 or aarch64, systemd, a regular user session, and `sudo` access |
 | Desktop | Hyprland 0.57+ and a Vulkan or GL driver |
 | Package manager | pacman (Arch), apt (Debian/Ubuntu), dnf (Fedora), or zypper (openSUSE) |
-| Build | About 4 GiB of free space, or 8 GiB if building LYRA, plus access to GitHub and crates.io |
+| Build | Rust and ~4 GiB free, only to build the repository (`install_nightly_build.sh`) or LYRA and myMFA |
+
+Two paths: the **latest release package** (recommended — no compiler needed
+for hyprdesk), or **build this repository as it stands**
+(`scripts/install_nightly_build.sh`: the last commit, or your modified
+working tree).
+
+| Distribution | 0.1.1 release package |
+| --- | --- |
+| Debian, Ubuntu (amd64) | [hyprdesk_0.1.1-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk_0.1.1-1_amd64.deb) |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.1-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1.x86_64.rpm) |
+| Arch Linux (x86_64) | [hyprdesk-0.1.1-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.1/hyprdesk-0.1.1-1-x86_64.pkg.tar.zst), or the [AUR package](https://aur.archlinux.org/packages/hyprdesk) (built from the tag) |
+
+Manual install: `apt install ./hyprdesk_*.deb`, `dnf install hyprdesk-*.rpm`,
+`pacman -U hyprdesk-*.pkg.tar.zst`. See
+[published releases](https://github.com/jacquesh82/hyprdesk/releases) for
+every version.
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk
 cd hyprdesk
 ./scripts/install.sh
 ```
+
+`scripts/install.sh` does everything itself: it downloads the package from
+the [latest release](https://github.com/jacquesh82/hyprdesk/releases/latest),
+installs it with your package manager, and sets the rest up. To build the
+repository instead of installing the release:
+`scripts/install_nightly_build.sh` (or `--from-source`).
 
 The setup assistant lets you choose a language and keyboard layout, review
 dependencies, and decide which integrations to enable. By default it installs
@@ -89,11 +111,12 @@ pick them, and nothing outside your session changes. If your Hyprland
 version is older than 0.57, the assistant offers to update it. Log back into
 Hyprland after that update.
 
-The installer builds hyprdesk, installs it in `~/.local/bin`, and sets up its
-systemd user service. It creates `~/.config/hypr/hyprdesk.lua` if needed and
-backs up `hyprland.lua` before editing it
-(`hyprland.lua.avant-hyprdesk-*.bak`). The final report shows which components
-are running and any actions still needed. Settings open on the first launch.
+The binary is installed in `~/.local/bin` (copied from the package, or built
+with `--from-source`) and the systemd user service is set up. The script
+creates `~/.config/hypr/hyprdesk.lua` if needed and backs up `hyprland.lua`
+before editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report
+shows which components are running and any actions still needed. Settings
+open on the first launch.
 
 <details>
 <summary>Installer options and integrations</summary>
@@ -117,6 +140,7 @@ The installer can install missing build dependencies and use rustup in
 | `--lyra` / `--no-lyra` | Install the LYRA assistant, or not (off unless asked; kept if already installed) |
 | `--mymfa` / `--no-mymfa` | Install the myMFA keyring, its Secret Service integration, and PAM module, or not (off unless asked; kept if already installed) |
 | `--no-hyprbars` | Skip the Hyprbars title-bar plugin |
+| `--from-source` | Build hyprdesk from this repository instead of installing the release (what `scripts/install_nightly_build.sh` does) |
 | `--no-deps` | Manage prerequisites yourself. Check them with `scripts/deps.sh --dry-run` |
 | `--no-autostart` | Skip the Hyprland startup entry |
 | `--no-lock-key` | Skip the `SUPER + L` lock shortcut |
