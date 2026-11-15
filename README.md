@@ -9,7 +9,9 @@
 
 **A desktop you can bring up whenever you need it in [Hyprland](https://hyprland.org).**
 
-![Login on the hyprdesk greetd screen, then SUPER + D through the three modes (wallpaper, dock, full desktop with icons); two images open tiled, then float on the full desktop and are moved; a tour of the Settings (including Shortcuts) and a question to LYRA](assets/screenshots/hyprdesk-demo.gif)
+[![Login on the hyprdesk greetd screen over a looping video, SUPER + D through dock and full desktop, a file found with the :f search, LYRA fixing a duplicate shortcut after approval, SmartUI proposing new icons, a myMFA code filled into a form, then the closing card](assets/screenshots/hyprdesk-demo.gif)](assets/screenshots/hyprdesk-demo.mp4)
+
+<sub>70-second film; click it for the video with sound.</sub>
 
 When your tiled windows fill the screen, press `SUPER + D` (twice: dock, then full desktop) to reach your
 wallpaper, icons, and widgets. Your windows float above the desktop while

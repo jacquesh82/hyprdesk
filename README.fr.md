@@ -10,7 +10,9 @@
 **Un bureau que l'on fait apparaître dès qu'on en a besoin, dans
 [Hyprland](https://hyprland.org).**
 
-![Connexion sur l'écran greetd de hyprdesk, puis SUPER + D passe par les trois modes (fond, dock, bureau complet avec ses icônes) ; deux images s'ouvrent en mosaïque, puis flottent sur le bureau complet et sont déplacées ; visite des Réglages (dont Raccourcis) et une question à LYRA](assets/screenshots/hyprdesk-demo.gif)
+[![Connexion sur l'écran greetd de hyprdesk devant une vidéo en boucle, SUPER + D vers le dock puis le bureau complet, un fichier trouvé par la recherche :f, LYRA qui corrige un raccourci en double après accord, SmartUI qui propose de nouvelles icônes, un code myMFA saisi dans un formulaire, puis le carton final](assets/screenshots/hyprdesk-demo.gif)](assets/screenshots/hyprdesk-demo.mp4)
+
+<sub>Film de 70 secondes, en anglais ; cliquer dessus pour la vidéo avec le son.</sub>
 
 En tuiles, les fenêtres couvrent l'écran : `SUPER + D` (deux fois : le dock,
 puis le bureau complet) ramène le fond d'écran, les icônes et les widgets. Les

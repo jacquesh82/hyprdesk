@@ -578,6 +578,11 @@ impl Preview {
                     .theme
                     .effects
                     .insert(config::Place::Launcher, effect);
+            } else {
+                // Les scènes suivantes repartent du fond par défaut : sinon le
+                // noir de launcher-dark reste sous toutes les captures d'après.
+                cfg.general.background = config::General::default().background;
+                cfg.general.theme.effects.remove(&config::Place::Launcher);
             }
             let thickness = plugins::launcher::thickness(cfg.general.launcher.size) as f32;
             self.app.monitors[0].reserved = match cfg.general.launcher.position {
@@ -665,7 +670,13 @@ impl Preview {
                 self.app.raised.remove(&self.desktop);
                 DesktopMode::NoDesktop
             }
-            _ => DesktopMode::FullDesktop,
+            _ => {
+                // Bureau remis après mode-hidden : sans cela, les scènes
+                // suivantes perdent icônes et widgets.
+                self.app.visible = true;
+                self.app.raised.insert(self.desktop);
+                DesktopMode::FullDesktop
+            }
         };
         self.app.ws_modes.insert("1".into(), mode);
         self.app.applied.insert(apercu, (mode, "1".into()));
