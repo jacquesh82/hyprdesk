@@ -107,6 +107,69 @@ pub fn parse_volume(out: &str) -> Option<(f32, bool)> {
     (v.is_finite() && v >= 0.0).then_some((v, out.contains("[MUTED]")))
 }
 
+/// Le volume suit les événements de PipeWire (`pactl subscribe`) : vrai tant
+/// que la veille tourne ; le relevé toutes les 2 s (un `wpctl` à chaque fois)
+/// ne sert alors plus (MLG-134).
+pub static VOLUME_WATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ligne de `pactl subscribe` qui peut changer le volume de la sortie : la
+/// sortie elle-même, ou le serveur (sortie par défaut changée).
+pub fn volume_event(line: &str) -> bool {
+    line.contains(" on sink #") || line.contains(" on server")
+}
+
+/// Volume de la sortie, relu à chaque événement de PipeWire. Sans `pactl`
+/// (pipewire-pulse absent), le flux se tait et le relevé périodique reste.
+pub fn volume_stream() -> impl iced::futures::Stream<Item = Option<(f32, bool)>> {
+    use iced::futures::SinkExt;
+    use std::sync::atomic::Ordering;
+    use tokio::io::AsyncBufReadExt;
+    iced::stream::channel(
+        4,
+        async move |mut out: iced::futures::channel::mpsc::Sender<Option<(f32, bool)>>| {
+            loop {
+                let spawned = tokio::process::Command::new("pactl")
+                    .arg("subscribe")
+                    .env("LC_ALL", "C")
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null())
+                    .kill_on_drop(true)
+                    .spawn();
+                let Ok(mut child) = spawned else {
+                    // Pas de pactl : le relevé périodique fait le travail.
+                    std::future::pending::<()>().await;
+                    return;
+                };
+                let Some(stdout) = child.stdout.take() else {
+                    return;
+                };
+                VOLUME_WATCH.store(true, Ordering::Relaxed);
+                let _ = out.send(read_volume().await).await;
+                let mut lines = tokio::io::BufReader::new(stdout).lines();
+                loop {
+                    match lines.next_line().await {
+                        Ok(Some(l)) if volume_event(&l) => {
+                            // Rafale (molette, curseur) : un seul relevé.
+                            while let Ok(Ok(Some(_))) =
+                                tokio::time::timeout(Duration::from_millis(60), lines.next_line())
+                                    .await
+                            {}
+                            let _ = out.send(read_volume().await).await;
+                        }
+                        Ok(Some(_)) => {}
+                        _ => break,
+                    }
+                }
+                // PipeWire relancé : relevé périodique le temps de se réabonner.
+                VOLUME_WATCH.store(false, Ordering::Relaxed);
+                let _ = child.kill().await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        },
+    )
+}
+
 pub async fn read_volume() -> Option<(f32, bool)> {
     let o = crate::processes::output(
         tokio::process::Command::new("wpctl").args(["get-volume", "@DEFAULT_AUDIO_SINK@"]),
@@ -1831,6 +1894,15 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn evenements_du_volume() {
+        assert!(volume_event("Event 'change' on sink #57"));
+        assert!(volume_event("Event 'change' on server #4294967295"));
+        assert!(!volume_event("Event 'change' on sink-input #120"));
+        assert!(!volume_event("Event 'new' on client #300"));
+    }
+
     use super::*;
 
     #[test]

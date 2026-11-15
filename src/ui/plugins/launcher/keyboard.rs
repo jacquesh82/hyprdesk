@@ -252,6 +252,7 @@ mod tests {
         )
         .0;
         app.monitors = vec![Monitor {
+            dpms_off: false,
             name: "A".into(),
             width: 1440,
             height: 900,

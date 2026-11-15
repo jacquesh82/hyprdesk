@@ -235,6 +235,7 @@ impl Preview {
         let (desktop, bar) = (Id::unique(), Id::unique());
         app.font = crate::fonts::DEFAULT;
         app.monitors = vec![Monitor {
+            dpms_off: false,
             name: crate::i18n::tr("APERÇU").into(),
             width: size.width as u32,
             height: size.height as u32,
@@ -457,6 +458,7 @@ impl Preview {
                 name: id.to_string(),
                 monitor: crate::i18n::tr("APERÇU").into(),
                 windows: if id == 1 { 2 } else { 0 },
+                fullscreen: false,
             })
             .collect();
         let mut cfg = app.settings.apply_to(&cfg);
@@ -1972,6 +1974,7 @@ impl Preview {
                         name: id.to_string(),
                         monitor: self.app.monitors[0].name.clone(),
                         windows: 0,
+                        fullscreen: false,
                     }));
                 for i in 0..10 {
                     let id = format!("preview-module-{i}");

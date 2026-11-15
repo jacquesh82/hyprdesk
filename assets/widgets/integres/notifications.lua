@@ -1,16 +1,19 @@
 -- Notifications : nombre, Ne pas déranger, dernières notifications.
--- Le démon en place : wayle s'il tourne (sa CLI), sinon hyprdesk lui-même
--- (son état dans $XDG_RUNTIME_DIR/hyprdesk-notifications.txt, et
--- `hyprdesk notifications dnd|clear`).
+-- Le démon en place : hyprdesk lui-même quand il tient le serveur (son état
+-- par hd.notifications(), sans processus, et `hyprdesk notifications
+-- dnd|clear`), sinon wayle s'il tourne (sa CLI), sinon le dernier état
+-- publié par hyprdesk ($XDG_RUNTIME_DIR/hyprdesk-notifications.txt).
 
 local STATE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hyprdesk-notifications.txt"
 
-local function wayle()
+-- La liste de wayle ne sert qu'au menu : `with_list` seulement à son ouverture.
+local function wayle(with_list)
     local s = hd.exec("LC_ALL=C wayle notify status 2>/dev/null")
     if s == "" then return nil end
     local st = { source = "wayle", list = {},
                  count = tonumber(s:match("Notifications: (%d+)")) or 0,
                  dnd = s:find("Do Not Disturb: enabled") ~= nil }
+    if not with_list then return st end
     for app, title, body in hd.exec("LC_ALL=C wayle notify list 2>/dev/null"):gmatch("%[%d+%] ([^:\n]+): ([^\n]*)\n%s*([^\n]*)") do
         st.list[#st.list + 1] = { app = app, title = title, body = body }
         if #st.list >= 6 then break end
@@ -35,8 +38,8 @@ local function native()
     return st
 end
 
-local function status()
-    return wayle() or native()
+local function status(with_list)
+    return hd.notifications() or wayle(with_list) or native()
 end
 
 local function act(st, what)
@@ -62,10 +65,11 @@ return {
         }
     end,
     menu = function()
-        local s = status() or { count = 0, dnd = false, list = {}, source = "hyprdesk" }
+        local s = status(true) or { count = 0, dnd = false, list = {}, source = "hyprdesk" }
         local m = { { header = hd.t("Notifications") },
                     { label = hd.t("Ne pas déranger"), checked = s.dnd, action = function() act(s, "dnd") end } }
         for i, n in ipairs(s.list) do
+            if i > 6 then break end
             if i == 1 then m[#m + 1] = { header = hd.t("Récentes") } end
             m[#m + 1] = { label = n.title ~= "" and n.title or n.app, detail = n.body ~= "" and n.body or n.app }
         end

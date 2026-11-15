@@ -45,6 +45,9 @@
 ---@field advanced_settings? boolean Settings screen: all the details (otherwise the essentials)
 ---@field tour_seen? boolean Guided tour done or dismissed (no longer offered)
 ---@field language? "auto"|"fr"|"en" Interface language (auto: the system's)
+---@field renderer? "hardware"|"software" Interface rendering engine: graphics card (wgpu, software fallback) or processor (tiny-skia); applied on restart
+---@field gpu? "low"|"high" Graphics card for hardware rendering: power-saving (integrated) or powerful (discrete); applied on restart
+---@field worker_threads? integer Interface worker threads (default 4, 0: one per core); applied on restart
 ---@field layout? string Default layout: "dwindle", "master", "scrolling", "monocle", "grid", "columns", "rows", "centered" or "lua:<name>"
 ---@field layout_workspaces? table<string|integer, string> Layout of some workspaces ({ [3] = "monocle" })
 ---@field dwindle? table<string, boolean|number> Dwindle options (preserve_split, smart_split, force_split, default_split_ratio…)
@@ -245,6 +248,61 @@ function hd.exec(cmd) end
 --- Launches a command through Hyprland, without waiting for its output.
 ---@param cmd string
 function hd.spawn(cmd) end
+
+-- System state without any process: kept up to date over D-Bus (signals) in
+-- hyprdesk, read instantly. nil: service unreachable, fall back to hd.exec.
+
+---@class HD.NetConnection
+---@field name string # NetworkManager connection name
+---@field type string # "wifi", "ethernet", "vpn", "wireguard", "bridge"…
+---@field active boolean # activated
+---@field external boolean # created outside NetworkManager (docker bridge…)
+---@field primary boolean
+---@field ssid? string # Wi-Fi: network of the active access point
+---@field strength? integer # Wi-Fi: signal strength, 0 to 100
+
+---@class HD.Network
+---@field state string # "connected", "connecting", "disconnected", "asleep"…
+---@field connected boolean
+---@field wifi_enabled boolean
+---@field primary? HD.NetConnection
+---@field connections HD.NetConnection[]
+
+--- NetworkManager: state, Wi-Fi, active connections.
+---@return HD.Network?
+function hd.network() end
+
+---@class HD.BtDevice
+---@field name string
+---@field address string
+---@field paired boolean
+---@field connected boolean
+---@field battery? integer # percentage, when the device reports it
+
+---@class HD.Bluetooth
+---@field adapter boolean # at least one adapter
+---@field powered boolean
+---@field devices HD.BtDevice[] # paired or connected
+
+--- BlueZ: adapter and devices.
+---@return HD.Bluetooth?
+function hd.bluetooth() end
+
+--- Power profile (power-profiles-daemon): active and offered.
+---@return { active: string, profiles: string[] }?
+function hd.power_profile() end
+
+--- Batteries from /sys/class/power_supply (never nil: empty list without a battery).
+---@return { name: string, cap: integer, status: string, device: boolean }[]
+function hd.batteries() end
+
+--- File index daemon (its socket); nil when it is stopped.
+---@return { phase: string, fichiers: integer, progression: integer }?
+function hd.index_status() end
+
+--- Notifications, when hyprdesk itself holds the server; nil otherwise.
+---@return { source: "hyprdesk", dnd: boolean, count: integer, list: { app: string, title: string, body: string }[] }?
+function hd.notifications() end
 
 --- Text in the interface language: the French text is the key in
 --- hyprdesk's catalog (locales/en.toml); if missing, it is returned as is.

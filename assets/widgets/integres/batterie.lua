@@ -1,29 +1,7 @@
 -- Batteries : celle de l'ordinateur, et celles des périphériques (souris, clavier…).
-local function read(p)
-    local f = io.open(p, "r")
-    if not f then return nil end
-    local v = f:read("*l")
-    f:close()
-    return v
-end
-
+-- Lues dans /sys/class/power_supply par hyprdesk (hd.batteries, sans processus).
 local function batteries()
-    local list = {}
-    for name in hd.exec("ls /sys/class/power_supply 2>/dev/null"):gmatch("[^\n]+") do
-        local d = "/sys/class/power_supply/" .. name
-        if read(d .. "/type") == "Battery" then
-            local cap = tonumber(read(d .. "/capacity") or "")
-            if cap then
-                list[#list + 1] = {
-                    name = read(d .. "/model_name") or name,
-                    cap = cap,
-                    status = read(d .. "/status") or "",
-                    device = (read(d .. "/scope") or "System") == "Device",
-                }
-            end
-        end
-    end
-    return list
+    return hd.batteries()
 end
 
 local function icon(b)
@@ -42,15 +20,27 @@ local PROFILES = {
     { id = "power-saver", label = hd.t("Économie d'énergie") },
 }
 
+-- Profil actif : par D-Bus (hd.power_profile, sans processus), sinon
+-- powerprofilesctl. Rend aussi l'état D-Bus, pour la liste des profils.
 local function profile()
+    local pp = hd.power_profile()
+    if pp then return (pp.active ~= "" and pp.active or nil), pp end
     local p = hd.exec("powerprofilesctl get 2>/dev/null")
     return p ~= "" and p or nil
 end
 
-local function available_profiles()
-    local out, have = {}, hd.exec("powerprofilesctl list 2>/dev/null")
+local function available_profiles(pp)
+    local out, has = {}, nil
+    if pp then
+        local set = {}
+        for _, id in ipairs(pp.profiles) do set[id] = true end
+        has = function(id) return set[id] end
+    else
+        local have = hd.exec("powerprofilesctl list 2>/dev/null")
+        has = function(id) return have:find(id .. ":", 1, true) end
+    end
     for _, p in ipairs(PROFILES) do
-        if have:find(p.id .. ":", 1, true) then out[#out + 1] = p end
+        if has(p.id) then out[#out + 1] = p end
     end
     return out
 end
@@ -111,10 +101,10 @@ return {
                 m[#m + 1] = { label = b.name, detail = b.cap .. " % · " .. (statuses[b.status] or b.status), icon = icon(b) }
             end
         end
-        local current = profile()
+        local current, pp = profile()
         if current then
             m[#m + 1] = { header = hd.t("Profil d'énergie") }
-            for _, p in ipairs(available_profiles()) do
+            for _, p in ipairs(available_profiles(pp)) do
                 m[#m + 1] = { label = p.label, icon = "power-profile-" .. p.id .. "-symbolic",
                               checked = p.id == current,
                               action = function() hd.spawn("powerprofilesctl set " .. p.id) end }

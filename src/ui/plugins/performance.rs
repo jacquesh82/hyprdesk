@@ -2,28 +2,38 @@
 //! processeur et à la carte graphique, option par option, et trois profils
 //! de priorité (Performance, Équilibré, Rendu graphique) qui les posent d'un
 //! coup. Domaine : `crate::perf` ; les réglages sont ceux de `crate::fx`
-//! (partagés avec le paquet Animations).
+//! (partagés avec le paquet Animations). Onglet « hyprdesk » : le moteur de
+//! l'interface de hyprdesk lui-même (`crate::render`) — rendu matériel ou
+//! logiciel, carte graphique, fils d'exécution.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, row};
+use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::perf::{self, Cost, Profile};
+use crate::render::{self, Gpu, Renderer};
 use crate::tiling::{Kind, OptValue};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "performance",
     label: "Performance",
     icon: "power-profile-performance",
-    summary: "Effets de Hyprland qui sollicitent le processeur et la carte graphique, et \
-              profils Performance, Équilibré, Rendu graphique.",
+    summary: "Effets de Hyprland qui sollicitent le processeur et la carte graphique, \
+              profils Performance, Équilibré, Rendu graphique, et moteur de hyprdesk \
+              (rendu, carte graphique, fils).",
     builtin: true,
 };
+
+/// Onglets : effets de Hyprland, moteur de hyprdesk.
+pub const TABS: &[super::SubTab] = &[
+    ("hyprland", "Effets de Hyprland"),
+    ("hyprdesk", "Moteur de hyprdesk"),
+];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Performance(m)))
@@ -37,6 +47,14 @@ pub enum Msg {
     Clear,
     /// Ouvre Énergie (profil du processeur).
     Energy,
+    /// Moteur de rendu de hyprdesk (pris en compte à la relance).
+    Renderer(Renderer),
+    /// Carte graphique préférée (à la relance).
+    Gpu(Gpu),
+    /// Fils d'exécution (0 : un par cœur ; à la relance).
+    Workers(u16),
+    /// Relance hyprdesk sur le moteur choisi.
+    Restart,
 }
 
 /// Valeur lisible d'un profil pour une option (`None` : hyprland.lua).
@@ -106,7 +124,176 @@ impl App {
         .into()
     }
 
+    /// Moteur de hyprdesk (onglet « hyprdesk ») : rendu, carte graphique,
+    /// fils d'exécution ; ce qui tourne, et la relance quand ça diffère.
+    fn engine_page(&self) -> Element<'_, UiMsg> {
+        let ink = self.ink();
+        let (dim, warn) = (ink.dim, ink.accent);
+        let g = &self.cfg.general;
+        let small = |s: String, c: Color| text(s).font(self.font).size(12).color(c);
+        let mut col = column![small(
+            crate::i18n::tr(
+                "Ce que hyprdesk demande lui-même à la machine pour dessiner sa barre, son \
+                     dock et ses bureaux. Ces réglages prennent effet à la relance de hyprdesk."
+            )
+            .into(),
+            dim
+        ),]
+        .spacing(14);
+
+        // État : ce qui tourne, ce qui est imposé, la relance à faire.
+        let renderer = render::running_summary()
+            .unwrap_or_else(|| crate::i18n::tr("rendu pas encore relevé").to_string());
+        let workers = render::running_workers()
+            .map(|n| crate::tr!("{n} fils d'exécution", n = n))
+            .unwrap_or_else(|| crate::i18n::tr("fils non relevés").to_string());
+        col = col.push(small(
+            crate::tr!("En cours : {r} · {w}.", r = renderer, w = workers),
+            dim,
+        ));
+        let started = render::started();
+        for v in started.map(|s| s.forced.as_slice()).unwrap_or_default() {
+            col = col.push(small(
+                crate::tr!(
+                    "Imposé par la variable d'environnement {v} : le réglage correspondant \
+                     ne s'applique pas tant qu'elle est posée.",
+                    v = v
+                ),
+                dim,
+            ));
+        }
+        if g.renderer == Renderer::Hardware
+            && started.is_some_and(|s| s.renderer == Renderer::Hardware)
+            && render::running_hardware() == Some(false)
+        {
+            col = col.push(small(
+                crate::i18n::tr(
+                    "Aucune carte graphique utilisable : hyprdesk dessine en logiciel. \
+                     Vérifier le pilote Vulkan ou OpenGL (vulkaninfo, glxinfo).",
+                )
+                .into(),
+                warn,
+            ));
+        }
+        if render::restart_pending(g.renderer, g.gpu, g.worker_threads) {
+            col = col.push(
+                row![
+                    small(
+                        crate::i18n::tr("Réglages modifiés : ils prennent effet à la relance.")
+                            .into(),
+                        warn
+                    )
+                    .width(Length::Fill),
+                    button(text("Relancer hyprdesk").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::Restart)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+
+        col = col.push(self.section("Rendu"));
+        col = col.push(
+            self.field(
+                "Moteur de rendu",
+                "renderer",
+                row(Renderer::ALL.map(|r| {
+                    radio(crate::i18n::tr(r.label()), r, Some(g.renderer), |v| {
+                        wrap(Msg::Renderer(v))
+                    })
+                    .font(self.font)
+                    .into()
+                }))
+                .spacing(16),
+            ),
+        );
+        col = col.push(small(
+            crate::i18n::tr(
+                "Matériel : la carte graphique dessine la barre, le dock et le bureau (wgpu, \
+                 Vulkan ou OpenGL), et le logiciel prend le relais sans carte utilisable. \
+                 Logiciel : le processeur dessine tout (tiny-skia) — à réserver à un pilote \
+                 graphique défaillant, le flou, la transparence et le fond vidéo y coûtent \
+                 nettement plus.",
+            )
+            .into(),
+            dim,
+        ));
+
+        col = col.push(self.section("Carte graphique"));
+        col = col.push(
+            self.field(
+                "Carte préférée",
+                "gpu",
+                row(Gpu::ALL.map(|v| {
+                    radio(crate::i18n::tr(v.label()), v, Some(g.gpu), |v| {
+                        wrap(Msg::Gpu(v))
+                    })
+                    .font(self.font)
+                    .into()
+                }))
+                .spacing(16),
+            ),
+        );
+        col = col.push(small(
+            crate::i18n::tr(
+                "Économe : la carte intégrée dessine, et la carte dédiée d'un portable \
+                 hybride reste en veille. Puissante : la carte dédiée est réveillée pour \
+                 hyprdesk — utile seulement si les écrans y sont branchés. Sans effet avec \
+                 une seule carte ou en rendu logiciel.",
+            )
+            .into(),
+            dim,
+        ));
+
+        col = col.push(self.section("Exécution"));
+        let cores = render::cores();
+        col = col.push(
+            self.field(
+                "Fils d'exécution",
+                "worker_threads",
+                row(render::WORKER_CHOICES.map(|n| {
+                    let label = match n {
+                        0 => crate::tr!("Un par cœur ({n})", n = cores),
+                        n if n == render::DEFAULT_WORKERS => {
+                            crate::tr!("{n} (recommandé)", n = n)
+                        }
+                        n => n.to_string(),
+                    };
+                    radio(label, n, Some(g.worker_threads), |v| wrap(Msg::Workers(v)))
+                        .font(self.font)
+                        .into()
+                }))
+                .spacing(16),
+            ),
+        );
+        if !render::WORKER_CHOICES.contains(&g.worker_threads) {
+            col = col.push(small(
+                crate::tr!("Réglé à {n} dans settings.lua.", n = g.worker_threads),
+                dim,
+            ));
+        }
+        col = col.push(small(
+            crate::i18n::tr(
+                "Fils qui traitent les tâches de fond de l'interface (Hyprland, D-Bus, \
+                 relevés). Un par cœur, le comportement d'origine d'iced, laisse surtout \
+                 des fils inactifs et de la mémoire réservée.",
+            )
+            .into(),
+            dim,
+        ));
+        col.into()
+    }
+
     pub(in crate::ui) fn performance_page(&self) -> Element<'_, UiMsg> {
+        if self.on_subtab(INFO.id, "hyprdesk") {
+            return self.engine_page();
+        }
+        self.hyprland_page()
+    }
+
+    /// Effets de Hyprland (onglet « Hyprland ») : profils et options.
+    fn hyprland_page(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         let options = &self.cfg.general.fx.options;
         let active = perf::active(options);
@@ -212,6 +399,28 @@ impl App {
                 self.commit()
             }
             Msg::Energy => self.panel_update(PanelMsg::Tab("energy")),
+            Msg::Renderer(r) => {
+                self.settings.renderer = Some(r);
+                self.commit()
+            }
+            Msg::Gpu(g) => {
+                self.settings.gpu = Some(g);
+                self.commit()
+            }
+            Msg::Workers(n) => {
+                self.settings.worker_threads = Some(n);
+                self.commit()
+            }
+            Msg::Restart => {
+                if let Err(e) = render::restart_daemon() {
+                    crate::hypr::notify(
+                        0,
+                        8000,
+                        &crate::tr!("hyprdesk : relance impossible ({e})", e = e),
+                    );
+                }
+                Task::none()
+            }
         }
     }
 }

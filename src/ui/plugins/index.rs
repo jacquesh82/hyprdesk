@@ -78,12 +78,14 @@ pub(in crate::ui) enum IndexInk {
     Scan,
 }
 
-/// Flux périodique de l'état du démon (toutes les 5 s) : la loupe du dock
-/// porte l'indicateur, la page Réglages se met à jour au passage.
+/// Flux de l'état du démon : la loupe du dock porte l'indicateur, la page
+/// Réglages se met à jour au passage. Relu toutes les 5 s pendant un scan,
+/// 10 s sinon ; envoyé seulement quand il change (MLG-136).
 pub fn status_stream() -> impl Stream<Item = UiMsg> {
     iced::stream::channel(
         4,
         async move |mut out: iced::futures::channel::mpsc::Sender<UiMsg>| {
+            let mut last: Option<Option<StatusView>> = None;
             loop {
                 let rep = tokio::task::spawn_blocking(|| {
                     crate::fileindex::proto::request(&crate::fileindex::proto::Request::Status)
@@ -94,8 +96,13 @@ pub fn status_stream() -> impl Stream<Item = UiMsg> {
                     Ok(crate::fileindex::proto::Reply::Status(j)) => parse_status(&j),
                     _ => None,
                 };
-                let _ = out.send(UiMsg::IndexStatus(st)).await;
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let scanning = st.as_ref().is_some_and(|s| s.phase == "scan");
+                if last.as_ref() != Some(&st) {
+                    last = Some(st.clone());
+                    let _ = out.send(UiMsg::IndexStatus(st)).await;
+                }
+                let wait = if scanning { 5 } else { 10 };
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
             }
         },
     )

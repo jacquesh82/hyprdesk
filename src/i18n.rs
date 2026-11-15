@@ -109,32 +109,60 @@ pub fn init_cli(config_path: &std::path::Path) {
     if let Ok(v) = std::env::var("HYPRDESK_LANG") {
         return apply(&v);
     }
-    let mut setting = String::from("auto");
+    apply(&early_setting(config_path, "language").unwrap_or_else(|| "auto".into()));
+}
+
+/// Réglage texte lu avant le chargement de la config (langue, moteur de
+/// rendu) : settings.lua puis le fichier de config, le dernier trouvé gagne.
+pub fn early_setting(config_path: &std::path::Path, key: &str) -> Option<String> {
     let settings = config_path
         .parent()
         .map(|d| d.join("hyprdesk").join("settings.lua"));
+    let mut found = None;
     for p in settings
         .iter()
         .chain(std::iter::once(&config_path.to_path_buf()))
     {
         if let Some(v) = std::fs::read_to_string(p)
             .ok()
-            .and_then(|s| language_line(&s))
+            .and_then(|s| setting_line(&s, key))
         {
-            setting = v;
+            found = Some(v);
         }
     }
-    apply(&setting);
+    found
 }
 
 /// Valeur de `language = "…"` dans un fichier Lua (hors commentaires).
+#[cfg(test)]
 fn language_line(src: &str) -> Option<String> {
+    setting_line(src, "language")
+}
+
+/// Valeur de `<key> = "…"` (ou d'un nombre) dans un fichier Lua (hors commentaires) ; la clé
+/// est un mot entier (`renderer` ne prend pas `smartui_renderer`).
+fn setting_line(src: &str, key: &str) -> Option<String> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
     src.lines()
         .map(|l| l.split("--").next().unwrap_or(""))
         .find_map(|l| {
-            let (_, rest) = l.split_once("language")?;
-            let rest = rest.trim_start().strip_prefix('=')?.trim_start();
-            let q = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+            let at = l.match_indices(key).map(|(i, _)| i).find(|&i| {
+                !l[..i].chars().next_back().is_some_and(word)
+                    && !l[i + key.len()..].chars().next().is_some_and(word)
+            })?;
+            let rest = l[at + key.len()..]
+                .trim_start()
+                .strip_prefix('=')?
+                .trim_start();
+            let first = rest.chars().next()?;
+            if first.is_ascii_digit() {
+                // Nombre sans guillemets (`worker_threads = 4`).
+                let end = rest
+                    .find(|c: char| !c.is_ascii_digit() && c != '.')
+                    .unwrap_or(rest.len());
+                return Some(rest[..end].to_string());
+            }
+            let q = Some(first).filter(|c| *c == '"' || *c == '\'')?;
             let rest = &rest[1..];
             Some(rest[..rest.find(q)?].to_string())
         })
@@ -463,5 +491,17 @@ mod tests {
             Some("en".into())
         );
         assert_eq!(language_line("-- language = \"en\""), None);
+        assert_eq!(
+            setting_line(
+                "  smartui_renderer = 'x', renderer = 'software'",
+                "renderer"
+            ),
+            Some("software".into())
+        );
+        assert_eq!(setting_line("  renderers = 'x'", "renderer"), None);
+        assert_eq!(
+            setting_line("  worker_threads = 8,", "worker_threads"),
+            Some("8".into())
+        );
     }
 }

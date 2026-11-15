@@ -301,6 +301,37 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.language = None;
+    "renderer", "performance", "hardware | software — moteur de rendu de l'interface : carte graphique (wgpu, repli logiciel sans carte utilisable) ou processeur (tiny-skia) ; pris en compte à la relance de hyprdesk",
+        |c| c.general.renderer.id().into(),
+        |s, v, c| {
+            s.renderer = Some(crate::render::Renderer::from_id(v).ok_or_else(|| {
+                crate::tr!("« {v} » : hardware ou software", v = v)
+            })?);
+            Ok(())
+        },
+        |s| s.renderer = None;
+    "gpu", "performance", "low | high — carte graphique du rendu matériel : économe (intégrée, défaut) ou puissante (dédiée, réveille la carte d'un portable hybride) ; pris en compte à la relance",
+        |c| c.general.gpu.id().into(),
+        |s, v, c| {
+            s.gpu = Some(crate::render::Gpu::from_id(v).ok_or_else(|| {
+                crate::tr!("« {v} » : low ou high", v = v)
+            })?);
+            Ok(())
+        },
+        |s| s.gpu = None;
+    "worker_threads", "performance", "0..64 — fils d'exécution de l'interface (défaut 4 ; 0 : un par cœur) ; pris en compte à la relance",
+        |c| c.general.worker_threads.to_string(),
+        |s, v, c| {
+            s.worker_threads = Some(
+                v.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(crate::render::workers_valid)
+                    .ok_or_else(|| crate::tr!("« {v} » : 0 (un par cœur) ou 1 à 64", v = v))?,
+            );
+            Ok(())
+        },
+        |s| s.worker_threads = None;
     "layout", "layouts", "dwindle | master | scrolling | monocle | grid | columns | rows | centered | lua:<nom> | none — layout par défaut",
         |c| c.general.tiling.layout.clone().unwrap_or_default(),
         |s, v, c| {

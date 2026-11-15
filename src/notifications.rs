@@ -12,7 +12,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use zbus::object_server::SignalEmitter;
@@ -20,6 +20,9 @@ use zbus::zvariant::OwnedValue;
 
 pub const NAME: &str = "org.freedesktop.Notifications";
 pub const PATH: &str = "/org/freedesktop/Notifications";
+/// hyprdesk tient le nom du service dans ce processus : l'état publié
+/// (`state_path`) est alors le bon, lu sans processus par `hd.notifications()`.
+pub static SERVED: AtomicBool = AtomicBool::new(false);
 /// Notifications gardées pour l'historique.
 pub const HISTORY: usize = 50;
 

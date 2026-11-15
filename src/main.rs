@@ -46,6 +46,7 @@ mod perf;
 mod polkit;
 mod portal;
 mod processes;
+mod render;
 mod screens;
 mod search;
 mod session;
@@ -54,6 +55,7 @@ mod settings;
 mod share;
 mod single;
 mod smartui;
+mod sources;
 mod span;
 mod storage;
 mod switcher;
@@ -770,6 +772,9 @@ fn main() -> ExitCode {
         false
     };
     let cmd = args.first().map(String::as_str).unwrap_or("daemon");
+    // Moteur de l'interface (rendu, carte graphique, fils), préparé tant
+    // qu'il n'y a qu'un fil.
+    render::init(&config_path, cmd == "daemon");
     match cmd {
         "daemon" => daemon(config_path, replace),
         "-h" | "--help" | "help" => {

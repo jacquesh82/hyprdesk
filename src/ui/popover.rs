@@ -62,6 +62,7 @@ mod tests {
         );
         let bar = Id::unique();
         app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
             name: "A".into(),
             width: 900,
             height: 640,

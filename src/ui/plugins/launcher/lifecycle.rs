@@ -324,6 +324,7 @@ mod tests {
         .0;
         app.visible = true;
         app.monitors.push(Monitor {
+            dpms_off: false,
             name: "test".into(),
             width: 900,
             height: 900,

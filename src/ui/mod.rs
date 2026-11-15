@@ -556,6 +556,20 @@ pub struct App {
     tray_imgs: HashMap<String, (u64, image::Handle)>,
     /// Police de l'interface (barre, menus) : celle de la config, sinon Mindlog.
     ui_family: &'static str,
+    /// Heures affichées au dernier relevé (`clock_signature`) : un `Poll`
+    /// ne redessine que si elles ont changé (MLG-131).
+    last_clock: String,
+    /// Session verrouillée (`hyprdesk lock` tourne) : relevé à chaque `Poll`.
+    locked: bool,
+}
+
+/// Surfaces qu'un message peut changer (MLG-131, `iced_layershell::damage`) :
+/// par défaut toutes ; les messages fréquents qui ne changent rien, ou qu'une
+/// surface, le disent.
+enum Damage {
+    All,
+    None,
+    Only(Vec<Id>),
 }
 
 /// Premier démarrage (posé par main) : les Réglages s'ouvrent une fois l'interface prête.
@@ -570,6 +584,8 @@ pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
         App::view,
     )
     .subscription(App::subscription)
+    // Fils d'exécution réglés (Réglages → Performance), pas un par cœur.
+    .executor::<crate::render::Executor>()
     .style(|_, _| iced::theme::Style {
         background_color: Color::TRANSPARENT,
         text_color: Color::WHITE,
@@ -611,14 +627,42 @@ fn chrono_locale() -> chrono::Locale {
     crate::i18n::chrono_locale()
 }
 
+/// Formats d'heure affichés depuis le démarrage (`format_now`) : leur texte
+/// dit si l'horloge a changé depuis le dernier dessin.
+static CLOCK_FORMATS: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// Date formatée sans paniquer sur un format invalide.
 fn format_now(fmt: &str) -> String {
+    if let Ok(mut f) = CLOCK_FORMATS.lock()
+        && !f.contains(fmt)
+    {
+        f.insert(fmt.to_string());
+    }
+    format_raw(fmt)
+}
+
+fn format_raw(fmt: &str) -> String {
     use std::fmt::Write;
     let mut s = String::new();
     if write!(s, "{}", Local::now().format_localized(fmt, chrono_locale())).is_err() {
         return format!("format invalide : {fmt}");
     }
     s
+}
+
+/// Texte de toutes les heures affichées : change à la minute pour `%H:%M`,
+/// à la seconde si un format en montre.
+fn clock_signature() -> String {
+    let formats: Vec<String> = CLOCK_FORMATS
+        .lock()
+        .map(|f| f.iter().cloned().collect())
+        .unwrap_or_default();
+    formats
+        .iter()
+        .map(|f| format_raw(f))
+        .collect::<Vec<_>>()
+        .join("\u{1}")
 }
 
 /// Images (et vidéos si `videos`) d'un dossier de fonds, triées.
@@ -957,6 +1001,8 @@ impl App {
             tray: Vec::new(),
             tray_imgs: HashMap::new(),
             ui_family: crate::fonts::FAMILY,
+            last_clock: String::new(),
+            locked: false,
         };
         let apps = Task::perform(
             async {
@@ -1594,6 +1640,7 @@ impl App {
     pub(super) fn test_mode(&mut self, mode: DesktopMode) {
         if self.monitors.is_empty() {
             self.monitors.push(Monitor {
+                dpms_off: false,
                 name: "A".into(),
                 width: 1440,
                 height: 900,
@@ -2757,7 +2804,28 @@ impl App {
         Task::none()
     }
 
+    /// Quelque chose de l'écran `monitor` se voit : ni session verrouillée,
+    /// ni écran éteint, ni fenêtre en plein écran par-dessus le bureau.
+    fn screen_visible(&self, monitor: &str) -> bool {
+        if self.locked {
+            return false;
+        }
+        let Some(m) = self.monitors.iter().find(|m| m.name == monitor) else {
+            return true;
+        };
+        !m.dpms_off
+            && !self.workspaces.iter().any(|w| {
+                w.fullscreen && w.monitor == m.name && (w.name == m.workspace || w.name == m.base)
+            })
+    }
+
     fn poll(&mut self) -> Task<Msg> {
+        // Verrouillée ou écrans éteints : les relevés attendent (rien ne se
+        // voit), seul l'état du verrou est suivi (MLG-136).
+        self.locked = crate::lock::running();
+        if self.locked || (!self.monitors.is_empty() && self.monitors.iter().all(|m| m.dpms_off)) {
+            return Task::none();
+        }
         let refresh = self.refresh_tray_menu();
         // Minimaps vivantes (écran d'organisation, miniatures du sélecteur) :
         // les événements fenêtres rafraîchissent, un rappel périodique les
@@ -2821,6 +2889,7 @@ impl App {
             );
         }
         if (self.bar_has(&config::BarItem::Volume) || controls_visible)
+            && !bar::VOLUME_WATCH.load(std::sync::atomic::Ordering::Relaxed)
             && !self.pending_widgets.contains("bar:volume")
             && self
                 .last_poll
@@ -3332,6 +3401,11 @@ impl App {
         let started = Instant::now();
         let name = msg_name(&msg);
         self.count_msg(&msg);
+        match self.damage_of(&msg) {
+            Damage::All => iced_layershell::damage::all(),
+            Damage::None => iced_layershell::damage::none(),
+            Damage::Only(ids) => iced_layershell::damage::only(ids),
+        }
         let t = self.update_inner(msg);
         self.publish_status();
         let t = Task::batch([t, self.sync_hyprbars()]);
@@ -3341,6 +3415,78 @@ impl App {
             "UI update"
         );
         t
+    }
+
+    /// Surfaces que `msg` peut changer, avant de le traiter (MLG-131). Tout
+    /// message non listé redessine tout : un oubli coûte, il ne casse rien.
+    fn damage_of(&mut self, msg: &Msg) -> Damage {
+        match msg {
+            Msg::Noop => Damage::None,
+            // Relevés : rien à redessiner s'ils n'ont pas changé.
+            Msg::VolumeValue(v) if *v == self.volume => Damage::None,
+            Msg::LightValue(l) if *l == self.light => Damage::None,
+            Msg::TrayItems(items) if *items == self.tray => Damage::None,
+            Msg::IndexStatus(st) if *st == self.index_status => Damage::None,
+            // État de Hyprland inchangé (titre de fenêtre, rafale déjà vue).
+            Msg::Hypr(hypr::Update::ActiveWindow(w)) if *w == self.active_window => Damage::None,
+            Msg::Hypr(hypr::Update::Workspaces(l)) if *l == self.workspaces => Damage::None,
+            Msg::WidgetValue(generation, id, v)
+                if *generation != self.widget_generation || self.values.get(id) == Some(v) =>
+            {
+                Damage::None
+            }
+            // Relevé périodique : les valeurs reviennent par leurs propres
+            // messages ; seule l'horloge, lue au dessin, compte ici.
+            Msg::Poll => {
+                let now = clock_signature();
+                if now == self.last_clock {
+                    Damage::None
+                } else {
+                    self.last_clock = now;
+                    Damage::All
+                }
+            }
+            // Échéance des bulles : rien à redessiner si aucune n'expire.
+            Msg::Toasts(toasts::TMsg::Tick)
+                if !self
+                    .toasts
+                    .list
+                    .iter()
+                    .any(|t| t.lifetime().is_some_and(|l| t.since.elapsed() >= l)) =>
+            {
+                Damage::None
+            }
+            Msg::Rotate => {
+                let now = Instant::now();
+                if self.rot.values().any(|r| now >= r.next) {
+                    Damage::All
+                } else {
+                    Damage::None
+                }
+            }
+            // Trame vidéo : les seuls bureaux des écrans qui montrent ce fond.
+            Msg::VideoFrame(source, _) => {
+                let monitors: HashSet<&str> = self
+                    .shown
+                    .iter()
+                    .filter(|(_, s)| {
+                        [Some(&s.current), s.prev.as_ref()]
+                            .into_iter()
+                            .flatten()
+                            .any(|w| matches!(w, Wall::Image(k) if video_source(k) == *source))
+                    })
+                    .map(|(m, _)| m.as_str())
+                    .collect();
+                Damage::Only(
+                    self.surfaces
+                        .iter()
+                        .filter(|(_, m)| monitors.contains(m.as_str()))
+                        .map(|(id, _)| *id)
+                        .collect(),
+                )
+            }
+            _ => Damage::All,
+        }
     }
 
     fn update_inner(&mut self, msg: Msg) -> Task<Msg> {
@@ -3751,7 +3897,7 @@ impl App {
                 }
                 Task::none()
             }
-            Msg::Hypr(hypr::Update::Clients(list)) => {
+            Msg::Hypr(hypr::Update::Clients(list, geos)) => {
                 let mut tasks = Vec::new();
                 // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
                 // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
@@ -3811,9 +3957,10 @@ impl App {
                 if self.overview.is_some()
                     || self.cfg.general.workspace_selector == crate::config::WsSelector::Miniatures
                 {
-                    tasks.push(Task::perform(crate::hypr::window_geometries_async(), |l| {
-                        Msg::Overview(crate::ui::overview::OMsg::Geos(l))
-                    }));
+                    // Géométries de la même lecture (MLG-135).
+                    tasks.push(Task::done(Msg::Overview(crate::ui::overview::OMsg::Geos(
+                        geos,
+                    ))));
                 }
                 tasks.push(self.launcher_frame());
                 tasks.push(self.sync_raised());
@@ -4895,10 +5042,14 @@ impl App {
         // Fonds vidéo affichés : une boucle ffmpeg par clé de lecture (une
         // pour tous les écrans qui montrent la même vidéo ; une par écran
         // pour une scène étalée).
+        // Écran caché (verrou, DPMS, plein écran) : sa lecture s'arrête, la
+        // dernière trame reste affichée, et ffmpeg repart à la reprise
+        // (MLG-132).
         let mut video_keys: HashSet<WallKey> = HashSet::new();
-        for s in self.shown.values() {
+        for (monitor, s) in &self.shown {
             if let Wall::Image(k) = &s.current
                 && crate::video::is_video(&k.0)
+                && self.screen_visible(monitor)
             {
                 video_keys.insert(video_source(k));
             }
@@ -4908,7 +5059,10 @@ impl App {
                 video_wall(key)
             }));
         }
-        if !self.toasts.list.is_empty() {
+        // Échéance des bulles : seulement s'il y en a une qui expire (une bulle
+        // persistante ne réveillait plus rien d'autre, deux fois par seconde
+        // indéfiniment — MLG-136).
+        if self.toasts.list.iter().any(|t| t.lifetime().is_some()) {
             subs.push(
                 iced::time::every(Duration::from_millis(500))
                     .map(|_| Msg::Toasts(toasts::TMsg::Tick)),
@@ -4950,6 +5104,11 @@ impl App {
                 ))),
                 _ => None,
             }));
+        }
+        // Volume : suivi des événements de PipeWire plutôt qu'un wpctl toutes
+        // les 2 s (MLG-134).
+        if !self.raised.is_empty() || self.cfg.bar.is_some() {
+            subs.push(Subscription::run(bar::volume_stream).map(Msg::VolumeValue));
         }
         if !self.raised.is_empty() {
             subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Msg::Poll));
@@ -5474,7 +5633,7 @@ fn msg_name(m: &Msg) -> &'static str {
     match m {
         Msg::Control(_) => "Control",
         Msg::Hypr(hypr::Update::Monitors(_)) => "Hypr::Monitors",
-        Msg::Hypr(hypr::Update::Clients(_)) => "Hypr::Clients",
+        Msg::Hypr(hypr::Update::Clients(..)) => "Hypr::Clients",
         Msg::Hypr(hypr::Update::Workspaces(_)) => "Hypr::Workspaces",
         Msg::Hypr(hypr::Update::ActiveWindow(_)) => "Hypr::ActiveWindow",
         Msg::Hypr(hypr::Update::Reloaded) => "Hypr::Reloaded",
@@ -5569,6 +5728,7 @@ mod regression_tests {
     }
     fn monitor(name: &str, focused: bool) -> Monitor {
         Monitor {
+            dpms_off: false,
             name: name.into(),
             width: 1440,
             height: 900,
@@ -5580,6 +5740,72 @@ mod regression_tests {
             y: 0.0,
             scale: 1.0,
         }
+    }
+
+    #[test]
+    fn fond_video_suspendu_quand_rien_ne_se_voit() {
+        let mut app = app();
+        app.monitors = vec![monitor("DP-1", true)];
+        assert!(app.screen_visible("DP-1"));
+        app.workspaces = vec![crate::hypr::Workspace {
+            id: 1,
+            name: "1".into(),
+            monitor: "DP-1".into(),
+            windows: 1,
+            fullscreen: true,
+        }];
+        assert!(!app.screen_visible("DP-1"), "plein écran par-dessus");
+        app.workspaces[0].fullscreen = false;
+        app.monitors[0].dpms_off = true;
+        assert!(!app.screen_visible("DP-1"), "écran éteint");
+        app.monitors[0].dpms_off = false;
+        app.locked = true;
+        assert!(!app.screen_visible("DP-1"), "session verrouillée");
+    }
+
+    #[test]
+    fn surfaces_touchees_par_les_messages_frequents() {
+        let mut app = app();
+        // Relevé identique : rien à redessiner ; changé : tout.
+        app.volume = Some((0.5, false));
+        assert!(matches!(
+            app.damage_of(&Msg::VolumeValue(Some((0.5, false)))),
+            Damage::None
+        ));
+        assert!(matches!(
+            app.damage_of(&Msg::VolumeValue(Some((0.6, false)))),
+            Damage::All
+        ));
+        // Horloge : le premier relevé dessine, le suivant dans la même
+        // minute non.
+        let _ = format_now("%H:%M");
+        app.last_clock.clear();
+        assert!(matches!(app.damage_of(&Msg::Poll), Damage::All));
+        let again = app.damage_of(&Msg::Poll);
+        assert!(
+            matches!(again, Damage::None) || clock_signature() != app.last_clock,
+            "deuxième relevé dans la même minute"
+        );
+        // Message ordinaire : tout, par prudence.
+        assert!(matches!(app.damage_of(&Msg::Frame), Damage::All));
+        // Trame d'une vidéo que personne ne montre : aucune surface.
+        let source: WallKey = (
+            PathBuf::from("/tmp/fond.mp4"),
+            0,
+            0,
+            Fit::Cover,
+            false,
+            None,
+            None,
+        );
+        let frame = crate::video::Frame {
+            tiles: crate::video::Tiles::new(1, 1, vec![0; 4]),
+            backdrop: None,
+        };
+        assert!(matches!(
+            app.damage_of(&Msg::VideoFrame(source, frame)),
+            Damage::Only(ref ids) if ids.is_empty()
+        ));
     }
 
     #[test]
@@ -5708,6 +5934,7 @@ mod regression_tests {
             .insert("B".into(), "no-desktop".into());
         app.cfg = std::sync::Arc::new(cfg);
         let on = |ws: &str| Monitor {
+            dpms_off: false,
             workspace: ws.into(),
             ..monitor("A", true)
         };
@@ -5739,6 +5966,7 @@ mod regression_tests {
             .insert("ws:5".into(), "full-desktop".into());
         app.cfg = std::sync::Arc::new(cfg);
         let at = |name: &str, ws: &str, focused: bool| Monitor {
+            dpms_off: false,
             workspace: ws.into(),
             ..monitor(name, focused)
         };
@@ -5772,6 +6000,7 @@ mod regression_tests {
     fn each_workspace_keeps_its_mode() {
         let mut app = app();
         let on = |ws: &str| Monitor {
+            dpms_off: false,
             workspace: ws.into(),
             ..monitor("A", true)
         };
@@ -5804,6 +6033,7 @@ mod regression_tests {
     fn mode_selector_works_under_a_scratchpad() {
         let mut app = app();
         let magic = Monitor {
+            dpms_off: false,
             workspace: "special:magic".into(),
             base: "1".into(),
             ..monitor("A", true)
@@ -5831,6 +6061,7 @@ mod regression_tests {
     fn full_desktop_leaves_keyboard_to_a_scratchpad() {
         let mut app = app();
         let magic = Monitor {
+            dpms_off: false,
             workspace: "special:magic".into(),
             base: "1".into(),
             ..monitor("A", true)
@@ -6132,11 +6363,13 @@ mod regression_tests {
     fn the_bar_adapts_to_narrow_and_vertical_screens() {
         let mut app = app();
         let tall = Monitor {
+            dpms_off: false,
             width: 1440,
             height: 2560,
             ..monitor("V", false)
         };
         let wide = Monitor {
+            dpms_off: false,
             width: 2560,
             height: 1440,
             ..monitor("H", true)
@@ -6167,6 +6400,7 @@ mod regression_tests {
         let mut app = app();
         let (a, b) = (Id::unique(), Id::unique());
         let at = |name: &str, focused: bool, x: f32| Monitor {
+            dpms_off: false,
             x,
             ..monitor(name, focused)
         };
@@ -6262,7 +6496,7 @@ mod regression_tests {
         let mut app = app();
         app.test_mode(DesktopMode::FullDesktop);
         app.session_windows.insert("0x1".into());
-        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new())));
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
         assert!(app.session_windows.is_empty());
         assert!(app.in_submap);
     }

@@ -235,7 +235,8 @@ closes the dock or returns focus to the full desktop.
   options, pick a layout per workspace (Dwindle, Master, Scrolling, or Monocle),
   and adjust animations, shortcuts, and idle delays. Pick a rendering profile
   (Performance, Balanced, or Visual quality) to trade effects for CPU and GPU
-  load. Display layout changes revert after 12 seconds unless you keep them.
+  load, and choose how hyprdesk itself renders (graphics card or processor,
+  integrated or discrete GPU, worker threads). Display layout changes revert after 12 seconds unless you keep them.
 - **Set up your session.** Configure autostart, laptop lid behavior, the lock
   screen with fingerprint support, notifications, screenshots, and screen
   recording. The installer also offers a greetd login screen and a

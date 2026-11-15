@@ -1248,6 +1248,13 @@ pub struct General {
     pub ai: crate::ai_services::AiCfg,
     /// Langue de l'interface : `auto` (celle du système), `fr` ou `en`.
     pub language: String,
+    /// Moteur de rendu de l'interface (Réglages → Performance) : lu au
+    /// démarrage (`crate::render::init`), changé à la relance suivante.
+    pub renderer: crate::render::Renderer,
+    /// Carte graphique préférée du rendu matériel (à la relance).
+    pub gpu: crate::render::Gpu,
+    /// Fils d'exécution de l'interface (0 : un par cœur ; à la relance).
+    pub worker_threads: u16,
     /// Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
     pub tiling: crate::tiling::Tiling,
     /// Animations et effets de Hyprland réglés dans hyprdesk (paquet « Animations »).
@@ -1324,6 +1331,9 @@ impl Default for General {
             assistant_mode: Default::default(),
             ai: Default::default(),
             language: "auto".into(),
+            renderer: Default::default(),
+            gpu: Default::default(),
+            worker_threads: crate::render::DEFAULT_WORKERS,
             tiling: Default::default(),
             fx: Default::default(),
         }

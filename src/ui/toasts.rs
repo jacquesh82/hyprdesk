@@ -82,6 +82,7 @@ pub fn stream() -> impl Stream<Item = Event> {
                 "{}",
                 crate::i18n::tr("notifications affichées par hyprdesk")
             );
+            crate::notifications::SERVED.store(true, std::sync::atomic::Ordering::Relaxed);
             let _ = out.send(Event::Active).await;
             let (tx, mut cmds) = tokio::sync::mpsc::unbounded_channel();
             let _ = CMDS.set(tx);

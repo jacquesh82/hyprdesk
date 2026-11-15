@@ -117,7 +117,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Apparence",
-        ids: &["theme", "apptheme", "effects", "animations", "performance"],
+        ids: &["theme", "apptheme", "effects", "animations"],
     },
     Group {
         label: "Barre et lanceur",
@@ -133,7 +133,14 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Système",
-        ids: &["energy", "datetime", "lock", "login", "passwords"],
+        ids: &[
+            "energy",
+            "performance",
+            "datetime",
+            "lock",
+            "login",
+            "passwords",
+        ],
     },
     Group {
         label: "Applications",
@@ -185,6 +192,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "workspaces" => workspaces::TABS,
         "layouts" => layouts::TABS,
         "animations" => animations::TABS,
+        "performance" => performance::TABS,
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
         "input" => input::TABS,

@@ -791,6 +791,33 @@ fn single_instance() -> Option<std::fs::File> {
     (r == 0).then_some(f)
 }
 
+/// Un `hyprdesk lock` tient son verrou : la session est verrouillée.
+///
+/// Lecture seule de `/proc/locks` : ne jamais essayer `flock` ici, l'essai
+/// ferait échouer un verrouillage qui démarre au même instant (il se
+/// croirait déjà lancé et laisserait la session ouverte).
+pub fn running() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(m) = std::fs::metadata(state::path().with_file_name("lock.pid")) else {
+        return false;
+    };
+    let Ok(locks) = std::fs::read_to_string("/proc/locks") else {
+        return false;
+    };
+    holds_flock(&locks, libc::major(m.dev()), libc::minor(m.dev()), m.ino())
+}
+
+/// `/proc/locks` contient un FLOCK actif sur ce fichier (périphérique
+/// `majeur:mineur` en hexadécimal, inode en décimal ; les attentes `->` ne
+/// comptent pas).
+fn holds_flock(locks: &str, major: u32, minor: u32, ino: u64) -> bool {
+    let id = format!("{major:02x}:{minor:02x}:{ino}");
+    locks.lines().any(|l| {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        f.get(1) == Some(&"FLOCK") && f.get(5) == Some(&id.as_str())
+    })
+}
+
 /// Point d'entrée de `hyprdesk lock`.
 pub fn run() -> ExitCode {
     let Some(_guard) = single_instance() else {
@@ -811,5 +838,21 @@ pub fn run() -> ExitCode {
             eprintln!("{}", crate::tr!("hyprdesk lock : {e}", e = e));
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verrou_lu_dans_proc_locks() {
+        let locks = "1: POSIX  ADVISORY  WRITE 18739 00:20:71843340 0 EOF\n\
+                     5: FLOCK  ADVISORY  WRITE 1022 00:20:149598 0 EOF\n\
+                     5: -> FLOCK  ADVISORY  WRITE 1023 00:20:777 0 EOF\n";
+        assert!(holds_flock(locks, 0, 0x20, 149598));
+        assert!(!holds_flock(locks, 0, 0x20, 71843340), "POSIX, pas FLOCK");
+        assert!(!holds_flock(locks, 0, 0x20, 777), "attente, pas détention");
+        assert!(!holds_flock(locks, 0, 0x21, 149598));
     }
 }

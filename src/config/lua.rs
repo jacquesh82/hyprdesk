@@ -685,6 +685,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "smartui_auto",
             "fx",
             "language",
+            "renderer",
+            "gpu",
+            "worker_threads",
             "layout",
             "layout_workspaces",
             "dwindle",
@@ -1135,6 +1138,33 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             )));
         }
         g.language = l;
+    }
+    if let Some(s) = opt_string(t, "renderer", CTX)? {
+        g.renderer = crate::render::Renderer::from_id(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : renderer « {s} » inconnu (hardware, software)",
+                CTX = CTX,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(s) = opt_string(t, "gpu", CTX)? {
+        g.gpu = crate::render::Gpu::from_id(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : gpu « {s} » inconnu (low, high)",
+                CTX = CTX,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(n) = opt_num(t, "worker_threads", CTX)? {
+        g.worker_threads = crate::render::workers_valid(n).ok_or_else(|| {
+            err(crate::tr!(
+                "{CTX} : worker_threads {n} hors bornes (0 : un par cœur, ou 1 à 64)",
+                CTX = CTX,
+                n = n
+            ))
+        })?;
     }
     parse_tiling(t, &mut g.tiling)?;
     if let Some(c) = opt_string(t, "overview_command", CTX)? {
@@ -2390,6 +2420,9 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         "exec",
         lua.create_function(|_, cmd: String| shell_output(&cmd))?,
     )?;
+    // État système sans processus (réseau, Bluetooth, énergie, index,
+    // notifications), tenu par D-Bus : voir `crate::sources`.
+    crate::sources::install(lua, &hd)?;
     // Lance sans attendre, par Hyprland (le programme ne dépend pas de hyprdesk).
     hd.set(
         "spawn",
@@ -3184,6 +3217,87 @@ mod tests {
 
     fn load(src: &str) -> Result<Loaded, String> {
         load_source(src, "test.lua", Path::new("/cfg"))
+    }
+
+    /// MLG-134 : services D-Bus joignables, le `render` périodique des widgets
+    /// intégrés de la barre ne lance aucun processus ; injoignables, il
+    /// reprend son ancien chemin `hd.exec`.
+    #[test]
+    fn widgets_integres_rendus_sans_processus() {
+        let bundled = |id: &str| {
+            crate::widgets::plugins::BUNDLED
+                .iter()
+                .find(|(i, _)| *i == id)
+                .unwrap()
+                .1
+        };
+        let render = |lua: &Lua, id: &str| -> mlua::Result<Table> {
+            let w: Table = lua.load(bundled(id)).set_name(id).eval()?;
+            let opts: Table = match w.get::<Option<Table>>("options")? {
+                Some(t) => t,
+                None => lua.create_table()?,
+            };
+            w.get::<Function>("render")?.call(opts)
+        };
+        let lua = Lua::new();
+        install_api(&lua).unwrap();
+        lua.load(
+            r#"
+            hd.exec = function(cmd) error("processus lancé : " .. cmd) end
+            hd.network = function() return { state = "connected", connected = true, wifi_enabled = true,
+                connections = { { name = "docker0", type = "bridge", active = true, external = true, primary = false },
+                                { name = "Maison", type = "wifi", active = true, external = false, primary = true,
+                                  ssid = "Maison", strength = 80 } } } end
+            hd.bluetooth = function() return { adapter = true, powered = true,
+                devices = { { name = "Casque", address = "AA:BB", paired = true, connected = true, battery = 50 } } } end
+            hd.power_profile = function() return { active = "balanced", profiles = { "balanced" } } end
+            hd.batteries = function() return {} end
+            hd.index_status = function() return { phase = "scan", fichiers = 0, progression = 12 } end
+            hd.notifications = function() return { source = "hyprdesk", dnd = true, count = 2, list = {} } end
+            "#,
+        )
+        .exec()
+        .unwrap();
+        let r = render(&lua, "reseau").unwrap();
+        assert_eq!(
+            r.get::<String>("icon").unwrap(),
+            "network-wireless-signal-excellent-symbolic"
+        );
+        assert!(r.get::<bool>("toggled").unwrap());
+        let r = render(&lua, "bluetooth").unwrap();
+        assert_eq!(r.get::<String>("state").unwrap(), "active");
+        assert!(r.get::<String>("tooltip").unwrap().contains("Casque"));
+        let r = render(&lua, "batterie").unwrap();
+        assert_eq!(
+            r.get::<String>("icon").unwrap(),
+            "power-profile-balanced-symbolic"
+        );
+        let r = render(&lua, "index").unwrap();
+        assert!(r.get::<String>("text").unwrap().contains("12"));
+        let r = render(&lua, "notifications").unwrap();
+        assert_eq!(
+            r.get::<String>("icon").unwrap(),
+            "notifications-disabled-symbolic"
+        );
+
+        // Services injoignables : retour aux commandes d'avant.
+        lua.load(
+            r#"
+            ran = {}
+            hd.exec = function(cmd) ran[#ran + 1] = cmd; return "" end
+            hd.network = function() return nil end
+            hd.bluetooth = function() return nil end
+            "#,
+        )
+        .exec()
+        .unwrap();
+        let r = render(&lua, "reseau").unwrap();
+        assert_eq!(r.get::<String>("icon").unwrap(), "network-offline-symbolic");
+        let r = render(&lua, "bluetooth").unwrap();
+        assert_eq!(r.get::<String>("state").unwrap(), "hidden");
+        let ran: Vec<String> = lua.globals().get("ran").unwrap();
+        assert!(ran.iter().any(|c| c.contains("nmcli")), "{ran:?}");
+        assert!(ran.iter().any(|c| c.contains("bluetoothctl")), "{ran:?}");
     }
 
     #[test]

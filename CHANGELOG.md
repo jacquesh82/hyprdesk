@@ -10,6 +10,21 @@ and this project adheres to
 
 ### Added
 
+- **Settings → Performance → hyprdesk engine.** How hyprdesk itself draws and
+  runs, applied on restart (a "Restart hyprdesk" button appears when the
+  settings differ from the running process):
+  - **Rendering engine**: hardware (wgpu, Vulkan or OpenGL, falling back to
+    software when no card is usable) or software (tiny-skia, CPU). The page
+    shows the engine actually obtained and warns about a silent fallback.
+  - **Graphics card**: power-saving (integrated, default) or powerful
+    (discrete). iced asked for the most powerful card by default, which wakes
+    a hybrid laptop's discrete GPU just to draw a bar.
+  - **Worker threads**: 4 by default instead of one per core (iced's tokio
+    executor started 20 idle threads on a 20-core CPU).
+  CLI and MCP keys: `renderer`, `gpu`, `worker_threads`. External
+  `ICED_BACKEND` / `WGPU_POWER_PREF` still win and are shown as forced; the
+  daemon no longer passes them on to the processes it starts.
+
 - **Settings → Performance.** A new package lists the Hyprland 0.57 options
   that cost CPU or GPU time — blur (passes, xray, popups, special workspace),
   shadow, glow, motion blur, wobble, animations, animated resizes and drags,
@@ -37,6 +52,29 @@ and this project adheres to
   `bar-convex-*`.
 
 ### Changed
+
+- **Idle and background cost** (MLG-131 to MLG-136, measured with pidstat):
+  - A message now redraws only the surfaces it touches: a video frame redraws
+    the desktops showing it, unchanged readings (volume, tray, widgets, index
+    state) and clock polls within the same minute redraw nothing. Every
+    surface used to be redrawn and presented after any message.
+  - The video wallpaper stops decoding while nothing shows it (session
+    locked, screen off, fullscreen window on top) and resumes afterwards.
+  - Polling waits while the session is locked or every screen is off.
+  - Hyprland events are read in bursts: v1/v2 duplicates and the events of
+    one gesture trigger a single read of each state, and windows and their
+    geometries come from one `clients` query.
+  - Volume follows PipeWire events (`pactl subscribe`) instead of running
+    `wpctl` every 2 s.
+  - The clipboard writes through `wl-copy`; smithay-clipboard, whose thread
+    woke up with every Wayland event (≈ 44 times/s), is only connected when
+    wl-clipboard is missing. The screen-colours thread sleeps until asked
+    instead of waking every 120 ms. Notification bubbles tick only while one
+    can expire; the file index state is sent only when it changes.
+
+- **Settings navigation.** Performance moves from Appearance to System, next
+  to Energy, and splits into two tabs: *Hyprland effects* (profiles and
+  options) and *hyprdesk engine*.
 
 - **Convex motion rendering.** Retained widgets now animate only their host at the compositor's frame cadence instead of rebuilding every desktop on a 16 ms timer. Drawer and dock springs retain velocity when reversing. Icons react to pointer proximity and presses; controls receive local hover feedback. Menus, notifications and dock tooltips share the local reveal driver, and ordinary pointer movement no longer rebuilds the desktop. Text stays at a constant raster size during transitions.
 

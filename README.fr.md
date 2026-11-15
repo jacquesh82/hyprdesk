@@ -241,7 +241,9 @@ ou rend le clavier au bureau complet.
   et pavé tactile, choisissez un layout par workspace (Dwindle, Master,
   Scrolling ou Monocle), ajustez animations, raccourcis et délais de veille.
   Un profil de rendu (Performance, Équilibré ou Rendu graphique) échange les
-  effets contre la charge du processeur et de la carte graphique.
+  effets contre la charge du processeur et de la carte graphique, et le
+  rendu de hyprdesk lui-même se règle (carte graphique ou processeur, carte
+  intégrée ou dédiée, fils d'exécution).
   Un changement de disposition des écrans revient seul au bout de 12 secondes
   si vous ne le gardez pas.
 - **Préparez la session.** Démarrage automatique, capot du portable, écran de

@@ -200,6 +200,12 @@ pub struct Settings {
     pub smartui_style: Option<String>,
     pub smartui_auto: Option<bool>,
     pub language: Option<String>,
+    /// Moteur de rendu (`renderer = "hardware" | "software"`).
+    pub renderer: Option<crate::render::Renderer>,
+    /// Carte graphique (`gpu = "low" | "high"`).
+    pub gpu: Option<crate::render::Gpu>,
+    /// Fils d'exécution (`worker_threads = 4`, 0 : un par cœur).
+    pub worker_threads: Option<u16>,
     /// Layouts (`layout`, `layout_workspaces`, `dwindle`, `master`, `scrolling`).
     pub tiling: Option<crate::tiling::Tiling>,
     /// Animations et effets de Hyprland (paquet « Animations »).
@@ -455,6 +461,9 @@ impl Settings {
                 None
             },
             language: has("language").then(|| g.language.clone()),
+            renderer: has("renderer").then_some(g.renderer),
+            gpu: has("gpu").then_some(g.gpu),
+            worker_threads: has("worker_threads").then_some(g.worker_threads),
             tiling: [
                 "layout",
                 "layout_workspaces",
@@ -724,6 +733,9 @@ impl Settings {
             g.launcher.smartui_auto = Some(v);
         }
         set!(language, "language", g.language);
+        set!(renderer, "renderer", g.renderer);
+        set!(gpu, "gpu", g.gpu);
+        set!(worker_threads, "worker_threads", g.worker_threads);
         set!(fx, "fx", g.fx);
         if let Some(t) = &self.tiling {
             if free("layout") {
@@ -1235,6 +1247,15 @@ impl Settings {
         }
         if let Some(v) = &self.language {
             cfg.push(format!("language = {}", q(v)));
+        }
+        if let Some(v) = self.renderer {
+            cfg.push(format!("renderer = {}", q(v.id())));
+        }
+        if let Some(v) = self.gpu {
+            cfg.push(format!("gpu = {}", q(v.id())));
+        }
+        if let Some(v) = self.worker_threads {
+            cfg.push(format!("worker_threads = {v}"));
         }
         if let Some(fx) = self.fx.as_ref().filter(|f| !f.is_empty()) {
             cfg.push(format!("fx = {}", fx.to_lua()));

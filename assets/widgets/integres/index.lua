@@ -3,6 +3,10 @@
 -- Au quotidien l'état vit sur la loupe du dock (pastille d'accent : prêt ;
 -- ambre : scan en cours ; rien : arrêté) : ce widget ne prend de la place
 -- que pendant une indexation, pour suivre son avancée.
+--
+-- hd.index_status() interroge directement le socket du démon d'index (le
+-- même que `hyprdesk index status`), sans lancer de processus ; nil : démon
+-- arrêté.
 return {
     name = hd.t("Index de fichiers"),
     description = hd.t(
@@ -10,14 +14,12 @@ return {
     interval = 5,
     anchor = "bottom-left",
     render = function(o)
-        local out = hd.exec("hyprdesk index status 2>/dev/null")
-        local phase = out:match('"phase"%s*:%s*"([^"]*)"')
-        if phase ~= "scan" then
+        local st = hd.index_status()
+        if not st or st.phase ~= "scan" then
             return { state = "hidden" }
         end
-        local progression = tonumber(out:match('"progression"%s*:%s*(%d+)') or "0")
         return {
-            text = string.format(hd.t("indexation : %d fichiers"), progression),
+            text = string.format(hd.t("indexation : %d fichiers"), st.progression),
             tooltip = hd.t("Premier scan en cours ; l'index reste consultable via « :f »."),
             state = "active",
         }

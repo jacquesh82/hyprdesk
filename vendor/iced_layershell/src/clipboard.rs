@@ -15,24 +15,34 @@ pub(crate) fn is_disabled() -> bool {
 }
 
 pub struct LayerShellClipboard {
-    state: State,
+    state: std::cell::RefCell<State>,
 }
 
 enum State {
+    /// hyprdesk : pas encore relié. smithay-clipboard lance un fil qui tourne
+    /// sa propre boucle sur la connexion Wayland partagée, réveillé par
+    /// chaque événement de la surface (≈ 44 fois/s au repos, MLG-136) ; il
+    /// n'est relié que si wl-paste / wl-copy manquent ou échouent.
+    Lazy(std::sync::Arc<WindowWrapper>),
     Connected(window_clipboard::Clipboard),
     Unavailable,
 }
 
 impl LayerShellClipboard {
     /// Creates a new [`Clipboard`] for the given window.
+    #[allow(unused)]
     pub fn connect(window: &WindowWrapper) -> Self {
-        #[allow(unsafe_code)]
-        let state = unsafe { window_clipboard::Clipboard::connect(window) }
-            .ok()
-            .map(State::Connected)
-            .unwrap_or(State::Unavailable);
+        Self {
+            state: std::cell::RefCell::new(connect_now(window)),
+        }
+    }
 
-        Self { state }
+    /// hyprdesk : clipboard relié seulement au premier besoin que wl-clipboard
+    /// ne couvre pas.
+    pub fn lazy(window: std::sync::Arc<WindowWrapper>) -> Self {
+        Self {
+            state: std::cell::RefCell::new(State::Lazy(window)),
+        }
     }
 
     /// Creates a new [`Clipboard`] that isn't associated with a window.
@@ -40,7 +50,16 @@ impl LayerShellClipboard {
     #[allow(unused)]
     pub fn unconnected() -> Self {
         Self {
-            state: State::Unavailable,
+            state: std::cell::RefCell::new(State::Unavailable),
+        }
+    }
+
+    /// Relie smithay-clipboard s'il ne l'est pas encore.
+    fn ensure_connected(&self) {
+        let mut state = self.state.borrow_mut();
+        if let State::Lazy(window) = &*state {
+            let connected = connect_now(window);
+            *state = connected;
         }
     }
 
@@ -57,18 +76,28 @@ impl LayerShellClipboard {
         if let Some(text) = wl_paste(kind) {
             return Some(text);
         }
-        match &self.state {
+        self.ensure_connected();
+        match &*self.state.borrow() {
             State::Connected(clipboard) => match kind {
                 Kind::Standard => clipboard.read().ok(),
                 Kind::Primary => clipboard.read_primary().and_then(Result::ok),
             },
-            State::Unavailable => None,
+            _ => None,
         }
     }
 
     /// Writes the given text contents to the [`Clipboard`].
+    ///
+    /// hyprdesk : `wl-copy` d'abord, smithay-clipboard à défaut.
     pub fn write(&mut self, kind: Kind, contents: String) {
-        match &mut self.state {
+        if is_disabled() {
+            return;
+        }
+        if wl_copy(kind, &contents) {
+            return;
+        }
+        self.ensure_connected();
+        match &mut *self.state.borrow_mut() {
             State::Connected(clipboard) => {
                 let result = match kind {
                     Kind::Standard => clipboard.write(contents),
@@ -82,7 +111,59 @@ impl LayerShellClipboard {
                     }
                 }
             }
-            State::Unavailable => {}
+            _ => {}
+        }
+    }
+}
+
+fn connect_now(window: &WindowWrapper) -> State {
+    #[allow(unsafe_code)]
+    unsafe { window_clipboard::Clipboard::connect(window) }
+        .ok()
+        .map(State::Connected)
+        .unwrap_or(State::Unavailable)
+}
+
+/// Copie par `wl-copy` (wl-clipboard), qui sert ensuite la sélection depuis
+/// son propre processus ; faux si l'outil manque ou échoue.
+fn wl_copy(kind: Kind, contents: &str) -> bool {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let mut cmd = Command::new("wl-copy");
+    cmd.args(["--type", "text/plain;charset=utf-8"]);
+    if kind == Kind::Primary {
+        cmd.arg("--primary");
+    }
+    let Ok(mut child) = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(contents.as_bytes()).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+    }
+    // wl-copy passe en arrière-plan dès la sélection prise : le parent sort.
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if start.elapsed() < Duration::from_secs(1) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
         }
     }
 }

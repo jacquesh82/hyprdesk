@@ -16,6 +16,8 @@ use tokio::net::UnixStream;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Monitor {
     pub name: String,
+    /// Écran éteint par DPMS (`dpmsStatus` à faux) : rien n'y est visible.
+    pub dpms_off: bool,
     /// Taille logique (rotation et échelle appliquées).
     pub width: u32,
     pub height: u32,
@@ -48,6 +50,8 @@ pub struct Workspace {
     pub name: String,
     pub monitor: String,
     pub windows: u32,
+    /// Une fenêtre y est en plein écran (`hasfullscreen`).
+    pub fullscreen: bool,
 }
 
 pub fn parse_workspaces(v: &Value) -> Vec<Workspace> {
@@ -61,6 +65,7 @@ pub fn parse_workspaces(v: &Value) -> Vec<Workspace> {
                         name: w["name"].as_str()?.to_string(),
                         monitor: w["monitor"].as_str().unwrap_or("").to_string(),
                         windows: w["windows"].as_u64().unwrap_or(0) as u32,
+                        fullscreen: w["hasfullscreen"].as_bool().unwrap_or(false),
                     })
                 })
                 .filter(|w| !w.name.starts_with("special:"))
@@ -186,17 +191,6 @@ pub fn parse_clients(v: &Value) -> Vec<Client> {
         .collect()
 }
 
-pub async fn clients_async() -> Vec<Client> {
-    match tokio::task::spawn_blocking(|| ipc::query_json("clients")).await {
-        Ok(Ok(v)) => parse_clients(&v),
-        Ok(Err(e)) => {
-            tracing::warn!("{}", crate::tr!("lecture des fenêtres : {e}", e = e));
-            Vec::new()
-        }
-        Err(_) => Vec::new(),
-    }
-}
-
 /// Workspace des fenêtres réduites (bouton de Hyprbars, `hyprdesk window
 /// minimize`) : le dock les montre, les rappeler les ramène sur le
 /// workspace affiché.
@@ -269,7 +263,8 @@ pub fn close_window(address: &str) -> Result<(), ipc::IpcError> {
 #[derive(Debug, Clone)]
 pub enum Update {
     Monitors(Vec<Monitor>),
-    Clients(Vec<Client>),
+    /// Fenêtres, et leurs géométries (minimaps) tirées de la même lecture.
+    Clients(Vec<Client>, Vec<WindowGeo>),
     Workspaces(Vec<Workspace>),
     ActiveWindow(Option<(String, String)>),
     /// Une fenêtre est marquée urgente (`urgent>>adresse`) : la barre place
@@ -286,6 +281,72 @@ pub fn is_window_event(line: &str) -> bool {
         name,
         "openwindow" | "closewindow" | "movewindow" | "movewindowv2"
     )
+}
+
+/// Relectures qu'une rafale d'événements impose : chaque état n'est relu
+/// qu'une fois, même si Hyprland envoie l'événement en v1 et en v2, ou
+/// plusieurs événements d'un coup (MLG-135).
+#[derive(Debug, Default, PartialEq)]
+pub struct Pending {
+    pub monitors: bool,
+    pub clients: bool,
+    pub workspaces: bool,
+    pub reloaded: bool,
+    /// Dernière fenêtre active annoncée (`activewindow>>classe,titre`).
+    pub active: Option<Option<(String, String)>>,
+    pub urgent: Vec<String>,
+}
+
+impl Pending {
+    /// Ajoute une ligne du socket d'événements.
+    pub fn note(&mut self, line: &str) {
+        if is_relevant(line) {
+            self.monitors = true;
+            self.workspaces = true;
+        }
+        if line.starts_with("configreloaded>>") {
+            self.reloaded = true;
+        }
+        if is_window_event(line) {
+            self.clients = true;
+            self.workspaces = true;
+        }
+        let name = line.split(">>").next().unwrap_or("");
+        // Plein écran : `hasfullscreen` des workspaces (pause du fond vidéo).
+        if matches!(
+            name,
+            "createworkspace"
+                | "createworkspacev2"
+                | "destroyworkspace"
+                | "destroyworkspacev2"
+                | "fullscreen"
+        ) {
+            self.workspaces = true;
+        }
+        if let Some(p) = line.strip_prefix("activewindow>>") {
+            self.active = Some(parse_active_window(p));
+        }
+        if let Some(p) = line.strip_prefix("urgent>>") {
+            self.urgent.push(p.trim().to_string());
+            self.clients = true;
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Pending::default()
+    }
+}
+
+/// Fenêtres et géométries d'une seule lecture de `clients`.
+pub async fn clients_and_geos_async() -> (Vec<Client>, Vec<WindowGeo>) {
+    match tokio::task::spawn_blocking(|| ipc::query_json("clients")).await {
+        Ok(Ok(v)) => (parse_clients(&v), parse_window_geometries(&v)),
+        Ok(Err(e)) => {
+            tracing::warn!("{}", crate::tr!("lecture des fenêtres : {e}", e = e));
+            (Vec::new(), Vec::new())
+        }
+        Err(_) => (Vec::new(), Vec::new()),
+    }
 }
 
 impl Monitor {
@@ -327,6 +388,7 @@ pub fn parse_monitors(v: &Value) -> Vec<Monitor> {
             };
             let r = |i: usize| m["reserved"][i].as_f64().unwrap_or(0.0) as f32;
             Some(Monitor {
+                dpms_off: !m["dpmsStatus"].as_bool().unwrap_or(true),
                 name,
                 width: (w / scale).round() as u32,
                 height: (h / scale).round() as u32,
@@ -383,6 +445,10 @@ pub fn is_relevant(line: &str) -> bool {
     )
 }
 
+/// Attente des lignes suivantes d'une rafale d'événements : assez pour
+/// réunir v1 et v2 et les événements d'un même geste, trop peu pour se voir.
+const BURST: Duration = Duration::from_millis(12);
+
 /// Flux d'états : écrans et fenêtres, d'abord en entier, puis à chaque changement pertinent.
 /// Se reconnecte seul si Hyprland redémarre la socket.
 pub fn stream() -> impl Stream<Item = Update> {
@@ -391,7 +457,8 @@ pub fn stream() -> impl Stream<Item = Update> {
         async move |mut out: iced::futures::channel::mpsc::Sender<Update>| {
             loop {
                 let _ = out.send(Update::Monitors(monitors_async().await)).await;
-                let _ = out.send(Update::Clients(clients_async().await)).await;
+                let (clients, geos) = clients_and_geos_async().await;
+                let _ = out.send(Update::Clients(clients, geos)).await;
                 let _ = out.send(Update::Workspaces(workspaces_async().await)).await;
                 let _ = out
                     .send(Update::ActiveWindow(active_window_async().await))
@@ -407,31 +474,39 @@ pub fn stream() -> impl Stream<Item = Update> {
                 match UnixStream::connect(&path).await {
                     Ok(stream) => {
                         let mut lines = BufReader::new(stream).lines();
+                        // Une rafale (v1 et v2 du même changement, ou plusieurs
+                        // changements d'un geste) est lue en entier, puis chaque
+                        // état n'est relu qu'une fois.
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if is_relevant(&line) {
+                            let mut p = Pending::default();
+                            p.note(&line);
+                            while let Ok(Ok(Some(more))) =
+                                tokio::time::timeout(BURST, lines.next_line()).await
+                            {
+                                p.note(&more);
+                            }
+                            if p.is_empty() {
+                                continue;
+                            }
+                            if p.monitors {
                                 let _ = out.send(Update::Monitors(monitors_async().await)).await;
                             }
-                            if line.starts_with("configreloaded>>") {
+                            if p.reloaded {
                                 let _ = out.send(Update::Reloaded).await;
                             }
-                            if is_window_event(&line) {
-                                let _ = out.send(Update::Clients(clients_async().await)).await;
+                            for addr in p.urgent {
+                                let _ = out.send(Update::Urgent(addr)).await;
                             }
-                            if is_window_event(&line)
-                                || is_relevant(&line)
-                                || line.starts_with("createworkspace")
-                                || line.starts_with("destroyworkspace")
-                            {
+                            if p.clients {
+                                let (clients, geos) = clients_and_geos_async().await;
+                                let _ = out.send(Update::Clients(clients, geos)).await;
+                            }
+                            if p.workspaces {
                                 let _ =
                                     out.send(Update::Workspaces(workspaces_async().await)).await;
                             }
-                            if let Some(p) = line.strip_prefix("activewindow>>") {
-                                let _ =
-                                    out.send(Update::ActiveWindow(parse_active_window(p))).await;
-                            }
-                            if let Some(p) = line.strip_prefix("urgent>>") {
-                                let _ = out.send(Update::Urgent(p.trim().to_string())).await;
-                                let _ = out.send(Update::Clients(clients_async().await)).await;
+                            if let Some(w) = p.active {
+                                let _ = out.send(Update::ActiveWindow(w)).await;
                             }
                         }
                         tracing::info!("{}", crate::tr!("socket d'événements fermée, reconnexion"));
@@ -1853,6 +1928,36 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rafale_relue_une_fois() {
+        let mut p = Pending::default();
+        for l in [
+            "workspace>>2",
+            "workspacev2>>2,2",
+            "focusedmon>>DP-1,2",
+            "focusedmonv2>>DP-1,2",
+            "activewindow>>kitty,~",
+            "activewindowv2>>abc",
+            "activewindow>>firefox,Accueil",
+        ] {
+            p.note(l);
+        }
+        assert!(p.monitors && p.workspaces);
+        assert!(!p.clients && !p.reloaded);
+        assert_eq!(
+            p.active,
+            Some(Some(("firefox".into(), "Accueil".into()))),
+            "la dernière fenêtre active de la rafale"
+        );
+        let mut q = Pending::default();
+        q.note("fullscreen>>1");
+        assert!(q.workspaces && !q.monitors);
+        let mut r = Pending::default();
+        r.note("windowtitlev2>>abc,titre");
+        assert!(r.is_empty());
+    }
+
     use super::*;
 
     #[test]

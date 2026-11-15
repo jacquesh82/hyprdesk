@@ -508,6 +508,27 @@ pub type Wanted = BTreeMap<String, Adjust>;
 pub struct Gamma {
     tx: Option<mpsc::Sender<Wanted>>,
     status: Arc<Mutex<HashMap<String, String>>>,
+    /// Réveil du fil (eventfd) : il dort tant qu'on ne lui demande rien
+    /// (MLG-136 ; il se réveillait toutes les 120 ms).
+    wake: Option<Arc<std::os::fd::OwnedFd>>,
+}
+
+/// Réveille le fil par son eventfd.
+fn ring(wake: &std::os::fd::OwnedFd) {
+    use std::os::fd::AsRawFd;
+    let one: u64 = 1;
+    // SAFETY : descripteur valide (gardé par l'Arc), 8 octets écrits.
+    unsafe { libc::write(wake.as_raw_fd(), (&one as *const u64).cast(), 8) };
+}
+
+impl Drop for Gamma {
+    fn drop(&mut self) {
+        // Canal fermé d'abord, puis réveil : le fil voit la fermeture et sort.
+        self.tx = None;
+        if let Some(w) = &self.wake {
+            ring(w);
+        }
+    }
 }
 
 impl Gamma {
@@ -516,17 +537,26 @@ impl Gamma {
         Gamma {
             tx: None,
             status: Arc::default(),
+            wake: None,
         }
     }
 
     pub fn spawn() -> Self {
+        use std::os::fd::FromRawFd;
         let (tx, rx) = mpsc::channel::<Wanted>();
         let status: Arc<Mutex<HashMap<String, String>>> = Arc::default();
         let st = status.clone();
+        // SAFETY : eventfd rend un descripteur neuf (ou -1, écarté).
+        let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        if fd < 0 {
+            return Self::disabled();
+        }
+        let wake = Arc::new(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) });
+        let thread_wake = wake.clone();
         let spawned = std::thread::Builder::new()
             .name("hyprdesk-couleurs".into())
             .spawn(move || {
-                if let Err(e) = run(rx, st.clone()) {
+                if let Err(e) = run(rx, st.clone(), &thread_wake) {
                     tracing::warn!("{}", crate::tr!("couleurs des écrans : {e}", e = e));
                     if let Ok(mut s) = st.lock() {
                         s.insert(String::new(), e);
@@ -536,6 +566,7 @@ impl Gamma {
         Gamma {
             tx: spawned.is_ok().then_some(tx),
             status,
+            wake: Some(wake),
         }
     }
 
@@ -543,6 +574,9 @@ impl Gamma {
     pub fn set(&self, wanted: Wanted) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(wanted);
+            if let Some(w) = &self.wake {
+                ring(w);
+            }
         }
     }
 
@@ -1297,6 +1331,7 @@ impl Dispatch<ZwlrGammaControlV1, u32> for ProbeState {
 fn run(
     rx: mpsc::Receiver<Wanted>,
     status: Arc<Mutex<HashMap<String, String>>>,
+    wake: &std::os::fd::OwnedFd,
 ) -> Result<(), String> {
     use std::os::fd::AsRawFd;
     let conn = Connection::connect_to_env().map_err(|e| e.to_string())?;
@@ -1358,15 +1393,34 @@ fn run(
         }
         let _ = conn.flush();
         if let Some(guard) = queue.prepare_read() {
-            let mut pfd = libc::pollfd {
-                fd: guard.connection_fd().as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
+            let mut pfd = [
+                libc::pollfd {
+                    fd: guard.connection_fd().as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: wake.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            // Sommeil jusqu'à un événement Wayland ou une demande ; 5 s si un
+            // écran attend qu'un autre programme rende ses tables.
+            let timeout = if state.outs.iter().any(|o| o.blocked) {
+                5000
+            } else {
+                -1
             };
-            // SAFETY : un seul descripteur, valide tant que `guard` vit.
-            let ready = unsafe { libc::poll(&mut pfd, 1, 120) };
-            if ready > 0 {
+            // SAFETY : deux descripteurs valides tant que `guard` et `wake` vivent.
+            let ready = unsafe { libc::poll(pfd.as_mut_ptr(), 2, timeout) };
+            if ready > 0 && pfd[0].revents != 0 {
                 guard.read().map_err(|e| e.to_string())?;
+            }
+            if ready > 0 && pfd[1].revents != 0 {
+                let mut n: u64 = 0;
+                // SAFETY : 8 octets lus dans un u64 (compteur de l'eventfd).
+                unsafe { libc::read(wake.as_raw_fd(), (&mut n as *mut u64).cast(), 8) };
             }
         }
         queue

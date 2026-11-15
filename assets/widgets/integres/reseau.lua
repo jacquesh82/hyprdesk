@@ -38,6 +38,22 @@ local function connections()
     return wifi, wired
 end
 
+-- Les mêmes, lues par D-Bus (hd.network, sans processus) : la connexion
+-- primaire d'abord, puis les autres actives, sans les connexions externes
+-- (ponts docker…) que `nmcli device` ne dit pas « connected ».
+local function dbus_connections(net)
+    local wifi, wired, strength
+    local list = { net.primary }
+    for _, c in ipairs(net.connections) do list[#list + 1] = c end
+    for _, c in ipairs(list) do
+        if c.active and not c.external then
+            if c.type == "wifi" and not wifi then wifi = c.name; strength = c.strength
+            elseif c.type == "ethernet" and not wired then wired = c.name end
+        end
+    end
+    return wifi, wired, strength
+end
+
 local function wifi_icon(s)
     s = tonumber(s) or 0
     if s >= 75 then return "network-wireless-signal-excellent-symbolic"
@@ -115,22 +131,39 @@ return {
         if after ~= (on and "disabled" or "enabled") then error(hd.t("Le changement Wi-Fi n'a pas été confirmé")) end
     end,
     render = function(o)
-        local wifi, wired = connections()
-        local toggled = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
+        -- NetworkManager joignable par D-Bus : aucun processus ; sinon nmcli.
+        local net = hd.network()
+        local wifi, wired, strength, toggled
+        if net then
+            wifi, wired, strength = dbus_connections(net)
+            toggled = net.wifi_enabled
+        else
+            wifi, wired = connections()
+            toggled = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
+        end
         if wired then
             return { icon = "network-wired-symbolic", text = o.texte and wired or "", toggled = toggled,
                      tooltip = hd.t("Filaire — ") .. wired .. (wifi and (hd.t("\nWi-Fi — ") .. wifi) or "") }
         end
         if wifi then
-            local s = 0
-            for _, n in ipairs(networks()) do if n.used then s = n.signal end end
+            local s = strength or 0
+            if not net then
+                for _, n in ipairs(networks()) do if n.used then s = n.signal end end
+            end
             return { icon = wifi_icon(s), text = o.texte and wifi or "", tooltip = hd.t("Wi-Fi — ") .. wifi .. " (" .. s .. " %)", toggled = toggled }
         end
         return { icon = "network-offline-symbolic", text = o.texte and hd.t("Hors ligne") or "", tooltip = hd.t("Aucune connexion"), state = "warning", toggled = toggled }
     end,
     menu = function()
-        local wifi, wired = connections()
-        local radio = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
+        local net = hd.network()
+        local wired, radio
+        if net then
+            wired = select(2, dbus_connections(net))
+            radio = net.wifi_enabled
+        else
+            wired = select(2, connections())
+            radio = hd.exec("LC_ALL=C nmcli radio wifi 2>/dev/null") == "enabled"
+        end
         local known = saved()
         local plane = airplane()
         -- Recherche en arrière-plan : la prochaine ouverture montre les nouveaux réseaux.

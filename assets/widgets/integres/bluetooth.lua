@@ -42,10 +42,25 @@ return {
         if powered() == on then error(hd.t("Le changement Bluetooth n'a pas été confirmé")) end
     end,
     render = function(o)
-        local on = powered()
+        -- BlueZ joignable par D-Bus : aucun processus ; sinon bluetoothctl.
+        local bt = hd.bluetooth()
+        local on
+        if bt then
+            -- Sans adaptateur, BlueZ n'a rien à montrer.
+            if bt.adapter then on = bt.powered end
+        else
+            on = powered()
+        end
         if on == nil then return { state = "hidden" } end
         if not on then return { icon = "bluetooth-disabled-symbolic", tooltip = hd.t("Bluetooth désactivé"), toggled = false } end
-        local c = devices("Connected")
+        local c = {}
+        if bt then
+            for _, d in ipairs(bt.devices) do
+                if d.connected then c[#c + 1] = { mac = d.address, name = d.name } end
+            end
+        else
+            c = devices("Connected")
+        end
         local names = {}
         for _, d in ipairs(c) do names[#names + 1] = d.name end
         return {
@@ -75,6 +90,11 @@ return {
         end
         local connected = {}
         for _, d in ipairs(devices("Connected")) do connected[d.mac] = true end
+        -- Batteries déjà connues par D-Bus : pas de `bluetoothctl info` par appareil.
+        local bt, levels = hd.bluetooth(), {}
+        if bt then
+            for _, d in ipairs(bt.devices) do levels[d.address] = d.battery or false end
+        end
         local known = {}
         if #paired > 0 then m[#m + 1] = { header = hd.t("Appareils") } end
         for _, d in ipairs(paired) do
@@ -82,7 +102,9 @@ return {
             local c = connected[d.mac]
             local detail = nil
             if c then
-                local b = battery(d.mac)
+                local b = levels[d.mac]
+                if b == nil then b = battery(d.mac) end
+                b = b or nil
                 detail = hd.t("connecté") .. (b and (" · " .. b .. " %") or "")
             end
             m[#m + 1] = { label = d.name, detail = detail, checked = c or nil,

@@ -360,9 +360,16 @@ where
         display: DisplayWrapper,
     ) -> Self {
         let shell = Shell::new(self.proxy.clone());
-        let mut new_compositor = C::new(self.compositor_settings, display, window.clone(), shell)
-            .await
+        let mut new_compositor = C::with_backend(
+            self.compositor_settings,
+            display,
+            window.clone(),
+            shell,
+            crate::backend(),
+        )
+        .await
             .expect("Cannot create compositer");
+        crate::set_renderer_information(new_compositor.information());
         for font in self.fonts.clone() {
             new_compositor.load_font(font);
         }
@@ -370,10 +377,11 @@ where
         // Opt-out for clients that don't need clipboard access. Skipping
         // connect() avoids spawning the smithay-clipboard worker thread,
         // which otherwise runs an always-on wayland event loop (~0.4% CPU).
+        // hyprdesk: connected lazily, only if wl-clipboard is missing.
         self.clipboard = if crate::clipboard::is_disabled() {
             LayerShellClipboard::unconnected()
         } else {
-            LayerShellClipboard::connect(&window)
+            LayerShellClipboard::lazy(window.clone())
         };
         self
     }
@@ -983,16 +991,28 @@ where
         }
 
         if !self.messages.is_empty() {
-            ev.request_refresh_all(RefreshRequest::NextFrame);
             let (caches, application) = self.user_interfaces.extract_all();
 
-            // Update application
+            // Update application. hyprdesk: only the surfaces the application
+            // declares touched are refreshed (see `crate::damage`).
+            let batch = self.messages.len();
+            crate::damage::begin();
             update(
                 application,
                 &mut self.runtime,
                 &mut self.messages,
                 &mut self.waiting_layer_shell_actions,
             );
+            match crate::damage::take(batch) {
+                None => ev.request_refresh_all(RefreshRequest::NextFrame),
+                Some(ids) => {
+                    for id in ids {
+                        if let Some(window) = self.window_manager.get(id) {
+                            ev.request_refresh(window.id, RefreshRequest::NextFrame);
+                        }
+                    }
+                }
+            }
 
             for (_, window) in self.window_manager.iter_mut() {
                 window.state.synchronize(application);

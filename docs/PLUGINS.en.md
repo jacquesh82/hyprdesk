@@ -284,6 +284,20 @@ hyprdesk, to call it without relying on PATH (`hd.spawn(hd.exe .. " lock")`). Th
 with a time budget per call. A failing plugin is flagged in the
 settings without blocking the others.
 
+A `render` called every few seconds should not launch processes: for system
+state, hyprdesk keeps snapshots up to date over D-Bus (signals, no polling),
+read instantly. `hd.network()` (NetworkManager: state, Wi-Fi enabled, active
+connections with SSID and signal strength), `hd.bluetooth()` (BlueZ: adapter
+powered, paired or connected devices, battery), `hd.power_profile()` (active
+and offered power profiles) return `nil` when the service is unreachable: the
+plugin then falls back to `hd.exec`. Alongside them, `hd.batteries()`
+(`/sys/class/power_supply`), `hd.index_status()` (file index daemon, `nil`
+when stopped) and `hd.notifications()` (`nil` when a daemon other than
+hyprdesk shows notifications). The fields are described in
+`hyprdesk.meta.en.lua`; the built-in widgets `reseau`, `bluetooth`,
+`batterie`, `notifications` and `index` use them, and keep `nmcli` or
+`bluetoothctl` for their menu actions.
+
 ### Bar
 
 Bar modules are widgets placed in a zone (`left`,

@@ -284,6 +284,20 @@ cours, pour l'appeler sans dépendre du PATH (`hd.spawn(hd.exe .. " lock")`). Le
 avec un budget de temps par appel. Un plugin en erreur est signalé dans les
 réglages sans bloquer les autres.
 
+Un `render` appelé toutes les quelques secondes ne devrait pas lancer de
+processus : pour l'état du système, hyprdesk tient à jour par D-Bus (signaux,
+pas de sondage) des instantanés lus aussitôt. `hd.network()` (NetworkManager :
+état, Wi-Fi activé, connexions actives avec SSID et force du signal),
+`hd.bluetooth()` (BlueZ : adaptateur allumé, appareils appairés ou connectés,
+batterie), `hd.power_profile()` (profil d'énergie actif et proposés) rendent
+`nil` si le service est injoignable : le plugin retombe alors sur `hd.exec`.
+S'y ajoutent `hd.batteries()` (`/sys/class/power_supply`), `hd.index_status()`
+(démon d'index, `nil` s'il est arrêté) et `hd.notifications()` (`nil` si un
+autre démon que hyprdesk affiche les notifications). Les champs sont décrits
+dans `hyprdesk.meta.lua` ; les widgets intégrés `reseau`, `bluetooth`,
+`batterie`, `notifications` et `index` s'en servent, et gardent `nmcli` ou
+`bluetoothctl` pour les actions de leurs menus.
+
 ### Barre
 
 Les modules de la barre sont des widgets placés dans une zone (`left`,
