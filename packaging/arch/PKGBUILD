@@ -11,8 +11,8 @@ pkgrel=1
 pkgdesc='Desktop for Hyprland: bar, launcher, lock, per-workspace wallpapers and widgets'
 arch=('x86_64')
 url='https://github.com/jacquesh82/hyprdesk'
-# MIT pour le code, OFL-1.1 pour la police Mindlog embarquée.
-license=('MIT AND OFL-1.1')
+# GPL-3.0-or-later pour le code, OFL-1.1 pour la police Mindlog embarquée.
+license=('GPL-3.0-or-later AND OFL-1.1')
 # Relevé de scripts/package.sh : liées (glibc, libgcc, PAM), chargées à
 # l'exécution (Wayland, xkbcommon, Vulkan, EGL), programmes appelés.
 depends=(

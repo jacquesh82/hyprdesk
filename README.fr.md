@@ -3,7 +3,7 @@
 [English version](README.md)
 
 [![Vérifications](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml)
-[![Licence : MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+[![Licence : GPL v3+](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 ![Hyprland 0.57+](https://img.shields.io/badge/Hyprland-0.57%2B-58e1ff)
 ![Rust 1.99+](https://img.shields.io/badge/Rust-1.99%2B-dea584)
 
@@ -519,7 +519,9 @@ détaille build et vérifications, et le [guide de contribution](CONTRIBUTING.md
 
 ## Crédits et licence
 
-hyprdesk est sous [licence MIT](LICENSE).
+Copyright © 2026 Jacques HULLU. hyprdesk est un logiciel libre, sous
+[licence publique générale GNU, version 3 ou toute version ultérieure](LICENSE)
+(GPL-3.0-or-later).
 
 - [Hyprland](https://hyprland.org), le compositeur dans lequel vit hyprdesk ;
 - [iced](https://github.com/iced-rs/iced), la boîte à outils d'interface — avec

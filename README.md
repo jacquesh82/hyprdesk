@@ -3,7 +3,7 @@
 [Version française](README.fr.md)
 
 [![Checks](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/jacquesh82/hyprdesk/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![Hyprland 0.57+](https://img.shields.io/badge/Hyprland-0.57%2B-58e1ff)
 ![Rust 1.99+](https://img.shields.io/badge/Rust-1.99%2B-dea584)
 
@@ -497,7 +497,9 @@ pull request workflow.
 
 ## Credits and license
 
-hyprdesk is released under the [MIT license](LICENSE).
+Copyright © 2026 Jacques HULLU. hyprdesk is free software, released under the
+[GNU General Public License, version 3 or any later version](LICENSE)
+(GPL-3.0-or-later).
 
 - [Hyprland](https://hyprland.org), the compositor hyprdesk lives in;
 - [iced](https://github.com/iced-rs/iced), the GUI toolkit — with patched

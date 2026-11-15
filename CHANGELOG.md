@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **License.** hyprdesk is now distributed under the GNU General Public
+  License, version 3 or any later version (GPL-3.0-or-later), instead of
+  MIT. Releases up to 0.1.3 remain available under MIT. The vendored
+  `layershellev` and `iced_layershell` stay under their MIT license.
+
 ## [0.1.3] - 2026-11-15
 
 ### Added

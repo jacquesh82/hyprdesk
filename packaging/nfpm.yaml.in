@@ -13,8 +13,8 @@ description: |
   workspace, barre, lanceur, verrouillage, configuré en Lua.
 vendor: hyprdesk
 homepage: https://github.com/jacquesh82/hyprdesk
-# MIT pour le code, OFL-1.1 pour la police Mindlog embarquée (SPDX).
-license: MIT AND OFL-1.1
+# GPL-3.0-or-later pour le code, OFL-1.1 pour la police Mindlog embarquée (SPDX).
+license: GPL-3.0-or-later AND OFL-1.1
 
 contents:
   - src: "@STAGE@/usr/bin/hyprdesk"

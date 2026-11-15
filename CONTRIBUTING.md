@@ -94,4 +94,5 @@ test story.
 ## Licensing
 
 By contributing, you agree that your contributions are licensed under the
-MIT License, like the rest of hyprdesk.
+GNU General Public License, version 3 or any later version
+(GPL-3.0-or-later), like the rest of hyprdesk.

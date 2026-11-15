@@ -3,7 +3,7 @@ name = "hyprdesk"
 version = "0.1.3"
 edition = "2024"
 rust-version = "1.99"
-license = "MIT"
+license = "GPL-3.0-or-later"
 description = "Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par workspace, configuré en Lua"
 repository = "https://github.com/jacquesh82/hyprdesk"
 
