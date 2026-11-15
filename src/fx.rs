@@ -285,7 +285,7 @@ pub const LEAVES: &[Leaf] = &[
     leaf!("windows", "Fenêtres", WIN_STYLES, true),
     leaf!("windowsIn", "Ouverture des fenêtres", WIN_STYLES, true),
     leaf!("windowsOut", "Fermeture des fenêtres", WIN_STYLES, true),
-    leaf!("windowsMove", "Déplacement des fenêtres", &[], true),
+    leaf!("windowsMove", "Déplacement des fenêtres", WIN_STYLES, true),
     leaf!("layers", "Barres et menus (calques)", LAYER_STYLES, true),
     leaf!("layersIn", "Apparition des calques", LAYER_STYLES, false),
     leaf!("layersOut", "Disparition des calques", LAYER_STYLES, false),

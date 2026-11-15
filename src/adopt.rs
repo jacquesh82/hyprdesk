@@ -174,7 +174,7 @@ fn orphan_data(src: &str, commented: &BTreeSet<usize>) -> BTreeSet<usize> {
 fn anim_of(c: &Call) -> Option<(String, crate::fx::Anim)> {
     let a = c.args.first()?;
     let leaf = a.get("leaf")?.as_str()?.to_string();
-    crate::fx::leaf(&leaf)?;
+    let l = crate::fx::leaf(&leaf)?;
     let curve = a
         .get("bezier")
         .or_else(|| a.get("spring"))
@@ -187,7 +187,13 @@ fn anim_of(c: &Call) -> Option<(String, crate::fx::Anim)> {
             enabled: a.get("enabled").and_then(Json::as_bool).unwrap_or(true),
             speed: a.get("speed").and_then(Json::as_f64).unwrap_or(5.0),
             curve,
-            style: a.get("style").and_then(Json::as_str).map(str::to_string),
+            // Style que hyprdesk n'admet pas pour cet élément : laissé de
+            // côté (settings.lua resterait illisible).
+            style: a
+                .get("style")
+                .and_then(Json::as_str)
+                .filter(|s| l.styles.contains(s))
+                .map(str::to_string),
         },
     ))
 }
@@ -527,6 +533,7 @@ hl.config({
 })
 hl.curve("wind", { type = "bezier", points = { {0.05, 0.9}, {0.1, 1.05} } })
 hl.animation({ leaf = "windows", enabled = true, speed = 6, bezier = "wind", style = "slide" })
+hl.animation({ leaf = "border", enabled = true, speed = 1, bezier = "wind", style = "slide" })
 local floats = { "^(a)$", "^(b)$" }
 for i, c in ipairs(floats) do
     hl.window_rule({ name = "float-" .. i, match = { class = c }, float = true })
@@ -559,6 +566,11 @@ end
         assert_eq!(fx.options["decoration.blur.enabled"], OptValue::Bool(false));
         assert!(fx.curves.contains_key("wind"));
         assert_eq!(fx.anims["windows"].curve, "wind");
+        assert_eq!(fx.anims["border"].style, None, "style refusé pour border");
+        // Ce que l'adoption écrit se relit (settings.lua jamais cassé).
+        let lua = mlua::Lua::new();
+        let t: mlua::Table = lua.load(format!("return {}", fx.to_lua())).eval().unwrap();
+        crate::fx::parse(&t).expect("fx relisible");
         let hypr = p.settings.hypr.as_ref().unwrap();
         assert_eq!(hypr.options["general.gaps_in"], OptValue::Sides([5; 4]));
         assert_eq!(hypr.options["general.border_size"], OptValue::Num(2.0));
@@ -583,7 +595,7 @@ end
             "appel entier"
         );
         assert!(out[15].contains(MARK), "follow_mouse");
-        for l in &out[18..24] {
+        for l in &out[18..25] {
             assert!(l.trim_start().starts_with(MARK), "{l}");
         }
         assert!(!p.left.iter().any(|l| l.contains("misc.vrr")));
