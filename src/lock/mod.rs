@@ -39,11 +39,11 @@ enum Msg {
     Auth(pam::Outcome),
     Background(Option<image::Handle>),
     /// Trame suivante du fond vidéo commun (boucle ffmpeg).
-    VideoBackground(image::Handle),
+    VideoBackground(crate::video::Tiles),
     /// Scène étalée : la part de chaque écran (nom, image).
     Parts(Vec<(String, Option<image::Handle>)>),
     /// Trame suivante du fond vidéo d'un écran (boucle ffmpeg).
-    VideoPart(String, image::Handle),
+    VideoPart(String, crate::video::Tiles),
     /// Taille d'une surface (associe la surface à son écran).
     Resized(iced::window::Id, iced::Size),
     Avatar(Option<image::Handle>),
@@ -71,6 +71,10 @@ struct Lock {
     background: Option<image::Handle>,
     /// Scène étalée : part de chaque écran, par nom.
     parts: std::collections::HashMap<String, image::Handle>,
+    /// Fond vidéo : trame courante en bandes (voir `video::Tiles` : sans
+    /// elles, le fond clignote) — fond commun, et part de chaque écran.
+    video_background: Option<crate::video::Tiles>,
+    video_parts: std::collections::HashMap<String, crate::video::Tiles>,
     /// Surfaces dans leur ordre d'apparition (celui des sorties Wayland, donc
     /// des écrans de Hyprland) ; corrigé par la taille quand elle désigne un
     /// seul écran. Le protocole de verrouillage ne donne pas le nom de la sortie.
@@ -214,6 +218,8 @@ impl Lock {
             last_input: now,
             background: None,
             parts: Default::default(),
+            video_background: None,
+            video_parts: Default::default(),
             seen: Default::default(),
             by_size: Default::default(),
             avatar: None,
@@ -373,21 +379,23 @@ impl Lock {
             }
             Msg::Background(h) => {
                 self.background = h;
+                self.video_background = None;
                 Task::none()
             }
-            Msg::VideoBackground(h) => {
-                self.background = Some(h);
+            Msg::VideoBackground(t) => {
+                self.video_background = Some(t);
                 Task::none()
             }
             Msg::Parts(list) => {
+                self.video_parts.clear();
                 self.parts = list
                     .into_iter()
                     .filter_map(|(n, h)| Some((n, h?)))
                     .collect();
                 Task::none()
             }
-            Msg::VideoPart(n, h) => {
-                self.parts.insert(n, h);
+            Msg::VideoPart(n, t) => {
+                self.video_parts.insert(n, t);
                 Task::none()
             }
             Msg::Resized(id, size) => {
@@ -644,8 +652,14 @@ impl Lock {
                 .into(),
         ];
         // Scène étalée : la part de cet écran ; sinon l'image entière.
-        let part = self.output_of(id).and_then(|n| self.parts.get(n));
-        if let Some(h) = part.or(self.background.as_ref()) {
+        let name = self.output_of(id);
+        let video = name
+            .and_then(|n| self.video_parts.get(n))
+            .or(self.video_background.as_ref());
+        let part = name.and_then(|n| self.parts.get(n));
+        if let Some(t) = video {
+            layers.push(t.view(1.0));
+        } else if let Some(h) = part.or(self.background.as_ref()) {
             layers.push(
                 image(h.clone())
                     .width(Length::Fill)
@@ -737,7 +751,7 @@ fn video_background(
         span: None,
     };
     use iced::futures::StreamExt;
-    crate::video::frames(recipe).map(|f| Msg::VideoBackground(f.handle))
+    crate::video::frames(recipe).map(|f| Msg::VideoBackground(f.tiles))
 }
 
 /// Boucle du fond vidéo d'un écran (son propre fond) : trames pour sa
@@ -755,7 +769,7 @@ fn video_part(
         span: None,
     };
     use iced::futures::StreamExt;
-    crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.handle))
+    crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))
 }
 
 /// Une seule instance : verrou exclusif sur un fichier de la session.

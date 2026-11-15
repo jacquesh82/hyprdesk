@@ -43,6 +43,7 @@ mod mymfa;
 mod notifications;
 mod osd;
 mod polkit;
+mod portal;
 mod processes;
 mod screens;
 mod search;

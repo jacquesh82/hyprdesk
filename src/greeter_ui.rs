@@ -50,7 +50,7 @@ pub enum GMsg {
     Power(&'static str),
     PowerFailed(String),
     /// Trame suivante du fond vidéo (boucle ffmpeg).
-    Frame(image::Handle),
+    Frame(crate::video::Tiles),
 }
 
 /// Dernière connexion réussie (dossier d'état du greeter).
@@ -116,6 +116,8 @@ pub struct Greeter {
     /// mpv : aucun fond dessiné (l'écran est transparent sur mpv). Vidéo
     /// décodée à la maison : la trame courante de la boucle ffmpeg.
     wallpaper: Option<image::Handle>,
+    /// Fond vidéo sans mpv : trame courante en bandes (voir `video::Tiles`).
+    video_frame: Option<crate::video::Tiles>,
     /// Fond vidéo en cours : porté par mpv (son process, l'écran est
     /// transparent au-dessus), ou décodé ici (fichier, trame, fps — un
     /// diviseur entier du rafraîchissement de l'écran, pour ne pas battre).
@@ -462,7 +464,7 @@ fn greeter_video(
         span: None,
     };
     use iced::futures::StreamExt;
-    crate::video::frames(recipe).map(|f| GMsg::Frame(f.handle))
+    crate::video::frames(recipe).map(|f| GMsg::Frame(f.tiles))
 }
 
 /// Échange avec greetd hors du fil de l'interface.
@@ -570,6 +572,7 @@ impl Greeter {
             demo: false,
             film: false,
             wallpaper,
+            video_frame: None,
             anchor: profile.anchor.unwrap_or(8),
             video,
             logo: image::Handle::from_bytes(LOGO),
@@ -862,7 +865,7 @@ impl Greeter {
                 // Le lecteur rythme déjà les trames (un diviseur entier du
                 // rafraîchissement de l'écran) : chaque trame reçue s'applique.
                 if self.video.is_some() {
-                    self.wallpaper = Some(h);
+                    self.video_frame = Some(h);
                 }
                 Task::none()
             }
@@ -1082,13 +1085,14 @@ impl Greeter {
             .padding(48)
             .align_x(h_aux)
             .align_y(Alignment::End);
-        let back: Element<'_, GMsg> = match &self.wallpaper {
-            Some(h) => image(h.clone())
+        let back: Element<'_, GMsg> = match (&self.video_frame, &self.wallpaper) {
+            (Some(t), _) if self.video.is_some() => t.view(1.0),
+            (_, Some(h)) => image(h.clone())
                 .content_fit(iced::ContentFit::Cover)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into(),
-            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+            _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         // Logo en haut, à la largeur de la zone de connexion.
         let logo = container(image(self.logo.clone()).width(300))

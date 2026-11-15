@@ -67,6 +67,10 @@ pub enum Msg {
     DeleteRule(Scope),
     Folder(String),
     FolderSubmit,
+    /// Ouvre le sélecteur de dossier du portail.
+    Browse,
+    /// Dossier choisi (`None` : annulé).
+    Browsed(Option<PathBuf>),
     Images(Vec<PathBuf>),
     /// Vignette et dimensions d'origine.
     Thumb(PathBuf, Option<(image::Handle, Option<(u32, u32)>)>),
@@ -128,6 +132,29 @@ pub(in crate::ui) fn default_folder() -> String {
 pub(in crate::ui) fn expand(p: &str) -> PathBuf {
     crate::config::lua::expand_path(p, std::path::Path::new("/"))
 }
+/// Pastille « lecture » en bas à gauche d'une vignette : le fond est une
+/// vidéo.
+fn video_badge<'a>() -> Element<'a, UiMsg> {
+    let play =
+        iced::widget::svg(super::super::icons::get("media-playback-start").expect("icône lecture"))
+            .width(12)
+            .height(12)
+            .style(|_, _| iced::widget::svg::Style {
+                color: Some(Color::WHITE),
+            });
+    container(container(play).padding([3, 7]).style(|_| container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+        border: Border::default().rounded(9),
+        ..Default::default()
+    }))
+    .width(THUMB.0 as f32)
+    .height(THUMB.1 as f32)
+    .padding(6)
+    .align_left(iced::Length::Fill)
+    .align_bottom(iced::Length::Fill)
+    .into()
+}
+
 pub(in crate::ui) fn load_images(folder: String) -> Task<UiMsg> {
     Task::perform(
         async move {
@@ -254,7 +281,7 @@ impl App {
                         .width(240),
                     button(text("Parcourir").font(self.font).size(14))
                         .padding([6, 12])
-                        .on_press(wrap(Msg::FolderSubmit)),
+                        .on_press(wrap(Msg::Browse)),
                 ]
                 .spacing(8),
             ),
@@ -365,11 +392,17 @@ impl App {
                         row(chunk.iter().map(|img| {
                             let selected = chosen.as_ref() == Some(img);
                             let inner: Element<'_, UiMsg> = match p.wallpaper.thumbs.get(img) {
-                                Some(h) => image(h.clone())
-                                    .width(THUMB.0 as f32)
-                                    .height(THUMB.1 as f32)
-                                    .content_fit(iced::ContentFit::Cover)
-                                    .into(),
+                                Some(h) => {
+                                    let thumb = image(h.clone())
+                                        .width(THUMB.0 as f32)
+                                        .height(THUMB.1 as f32)
+                                        .content_fit(iced::ContentFit::Cover);
+                                    if crate::video::is_video(img) {
+                                        iced::widget::stack![thumb, video_badge()].into()
+                                    } else {
+                                        thumb.into()
+                                    }
+                                }
                                 None => container(text("…").font(self.font).size(14))
                                     .center_x(THUMB.0 as f32)
                                     .center_y(THUMB.1 as f32)
@@ -704,6 +737,19 @@ impl App {
                 Task::none()
             }
             Msg::FolderSubmit => {
+                panel.wallpaper.images.clear();
+                load_images(panel.wallpaper.folder.clone())
+            }
+            Msg::Browse => {
+                let start = Some(expand(&panel.wallpaper.folder));
+                let title = crate::i18n::tr("Dossier d'images").to_string();
+                Task::perform(crate::portal::pick_folder(title, start), |d| {
+                    wrap(Msg::Browsed(d))
+                })
+            }
+            Msg::Browsed(None) => Task::none(),
+            Msg::Browsed(Some(dir)) => {
+                panel.wallpaper.folder = crate::settings::tilde(&dir);
                 panel.wallpaper.images.clear();
                 load_images(panel.wallpaper.folder.clone())
             }

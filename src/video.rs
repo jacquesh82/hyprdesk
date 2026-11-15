@@ -47,6 +47,22 @@ pub struct Recipe {
     pub span: Option<((u32, u32), crate::span::Placement)>,
 }
 
+/// Taille de trame ramenée aux pixels de source qu'elle montre vraiment :
+/// ffmpeg couvre la trame puis la recadre, une trame plus grande que cette
+/// région n'est qu'un agrandissement (proportions gardées, dimensions
+/// paires).
+fn capped(w: u32, h: u32, source: Option<(u32, u32)>) -> (u32, u32) {
+    let Some((sw, sh)) = source else {
+        return (w, h);
+    };
+    let f = (sw as f32 / w.max(1) as f32).min(sh as f32 / h.max(1) as f32);
+    if f >= 1.0 {
+        return (w, h);
+    }
+    let even = |v: f32| ((v.round() as u32).max(2)) & !1;
+    (even(w as f32 * f), even(h as f32 * f))
+}
+
 /// Taille de trame : grand côté borné à `bound`, dimensions paires.
 pub fn target_size(w: u32, h: u32, bound: u32) -> (u32, u32) {
     let even = |v: u32| (v.max(2)) & !1;
@@ -117,10 +133,104 @@ pub fn argv(r: &Recipe) -> Vec<String> {
     ]
 }
 
-/// Une trame prête à afficher : son image, et l'analyse du lanceur (bureau).
+/// Taille sous laquelle iced_wgpu 0.14 téléverse une image dans le dessin
+/// même (`image/cache.rs`, `upload_raster`) ; au-delà, il la téléverse en
+/// tâche de fond et ne la dessine qu'une fois sur le GPU. Une trame vidéo
+/// (3,7 Mo en 720p, 8,3 en 1080p) étant une image neuve à chaque fois, le
+/// fond disparaissait une ou deux images : il clignotait, surtout quand la
+/// machine peinait (jointure de boucle de ffmpeg). Découpée en bandes plus
+/// petites, chaque trame est affichée dès le dessin qui la reçoit.
+const SYNC_UPLOAD: usize = 2 * 1024 * 1024;
+
+/// Trame vidéo en bandes horizontales de moins de [`SYNC_UPLOAD`] octets
+/// (les lignes RGBA se suivent : les bandes sont des tranches du même
+/// tampon, sans recopie de pixels).
+#[derive(Debug, Clone)]
+pub struct Tiles {
+    w: u32,
+    h: u32,
+    /// Bandes de haut en bas, avec leur nombre de lignes.
+    strips: Vec<(Handle, u32)>,
+}
+
+impl Tiles {
+    pub fn new(w: u32, h: u32, data: Vec<u8>) -> Self {
+        let row = (w.max(1) as usize) * 4;
+        let band = ((SYNC_UPLOAD - 1) / row).max(1) * row;
+        let data = iced::advanced::graphics::core::Bytes::from(data);
+        let strips = (0..data.len())
+            .step_by(band)
+            .map(|start| {
+                let end = (start + band).min(data.len());
+                let rows = ((end - start) / row) as u32;
+                (Handle::from_rgba(w, rows, data.slice(start..end)), rows)
+            })
+            .collect();
+        Self { w, h, strips }
+    }
+
+    /// Bandes visibles pour un rendu « couvrir » dans `size` : la région
+    /// centrale de la trame (en pixels de trame), coupée bande par bande —
+    /// (image, région rognée, lignes affichées).
+    fn cover(&self, size: iced::Size) -> Vec<(Handle, iced::Rectangle<u32>)> {
+        let (w, h) = (self.w.max(1) as f32, self.h.max(1) as f32);
+        let s = (size.width / w).max(size.height / h);
+        if !s.is_finite() || s <= 0.0 {
+            return Vec::new();
+        }
+        let cw = ((size.width / s).round() as u32).clamp(1, self.w.max(1));
+        let ch = ((size.height / s).round() as u32).clamp(1, self.h.max(1));
+        let x0 = (self.w.max(1) - cw) / 2;
+        let y0 = (self.h.max(1) - ch) / 2;
+        let y1 = y0 + ch;
+        let mut out = Vec::new();
+        let mut top = 0;
+        for (handle, rows) in &self.strips {
+            let (a, b) = (top.max(y0), (top + rows).min(y1));
+            if a < b {
+                out.push((
+                    handle.clone(),
+                    iced::Rectangle {
+                        x: x0,
+                        y: a - top,
+                        width: cw,
+                        height: b - a,
+                    },
+                ));
+            }
+            top += rows;
+        }
+        out
+    }
+
+    /// La trame à l'ajustement « couvrir », à l'opacité donnée.
+    pub fn view<'a, M: 'a>(&self, alpha: f32) -> iced::Element<'a, M> {
+        use iced::Length;
+        use iced::widget::{column, image, responsive};
+        let tiles = self.clone();
+        responsive(move |size| {
+            column(tiles.cover(size).into_iter().map(|(handle, crop)| {
+                image(handle)
+                    .crop(crop)
+                    .content_fit(iced::ContentFit::Fill)
+                    .filter_method(image::FilterMethod::Linear)
+                    .width(Length::Fill)
+                    .height(Length::FillPortion(crop.height.min(u16::MAX as u32) as u16))
+                    .opacity(alpha)
+                    .into()
+            }))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
+        .into()
+    }
+}
+
+/// Une trame prête à afficher : ses bandes, et l'analyse du lanceur (bureau).
 #[derive(Debug, Clone)]
 pub struct Frame {
-    pub handle: Handle,
+    pub tiles: Tiles,
     pub backdrop: Option<crate::ui::plugins::launcher::contrast::Backdrop>,
 }
 
@@ -131,6 +241,16 @@ pub struct Frame {
 /// et plafonné à 10 s (fichier cassé : pas de boucle chaude).
 pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
     stream::channel(2, async move |mut tx| {
+        // Pas plus de pixels que la source : agrandie par ffmpeg, une vidéo
+        // 720p coûtait 2,25 fois plus à copier et téléverser, pour rien (le
+        // rendu l'étire de toute façon).
+        let path = r.path.clone();
+        let source = tokio::task::spawn_blocking(move || dimensions(&path))
+            .await
+            .ok()
+            .flatten();
+        let mut r = r;
+        (r.w, r.h) = capped(r.w, r.h, source.filter(|_| r.span.is_none()));
         let (w, h) = (r.w.max(1), r.h.max(1));
         let size = w as usize * h as usize * 4;
         let step = Duration::from_millis((1000 / r.fps.max(1)).max(20) as u64);
@@ -182,10 +302,10 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                     break;
                 };
                 let backdrop = crate::ui::plugins::launcher::contrast::Backdrop::from_rgba(&img);
-                let handle = Handle::from_rgba(w, h, img.into_raw());
+                let tiles = Tiles::new(w, h, img.into_raw());
                 if tx
                     .send(Frame {
-                        handle,
+                        tiles,
                         backdrop: Some(backdrop),
                     })
                     .await
@@ -318,6 +438,49 @@ pub fn stop_players() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frames_are_capped_to_the_source() {
+        // 720p sur un écran 1080p : la trame reste en 720p.
+        assert_eq!(capped(1920, 1080, Some((1280, 720))), (1280, 720));
+        // Écran portrait : la colonne centrale de la source, 405 × 720.
+        assert_eq!(capped(1080, 1920, Some((1280, 720))), (404, 720));
+        // Source plus grande, ou inconnue : rien ne change.
+        assert_eq!(capped(1920, 1080, Some((3840, 2160))), (1920, 1080));
+        assert_eq!(capped(1920, 1080, None), (1920, 1080));
+    }
+
+    #[test]
+    fn tiles_stay_under_the_sync_upload_size() {
+        let (w, h) = (1920, 1080);
+        let t = Tiles::new(w, h, vec![0u8; (w * h * 4) as usize]);
+        assert!(t.strips.len() > 1);
+        assert_eq!(t.strips.iter().map(|(_, r)| r).sum::<u32>(), h);
+        assert!(
+            t.strips
+                .iter()
+                .all(|(_, r)| (w * r * 4) < SYNC_UPLOAD as u32)
+        );
+    }
+
+    #[test]
+    fn cover_crops_the_center_band_by_band() {
+        let (w, h) = (1920, 1080);
+        let t = Tiles::new(w, h, vec![0u8; (w * h * 4) as usize]);
+        // Même proportion : toute la trame, bandes entières.
+        let full = t.cover(iced::Size::new(2560.0, 1440.0));
+        assert_eq!(full.iter().map(|(_, c)| c.height).sum::<u32>(), h);
+        assert!(full.iter().all(|(_, c)| c.x == 0 && c.width == w));
+        // Écran portrait : une colonne centrale, toute la hauteur.
+        let tall = t.cover(iced::Size::new(1440.0, 2560.0));
+        assert_eq!(tall.iter().map(|(_, c)| c.height).sum::<u32>(), h);
+        let c = tall[0].1;
+        assert_eq!(c.width, 608); // 1080 × 1440 / 2560 ≈ 607,5
+        assert_eq!(c.x, (w - c.width) / 2);
+        // Bandeau large : les lignes du milieu seulement.
+        let wide = t.cover(iced::Size::new(3840.0, 1080.0));
+        assert_eq!(wide.iter().map(|(_, c)| c.height).sum::<u32>(), 540);
+    }
 
     fn recipe(w: u32, h: u32) -> Recipe {
         Recipe {

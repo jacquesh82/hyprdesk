@@ -1754,7 +1754,7 @@ pub fn fit_str(f: Fit) -> &'static str {
 }
 
 /// `$HOME/x` → `~/x`, plus lisible dans le fichier généré.
-fn tilde(p: &Path) -> String {
+pub(crate) fn tilde(p: &Path) -> String {
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from)
         && let Ok(rest) = p.strip_prefix(&home)
     {

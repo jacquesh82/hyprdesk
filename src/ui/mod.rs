@@ -366,6 +366,9 @@ pub struct App {
     panel_fade: Option<Fade>,
     hover_fades: HashMap<String, Fade>,
     walls: HashMap<WallKey, image::Handle>,
+    /// Trame courante des fonds vidéo, en bandes (voir `video::Tiles` : sans
+    /// elles, le fond clignote).
+    video_walls: HashMap<WallKey, crate::video::Tiles>,
     loading: HashSet<WallKey>,
     shown: HashMap<String, Shown>,
     rot: HashMap<usize, Rot>,
@@ -793,6 +796,7 @@ impl App {
             panel_fade: None,
             hover_fades: HashMap::new(),
             walls: HashMap::new(),
+            video_walls: HashMap::new(),
             loading: HashSet::new(),
             shown: HashMap::new(),
             rot: HashMap::new(),
@@ -2649,9 +2653,10 @@ impl App {
         let keep: HashSet<WallKey> = used.into_iter().cloned().collect();
         self.walls
             .retain(|k, _| keep.contains(k) || self.loading.contains(k));
+        self.video_walls.retain(|k, _| keep.contains(k));
         self.launcher_runtime
             .backdrops
-            .retain(|k, _| self.walls.contains_key(k));
+            .retain(|k, _| self.walls.contains_key(k) || self.video_walls.contains_key(k));
         Task::batch(tasks)
     }
 
@@ -3927,7 +3932,7 @@ impl App {
                     if let Some(b) = f.backdrop {
                         self.launcher_runtime.backdrops.insert(key.clone(), b);
                     }
-                    self.walls.insert(key, f.handle);
+                    self.video_walls.insert(key, f.tiles);
                 }
                 Task::none()
             }
@@ -5100,6 +5105,11 @@ impl App {
                     .height(Length::Fill)
                     .style(move |_| bg(c))
                     .into()
+            }
+            // Vidéo : la trame en bandes, couvrant l'écran (ffmpeg l'a déjà
+            // cadrée à ses proportions).
+            Wall::Image(key) if self.video_walls.contains_key(key) => {
+                self.video_walls[key].view(alpha)
             }
             Wall::Image(key) => match self.walls.get(key) {
                 Some(h) => {
