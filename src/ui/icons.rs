@@ -56,6 +56,14 @@ fn wifi(bars: usize) -> String {
 
 pub fn get(name: &str) -> Option<svg::Handle> {
     let name = name.strip_suffix("-symbolic").unwrap_or(name);
+    // Icônes des paquets de Réglages sans glyphe propre : le plus proche
+    // (MLG-140 : entrées du menu sans icône).
+    let name = match name {
+        "preferences-desktop-keyboard-shortcuts" => "input-keyboard",
+        "preferences-desktop-color" => "preferences-desktop-theme",
+        "preferences-system-windows" => "hyprdesk-desktop-windows",
+        other => other,
+    };
     let owned: String;
     let path: &str = match name {
         _ if name.starts_with("battery") => {

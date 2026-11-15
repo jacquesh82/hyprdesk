@@ -15,8 +15,10 @@ pub struct Change {
     pub content: Option<String>,
 }
 
+/// Session Hyprland à vérifier ; jamais pendant les tests (ils ne doivent
+/// pas recharger le Hyprland de la session qui les lance).
 fn in_session() -> bool {
-    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+    !cfg!(test) && std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
 }
 
 fn put(path: &Path, content: Option<&str>) -> std::io::Result<()> {
@@ -135,8 +137,6 @@ mod tests {
         let a = d.join("a.lua");
         let b = d.join("b.lua");
         std::fs::write(&b, "vieux").unwrap();
-        // SAFETY : test isolé, aucune autre lecture de cette variable ici.
-        unsafe { std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE") };
         let n = write_checked(&[
             Change {
                 path: a.clone(),

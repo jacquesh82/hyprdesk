@@ -31,6 +31,12 @@ pub enum Kind {
     Managed,
     StaleComment,
     Backups,
+    /// Fichier de configuration que plus rien ne lit (MLG-140).
+    DeadFile,
+    /// Ancienne config en commentaire qui contredit la config en vigueur.
+    Contradiction,
+    /// Veille : l'écran s'éteint avant le verrouillage.
+    IdleOrder,
 }
 
 impl Kind {
@@ -45,6 +51,9 @@ impl Kind {
             Kind::Managed => "Fait par hyprdesk",
             Kind::StaleComment => "Ligne commentée par hyprdesk",
             Kind::Backups => "Copies de sauvegarde",
+            Kind::DeadFile => "Fichier plus lu",
+            Kind::Contradiction => "Commentaire contraire à la config",
+            Kind::IdleOrder => "Verrouillage après l'extinction",
         }
     }
 }
@@ -58,6 +67,9 @@ pub enum Fix {
     Delete(usize, String),
     /// Supprimer ces fichiers.
     DeleteFiles(Vec<PathBuf>),
+    /// Ranger ces fichiers dans l'archive de hyprdesk
+    /// (`$XDG_STATE_HOME/hyprdesk/archive/<date>/`).
+    Archive(Vec<PathBuf>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +199,8 @@ pub struct Session {
     pub monitors: Vec<String>,
     /// hyprdesk place les workspaces (paquet Workspaces actif).
     pub workspaces: bool,
+    /// Écran éteint avant le verrouillage (`idle::exposure`).
+    pub idle_warning: Option<String>,
 }
 
 pub fn analyse(
@@ -411,6 +425,20 @@ pub fn full(config_path: &Path, managed: &Managed, session: &Session) -> Vec<Fin
             session,
             crate::launch::executable,
         ));
+        let monitors_ours = std::fs::read_to_string(dir.join("monitors.lua"))
+            .is_ok_and(|m| crate::hyprsrc::generated(&m));
+        out.extend(contradictions(&src, session.workspaces, monitors_ours));
+    }
+    out.extend(dead_files(&dir, managed));
+    if let Some(w) = &session.idle_warning {
+        out.push(Finding {
+            kind: Kind::IdleOrder,
+            line: None,
+            excerpt: w.clone(),
+            detail: crate::i18n::tr("Réglages → Verrouillage → Veille").to_string(),
+            fix: None,
+            safe: false,
+        });
     }
     let old = old_backups(&dir);
     if !old.is_empty() {
@@ -459,17 +487,21 @@ pub fn apply(config_path: &Path, fixes: &[Fix]) -> Result<usize, String> {
                         done += 1;
                     }
                 }
-                Fix::DeleteFiles(_) => {}
+                Fix::DeleteFiles(_) | Fix::Archive(_) => {}
             }
         }
         if done > 0 {
-            let bak = hypr.with_extension("lua.avant-hyprdesk-menage.bak");
-            std::fs::write(&bak, &src).map_err(|e| e.to_string())?;
             let mut out: String = lines.into_iter().flatten().collect::<Vec<_>>().join("\n");
             if src.ends_with('\n') {
                 out.push('\n');
             }
-            crate::history::write_file(&hypr, out, "menage").map_err(|e| e.to_string())?;
+            // Historique (état d'avant) et vérification par Hyprland : une
+            // erreur nouvelle remet hyprland.lua comme avant.
+            let _reason = crate::history::reason("menage");
+            crate::hyprwrite::write_checked(&[crate::hyprwrite::Change {
+                path: hypr.clone(),
+                content: Some(out),
+            }])?;
         }
     }
     for f in fixes {
@@ -480,8 +512,143 @@ pub fn apply(config_path: &Path, fixes: &[Fix]) -> Result<usize, String> {
                 }
             }
         }
+        if let Fix::Archive(files) = f {
+            // À côté de l'historique, pas dedans : l'élagage à 30 jours ne
+            // concerne que les instantanés.
+            let dest = crate::history::state_dir()
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(crate::history::state_dir)
+                .join("archive")
+                .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+            std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            for p in files {
+                let Some(name) = p.file_name() else { continue };
+                if std::fs::copy(p, dest.join(name)).is_ok() && std::fs::remove_file(p).is_ok() {
+                    done += 1;
+                }
+            }
+        }
     }
     Ok(done)
+}
+
+/// Contradictions et doublons du texte de hyprland.lua (MLG-140) :
+/// anciens écrans et règles de workspace en commentaire (tenus par hyprdesk),
+/// mentions d'outils qui ne tiennent plus rien (hyprdmc), et
+/// `systemctl --user import-environment` déjà couvert par une ligne
+/// précédente.
+pub fn contradictions(src: &str, workspaces: bool, monitors_ours: bool) -> Vec<Finding> {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut out = Vec::new();
+    let del = |i: usize, why: &str| Finding {
+        kind: Kind::Contradiction,
+        line: Some(i + 1),
+        excerpt: lines[i].trim().to_string(),
+        detail: crate::i18n::tr(why).to_string(),
+        fix: Some(Fix::Delete(i, lines[i].to_string())),
+        safe: true,
+    };
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim_start();
+        let commented = t.starts_with("--");
+        let code = t.trim_start_matches('-').trim_start();
+        if commented && monitors_ours && code.starts_with("hl.monitor(") {
+            // Bloc d'écran en commentaire, jusqu'à sa fin « }) ».
+            let mut j = i;
+            while j < lines.len() {
+                let c = lines[j].trim_start();
+                if !c.starts_with("--") {
+                    break;
+                }
+                out.push(del(
+                    j,
+                    "ancien écran en commentaire : les écrans sont dans monitors.lua",
+                ));
+                if c.trim_start_matches('-').trim_start().starts_with("})") || c.contains("})") {
+                    break;
+                }
+                j += 1;
+            }
+            i = j + 1;
+            continue;
+        }
+        if commented && code.to_lowercase().contains("hyprdmc") {
+            out.push(del(
+                i,
+                "hyprdmc ne tient plus rien : hyprdesk tient écrans et clavier",
+            ));
+        } else if commented && workspaces && code.starts_with("hl.workspace_rule(") {
+            out.push(del(
+                i,
+                "ancienne règle en commentaire : hyprdesk place les workspaces (Réglages → Workspaces)",
+            ));
+        }
+        i += 1;
+    }
+    // import-environment déjà couvert.
+    let mut seen: std::collections::BTreeSet<String> = Default::default();
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with("--") || !t.contains("import-environment") {
+            continue;
+        }
+        let after = t.split("import-environment").nth(1).unwrap_or("");
+        let vars: Vec<String> = after
+            .split(|c: char| c.is_whitespace() || c == ';' || c == '\'' || c == '"' || c == ')')
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
+            .map(str::to_string)
+            .collect();
+        let systemctl = t.contains("systemctl --user import-environment") && !t.contains("start ");
+        if systemctl && !vars.is_empty() && vars.iter().all(|v| seen.contains(v)) {
+            out.push(Finding {
+                kind: Kind::DuplicateStart,
+                line: Some(i + 1),
+                excerpt: t.to_string(),
+                detail: crate::i18n::tr("ces variables sont déjà transmises à systemd plus haut")
+                    .to_string(),
+                fix: Some(Fix::Comment(i, l.to_string())),
+                safe: true,
+            });
+        }
+        seen.extend(vars);
+    }
+    out
+}
+
+/// Fichiers de configuration que plus rien ne lit : `hypridle.conf` quand
+/// hyprdesk lance la veille avec le sien, `hyprpaper.conf` quand hyprdesk
+/// dessine le fond (`managed` dit ce que hyprdesk remplace).
+pub fn dead_files(dir: &Path, managed: &Managed) -> Vec<Finding> {
+    let replaces = |p: &str| managed.iter().any(|(progs, _)| progs.contains(&p));
+    let mut out = Vec::new();
+    for (file, prog, why) in [
+        (
+            "hypridle.conf",
+            "hypridle",
+            "hyprdesk lance hypridle avec son propre fichier",
+        ),
+        (
+            "hyprpaper.conf",
+            "hyprpaper",
+            "hyprdesk dessine le fond d'écran, hyprpaper n'est plus lancé",
+        ),
+    ] {
+        let p = dir.join(file);
+        if p.is_file() && replaces(prog) {
+            out.push(Finding {
+                kind: Kind::DeadFile,
+                line: None,
+                excerpt: file.to_string(),
+                detail: crate::i18n::tr(why).to_string(),
+                fix: Some(Fix::Archive(vec![p])),
+                safe: true,
+            });
+        }
+    }
+    out
 }
 
 /// Relevé en texte, pour LYRA.
@@ -538,6 +705,7 @@ end)
         let session = Session {
             monitors: vec!["eDP-1".into()],
             workspaces: true,
+            ..Default::default()
         };
         let f = analyse(SRC, &dir, &m, &session, |p| p != "programme-inconnu");
         let kinds: Vec<(Kind, Option<usize>)> = f.iter().map(|f| (f.kind, f.line)).collect();
@@ -598,7 +766,6 @@ end)
         assert!(out.contains("    -- hl.exec_cmd(\"nm-applet\") -- hyprdesk : ménage"));
         assert!(!out.contains("idle_manage"));
         assert!(out.contains("    hl.exec_cmd(\"waybar\")"));
-        assert!(dir.join("hyprland.lua.avant-hyprdesk-menage.bak").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -627,6 +794,7 @@ hl.workspace_rule({ workspace = \"3\", monitor = \"eDP-1\" })\n";
         let s = Session {
             monitors: vec!["eDP-1".into()],
             workspaces: false,
+            ..Default::default()
         };
         let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
         assert_eq!(
@@ -638,8 +806,34 @@ hl.workspace_rule({ workspace = \"3\", monitor = \"eDP-1\" })\n";
         let s = Session {
             monitors: vec!["eDP-1".into()],
             workspaces: true,
+            ..Default::default()
         };
         let f = analyse(src, Path::new("/"), &Vec::new(), &s, |_| true);
         assert_eq!(f.len(), 2, "et le conflit avec hyprdesk : {f:?}");
+    }
+}
+
+#[cfg(test)]
+mod contradiction_tests {
+    use super::*;
+
+    #[test]
+    fn ecrans_regles_et_imports() {
+        let src = "-- adopted by hyprdmc -> monitors.lua
+-- hl.monitor({
+--     output = \"DP-1\",
+-- })
+require(\"monitors\")
+-- hl.workspace_rule({ workspace = \"1\", monitor = \"DP-1\" })
+hl.on(\"hyprland.start\", function()
+    hl.exec_cmd(\"sh -c 'systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP; systemctl --user start hyprdesk.service'\")
+    hl.exec_cmd(\"systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP\")
+end)
+";
+        let f = contradictions(src, true, true);
+        let lines: Vec<usize> = f.iter().filter_map(|x| x.line).collect();
+        assert_eq!(lines, vec![1, 2, 3, 4, 6, 9], "{f:#?}");
+        assert!(f.iter().all(|x| x.safe));
+        assert!(matches!(f.last().unwrap().fix, Some(Fix::Comment(8, _))));
     }
 }

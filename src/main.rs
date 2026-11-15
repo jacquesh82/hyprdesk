@@ -463,6 +463,27 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
         }
     }
+    // binds.lua en accord avec ce que hyprdesk tient (MLG-140) : touches
+    // prises désactivées, outils équivalents rebranchés sur hyprdesk.
+    if let Ok(l) = config::lua::load_file(&path) {
+        match binds_file::sync_hyprdesk(&path, &l.config, false) {
+            Ok(done) if !done.is_empty() => {
+                for d in &done {
+                    tracing::info!("{d}");
+                }
+                hypr::notify(
+                    1,
+                    10000,
+                    &crate::tr!(
+                        "hyprdesk : {n} raccourci(s) de binds.lua accordé(s) à hyprdesk (Réglages → Raccourcis)",
+                        n = done.len()
+                    ),
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("{e}"),
+        }
+    }
     // Le dossier des modules et des plugins doit exister dès le démarrage :
     // c'est lui que la surveillance suit pour détecter les nouveaux widgets.
     let widget_dir =
@@ -1461,6 +1482,33 @@ fn main() -> ExitCode {
         // Raccourcis de hyprland.lua rangés dans binds.lua (MLG-111) : aperçu,
         // ou `split` pour le faire tout de suite.
         "binds" => {
+            // Accord de binds.lua avec ce que hyprdesk tient (MLG-140).
+            if args.get(1).map(String::as_str) == Some("sync") {
+                let dry = args.iter().any(|a| a == "--dry-run" || a == "-n");
+                let cfg = match config::lua::load_file(&config_path) {
+                    Ok(l) => l.config,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                return match binds_file::sync_hyprdesk(&config_path, &cfg, dry) {
+                    Ok(done) if done.is_empty() => {
+                        println!("{}", crate::tr!("binds.lua est en accord avec hyprdesk."));
+                        ExitCode::SUCCESS
+                    }
+                    Ok(done) => {
+                        for d in done {
+                            println!("{d}");
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
             if args.get(1).map(String::as_str) == Some("split") {
                 return match binds_file::migrate(&config_path) {
                     Ok(Some(d)) => {

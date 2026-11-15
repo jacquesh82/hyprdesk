@@ -155,6 +155,20 @@ impl App {
         let mut col = column![].spacing(12);
         if self.on_subtab(INFO.id, "souris") {
             col = col.push(self.section("Pointeur"));
+            // force_no_accel (Avancé) l'emporte sur le profil (MLG-140).
+            if self.cfg.general.hypr.options.get("input.force_no_accel")
+                == Some(&crate::tiling::OptValue::Bool(true))
+            {
+                col = col.push(
+                    text(
+                        "« Sans accélération » (onglet Avancé) est actif : le profil d'accélération \
+                         ci-dessous n'a pas d'effet.",
+                    )
+                    .font(self.font)
+                    .size(12)
+                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                );
+            }
             let c = cur.clone();
             col = col.push(
                 self.field(

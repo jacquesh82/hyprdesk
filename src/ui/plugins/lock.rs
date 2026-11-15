@@ -269,6 +269,15 @@ impl App {
                 ),
             );
         }
+        // Écran éteint avant le verrouillage : averti, délais gardés (MLG-140).
+        if let Some(w) = crate::idle::exposure(&self.cfg.general.idle) {
+            col = col.push(
+                text(w)
+                    .font(self.font)
+                    .size(13)
+                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+            );
+        }
         col = col.push(
             text("Avant une mise en veille, la session est toujours verrouillée ; au réveil, les écrans se rallument. Assombrir passe par brightnessctl.")
                 .font(self.font)

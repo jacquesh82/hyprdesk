@@ -3635,6 +3635,7 @@ impl App {
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
                 control::Command::Files => self.open_search_with(":f "),
+                control::Command::Clipboard => self.open_search_with(":clip "),
                 control::Command::Mymfa(a) => match a.as_str() {
                     "lock" => self.mfa_update(mymfa::MMsg::Lock),
                     "setup" => self.mfa_update(mymfa::MMsg::Setup(None)),

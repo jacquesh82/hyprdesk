@@ -135,6 +135,7 @@ pub fn load(app: &App) -> Task<UiMsg> {
     let session = crate::hyprcheck::Session {
         monitors: app.monitors.iter().map(|m| m.name.clone()).collect(),
         workspaces: cfg.plugin_on("workspaces"),
+        idle_warning: crate::idle::exposure(&cfg.general.idle),
     };
     Task::perform(
         async move {
@@ -279,6 +280,7 @@ impl App {
                     Fix::Comment(..) => "Commenter",
                     Fix::Delete(..) => "Supprimer la ligne",
                     Fix::DeleteFiles(..) => "Supprimer les copies",
+                    Fix::Archive(..) => "Archiver",
                 };
                 line = line.push(
                     button(text(label).font(self.font).size(12))

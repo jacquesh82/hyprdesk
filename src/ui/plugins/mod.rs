@@ -515,6 +515,17 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn chaque_paquet_a_son_icone() {
+        let missing: Vec<&str> = BUILTIN
+            .iter()
+            .filter(|p| crate::ui::icons::get(p.icon).is_none())
+            .map(|p| p.id)
+            .collect();
+        assert!(missing.is_empty(), "paquets sans glyphe : {missing:?}");
+    }
+
     use super::*;
 
     #[test]

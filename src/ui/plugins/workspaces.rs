@@ -168,6 +168,30 @@ impl App {
             .spacing(16)
             .into()
         });
+        // Workspaces attribués au-delà des permanents (MLG-140) : dits comme
+        // tels, sinon la liste semble contredire le nombre choisi.
+        let extras: Vec<Element<'_, UiMsg>> = names
+            .iter()
+            .skip(upto)
+            .map(|ws| {
+                let screen = current(ws).unwrap_or_default();
+                let screen = if screen == "primary" {
+                    crate::i18n::tr("l'écran principal").to_string()
+                } else {
+                    screen
+                };
+                text(crate::tr!(
+                    "Workspace {ws} : hors des {n} permanents ; attribué à {m}, qui l'affiche par défaut s'il est son premier workspace.",
+                    ws = ws,
+                    n = upto,
+                    m = screen
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim)
+                .into()
+            })
+            .collect();
         column![
             self.section("Écrans"),
             text(
@@ -182,6 +206,7 @@ impl App {
                 "workspace_monitors",
                 column(rows).spacing(8)
             ),
+            column(extras).spacing(4),
             self.adv(self.field(
                 "Écrans dédiés : seulement leurs workspaces, les autres vont sur l'écran principal",
                 "workspace_dedicated",

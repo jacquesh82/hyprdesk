@@ -179,3 +179,50 @@ mod tests {
         assert!(d.restart);
     }
 }
+
+/// Avertissement quand l'écran s'éteint avant le verrouillage (MLG-140) :
+/// la session reste ouverte, écran noir, jusqu'au verrouillage (ou toujours
+/// s'il est coupé). Les délais sont ceux de l'utilisateur : hyprdesk avertit,
+/// il ne les change pas.
+pub fn exposure(c: &crate::config::IdleCfg) -> Option<String> {
+    if !c.manage || c.dpms == 0 {
+        return None;
+    }
+    let min = |s: u64| s.div_ceil(60);
+    if c.lock == 0 {
+        return Some(crate::tr!(
+            "Les écrans s'éteignent après {d} min mais la session ne se verrouille jamais : un simple mouvement de souris la rouvre.",
+            d = min(c.dpms as u64)
+        ));
+    }
+    (c.lock > c.dpms).then(|| {
+        crate::tr!(
+            "Les écrans s'éteignent après {d} min, la session ne se verrouille qu'après {l} min : {n} min déverrouillée, écran noir.",
+            d = min(c.dpms as u64),
+            l = min(c.lock as u64),
+            n = min((c.lock - c.dpms) as u64)
+        )
+    })
+}
+
+#[cfg(test)]
+mod exposure_tests {
+    use super::*;
+
+    #[test]
+    fn verrouillage_apres_extinction() {
+        let mut c = crate::config::IdleCfg {
+            manage: true,
+            ..Default::default()
+        };
+        c.dpms = 1200;
+        c.lock = 3600;
+        assert!(exposure(&c).unwrap().contains("40 min"));
+        c.lock = 600;
+        assert!(exposure(&c).is_none());
+        c.lock = 0;
+        assert!(exposure(&c).is_some());
+        c.manage = false;
+        assert!(exposure(&c).is_none());
+    }
+}

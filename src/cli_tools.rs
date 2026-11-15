@@ -154,6 +154,7 @@ fn findings(config_path: &Path) -> Result<Vec<crate::hyprcheck::Finding>, String
     let session = crate::hyprcheck::Session {
         monitors,
         workspaces: cfg.plugin_on("workspaces"),
+        idle_warning: crate::idle::exposure(&cfg.general.idle),
     };
     Ok(crate::hyprcheck::full(config_path, &managed, &session))
 }
@@ -174,6 +175,7 @@ fn hyprland_check(config_path: &Path, json: bool) -> Result<String, String> {
                         Fix::Comment(..) => "comment",
                         Fix::Delete(..) => "delete-line",
                         Fix::DeleteFiles(..) => "delete-backups",
+                        Fix::Archive(..) => "archive",
                     }),
                     "safe": f.safe,
                 })
@@ -255,7 +257,7 @@ fn hyprland_fix(config_path: &Path, args: &[String]) -> Result<String, String> {
         .collect();
     let n = crate::hyprcheck::apply(config_path, &fixes)?;
     Ok(crate::tr!(
-        "{n} correction(s) faite(s) ; copie : hyprland.lua.avant-hyprdesk-menage.bak",
+        "{n} correction(s) faite(s) ; état d'avant dans l'historique (hyprdesk config history)",
         n = n
     ))
 }

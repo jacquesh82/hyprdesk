@@ -46,6 +46,8 @@ pub enum Command {
     Search,
     /// Ouvre ou referme la recherche de fichiers (loupe du dock, mode `:f`).
     Files,
+    /// Ouvre la recherche sur l'historique du presse-papiers (`:clip`).
+    Clipboard,
     /// Ouvre ou referme la grille des applications (plein écran).
     Apps,
     /// Vue d'ensemble des fenêtres (plugin de Hyprland, sinon le sélecteur).
@@ -88,6 +90,7 @@ impl Command {
             "tour" => Command::Tour,
             "search" => Command::Search,
             "files" => Command::Files,
+            "clipboard" | "clip" => Command::Clipboard,
             "apps" => Command::Apps,
             "overview" => Command::Overview,
             "switch" | "switch next" => Command::Switch(false),
@@ -157,6 +160,7 @@ impl Command {
             Command::Tour => "tour",
             Command::Search => "search",
             Command::Files => "files",
+            Command::Clipboard => "clipboard",
             Command::Apps => "apps",
             Command::Overview => "overview",
             Command::Notifications(_) => "notifications",

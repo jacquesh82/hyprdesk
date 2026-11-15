@@ -586,6 +586,9 @@ pub enum Edit {
     Delete,
     /// Nouvelle combinaison (`SUPER + SHIFT + d`).
     Rebind(String),
+    /// Nouvelle action, la ligne d'origine gardée en commentaire au-dessus
+    /// (`-- [hyprdesk off] …`) : ex. `hl.dsp.exec_cmd("hyprdesk switch")`.
+    Action(String),
 }
 
 /// binds.lua avec ses raccourcis désactivés rendus lisibles (marque ôtée),
@@ -741,6 +744,48 @@ pub fn edit_src(
             let (s, e) =
                 statement(src, line, combo).or_else(|_| masked_statement(src, line, combo))?;
             lines.drain(s..e);
+        }
+        Edit::Action(call) => {
+            let (s, e) = statement(src, line, combo)?;
+            if e - s != 1 {
+                return Err(crate::tr!(
+                    "Ligne {n} de binds.lua : raccourci sur plusieurs lignes, laissé tel quel.",
+                    n = line
+                ));
+            }
+            let (_, b) = first_arg(&lines[s]).ok_or_else(|| {
+                crate::tr!(
+                    "Ligne {n} de binds.lua : combinaison introuvable.",
+                    n = line
+                )
+            })?;
+            // Deuxième argument : de la virgule qui suit la combinaison à la
+            // virgule (ou parenthèse) de même niveau suivante.
+            let old = lines[s].clone();
+            let rest = &old[b..];
+            let start =
+                b + rest.find(',').ok_or_else(|| {
+                    crate::tr!("Ligne {n} de binds.lua : action introuvable.", n = line)
+                })? + 1;
+            let (mut depth, mut quote, mut end) = (0i32, None::<char>, old.len());
+            for (i, c) in old[start..].char_indices() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'') => quote = Some(c),
+                    (None, '(' | '{') => depth += 1,
+                    (None, ')' | '}') if depth > 0 => depth -= 1,
+                    (None, ',' | ')') if depth == 0 => {
+                        end = start + i;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let mut new_line = old.clone();
+            new_line.replace_range(start..end, &format!(" {call}"));
+            lines[s] = new_line;
+            lines.insert(s, format!("{OFF}{old}"));
         }
         Edit::Rebind(new) => {
             if crate::hypr::parse_combo(new).is_none() {
@@ -1017,5 +1062,125 @@ end
         assert!(l[1].comment);
         assert_eq!(l[2].code.trim(), "y = 1");
         assert!(!l[2].comment);
+    }
+}
+
+/// Équivalents hyprdesk d'outils courants lancés par un raccourci :
+/// (morceau de la commande, sous-commande de hyprdesk).
+const EQUIVALENTS: &[(&str, &str)] = &[
+    ("cliphist", "clipboard"),
+    ("/clipboard", "clipboard"),
+    ("windowswitch", "switch"),
+    ("rofi -show window", "switch"),
+    ("powermenu", "menu session"),
+    ("wlogout", "menu session"),
+    ("hyprshot -m output", "capture ecran"),
+    ("hyprshot -m window", "capture fenetre"),
+    ("hyprshot -m region", "capture zone"),
+];
+
+/// Accord de binds.lua avec hyprdesk (MLG-140) :
+/// - les combinaisons que hyprdesk tient (lanceur unifié, `keys.take`,
+///   touches multimédia et captures si `keys.media`) sont désactivées
+///   (`-- [hyprdesk off]`) : binds.lua décrit ce qui tourne ;
+/// - un raccourci qui lance un outil dont hyprdesk a l'équivalent est
+///   rebranché sur hyprdesk, la ligne d'origine gardée en commentaire.
+///
+/// Renvoie ce qui a été fait (lignes lisibles) ; rien si tout est en accord.
+pub fn sync_hyprdesk(
+    config_path: &Path,
+    cfg: &crate::config::Config,
+    dry_run: bool,
+) -> Result<Vec<String>, String> {
+    let file = path(config_path);
+    let Ok(src) = std::fs::read_to_string(&file) else {
+        return Ok(Vec::new());
+    };
+    let keys = &cfg.general.keys;
+    let mut taken: Vec<(u32, String)> = keys
+        .take
+        .iter()
+        .filter_map(|k| crate::hypr::parse_combo(k))
+        .collect();
+    if cfg.general.apps_launcher.unified
+        && let Some(c) = crate::hypr::parse_combo(&keys.search)
+    {
+        taken.push(c);
+    }
+    if keys.media {
+        taken.extend(
+            crate::hypr::MEDIA_KEYS
+                .iter()
+                .filter_map(|(k, _, _)| crate::hypr::parse_combo(k)),
+        );
+    }
+    let binds = crate::keymap::parse_source(&src);
+    let mut out = src.clone();
+    let mut done = Vec::new();
+    // Du bas vers le haut : une ligne insérée ne décale pas les suivantes.
+    let mut list: Vec<&crate::keymap::SourceBind> = binds.iter().collect();
+    list.sort_by_key(|b| std::cmp::Reverse(b.line));
+    let exe = "hyprdesk";
+    for b in list {
+        let same = |c: &(u32, String)| c.0 == b.combo.0 && c.1.eq_ignore_ascii_case(&b.combo.1);
+        if taken.iter().any(same) {
+            if let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Disable) {
+                out = n;
+                done.push(crate::tr!(
+                    "binds.lua:{n} : désactivé, tenu par hyprdesk ({a})",
+                    n = b.line,
+                    a = b.action
+                ));
+            }
+            continue;
+        }
+        if b.action.contains("hyprdesk") {
+            continue;
+        }
+        if let Some((_, sub)) = EQUIVALENTS.iter().find(|(m, _)| b.action.contains(m)) {
+            let call = format!("hl.dsp.exec_cmd(\"{exe} {sub}\")");
+            if let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Action(call)) {
+                out = n;
+                done.push(crate::tr!(
+                    "binds.lua:{n} : « {a} » remplacé par « hyprdesk {s} »",
+                    n = b.line,
+                    a = b.action,
+                    s = sub
+                ));
+            }
+        }
+    }
+    if out == src || dry_run {
+        return Ok(done);
+    }
+    let _reason = crate::history::reason("raccourcis");
+    crate::hyprwrite::write_checked(&[crate::hyprwrite::Change {
+        path: file,
+        content: Some(out),
+    }])?;
+    Ok(done)
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+
+    #[test]
+    fn action_remplacee_ligne_gardee() {
+        let src = "hl.bind(\"SUPER + W\", hl.dsp.exec_cmd(scriptsDir .. \"/windowswitch\"), { repeating = false })\n";
+        let combo = crate::hypr::parse_combo("SUPER + W").unwrap();
+        let out = edit_src(
+            src,
+            1,
+            &combo,
+            &Edit::Action("hl.dsp.exec_cmd(\"hyprdesk switch\")".into()),
+        )
+        .unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(lines[0].starts_with(OFF));
+        assert_eq!(
+            lines[1],
+            "hl.bind(\"SUPER + W\", hl.dsp.exec_cmd(\"hyprdesk switch\"), { repeating = false })"
+        );
     }
 }

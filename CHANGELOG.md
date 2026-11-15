@@ -94,6 +94,26 @@ and this project adheres to
 
 ### Changed
 
+- **Config consistency fixes** (MLG-140):
+  - `binds.lua` agrees with what hyprdesk handles: combinations hyprdesk
+    takes (unified launcher, media and capture keys, `keys.take`) are
+    disabled there with `-- [hyprdesk off]`, and shortcuts that start a tool
+    hyprdesk replaces (clipboard picker, window switcher, power menu,
+    hyprshot) now call hyprdesk, the old line kept as a comment
+    (`hyprdesk binds sync [--dry-run]`, also at startup). New command
+    `hyprdesk clipboard` opens the search on `:clip`.
+  - Tidy-up of `hyprland.lua` finds commented-out old screens and workspace
+    rules that contradict the running config, stale `hyprdmc` mentions,
+    redundant `systemctl --user import-environment`, and config files
+    nothing reads any more (`hypridle.conf`, `hyprpaper.conf`, archived to
+    `~/.local/state/hyprdesk/archive`). Fixes go through the history and a
+    checked Hyprland reload.
+  - Idle: a warning (Lock → Idle, tidy-up) when the screens turn off before
+    the session locks; the delays are left as set.
+  - Settings → Workspaces explains a workspace assigned beyond the permanent
+    ones; Mouse warns when “No acceleration” overrides the profile; every
+    Settings entry has its icon.
+
 - **Idle and background cost** (MLG-131 to MLG-136, measured with pidstat):
   - A message now redraws only the surfaces it touches: a video frame redraws
     the desktops showing it, unchanged readings (volume, tray, widgets, index
