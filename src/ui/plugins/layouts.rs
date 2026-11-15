@@ -8,14 +8,14 @@
 use std::collections::BTreeMap;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, row, slider, toggler};
+use iced::widget::{button, column, container, pick_list, row};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
-use crate::tiling::{self, Kind, OptValue, Tiling};
+use crate::tiling::{self, Tiling};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "layouts",
@@ -54,11 +54,6 @@ pub enum Msg {
     Default(Option<String>),
     /// Layout d'un workspace (`None` : le layout par défaut).
     Workspace(String, Option<String>),
-    /// Option (chemin, valeur ; `None` : celle de hyprland.lua).
-    Opt(String, Option<OptValue>),
-    /// Curseur en cours de glissé (aperçu), puis enregistrement.
-    Drag(String, f64),
-    Commit,
     Current(BTreeMap<String, String>),
     Binds(Vec<tiling::Bind>),
     /// Copie une ligne Lua (presse-papiers).
@@ -111,18 +106,6 @@ impl std::fmt::Display for LayoutChoice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct ValueChoice {
-    value: OptValue,
-    label: String,
-}
-
-impl std::fmt::Display for ValueChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.label)
-    }
-}
-
 impl App {
     fn tiling_settings(&self) -> Tiling {
         self.settings
@@ -131,7 +114,7 @@ impl App {
             .unwrap_or_else(|| self.cfg.general.tiling.clone())
     }
 
-    fn edit_tiling(&mut self, f: impl FnOnce(&mut Tiling)) {
+    pub(in crate::ui) fn edit_tiling(&mut self, f: impl FnOnce(&mut Tiling)) {
         let mut t = self.tiling_settings();
         f(&mut t);
         self.settings.tiling = Some(t);
@@ -292,11 +275,7 @@ impl App {
     }
 
     fn layouts_options(&self, section: &'static str) -> Element<'_, UiMsg> {
-        let g = &self.cfg.general;
         let dim = self.ink().dim;
-        let accent = color(g.theme.accent, 1.0);
-        let set = &g.tiling.options;
-        let current = self.panel.as_ref().map(|p| &p.layouts.current);
         let mut col = column![
             self.section(match section {
                 "dwindle" => "Dwindle",
@@ -323,124 +302,7 @@ impl App {
         ]
         .spacing(14);
         for o in tiling::OPTIONS.iter().filter(|o| o.section == section) {
-            let path = o.path();
-            let ours = set.get(&path).cloned();
-            let theirs = current.and_then(|c| c.get(&path)).cloned();
-            let control: Element<'_, UiMsg> = match &o.kind {
-                Kind::Bool => {
-                    let on = match &ours {
-                        Some(OptValue::Bool(b)) => *b,
-                        _ => matches!(theirs.as_deref(), Some("true") | Some("1")),
-                    };
-                    let p = path.clone();
-                    toggler(on)
-                        .on_toggle(move |v| wrap(Msg::Opt(p.clone(), Some(OptValue::Bool(v)))))
-                        .into()
-                }
-                Kind::Num { min, max, step } => {
-                    let v = match &ours {
-                        Some(OptValue::Num(n)) => *n,
-                        _ => theirs
-                            .as_deref()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or(*min),
-                    };
-                    let p = path.clone();
-                    row![
-                        slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
-                            Msg::Drag(p.clone(), x as f64)
-                        ))
-                        .step(*step as f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("{}", (v * 100.0).round() / 100.0))
-                            .font(self.font)
-                            .size(13),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .into()
-                }
-                Kind::IntChoice(list) => {
-                    let choices: Vec<ValueChoice> = list
-                        .iter()
-                        .map(|(v, l)| ValueChoice {
-                            value: OptValue::Num(*v as f64),
-                            label: crate::i18n::tr(l).to_string(),
-                        })
-                        .collect();
-                    let now = ours.clone().or_else(|| {
-                        theirs
-                            .as_deref()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .map(OptValue::Num)
-                    });
-                    let sel = choices
-                        .iter()
-                        .find(|c| Some(&c.value) == now.as_ref())
-                        .cloned();
-                    let p = path.clone();
-                    pick_list(choices, sel, move |c: ValueChoice| {
-                        wrap(Msg::Opt(p.clone(), Some(c.value)))
-                    })
-                    .font(self.font)
-                    .width(320)
-                    .into()
-                }
-                Kind::Choice(list) => {
-                    let choices: Vec<ValueChoice> = list
-                        .iter()
-                        .map(|(v, l)| ValueChoice {
-                            value: OptValue::Str(v.to_string()),
-                            label: crate::i18n::tr(l).to_string(),
-                        })
-                        .collect();
-                    let now = ours.clone().or_else(|| theirs.clone().map(OptValue::Str));
-                    let sel = choices
-                        .iter()
-                        .find(|c| Some(&c.value) == now.as_ref())
-                        .cloned();
-                    let p = path.clone();
-                    pick_list(choices, sel, move |c: ValueChoice| {
-                        wrap(Msg::Opt(p.clone(), Some(c.value)))
-                    })
-                    .font(self.font)
-                    .width(320)
-                    .into()
-                }
-            };
-            // Réglé ici : un bouton rend la main à hyprland.lua.
-            let origin: Element<'_, UiMsg> = if ours.is_some() {
-                let p = path.clone();
-                row![
-                    text(crate::i18n::tr("réglé ici"))
-                        .font(self.font)
-                        .size(12)
-                        .color(accent),
-                    button(text(crate::i18n::tr("Rétablir")).font(self.font).size(12))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Opt(p, None))),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center)
-                .into()
-            } else {
-                text(crate::i18n::tr("hyprland.lua"))
-                    .font(self.font)
-                    .size(12)
-                    .color(dim)
-                    .into()
-            };
-            col = col.push(
-                self.field(
-                    o.label,
-                    "",
-                    row![container(control).width(Length::Fill), origin]
-                        .spacing(10)
-                        .align_y(Alignment::Center),
-                ),
-            );
+            col = col.push(self.opt_field(crate::ui::hyprset::Store::Tiling, &o.path()));
         }
         col.into()
     }
@@ -659,25 +521,6 @@ impl App {
                 });
                 self.commit()
             }
-            Msg::Opt(path, v) => {
-                self.edit_tiling(|t| match v {
-                    Some(v) => {
-                        t.options.insert(path, v);
-                    }
-                    None => {
-                        t.options.remove(&path);
-                    }
-                });
-                self.commit()
-            }
-            Msg::Drag(path, x) => {
-                let x = (x * 100.0).round() / 100.0;
-                self.edit_tiling(|t| {
-                    t.options.insert(path, OptValue::Num(x));
-                });
-                self.apply()
-            }
-            Msg::Commit => self.commit(),
             Msg::Current(m) => {
                 if let Some(p) = self.panel.as_mut() {
                     p.layouts.current = m;

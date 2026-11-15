@@ -10,6 +10,32 @@ and this project adheres to
 
 ### Added
 
+- **hyprdesk writes the Hyprland settings it manages** (MLG-137, MLG-139).
+  Effects, animations, curves, layouts, borders, rules, environment and the
+  new options below are written to generated files, one per domain
+  (`appearance.lua`, `animations.lua`, `layouts.lua`, `rules.lua`,
+  `env.lua`, `system.lua`, plus an advanced block in `inputs.lua`), loaded at
+  the end of `hyprland.lua`. They used to be applied live only, so
+  `hyprland.lua` showed values that were not running. At startup (and with
+  `hyprdesk hyprland-adopt [--dry-run]`) the lines of `hyprland.lua` on those
+  domains are taken over: values imported, lines commented with
+  `-- [hyprdesk]`; computed values (`os.getenv`…) stay. Every write is
+  checked by reloading Hyprland and rolled back on a new config error, and
+  the history keeps the previous state.
+- **Settings → Windows** (MLG-141): gaps (one value or four sides), border
+  size and gradients, borders in theme colours, resize on border, snapping,
+  window rules editor (class/title, floating, pinned, opacity, border
+  colour, size, idle inhibit, workspace), tabbed groups and their bar.
+- **Keyboard and mouse → Cursor, Gestures, Advanced** (MLG-142): cursor
+  theme and size (applied at once), hiding, warping, zoom; workspace swipe;
+  no acceleration, scroll method and speed, touchpad drag options.
+- **Configuration → Environment, Behaviour, Advanced** (MLG-144):
+  environment variables, `misc` options (DPMS wake, focus, swallowing,
+  logo, session lock restore…), binds options, XWayland, rendering,
+  ecosystem and debug.
+- One renderer for every Hyprland option in Settings, telling where a value
+  comes from: set here, the `hyprland.lua` line, or Hyprland's default.
+
 - **Settings → Performance → hyprdesk engine.** How hyprdesk itself draws and
   runs, applied on restart (a "Restart hyprdesk" button appears when the
   settings differ from the running process):

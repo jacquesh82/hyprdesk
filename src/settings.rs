@@ -210,6 +210,8 @@ pub struct Settings {
     pub tiling: Option<crate::tiling::Tiling>,
     /// Animations et effets de Hyprland (paquet « Animations »).
     pub fx: Option<crate::fx::Fx>,
+    /// Autres options de Hyprland (`hypr = { ["general.gaps_in"] = … }`).
+    pub hypr: Option<crate::hyprset::Hypr>,
     /// Paquets intégrés désactivés.
     pub disabled_plugins: Option<std::collections::BTreeSet<String>>,
     /// Applications par défaut réglées ici, par rôle.
@@ -476,6 +478,7 @@ impl Settings {
             .then(|| g.tiling.clone()),
             disabled_plugins: has("disabled_plugins").then(|| g.disabled_plugins.clone()),
             fx: has("fx").then(|| g.fx.clone()),
+            hypr: has("hypr").then(|| g.hypr.clone()),
             apps: g
                 .apps
                 .iter()
@@ -737,6 +740,7 @@ impl Settings {
         set!(gpu, "gpu", g.gpu);
         set!(worker_threads, "worker_threads", g.worker_threads);
         set!(fx, "fx", g.fx);
+        set!(hypr, "hypr", g.hypr);
         if let Some(t) = &self.tiling {
             if free("layout") {
                 g.tiling.layout = t.layout.clone();
@@ -1259,6 +1263,9 @@ impl Settings {
         }
         if let Some(fx) = self.fx.as_ref().filter(|f| !f.is_empty()) {
             cfg.push(format!("fx = {}", fx.to_lua()));
+        }
+        if let Some(h) = self.hypr.as_ref().filter(|h| !h.is_empty()) {
+            cfg.push(format!("hypr = {}", h.to_lua()));
         }
         if let Some(t) = &self.tiling {
             if let Some(l) = &t.layout {

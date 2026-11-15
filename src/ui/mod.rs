@@ -23,6 +23,7 @@ mod context;
 mod convex;
 mod design;
 mod desk_layout;
+mod hyprset;
 mod icons;
 mod kinetic;
 mod mymfa;
@@ -135,6 +136,8 @@ pub enum Msg {
     /// s'ouvre sur cet écran.
     On(String, Box<Msg>),
     Panel(PanelMsg),
+    /// Options de Hyprland (rendu unique, `hyprset.rs`).
+    HyprSet(hyprset::Msg),
     /// Tiroir de l'assistant (LYRA, protocole serve).
     Chat(chat::ChatMsg),
     SettingsLoaded(u64, DeskSettings),
@@ -561,6 +564,17 @@ pub struct App {
     last_clock: String,
     /// Session verrouillée (`hyprdesk lock` tourne) : relevé à chaque `Poll`.
     locked: bool,
+    /// Saisies en cours des options de Hyprland (couleurs, côtés, texte).
+    opt_drafts: HashMap<String, String>,
+    /// Saisies refusées : chemin → message.
+    opt_errors: HashMap<String, String>,
+    /// Valeurs en vigueur des options `hypr` (`hl.get_config`).
+    hypr_current: std::collections::BTreeMap<String, String>,
+    /// Ce que définit hyprland.lua (lignes, valeurs), relu à l'ouverture
+    /// des Réglages.
+    hypr_source: Option<Arc<crate::hyprsrc::Source>>,
+    /// Aperçu ou essais : rien n'est écrit dans les fichiers de Hyprland.
+    preview: bool,
 }
 
 /// Surfaces qu'un message peut changer (MLG-131, `iced_layershell::damage`) :
@@ -1024,6 +1038,11 @@ impl App {
             ui_family: crate::fonts::FAMILY,
             last_clock: String::new(),
             locked: false,
+            opt_drafts: HashMap::new(),
+            opt_errors: HashMap::new(),
+            hypr_current: Default::default(),
+            hypr_source: None,
+            preview,
         };
         let apps = Task::perform(
             async {
@@ -1277,6 +1296,17 @@ impl App {
         // Animations et effets de Hyprland réglés dans hyprdesk (paquet « Animations »).
         if plugins::animations::effective(&old) != plugins::animations::effective(&self.cfg) {
             tasks.push(self.sync_fx());
+        }
+        // Autres options de Hyprland (fenêtres, groupes, curseur…). Une option
+        // retirée demande de relire la config de Hyprland.
+        if old.general.hypr != self.cfg.general.hypr {
+            let removed = old
+                .general
+                .hypr
+                .options
+                .keys()
+                .any(|k| !self.cfg.general.hypr.options.contains_key(k));
+            tasks.push(self.sync_hypr(removed));
         }
         // État de l'écran de verrouillage (valeurs résolues : le verrou n'exécute pas de Lua).
         tasks.push(self.sync_lock_state());
@@ -3881,6 +3911,7 @@ impl App {
                     self.sync_lyra_drawer(),
                     self.sync_tiling(),
                     self.sync_fx(),
+                    self.sync_hypr(false),
                 ];
                 if self.in_submap {
                     self.in_submap = false;
@@ -4093,7 +4124,10 @@ impl App {
                         crate::i18n::tr("hyprdesk : configuration rechargée"),
                     );
                 }
-                Task::batch([close, self.install_config(cfg)])
+                // Config lue sur le disque (enregistrée) : les fichiers de
+                // Hyprland générés par hyprdesk la suivent (rien si à jour).
+                let files = self.sync_genfiles(&cfg);
+                Task::batch([close, self.install_config(cfg), files])
             }
             Msg::ConfigLoaded(Err(e)) => {
                 tracing::error!("{}", crate::tr!("config : {e}", e = e));
@@ -4202,6 +4236,7 @@ impl App {
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
             Msg::Search(m) => self.search_update(m),
+            Msg::HyprSet(m) => self.hyprset_update(m),
             Msg::IconContext(win, idx) => {
                 self.drag = None;
                 self.open_icon_menu(win, idx)

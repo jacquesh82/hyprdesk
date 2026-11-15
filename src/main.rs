@@ -3,6 +3,7 @@
 //! Le même binaire est le démon (`hyprdesk`, `hyprdesk daemon`) et son client
 //! (`hyprdesk toggle`, à lier à une touche dans `hyprland.lua`).
 
+mod adopt;
 mod ai_services;
 mod apps;
 mod apptheme;
@@ -25,6 +26,7 @@ mod essentials;
 mod fileindex;
 mod fonts;
 mod fx;
+mod genfiles;
 mod greeter;
 mod greeter_setup;
 mod greeter_ui;
@@ -32,6 +34,9 @@ mod history;
 mod hypr;
 mod hyprbars;
 mod hyprcheck;
+mod hyprset;
+mod hyprsrc;
+mod hyprwrite;
 mod i18n;
 mod idle;
 mod inputs;
@@ -435,6 +440,24 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             hypr::notify(1, 10000, &msg);
         }
         Ok(None) => {}
+        Err(e) => {
+            tracing::warn!("{e}");
+            hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
+        }
+    }
+    // Réglages de Hyprland tenus par hyprdesk : repris de hyprland.lua (lignes
+    // commentées), écrits dans les fichiers générés (MLG-139). Vérifié par
+    // Hyprland : tout est rendu tel quel s'il signale une erreur nouvelle.
+    match adopt::run(&path) {
+        Ok(d) if !d.adopted.is_empty() => {
+            let msg = crate::tr!("hyprdesk : {s}", s = adopt::summary(&d));
+            tracing::info!("{msg}");
+            for l in &d.left {
+                tracing::info!("{}", crate::tr!("laissé dans hyprland.lua : {l}", l = l));
+            }
+            hypr::notify(1, 10000, &msg);
+        }
+        Ok(_) => {}
         Err(e) => {
             tracing::warn!("{e}");
             hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
@@ -1539,7 +1562,7 @@ fn main() -> ExitCode {
             }
         }
         c @ ("autostart" | "lid" | "window" | "hyprland-check" | "hyprland-fix"
-        | "window-places" | "icons" | "app-theme" | "colors") => {
+        | "hyprland-adopt" | "window-places" | "icons" | "app-theme" | "colors") => {
             match cli_tools::run(c, &config_path, &args[1..]) {
                 Some(Ok(out)) => {
                     println!("{}", out.trim_end());

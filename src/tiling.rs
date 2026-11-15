@@ -12,6 +12,7 @@
 //! hyprland.lua. Un réglage retiré fait relire sa config à Hyprland (rien ne
 //! « défait » une option posée à chaud), puis hyprdesk repose les siens.
 
+use crate::config::Rgba;
 use std::collections::BTreeMap;
 
 /// Layouts intégrés de Hyprland : (nom, libellé).
@@ -85,12 +86,23 @@ pub const CUSTOM: &[Custom] = &[
     },
 ];
 
-/// Valeur d'une option de layout.
+/// Valeur d'une option de Hyprland (layouts, effets, fenêtres…).
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptValue {
     Bool(bool),
     Num(f64),
     Str(String),
+    /// Couleur (`rgba(rrggbbaa)`).
+    Color(Rgba),
+    /// Dégradé : couleurs et angle en degrés (`{ colors = {…}, angle = n }`).
+    Gradient(Vec<Rgba>, i32),
+    /// Quatre côtés : haut, droite, bas, gauche (`gaps_out`).
+    Sides([i32; 4]),
+}
+
+/// Couleur au format de Hyprland.
+pub fn hypr_color(c: Rgba) -> String {
+    format!("rgba({:02x}{:02x}{:02x}{:02x})", c.0, c.1, c.2, c.3)
 }
 
 impl OptValue {
@@ -100,6 +112,17 @@ impl OptValue {
             OptValue::Num(n) if n.fract() == 0.0 => format!("{}", *n as i64),
             OptValue::Num(n) => format!("{n}"),
             OptValue::Str(s) => format!("\"{}\"", hyprpanel_core::ipc::lua_escape(s)),
+            OptValue::Color(c) => format!("\"{}\"", hypr_color(*c)),
+            OptValue::Gradient(cs, angle) => {
+                let list: Vec<String> = cs
+                    .iter()
+                    .map(|c| format!("\"{}\"", hypr_color(*c)))
+                    .collect();
+                format!("{{ colors = {{ {} }}, angle = {angle} }}", list.join(", "))
+            }
+            OptValue::Sides([t, r, b, l]) => {
+                format!("{{ top = {t}, right = {r}, bottom = {b}, left = {l} }}")
+            }
         }
     }
 
@@ -108,6 +131,59 @@ impl OptValue {
             OptValue::Bool(b) => if *b { "on" } else { "off" }.into(),
             OptValue::Num(n) => format!("{}", (n * 100.0).round() / 100.0),
             OptValue::Str(s) => s.clone(),
+            OptValue::Color(c) => crate::settings::hex(*c),
+            OptValue::Gradient(cs, angle) => {
+                let list: Vec<String> = cs.iter().map(|c| crate::settings::hex(*c)).collect();
+                format!("{} {angle}deg", list.join(" "))
+            }
+            OptValue::Sides([t, r, b, l]) => {
+                if t == r && r == b && b == l {
+                    t.to_string()
+                } else {
+                    format!("{t} {r} {b} {l}")
+                }
+            }
+        }
+    }
+
+    /// Valeur lue dans un fichier Lua (`hyprsrc`), selon la nature attendue.
+    pub fn from_json(kind: &Kind, v: &serde_json::Value) -> Option<OptValue> {
+        use serde_json::Value as J;
+        match (kind, v) {
+            (Kind::Gradient, J::Object(m)) => {
+                let colors: Vec<Rgba> = m
+                    .get("colors")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(|c| c.as_str().and_then(Rgba::parse))
+                    .collect();
+                let angle = m.get("angle").and_then(J::as_i64).unwrap_or(0) as i32;
+                (!colors.is_empty()).then_some(OptValue::Gradient(colors, angle))
+            }
+            (Kind::Gradient, J::String(s)) => {
+                Rgba::parse(s).map(|c| OptValue::Gradient(vec![c], 0))
+            }
+            (Kind::Sides { .. }, J::Object(m)) => {
+                let side = |k: &str| m.get(k).and_then(J::as_i64).unwrap_or(0) as i32;
+                Some(OptValue::Sides([
+                    side("top"),
+                    side("right"),
+                    side("bottom"),
+                    side("left"),
+                ]))
+            }
+            (_, J::Bool(b)) => Some(OptValue::Bool(*b)),
+            (Kind::Bool, J::Number(n)) => Some(OptValue::Bool(n.as_f64()? != 0.0)),
+            (_, J::Number(n)) => match kind {
+                Kind::Sides { .. } => {
+                    let n = n.as_i64()? as i32;
+                    Some(OptValue::Sides([n; 4]))
+                }
+                _ => Some(OptValue::Num(n.as_f64()?)),
+            },
+            (Kind::Color, J::String(s)) => Rgba::parse(s).map(OptValue::Color),
+            (_, J::String(s)) => Some(OptValue::Str(s.clone())),
+            _ => None,
         }
     }
 }
@@ -124,6 +200,16 @@ pub enum Kind {
     IntChoice(&'static [(i64, &'static str)]),
     /// Chaîne parmi des valeurs : (valeur, libellé).
     Choice(&'static [(&'static str, &'static str)]),
+    /// Couleur.
+    Color,
+    /// Dégradé de couleurs avec angle.
+    Gradient,
+    /// Texte libre (regex, nom de thème…).
+    Text,
+    /// Une valeur ou quatre côtés (haut, droite, bas, gauche), de 0 à `max`.
+    Sides {
+        max: i32,
+    },
 }
 
 /// Option d'un layout de Hyprland.
@@ -184,6 +270,53 @@ impl Opt {
                         allowed = all.join(", ")
                     )
                 }),
+            Kind::Color => Rgba::parse(v).map(OptValue::Color).ok_or_else(|| {
+                crate::tr!("« {v} » : couleur #rrggbb[aa] ou rgba(…) attendue", v = v)
+            }),
+            // Forme de Hyprland : `rgba(…) rgba(…) 90deg`.
+            Kind::Gradient => {
+                let mut colors = Vec::new();
+                let mut angle = 0;
+                for part in v.split_whitespace() {
+                    if let Some(a) = part.strip_suffix("deg") {
+                        angle = a
+                            .parse()
+                            .map_err(|_| crate::tr!("« {v} » : angle invalide", v = v))?;
+                    } else {
+                        colors.push(Rgba::parse(part).ok_or_else(|| {
+                            crate::tr!("« {v} » : couleur #rrggbb[aa] ou rgba(…) attendue", v = v)
+                        })?);
+                    }
+                }
+                if colors.is_empty() {
+                    return Err(crate::tr!(
+                        "« {v} » : couleur #rrggbb[aa] ou rgba(…) attendue",
+                        v = v
+                    ));
+                }
+                Ok(OptValue::Gradient(colors, angle))
+            }
+            Kind::Text => Ok(OptValue::Str(v.to_string())),
+            Kind::Sides { max } => {
+                let nums: Vec<i32> = v
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|p| !p.is_empty())
+                    .map(|p| p.parse::<i32>())
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| crate::tr!("« {v} » : 1 ou 4 nombres attendus", v = v))?;
+                let ok = |n: &i32| (0..=*max).contains(n);
+                match nums.as_slice() {
+                    [a] if ok(a) => Ok(OptValue::Sides([*a; 4])),
+                    [t, r, b, l] if [t, r, b, l].iter().all(|n| ok(n)) => {
+                        Ok(OptValue::Sides([*t, *r, *b, *l]))
+                    }
+                    _ => Err(crate::tr!(
+                        "« {v} » : 1 ou 4 nombres entre 0 et {max}",
+                        v = v,
+                        max = max
+                    )),
+                }
+            }
         }
     }
 }
@@ -483,6 +616,39 @@ pub fn register_lua() -> String {
         })
         .collect();
     format!("if not __hyprdesk_layouts then\n  __hyprdesk_layouts = true\n{regs}end\n")
+}
+
+/// Layouts pour `layouts.lua` (MLG-139) : layouts personnalisés employés,
+/// layout par défaut, options, layout par workspace ; sans marqueur d'état.
+pub fn file_lua(t: &Tiling) -> String {
+    let mut lua = String::new();
+    let used: Vec<&str> = t
+        .layout
+        .iter()
+        .chain(t.workspaces.values())
+        .map(String::as_str)
+        .collect();
+    for c in CUSTOM.iter().filter(|c| used.contains(&c.name)) {
+        lua += &format!(
+            "hl.layout.register(\"hyprdesk-{}\", {{ recalculate = function(ctx)\n{}\nend }})\n",
+            c.name, c.lua
+        );
+    }
+    let mut opts = t.options.clone();
+    if let Some(l) = &t.layout {
+        opts.insert("general.layout".into(), OptValue::Str(hypr_name(l)));
+    }
+    if !opts.is_empty() {
+        lua += &format!("hl.config({})\n", crate::hyprset::nested(&opts));
+    }
+    for (ws, l) in &t.workspaces {
+        lua += &format!(
+            "hl.workspace_rule({{ workspace = \"{}\", layout = \"{}\" }})\n",
+            hyprpanel_core::ipc::lua_escape(ws),
+            hyprpanel_core::ipc::lua_escape(&hypr_name(l))
+        );
+    }
+    lua
 }
 
 /// Lua qui pose les réglages (`keys` : clés posées, gardées pour la suite).

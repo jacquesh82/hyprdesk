@@ -1259,6 +1259,9 @@ pub struct General {
     pub tiling: crate::tiling::Tiling,
     /// Animations et effets de Hyprland réglés dans hyprdesk (paquet « Animations »).
     pub fx: crate::fx::Fx,
+    /// Autres options de Hyprland réglées dans hyprdesk (fenêtres, groupes,
+    /// curseur, comportement…, `crate::hyprset`).
+    pub hypr: crate::hyprset::Hypr,
     /// Paquets intégrés désactivés (`hd.config({ disabled_plugins = { "bar" } })`) :
     /// retirés des réglages, et leur fonction est coupée.
     pub disabled_plugins: std::collections::BTreeSet<String>,
@@ -1336,6 +1339,7 @@ impl Default for General {
             worker_threads: crate::render::DEFAULT_WORKERS,
             tiling: Default::default(),
             fx: Default::default(),
+            hypr: Default::default(),
         }
     }
 }

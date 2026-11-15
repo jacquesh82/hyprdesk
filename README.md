@@ -236,7 +236,9 @@ closes the dock or returns focus to the full desktop.
   and adjust animations, shortcuts, and idle delays. Pick a rendering profile
   (Performance, Balanced, or Visual quality) to trade effects for CPU and GPU
   load, and choose how hyprdesk itself renders (graphics card or processor,
-  integrated or discrete GPU, worker threads). Display layout changes revert after 12 seconds unless you keep them.
+  integrated or discrete GPU, worker threads). Borders, gaps, window rules,
+  groups, cursor, gestures, environment and behaviour are set there too, and
+  hyprdesk writes them to generated files loaded by `hyprland.lua`. Display layout changes revert after 12 seconds unless you keep them.
 - **Set up your session.** Configure autostart, laptop lid behavior, the lock
   screen with fingerprint support, notifications, screenshots, and screen
   recording. The installer also offers a greetd login screen and a

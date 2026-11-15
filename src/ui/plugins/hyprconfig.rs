@@ -25,7 +25,13 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Onglets : le ménage de hyprland.lua, puis l'historique de la configuration.
-pub const TABS: &[super::SubTab] = &[("menage", "Ménage"), ("historique", "Historique")];
+pub const TABS: &[super::SubTab] = &[
+    ("menage", "Ménage"),
+    ("historique", "Historique"),
+    ("environnement", "Environnement"),
+    ("comportement", "Comportement"),
+    ("avance", "Avancé"),
+];
 
 /// Lignes d'extrait du diff affichées sous un instantané déplié.
 const EXCERPT_LINES: usize = 40;
@@ -156,6 +162,16 @@ impl App {
     pub(in crate::ui) fn hyprconfig_page(&self) -> Element<'_, UiMsg> {
         if self.on_subtab(INFO.id, "historique") {
             return self.hyprconfig_history();
+        }
+        // Onglets tenus par le registre `hyprset` (MLG-144).
+        if self.on_subtab(INFO.id, "environnement") {
+            return self.env_editor();
+        }
+        if self.on_subtab(INFO.id, "comportement") {
+            return self.hyprset_tab("comportement");
+        }
+        if self.on_subtab(INFO.id, "avance") {
+            return self.hyprset_tab("avance");
         }
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);

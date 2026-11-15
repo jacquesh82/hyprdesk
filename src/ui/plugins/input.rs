@@ -26,6 +26,9 @@ pub const TABS: &[super::SubTab] = &[
     ("clavier", "Clavier"),
     ("souris", "Souris"),
     ("pave", "Pavé tactile"),
+    ("curseur", "Curseur"),
+    ("gestes", "Gestes"),
+    ("avance", "Avancé"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -126,6 +129,18 @@ fn save(config_path: std::path::PathBuf, i: Inputs) -> Task<UiMsg> {
 
 impl App {
     pub(in crate::ui) fn input_page(&self) -> Element<'_, UiMsg> {
+        // Onglets tenus par le registre `hyprset` (MLG-142).
+        if self.on_subtab(INFO.id, "curseur") {
+            return column![self.cursor_theme_editor(), self.hyprset_tab("curseur")]
+                .spacing(14)
+                .into();
+        }
+        if self.on_subtab(INFO.id, "gestes") {
+            return self.hyprset_tab("gestes");
+        }
+        if self.on_subtab(INFO.id, "avance") {
+            return self.hyprset_tab("entrees");
+        }
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
             return text("Lecture…").font(self.font).size(13).color(dim).into();

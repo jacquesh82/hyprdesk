@@ -279,6 +279,9 @@ impl App {
             themes,
             // Valeurs de hyprland.lua : flou coupé → tiroir opaque.
             plugins::animations::load_current(),
+            // Options de Hyprland : valeurs en vigueur, lignes de hyprland.lua.
+            self.load_hypr_current(),
+            self.load_hypr_source(),
             Task::perform(
                 async {
                     tokio::task::spawn_blocking(launch::font_families)

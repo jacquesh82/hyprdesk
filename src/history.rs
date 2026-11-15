@@ -200,6 +200,8 @@ pub fn reason_label(r: &str) -> String {
         "cli" => crate::i18n::tr("Ligne de commande"),
         "retour-arriere" => crate::i18n::tr("Avant un retour arrière"),
         "main" => crate::i18n::tr("Modification à la main"),
+        "adoption" => crate::i18n::tr("Reprise de hyprland.lua"),
+        "assistant" => crate::i18n::tr("Assistant de configuration"),
         other => other,
     }
     .to_string()

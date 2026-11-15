@@ -46,6 +46,7 @@ pub mod sound;
 pub mod theme;
 pub mod wallpaper;
 pub mod widgets;
+pub mod windows;
 pub mod workspaces;
 
 /// Manifeste d'un paquet de réglages.
@@ -81,6 +82,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     screens::INFO,
     colors::INFO,
     workspaces::INFO,
+    windows::INFO,
     layouts::INFO,
     effects::INFO,
     animations::INFO,
@@ -125,7 +127,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Fenêtres et écrans",
-        ids: &["screens", "colors", "workspaces", "layouts"],
+        ids: &["screens", "colors", "workspaces", "layouts", "windows"],
     },
     Group {
         label: "Périphériques et réseau",
@@ -192,6 +194,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "workspaces" => workspaces::TABS,
         "layouts" => layouts::TABS,
         "animations" => animations::TABS,
+        "windows" => windows::TABS,
         "performance" => performance::TABS,
         "widgets" => widgets::TABS,
         "lock" => lock::TABS,
@@ -442,6 +445,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "screens" => app.tab_screens(),
         "workspaces" => app.tab_workspaces(p),
         "layouts" => app.layouts_page(),
+        "windows" => app.windows_page(),
         "animations" => app.animations_page(),
         "performance" => app.performance_page(),
         "sound" => app.sound_page(),

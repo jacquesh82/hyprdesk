@@ -71,6 +71,7 @@ fn shown(path: &str, v: Option<&OptValue>) -> String {
             _ => OptValue::Num(*n).display(),
         },
         Some(OptValue::Str(s)) => s.clone(),
+        Some(other) => other.display(),
     }
 }
 

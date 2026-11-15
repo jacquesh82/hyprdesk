@@ -16,7 +16,7 @@ use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
 use crate::fx::{self, Anim, Fx};
-use crate::tiling::{Kind, OptValue};
+use crate::tiling::OptValue;
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "animations",
@@ -42,10 +42,6 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    /// Effet (chemin, valeur ; `None` : celle de hyprland.lua).
-    Opt(String, Option<OptValue>),
-    /// Curseur d'un effet en cours de glissé (aperçu), puis enregistrement.
-    Drag(String, f64),
     /// Réglage d'un élément animé (`None` : celui de hyprland.lua).
     Anim(String, Option<Anim>),
     /// Durée d'un élément en cours de glissé.
@@ -164,82 +160,9 @@ impl App {
         }
     }
 
-    /// Contrôle d'un effet selon sa nature.
+    /// Contrôle d'un effet selon sa nature (rendu unique, `ui::hyprset`).
     pub(in crate::ui) fn fx_option(&self, path: &'static str) -> Element<'_, UiMsg> {
-        let Some(o) = fx::opt(path) else {
-            return iced::widget::Space::new().into();
-        };
-        let ours = self.cfg.general.fx.options.get(path).cloned();
-        let theirs = self
-            .panel
-            .as_ref()
-            .and_then(|p| p.animations.current.get(path))
-            .cloned();
-        let control: Element<'_, UiMsg> = match &o.kind {
-            Kind::Bool => {
-                let on = match &ours {
-                    Some(OptValue::Bool(b)) => *b,
-                    _ => matches!(theirs.as_deref(), Some("true") | Some("1")),
-                };
-                toggler(on)
-                    .on_toggle(move |v| wrap(Msg::Opt(path.into(), Some(OptValue::Bool(v)))))
-                    .into()
-            }
-            Kind::Num { min, max, step } => {
-                let v = match &ours {
-                    Some(OptValue::Num(n)) => *n,
-                    _ => theirs
-                        .as_deref()
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(*min),
-                };
-                row![
-                    slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
-                        Msg::Drag(path.into(), x as f64)
-                    ))
-                    .step(*step as f32)
-                    .on_release(wrap(Msg::Commit))
-                    .width(240),
-                    text(format!("{}", (v * 100.0).round() / 100.0))
-                        .font(self.font)
-                        .size(13),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
-            }
-            Kind::IntChoice(list) => {
-                let choices: Vec<Choice<i64>> = list
-                    .iter()
-                    .map(|(v, l)| Choice {
-                        value: *v,
-                        label: crate::i18n::tr(l).to_string(),
-                    })
-                    .collect();
-                let now = match &ours {
-                    Some(OptValue::Num(n)) => Some(*n as i64),
-                    _ => theirs.as_deref().and_then(|s| s.parse::<i64>().ok()),
-                };
-                let sel = choices.iter().find(|c| Some(c.value) == now).cloned();
-                pick_list(choices, sel, move |c: Choice<i64>| {
-                    wrap(Msg::Opt(path.into(), Some(OptValue::Num(c.value as f64))))
-                })
-                .font(self.font)
-                .width(240)
-                .into()
-            }
-            Kind::Choice(_) => iced::widget::Space::new().into(),
-        };
-        self.field(
-            o.label,
-            "",
-            row![
-                container(control).width(Length::Fill),
-                self.fx_origin(ours.is_some(), wrap(Msg::Opt(path.into(), None)))
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-        )
+        self.opt_field(crate::ui::hyprset::Store::Fx, path)
     }
 
     fn fx_effects(&self) -> Element<'_, UiMsg> {
@@ -411,24 +334,6 @@ impl App {
 
     pub(in crate::ui) fn animations_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
-            Msg::Opt(path, v) => {
-                self.edit_fx(|f| match v {
-                    Some(v) => {
-                        f.options.insert(path, v);
-                    }
-                    None => {
-                        f.options.remove(&path);
-                    }
-                });
-                self.commit()
-            }
-            Msg::Drag(path, x) => {
-                let x = (x * 100.0).round() / 100.0;
-                self.edit_fx(|f| {
-                    f.options.insert(path, OptValue::Num(x));
-                });
-                self.apply()
-            }
             Msg::Anim(leaf, a) => {
                 self.edit_fx(|f| match a {
                     Some(a) => {

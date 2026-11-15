@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 124] = [
+const SCENES: [&str; 128] = [
     "desktop",
     "typography",
     "icons",
@@ -149,6 +149,10 @@ const SCENES: [&str; 124] = [
     "bar-convex-dock-shown",
     "bar-convex-notification",
     "performance",
+    "fenetres-apparence",
+    "fenetres-regles",
+    "curseur",
+    "environnement",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -738,6 +742,9 @@ impl Preview {
             "son" => Some("sound"),
             "energie" => Some("energy"),
             "performance" => Some("performance"),
+            "fenetres-apparence" | "fenetres-regles" => Some("windows"),
+            "curseur" => Some("input"),
+            "environnement" => Some("hyprconfig"),
             "date-heure" => Some("datetime"),
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
@@ -1169,6 +1176,49 @@ impl Preview {
                     "services"
                 },
             );
+        }
+        // Fenêtres, curseur, environnement (MLG-141, 142, 144) : valeurs
+        // d'exemple, l'aperçu ne lit pas Hyprland.
+        if matches!(
+            SCENES[self.scene],
+            "fenetres-apparence" | "fenetres-regles" | "curseur" | "environnement"
+        ) {
+            use crate::tiling::OptValue;
+            let h = &mut Arc::make_mut(&mut self.app.cfg).general.hypr;
+            h.options
+                .insert("general.gaps_in".into(), OptValue::Sides([5; 4]));
+            h.options
+                .insert("general.border_size".into(), OptValue::Num(2.0));
+            h.options.insert(
+                "general.col.active_border".into(),
+                OptValue::Gradient(
+                    vec![
+                        crate::config::Rgba(0x45, 0x41, 0x58, 0xff),
+                        crate::config::Rgba(0x95, 0x80, 0xff, 0xff),
+                    ],
+                    90,
+                ),
+            );
+            h.env = vec![
+                ("XCURSOR_THEME".into(), "Adwaita".into()),
+                ("XCURSOR_SIZE".into(), "24".into()),
+                ("QT_QPA_PLATFORM".into(), "wayland;xcb".into()),
+            ];
+            h.rules = vec![crate::hyprset::Rule {
+                kind: crate::hyprset::RuleKind::Window,
+                body: serde_json::json!({
+                    "name": "float-pavucontrol",
+                    "match": { "class": "^(pavucontrol)$" },
+                    "float": true
+                }),
+            }];
+            let tab = match SCENES[self.scene] {
+                "fenetres-regles" => ("windows", "regles"),
+                "curseur" => ("input", "curseur"),
+                "environnement" => ("hyprconfig", "environnement"),
+                _ => ("windows", "apparence"),
+            };
+            self.app.subtabs.insert(tab.0, tab.1);
         }
         if SCENES[self.scene] == "veille" {
             self.app.subtabs.insert("lock", "veille");

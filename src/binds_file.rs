@@ -33,14 +33,14 @@ pub fn path(config_path: &Path) -> PathBuf {
 
 /// Une ligne, vue par le découpage : son code (chaînes vidées, commentaires
 /// retirés) et si elle n'est que commentaire.
-struct Lexed {
-    code: String,
+pub(crate) struct Lexed {
+    pub(crate) code: String,
     /// Ligne de commentaire seul (ou dans un long commentaire).
-    comment: bool,
+    pub(crate) comment: bool,
 }
 
 /// Code de chaque ligne, sans chaînes ni commentaires (longs compris).
-fn lex(src: &str) -> Vec<Lexed> {
+pub(crate) fn lex(src: &str) -> Vec<Lexed> {
     #[derive(Clone, Copy, PartialEq)]
     enum St {
         Code,
@@ -165,7 +165,7 @@ fn depth(code: &str) -> (i32, i32) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Blank,
     Comment,
     /// Un `hl.bind(…)`, ou un bloc qui en pose.
@@ -178,17 +178,17 @@ enum Kind {
 }
 
 /// Instruction de premier niveau : lignes [start, end).
-struct Item {
-    start: usize,
-    end: usize,
-    kind: Kind,
+pub(crate) struct Item {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) kind: Kind,
     /// Variable locale définie.
-    defines: Option<String>,
+    pub(crate) defines: Option<String>,
     /// Identifiants employés.
-    uses: BTreeSet<String>,
+    pub(crate) uses: BTreeSet<String>,
 }
 
-fn items(src: &str) -> Vec<Item> {
+pub(crate) fn items(src: &str) -> Vec<Item> {
     let lines: Vec<&str> = src.lines().collect();
     let lexed = lex(src);
     let mut out: Vec<Item> = Vec::new();

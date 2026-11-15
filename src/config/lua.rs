@@ -684,6 +684,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "smartui_style",
             "smartui_auto",
             "fx",
+            "hypr",
             "language",
             "renderer",
             "gpu",
@@ -1213,6 +1214,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(fx) = t.get::<Option<Table>>("fx")? {
         g.fx = crate::fx::parse(&fx).map_err(|e| err(format!("{CTX} : {e}")))?;
+    }
+    if let Some(h) = t.get::<Option<Table>>("hypr")? {
+        g.hypr = crate::hyprset::parse(&h).map_err(|e| err(format!("{CTX} : {e}")))?;
     }
     parse_ai(t, g)?;
     if let Some(v) = opt_bool(t, "launcher_smartui", CTX)? {
@@ -2805,6 +2809,12 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
                 crate::tiling::OptValue::Str(s) => {
                     Value::String(lua.create_string(s).map_err(|e| e.to_string())?)
                 }
+                // Options de plugin : jamais de couleur ni de côtés ; leur
+                // forme affichée reste lisible par le plugin.
+                other => Value::String(
+                    lua.create_string(other.display())
+                        .map_err(|e| e.to_string())?,
+                ),
             };
             opts.set(k.as_str(), v).map_err(|e| e.to_string())?;
         }

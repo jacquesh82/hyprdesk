@@ -356,6 +356,7 @@ pub fn style_label(s: &str) -> &'static str {
 }
 
 /// Courbe de mouvement.
+#[derive(Debug, Clone, PartialEq)]
 pub enum CurveDef {
     /// Courbe intégrée de Hyprland (`default`).
     Builtin,
@@ -447,16 +448,26 @@ impl Anim {
         }
     }
 
-    fn lua(&self, leaf: &str) -> String {
+    fn lua(&self, leaf: &str, user: &BTreeMap<String, CurveDef>) -> String {
         let mut f = vec![
             format!("leaf = \"{}\"", lua_escape(leaf)),
             format!("enabled = {}", self.enabled),
         ];
         if self.enabled {
             f.push(format!("speed = {}", OptValue::Num(self.speed).lua()));
-            match curve(&self.curve).map(|c| &c.def) {
-                Some(CurveDef::Spring { .. }) => f.push(format!("spring = \"hd-{}\"", self.curve)),
-                Some(CurveDef::Bezier(_)) => f.push(format!("bezier = \"hd-{}\"", self.curve)),
+            // Courbe de l'utilisateur (gardée sous son nom), puis catalogue
+            // de hyprdesk (`hd-<nom>`), sinon celle de Hyprland.
+            match (user.get(&self.curve), curve(&self.curve).map(|c| &c.def)) {
+                (Some(CurveDef::Spring { .. }), _) => {
+                    f.push(format!("spring = \"{}\"", lua_escape(&self.curve)))
+                }
+                (Some(_), _) => f.push(format!("bezier = \"{}\"", lua_escape(&self.curve))),
+                (None, Some(CurveDef::Spring { .. })) => {
+                    f.push(format!("spring = \"hd-{}\"", self.curve))
+                }
+                (None, Some(CurveDef::Bezier(_))) => {
+                    f.push(format!("bezier = \"hd-{}\"", self.curve))
+                }
                 _ => f.push("bezier = \"default\"".into()),
             }
             if let Some(s) = &self.style {
@@ -474,11 +485,61 @@ pub struct Fx {
     pub options: BTreeMap<String, OptValue>,
     /// Élément (`windowsIn`) → réglage.
     pub anims: BTreeMap<String, Anim>,
+    /// Courbes de l'utilisateur (reprises de hyprland.lua ou créées ici),
+    /// connues de Hyprland sous leur nom.
+    pub curves: BTreeMap<String, CurveDef>,
+}
+
+/// Courbe en Lua (`hl.curve`).
+fn curve_lua(name: &str, def: &CurveDef) -> Option<String> {
+    match def {
+        CurveDef::Builtin => None,
+        CurveDef::Bezier([x1, y1, x2, y2]) => Some(format!(
+            "hl.curve(\"{}\", {{ type = \"bezier\", points = {{ {{{x1}, {y1}}}, {{{x2}, {y2}}} }} }})",
+            lua_escape(name)
+        )),
+        CurveDef::Spring {
+            mass,
+            stiffness,
+            damping,
+        } => Some(format!(
+            "hl.curve(\"{}\", {{ type = \"spring\", mass = {mass}, stiffness = {stiffness}, damping = {damping} }})",
+            lua_escape(name)
+        )),
+    }
+}
+
+/// Courbe lue dans un fichier Lua (`hyprsrc`) : `{ type, points | mass… }`.
+pub fn curve_from_json(v: &serde_json::Value) -> Option<CurveDef> {
+    let n = |x: &serde_json::Value| x.as_f64();
+    match v.get("type").and_then(|t| t.as_str()).unwrap_or("bezier") {
+        "spring" => Some(CurveDef::Spring {
+            mass: n(v.get("mass")?)?,
+            stiffness: n(v.get("stiffness")?)?,
+            damping: n(v.get("damping")?)?,
+        }),
+        _ => {
+            let p = v.get("points")?.as_array()?;
+            let a = p.first()?.as_array()?;
+            let b = p.get(1)?.as_array()?;
+            Some(CurveDef::Bezier([
+                n(&a[0])?,
+                n(&a[1])?,
+                n(&b[0])?,
+                n(&b[1])?,
+            ]))
+        }
+    }
 }
 
 impl Fx {
     pub fn is_empty(&self) -> bool {
-        self.options.is_empty() && self.anims.is_empty()
+        self.options.is_empty() && self.anims.is_empty() && self.curves.is_empty()
+    }
+
+    /// Courbe connue (catalogue ou utilisateur).
+    pub fn knows_curve(&self, name: &str) -> bool {
+        curve(name).is_some() || self.curves.contains_key(name)
     }
 
     /// Table Lua pour `hd.config({ fx = … })` (settings.lua généré).
@@ -506,6 +567,27 @@ impl Fx {
                 .collect();
             f.push(format!("animations = {{ {} }}", a.join(", ")));
         }
+        if !self.curves.is_empty() {
+            let c: Vec<String> = self
+                .curves
+                .iter()
+                .filter_map(|(name, d)| {
+                    let body = match d {
+                        CurveDef::Builtin => return None,
+                        CurveDef::Bezier([a, b, c, e]) => format!("{{ {a}, {b}, {c}, {e} }}"),
+                        CurveDef::Spring {
+                            mass,
+                            stiffness,
+                            damping,
+                        } => format!(
+                            "{{ mass = {mass}, stiffness = {stiffness}, damping = {damping} }}"
+                        ),
+                    };
+                    Some(format!("[\"{}\"] = {body}", lua_escape(name)))
+                })
+                .collect();
+            f.push(format!("curves = {{ {} }}", c.join(", ")));
+        }
         format!("{{ {} }}", f.join(", "))
     }
 }
@@ -514,8 +596,40 @@ impl Fx {
 pub fn parse(t: &mlua::Table) -> Result<Fx, String> {
     use mlua::Value;
     let mut fx = Fx::default();
+    // Courbes d'abord : les animations peuvent s'y référer.
+    if let Some(curves) = t
+        .get::<Option<mlua::Table>>("curves")
+        .map_err(|e| e.to_string())?
+    {
+        for pair in curves.pairs::<String, mlua::Table>() {
+            let (name, c) = pair.map_err(|e| e.to_string())?;
+            let def = if c.contains_key("mass").unwrap_or(false) {
+                CurveDef::Spring {
+                    mass: c.get("mass").map_err(|e| e.to_string())?,
+                    stiffness: c.get("stiffness").map_err(|e| e.to_string())?,
+                    damping: c.get("damping").map_err(|e| e.to_string())?,
+                }
+            } else {
+                let p: Vec<f64> = c
+                    .sequence_values::<f64>()
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| e.to_string())?;
+                let [a, b, cc, d] = p[..] else {
+                    return Err(crate::tr!(
+                        "fx.curves.{name} : quatre nombres attendus",
+                        name = name
+                    ));
+                };
+                CurveDef::Bezier([a, b, cc, d])
+            };
+            fx.curves.insert(name, def);
+        }
+    }
     for pair in t.pairs::<String, Value>() {
         let (k, v) = pair.map_err(|e| e.to_string())?;
+        if k == "curves" {
+            continue;
+        }
         if k == "animations" {
             let Value::Table(list) = v else {
                 return Err(crate::i18n::tr("fx.animations : table attendue").to_string());
@@ -534,7 +648,7 @@ pub fn parse(t: &mlua::Table) -> Result<Fx, String> {
                     .get::<Option<String>>("curve")
                     .map_err(|e| e.to_string())?
                     .unwrap_or_else(|| "default".into());
-                if curve(&curve_name).is_none() {
+                if !fx.knows_curve(&curve_name) {
                     let all: Vec<&str> = CURVES.iter().map(|c| c.name).collect();
                     return Err(crate::tr!(
                         "fx.animations.{name} : courbe « {c} » inconnue (connues : {all})",
@@ -629,12 +743,49 @@ fn applied_keys(fx: &Fx) -> Vec<String> {
         .collect()
 }
 
+/// Courbes et éléments animés pour `animations.lua` (MLG-139) : sans
+/// `pcall` (une erreur remonte comme erreur de config) ni marqueur d'état.
+pub fn file_lua(fx: &Fx) -> String {
+    let mut lua = String::new();
+    let used: std::collections::BTreeSet<&str> =
+        fx.anims.values().map(|a| a.curve.as_str()).collect();
+    for (name, def) in &fx.curves {
+        if let Some(l) = curve_lua(name, def) {
+            lua += &l;
+            lua.push('\n');
+        }
+    }
+    for c in CURVES
+        .iter()
+        .filter(|c| used.contains(c.name) && !fx.curves.contains_key(c.name))
+    {
+        if let Some(l) = curve_lua(&format!("hd-{}", c.name), &c.def) {
+            lua += &l;
+            lua.push('\n');
+        }
+    }
+    for l in LEAVES {
+        if let Some(a) = fx.anims.get(l.name) {
+            lua += &format!("hl.animation({})\n", a.lua(l.name, &fx.curves));
+        }
+    }
+    lua
+}
+
 /// Lua qui pose les réglages.
 pub fn apply_lua(fx: &Fx) -> String {
     let mut lua = String::new();
     let used: std::collections::BTreeSet<&str> =
         fx.anims.values().map(|a| a.curve.as_str()).collect();
-    for c in CURVES.iter().filter(|c| used.contains(c.name)) {
+    for (name, def) in &fx.curves {
+        if let Some(l) = curve_lua(name, def) {
+            lua += &format!("pcall(function() {l} end)\n");
+        }
+    }
+    for c in CURVES
+        .iter()
+        .filter(|c| used.contains(c.name) && !fx.curves.contains_key(c.name))
+    {
         match &c.def {
             CurveDef::Builtin => {}
             CurveDef::Bezier([x1, y1, x2, y2]) => {
@@ -661,7 +812,7 @@ pub fn apply_lua(fx: &Fx) -> String {
     // Parents d'abord : un enfant réglé l'emporte sur son parent.
     for l in LEAVES {
         if let Some(a) = fx.anims.get(l.name) {
-            lua += &format!("pcall(hl.animation, {})\n", a.lua(l.name));
+            lua += &format!("pcall(hl.animation, {})\n", a.lua(l.name, &fx.curves));
         }
     }
     lua += &format!("__hyprdesk_fx_keys = \"{}\"\n", applied_keys(fx).join(" "));

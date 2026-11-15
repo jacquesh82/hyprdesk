@@ -25,6 +25,7 @@ pub fn run(cmd: &str, config_path: &Path, args: &[String]) -> Option<Result<Stri
             hyprland_check(config_path, args.first().is_some_and(|a| a == "--json"))
         }
         "hyprland-fix" => hyprland_fix(config_path, args),
+        "hyprland-adopt" => hyprland_adopt(config_path, args),
         "window-places" => window_places(args),
         "icons" => icons(config_path, args),
         "app-theme" => app_theme(config_path, args),
@@ -200,6 +201,38 @@ fn hyprland_check(config_path: &Path, json: bool) -> Result<String, String> {
         s.push('\n');
     }
     Ok(s)
+}
+
+/// `hyprdesk hyprland-adopt [--dry-run]` : reprend dans hyprdesk ce que
+/// hyprland.lua définit sur ses domaines (MLG-139).
+fn hyprland_adopt(config_path: &Path, args: &[String]) -> Result<String, String> {
+    if args.iter().any(|a| a == "--dry-run" || a == "-n") {
+        let dir = config_path.parent().unwrap_or(Path::new("."));
+        let h = dir.join("hyprland.lua");
+        let text = std::fs::read_to_string(&h).map_err(|e| e.to_string())?;
+        let src = crate::hyprsrc::read(config_path);
+        let cfg = crate::config::lua::load_file(config_path)
+            .map_err(|e| e.to_string())?
+            .config;
+        let settings = crate::settings::Settings::from_config(
+            &crate::config::lua::load_settings_only(config_path)?,
+        );
+        let p = crate::adopt::plan(&h, &text, &src, &settings, &cfg);
+        let mut out = crate::tr!("Repris ({n}) :", n = p.adopted.len());
+        for a in &p.adopted {
+            out.push_str(&format!("\n  + {a}"));
+        }
+        out.push_str(&format!(
+            "\n{}",
+            crate::tr!("Laissés ({n}) :", n = p.left.len())
+        ));
+        for l in &p.left {
+            out.push_str(&format!("\n  - {l}"));
+        }
+        return Ok(out);
+    }
+    let d = crate::adopt::run(config_path)?;
+    Ok(crate::adopt::summary(&d))
 }
 
 fn hyprland_fix(config_path: &Path, args: &[String]) -> Result<String, String> {
