@@ -37,6 +37,7 @@ pub mod lock;
 pub mod login;
 pub mod network;
 pub mod passwords;
+pub mod performance;
 #[allow(clippy::module_inception)]
 pub mod plugins;
 pub mod screens;
@@ -83,6 +84,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     layouts::INFO,
     effects::INFO,
     animations::INFO,
+    performance::INFO,
     sound::INFO,
     energy::INFO,
     network::INFO,
@@ -115,7 +117,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Apparence",
-        ids: &["theme", "apptheme", "effects", "animations"],
+        ids: &["theme", "apptheme", "effects", "animations", "performance"],
     },
     Group {
         label: "Barre et lanceur",
@@ -308,6 +310,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "lanceur" | "dock" => "launcher",
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
+        "perf" | "performances" | "rendu" | "gpu" | "cpu" => "performance",
         "applications" | "defaults" => "apps",
         "hyprland" | "hyprland.lua" | "menage" | "ménage" | "conflits" => "hyprconfig",
         "demarrage"
@@ -356,6 +359,7 @@ pub enum PluginMsg {
     Workspaces(workspaces::Msg),
     Layouts(layouts::Msg),
     Animations(animations::Msg),
+    Performance(performance::Msg),
     Sound(sound::Msg),
     Energy(energy::Msg),
     Network(network::Msg),
@@ -392,6 +396,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Workspaces(m) => app.workspaces_update(m),
         PluginMsg::Layouts(m) => app.layouts_update(m),
         PluginMsg::Animations(m) => app.animations_update(m),
+        PluginMsg::Performance(m) => app.performance_update(m),
         PluginMsg::Sound(m) => app.sound_update(m),
         PluginMsg::Energy(m) => app.energy_update(m),
         PluginMsg::Network(m) => app.network_update(m),
@@ -429,6 +434,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "workspaces" => app.tab_workspaces(p),
         "layouts" => app.layouts_page(),
         "animations" => app.animations_page(),
+        "performance" => app.performance_page(),
         "sound" => app.sound_page(),
         "energy" => app.energy_page(),
         "network" => app.network_page(),
@@ -468,7 +474,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             layouts::load_binds(app.config_path.clone()),
         ]),
         "apps" => apps::load_system(),
-        "animations" => animations::load_current(),
+        "animations" | "performance" => animations::load_current(),
         "sound" => sound::load(),
         "energy" => energy::load(),
         "network" => network::load(),

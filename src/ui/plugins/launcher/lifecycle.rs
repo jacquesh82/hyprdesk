@@ -147,6 +147,12 @@ impl App {
     }
 
     pub(in crate::ui) fn launcher_progress(&self, monitor: &str) -> f32 {
+        if self.convex_auto_hide() {
+            if self.search.is_some() {
+                return 0.0;
+            }
+            return self.convex_progress(monitor, crate::ui::convex::Part::Dock);
+        }
         if self.cfg.general.transition == Transition::None {
             return 1.0;
         }
@@ -188,11 +194,14 @@ impl App {
         for id in finished {
             self.launcher_runtime.launches.remove(&id);
         }
-        if self
-            .launcher_popup
-            .as_ref()
-            .is_some_and(|p| p.fade.to == 0.0 && p.fade.done(now))
-        {
+        if self.launcher_popup.as_ref().is_some_and(|p| {
+            p.fade.to == 0.0
+                && p.fade.done(now)
+                && (!self.convex_auto_hide()
+                    || self
+                        .convex_motion(&p.monitor, crate::ui::convex::Part::Dock)
+                        .done(now))
+        }) {
             let p = self.launcher_popup.take().unwrap();
             self.launcher_popup_hover = false;
             return iced::window::close(p.id);

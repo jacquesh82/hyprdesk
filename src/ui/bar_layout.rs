@@ -1,10 +1,12 @@
 //! Mesure intrinsèque de tous les modules, centrage géométrique et débordement.
 use super::Msg;
+use super::kinetic::Spring;
 use iced::advanced::{
-    Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer,
+    Clipboard, Layout, Renderer, Shell, Widget, layout, mouse, overlay, renderer,
     widget::{Tree, tree},
 };
-use iced::{Element, Event, Length, Point, Rectangle, Size, Vector};
+use iced::{Border, Color, Element, Event, Length, Point, Rectangle, Size, Vector};
+use std::time::{Duration, Instant};
 
 pub(super) struct Slot<'a> {
     pub zone: usize,
@@ -13,12 +15,27 @@ pub(super) struct Slot<'a> {
     pub content: Element<'a, Msg>,
 }
 
+/// Capsule Island : couleurs résolues et états qui imposent son expansion.
+pub(super) struct PillSkin {
+    pub fill: Color,
+    pub border: Color,
+    pub pinned: bool,
+    pub notification: bool,
+    pub duration: Duration,
+}
+
+/// Débord de la pilule autour des modules mesurés, en pixels.
+const PILL_INSET: f32 = 12.0;
+const IDLE_WIDTH: f32 = 112.0;
+const IDLE_HEIGHT: f32 = 28.0;
+
 pub(super) fn strip<'a>(
     id: iced::window::Id,
     slots: Vec<Slot<'a>>,
     more: Element<'a, Msg>,
     compact: bool,
     adaptive_center: bool,
+    pill: Option<PillSkin>,
 ) -> Element<'a, Msg> {
     let zones = slots.iter().map(|s| s.zone).collect();
     let priorities = slots.iter().map(|s| s.priority).collect();
@@ -33,6 +50,7 @@ pub(super) fn strip<'a>(
         children,
         compact,
         adaptive_center,
+        pill,
     })
 }
 
@@ -91,8 +109,69 @@ fn fit(
 struct State {
     visible: Vec<bool>,
     full: f32,
-    reported: Option<(Vec<usize>, u32)>,
+    /// Étendue `(début, fin)` de chaque zone, coordonnées du strip ; `(0, 0)`
+    /// : zone vide. Publiée avec le rapport de débordement pour peindre le
+    /// fond de zones d'un style derrière les modules.
+    extents: [(f32, f32); 3],
+    reported: Option<Report>,
+    island: IslandState,
 }
+
+struct IslandState {
+    width: Spring,
+    hover: bool,
+    input: Option<Rectangle>,
+}
+impl Default for IslandState {
+    fn default() -> Self {
+        Self {
+            width: Spring::rest(IDLE_WIDTH),
+            hover: false,
+            input: None,
+        }
+    }
+}
+
+fn capsule(bounds: Rectangle, width: f32, height: f32) -> Rectangle {
+    let width = width.min(bounds.width);
+    Rectangle::new(
+        Point::new(bounds.center_x() - width * 0.5, bounds.y),
+        Size::new(width.min(bounds.width), height.min(bounds.height)),
+    )
+}
+
+impl State {
+    fn island_widths(&self, bounds: Rectangle, skin: &PillSkin) -> (f32, f32) {
+        let center = self.extents[1];
+        let idle = if skin.notification && center.1 > center.0 {
+            (center.1 - center.0 + 2.0 * PILL_INSET).max(IDLE_WIDTH)
+        } else {
+            IDLE_WIDTH
+        };
+        let expanded = self
+            .extents
+            .iter()
+            .filter(|(a, b)| b > a)
+            .map(|(a, b)| {
+                ((bounds.width * 0.5 - a)
+                    .abs()
+                    .max((b - bounds.width * 0.5).abs()))
+                    * 2.0
+                    + 2.0 * PILL_INSET
+            })
+            .fold(idle, f32::max)
+            .min(bounds.width);
+        (idle.min(bounds.width), expanded)
+    }
+    fn island_child(&self, i: usize, zones: &[usize], skin: &PillSkin, now: Instant) -> bool {
+        self.visible[i]
+            && ((self.island.hover || skin.pinned) && self.island.width.done(now)
+                || skin.notification && zones.get(i) == Some(&1))
+    }
+}
+
+/// Rapport de mesure du strip : modules cachés, largeur pleine, étendues.
+type Report = (Vec<usize>, u32, [(f32, f32); 3]);
 
 struct Strip<'a> {
     id: iced::window::Id,
@@ -102,6 +181,8 @@ struct Strip<'a> {
     flexible: Vec<bool>,
     compact: bool,
     adaptive_center: bool,
+    /// Peindre et révéler la capsule centrale Island.
+    pill: Option<PillSkin>,
 }
 
 impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
@@ -169,7 +250,12 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             .map(|n| n.size().width)
             .collect();
         let more = nodes.last().map_or(0.0, |n| n.size().width);
-        let (mut visible, full) = fit(&widths, &self.zones, &self.priorities, size.width, more);
+        let budget = if self.pill.is_some() {
+            (size.width - 2.0 * PILL_INSET - 16.0).max(0.0)
+        } else {
+            size.width
+        };
+        let (mut visible, full) = fit(&widths, &self.zones, &self.priorities, budget, more);
         let overflow = visible.contains(&false);
         let totals = totals(
             &widths,
@@ -178,13 +264,33 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             if overflow { more } else { 0.0 },
         );
         let mut x = [0.0, (size.width - totals[1]) / 2.0, size.width - totals[2]];
+        if self.pill.is_some() {
+            // Les trois zones restent configurables, mais occupent une seule
+            // capsule centrale. L'horloge conserve son centrage géométrique.
+            x[0] = x[1] - totals[0] - 8.0;
+            x[2] = (size.width + totals[1]) / 2.0 + 8.0;
+            if totals[1] <= 0.0 {
+                x[0] = (size.width - totals[0] - totals[2] - 8.0) / 2.0;
+                x[2] = x[0] + totals[0] + 8.0;
+            }
+        }
         visible.push(overflow);
+        let mut extents = [(0.0_f32, 0.0_f32); 3];
         for (i, node) in nodes.iter_mut().enumerate() {
             if visible[i] {
                 let zone = self.zones.get(i).copied().unwrap_or(2);
-                let pos = Point::new(x[zone], (size.height - node.size().height) / 2.0);
-                x[zone] += node.size().width + 2.0;
+                let w = node.size().width;
+                let x0 = x[zone];
+                let pos = Point::new(x0, (size.height - node.size().height) / 2.0);
+                x[zone] += w + 2.0;
                 node.move_to_mut(pos);
+                let e = &mut extents[zone];
+                if e.0 == 0.0 && e.1 == 0.0 {
+                    *e = (x0, x0 + w);
+                } else {
+                    e.0 = e.0.min(x0);
+                    e.1 = e.1.max(x0 + w);
+                }
             } else {
                 node.move_to_mut(Point::new(-20000.0, -20000.0));
             }
@@ -192,6 +298,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         let state = tree.state.downcast_mut::<State>();
         state.visible = visible;
         state.full = full;
+        state.extents = extents;
         layout::Node::with_children(size, nodes)
     }
     fn operate(
@@ -201,7 +308,20 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         renderer: &iced::Renderer,
         operation: &mut dyn iced::advanced::widget::Operation,
     ) {
-        let visible = tree.state.downcast_ref::<State>().visible.clone();
+        let state = tree.state.downcast_ref::<State>();
+        let now = Instant::now();
+        let visible: Vec<_> = state
+            .visible
+            .iter()
+            .enumerate()
+            .map(|(i, visible)| {
+                *visible
+                    && self
+                        .pill
+                        .as_ref()
+                        .is_none_or(|skin| state.island_child(i, &self.zones, skin, now))
+            })
+            .collect();
         for (i, ((c, t), l)) in self
             .children
             .iter_mut()
@@ -238,12 +358,64 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             } else {
                 state.full.ceil() as u32
             },
+            state.extents,
         );
         if state.reported.as_ref() != Some(&report) {
-            shell.publish(Msg::BarLayout(self.id, report.0.clone(), report.1));
+            shell.publish(Msg::BarLayout(
+                self.id,
+                report.0.clone(),
+                report.1,
+                report.2,
+            ));
             state.reported = Some(report);
         }
-        let visible = state.visible.clone();
+        let now = Instant::now();
+        if let Some(skin) = &self.pill {
+            let bounds = layout.bounds();
+            let (idle, expanded) = state.island_widths(bounds, skin);
+            let current = state.island.width.value(now);
+            let hit = capsule(bounds, current, bounds.height);
+            let hover =
+                !matches!(event, Event::Mouse(mouse::Event::CursorLeft)) && cursor.is_over(hit);
+            if state.island.hover != hover {
+                shell.request_redraw();
+            }
+            state.island.hover = hover;
+            let target = if hover || skin.pinned { expanded } else { idle };
+            if state.island.width.to != target {
+                state.island.width = state.island.width.retarget(target, skin.duration, now);
+                shell.request_redraw();
+            }
+            if !state.island.width.done(now) {
+                shell.request_redraw();
+            }
+            // Une région stable pendant le mouvement : aucun message global
+            // par image. Les jours transparents rendent les clics au bureau.
+            let input_width = if state.island.width.done(now) {
+                target
+            } else {
+                state.island.width.from.max(target)
+            };
+            let input = capsule(bounds, input_width, bounds.height);
+            if state.island.input != Some(input) {
+                state.island.input = Some(input);
+                shell.publish(Msg::BarIslandInput(self.id, input));
+            }
+        } else {
+            state.island = IslandState::default();
+        }
+        let visible: Vec<_> = state
+            .visible
+            .iter()
+            .enumerate()
+            .map(|(i, visible)| {
+                *visible
+                    && self
+                        .pill
+                        .as_ref()
+                        .is_none_or(|skin| state.island_child(i, &self.zones, skin, now))
+            })
+            .collect();
         for (i, ((c, t), l)) in self
             .children
             .iter_mut()
@@ -265,13 +437,30 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         viewport: &Rectangle,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        let visible = &tree.state.downcast_ref::<State>().visible;
+        let state = tree.state.downcast_ref::<State>();
+        let now = Instant::now();
+        if self.pill.is_some()
+            && cursor.is_over(capsule(
+                layout.bounds(),
+                state.island.width.value(now),
+                layout.bounds().height,
+            ))
+        {
+            return mouse::Interaction::Pointer;
+        }
+        let visible = &state.visible;
         self.children
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
             .enumerate()
-            .filter(|(i, _)| visible[*i])
+            .filter(|(i, _)| {
+                visible[*i]
+                    && self
+                        .pill
+                        .as_ref()
+                        .is_none_or(|skin| state.island_child(*i, &self.zones, skin, now))
+            })
             .map(|(_, ((c, t), l))| {
                 c.as_widget()
                     .mouse_interaction(t, l, cursor, viewport, renderer)
@@ -289,7 +478,36 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let visible = &tree.state.downcast_ref::<State>().visible;
+        let state = tree.state.downcast_ref::<State>();
+        let now = Instant::now();
+        // Une seule capsule noire, indépendante des modules au repos.
+        let mut clip = *viewport;
+        if let Some(skin) = &self.pill {
+            let b = layout.bounds();
+            let width = state.island.width.value(now);
+            let (_, expanded) = state.island_widths(b, skin);
+            let p = ((width - IDLE_WIDTH) / (expanded - IDLE_WIDTH).max(1.0)).clamp(0.0, 1.0);
+            let h = IDLE_HEIGHT + (b.height - 4.0 - IDLE_HEIGHT).max(0.0) * p;
+            let bounds = capsule(b, width, h);
+            clip = bounds.intersection(viewport).unwrap_or_default();
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds,
+                    border: Border::default()
+                        .rounded(h / 2.0)
+                        .width(1.0)
+                        .color(skin.border),
+                    shadow: iced::Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.40),
+                        offset: Vector::new(0.0, 1.0),
+                        blur_radius: 4.0,
+                    },
+                    snap: true,
+                },
+                skin.fill,
+            );
+        }
+        let visible = &state.visible;
         for (i, ((c, t), l)) in self
             .children
             .iter()
@@ -297,9 +515,15 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             .zip(layout.children())
             .enumerate()
         {
-            if visible[i] {
-                c.as_widget()
-                    .draw(t, renderer, theme, style, l, cursor, viewport);
+            let shown = self.pill.as_ref().is_none_or(|skin| {
+                (state.island.hover || skin.pinned)
+                    || skin.notification && self.zones.get(i) == Some(&1)
+            });
+            if visible[i] && shown {
+                renderer.with_layer(clip, |renderer| {
+                    c.as_widget()
+                        .draw(t, renderer, theme, style, l, cursor, &clip)
+                });
             }
         }
     }
@@ -311,7 +535,20 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Msg, iced::Theme, iced::Renderer>> {
-        let visible = tree.state.downcast_ref::<State>().visible.clone();
+        let state = tree.state.downcast_ref::<State>();
+        let now = Instant::now();
+        let visible: Vec<_> = state
+            .visible
+            .iter()
+            .enumerate()
+            .map(|(i, visible)| {
+                *visible
+                    && self
+                        .pill
+                        .as_ref()
+                        .is_none_or(|skin| state.island_child(i, &self.zones, skin, now))
+            })
+            .collect();
         let children: Vec<_> = self
             .children
             .iter_mut()

@@ -32,7 +32,14 @@ impl App {
             Some(Value::Rich(r)) => Some(r),
             _ => None,
         };
-        let fg = color(self.cfg.general.theme.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            alpha,
+        );
         let accent = color(self.cfg.general.theme.accent, alpha);
         let pending = self.control_actions.get(&w.id).is_some_and(Option::is_none);
         let error = self
@@ -168,7 +175,11 @@ impl App {
                     .color(color(self.bar_palette().warning, alpha)),
             );
         }
-        tile.into()
+        if self.convex_options().is_some() {
+            super::kinetic::feedback(tile, fg, self.bar_duration(130))
+        } else {
+            tile.into()
+        }
     }
 
     pub(super) fn controls_view(
@@ -177,7 +188,14 @@ impl App {
         monitor: &str,
         bar: Option<iced::window::Id>,
     ) -> Element<'_, Msg> {
-        let fg = color(self.cfg.general.theme.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            alpha,
+        );
         let mut header = row![
             text("Centre de contrôle")
                 .font(self.ui_font(iced::font::Weight::Semibold))

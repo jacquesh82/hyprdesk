@@ -42,6 +42,7 @@ mod lock;
 mod mymfa;
 mod notifications;
 mod osd;
+mod perf;
 mod polkit;
 mod portal;
 mod processes;
@@ -84,6 +85,7 @@ Commandes :
   cycle             mode suivant : no-desktop → launcher-only → full-desktop
   settings [paquet[/onglet] | ?mots]
                     ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
+  toggle-settings   ouvre les Réglages, ou les referme s'ils sont ouverts (raccourci keys.settings)
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)

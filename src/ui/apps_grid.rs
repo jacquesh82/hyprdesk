@@ -439,7 +439,13 @@ impl App {
             color(r.focus, 1.0),
         );
         let typing = !s.query.trim().is_empty();
-        let mut body = column![self.launcher_field(s, SPOT_WIDTH - 44.0, 20.0)].spacing(16);
+        let convex = self.convex_options().is_some_and(|o| o.attached_panels);
+        let mut body = if convex {
+            column![]
+        } else {
+            column![self.launcher_field(s, SPOT_WIDTH - 44.0, 20.0)]
+        }
+        .spacing(16);
         if !typing && !s.suggested.is_empty() {
             let tiles = row(s.suggested.iter().take(8).map(|&i| {
                 self.app_tile(
@@ -509,6 +515,19 @@ impl App {
             ]
             .spacing(8),
         );
+        if convex {
+            let body = column![
+                scrollable(body).height(Length::Fill),
+                self.launcher_field(s, SPOT_WIDTH - 80.0, 16.0)
+            ]
+            .spacing(16);
+            return self.convex_search_surface(
+                s,
+                body.into(),
+                SPOT_WIDTH,
+                spot_height(!s.suggested.is_empty()),
+            );
+        }
         let card = container(body)
             .padding(22)
             .width(SPOT_WIDTH)

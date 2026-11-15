@@ -44,6 +44,11 @@ pub enum Msg {
     Margin(u16),
     /// Style visuel de la barre (`ui::bar_style`).
     Style(crate::config::BarStyle),
+    ConvexFrame(u16),
+    ConvexRadius(u16),
+    ConvexDuration(u16),
+    ConvexAttached(bool),
+    ConvexAutoHide(bool),
     AllMonitors(bool),
     /// Barre seulement sur l'écran principal.
     Primary,
@@ -254,6 +259,12 @@ impl App {
                             BarStyle::Graphite => crate::i18n::tr(
                                 "Barre des tâches : lanceur centré, widgets à droite, surface rectangulaire au bord inférieur.",
                             ),
+                            BarStyle::Island => crate::i18n::tr(
+                                "Capsule noire centrée, discrète au repos ; commandes au survol et notifications au centre.",
+                            ),
+                            BarStyle::Convexe => crate::i18n::tr(
+                                "Cadre continu aux angles arrondis ; les panneaux se déploient depuis ses bords.",
+                            ),
                         },
                         row(
                             BAR_STYLES
@@ -301,6 +312,55 @@ impl App {
                     ]
                     .spacing(16)
                 }));
+            if b.style == crate::config::BarStyle::Convexe {
+                for (label, value, max, message, unit) in [
+                    (
+                        "Épaisseur du cadre",
+                        b.convex.frame_width,
+                        20,
+                        Msg::ConvexFrame as fn(u16) -> Msg,
+                        "px",
+                    ),
+                    (
+                        "Arrondi intérieur",
+                        b.convex.radius,
+                        96,
+                        Msg::ConvexRadius as fn(u16) -> Msg,
+                        "px",
+                    ),
+                    (
+                        "Durée d'ouverture des panneaux",
+                        b.convex.duration,
+                        800,
+                        Msg::ConvexDuration as fn(u16) -> Msg,
+                        "ms",
+                    ),
+                ] {
+                    col = col.push(
+                        self.field(
+                            label,
+                            "",
+                            row![
+                                slider(0..=max, value.min(max), move |v| wrap(message(v)))
+                                    .on_release(wrap(Msg::Commit))
+                                    .width(260),
+                                text(format!("{value} {unit}")).font(self.font).size(13),
+                            ]
+                            .spacing(12),
+                        ),
+                    );
+                }
+                col = col.push(self.field(
+                    "Masquer automatiquement le dock",
+                    "",
+                    toggler(b.convex.auto_hide).on_toggle(|v| wrap(Msg::ConvexAutoHide(v))),
+                ));
+                col = col.push(self.field(
+                    "Panneaux rattachés au cadre",
+                    "",
+                    toggler(b.convex.attached_panels).on_toggle(|v| wrap(Msg::ConvexAttached(v))),
+                ));
+            }
             use crate::config::BarCompact;
             let compact = |label: &'static str, v: BarCompact| {
                 radio(crate::i18n::tr(label), v, Some(b.compact), |v| {
@@ -592,6 +652,26 @@ impl App {
                 if i < zone.len() {
                     zone.remove(i);
                 }
+                self.commit_reload()
+            }
+            Msg::ConvexFrame(v) => {
+                self.settings.bar.as_mut().unwrap().convex.frame_width = v;
+                Task::none()
+            }
+            Msg::ConvexRadius(v) => {
+                self.settings.bar.as_mut().unwrap().convex.radius = v;
+                Task::none()
+            }
+            Msg::ConvexDuration(v) => {
+                self.settings.bar.as_mut().unwrap().convex.duration = v;
+                Task::none()
+            }
+            Msg::ConvexAutoHide(v) => {
+                self.settings.bar.as_mut().unwrap().convex.auto_hide = v;
+                self.commit_reload()
+            }
+            Msg::ConvexAttached(v) => {
+                self.settings.bar.as_mut().unwrap().convex.attached_panels = v;
                 self.commit_reload()
             }
             Msg::Commit => self.commit_reload(),

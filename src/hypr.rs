@@ -615,7 +615,7 @@ pub fn build_keys_lua(
         ),
         ("search", &keys.search, "search", "lanceur d'applications"),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
-        ("settings", &keys.settings, "settings", "réglages"),
+        ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
         if plan.outside(id, k) {
@@ -694,7 +694,7 @@ pub fn build_keys_lua(
         ("search-desktop", &keys.search_desktop)
     };
     for (id, k, arg, desc) in [
-        ("settings", &keys.settings, "settings", "réglages"),
+        ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &submap_lock, "lock", "verrouiller"),
         (search_id, desk_search, "search", "lanceur d'applications"),
         ("switch", &keys.switch, "switch", "fenêtres"),
@@ -2203,7 +2203,7 @@ mod tests {
         );
         assert!(
             submap.contains(
-                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' settings")"#
+                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle-settings")"#
             ),
             "{lua}"
         );
@@ -2260,7 +2260,7 @@ mod tests {
         assert!(!lua.contains("blur = true"), "aucun flou demandé : {lua}");
         assert_eq!(
             lua.matches(
-                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' settings")"#
+                r#"hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("'/bin/hyprdesk' toggle-settings")"#
             )
             .count(),
             2,

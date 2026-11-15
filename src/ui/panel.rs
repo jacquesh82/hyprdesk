@@ -277,6 +277,8 @@ impl App {
             create,
             self.sync_window_gaps(),
             themes,
+            // Valeurs de hyprland.lua : flou coupé → tiroir opaque.
+            plugins::animations::load_current(),
             Task::perform(
                 async {
                     tokio::task::spawn_blocking(launch::font_families)
@@ -801,12 +803,16 @@ impl App {
         .width(self.panel_width() - 2.0 * DRAWER_GAP)
         .height(Length::Fill)
         .style({
-            let opacity = self
-                .cfg
-                .general
-                .theme
-                .effect(crate::config::Place::Settings)
-                .opacity;
+            // Sans flou de Hyprland, la transparence rend le tiroir illisible.
+            let opacity = if self.hypr_blur_off() {
+                1.0
+            } else {
+                self.cfg
+                    .general
+                    .theme
+                    .effect(crate::config::Place::Settings)
+                    .opacity
+            };
             move |theme| super::design::panel_surface(theme, opacity)
         });
         let progress = self

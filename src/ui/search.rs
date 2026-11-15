@@ -66,6 +66,8 @@ pub enum MfaList {
 }
 
 pub struct Search {
+    pub(super) visibility: Option<super::Fade>,
+    pub(super) shown: bool,
     pub win: Id,
     pub query: String,
     /// Indices dans `App::apps` (ou dans `clips` en mode presse-papiers), du
@@ -163,6 +165,7 @@ impl Search {
 
 #[derive(Debug, Clone)]
 pub enum SMsg {
+    Close,
     Query(String),
     /// Lance une application par son indice dans `App::apps` (suggestions).
     LaunchApp(usize),
@@ -239,6 +242,9 @@ impl App {
     /// le réglage, ou selon le mode — feuille en plein bureau.
     pub(super) fn launcher_sheet(&self) -> bool {
         use crate::config::AppsStyle;
+        if self.convex_options().is_some_and(|o| o.attached_panels) {
+            return false;
+        }
         match self.cfg.general.apps_launcher.style {
             AppsStyle::Sheet => true,
             AppsStyle::Spotlight => false,
@@ -307,6 +313,19 @@ impl App {
     }
 
     fn toggle_launcher(&mut self) -> Task<Msg> {
+        let duration = self.bar_duration(self.convex_options().map_or(0, |o| o.duration as u64));
+        if let Some(s) = self.search.as_mut()
+            && let Some(f) = s.visibility.as_mut()
+            && f.to == 0.0
+        {
+            *f = super::Fade {
+                from: f.value(std::time::Instant::now()),
+                to: 1.0,
+                start: std::time::Instant::now(),
+                dur: duration,
+            };
+            return Task::none();
+        }
         if self.search.is_some() {
             return self.close_search();
         }
@@ -326,7 +345,8 @@ impl App {
             .iter()
             .map(|n| self.want_icon(n))
             .collect();
-        let size = if sheet {
+        let convex = self.convex_options().filter(|o| o.attached_panels);
+        let size = if sheet || convex.is_some() {
             (0, 0)
         } else {
             (
@@ -335,6 +355,13 @@ impl App {
             )
         };
         self.search = Some(Search {
+            shown: cfg!(test),
+            visibility: convex.map(|o| super::Fade {
+                from: 0.0,
+                to: 1.0,
+                start: std::time::Instant::now(),
+                dur: self.bar_duration(o.duration as u64),
+            }),
             win,
             query: String::new(),
             results,
@@ -350,7 +377,7 @@ impl App {
             settings: NewLayerShellSettings {
                 size: Some(size),
                 layer: Layer::Overlay,
-                anchor: if sheet {
+                anchor: if sheet || convex.is_some() {
                     LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right
                 } else {
                     LsAnchor::empty()
@@ -373,10 +400,118 @@ impl App {
     }
 
     pub(super) fn close_search(&mut self) -> Task<Msg> {
+        let duration = self.bar_duration(self.convex_options().map_or(0, |o| o.duration as u64));
+        if !duration.is_zero()
+            && let Some(s) = self.search.as_mut()
+            && let Some(f) = s.visibility.as_mut()
+        {
+            if f.to != 0.0 {
+                *f = super::Fade {
+                    from: f.value(std::time::Instant::now()),
+                    to: 0.0,
+                    start: std::time::Instant::now(),
+                    dur: duration,
+                };
+            }
+            return Task::none();
+        }
         match self.search.take() {
             Some(s) => iced::window::close(s.win),
             None => Task::none(),
         }
+    }
+
+    pub(super) fn search_frame(&mut self) -> Task<Msg> {
+        let now = std::time::Instant::now();
+        if self
+            .search
+            .as_ref()
+            .and_then(|s| s.visibility)
+            .is_some_and(|f| f.done(now) && f.to == 0.0)
+        {
+            return self
+                .search
+                .take()
+                .map_or_else(Task::none, |s| iced::window::close(s.win));
+        }
+        if let Some(s) = self.search.as_mut()
+            && s.shown
+            && let Some(f) = s.visibility.as_mut()
+            && f.done(now)
+        {
+            f.from = f.to;
+            f.dur = std::time::Duration::ZERO;
+        }
+        Task::none()
+    }
+
+    pub(super) fn convex_search_surface<'a>(
+        &'a self,
+        s: &'a Search,
+        body: Element<'a, Msg>,
+        width: f32,
+        height: f32,
+    ) -> Element<'a, Msg> {
+        use super::{
+            bar_style::convexe::Edge,
+            kinetic::{self, Track},
+        };
+        let track = if !s.shown {
+            super::Fade {
+                from: 0.0,
+                to: 0.0,
+                start: std::time::Instant::now(),
+                dur: std::time::Duration::ZERO,
+            }
+        } else {
+            s.visibility.unwrap_or(super::Fade {
+                from: 1.0,
+                to: 1.0,
+                start: std::time::Instant::now(),
+                dur: std::time::Duration::ZERO,
+            })
+        };
+        let card = container(body)
+            .padding(iced::Padding {
+                top: 24.0,
+                bottom: 12.0,
+                left: 40.0,
+                right: 40.0,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+        let card: Element<'_, Msg> = if s.visibility.is_some_and(|f| f.to == 0.0) {
+            super::bar_motion::inert(card)
+        } else {
+            card.into()
+        };
+        let pal = self.bar_palette();
+        let drawer = container(kinetic::reveal(
+            card,
+            Track::Ease(track),
+            Edge::Bottom,
+            color(pal.bg, pal.opacity),
+            s.shown.then_some(Msg::MotionSettled),
+        ))
+        .width(width)
+        .max_width(width)
+        .height(height)
+        .clip(true);
+        let catch = iced::widget::mouse_area(
+            container(iced::widget::Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .on_press(Msg::Search(SMsg::Close));
+        iced::widget::stack![
+            catch,
+            container(drawer)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End)
+        ]
+        .into()
     }
 
     /// Flèches : sélection suivante ou précédente (en boucle) ; dans la
@@ -487,6 +622,7 @@ impl App {
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
         match m {
+            SMsg::Close => self.close_search(),
             // Fenêtre myMFA complète (MLG-46) : le lanceur se referme.
             SMsg::Query(q) if q.trim() == ":mymfa" => {
                 let fermer = self.toggle_search();
@@ -782,7 +918,18 @@ impl App {
                 }
                 Task::batch(icons.iter().map(|n| self.want_icon(n)).collect::<Vec<_>>())
             }
-            SMsg::Shown => iced::widget::operation::focus(INPUT_ID),
+            SMsg::Shown => {
+                if let Some(s) = self.search.as_mut()
+                    && !s.shown
+                {
+                    s.shown = true;
+                    if let Some(f) = s.visibility.as_mut() {
+                        f.from = 0.0;
+                        f.start = std::time::Instant::now();
+                    }
+                }
+                iced::widget::operation::focus(INPUT_ID)
+            }
             SMsg::Query(q) => {
                 let (grid, cat) = self
                     .search
@@ -895,7 +1042,7 @@ impl App {
             ))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
-            .padding(SHADOW)
+            .padding(if s.visibility.is_some() { 0.0 } else { SHADOW })
             .into();
         }
         if s.clip_query().is_none() {
@@ -924,7 +1071,7 @@ impl App {
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
-            .padding(SHADOW)
+            .padding(if s.visibility.is_some() { 0.0 } else { SHADOW })
             .into()
     }
 
@@ -1206,7 +1353,7 @@ impl App {
         container(self.search_card(s, input, list.into(), bg, fg))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
-            .padding(SHADOW)
+            .padding(if s.visibility.is_some() { 0.0 } else { SHADOW })
             .into()
     }
 
@@ -1276,6 +1423,16 @@ impl App {
         bg: Color,
         fg: Color,
     ) -> Element<'a, Msg> {
+        if self.convex_options().is_some_and(|o| o.attached_panels) {
+            return self.convex_search_surface(
+                _s,
+                column![iced::widget::scrollable(list).height(Length::Fill), input]
+                    .spacing(12)
+                    .into(),
+                super::apps_grid::SPOT_WIDTH,
+                super::apps_grid::spot_height(!_s.suggested.is_empty()),
+            );
+        }
         container(column![input, list].spacing(12))
             .padding(16)
             .width(super::apps_grid::SPOT_WIDTH)

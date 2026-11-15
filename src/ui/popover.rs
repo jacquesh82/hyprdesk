@@ -13,6 +13,7 @@ use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
+use super::bar_style::convexe::Edge;
 use super::{App, Fade, Msg, color, format_now};
 use crate::config::{BarPosition, MenuEntry};
 mod bar_menus;
@@ -83,6 +84,68 @@ mod tests {
         );
         Arc::make_mut(&mut app.cfg).general.transition = crate::config::Transition::Fade;
         (app, bar)
+    }
+
+    #[test]
+    fn convex_drawers_attach_to_each_edge_and_close_without_idle_animation() {
+        for position in [BarPosition::Top, BarPosition::Bottom] {
+            for (x, expected) in [
+                (20.0, Edge::Left),
+                (
+                    440.0,
+                    if position == BarPosition::Top {
+                        Edge::Top
+                    } else {
+                        Edge::Bottom
+                    },
+                ),
+                (850.0, Edge::Right),
+            ] {
+                let (mut app, bar) = app();
+                let loaded = crate::config::lua::load_source(
+                    "hd.bar({style='convexe',convex={duration=0}})",
+                    "test.lua",
+                    std::path::Path::new("/tmp"),
+                )
+                .unwrap();
+                app.cfg = Arc::new(loaded.config);
+                app.bar_surfaces.get_mut(&bar).unwrap().position = position;
+                app.bar_anchors.insert(
+                    (bar, "volume".into()),
+                    Rectangle::new(Point::new(x, 0.0), Size::new(30.0, 44.0)),
+                );
+                let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+                let p = app.popover.as_ref().unwrap();
+                assert_eq!(p.attached.unwrap().edge, expected);
+                assert!(p.left >= 0.0 && p.left + p.size.width <= 900.0);
+                assert!(p.attached.unwrap().top + p.size.height <= 640.0);
+                let _ = app.popover_frame();
+                assert!(!app.popover.as_ref().unwrap().animating(Instant::now()));
+                let _ = app.close_popover();
+                assert!(app.popover.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn late_first_present_keeps_the_entire_opening_transition() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let win = app.popover.as_ref().unwrap().win;
+        app.popover.as_mut().unwrap().shown = false;
+        app.popover.as_mut().unwrap().visibility.start = Instant::now() - Duration::from_secs(1);
+        let _ = app.popover_frame();
+        assert!(!app.popover.as_ref().unwrap().animating(Instant::now()));
+        let _ = app.popover_shown(win);
+        assert!(app.popover.as_ref().unwrap().animating(Instant::now()));
+        assert!(
+            app.popover
+                .as_ref()
+                .unwrap()
+                .visibility
+                .value(Instant::now())
+                < 0.1
+        );
     }
 
     #[test]
@@ -193,6 +256,7 @@ pub enum MenuSource {
 
 #[derive(Debug, Clone)]
 pub enum Kind {
+    Notifications,
     Volume,
     Brightness,
     Calendar,
@@ -219,6 +283,15 @@ pub enum PMsg {
     Submit(usize),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Attached {
+    pub edge: Edge,
+    pub top: f32,
+    pub bar_height: f32,
+    height: f32,
+    from_height: f32,
+}
+
 pub struct Popover {
     pub win: Id,
     pub catcher: Id,
@@ -226,7 +299,9 @@ pub struct Popover {
     pub position: BarPosition,
     pub left: f32,
     pub origin: f32,
+    pub(super) attached: Option<Attached>,
     pub visibility: Fade,
+    shown: bool,
     pub change: Option<Fade>,
     pub previous: Option<Kind>,
     pub slide_from: f32,
@@ -245,13 +320,27 @@ pub struct Popover {
 }
 
 impl Popover {
+    fn margin(&self) -> (i32, i32, i32, i32) {
+        if let Some(a) = self.attached {
+            (a.top as i32, 0, 0, self.left as i32)
+        } else {
+            let v = (GAP - SHADOW) as i32;
+            if self.position == BarPosition::Top {
+                (v, 0, 0, self.left as i32)
+            } else {
+                (0, 0, v, self.left as i32)
+            }
+        }
+    }
+
     pub(super) fn closing(&self) -> bool {
         self.visibility.to == 0.0
     }
     pub(super) fn animating(&self, now: std::time::Instant) -> bool {
-        !self.visibility.done(now)
-            || self.visibility.from != self.visibility.to
-            || self.change.is_some()
+        self.shown
+            && (!self.visibility.done(now)
+                || self.visibility.from != self.visibility.to
+                || self.change.is_some())
     }
 }
 
@@ -271,6 +360,48 @@ pub(super) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32
     let left = card_left - SHADOW;
     let origin = ((anchor.center_x() - left) / (width + 2.0 * SHADOW)).clamp(0.05, 0.95);
     (left, width + 2.0 * SHADOW, origin)
+}
+
+/// Les commandes latérales ouvrent un tiroir depuis leur bord ; le groupe
+/// central agrandit sa niche. Les coordonnées ignorent les zones exclusives.
+fn attached_placement(
+    screen: Size,
+    anchor: iced::Rectangle,
+    bar: &super::bar::BarSurface,
+    height: f32,
+) -> (f32, Size, Attached) {
+    let edge = if anchor.center_x() < screen.width * 0.28 {
+        Edge::Left
+    } else if anchor.center_x() > screen.width * 0.72 {
+        Edge::Right
+    } else if bar.position == BarPosition::Top {
+        Edge::Top
+    } else {
+        Edge::Bottom
+    };
+    let width = (WIDTH + 48.0).min(screen.width);
+    let height = height.min((screen.height - bar.height as f32 - 12.0).max(40.0));
+    let left = match edge {
+        Edge::Left => 0.0,
+        Edge::Right => screen.width - width,
+        _ => (screen.width - width) * 0.5,
+    };
+    let top = match edge {
+        Edge::Top => 0.0,
+        Edge::Bottom => screen.height - height,
+        _ => ((screen.height - height) * 0.5).max(bar.height as f32 + 12.0),
+    };
+    (
+        left,
+        Size::new(width, height),
+        Attached {
+            edge,
+            top,
+            bar_height: bar.height as f32,
+            height,
+            from_height: height,
+        },
+    )
 }
 
 /// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
@@ -299,6 +430,7 @@ fn card_height(
     light: &super::bar::Light,
 ) -> f32 {
     let inner = match kind {
+        Kind::Notifications => 420.0,
         Kind::Widget(_) => 420.0,
         Kind::Workspaces => 300.0,
         Kind::Overflow(items) => 44.0 + items.len() as f32 * 48.0,
@@ -370,9 +502,40 @@ impl App {
         } else {
             p.anchor_key.as_str()
         };
+        if matches!(p.kind, Kind::Notifications) {
+            return Task::none();
+        }
         let Some(anchor) = self.bar_anchors.get(&(p.bar, key.into())).copied() else {
             return Task::none();
         };
+        if p.attached.is_some() {
+            let (left, size, attached) = attached_placement(
+                Size::new(m.width as f32, m.height as f32),
+                anchor,
+                bar,
+                p.size.height,
+            );
+            let p = self.popover.as_mut().unwrap();
+            let changed = (p.left - left).abs() > 0.5
+                || p.attached
+                    .is_some_and(|a| (a.top - attached.top).abs() > 0.5);
+            p.left = left;
+            p.size.width = size.width;
+            let old = p.attached.unwrap();
+            p.attached = Some(Attached {
+                height: old.height,
+                from_height: old.from_height,
+                ..attached
+            });
+            return if changed {
+                Task::done(Msg::MarginChange {
+                    id: p.win,
+                    margin: p.margin(),
+                })
+            } else {
+                Task::none()
+            };
+        }
         let (left, width, origin) = placement(m.width as f32, anchor);
         let p = self.popover.as_mut().unwrap();
         p.origin = origin;
@@ -426,7 +589,7 @@ impl App {
                 .filter(|p| p.bar == bar)
                 .map_or_else(|| key.clone(), |p| p.anchor_key.clone())
         };
-        let anchor = self
+        let mut anchor = self
             .bar_anchors
             .get(&(bar, anchor_key.clone()))
             .copied()
@@ -436,14 +599,51 @@ impl App {
                     Size::new(1.0, b.height as f32),
                 )
             });
-        let (left, width, origin) = placement(m.width as f32, anchor);
+        if matches!(kind, Kind::Notifications) {
+            anchor.x = m.width as f32 * 0.5 - anchor.width * 0.5;
+        }
+        let (mut left, width, origin) = placement(m.width as f32, anchor);
+        let options = self.convex_options().filter(|o| o.attached_panels);
         let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(80.0);
-        let h = (card_height(&kind, None, &self.audio, &self.light) + 2.0 * SHADOW).min(max_height);
-        let size = Size::new(width, h);
-        let duration = self.bar_duration(180);
+        let h = (card_height(&kind, None, &self.audio, &self.light)
+            + 2.0 * SHADOW
+            + if options.is_some() {
+                b.height as f32
+            } else {
+                0.0
+            })
+        .min(max_height);
+        let mut size = Size::new(width, h);
+        let attached = options.map(|_| {
+            let (x, s, a) =
+                attached_placement(Size::new(m.width as f32, m.height as f32), anchor, &b, h);
+            left = x;
+            size = s;
+            a
+        });
+        let mut attached = attached;
+        if let Some(a) = attached.as_mut()
+            && let Some(old) = self
+                .popover
+                .as_ref()
+                .filter(|p| p.bar == bar)
+                .and_then(|p| p.attached)
+                .filter(|old| old.edge == a.edge)
+        {
+            a.from_height = old.height;
+            size.height = size.height.max(old.height);
+            a.top = match a.edge {
+                Edge::Top => 0.0,
+                Edge::Bottom => m.height as f32 - size.height,
+                _ => (m.height as f32 - size.height) * 0.5,
+            };
+        }
+        let duration = self.bar_duration(options.map_or(180, |o| o.duration as u64));
         let change_duration = self.bar_duration(160);
         let v = (GAP - SHADOW) as i32;
-        let margin = if b.position == BarPosition::Top {
+        let margin = if let Some(a) = attached {
+            (a.top as i32, 0, 0, left as i32)
+        } else if b.position == BarPosition::Top {
             (v, 0, 0, left as i32)
         } else {
             (0, 0, v, left as i32)
@@ -462,8 +662,13 @@ impl App {
             .filter(|p| p.bar == bar && p.position == b.position)
         {
             let reversing = p.closing() && p.key == key;
+            let edge_changed = p.attached.map(|a| a.edge) != attached.map(|a| a.edge);
             p.visibility = Fade {
-                from: p.visibility.value(now),
+                from: if edge_changed {
+                    0.0
+                } else {
+                    p.visibility.value(now)
+                },
                 to: 1.0,
                 start: now,
                 dur: duration,
@@ -482,6 +687,7 @@ impl App {
             p.anchor_key = anchor_key;
             p.left = left;
             p.origin = origin;
+            p.attached = attached;
             p.size = size;
             p.max_height = max_height;
             p.confirm = None;
@@ -519,7 +725,7 @@ impl App {
             },
             id: catcher,
         }));
-        let edge = if b.position == BarPosition::Top {
+        let edge = if attached.is_some() || b.position == BarPosition::Top {
             LsAnchor::Top
         } else {
             LsAnchor::Bottom
@@ -529,7 +735,7 @@ impl App {
                 size: Some((size.width as u32, size.height as u32)),
                 layer: Layer::Overlay,
                 anchor: edge | LsAnchor::Left,
-                exclusive_zone: Some(0),
+                exclusive_zone: Some(if attached.is_some() { -1 } else { 0 }),
                 margin: Some(margin),
                 keyboard_interactivity: KeyboardInteractivity::Exclusive,
                 output_option: OutputOption::OutputName(m.name.clone()),
@@ -553,6 +759,8 @@ impl App {
             position: b.position,
             left,
             origin,
+            attached,
+            shown: cfg!(test),
             visibility: Fade {
                 from: 0.0,
                 to: 1.0,
@@ -584,7 +792,14 @@ impl App {
         secret: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                th.fg
+            },
+            alpha,
+        );
         let value = self
             .popover
             .as_ref()
@@ -629,7 +844,11 @@ impl App {
     }
 
     pub(super) fn close_popover(&mut self) -> Task<Msg> {
-        let duration = self.bar_duration(120);
+        let duration = self.bar_duration(
+            self.convex_options()
+                .filter(|o| o.attached_panels)
+                .map_or(120, |o| o.duration as u64),
+        );
         if duration.is_zero() {
             return self.destroy_popover();
         }
@@ -648,6 +867,14 @@ impl App {
     }
 
     pub(super) fn popover_frame(&mut self) -> Task<Msg> {
+        if self
+            .popover
+            .as_ref()
+            .is_some_and(|p| !p.shown && !p.closing())
+        {
+            return Task::none();
+        }
+        let mut resize = Task::none();
         let now = std::time::Instant::now();
         let still = self.bar_duration(180).is_zero();
         if self
@@ -662,12 +889,22 @@ impl App {
                 p.previous = None;
                 p.change = None;
             }
+            if p.change.is_none()
+                && let Some(a) = p.attached
+                && (p.size.height - a.height).abs() > 0.5
+            {
+                p.size.height = a.height;
+                resize = Task::done(Msg::SizeChange {
+                    id: p.win,
+                    size: (p.size.width as u32, p.size.height as u32),
+                });
+            }
             if still || p.visibility.done(now) {
                 p.visibility.from = p.visibility.to;
                 p.visibility.dur = std::time::Duration::ZERO;
             }
         }
-        Task::none()
+        Task::batch([resize, self.refresh_popover_anchor()])
     }
 
     pub(super) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
@@ -786,17 +1023,33 @@ impl App {
         let Some(p) = self.popover.as_mut().filter(|p| p.win == win) else {
             return Task::none();
         };
-        let height = (content_height + 24.0 + 2.0 * SHADOW)
+        let header = p
+            .attached
+            .filter(|a| matches!(a.edge, Edge::Top | Edge::Bottom))
+            .map_or(0.0, |a| a.bar_height);
+        let height = (content_height + 24.0 + 2.0 * SHADOW + header)
             .ceil()
             .min(p.max_height);
-        if (height - p.size.height).abs() < 1.0 {
+        if (height - p.attached.map_or(p.size.height, |a| a.height)).abs() < 1.0 {
             return Task::none();
         }
-        p.size.height = height;
-        Task::done(Msg::SizeChange {
+        if let Some(a) = p.attached.as_mut() {
+            let mix = p.change.map_or(1.0, |f| f.value(std::time::Instant::now()));
+            a.from_height = a.from_height + (a.height - a.from_height) * mix;
+            a.height = height;
+            p.size.height = if p.change.is_some() {
+                p.size.height.max(height)
+            } else {
+                height
+            };
+        } else {
+            p.size.height = height;
+        }
+        let resize = Task::done(Msg::SizeChange {
             id: win,
-            size: (p.size.width as u32, height as u32),
-        })
+            size: (p.size.width as u32, p.size.height as u32),
+        });
+        Task::batch([resize, self.refresh_popover_anchor()])
     }
 
     pub(super) fn view_catcher(&self) -> Element<'_, Msg> {
@@ -817,6 +1070,7 @@ impl App {
         alpha: f32,
     ) -> Element<'a, Msg> {
         let content = match kind {
+            Kind::Notifications => self.view_notification_history(alpha),
             Kind::Volume => self.pop_volume(alpha),
             Kind::Brightness => self.pop_brightness(alpha),
             Kind::Calendar => self.pop_calendar(alpha),
@@ -840,7 +1094,14 @@ impl App {
             Kind::Overflow(items) => self.pop_overflow(alpha, items),
             Kind::Menu { entries, .. } => self.pop_menu(alpha, entries, confirm),
         };
-        let fg = color(self.cfg.general.theme.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            alpha,
+        );
         container(content)
             .style(move |_| container::Style {
                 text_color: Some(fg),
@@ -849,13 +1110,26 @@ impl App {
             .into()
     }
 
+    pub(super) fn popover_shown(&mut self, id: Id) -> Task<Msg> {
+        if let Some(p) = self.popover.as_mut().filter(|p| p.win == id && !p.shown) {
+            p.shown = true;
+            if p.visibility.to == 1.0 {
+                p.visibility.from = 0.0;
+                p.visibility.start = std::time::Instant::now();
+            }
+        }
+        Task::none()
+    }
+
     pub(super) fn view_popover(&self) -> Element<'_, Msg> {
         let Some(p) = &self.popover else {
             return Space::new().into();
         };
         let now = std::time::Instant::now();
         let still = self.bar_duration(180).is_zero();
-        let alpha = if still {
+        let alpha = if !p.shown {
+            0.0
+        } else if still {
             p.visibility.to
         } else {
             p.visibility.value(now)
@@ -866,24 +1140,90 @@ impl App {
             p.change.map_or(1.0, |f| f.value(now))
         };
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                th.fg
+            },
+            alpha,
+        );
         let bg = color(
             th.bg,
             th.effect(crate::config::Place::Menus).opacity * alpha,
         );
         let win = p.win;
-        let current = iced::widget::sensor(self.pop_content(&p.kind, p.confirm, alpha * mix))
-            .key(win)
-            .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
+        let content_alpha = if p.attached.is_some() { 1.0 } else { alpha };
+        let current =
+            iced::widget::sensor(self.pop_content(&p.kind, p.confirm, content_alpha * mix))
+                .key(win)
+                .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
         let mut content = iced::widget::stack![];
         if let Some(previous) = &p.previous {
             content = content.push(super::bar_motion::inert(self.pop_content(
                 previous,
                 None,
-                alpha * (1.0 - mix),
+                content_alpha * (1.0 - mix),
             )));
         }
         content = content.push(current);
+        if let Some(a) = p.attached {
+            let header = if matches!(a.edge, Edge::Top | Edge::Bottom) {
+                a.bar_height
+            } else {
+                0.0
+            };
+            let shape_height = a.from_height + (a.height - a.from_height) * mix;
+            let body = container(iced::widget::scrollable(content).height(Length::Fill))
+                .padding(Padding {
+                    top: 24.0 + header,
+                    bottom: 24.0,
+                    left: 36.0,
+                    right: 36.0,
+                })
+                .width(Length::Fill)
+                .height(a.height);
+            let body: Element<'_, Msg> = if p.closing() {
+                super::bar_motion::inert(body)
+            } else {
+                body.into()
+            };
+            let pal = self.bar_palette();
+            let track = if p.shown {
+                p.visibility
+            } else {
+                super::Fade {
+                    from: 0.0,
+                    to: 0.0,
+                    start: p.visibility.start,
+                    dur: std::time::Duration::ZERO,
+                }
+            };
+            let shape = container(super::kinetic::reveal(
+                body,
+                super::kinetic::Track::Ease(track),
+                a.edge,
+                color(pal.bg, pal.opacity),
+                p.shown.then_some(Msg::MotionSettled),
+            ))
+            .width(Length::Fill)
+            .height(shape_height)
+            .clip(true);
+            return iced::widget::sensor(
+                container(shape)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_y(match a.edge {
+                        Edge::Top => Alignment::Start,
+                        Edge::Bottom => Alignment::End,
+                        _ => Alignment::Center,
+                    })
+                    .clip(true),
+            )
+            .key(win)
+            .on_show(move |_| Msg::PopoverShown(win))
+            .into();
+        }
         let card: Element<'_, Msg> =
             container(iced::widget::scrollable(content).height(Length::Fill))
                 .padding(12)
@@ -911,20 +1251,31 @@ impl App {
         } else {
             iced::Point::new(p.origin, 1.0)
         };
-        container(super::bar_motion::surface(
-            card,
-            0.975 + 0.025 * alpha,
-            Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
-            origin,
-        ))
-        .padding(SHADOW)
-        .width(Length::Fill)
-        .height(Length::Fill)
+        iced::widget::sensor(
+            container(super::bar_motion::surface(
+                card,
+                0.975 + 0.025 * alpha,
+                Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
+                origin,
+            ))
+            .padding(SHADOW)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
+        .key(win)
+        .on_show(move |_| Msg::PopoverShown(win))
         .into()
     }
 
     pub(super) fn pop_header(&self, alpha: f32, label: String) -> Element<'_, Msg> {
-        let dim = color(self.cfg.general.theme.fg, 0.65 * alpha);
+        let dim = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            0.65 * alpha,
+        );
         container(
             text(label)
                 .font(self.font)
@@ -943,7 +1294,14 @@ impl App {
     }
 
     pub(super) fn pop_separator(&self, alpha: f32) -> Element<'_, Msg> {
-        let line = color(self.cfg.general.theme.fg, 0.10 * alpha);
+        let line = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            0.10 * alpha,
+        );
         container(rule::horizontal(1).style(move |_| rule::Style {
             color: line,
             radius: 0.0.into(),
@@ -970,8 +1328,25 @@ impl App {
         msg: Option<Msg>,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0 * alpha), color(th.accent, 1.0 * alpha));
-        let dim = color(th.fg, (if enabled { 0.65 } else { 0.3 }) * alpha);
+        let (fg, accent) = (
+            color(
+                if self.convex_options().is_some() {
+                    self.bar_palette().fg
+                } else {
+                    th.fg
+                },
+                1.0 * alpha,
+            ),
+            color(th.accent, 1.0 * alpha),
+        );
+        let dim = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                th.fg
+            },
+            (if enabled { 0.65 } else { 0.3 }) * alpha,
+        );
         let font = self.ui_font(iced::font::Weight::Normal);
         let long = stacked(&label, detail.as_deref());
         let active = enabled && clickable;
@@ -1038,7 +1413,14 @@ impl App {
         confirm: Option<usize>,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0 * alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                th.fg
+            },
+            1.0 * alpha,
+        );
         let mut col = column![].spacing(0);
         if entries.is_empty() {
             col = col.push(self.pop_row(
@@ -1263,7 +1645,14 @@ impl App {
         set: fn(f32) -> Msg,
         mute: Msg,
     ) -> Element<'_, Msg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0 * alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            1.0 * alpha,
+        );
         let (v, muted) = value.unwrap_or((0.0, false));
         let font = self.ui_font(iced::font::Weight::Medium);
         column![
@@ -1321,7 +1710,14 @@ impl App {
         if list.len() < 2 {
             return Space::new().into();
         }
-        let fg = color(self.cfg.general.theme.fg, 1.0 * alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            1.0 * alpha,
+        );
         column(list.iter().map(|d| {
             let lead = if d.default {
                 self.icon_named("object-select-symbolic", 14.0, fg)
@@ -1345,8 +1741,22 @@ impl App {
     fn pop_calendar(&self, alpha: f32) -> Element<'_, Msg> {
         let th = &self.cfg.general.theme;
         let (fg, dim, accent) = (
-            color(th.fg, 1.0 * alpha),
-            color(th.fg, 0.55 * alpha),
+            color(
+                if self.convex_options().is_some() {
+                    self.bar_palette().fg
+                } else {
+                    th.fg
+                },
+                1.0 * alpha,
+            ),
+            color(
+                if self.convex_options().is_some() {
+                    self.bar_palette().fg
+                } else {
+                    th.fg
+                },
+                0.55 * alpha,
+            ),
             color(th.accent, 1.0 * alpha),
         );
         let title = format_now("%A %-d %B %Y");

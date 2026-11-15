@@ -19,7 +19,7 @@ libc = "0.2"
 # Couleurs par écran : tables gamma (wlr-gamma-control), mêmes versions que layershellev.
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", default-features = false, features = ["client"] }
-iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio", "markdown"] }
+iced = { version = "0.14", features = ["advanced", "canvas", "image", "svg", "tokio", "markdown"] }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 # IPC Hyprland partagé avec mindlog.hyprland_tools (MIT), épinglé sur un commit poussé.
 hyprpanel-core = { git = "https://github.com/jacquesh82/mindlog.hyprland_tools", rev = "275671f" }

@@ -8,7 +8,41 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → Performance.** A new package lists the Hyprland 0.57 options
+  that cost CPU or GPU time — blur (passes, xray, popups, special workspace),
+  shadow, glow, motion blur, wobble, animations, animated resizes and drags,
+  VFR, direct scanout, new render scheduling — each with its cost and what
+  each profile does with it. Three priority profiles set them at once:
+  **Performance** (no blur, shadow or animation), **Balanced** (light blur,
+  costliest effects off) and **Visual quality** (every effect, finer blur).
+  Profiles write the same settings as the Animations package, so any option
+  can still be adjusted afterwards; "Back to hyprland.lua" removes them all.
+  CLI: `hyprdesk config set perf.profile performance|equilibre|rendu|hyprland`.
+  Without Hyprland blur (Performance profile, a setting here or
+  hyprland.lua), the Settings drawer turns opaque so it stays readable.
+
+- **Bar styles Island and Convex** (inspired by
+  [minflair](https://github.com/t4lentles5/minflair), GPL-3.0). **Island**
+  shows a single centered black capsule (112 × 28 px, margin 8), empty at
+  rest like the supplied reference. Hover reveals the configured modules;
+  live notifications temporarily expand the center. Transparent sides pass
+  clicks through to the desktop. **Convex** carves the edge into a full-width
+  slab with three rounded notches joined by 4 px bezier bridges, following
+  the measured zones. Both share the existing modules, panels, overflow and
+  multi-monitor machinery; only the skin changes. The strip now reports the
+  measured zone extents (`Msg::BarLayout`) and the style paints its zone
+  background behind them. New preview scenes `bar-island-*` and
+  `bar-convex-*`.
+
 ### Changed
+
+- **Convex motion rendering.** Retained widgets now animate only their host at the compositor's frame cadence instead of rebuilding every desktop on a 16 ms timer. Drawer and dock springs retain velocity when reversing. Icons react to pointer proximity and presses; controls receive local hover feedback. Menus, notifications and dock tooltips share the local reveal driver, and ordinary pointer movement no longer rebuilds the desktop. Text stays at a constant raster size during transitions.
+
+- **Convex interaction and performance.** Auto-hide dock with an immediate edge reveal, independent left/right drawers available on hover, dark opaque defaults, and a notification drawer revealed downward from the top center. Surface opening animations now start after presentation instead of being consumed by window creation. `convex.auto_hide` is configurable in Settings/Lua/CLI; hover transitions use a short close grace period and stop drawing at rest.
+
+- **Convex reference animation.** Continuous screen frame with rounded inner corners, attached dock, side drawers and a launcher revealed from the bottom edge. The frame passes pointer events through to windows. Settings → Bar, Lua (`bar.convex`) and CLI expose frame thickness, corner radius, animation duration and attached panels. Zero duration and reduced motion are immediate; canvases cache their idle geometry. The selected bar height scales the notches; empty side groups no longer stretch a lone clock across the screen.
 
 - **License.** hyprdesk is now distributed under the GNU General Public
   License, version 3 or any later version (GPL-3.0-or-later), instead of

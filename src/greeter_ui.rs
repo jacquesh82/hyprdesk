@@ -462,6 +462,7 @@ fn greeter_video(
         fps: fps.max(1),
         blur: None,
         span: None,
+        whole: false,
     };
     use iced::futures::StreamExt;
     crate::video::frames(recipe).map(|f| GMsg::Frame(f.tiles))

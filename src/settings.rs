@@ -50,6 +50,7 @@ pub struct BarSettings {
     pub compact: crate::config::BarCompact,
     pub style: crate::config::BarStyle,
     pub colors: crate::config::BarColors,
+    pub convex: crate::config::ConvexDef,
 }
 
 impl crate::config::BarStyle {
@@ -85,6 +86,7 @@ impl Default for BarSettings {
             compact: Default::default(),
             style: Default::default(),
             colors: Default::default(),
+            convex: Default::default(),
         }
     }
 }
@@ -260,6 +262,7 @@ impl BarSettings {
                 compact: b.compact,
                 style: b.style,
                 colors: b.colors.clone(),
+                convex: b.convex,
             },
         }
     }
@@ -1542,6 +1545,10 @@ impl Settings {
                 if b.style != crate::config::BarStyle::default() {
                     f.push(format!("style = {}", q(b.style.as_str())));
                 }
+                if b.convex != crate::config::ConvexDef::default() {
+                    let c = b.convex;
+                    f.push(format!("convex = {{ frame_width = {}, radius = {}, duration = {}, attached_panels = {}, auto_hide = {} }}", c.frame_width, c.radius, c.duration, c.attached_panels, c.auto_hide));
+                }
                 let zone = |l: &[BarEntry]| -> String {
                     l.iter()
                         .map(|e| {
@@ -2675,6 +2682,33 @@ mod tests {
             lua.lines().all(|l| l.starts_with("--") || l.is_empty()),
             "{lua}"
         );
+    }
+
+    #[test]
+    fn convex_options_survive_settings_lua_roundtrip() {
+        let b = BarSettings {
+            style: crate::config::BarStyle::Convexe,
+            convex: crate::config::ConvexDef {
+                frame_width: 9,
+                radius: 60,
+                duration: 250,
+                attached_panels: false,
+                auto_hide: true,
+            },
+            ..Default::default()
+        };
+        let settings = Settings {
+            bar: Some(b.clone()),
+            ..Default::default()
+        };
+        let loaded = crate::config::lua::load_chunks(
+            &[(settings.to_lua(), "settings.lua".into(), Origin::Settings)],
+            Path::new("/tmp/hyprdesk-convex-roundtrip"),
+        )
+        .unwrap();
+        let again = BarSettings::from_config(&loaded.config);
+        assert_eq!(again.convex, b.convex);
+        assert_eq!(again.style, b.style);
     }
 
     #[test]

@@ -344,6 +344,32 @@ pub(super) fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
 }
 
 impl App {
+    pub(super) fn bar_input(&self, id: Id, bounds: Option<iced::Rectangle>) -> Task<Msg> {
+        let Some(surface) = self.bar_surfaces.get(&id) else {
+            return Task::none();
+        };
+        let width = self
+            .monitors
+            .iter()
+            .find(|m| m.name == surface.monitor)
+            .map_or(16384.0, |m| m.width as f32);
+        let bounds = bounds.unwrap_or(iced::Rectangle::new(
+            iced::Point::ORIGIN,
+            iced::Size::new(width, surface.height as f32),
+        ));
+        Task::done(Msg::SetInputRegion {
+            id,
+            callback: iced_layershell::actions::ActionCallback::new(move |region| {
+                region.add(
+                    bounds.x.floor() as i32,
+                    bounds.y.floor() as i32,
+                    bounds.width.ceil() as i32,
+                    bounds.height.ceil() as i32,
+                );
+            }),
+        })
+    }
+
     pub(super) fn bar_duration(&self, millis: u64) -> Duration {
         if self.cfg.general.transition == crate::config::Transition::None {
             Duration::ZERO
@@ -479,6 +505,15 @@ impl App {
                 tasks.push(self.want_icon(name));
             }
         }
+        tasks.push(self.sync_convex_frames());
+        if self
+            .cfg
+            .bar
+            .as_ref()
+            .is_none_or(|b| b.style != crate::config::BarStyle::Island)
+        {
+            tasks.extend(self.bar_surfaces.keys().map(|id| self.bar_input(*id, None)));
+        }
         if changed {
             self.bar_anchors
                 .retain(|(id, _), _| self.bar_surfaces.contains_key(id));
@@ -579,6 +614,11 @@ impl App {
             .bar
             .as_ref()
             .is_some_and(|b| b.style == BarStyle::Graphite);
+        let island = self
+            .cfg
+            .bar
+            .as_ref()
+            .is_some_and(|b| b.style == BarStyle::Island);
         let neutre = |v: Rgba| {
             if graphite {
                 super::bar_style::neutral(v)
@@ -587,8 +627,24 @@ impl App {
             }
         };
         BarPalette {
-            fg: pick(|c| c.text, neutre(th.fg)),
-            bg: pick(|c| c.background, neutre(th.bg)),
+            fg: pick(
+                |c| c.text,
+                if self.convex_options().is_some() || island {
+                    Rgba(246, 247, 255, 255)
+                } else {
+                    neutre(th.fg)
+                },
+            ),
+            bg: pick(
+                |c| c.background,
+                if island {
+                    Rgba(8, 8, 10, 255)
+                } else if self.convex_options().is_some() {
+                    Rgba(12, 12, 16, 255)
+                } else {
+                    neutre(th.bg)
+                },
+            ),
             accent: pick(|c| c.accent, th.accent),
             warning: pick(|c| c.warning, crate::config::BarColors::WARNING),
             critical: pick(|c| c.critical, crate::config::BarColors::CRITICAL),
@@ -596,6 +652,7 @@ impl App {
             opacity: match c.and_then(|c| c.opacity) {
                 Some(o) => o.clamp(0.0, 1.0),
                 None if graphite => super::bar_style::ACRYLIC,
+                None if self.convex_options().is_some() || island => 1.0,
                 None => th.effect(crate::config::Place::Bar).opacity.clamp(0.0, 1.0),
             },
         }
@@ -644,7 +701,12 @@ impl App {
         // ordinaires seulement ; les écrans verticaux gardent les leurs).
         let edit = self.panel.is_some();
         let graphite = style == crate::config::BarStyle::Graphite;
-        let content: Element<'_, Msg> = if !edit || graphite {
+        let content: Element<'_, Msg> = if !edit
+            || graphite
+            || matches!(
+                style,
+                crate::config::BarStyle::Convexe | crate::config::BarStyle::Island
+            ) {
             let mut slots: Vec<_> = zones
                 .iter()
                 .enumerate()
@@ -661,6 +723,30 @@ impl App {
                     flexible: self.bar_item_is_launcher(item),
                     content: {
                         let content = self.bar_item(id, s, item);
+                        let content = if zone == 1
+                            && let Some(p) = self.popover.as_ref().filter(|p| p.bar == id)
+                            && let Some(a) = p.attached.filter(|a| {
+                                matches!(
+                                    a.edge,
+                                    super::bar_style::convexe::Edge::Top
+                                        | super::bar_style::convexe::Edge::Bottom
+                                )
+                            }) {
+                            let progress = p.visibility.value(std::time::Instant::now());
+                            let dy = if s.position == BarPosition::Top {
+                                -1.0
+                            } else {
+                                1.0
+                            };
+                            bar_motion::inert(bar_motion::surface(
+                                content,
+                                1.0,
+                                iced::Vector::new(0.0, dy * a.bar_height * progress),
+                                iced::Point::ORIGIN,
+                            ))
+                        } else {
+                            content
+                        };
                         let content = if edit && !self.bar_item_is_launcher(item) {
                             self.bar_edit_item(content, zone + zone_offset, i, s.height)
                         } else if edit {
@@ -743,6 +829,9 @@ impl App {
                 eligible.extend([false; 3]);
             }
             eligible.push(true);
+            if style == crate::config::BarStyle::Island {
+                eligible.fill(false);
+            }
             let mut more_content = row![].spacing(5).align_y(Alignment::Center);
             if self.bar_overflow_items(id).contains(&BarItem::Workspaces)
                 && let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor)
@@ -782,8 +871,23 @@ impl App {
                     more,
                     self.bar_compact(&s.monitor),
                     style == crate::config::BarStyle::Graphite,
+                    super::bar_style::zone_pill(style, &pal).map(|mut skin| {
+                        skin.pinned = edit
+                            || self.bar_preview.is_some()
+                            || self.popover.as_ref().is_some_and(|p| p.bar == id);
+                        skin.notification = !self.toasts.list.is_empty()
+                            && zones[1].iter().any(|item| {
+                                matches!(item,
+                                    BarItem::Widget(id) if self.cfg.widgets.iter().any(|w|
+                                        &w.id == id && matches!(w.kind, WidgetKind::Clock { .. })))
+                            });
+                        skin.duration = self.bar_duration(180);
+                        skin
+                    }),
                 ),
-                self.bar_preview.map(|(i, _)| i),
+                self.bar_preview
+                    .filter(|_| style != crate::config::BarStyle::Island)
+                    .map(|(i, _)| i),
                 eligible,
                 super::bar_style::rail_look(style, &pal),
                 self.bar_duration(t.hover),
@@ -818,14 +922,35 @@ impl App {
         let top = s.position == BarPosition::Top;
         // Un seul filet, côté supérieur en Graphite.
         let mut pad = Padding::new(0.0);
-        if graphite {
-            pad.top = 1.0;
-        } else {
-            pad.top = if top { 0.0 } else { 1.0 };
-            pad.bottom = if top { 1.0 } else { 0.0 };
+        match style {
+            crate::config::BarStyle::Graphite => pad.top = 1.0,
+            // Pilules : retraits horizontaux pour leur débord de verre ; la
+            // fenêtre reste transparente au-dessus et en-dessous d'elles.
+            crate::config::BarStyle::Island => {
+                pad.left = 12.0;
+                pad.right = 12.0;
+            }
+            // Convex : bord à bord, les niches partent des bords de l'écran.
+            crate::config::BarStyle::Convexe => {}
+            crate::config::BarStyle::Continuite => {
+                pad.top = if top { 0.0 } else { 1.0 };
+                pad.bottom = if top { 1.0 } else { 0.0 };
+                pad.left = 8.0;
+                pad.right = 8.0;
+            }
         }
-        pad.left = 8.0;
-        pad.right = 8.0;
+        // Fond de zones à path (Convex) : canvas sous le contenu, aux
+        // étendues mesurées des zones.
+        let content = match super::bar_style::zone_underlay(
+            style,
+            &pal,
+            s.height as f32,
+            self.bar_zone_extents.get(&id).copied().unwrap_or_default(),
+            top,
+        ) {
+            Some(underlay) => iced::widget::stack([underlay, content]).into(),
+            None => content,
+        };
         let slab = container(content)
             .padding(pad)
             .width(Length::Fill)
@@ -1458,10 +1583,24 @@ impl App {
                         Some(crate::i18n::tr("Centre de contrôle").into()),
                         open,
                     ),
-                    WidgetKind::Clock { format } => self.module(
-                        bar,
-                        alpha,
-                        if style == crate::config::BarStyle::Graphite {
+                    WidgetKind::Clock { format } => {
+                        // « Dynamic island » : en style Island, la dernière
+                        // bulle vivante prend la main sur l'horloge de la
+                        // pilule centrale, et lui rend à sa disparition. Le
+                        // clic garde le calendrier.
+                        let toast = (style == crate::config::BarStyle::Island)
+                            .then(|| self.toasts.list.first())
+                            .flatten();
+                        let shown: Element<'_, Msg> = if let Some(t) = toast {
+                            let icon = self
+                                .icon_named(&t.n.icon, isz, fg)
+                                .or_else(|| self.icon_named("notifications-symbolic", isz, fg))
+                                .unwrap_or_else(|| self.label("•", size, fg));
+                            row![icon, self.label(truncate(&t.n.summary, 26), size, fg),]
+                                .spacing(6)
+                                .align_y(Alignment::Center)
+                                .into()
+                        } else if style == crate::config::BarStyle::Graphite {
                             iced::widget::column![
                                 self.label(format_now("%H:%M"), 12.0, fg),
                                 self.label(format_now("%d/%m/%Y"), 11.0, fg),
@@ -1471,14 +1610,19 @@ impl App {
                             .into()
                         } else {
                             self.label(format_now(if compact { "%H:%M" } else { format }), size, fg)
-                        },
-                        Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
-                        None,
-                        None,
-                        None,
-                        None,
-                        open,
-                    ),
+                        };
+                        self.module(
+                            bar,
+                            alpha,
+                            shown,
+                            Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
+                            None,
+                            None,
+                            None,
+                            None,
+                            open,
+                        )
+                    }
                     WidgetKind::Calendar => self.module(
                         bar,
                         alpha,

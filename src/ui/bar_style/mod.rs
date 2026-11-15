@@ -22,7 +22,9 @@ use super::{App, Msg, bar_motion};
 use crate::config::{BarPosition, BarStyle};
 
 mod continuite;
+pub(super) mod convexe;
 mod graphite;
+mod island;
 
 /// Matière neutre et opacité de référence de la barre Graphite.
 pub(super) use graphite::{ACRYLIC, neutral};
@@ -44,6 +46,8 @@ const fn tokens(style: BarStyle) -> Tokens {
     match style {
         BarStyle::Continuite => continuite::TOKENS,
         BarStyle::Graphite => graphite::TOKENS,
+        BarStyle::Island => island::TOKENS,
+        BarStyle::Convexe => convexe::TOKENS,
     }
 }
 
@@ -52,7 +56,8 @@ pub(super) fn durations(app: &App) -> Tokens {
     tokens(app.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default())
 }
 
-/// Fond de la barre : la lame du style.
+/// Fond de la barre : la lame du style. Island et Convex rendent une lame
+/// transparente — leur silhouette vit dans le fond de zones ci-dessous.
 pub(super) fn surface(
     style: BarStyle,
     pal: &BarPalette,
@@ -61,10 +66,40 @@ pub(super) fn surface(
     match style {
         BarStyle::Continuite => continuite::surface(pal, top),
         BarStyle::Graphite => graphite::surface(pal, top),
+        BarStyle::Island => island::surface(pal),
+        BarStyle::Convexe => convexe::surface(pal),
     }
 }
 
-/// Chrome d'un bouton de module (survol, appui, module actif).
+/// Fond de zones d’un style — le contrat commun : le conducteur mesure
+/// l’étendue horizontale de chaque zone (`Msg::BarLayout`) et le style peint
+/// sa silhouette derrière les modules, aux limites mesurées.
+/// Island peint sa capsule centrale dans le strip (`PillSkin`, quads du
+/// renderer : rayon plein et ombre portée). Convex rend un canvas à niches
+/// posé sous le strip ; un changement d’étendues le repositionne à l’image
+/// suivante. `None` : lame pleine (Continuité, Graphite), rien à peindre.
+pub(super) fn zone_pill(style: BarStyle, pal: &BarPalette) -> Option<super::bar_layout::PillSkin> {
+    match style {
+        BarStyle::Island => Some(island::pill(pal)),
+        _ => None,
+    }
+}
+
+/// Canvas de fond pour les styles à path (Convex) ; `None` sinon.
+pub(super) fn zone_underlay<'a>(
+    style: BarStyle,
+    pal: &BarPalette,
+    height: f32,
+    extents: [(f32, f32); 3],
+    top: bool,
+) -> Option<Element<'a, Msg>> {
+    match style {
+        BarStyle::Convexe => Some(convexe::underlay(pal, height, extents, top)),
+        _ => None,
+    }
+}
+
+/// Chrome d’un bouton de module (survol, appui, module actif).
 pub(super) fn module_button(
     style: BarStyle,
     alpha: f32,
@@ -76,6 +111,8 @@ pub(super) fn module_button(
     match style {
         BarStyle::Continuite => continuite::module_button(alpha, fg, active, st),
         BarStyle::Graphite => graphite::module_button(alpha, fg, bg, active, st),
+        BarStyle::Island => island::module_button(alpha, fg, active, st),
+        BarStyle::Convexe => convexe::module_button(alpha, fg, bg, active, st),
     }
 }
 
@@ -84,14 +121,18 @@ pub(super) fn rail_look(style: BarStyle, pal: &BarPalette) -> bar_motion::RailLo
     match style {
         BarStyle::Continuite => bar_motion::RailLook::Fill(super::color(pal.fg, 0.08)),
         BarStyle::Graphite => bar_motion::RailLook::Fill(color(pal.fg, 0.07)),
+        BarStyle::Island => bar_motion::RailLook::Fill(color(pal.fg, 0.08)),
+        BarStyle::Convexe => bar_motion::RailLook::Fill(color(pal.fg, 0.07)),
     }
 }
 
-/// Encre d’une sélection : accent du thème dans les deux styles.
+/// Encre d’une sélection : accent du thème dans tous les styles.
 pub(super) fn ink(style: BarStyle, pal: &BarPalette) -> Color {
     match style {
         BarStyle::Continuite => color(pal.accent, 1.0),
         BarStyle::Graphite => color(pal.accent, 1.0),
+        BarStyle::Island => color(pal.accent, 1.0),
+        BarStyle::Convexe => color(pal.accent, 1.0),
     }
 }
 

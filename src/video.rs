@@ -45,6 +45,11 @@ pub struct Recipe {
     /// Scène étalée : taille du canevas, puis part de l'écran dans le canevas
     /// (x, y, largeur, hauteur — les mêmes valeurs que `span::Placement`).
     pub span: Option<((u32, u32), crate::span::Placement)>,
+    /// Trame entière, aux proportions de la source et au grand côté borné
+    /// par `w.max(h)` : une seule lecture sert alors tous les écrans qui
+    /// montrent ce fond, chacun en recadrant sa part au rendu
+    /// (`Tiles::view`). Sans effet sur une scène étalée.
+    pub whole: bool,
 }
 
 /// Taille de trame ramenée aux pixels de source qu'elle montre vraiment :
@@ -105,19 +110,42 @@ fn filter(r: &Recipe) -> String {
     f
 }
 
+/// Un nœud de rendu DRM existe : le décodage matériel (VA-API) vaut d'être
+/// tenté.
+fn has_render_node() -> bool {
+    std::fs::read_dir("/dev/dri").is_ok_and(|d| {
+        d.flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+    })
+}
+
 /// Commande ffmpeg : la vidéo en boucle, en trames RGBA brutes sur stdout.
 /// Le rythme n'est pas laissé à ffmpeg (`-re` attend un saut d'horloge à
 /// chaque jointure de boucle : l'affichage se fige un demi-seconde) : le
 /// lecteur (`frames`) lit une trame par créneau, et le contrôle de flux du
 /// tube règle ffmpeg tout seul.
-pub fn argv(r: &Recipe) -> Vec<String> {
-    vec![
+///
+/// `hw` : décodage par VA-API (le processeur ne fait plus que la conversion
+/// en RGBA : deux fois moins de calcul pour une 720p). Les fils sont
+/// comptés : un fond à 24 i/s n'a pas besoin de tous les cœurs, et leur
+/// synchronisation coûtait un quart du temps en logiciel.
+pub fn argv(r: &Recipe, hw: bool) -> Vec<String> {
+    let mut a: Vec<String> = vec![
         "ffmpeg".into(),
         "-nostdin".into(),
         "-stream_loop".into(),
         "-1".into(),
         "-loglevel".into(),
         "error".into(),
+    ];
+    if hw {
+        a.extend(["-hwaccel".into(), "vaapi".into()]);
+    }
+    a.extend([
+        "-threads".into(),
+        if hw { "1" } else { "2" }.into(),
+        "-filter_threads".into(),
+        "1".into(),
         "-an".into(),
         "-sn".into(),
         "-dn".into(),
@@ -130,7 +158,8 @@ pub fn argv(r: &Recipe) -> Vec<String> {
         "-pix_fmt".into(),
         "rgba".into(),
         "pipe:1".into(),
-    ]
+    ]);
+    a
 }
 
 /// Taille sous laquelle iced_wgpu 0.14 téléverse une image dans le dessin
@@ -154,10 +183,14 @@ pub struct Tiles {
 }
 
 impl Tiles {
+    #[cfg(test)]
     pub fn new(w: u32, h: u32, data: Vec<u8>) -> Self {
+        Self::from_bytes(w, h, iced::advanced::graphics::core::Bytes::from(data))
+    }
+
+    fn from_bytes(w: u32, h: u32, data: iced::advanced::graphics::core::Bytes) -> Self {
         let row = (w.max(1) as usize) * 4;
         let band = ((SYNC_UPLOAD - 1) / row).max(1) * row;
-        let data = iced::advanced::graphics::core::Bytes::from(data);
         let strips = (0..data.len())
             .step_by(band)
             .map(|start| {
@@ -227,6 +260,85 @@ impl Tiles {
     }
 }
 
+/// Tampons de trame recyclés : une trame de 3,7 Mo allouée à neuf, mise à
+/// zéro puis rendue au système vingt-quatre fois par seconde coûtait plus
+/// de cent mille défauts de page par seconde au bureau. Le tampon revient
+/// ici quand la dernière bande qui le partage est lâchée (iced l'a
+/// téléversée et oubliée).
+#[derive(Clone, Default)]
+struct Pool(std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
+
+/// Garde au plus ce nombre de tampons libres (les trames en vol, plus une).
+const POOL_KEEP: usize = 6;
+
+impl Pool {
+    fn take(&self, size: usize) -> Vec<u8> {
+        let spare = self.0.lock().ok().and_then(|mut v| v.pop());
+        match spare {
+            Some(b) if b.len() == size => b,
+            _ => vec![0u8; size],
+        }
+    }
+
+    fn bytes(&self, buf: Vec<u8>) -> iced::advanced::graphics::core::Bytes {
+        iced::advanced::graphics::core::Bytes::from_owner(Pooled {
+            buf,
+            pool: self.clone(),
+        })
+    }
+}
+
+/// Tampon prêté aux bandes d'une trame, rendu au [`Pool`] à la fin.
+struct Pooled {
+    buf: Vec<u8>,
+    pool: Pool,
+}
+
+impl AsRef<[u8]> for Pooled {
+    fn as_ref(&self) -> &[u8] {
+        &self.buf
+    }
+}
+
+impl Drop for Pooled {
+    fn drop(&mut self) {
+        if let Ok(mut v) = self.pool.0.lock()
+            && v.len() < POOL_KEEP
+        {
+            v.push(std::mem::take(&mut self.buf));
+        }
+    }
+}
+
+/// ffmpeg à la priorité la plus basse : il ne prend que le temps que
+/// personne d'autre ne veut (SCHED_IDLE, gentillesse 19, entrées-sorties
+/// en classe « idle »). Le fond peut sauter des trames sous charge, une
+/// application au premier plan jamais.
+fn lowest_priority(cmd: &mut tokio::process::Command) {
+    // SAFETY : entre fork et exec, seuls des appels système sans
+    // allocation, sur le processus lui-même.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+            let param = libc::sched_param { sched_priority: 0 };
+            libc::sched_setscheduler(0, libc::SCHED_IDLE, &param);
+            // ioprio_set(IOPRIO_WHO_PROCESS, soi, IOPRIO_CLASS_IDLE << 13).
+            libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
+            Ok(())
+        });
+    }
+}
+
+/// Tube agrandi (1 Mio, le plafond sans privilège par défaut) : une trame
+/// se lit en quatre appels au lieu de soixante.
+fn widen_pipe(pipe: &tokio::process::ChildStdout) {
+    use std::os::fd::AsRawFd;
+    // SAFETY : fcntl sur un descripteur ouvert que l'on possède.
+    unsafe {
+        libc::fcntl(pipe.as_raw_fd(), libc::F_SETPIPE_SZ, 1 << 20);
+    }
+}
+
 /// Une trame prête à afficher : ses bandes, et l'analyse du lanceur (bureau).
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -250,20 +362,33 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
             .ok()
             .flatten();
         let mut r = r;
-        (r.w, r.h) = capped(r.w, r.h, source.filter(|_| r.span.is_none()));
+        if r.whole && r.span.is_none() {
+            // Trame entière : les proportions de la source (16:9 si elles
+            // sont inconnues), jamais agrandie.
+            let (sw, sh) = source.unwrap_or((1920, 1080));
+            let bound = r.w.max(r.h).min(sw.max(sh)).max(2);
+            (r.w, r.h) = target_size(sw, sh, bound);
+        } else {
+            (r.w, r.h) = capped(r.w, r.h, source.filter(|_| r.span.is_none()));
+        }
         let (w, h) = (r.w.max(1), r.h.max(1));
         let size = w as usize * h as usize * 4;
         let step = Duration::from_millis((1000 / r.fps.max(1)).max(20) as u64);
         let mut delay = Duration::from_millis(250);
+        // VA-API tant qu'il tient : un ffmpeg mort sans livrer une trame
+        // (pilote absent, codec refusé) repasse au décodage logiciel.
+        let mut hw = has_render_node();
+        let pool = Pool::default();
         loop {
-            let a = argv(&r);
-            let spawned = tokio::process::Command::new(&a[0])
-                .args(&a[1..])
+            let a = argv(&r, hw);
+            let mut cmd = tokio::process::Command::new(&a[0]);
+            cmd.args(&a[1..])
                 .stdin(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
-                .kill_on_drop(true)
-                .spawn();
+                .kill_on_drop(true);
+            lowest_priority(&mut cmd);
+            let spawned = cmd.spawn();
             let mut child = match spawned {
                 Ok(c) => c,
                 Err(e) => {
@@ -282,8 +407,10 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                 tokio::time::sleep(delay).await;
                 continue;
             };
+            widen_pipe(&pipe);
             use tokio::io::AsyncReadExt;
             let mut next = Instant::now();
+            let mut delivered = false;
             loop {
                 // Créneau suivant : la lecture qui suit attend son tour, et le
                 // tube endort ffmpeg pendant ce temps.
@@ -294,7 +421,7 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                 };
                 tokio::time::sleep_until(next.into()).await;
                 next += step;
-                let mut data = vec![0u8; size];
+                let mut data = pool.take(size);
                 if pipe.read_exact(&mut data).await.is_err() {
                     break;
                 }
@@ -302,7 +429,7 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                     break;
                 };
                 let backdrop = crate::ui::plugins::launcher::contrast::Backdrop::from_rgba(&img);
-                let tiles = Tiles::new(w, h, img.into_raw());
+                let tiles = Tiles::from_bytes(w, h, pool.bytes(img.into_raw()));
                 if tx
                     .send(Frame {
                         tiles,
@@ -313,8 +440,14 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                 {
                     return; // Plus personne n'écoute : le fond a changé ou l'app sort.
                 }
+                delivered = true;
             }
             let _ = child.wait().await;
+            if hw && !delivered {
+                tracing::info!("fond vidéo : VA-API indisponible, décodage logiciel");
+                hw = false;
+                continue;
+            }
             delay = if started.elapsed() >= Duration::from_secs(2) {
                 Duration::from_millis(250)
             } else {
@@ -451,6 +584,23 @@ mod tests {
     }
 
     #[test]
+    fn frame_buffers_come_back_to_the_pool() {
+        let pool = Pool::default();
+        let mut b = pool.take(16);
+        b[0] = 7;
+        let t = Tiles::from_bytes(2, 2, pool.bytes(b));
+        let copy = t.clone();
+        drop(t);
+        assert!(pool.0.lock().unwrap().is_empty(), "encore partagé");
+        drop(copy);
+        let back = pool.take(16);
+        assert_eq!(back[0], 7, "le même tampon, sans remise à zéro");
+        // Taille changée : un tampon neuf.
+        drop(pool.bytes(back));
+        assert_eq!(pool.take(32).len(), 32);
+    }
+
+    #[test]
     fn tiles_stay_under_the_sync_upload_size() {
         let (w, h) = (1920, 1080);
         let t = Tiles::new(w, h, vec![0u8; (w * h * 4) as usize]);
@@ -490,6 +640,7 @@ mod tests {
             fps: 30,
             blur: None,
             span: None,
+            whole: false,
         }
     }
 
@@ -516,8 +667,15 @@ mod tests {
 
     #[test]
     fn commande_ffmpeg() {
-        let a = argv(&recipe(1920, 1080));
+        let a = argv(&recipe(1920, 1080), false);
         let s = a.join(" ");
+        assert!(!s.contains("-hwaccel"), "logiciel");
+        let hw = argv(&recipe(1920, 1080), true).join(" ");
+        assert!(
+            hw.contains("-hwaccel vaapi -threads 1"),
+            "VA-API avant l'entrée"
+        );
+        assert!(hw.find("-hwaccel").unwrap() < hw.find("-i ").unwrap());
         assert!(s.contains("-stream_loop -1"), "boucle infinie");
         assert!(!s.contains("-re"), "le rythme est tenu par le lecteur");
         assert!(s.contains("-f rawvideo -pix_fmt rgba pipe:1"));
@@ -528,11 +686,11 @@ mod tests {
         // Flou (mode verre).
         let mut r = recipe(480, 270);
         r.blur = Some(2.5);
-        assert!(argv(&r).join(" ").contains("gblur=sigma=2.5"));
+        assert!(argv(&r, false).join(" ").contains("gblur=sigma=2.5"));
         // Part d'une scène étalée.
         r.blur = None;
         r.span = Some(((3840, 2160), (1920, 0, 1920, 1080)));
-        let s = argv(&r).join(" ");
+        let s = argv(&r, false).join(" ");
         assert!(s.contains("scale=3840:2160:force_original_aspect_ratio=increase,crop=3840:2160"));
         assert!(s.contains("crop=1920:1080:1920:0"));
     }

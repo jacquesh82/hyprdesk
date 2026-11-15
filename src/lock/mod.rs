@@ -749,6 +749,7 @@ fn video_background(
         fps: 30,
         blur: blur.then_some(6.0),
         span: None,
+        whole: false,
     };
     use iced::futures::StreamExt;
     crate::video::frames(recipe).map(|f| Msg::VideoBackground(f.tiles))
@@ -767,6 +768,7 @@ fn video_part(
         fps: 30,
         blur: blur.then_some(6.0),
         span: None,
+        whole: false,
     };
     use iced::futures::StreamExt;
     crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))

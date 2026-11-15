@@ -54,9 +54,10 @@ pub enum Msg {
     Current(BTreeMap<String, String>),
 }
 
-/// Réglages effectifs : ceux de la config, ou rien si le paquet est coupé.
+/// Réglages effectifs : ceux de la config, ou rien si le paquet est coupé
+/// (ainsi que Performance, qui écrit dans les mêmes réglages).
 pub fn effective(cfg: &Config) -> Fx {
-    if cfg.plugin_on(INFO.id) {
+    if cfg.plugin_on(INFO.id) || cfg.plugin_on(super::performance::INFO.id) {
         cfg.general.fx.clone()
     } else {
         Fx::default()
@@ -96,7 +97,21 @@ impl App {
             .unwrap_or_else(|| self.cfg.general.fx.clone())
     }
 
-    fn edit_fx(&mut self, f: impl FnOnce(&mut Fx)) {
+    /// Le flou de Hyprland est coupé : par un réglage d'ici (profil
+    /// Performance…), sinon par hyprland.lua (lu à l'ouverture des Réglages).
+    /// Sans flou, une surface translucide devient illisible.
+    pub(in crate::ui) fn hypr_blur_off(&self) -> bool {
+        match effective(&self.cfg).options.get("decoration.blur.enabled") {
+            Some(OptValue::Bool(on)) => !on,
+            _ => self
+                .panel
+                .as_ref()
+                .and_then(|p| p.animations.current.get("decoration.blur.enabled"))
+                .is_some_and(|v| matches!(v.as_str(), "false" | "0")),
+        }
+    }
+
+    pub(in crate::ui) fn edit_fx(&mut self, f: impl FnOnce(&mut Fx)) {
         let mut fx = self.fx_settings();
         f(&mut fx);
         self.settings.fx = Some(fx);
@@ -150,7 +165,7 @@ impl App {
     }
 
     /// Contrôle d'un effet selon sa nature.
-    fn fx_option(&self, path: &'static str) -> Element<'_, UiMsg> {
+    pub(in crate::ui) fn fx_option(&self, path: &'static str) -> Element<'_, UiMsg> {
         let Some(o) = fx::opt(path) else {
             return iced::widget::Space::new().into();
         };

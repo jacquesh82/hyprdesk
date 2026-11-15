@@ -14,7 +14,14 @@ impl App {
         let Some(bar) = self.bar_surfaces.get(&p.bar) else {
             return Space::new().into();
         };
-        let fg = color(self.cfg.general.theme.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            alpha,
+        );
         let mut col =
             column![self.pop_header(alpha, crate::i18n::tr("Autres commandes").into())].spacing(8);
         for item in items {
@@ -71,7 +78,14 @@ impl App {
             .find(|m| m.name == bar.monitor)
             .map(|m| m.workspace.as_str())
             .unwrap_or("");
-        let fg = color(self.cfg.general.theme.fg, alpha);
+        let fg = color(
+            if self.convex_options().is_some() {
+                self.bar_palette().fg
+            } else {
+                self.cfg.general.theme.fg
+            },
+            alpha,
+        );
         let mut col =
             column![self.pop_header(alpha, crate::i18n::tr("Workspaces").into())].spacing(4);
         for workspace in self.workspaces.iter().filter(|w| w.monitor == bar.monitor) {

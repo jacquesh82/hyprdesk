@@ -1971,6 +1971,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             "style",
             "colors",
             "module_colors",
+            "convex",
             "opacity",
         ],
         CTX,
@@ -2121,6 +2122,32 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             compose(p);
         }
     }
+    let mut convex = ConvexDef::default();
+    if let Some(c) = t.get::<Option<Table>>("convex")? {
+        let ctx = "hd.bar.convex";
+        check_keys(
+            &c,
+            &[
+                "frame_width",
+                "radius",
+                "duration",
+                "attached_panels",
+                "auto_hide",
+            ],
+            ctx,
+        )?;
+        convex.frame_width = opt_num(&c, "frame_width", ctx)?
+            .unwrap_or(convex.frame_width as f64)
+            .clamp(0.0, 20.0) as u16;
+        convex.radius = opt_num(&c, "radius", ctx)?
+            .unwrap_or(convex.radius as f64)
+            .clamp(0.0, 96.0) as u16;
+        convex.duration = opt_num(&c, "duration", ctx)?
+            .unwrap_or(convex.duration as f64)
+            .clamp(0.0, 800.0) as u16;
+        convex.attached_panels = opt_bool(&c, "attached_panels", ctx)?.unwrap_or(true);
+        convex.auto_hide = opt_bool(&c, "auto_hide", ctx)?.unwrap_or(true);
+    }
     b.config.bar = Some(BarDef {
         monitors: string_list(t.get("monitor")?, "monitor", CTX)?,
         position,
@@ -2131,6 +2158,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         compact,
         style,
         colors,
+        convex,
     });
     Ok(())
 }
@@ -3337,6 +3365,43 @@ mod tests {
         assert_eq!(c.widgets.iter().filter(|w| w.in_bar).count(), 2);
         assert!(load(r#"hd.bar({ compact = "parfois" })"#).is_err());
         assert!(load(r#"hd.bar({ portrait = { haut = {} } })"#).is_err());
+    }
+
+    #[test]
+    fn convex_settings_validate_and_preserve_explicit_geometry() {
+        let b=load(r#"hd.bar({style='convexe',height=64,margin=8,position='bottom',convex={frame_width=10,radius=56,duration=420,attached_panels=false}})"#).unwrap().config.bar.unwrap();
+        assert_eq!(
+            (b.height, b.margin, b.position),
+            (64, 8, BarPosition::Bottom)
+        );
+        assert_eq!(
+            b.convex,
+            ConvexDef {
+                frame_width: 10,
+                radius: 56,
+                duration: 420,
+                attached_panels: false,
+                auto_hide: true,
+            }
+        );
+        assert_eq!(
+            load("hd.bar({style='convexe'})")
+                .unwrap()
+                .config
+                .bar
+                .unwrap()
+                .convex,
+            ConvexDef::default()
+        );
+        assert!(load("hd.bar({convex={raduis=20}})").is_err());
+        assert!(load("hd.bar({convex={attached_panels='yes'}})").is_err());
+        let c = load("hd.bar({convex={frame_width=200,radius=-1,duration=9000}})")
+            .unwrap()
+            .config
+            .bar
+            .unwrap()
+            .convex;
+        assert_eq!((c.frame_width, c.radius, c.duration), (20, 0, 800));
     }
 
     #[test]

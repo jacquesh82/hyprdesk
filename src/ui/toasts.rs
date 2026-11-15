@@ -136,6 +136,7 @@ pub enum TMsg {
     Invoke(u32, String),
     Close(u32),
     Tick,
+    Shown(Id),
 }
 
 /// Surface des bulles et ses bulles (les plus récentes en premier).
@@ -149,6 +150,10 @@ pub struct Toasts {
     pub history: Vec<Notification>,
     /// Ne pas déranger : pas de bulle, sauf pour une notification critique.
     pub dnd: bool,
+    visibility: Option<super::Fade>,
+    previous: Vec<Toast>,
+    convex: bool,
+    shown: bool,
 }
 
 impl Toasts {
@@ -193,6 +198,16 @@ fn height(n: usize) -> u32 {
 impl App {
     pub(super) fn toasts_update(&mut self, m: TMsg) -> Task<Msg> {
         match m {
+            TMsg::Shown(id) => {
+                if self.toasts.win == Some(id) && !self.toasts.shown {
+                    self.toasts.shown = true;
+                    if let Some(f) = self.toasts.visibility.as_mut() {
+                        f.start = Instant::now();
+                        f.from = 0.0;
+                    }
+                }
+                Task::none()
+            }
             TMsg::Event(Event::Active) => {
                 self.toasts.active = true;
                 self.toasts.dnd = crate::notifications::dnd_path().exists();
@@ -263,7 +278,111 @@ impl App {
     }
 
     /// Ouvre, redimensionne ou ferme la surface selon les bulles.
-    fn sync_toasts(&mut self) -> Task<Msg> {
+    pub(super) fn toasts_animating(&self) -> bool {
+        self.toasts.shown
+            && self
+                .toasts
+                .visibility
+                .is_some_and(|f| f.from != f.to || !f.done(Instant::now()))
+    }
+    pub(super) fn toasts_frame(&mut self) -> Task<Msg> {
+        if !self.toasts.shown {
+            return Task::none();
+        }
+        if let Some(f) = self.toasts.visibility.as_mut()
+            && f.done(Instant::now())
+        {
+            f.from = f.to;
+            f.dur = Duration::ZERO;
+            if f.to == 0.0 {
+                self.toasts.visibility = None;
+                self.toasts.previous.clear();
+                self.toasts.shown = false;
+                return self
+                    .toasts
+                    .win
+                    .take()
+                    .map_or_else(Task::none, iced::window::close);
+            }
+        }
+        Task::none()
+    }
+    fn sync_convex_toasts(&mut self) -> Task<Msg> {
+        let n = self.toasts.list.len();
+        let duration = self.bar_duration(self.convex_options().map_or(180, |o| o.duration as u64));
+        if n == 0 {
+            if !self.toasts.shown {
+                self.toasts.visibility = None;
+                self.toasts.previous.clear();
+                return self
+                    .toasts
+                    .win
+                    .take()
+                    .map_or_else(Task::none, iced::window::close);
+            }
+            if let Some(f) = self.toasts.visibility.as_mut()
+                && f.to != 0.0
+            {
+                *f = super::Fade {
+                    from: f.value(Instant::now()),
+                    to: 0.0,
+                    start: Instant::now(),
+                    dur: duration.min(Duration::from_millis(140)),
+                };
+            }
+            if duration.is_zero() {
+                return self.toasts_frame();
+            }
+            return Task::none();
+        }
+        self.toasts.previous = self.toasts.list.clone();
+        let bh = self.cfg.bar.as_ref().map_or(48, |b| b.height) as u32;
+        let h = height(n) + bh + 12;
+        if let Some(win) = self.toasts.win {
+            if let Some(f) = self.toasts.visibility.as_mut()
+                && f.to == 0.0
+            {
+                *f = super::Fade {
+                    from: f.value(Instant::now()),
+                    to: 1.0,
+                    start: Instant::now(),
+                    dur: duration,
+                };
+            }
+            return Task::done(Msg::SizeChange {
+                id: win,
+                size: ((WIDTH + 72.0) as u32, h),
+            });
+        }
+        let win = Id::unique();
+        self.toasts.win = Some(win);
+        self.toasts.shown = false;
+        self.toasts.convex = true;
+        self.toasts.visibility = Some(super::Fade {
+            from: 0.0,
+            to: 1.0,
+            start: Instant::now(),
+            dur: duration,
+        });
+        Task::done(Msg::NewLayerShell {
+            id: win,
+            settings: NewLayerShellSettings {
+                size: Some(((WIDTH + 72.0) as u32, h)),
+                layer: Layer::Overlay,
+                anchor: LsAnchor::Top,
+                exclusive_zone: Some(-1),
+                margin: Some((0, 0, 0, 0)),
+                keyboard_interactivity: KeyboardInteractivity::None,
+                output_option: OutputOption::Active,
+                namespace: Some(NAMESPACE.into()),
+                ..Default::default()
+            },
+        })
+    }
+    pub(super) fn sync_toasts(&mut self) -> Task<Msg> {
+        if self.convex_options().is_some() {
+            return self.sync_convex_toasts();
+        }
         let n = self.toasts.list.len();
         match (self.toasts.win, n) {
             (Some(win), 0) => {
@@ -303,7 +422,8 @@ impl App {
 
     fn view_toast<'a>(&'a self, t: &'a Toast) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
+        let convex = self.convex_options().is_some();
+        let fg = color(if convex { self.bar_palette().fg } else { th.fg }, 1.0);
         let dim = Color { a: 0.65, ..fg };
         let accent = color(th.accent, 1.0);
         let bg = color(
@@ -373,19 +493,28 @@ impl App {
             .width(WIDTH)
             .height(CARD)
             .clip(true)
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                border: Border::default()
-                    .rounded(super::design::SMALL_RADIUS * 1.4)
-                    .width(1)
-                    .color(edge),
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
-                    offset: Vector::new(0.0, 6.0),
-                    blur_radius: 18.0,
-                },
-                text_color: Some(fg),
-                ..Default::default()
+            .style(move |_| {
+                if convex {
+                    container::Style {
+                        text_color: Some(fg),
+                        ..Default::default()
+                    }
+                } else {
+                    container::Style {
+                        background: Some(bg.into()),
+                        border: Border::default()
+                            .rounded(super::design::SMALL_RADIUS * 1.4)
+                            .width(1)
+                            .color(edge),
+                        shadow: Shadow {
+                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                            offset: Vector::new(0.0, 6.0),
+                            blur_radius: 18.0,
+                        },
+                        text_color: Some(fg),
+                        ..Default::default()
+                    }
+                }
             });
         // Clic sur la carte : action par défaut (si l'application en propose une).
         if t.n.actions.iter().any(|(k, _)| k == "default") {
@@ -397,10 +526,97 @@ impl App {
         }
     }
 
+    pub(super) fn view_notification_history(&self, alpha: f32) -> Element<'_, Msg> {
+        let fg = color(self.bar_palette().fg, alpha);
+        let mut col = column![
+            text(crate::i18n::tr("Notifications"))
+                .font(self.font)
+                .size(16)
+                .color(fg)
+        ]
+        .spacing(12);
+        if self.toasts.history.is_empty() {
+            col = col.push(
+                text(crate::i18n::tr("Aucune notification"))
+                    .font(self.font)
+                    .color(fg),
+            );
+        }
+        for n in self.toasts.history.iter().take(30) {
+            col = col.push(
+                column![
+                    text(n.app.clone()).font(self.font).size(11).color(fg),
+                    text(n.summary.clone()).font(self.font).size(14).color(fg),
+                    text(n.body.clone()).font(self.font).size(12).color(fg)
+                ]
+                .spacing(4),
+            );
+        }
+        col.into()
+    }
+
     pub(super) fn view_toasts(&self) -> Element<'_, Msg> {
         let mut col = column![].spacing(GAP);
-        for t in self.toasts.list.iter().take(VISIBLE) {
+        let visible = if self.toasts.list.is_empty() && self.toasts.convex {
+            &self.toasts.previous
+        } else {
+            &self.toasts.list
+        };
+        for t in visible.iter().take(VISIBLE) {
             col = col.push(self.view_toast(t));
+        }
+        if self.convex_options().is_some() {
+            use super::{
+                bar_style::convexe::Edge,
+                kinetic::{self, Track},
+            };
+            let win = self.toasts.win.unwrap_or_else(Id::unique);
+            let track = if !self.toasts.shown {
+                super::Fade {
+                    from: 0.0,
+                    to: 0.0,
+                    start: Instant::now(),
+                    dur: Duration::ZERO,
+                }
+            } else {
+                self.toasts.visibility.unwrap_or(super::Fade {
+                    from: 1.0,
+                    to: 1.0,
+                    start: Instant::now(),
+                    dur: Duration::ZERO,
+                })
+            };
+            let bh = self.cfg.bar.as_ref().map_or(48, |b| b.height) as f32;
+            let content = container(col)
+                .padding(iced::Padding {
+                    top: bh + 12.0,
+                    bottom: 24.0,
+                    left: 36.0,
+                    right: 36.0,
+                })
+                .height(Length::Fill)
+                .width(Length::Fill);
+            let content: Element<'_, Msg> = if self.toasts.visibility.is_some_and(|f| f.to == 0.0) {
+                super::bar_motion::inert(content)
+            } else {
+                content.into()
+            };
+            let pal = self.bar_palette();
+            return iced::widget::sensor(
+                container(kinetic::reveal(
+                    content,
+                    Track::Ease(track),
+                    Edge::Top,
+                    color(pal.bg, pal.opacity),
+                    self.toasts.shown.then_some(Msg::MotionSettled),
+                ))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .clip(true),
+            )
+            .key(win)
+            .on_show(move |_| Msg::Toasts(TMsg::Shown(win)))
+            .into();
         }
         container(col).padding(SHADOW).into()
     }
@@ -421,6 +637,36 @@ mod tests {
             n: crate::notifications::build(1, "a", "", "s", "b", &[], &h, timeout),
             since: Instant::now(),
         }
+    }
+
+    #[test]
+    fn convex_notification_waits_for_presentation_and_retracts_before_destroying() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let loaded = crate::config::lua::load_source(
+            "hd.bar({style='convexe'})",
+            "test.lua",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        app.cfg = std::sync::Arc::new(loaded.config);
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(toast(1, -1).n)));
+        let win = app.toasts.win.unwrap();
+        app.toasts.visibility.as_mut().unwrap().start = Instant::now() - Duration::from_secs(1);
+        let _ = app.toasts_frame();
+        assert!(!app.toasts_animating());
+        let _ = app.toasts_update(TMsg::Shown(win));
+        assert!(app.toasts_animating());
+        assert!(app.toasts.visibility.unwrap().start.elapsed() < Duration::from_millis(50));
+        let _ = app.toasts_update(TMsg::Close(1));
+        assert_eq!(app.toasts.win, Some(win));
+        assert_eq!(app.toasts.previous.len(), 1);
+        app.toasts.visibility.as_mut().unwrap().start = Instant::now() - Duration::from_secs(1);
+        let _ = app.toasts_frame();
+        assert!(app.toasts.win.is_none());
+        assert!(!app.toasts_animating());
     }
 
     #[test]

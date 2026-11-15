@@ -33,6 +33,9 @@ pub enum Command {
     /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
     /// sans changer le mode du bureau.
     Settings(String),
+    /// Ouvre les Réglages, ou les referme s'ils sont déjà ouverts sur cet
+    /// écran (raccourci `keys.settings`).
+    ToggleSettings,
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
@@ -90,6 +93,7 @@ impl Command {
             "switch" | "switch next" => Command::Switch(false),
             "switch prev" | "switch-prev" => Command::Switch(true),
             "settings" => Command::Settings("desktop".into()),
+            "toggle-settings" => Command::ToggleSettings,
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
@@ -147,6 +151,7 @@ impl Command {
             Command::ColorTest => "color-test",
             Command::Quit => "quit",
             Command::Settings(_) => "settings",
+            Command::ToggleSettings => "toggle-settings",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
@@ -389,6 +394,7 @@ mod tests {
             Command::Quit,
             Command::Settings("desktop".into()),
             Command::Settings("fond".into()),
+            Command::ToggleSettings,
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,

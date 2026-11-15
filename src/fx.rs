@@ -145,7 +145,65 @@ pub const OPTIONS: &[Opt] = &[
         "Intensité de l'ondulation",
         num(0.1, 3.0, 0.1)
     ),
+    // Coût du rendu (paquet « Performance », `crate::perf`).
+    o!(
+        "decoration",
+        "blur.new_optimizations",
+        "Optimisations du flou",
+        ON_OFF
+    ),
+    o!(
+        "decoration",
+        "blur.xray",
+        "Flou des fenêtres flottantes calculé sur le fond seul",
+        ON_OFF
+    ),
+    o!(
+        "decoration",
+        "blur.popups",
+        "Flou derrière les menus contextuels",
+        ON_OFF
+    ),
+    o!(
+        "decoration",
+        "blur.special",
+        "Flou derrière le workspace spécial",
+        ON_OFF
+    ),
+    o!(
+        "misc",
+        "animate_manual_resizes",
+        "Animer les redimensionnements à la souris",
+        ON_OFF
+    ),
+    o!(
+        "misc",
+        "animate_mouse_windowdragging",
+        "Animer le glissé des fenêtres",
+        ON_OFF
+    ),
+    o!(
+        "debug",
+        "vfr",
+        "Ne redessiner que ce qui change (VFR)",
+        ON_OFF
+    ),
+    o!(
+        "render",
+        "direct_scanout",
+        "Affichage direct d'une fenêtre plein écran",
+        Kind::IntChoice(SCANOUT)
+    ),
+    o!(
+        "render",
+        "new_render_scheduling",
+        "Triple tampon quand l'image prend du retard",
+        ON_OFF
+    ),
 ];
+
+/// `render.direct_scanout` de Hyprland 0.57 (entier).
+pub const SCANOUT: &[(i64, &str)] = &[(0, "Jamais"), (1, "Toujours"), (2, "Jeux seulement")];
 
 /// Groupes de l'onglet Effets : (titre, préfixe des clés).
 pub const GROUPS: &[(&str, &[&str])] = &[
@@ -690,6 +748,7 @@ mod tests {
             .chain(LEAVES.iter().map(|l| l.label))
             .chain(CURVES.iter().map(|c| c.label))
             .chain(BLUR_VARIANTS.iter().map(|(_, l)| *l))
+            .chain(SCANOUT.iter().map(|(_, l)| *l))
             .chain(GROUPS.iter().map(|(t, _)| *t))
             .chain(
                 LEAVES

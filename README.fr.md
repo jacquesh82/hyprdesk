@@ -240,6 +240,8 @@ ou rend le clavier au bureau complet.
 - **Réglez Hyprland depuis les Réglages.** Disposez les écrans, réglez clavier
   et pavé tactile, choisissez un layout par workspace (Dwindle, Master,
   Scrolling ou Monocle), ajustez animations, raccourcis et délais de veille.
+  Un profil de rendu (Performance, Équilibré ou Rendu graphique) échange les
+  effets contre la charge du processeur et de la carte graphique.
   Un changement de disposition des écrans revient seul au bout de 12 secondes
   si vous ne le gardez pas.
 - **Préparez la session.** Démarrage automatique, capot du portable, écran de

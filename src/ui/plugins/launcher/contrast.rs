@@ -169,7 +169,14 @@ impl App {
                         b.sample(
                             roi,
                             screen,
-                            if key.4 { Fit::Cover } else { key.3 },
+                            // Mode verre, ou vidéo (trame entière recadrée
+                            // au rendu, comme « couvrir ») : c'est la part
+                            // centrale qui est derrière.
+                            if key.4 || crate::video::is_video(&key.0) {
+                                Fit::Cover
+                            } else {
+                                key.3
+                            },
                             fallback,
                         )
                     })

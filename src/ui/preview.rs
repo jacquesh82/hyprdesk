@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 100] = [
+const SCENES: [&str; 124] = [
     "desktop",
     "typography",
     "icons",
@@ -125,6 +125,30 @@ const SCENES: [&str; 100] = [
     "bar-selector-icones",
     "bar-selector-notif",
     "bar-graphite-edit",
+    "bar-island-idle",
+    "bar-island-hover",
+    "bar-island-bottom",
+    "bar-island-still",
+    "bar-island-pressed",
+    "bar-island-switch",
+    "bar-island-notif",
+    "bar-island-urgent",
+    "bar-convex-idle",
+    "bar-convex-pressed",
+    "bar-convex-switch",
+    "bar-convex-urgent",
+    "bar-convex-controls",
+    "bar-convex-calendar",
+    "bar-convex-opening",
+    "bar-convex-bottom",
+    "bar-convex-still",
+    "bar-convex-merge",
+    "bar-convex-settings",
+    "bar-convex-launcher",
+    "bar-convex-sides",
+    "bar-convex-dock-shown",
+    "bar-convex-notification",
+    "performance",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -159,7 +183,7 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
     .scale_factor(move |_: &Preview| scale)
     .theme(|p: &Preview| p.app.theme.clone())
     .subscription(|p: &Preview| {
-        let frames = if p.app.launcher_animating() {
+        let frames = if p.app.launcher_animating() && p.app.convex_options().is_none() {
             iced::window::frames().map(|_| PreviewMsg::Ui(Box::new(Msg::Frame)))
         } else if p.app.animating() {
             iced::time::every(Duration::from_millis(16))
@@ -354,6 +378,7 @@ impl Preview {
             compact: Default::default(),
             style: Default::default(),
             colors: Default::default(),
+            convex: Default::default(),
         });
         for (type_id, icon, detail) in [
             (
@@ -484,6 +509,10 @@ impl Preview {
                 | "bar-menu-closing"
                 | "bar-graphite-pressed"
                 | "bar-graphite-switch"
+                | "bar-island-pressed"
+                | "bar-island-switch"
+                | "bar-convex-pressed"
+                | "bar-convex-switch"
         );
         let capture = Task::perform(
             tokio::time::sleep(Duration::from_millis(if gesture { 150 } else { 500 })),
@@ -505,6 +534,7 @@ impl Preview {
         self.app.panel = None;
         self.app.chat = None;
         self.app.bar_preview = None;
+        self.app.convex_runtime = Default::default();
         self.app.workspaces.retain(|w| w.id <= 4);
         let cfg = Arc::make_mut(&mut self.app.cfg);
         cfg.widgets
@@ -538,8 +568,6 @@ impl Preview {
         }
         self.app.urgent.clear();
         self.app.clients.retain(|c| c.address != "preview-urgent");
-        self.app.bar_hidden.clear();
-        self.app.bar_full_width.clear();
         if let Some(bar) = self.app.bar_surfaces.get_mut(&self.bar) {
             bar.position = BarPosition::Top;
             bar.height = 44;
@@ -614,6 +642,7 @@ impl Preview {
             }
             if matches!(self.scene, 21 | 26 | 30) {
                 self.app.launcher_popup = Some(plugins::launcher::Popup {
+                    shown: true,
                     id: Id::unique(),
                     monitor: crate::i18n::tr("APERÇU").into(),
                     key: "dock-pin:firefox".into(),
@@ -706,6 +735,7 @@ impl Preview {
             "animations" | "animations-effets" => Some("animations"),
             "son" => Some("sound"),
             "energie" => Some("energy"),
+            "performance" => Some("performance"),
             "date-heure" => Some("datetime"),
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
@@ -879,7 +909,10 @@ impl Preview {
         // Lanceur : grande feuille (« applications ») ou carte centrée
         // (« lanceur-central ») ; quelques applications, par catégorie, et
         // des suggestions fixes (l'aperçu ne lit pas l'usage réel).
-        if matches!(SCENES[self.scene], "applications" | "lanceur-central") {
+        if matches!(
+            SCENES[self.scene],
+            "applications" | "lanceur-central" | "bar-convex-launcher"
+        ) {
             let app = |id: &str, name: &str, icon: &str, cat: &str| crate::launch::AppInfo {
                 id: id.into(),
                 name: name.into(),
@@ -1387,6 +1420,11 @@ impl Preview {
             };
             Arc::make_mut(&mut self.app.cfg).general.idle.manage = true;
         }
+        // Performance : profil Équilibré posé (l'aperçu ne lit pas Hyprland).
+        if SCENES[self.scene] == "performance" {
+            crate::perf::Profile::Balanced
+                .apply(&mut Arc::make_mut(&mut self.app.cfg).general.fx.options);
+        }
         if SCENES[self.scene] == "date-heure"
             && let Some(p) = self.app.panel.as_mut()
         {
@@ -1736,6 +1774,170 @@ impl Preview {
                 self.app.monitors[0].reserved = (0.0, 0.0, 0.0, 48.0);
             }
 
+            if SCENES[self.scene].starts_with("bar-island-") {
+                // Capsule de référence : vide au repos, commandes révélées.
+                let cfg = Arc::make_mut(&mut self.app.cfg);
+                let bar = cfg.bar.as_mut().unwrap();
+                bar.style = config::BarStyle::Island;
+                bar.height = 36;
+                bar.margin = 8;
+                bar.position = if SCENES[self.scene] == "bar-island-bottom" {
+                    BarPosition::Bottom
+                } else {
+                    BarPosition::Top
+                };
+                let surface = self.app.bar_surfaces.get_mut(&self.bar).unwrap();
+                surface.position = bar.position;
+                surface.height = 36;
+                surface.margin = 8;
+                self.app.monitors[0].reserved = (0.0, 44.0, 0.0, 0.0);
+                if !matches!(
+                    SCENES[self.scene],
+                    "bar-island-idle" | "bar-island-notif" | "bar-island-bottom"
+                ) {
+                    self.app.bar_preview = Some((6, false));
+                }
+                if SCENES[self.scene] == "bar-island-bottom" {
+                    self.app.monitors[0].reserved = (0.0, 0.0, 0.0, 44.0);
+                }
+                if SCENES[self.scene] == "bar-island-still" {
+                    Arc::make_mut(&mut self.app.cfg).general.transition = config::Transition::None;
+                }
+                if SCENES[self.scene] == "bar-island-urgent" {
+                    self.app.clients.push(Client {
+                        address: "preview-urgent".into(),
+                        class: "firefox".into(),
+                        title: crate::i18n::tr("Mindlog · Notes du jour").into(),
+                        workspace: "2".into(),
+                        monitor: crate::i18n::tr("APERÇU").into(),
+                    });
+                    self.app.urgent.insert("preview-urgent".into());
+                }
+                if SCENES[self.scene] == "bar-island-notif" {
+                    // Prise de main : une bulle vivante remplace l'heure de
+                    // la pilule centrale.
+                    let _ = self.app.want_icon("firefox");
+                    self.app.toasts.list = vec![super::toasts::Toast {
+                        n: crate::notifications::build(
+                            1,
+                            "Firefox",
+                            "firefox",
+                            "Téléchargement terminé",
+                            "rapport-annuel.pdf (2,4 Mo)",
+                            &[],
+                            &Default::default(),
+                            -1,
+                        ),
+                        since: std::time::Instant::now(),
+                    }];
+                }
+            }
+
+            if SCENES[self.scene].starts_with("bar-convex-") {
+                // Lame à niches : bord à bord en haut, 48 d'air (44 de
+                // silhouette + 4 sous la lame).
+                let cfg = Arc::make_mut(&mut self.app.cfg);
+                cfg.bar.as_mut().unwrap().style = config::BarStyle::Convexe;
+                cfg.bar.as_mut().unwrap().height = 48;
+                cfg.bar.as_mut().unwrap().margin = 0;
+                if SCENES[self.scene] == "bar-convex-bottom" {
+                    cfg.bar.as_mut().unwrap().position = BarPosition::Bottom;
+                }
+                if SCENES[self.scene] == "bar-convex-still" {
+                    cfg.general.transition = config::Transition::None;
+                }
+
+                let surface = self.app.bar_surfaces.get_mut(&self.bar).unwrap();
+                surface.position = BarPosition::Top;
+                surface.height = 48;
+                surface.margin = 0;
+                self.app.monitors[0].reserved = (0.0, 48.0, 0.0, 0.0);
+                if SCENES[self.scene] == "bar-convex-urgent" {
+                    self.app.clients.push(Client {
+                        address: "preview-urgent".into(),
+                        class: "firefox".into(),
+                        title: crate::i18n::tr("Mindlog · Notes du jour").into(),
+                        workspace: "2".into(),
+                        monitor: crate::i18n::tr("APERÇU").into(),
+                    });
+                    self.app.urgent.insert("preview-urgent".into());
+                }
+            }
+
+            if SCENES[self.scene] == "bar-convex-bottom" {
+                self.app.bar_surfaces.get_mut(&self.bar).unwrap().position = BarPosition::Bottom;
+                self.app.monitors[0].reserved = (0.0, 0.0, 0.0, 48.0);
+            }
+            if matches!(
+                SCENES[self.scene],
+                "bar-convex-controls" | "bar-convex-opening" | "bar-convex-still"
+            ) {
+                self.app.bar_anchors.insert(
+                    (self.bar, "barcontrols".into()),
+                    iced::Rectangle::new(
+                        iced::Point::new(self.size.width - 40.0, 0.0),
+                        Size::new(32.0, 48.0),
+                    ),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "barcontrols".into(),
+                    popover::Kind::Widget("barcontrols".into()),
+                );
+            }
+            if SCENES[self.scene] == "bar-convex-calendar" {
+                let _ = self
+                    .app
+                    .open_popover(self.bar, "barclock".into(), popover::Kind::Calendar);
+            }
+            if SCENES[self.scene] == "bar-convex-sides" {
+                let m = self.app.monitors[0].name.clone();
+                let _ = self
+                    .app
+                    .convex_hover(m.clone(), super::convex::Part::Left, true);
+                let _ = self.app.convex_hover(m, super::convex::Part::Right, true);
+            }
+            if SCENES[self.scene] == "bar-convex-dock-shown" {
+                let _ = self.app.convex_hover(
+                    self.app.monitors[0].name.clone(),
+                    super::convex::Part::Dock,
+                    true,
+                );
+            }
+            if SCENES[self.scene] == "bar-convex-notification" {
+                let n = crate::notifications::build(
+                    42,
+                    "Hyprdesk",
+                    "",
+                    "Téléchargement terminé",
+                    "Votre fichier est prêt.",
+                    &[],
+                    &Default::default(),
+                    -1,
+                );
+                let _ = self.app.toasts_update(super::toasts::TMsg::Event(
+                    crate::notifications::Event::Shown(n),
+                ));
+            }
+            if SCENES[self.scene] == "bar-convex-launcher" {
+                self.app.search = None;
+                let _ = self.app.toggle_search();
+                if let Some(s) = self.app.search.as_mut() {
+                    s.visibility = Some(Fade {
+                        from: 1.0,
+                        to: 1.0,
+                        start: Instant::now(),
+                        dur: Duration::ZERO,
+                    });
+                }
+            }
+            if SCENES[self.scene] == "bar-convex-settings" {
+                self.app.settings.bar =
+                    Some(crate::settings::BarSettings::from_config(&self.app.cfg));
+                self.app.panel = Some(Panel::new(self.desktop));
+                let _ = self.app.panel_update(PanelMsg::Tab("bar"));
+            }
+
             if SCENES[self.scene] == "bar-graphite-urgent" {
                 // Une fenêtre marquée urgente sur un espace non actif : le
                 // losange se pose à côté de son numéro.
@@ -1891,9 +2093,14 @@ impl Preview {
         if self.output.is_some()
             && let Some(p) = self.app.popover.as_mut()
         {
+            let progress = if SCENES[self.scene] == "bar-convex-opening" {
+                0.5
+            } else {
+                1.0
+            };
             p.visibility = Fade {
-                from: 1.0,
-                to: 1.0,
+                from: progress,
+                to: progress,
                 start: Instant::now(),
                 dur: Duration::ZERO,
             };
@@ -1997,6 +2204,12 @@ impl Preview {
                     "bar-workspace-switch" => self.app.monitors[0].workspace = "3".into(),
                     "bar-graphite-pressed" => self.app.bar_preview = Some((6, true)),
                     "bar-graphite-switch" => self.app.monitors[0].workspace = "3".into(),
+                    "bar-island-pressed" | "bar-convex-pressed" => {
+                        self.app.bar_preview = Some((6, true))
+                    }
+                    "bar-island-switch" | "bar-convex-switch" => {
+                        self.app.monitors[0].workspace = "3".into()
+                    }
                     "bar-menu-switch" => {
                         let _ =
                             self.app
@@ -2189,6 +2402,32 @@ impl Preview {
                 }
                 Task::none()
             }
+            Msg::Search(super::search::SMsg::Close) => {
+                let _ = self.app.close_search();
+                Task::none()
+            }
+            Msg::Search(super::search::SMsg::Query(q)) if !q.starts_with(':') => self
+                .app
+                .search_update(super::search::SMsg::Query(q))
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
+            m @ (Msg::ConvexHover(..)
+            | Msg::ConvexHide(..)
+            | Msg::ConvexWake(..)
+            | Msg::ConvexClose(..)
+            | Msg::PopoverShown(..)
+            | Msg::MotionSettled
+            | Msg::Cursor(..)) => self
+                .app
+                .update_inner(m)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::Search(super::search::SMsg::Shown) => self
+                .app
+                .search_update(super::search::SMsg::Shown)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
+            Msg::Toasts(m) => self
+                .app
+                .toasts_update(m)
+                .map(|m| PreviewMsg::Ui(Box::new(m))),
             Msg::ClosePopover => {
                 let _ = self.app.close_popover();
                 Task::none()
@@ -2224,6 +2463,7 @@ impl Preview {
             | Msg::LauncherPopupClose(_)
             | Msg::LauncherPopupHover(_)
             | Msg::LauncherPopupMeasured(..)
+            | Msg::LauncherPopupShown(..)
             | Msg::LauncherShown(_)
             | Msg::LauncherLaunchExpired(..)) => self
                 .app
@@ -2322,6 +2562,9 @@ impl Preview {
                     .into(),
             );
         }
+        if self.app.convex_options().is_some() {
+            layers.push(self.app.view_convex_frame());
+        }
         // Les scènes de modes posent deux fenêtres fictives entre le bureau et le dock.
         if matches!(SCENES[self.scene], "mode-launcher" | "mode-hidden") {
             layers.insert(1, self.demo_windows());
@@ -2379,8 +2622,10 @@ impl Preview {
                     .width(p.size.width)
                     .height(p.size.height))
                 .x(p.left)
-                .y(if p.position == BarPosition::Top {
-                    44.0 + popover::GAP - popover::SHADOW
+                .y(if let Some(a) = p.attached {
+                    a.top
+                } else if p.position == BarPosition::Top {
+                    bh + popover::GAP - popover::SHADOW
                 } else {
                     self.size.height - 44.0 - popover::GAP + popover::SHADOW - p.size.height
                 })
@@ -2439,17 +2684,26 @@ impl Preview {
                     .into(),
             );
         }
-        if !self.app.toasts.list.is_empty() {
-            layers.push(
-                container(self.app.view_toasts())
-                    .width(Length::Fill)
-                    .align_x(iced::Alignment::End)
-                    .padding(Padding {
-                        top: 44.0,
-                        ..Padding::ZERO
-                    })
-                    .into(),
-            );
+        if !self.app.toasts.list.is_empty() || self.app.toasts.win.is_some() {
+            if self.app.convex_options().is_some() {
+                layers.push(
+                    container(container(self.app.view_toasts()).width(452).height(196))
+                        .width(Length::Fill)
+                        .align_x(iced::Alignment::Center)
+                        .into(),
+                );
+            } else {
+                layers.push(
+                    container(self.app.view_toasts())
+                        .width(Length::Fill)
+                        .align_x(iced::Alignment::End)
+                        .padding(Padding {
+                            top: 44.0,
+                            ..Padding::ZERO
+                        })
+                        .into(),
+                );
+            }
         }
         if self.app.mfa_dialog.is_some() {
             layers.push(

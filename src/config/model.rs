@@ -639,7 +639,7 @@ impl Place {
     /// Couches Hyprland de cet endroit.
     pub fn namespaces(self) -> &'static [&'static str] {
         match self {
-            Place::Bar => &["hyprdesk-bar"],
+            Place::Bar => &["hyprdesk-bar", "hyprdesk-convex-frame"],
             Place::Menus => &["hyprdesk-popover"],
             Place::Launcher => &["hyprdesk-launcher", "hyprdesk-launcher-popup"],
             Place::Settings => &["hyprdesk-settings"],
@@ -813,6 +813,29 @@ pub struct BarDef {
     pub style: BarStyle,
     /// Couleurs propres à la barre (sinon celles du thème).
     pub colors: BarColors,
+    pub convex: ConvexDef,
+}
+
+/// Géométrie du cadre Convex, en pixels logiques ; mouvement en millisecondes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConvexDef {
+    pub frame_width: u16,
+    pub radius: u16,
+    pub duration: u16,
+    pub attached_panels: bool,
+    pub auto_hide: bool,
+}
+
+impl Default for ConvexDef {
+    fn default() -> Self {
+        Self {
+            frame_width: 6,
+            radius: 44,
+            duration: 180,
+            attached_panels: true,
+            auto_hide: true,
+        }
+    }
 }
 
 /// Couleurs de la barre : `None` = celle du thème ; et une couleur par
@@ -876,12 +899,20 @@ pub enum BarStyle {
     Continuite,
     /// Barre des tâches : lanceur centré et widgets à droite, bord à bord.
     Graphite,
+    /// Capsule noire centrée, vide au repos, révélée au survol et occupée
+    /// temporairement par les notifications.
+    Island,
+    /// Lame pleine largeur sculptée de trois niches reliées par des ponts
+    /// fins. Voir `design-plans/barre-convexe.md`.
+    Convexe,
 }
 
 /// Styles de barre réglables : (id Lua, libellé).
 pub const BAR_STYLES: &[(BarStyle, &str, &str)] = &[
     (BarStyle::Continuite, "continuite", "Continuité"),
     (BarStyle::Graphite, "graphite", "Graphite"),
+    (BarStyle::Island, "island", "Island"),
+    (BarStyle::Convexe, "convexe", "Convex"),
 ];
 
 impl BarStyle {
@@ -902,6 +933,10 @@ impl BarStyle {
         match self {
             BarStyle::Continuite => 36,
             BarStyle::Graphite => 48,
+            // Pilule flottante : plus fine que les lames.
+            BarStyle::Island => 36,
+            // 44 de silhouette + 4 d'air sous la lame.
+            BarStyle::Convexe => 48,
         }
     }
     /// Bord proposé quand `hd.bar` ne le fixe pas.
@@ -909,6 +944,8 @@ impl BarStyle {
         match self {
             BarStyle::Continuite => BarPosition::Top,
             BarStyle::Graphite => BarPosition::Bottom,
+            BarStyle::Island => BarPosition::Top,
+            BarStyle::Convexe => BarPosition::Top,
         }
     }
     /// Marge au bord proposée quand `hd.bar` ne la fixe pas (0 = collée).
@@ -916,6 +953,9 @@ impl BarStyle {
         match self {
             BarStyle::Continuite => 0,
             BarStyle::Graphite => 0,
+            // Capsule détachée du bord, jour visible dessous.
+            BarStyle::Island => 8,
+            BarStyle::Convexe => 0,
         }
     }
     /// La composition proposée par le style (gauche, centre, droite) :
@@ -924,11 +964,17 @@ impl BarStyle {
     /// conserve son lanceur dans la zone centrale.
     pub fn preset(self) -> [Vec<BarPreset>; 3] {
         match self {
-            BarStyle::Continuite => [
+            // Island et Convexe gardent la pose d'origine : ils ne changent
+            // que la silhouette (capsule centrale, lame à niches).
+            BarStyle::Continuite | BarStyle::Island | BarStyle::Convexe => [
                 vec![sans_option("workspaces"), sans_option("window")],
                 vec![BarPreset {
                     type_id: "clock",
-                    options: &[("format", "%a %d %b  %H:%M")],
+                    options: if self == BarStyle::Convexe {
+                        &[("format", "%H:%M")]
+                    } else {
+                        &[("format", "%a %d %b  %H:%M")]
+                    },
                 }],
                 vec![
                     sans_option("tray"),

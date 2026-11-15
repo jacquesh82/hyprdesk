@@ -389,10 +389,19 @@ impl App {
                         .on_toggle(move |v| wrap(Msg::Blur(place, v))),
                 );
             }
+            let mut cell = column![line].spacing(4);
+            if place == Place::Settings && self.hypr_blur_off() {
+                cell = cell.push(
+                    text("Opaque tant que le flou de Hyprland est coupé (Performance).")
+                        .font(font)
+                        .size(11)
+                        .color(self.ink().dim),
+                );
+            }
             effects = effects.push(self.field(
                 place.label(),
                 &format!("theme.effects.{}", place.as_str()),
-                line,
+                cell,
             ));
         }
         effects = effects.push(

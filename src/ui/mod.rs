@@ -20,9 +20,11 @@ mod bar_style;
 mod chat;
 pub(crate) mod color_picker;
 mod context;
+mod convex;
 mod design;
 mod desk_layout;
 mod icons;
+mod kinetic;
 mod mymfa;
 mod mymfa_fenetre;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
@@ -141,7 +143,21 @@ pub enum Msg {
     /// Barre : molette sur les workspaces (écran, ±1).
     BarScroll(String, i32),
     BarAnchor(Id, String, iced::Rectangle),
-    BarLayout(Id, Vec<usize>, u32),
+    ConvexFrameReady(Id),
+    ConvexHover(String, convex::Part, bool),
+    ConvexHide(String, convex::Part, u64),
+    /// Bande de réveil du dock convexe : entrée (true) ou sortie.
+    ConvexWake(String, bool),
+    ConvexClose(String, convex::Part),
+    PopoverShown(Id),
+    MotionSettled,
+    /// Barre : modules cachés par le débordement, largeur pleine mesurée, et
+    /// étendue horizontale `(début, fin)` de chaque zone — coordonnées du
+    /// contenu de la barre, pour peindre pilules et niches derrière elles.
+    /// `(0.0, 0.0)` : zone vide.
+    BarLayout(Id, Vec<usize>, u32, [(f32, f32); 3]),
+    /// Région de saisie de la capsule Island ; les côtés restent traversants.
+    BarIslandInput(Id, iced::Rectangle),
     ControlToggle(String),
     ControlToggled(u64, String, Result<(), String>),
     VolumeMute,
@@ -183,6 +199,7 @@ pub enum Msg {
     LauncherShown(String),
     LauncherPopupOpen(u64),
     LauncherPopupMeasured(Id, f32),
+    LauncherPopupShown(Id),
     LauncherLaunchExpired(String, Instant),
     LauncherResolved(String, Instant, String),
     LauncherDispatched(String, Instant, bool),
@@ -458,10 +475,15 @@ pub struct App {
     desk_stamp: Option<(crate::desktop_files::Stamp, Instant)>,
     /// Surfaces de la barre native.
     bar_surfaces: HashMap<Id, bar::BarSurface>,
+    convex_frames: HashMap<Id, String>,
+    convex_runtime: convex::Runtime,
     bar_anchors: HashMap<(Id, String), iced::Rectangle>,
     control_actions: HashMap<String, Option<String>>,
     bar_hidden: HashMap<Id, Vec<usize>>,
     bar_full_width: HashMap<Id, u32>,
+    /// Étendues mesurées des zones de chaque barre (voir `Msg::BarLayout`) :
+    /// le fond de zones d'un style (pilules, niches) s'y peint derrière.
+    bar_zone_extents: HashMap<Id, [(f32, f32); 3]>,
     /// Poses de démonstration, jamais activées par le démon de session.
     bar_preview: Option<(usize, bool)>,
     workspaces: Vec<hypr::Workspace>,
@@ -677,14 +699,32 @@ fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
     })
 }
 
-/// Recette ffmpeg d'une clé de fond vidéo : trame au grand côté borné (ou
-/// divisé par le flou du mode verre), flou demandé, part étalée.
+/// Clé de lecture d'un fond vidéo : ce qui change les trames décodées.
+/// Hors scène étalée, la trame est la vidéo entière et chaque écran en
+/// recadre sa part au rendu : taille d'écran et ajustement n'y entrent pas,
+/// et les écrans qui montrent la même vidéo partagent un seul ffmpeg (deux
+/// écrans, dont un en portrait, en lançaient deux sur le même fichier).
+fn video_source(key: &WallKey) -> WallKey {
+    let (path, w, h, _fit, blur, place, canvas) = key;
+    match place {
+        Some(_) => (path.clone(), *w, *h, Fit::Fill, *blur, *place, *canvas),
+        None => (path.clone(), 0, 0, Fit::Cover, *blur, None, None),
+    }
+}
+
+/// Recette ffmpeg d'une clé de lecture (`video_source`) : trame entière au
+/// grand côté borné (divisé par le flou du mode verre), ou part étalée à la
+/// taille de l'écran ; flou demandé.
 fn video_recipe(key: &WallKey) -> crate::video::Recipe {
     let (path, w, h, _fit, blur, place, canvas) = key;
-    let (w, h) = if *blur {
-        crate::video::target_size(w / BLUR_DOWNSCALE, h / BLUR_DOWNSCALE, u32::MAX)
-    } else {
-        crate::video::target_size(*w, *h, 1920)
+    let whole = place.is_none();
+    let (w, h) = match (whole, *blur) {
+        (true, true) => (1920 / BLUR_DOWNSCALE, 1920 / BLUR_DOWNSCALE),
+        (true, false) => (1920, 1920),
+        (false, true) => {
+            crate::video::target_size(w / BLUR_DOWNSCALE, h / BLUR_DOWNSCALE, u32::MAX)
+        }
+        (false, false) => crate::video::target_size(*w, *h, 1920),
     };
     crate::video::Recipe {
         path: path.clone(),
@@ -693,6 +733,7 @@ fn video_recipe(key: &WallKey) -> crate::video::Recipe {
         fps: if *blur { 30 } else { 24 },
         blur: (*blur).then_some(2.5),
         span: (*canvas).zip(*place),
+        whole,
     }
 }
 
@@ -860,10 +901,13 @@ impl App {
             cal_months: 0,
             desk_stamp: None,
             bar_surfaces: HashMap::new(),
+            convex_frames: HashMap::new(),
+            convex_runtime: Default::default(),
             bar_anchors: HashMap::new(),
             control_actions: HashMap::new(),
             bar_hidden: HashMap::new(),
             bar_full_width: HashMap::new(),
+            bar_zone_extents: HashMap::new(),
             bar_preview: None,
             workspaces: Vec::new(),
             active_window: None,
@@ -1053,6 +1097,21 @@ impl App {
             || o.primary != n.primary
             || o.disabled_plugins != n.disabled_plugins
         {
+            if old
+                .bar
+                .as_ref()
+                .map(|b| (b.style, b.convex.attached_panels))
+                != self
+                    .cfg
+                    .bar
+                    .as_ref()
+                    .map(|b| (b.style, b.convex.attached_panels))
+            {
+                tasks.push(self.destroy_popover());
+                if let Some(s) = self.search.take() {
+                    tasks.push(iced::window::close(s.win));
+                }
+            }
             tasks.push(self.sync_bars());
             tasks.push(self.sync_launchers());
             tasks.push(self.close_launcher_popup());
@@ -2168,7 +2227,20 @@ impl App {
     }
 
     fn animating(&self) -> bool {
-        self.launcher_animating() || self.fade.is_some()
+        if self.convex_options().is_none() && self.toasts_animating() {
+            return true;
+        }
+        if self
+            .search
+            .as_ref()
+            .filter(|s| s.shown && self.convex_options().is_none())
+            .and_then(|s| s.visibility)
+            .is_some_and(|f| !f.done(Instant::now()) || f.from != f.to)
+        {
+            return true;
+        }
+
+        (self.convex_options().is_none() && self.launcher_animating()) || self.fade.is_some()
             || self.shown.values().any(|s| s.prev.is_some())
             // Jusqu'à ce que Frame solde le fondu (fermeture comprise).
             || self.panel_fade.is_some()
@@ -2176,7 +2248,7 @@ impl App {
             || self
                 .popover
                 .as_ref()
-                .is_some_and(|p| p.animating(Instant::now()))
+                .is_some_and(|p| (p.attached.is_none() || p.change.is_some()) && p.animating(Instant::now()))
             || self
                 .overview
                 .as_ref()
@@ -3272,6 +3344,7 @@ impl App {
     }
 
     fn update_inner(&mut self, msg: Msg) -> Task<Msg> {
+        kinetic::note_event(&msg);
         match msg {
             Msg::IndexStatus(st) => {
                 self.index_status = st.clone();
@@ -3412,6 +3485,9 @@ impl App {
                     let q = tab[1..].trim().to_string();
                     Task::batch([o, Task::done(Msg::Panel(PanelMsg::Search(q)))])
                 }
+                // Le raccourci fait comme le bouton de la barre : un second
+                // appui referme le tiroir.
+                control::Command::ToggleSettings => self.toggle_panel(),
                 control::Command::Settings(tab) => {
                     let s = Task::none();
                     let o = self.open_panel();
@@ -3523,18 +3599,25 @@ impl App {
             Msg::LauncherPointer(monitor, position) => self.launcher_pointer(&monitor, position),
             Msg::LauncherAnchor(monitor, key, bounds) => self.launcher_anchor(monitor, key, bounds),
             Msg::LauncherShown(monitor) => {
-                if self
-                    .launcher_runtime
-                    .docks
-                    .get(&monitor)
-                    .is_some_and(|f| f.to == 0.0)
+                if !self.convex_auto_hide()
+                    && self
+                        .launcher_runtime
+                        .docks
+                        .get(&monitor)
+                        .is_some_and(|f| f.to == 0.0)
                 {
                     let fade = self.launcher_transition(0.0, 1.0, 180);
-                    self.launcher_runtime.docks.insert(monitor, fade);
+                    self.launcher_runtime.docks.insert(monitor.clone(), fade);
                 }
-                Task::none()
+                Task::batch(
+                    self.launcher_surfaces
+                        .iter()
+                        .filter(|(_, s)| s.monitor == monitor)
+                        .map(|(id, _)| self.convex_dock_input(*id)),
+                )
             }
             Msg::LauncherPopupOpen(token) => self.launcher_popup_open(token),
+            Msg::LauncherPopupShown(id) => self.launcher_popup_shown(id),
             Msg::LauncherPopupMeasured(id, height) => {
                 if self.launcher_popup.as_ref().is_some_and(|p| p.id == id) {
                     self.launcher_fit_popup(Some(height))
@@ -3819,6 +3902,7 @@ impl App {
                 self.widget_generation += 1;
                 self.bar_hidden.clear();
                 self.bar_full_width.clear();
+                self.bar_zone_extents.clear();
                 self.bar_anchors.clear();
                 self.control_actions.clear();
                 self.values.clear();
@@ -3921,18 +4005,25 @@ impl App {
                 }
                 self.refresh_walls()
             }
-            Msg::VideoFrame(key, f) => {
-                // Trame d'un fond vidéo : affichée seulement s'il est encore
-                // montré (la souscription s'arrête juste après un changement).
-                if self
+            Msg::VideoFrame(source, f) => {
+                // Trame d'une lecture : pour chaque écran qui montre encore ce
+                // fond (la souscription s'arrête juste après un changement).
+                // Les bandes sont partagées, pas recopiées.
+                let keys: Vec<WallKey> = self
                     .shown
                     .values()
-                    .any(|s| matches!(&s.current, Wall::Image(k) if k == &key))
-                {
-                    if let Some(b) = f.backdrop {
-                        self.launcher_runtime.backdrops.insert(key.clone(), b);
+                    .filter_map(|s| match &s.current {
+                        Wall::Image(k) if video_source(k) == source => Some(k.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                for key in keys {
+                    if let Some(b) = &f.backdrop {
+                        self.launcher_runtime
+                            .backdrops
+                            .insert(key.clone(), b.clone());
                     }
-                    self.video_walls.insert(key, f.tiles);
+                    self.video_walls.insert(key, f.tiles.clone());
                 }
                 Task::none()
             }
@@ -4037,6 +4128,9 @@ impl App {
                     closed,
                     launcher,
                     self.popover_frame(),
+                    self.search_frame(),
+                    self.convex_frame_tick(),
+                    self.toasts_frame(),
                     self.overview_frame(),
                     self.finish_fade(),
                 ])
@@ -4072,6 +4166,29 @@ impl App {
                 Task::none()
             }
             Msg::OpenPopover(bar_id, key, req) => {
+                if self.convex_options().is_some_and(|o| o.attached_panels) {
+                    if let popover::Request::Widget(ref widget) = req
+                        && self
+                            .cfg
+                            .widgets
+                            .iter()
+                            .any(|w| w.id == *widget && matches!(w.kind, WidgetKind::Controls))
+                        && let Some(b) = self.bar_surfaces.get(&bar_id)
+                    {
+                        let monitor = b.monitor.clone();
+                        return self.convex_toggle(monitor, convex::Part::Right);
+                    }
+                    if let popover::Request::LuaMenu { ref widget, .. } = req
+                        && self
+                            .cfg
+                            .widgets
+                            .iter()
+                            .any(|w| w.id == *widget && w.type_id == "notifications")
+                    {
+                        return self.open_popover(bar_id, key, popover::Kind::Notifications);
+                    }
+                }
+
                 let toggling = self
                     .popover
                     .as_ref()
@@ -4237,13 +4354,15 @@ impl App {
                 self.bar_anchors.insert((id, key), bounds);
                 self.refresh_popover_anchor()
             }
-            Msg::BarLayout(id, hidden, full) => {
+            Msg::BarLayout(id, hidden, full, zones) => {
                 self.bar_hidden.insert(id, hidden);
                 if full > 0 {
                     self.bar_full_width.insert(id, full);
                 }
+                self.bar_zone_extents.insert(id, zones);
                 self.refresh_popover_anchor()
             }
+            Msg::BarIslandInput(id, bounds) => self.bar_input(id, Some(bounds)),
             Msg::ControlToggle(id) => {
                 if self.control_actions.get(&id).is_some_and(Option::is_none) {
                     return Task::none();
@@ -4393,7 +4512,7 @@ impl App {
             ),
             Msg::Resized(id, size) => {
                 self.sizes.insert(id, size);
-                Task::none()
+                Task::batch([self.convex_frame_input(id), self.convex_dock_input(id)])
             }
             Msg::Closed(id) => {
                 if self.osd.as_ref().is_some_and(|o| o.win == id) {
@@ -4467,6 +4586,7 @@ impl App {
                 }
                 self.launcher_surfaces.remove(&id);
                 self.bar_surfaces.remove(&id);
+                self.convex_frames.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
                 self.sizes.remove(&id);
@@ -4733,6 +4853,19 @@ impl App {
                     }),
                 )
             }
+            Msg::ConvexFrameReady(id) => self.convex_frame_input(id),
+            Msg::ConvexHover(m, p, inside) => self.convex_hover(m, p, inside),
+            Msg::ConvexHide(m, p, t) => self.convex_hide(m, p, Some(t)),
+            Msg::ConvexWake(m, inside) => self.convex_wake(m, inside),
+            Msg::ConvexClose(m, p) => self.convex_hide(m, p, None),
+            Msg::PopoverShown(id) => self.popover_shown(id),
+            Msg::MotionSettled => Task::batch([
+                self.launcher_frame(),
+                self.convex_frame_tick(),
+                self.popover_frame(),
+                self.search_frame(),
+                self.toasts_frame(),
+            ]),
             Msg::Noop => Task::none(),
             // Messages layer-shell : traités par iced_layershell.
             _ => Task::none(),
@@ -4759,14 +4892,15 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
-        // Fonds vidéo affichés : une boucle ffmpeg par clé (une par écran, ou
-        // par écran en mode verre).
+        // Fonds vidéo affichés : une boucle ffmpeg par clé de lecture (une
+        // pour tous les écrans qui montrent la même vidéo ; une par écran
+        // pour une scène étalée).
         let mut video_keys: HashSet<WallKey> = HashSet::new();
         for s in self.shown.values() {
             if let Wall::Image(k) = &s.current
                 && crate::video::is_video(&k.0)
             {
-                video_keys.insert(k.clone());
+                video_keys.insert(video_source(k));
             }
         }
         for k in video_keys {
@@ -4784,7 +4918,18 @@ impl App {
             subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
         }
         if self.listens_to_events() {
-            subs.push(iced::event::listen_with(listen));
+            let tracking = self.drag.is_some()
+                || self.wdrag.is_some()
+                || self.overview.as_ref().is_some_and(|o| o.press.is_some());
+            subs.push(iced::event::listen_with(listen).with(tracking).filter_map(
+                |(tracking, msg)| {
+                    if !tracking && matches!(msg, Msg::Cursor(..)) {
+                        None
+                    } else {
+                        Some(msg)
+                    }
+                },
+            ));
         }
         // Capture d'un raccourci : chaque touche, sans modificateurs appliqués.
         if self
@@ -4813,7 +4958,7 @@ impl App {
             subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Msg::Poll));
         }
         if self.animating() {
-            if self.launcher_animating() {
+            if self.launcher_animating() && self.convex_options().is_none() {
                 let focused = self
                     .monitors
                     .iter()
@@ -4888,6 +5033,12 @@ impl App {
     // -- Vue ---------------------------------------------------------------------
 
     fn view(&self, id: Id) -> Element<'_, Msg> {
+        if self.convex_frames.contains_key(&id) {
+            return iced::widget::sensor(self.view_convex_frame_on(&self.convex_frames[&id]))
+                .key(id)
+                .on_show(move |_| Msg::ConvexFrameReady(id))
+                .into();
+        }
         if self.bar_surfaces.contains_key(&id) {
             return self.view_bar(id);
         }
@@ -4937,7 +5088,7 @@ impl App {
             return self.view_switcher();
         }
         if self.overview.as_ref().is_some_and(|o| o.win == id) {
-            return self.view_overview();
+            return kinetic::probe(self.view_overview(), id);
         }
         if let Some(m) = &self.icon_menu {
             if m.win == id {
@@ -5046,10 +5197,12 @@ impl App {
                     .into(),
             );
         }
-        Stack::with_children(layers)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        kinetic::probe(
+            Stack::with_children(layers)
+                .width(Length::Fill)
+                .height(Length::Fill),
+            id,
+        )
     }
 
     fn view_wall(&self, monitor: &str, t: f32) -> Element<'_, Msg> {
@@ -5920,9 +6073,14 @@ mod regression_tests {
         assert!(!app.panel_open(), "second clic : fermé");
         let _ = app.update_inner(Msg::OpenPanel);
         assert!(app.panel_open(), "troisième clic : rouvert");
-        // Le raccourci et `hyprdesk settings` ouvrent toujours, sans refermer.
+        // `hyprdesk settings` ouvre toujours, sans refermer.
         let _ = app.update_inner(Msg::Control(control::Command::Settings("desktop".into())));
         assert!(app.panel_open());
+        // Le raccourci (`toggle-settings`) referme, puis rouvre.
+        let _ = app.update_inner(Msg::Control(control::Command::ToggleSettings));
+        assert!(!app.panel_open(), "second appui du raccourci : fermé");
+        let _ = app.update_inner(Msg::Control(control::Command::ToggleSettings));
+        assert!(app.panel_open(), "troisième appui : rouvert");
     }
 
     #[test]
@@ -5994,6 +6152,7 @@ mod regression_tests {
             compact: config::BarCompact::Auto,
             style: config::BarStyle::Continuite,
             colors: Default::default(),
+            convex: Default::default(),
         });
         assert!(app.bar_vertical("V") && !app.bar_vertical("H"));
         assert!(app.bar_compact("V") && !app.bar_compact("H"));

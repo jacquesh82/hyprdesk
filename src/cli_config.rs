@@ -337,7 +337,7 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.hide.clone(),
         |s, v, c| { s.key_hide = Some(combo(v)?); Ok(()) },
         |s| s.key_hide = None;
-    "keys.settings", "keys", "raccourci | none — ouvrir les réglages (SUPER + SHIFT + D)",
+    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + SHIFT + D)",
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;
@@ -657,10 +657,31 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| b.compact.as_str().to_string()).unwrap_or_default(),
         |s, v, c| { bar(s, c).compact = choice(v, crate::config::BarCompact::parse, "auto, always, never")?; Ok(()) },
         |s| { if let Some(b) = s.bar.as_mut() { b.compact = Default::default(); } };
-    "bar.style", "bar", "continuite | graphite — style de la barre : pose son rendu, sa composition et sa géométrie",
+    "bar.convex.frame_width", "bar", "0..20 — épaisseur du cadre Convex (px)",
+        |c| c.bar.as_ref().map(|b| b.convex.frame_width.to_string()).unwrap_or_default(),
+        |s,v,c| { bar(s,c).convex.frame_width=number(v,0u16,20)?; Ok(()) },
+        |s| { if let Some(b)=s.bar.as_mut() { b.convex.frame_width=crate::config::ConvexDef::default().frame_width; } };
+    "bar.convex.radius", "bar", "0..96 — arrondi intérieur du cadre Convex (px)",
+        |c| c.bar.as_ref().map(|b| b.convex.radius.to_string()).unwrap_or_default(),
+        |s,v,c| { bar(s,c).convex.radius=number(v,0u16,96)?; Ok(()) },
+        |s| { if let Some(b)=s.bar.as_mut() { b.convex.radius=crate::config::ConvexDef::default().radius; } };
+    "bar.convex.duration", "bar", "0..800 — durée d'ouverture des panneaux Convex (ms)",
+        |c| c.bar.as_ref().map(|b| b.convex.duration.to_string()).unwrap_or_default(),
+        |s,v,c| { bar(s,c).convex.duration=number(v,0u16,800)?; Ok(()) },
+        |s| { if let Some(b)=s.bar.as_mut() { b.convex.duration=crate::config::ConvexDef::default().duration; } };
+    "bar.convex.auto_hide", "bar", "bool — masquage automatique du dock Convex",
+        |c| c.bar.as_ref().map(|b|b.convex.auto_hide.to_string()).unwrap_or_default(),
+        |s,v,c|{bar(s,c).convex.auto_hide=parse_bool(v)?;Ok(())},
+        |s|{if let Some(b)=s.bar.as_mut(){b.convex.auto_hide=true;}};
+    "bar.convex.attached_panels", "bar", "bool — panneaux rattachés au cadre Convex",
+        |c| c.bar.as_ref().map(|b| b.convex.attached_panels.to_string()).unwrap_or_default(),
+        |s,v,c| { bar(s,c).convex.attached_panels=parse_bool(v)?; Ok(()) },
+        |s| { if let Some(b)=s.bar.as_mut() { b.convex.attached_panels=true; } };
+    "bar.style", "bar", "continuite | graphite | island | convexe — style de la barre : pose son rendu, sa composition et sa géométrie",
         |c| c.bar.as_ref().map(|b| b.style.as_str().to_string()).unwrap_or_default(),
         |s, v, c| {
-            let style = choice(v, crate::config::BarStyle::parse, "continuite, graphite")?;
+            let all: Vec<&str> = crate::config::BAR_STYLES.iter().map(|(_, id, _)| *id).collect();
+            let style = choice(v, crate::config::BarStyle::parse, &all.join(", "))?;
             let b = bar(s, c);
             b.style = style;
             b.position = style.default_position();
@@ -828,6 +849,14 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 .cloned()
                 .unwrap_or_else(|| "none".into()),
         );
+    }
+    if key == "perf.profile" {
+        let o = &c.general.fx.options;
+        return Some(match crate::perf::active(o) {
+            Some(p) => p.id().into(),
+            None if crate::perf::untouched(o) => "hyprland".into(),
+            None => "custom".into(),
+        });
     }
     if let Some(k) = key.strip_prefix("fx.") {
         let fx = &c.general.fx;
@@ -997,6 +1026,23 @@ fn dynamic_set(
             }
         }
         s.forced_modes = Some(m);
+        return Some(Ok(()));
+    }
+    if key == "perf.profile" {
+        let mut fx = s.fx.clone().unwrap_or_else(|| c.general.fx.clone());
+        match v.map(str::trim) {
+            None | Some("" | "none" | "hyprland") => crate::perf::clear(&mut fx.options),
+            Some(id) => match crate::perf::Profile::from_id(id) {
+                Some(p) => p.apply(&mut fx.options),
+                None => {
+                    return Some(Err(crate::tr!(
+                        "« {v} » : profil inconnu (performance, equilibre, rendu, hyprland)",
+                        v = id
+                    )));
+                }
+            },
+        }
+        s.fx = Some(fx);
         return Some(Ok(()));
     }
     if let Some(k) = key.strip_prefix("fx.") {
@@ -1333,6 +1379,9 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                                 .map(|l| format!("fx.anim.{}", l.name)),
                         )
                         .collect(),
+                    "performance" => std::iter::once("perf.profile".to_string())
+                        .chain(crate::perf::items().map(|i| format!("fx.{}", i.path)))
+                        .collect(),
                     "theme" => Place::ALL
                         .iter()
                         .flat_map(|p| {
@@ -1515,6 +1564,18 @@ mod tests {
             run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(),
             "hyprland"
         );
+        assert_eq!(run_s(&p, &["get", "perf.profile"]).unwrap(), "hyprland");
+        run_s(&p, &["set", "perf.profile", "performance"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "perf.profile"]).unwrap(), "performance");
+        assert_eq!(
+            run_s(&p, &["get", "fx.decoration.blur.enabled"]).unwrap(),
+            "off"
+        );
+        run_s(&p, &["set", "fx.decoration.blur.enabled", "on"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "perf.profile"]).unwrap(), "custom");
+        assert!(run_s(&p, &["set", "perf.profile", "turbo"]).is_err());
+        run_s(&p, &["set", "perf.profile", "hyprland"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "perf.profile"]).unwrap(), "hyprland");
         run_s(&p, &["set", "fx.decoration.rounding", "12"]).unwrap();
         assert_eq!(run_s(&p, &["get", "fx.decoration.rounding"]).unwrap(), "12");
         assert!(run_s(&p, &["set", "fx.decoration.rounding", "99"]).is_err());
@@ -1571,6 +1632,25 @@ mod tests {
         assert_eq!(run_s(&p, &["get", "bar.position"]).unwrap(), "top");
         assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "36");
         assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "0");
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn convex_parameters_roundtrip_through_cli() {
+        let p = tmp();
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        for (key, value) in [
+            ("bar.convex.frame_width", "10"),
+            ("bar.convex.radius", "56"),
+            ("bar.convex.duration", "420"),
+            ("bar.convex.attached_panels", "false"),
+        ] {
+            run_s(&p, &["set", key, value]).unwrap();
+            assert_eq!(run_s(&p, &["get", key]).unwrap(), value);
+        }
+        assert!(run_s(&p, &["set", "bar.convex.frame_width", "21"]).is_err());
+        run_s(&p, &["unset", "bar.convex.radius"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.convex.radius"]).unwrap(), "44");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

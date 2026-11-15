@@ -98,6 +98,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "view-more" => {
             r#"<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>"#
         }
+        // Cloche des notifications (repli vectoriel de la prise de main island).
+        "notifications" => {
+            r#"<path d="M12 3a6 6 0 0 1 6 6v3l2 4H4l2-4V9a6 6 0 0 1 6-6ZM9.5 20a2.5 2.5 0 0 0 5 0"/>"#
+        }
         "audio-volume-high" => {
             r#"<path d="m11 4-5 4H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16"/>"#
         }

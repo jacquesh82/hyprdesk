@@ -222,6 +222,7 @@ pub struct Popup {
     pub key: String,
     pub content: PopupContent,
     pub(in crate::ui) fade: crate::ui::Fade,
+    pub(in crate::ui) shown: bool,
     pub(in crate::ui) placement: lifecycle::Placement,
     pub max_height: f32,
 }
@@ -310,6 +311,9 @@ impl App {
         monitor: &str,
         position: Option<f32>,
     ) -> Task<UiMsg> {
+        if self.convex_options().is_some() {
+            return Task::none();
+        }
         let prefix = format!("dock-wave:{monitor}:");
         let mut keys: Vec<usize> = self
             .hover_fades
@@ -420,7 +424,11 @@ impl App {
                     size: Some(size),
                     layer: Layer::Top,
                     anchor,
-                    exclusive_zone: Some(th as i32),
+                    exclusive_zone: Some(if self.convex_auto_hide() {
+                        0
+                    } else {
+                        th as i32
+                    }),
                     // Ouvert au clavier (launcher-only) : il prend le clavier d'emblée.
                     keyboard_interactivity: if grabbed.as_deref() == Some(mon.as_str()) {
                         KeyboardInteractivity::Exclusive
@@ -434,6 +442,17 @@ impl App {
                 id,
             }));
             changed = true;
+        }
+        for (id, s) in &self.launcher_surfaces {
+            tasks.push(Task::done(UiMsg::ExclusiveZoneChange {
+                id: *id,
+                zone_size: if self.convex_auto_hide() {
+                    0
+                } else {
+                    s.thickness as i32
+                },
+            }));
+            tasks.push(self.convex_dock_input(*id));
         }
         if changed {
             tasks.push(self.close_launcher_popup());
@@ -477,7 +496,12 @@ impl App {
         } else {
             self.launcher_progress(&m.name)
         };
-        let t = t * progress;
+        let local_motion = !embedded && self.convex_options().is_some();
+        let t = if self.convex_auto_hide() && !embedded {
+            t
+        } else {
+            t * progress
+        };
         let g = &self.cfg.general;
         let l = &g.launcher;
         let vertical = !embedded && l.position.vertical();
@@ -629,12 +653,28 @@ impl App {
                 LauncherPosition::Right => iced::Vector::new(-2.5 * motion, 0.0),
             };
             // Halo et icône partagent une boîte fixe ; aucun déplacement des voisins.
-            let face = motion::face(
-                container(face).center(size),
-                1.0 + 0.09 * motion,
-                lift,
-                self.motion_duration(),
-            );
+            let face = if local_motion {
+                use crate::ui::{bar_style::convexe::Edge, kinetic};
+                let edge = match l.position {
+                    LauncherPosition::Bottom => Edge::Bottom,
+                    LauncherPosition::Top => Edge::Top,
+                    LauncherPosition::Left => Edge::Left,
+                    LauncherPosition::Right => Edge::Right,
+                };
+                kinetic::magnet(
+                    container(face).center(size),
+                    edge,
+                    accent,
+                    self.bar_duration(135),
+                )
+            } else {
+                motion::face(
+                    container(face).center(size),
+                    1.0 + 0.09 * motion,
+                    lift,
+                    self.motion_duration(),
+                )
+            };
             let icon: Element<'a, UiMsg> = container(face)
                 .style(move |_| container::Style {
                     background: Some(
@@ -757,14 +797,18 @@ impl App {
                 popup,
                 index,
             ))))
-            .on_exit(UiMsg::LauncherHover(None))
-            .on_move(move |p| {
-                let along = if vertical { p.y } else { p.x };
-                UiMsg::LauncherPointer(
-                    pointer_monitor.clone(),
-                    Some(index as f32 + (along - (size + 12.0) / 2.0) / (size + 16.0)),
-                )
-            });
+            .on_exit(UiMsg::LauncherHover(None));
+            let area = if local_motion {
+                area
+            } else {
+                area.on_move(move |p| {
+                    let along = if vertical { p.y } else { p.x };
+                    UiMsg::LauncherPointer(
+                        pointer_monitor.clone(),
+                        Some(index as f32 + (along - (size + 12.0) / 2.0) / (size + 16.0)),
+                    )
+                })
+            };
             motion::anchor(area, monitor.clone(), key)
         };
         let mut items: Vec<Element<'a, UiMsg>> = Vec::new();
@@ -840,14 +884,89 @@ impl App {
                 ),
             });
         let base = self.launcher_material_opacity(&m.name, roi);
-        let dock = container(inner)
-            .padding(10)
-            .style(move |_| design::launcher_surface(&self.theme, t, false, base));
-        let dock = mouse_area(dock).on_exit(UiMsg::LauncherPointer(monitor, None));
+        let convex = self
+            .convex_options()
+            .filter(|o| o.attached_panels)
+            .filter(|_| self.bar_surfaces.values().any(|b| b.monitor == m.name));
+        let dock: Element<'_, UiMsg> = if convex.is_some() {
+            use crate::ui::bar_style::convexe::{self, Edge};
+            let edge = match l.position {
+                LauncherPosition::Top => Edge::Top,
+                LauncherPosition::Bottom => Edge::Bottom,
+                LauncherPosition::Left => Edge::Left,
+                LauncherPosition::Right => Edge::Right,
+            };
+            let padding = if l.position.vertical() {
+                Padding {
+                    top: 36.0,
+                    bottom: 36.0,
+                    left: 10.0,
+                    right: 10.0,
+                }
+            } else {
+                Padding {
+                    top: 10.0,
+                    bottom: 10.0,
+                    left: 36.0,
+                    right: 36.0,
+                }
+            };
+            let pal = self.bar_palette();
+            if self.convex_auto_hide() {
+                use crate::ui::kinetic::{self, Track};
+                let spring = if self.search.is_some() {
+                    crate::ui::kinetic::Spring::rest(0.0)
+                } else {
+                    self.convex_motion(&m.name, crate::ui::convex::Part::Dock)
+                };
+                kinetic::reveal(
+                    container(inner).padding(padding),
+                    Track::Spring(spring),
+                    edge,
+                    color(pal.bg, pal.opacity),
+                    Some(UiMsg::MotionSettled),
+                )
+            } else {
+                iced::widget::stack![container(inner).padding(padding)]
+                    .push_under(convexe::drawer(&pal, edge, progress))
+                    .into()
+            }
+        } else {
+            container(inner)
+                .padding(10)
+                .style(move |_| design::launcher_surface(&self.theme, t, false, base))
+                .into()
+        };
+        let dock = mouse_area(dock).on_exit(UiMsg::LauncherPointer(monitor.clone(), None));
+        let dock: Element<'_, UiMsg> = if self.convex_auto_hide() {
+            let enter = m.name.clone();
+            let leave = m.name.clone();
+            mouse_area(dock)
+                .on_enter(UiMsg::ConvexHover(
+                    enter,
+                    crate::ui::convex::Part::Dock,
+                    true,
+                ))
+                .on_exit(UiMsg::ConvexHover(
+                    leave,
+                    crate::ui::convex::Part::Dock,
+                    false,
+                ))
+                .into()
+        } else {
+            dock.into()
+        };
         let dock = motion::surface(
             dock,
             1.0,
-            lifecycle::edge_offset(l.position, (1.0 - progress) * 8.0),
+            lifecycle::edge_offset(
+                l.position,
+                if self.convex_auto_hide() {
+                    0.0
+                } else {
+                    (1.0 - progress) * 8.0
+                },
+            ),
             Point::new(0.5, 0.5),
         );
         let shown_monitor = m.name.clone();
@@ -860,13 +979,42 @@ impl App {
             LauncherPosition::Left => (Alignment::Start, Alignment::Center),
             LauncherPosition::Right => (Alignment::End, Alignment::Center),
         };
-        container(dock)
+        let mut padding = Padding::new(8.0);
+        if convex.is_some() {
+            match l.position {
+                LauncherPosition::Top => padding.top = 0.0,
+                LauncherPosition::Bottom => padding.bottom = 0.0,
+                LauncherPosition::Left => padding.left = 0.0,
+                LauncherPosition::Right => padding.right = 0.0,
+            }
+        }
+        let view: Element<'_, UiMsg> = container(dock)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(ax)
             .align_y(ay)
-            .padding(8)
+            .padding(padding)
+            .into();
+        if self.convex_auto_hide() {
+            let width = (self.dock_slots(m).len() as f32 * (l.size as f32 + 16.0) + 100.0)
+                .min(m.width as f32);
+            let enter = m.name.clone();
+            let leave = m.name.clone();
+            let wake = mouse_area(Space::new().width(width).height(6))
+                .on_enter(UiMsg::ConvexWake(enter, true))
+                .on_exit(UiMsg::ConvexWake(leave, false));
+            iced::widget::stack![
+                view,
+                container(wake)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::End)
+            ]
             .into()
+        } else {
+            view
+        }
     }
 
     /// Cases du dock d'un écran, dans l'ordre affiché : applications
@@ -1146,10 +1294,14 @@ impl App {
             token,
         });
         let close = self.dismiss_launcher_popup();
-        let open = Task::perform(
-            async { tokio::time::sleep(lifecycle::OPEN_DELAY).await },
-            move |_| UiMsg::LauncherPopupOpen(token),
-        );
+        let delay = if self.convex_options().is_some() {
+            std::time::Duration::from_millis(400)
+        } else {
+            lifecycle::OPEN_DELAY
+        };
+        let open = Task::perform(async move { tokio::time::sleep(delay).await }, move |_| {
+            UiMsg::LauncherPopupOpen(token)
+        });
         Task::batch([close, open])
     }
 
@@ -1207,6 +1359,7 @@ impl App {
             key: pending.key,
             content: pending.content,
             fade: self.launcher_transition(0.0, 1.0, 160),
+            shown: cfg!(test),
             placement,
             max_height,
         });
@@ -1239,7 +1392,11 @@ impl App {
             let value = p.fade.value(std::time::Instant::now());
             let fade = self.launcher_transition(value, 0.0, 125);
             self.launcher_popup.as_mut().unwrap().fade = fade;
-            return Task::done(UiMsg::Frame);
+            return if self.convex_options().is_some() {
+                Task::none()
+            } else {
+                Task::done(UiMsg::Frame)
+            };
         }
         Task::none()
     }
@@ -1286,19 +1443,51 @@ impl App {
         }
     }
 
+    pub(in crate::ui) fn launcher_popup_shown(&mut self, id: iced::window::Id) -> Task<UiMsg> {
+        if let Some(p) = self
+            .launcher_popup
+            .as_mut()
+            .filter(|p| p.id == id && !p.shown)
+        {
+            p.shown = true;
+            if p.fade.to == 1.0 {
+                p.fade.from = 0.0;
+                p.fade.start = std::time::Instant::now();
+            }
+        }
+        Task::none()
+    }
+
     /// La bulle : un nom, ou la liste des fenêtres d'une application.
     pub(in crate::ui) fn view_launcher_popup(&self) -> Element<'_, UiMsg> {
         let Some(p) = &self.launcher_popup else {
             return iced::widget::Space::new().into();
         };
         let g = &self.cfg.general;
-        let t = if g.transition == crate::config::Transition::None {
+        let local = self.convex_options().is_some();
+        let t = if local {
+            1.0
+        } else if g.transition == crate::config::Transition::None {
             p.fade.to
         } else {
             p.fade.value(std::time::Instant::now())
         };
-        let fg = color(g.theme.fg, t);
-        let dim = color(g.theme.fg, 0.55 * t);
+        let fg = color(
+            if local {
+                self.bar_palette().fg
+            } else {
+                g.theme.fg
+            },
+            t,
+        );
+        let dim = color(
+            if local {
+                self.bar_palette().fg
+            } else {
+                g.theme.fg
+            },
+            0.55 * t,
+        );
         let accent = color(g.theme.accent, t);
         let hover = move |_: &iced::Theme, s: button::Status| button::Style {
             background: matches!(s, button::Status::Hovered)
@@ -1388,16 +1577,58 @@ impl App {
             .on_resize(move |size| UiMsg::LauncherPopupMeasured(popup_id, size.height));
         let body = iced::widget::scrollable(measured).height(Length::Fill);
         let base = self.launcher_popup_opacity();
+        let pal = self.bar_palette();
         let card = mouse_area(
             container(body)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding(8)
                 .center_y(Length::Fill)
-                .style(move |_| design::launcher_surface(&self.theme, t, true, base)),
+                .style(move |_| {
+                    if local {
+                        design::bar_card(color(pal.bg, pal.opacity), color(pal.fg, 1.0))
+                    } else {
+                        design::launcher_surface(&self.theme, t, true, base)
+                    }
+                }),
         )
         .on_enter(UiMsg::LauncherPopupHover(true))
         .on_exit(UiMsg::LauncherPopupHover(false));
+        if local {
+            use crate::ui::{
+                bar_style::convexe::Edge,
+                kinetic::{self, Track},
+            };
+            let edge = match self.launcher_bar_position(&p.monitor) {
+                LauncherPosition::Top => Edge::Top,
+                LauncherPosition::Bottom => Edge::Bottom,
+                LauncherPosition::Left => Edge::Left,
+                LauncherPosition::Right => Edge::Right,
+            };
+            let fade = if p.shown {
+                p.fade
+            } else {
+                crate::ui::Fade {
+                    from: 0.0,
+                    to: 0.0,
+                    start: p.fade.start,
+                    dur: std::time::Duration::ZERO,
+                }
+            };
+            return iced::widget::sensor(kinetic::floating(
+                container(card)
+                    .padding(8)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+                Track::Ease(fade),
+                edge,
+                p.placement.pivot,
+                p.shown.then_some(UiMsg::MotionSettled),
+            ))
+            .key(p.id)
+            .on_show(move |_| UiMsg::LauncherPopupShown(popup_id))
+            .into();
+        }
         let card = motion::surface(
             card,
             0.97 + 0.03 * t,
