@@ -6,7 +6,7 @@
 # est la version précompilée, pour qui ne veut pas construire.
 
 pkgname=hyprdesk
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='Desktop for Hyprland: bar, launcher, lock, per-workspace wallpapers and widgets'
 arch=('x86_64')

@@ -8,6 +8,29 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-15
+
+### Added
+
+- **Video badge.** Settings → Wallpaper marks video wallpapers with a
+  small play badge on their thumbnail.
+
+### Fixed
+
+- **Video wallpapers no longer flicker.** Each frame is split into strips
+  under 2 MiB that iced uploads synchronously, so no empty frame shows
+  between two images — on the desktop, the lock screen, and the login
+  screen without mpv. Frames are capped to the source resolution.
+- **“Browse” opens a folder picker.** The wallpaper folder is chosen
+  through the XDG desktop portal (`org.freedesktop.portal.FileChooser`),
+  which shows the active implementation's dialog (GTK, GNOME, KDE…).
+
+### Changed
+
+- **README.** The demo is now the final 70-second film (GIF, linking to the
+  video with sound), and every screenshot was retaken from the current
+  interface.
+
 ## [0.1.2] - 2026-11-15
 
 ### Added
