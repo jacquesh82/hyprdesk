@@ -9,10 +9,12 @@
 //!
 //! Mises à jour incrémentales par ajout en bout (les indices restent
 //! croissants, les postings restent triés pour la recherche dichotomique) ;
-//! les suppressions posent des pierres tombales, compactées quand elles
-//! s'accumulent.
+//! les suppressions posent des pierres tombales (entrée marquée morte, ses
+//! postings laissés en place et filtrés à la recherche), compactées quand
+//! elles s'accumulent ou effacées par le rescan suivant.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 
 use serde::{Deserialize, Serialize};
 
@@ -126,10 +128,16 @@ pub struct Index {
     pub(crate) vols: Vec<u8>,
     /// Faux après `remove_path` jusqu'à la prochaine compaction.
     pub(crate) alive: Vec<bool>,
-    /// `trigramme → indices`, triés croissants.
+    /// `trigramme → indices`, triés croissants. Une entrée retirée y reste
+    /// jusqu'à la compaction (pierre tombale : `alive` la filtre).
     pub(crate) postings: HashMap<[u8; 3], Vec<u32>>,
-    /// Chemin complet → indice, pour les mises à jour incrémentales.
-    pub(crate) by_path: HashMap<Box<[u8]>, u32>,
+    /// Empreinte du chemin complet → indice, pour les mises à jour
+    /// incrémentales. Le chemin n'est pas dupliqué : il est relu dans le
+    /// blob pour confirmer la correspondance.
+    pub(crate) by_path: HashMap<u64, u32>,
+    /// Chemins dont l'empreinte est déjà prise par un autre (collision de
+    /// hachage 64 bits : vide en pratique).
+    pub(crate) collisions: HashMap<Box<[u8]>, u32>,
     pub(crate) volumes: Vec<Volume>,
     pub(crate) tombstones: usize,
 }
@@ -144,6 +152,12 @@ const MAX_COLLECT: usize = 20_000;
 /// Un trigramme n'existe que pour un nom d'au moins 3 octets repliés ; en
 /// dessous, la requête tombe sur un parcours linéaire (rare et plafonné).
 const MIN_TRIGRAM: usize = 3;
+
+/// Empreinte d'un chemin pour `by_path` : SipHash à clés fixes (rien n'est
+/// persisté, seule compte la stabilité au sein du processus).
+fn empreinte(path: &[u8]) -> u64 {
+    BuildHasherDefault::<DefaultHasher>::default().hash_one(path)
+}
 
 /// Caractères qui bornent un « mot » dans un nom de fichier.
 fn borne(b: u8) -> bool {
@@ -197,6 +211,7 @@ impl Index {
             alive: vec![true; n],
             postings: HashMap::new(),
             by_path: HashMap::with_capacity(n),
+            collisions: HashMap::new(),
             volumes,
             tombstones: 0,
         };
@@ -205,9 +220,9 @@ impl Index {
             for t in trigrammes(&dernier_composant(&path).to_lowercase()) {
                 idx.postings.entry(t).or_default().push(i as u32);
             }
-            idx.by_path
-                .insert(path.as_bytes().to_vec().into_boxed_slice(), i as u32);
+            idx.inscrire(empreinte(path.as_bytes()), path.as_bytes(), i as u32);
         }
+        idx.ajuster();
         idx
     }
 
@@ -221,7 +236,58 @@ impl Index {
         for (path, meta) in entries {
             idx.push(&path, meta);
         }
+        idx.ajuster();
         idx
+    }
+
+    /// Rend la capacité excédentaire une fois la construction finie (un
+    /// `Vec` double en grandissant : jusqu'à moitié de vide par posting).
+    fn ajuster(&mut self) {
+        for l in self.postings.values_mut() {
+            l.shrink_to_fit();
+        }
+        self.postings.shrink_to_fit();
+        self.blob.shrink_to_fit();
+    }
+
+    // ——— table chemin → indice (empreinte, confirmée dans le blob) ———
+
+    /// Indice d'un chemin indexé (vivant).
+    fn indice_de(&self, path: &[u8]) -> Option<u32> {
+        self.chercher(empreinte(path), path)
+    }
+
+    fn chercher(&self, h: u64, path: &[u8]) -> Option<u32> {
+        if let Some(&i) = self.by_path.get(&h)
+            && self.chemin_brut(i as usize) == path
+        {
+            return Some(i);
+        }
+        if self.collisions.is_empty() {
+            return None;
+        }
+        self.collisions.get(path).copied()
+    }
+
+    /// Inscrit un chemin encore absent de la table.
+    fn inscrire(&mut self, h: u64, path: &[u8], i: u32) {
+        match self.by_path.entry(h) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(i);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {
+                self.collisions.insert(path.to_vec().into_boxed_slice(), i);
+            }
+        }
+    }
+
+    /// Désinscrit le chemin d'indice `i`.
+    fn desinscrire(&mut self, h: u64, path: &[u8], i: u32) {
+        if self.by_path.get(&h) == Some(&i) {
+            self.by_path.remove(&h);
+        } else {
+            self.collisions.remove(path);
+        }
     }
 
     /// Volumes enregistrés.
@@ -268,11 +334,10 @@ impl Index {
 
     /// Ajoute une entrée (append en bout : les postings restent triés).
     pub fn push(&mut self, path: &str, meta: EntryMeta) {
-        if self.by_path.contains_key(path.as_bytes()) {
+        let h = empreinte(path.as_bytes());
+        if let Some(i) = self.chercher(h, path.as_bytes()) {
             // déjà présent : mise à jour des attributs suffit
-            if let Some(&i) = self.by_path.get(path.as_bytes()) {
-                self.touch(i, meta);
-            }
+            self.touch(i, meta);
             return;
         }
         let i = self.starts.len();
@@ -286,8 +351,7 @@ impl Index {
         for t in trigrammes(&dernier_composant(path).to_lowercase()) {
             self.postings.entry(t).or_default().push(i as u32);
         }
-        self.by_path
-            .insert(path.as_bytes().to_vec().into_boxed_slice(), i as u32);
+        self.inscrire(h, path.as_bytes(), i as u32);
     }
 
     /// Mise à jour d'attributs sans changement de nom (taille, mtime…).
@@ -301,10 +365,36 @@ impl Index {
         self.mtimes[i] = meta.mtime;
     }
 
+    /// Nature ([`KIND_FILE`], [`KIND_DIR`], [`KIND_LINK`]) d'une entrée
+    /// indexée.
+    pub fn kind_of(&self, path: &str) -> Option<u8> {
+        self.indice_de(path.as_bytes())
+            .map(|i| self.kinds[i as usize])
+    }
+
+    /// Retire une entrée disparue (veille) ; renvoie le nombre d'entrées
+    /// retirées. Seul un dossier emporte ses descendants : la nature est
+    /// lue dans l'index avant la suppression (le chemin n'existe plus, on
+    /// ne peut plus le stat-iser). Un fichier ne coûte qu'une recherche
+    /// dans la table, jamais un parcours de l'index.
+    pub fn remove(&mut self, path: &str) -> usize {
+        let Some(kind) = self.kind_of(path) else {
+            return 0;
+        };
+        self.remove_path(path);
+        if kind == KIND_DIR {
+            1 + self.remove_prefix(path)
+        } else {
+            1
+        }
+    }
+
     /// Retire tout ce qui se trouve sous `dir` (dossier supprimé ou déplacé
-    /// hors d'un volume indexé) — `dir` se terminant par « / ». Les enfants
-    /// ont chacun leur entrée ; un dossier déplacé dans le volume depuis un
-    /// autre FS ne génère pas d'événement par fichier, d'où la purge en bloc.
+    /// hors d'un volume indexé), `dir` lui-même exclu. Les enfants ont
+    /// chacun leur entrée ; un dossier déplacé hors du volume ne génère pas
+    /// d'événement par fichier, d'où la purge en bloc. Parcourt le blob une
+    /// fois, sans allocation par entrée : réservé aux dossiers (voir
+    /// [`Index::remove`]).
     pub fn remove_prefix(&mut self, dir: &str) -> usize {
         let prefix = if dir.ends_with('/') {
             dir.to_string()
@@ -312,42 +402,35 @@ impl Index {
             format!("{dir}/")
         };
         let sous = prefix.as_bytes();
-        let touches: Vec<Box<[u8]>> = self
-            .by_path
-            .keys()
-            .filter(|k| k.starts_with(sous))
-            .cloned()
+        let touches: Vec<usize> = (0..self.starts.len())
+            .filter(|&i| self.alive[i] && self.chemin_brut(i).starts_with(sous))
             .collect();
-        let n = touches.len();
-        for k in touches {
-            let p = String::from_utf8_lossy(&k).into_owned();
-            self.remove_path(&p);
+        for &i in &touches {
+            self.enterrer(i);
         }
-        n
+        touches.len()
     }
 
     /// Retire une entrée par chemin (renvoie vrai si elle était indexée).
-    /// Les postings sont nettoyés : pas de faux positifs après coup.
+    /// Pierre tombale : l'entrée est marquée morte et quitte la table des
+    /// chemins ; ses postings restent jusqu'à la compaction (la recherche
+    /// filtre `alive`), plutôt que des `Vec::remove` en O(longueur) sur
+    /// chacun de ses trigrammes.
     pub fn remove_path(&mut self, path: &str) -> bool {
-        let Some(&i) = self.by_path.get(path.as_bytes()) else {
+        let Some(i) = self.indice_de(path.as_bytes()) else {
             return false;
         };
-        self.by_path.remove(path.as_bytes());
-        let i = i as usize;
+        self.enterrer(i as usize);
+        true
+    }
+
+    /// Pose la pierre tombale de l'entrée vivante `i`.
+    fn enterrer(&mut self, i: usize) {
+        // copie du chemin (courte) : `desinscrire` emprunte `self` en écriture
+        let path = self.chemin_brut(i).to_vec();
+        self.desinscrire(empreinte(&path), &path, i as u32);
         self.alive[i] = false;
         self.tombstones += 1;
-        let folded = dernier_composant(&self.path(i)).to_lowercase();
-        for t in trigrammes(&folded) {
-            if let Ok(p) = self
-                .postings
-                .entry(t)
-                .or_default()
-                .binary_search(&(i as u32))
-            {
-                self.postings.entry(t).or_default().remove(p);
-            }
-        }
-        true
     }
 
     /// Recherche : trigrammes du needle → intersection des postings →
@@ -442,6 +525,10 @@ impl Index {
         let (premiere, autres) = listes.split_first().expect("au moins une liste");
         let mut out = Vec::new();
         for &i in *premiere {
+            // pierre tombale : ne prend pas de place sous le plafond
+            if !self.alive[i as usize] {
+                continue;
+            }
             if autres.iter().all(|l| l.binary_search(&i).is_ok()) {
                 out.push(i);
                 if out.len() >= MAX_COLLECT {
@@ -496,8 +583,13 @@ impl Index {
 
     /// Chemin d'une entrée, lu dans le blob.
     fn path(&self, i: usize) -> std::borrow::Cow<'_, str> {
+        String::from_utf8_lossy(self.chemin_brut(i))
+    }
+
+    /// Octets du chemin d'une entrée, tels que dans le blob.
+    fn chemin_brut(&self, i: usize) -> &[u8] {
         let (s, e) = self.bounds(i);
-        String::from_utf8_lossy(&self.blob[s..e])
+        &self.blob[s..e]
     }
 
     fn bounds(&self, i: usize) -> (usize, usize) {
@@ -718,6 +810,73 @@ mod tests {
         let hits = idx.search("hyprdesk.lua", 10, None, None);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].size, 99);
+    }
+
+    #[test]
+    fn suppression_d_un_fichier_sans_purge_de_prefixe() {
+        let mut idx = index_exemple();
+        // entrée fantôme « sous » un fichier : impossible sur disque, elle
+        // ne survit que si la suppression du fichier ne purge aucun préfixe
+        idx.push("/home/test/hyprdesk.lua/fantome", meta(KIND_FILE));
+        assert_eq!(idx.kind_of("/home/test/hyprdesk.lua"), Some(KIND_FILE));
+        assert_eq!(idx.remove("/home/test/hyprdesk.lua"), 1);
+        assert_eq!(idx.kind_of("/home/test/hyprdesk.lua"), None);
+        assert_eq!(idx.search("fantome", 10, None, None).len(), 1);
+        // chemin inconnu : rien, et surtout pas de purge
+        assert_eq!(idx.remove("/home/test/absent"), 0);
+        assert_eq!(idx.search("fantome", 10, None, None).len(), 1);
+    }
+
+    #[test]
+    fn suppression_d_un_dossier_emporte_ses_enfants() {
+        let mut idx = index_exemple();
+        idx.push("/home/test/docs/sous/profond.txt", meta(KIND_FILE));
+        // voisin au nom proche : hors du sous-arbre
+        idx.push("/home/test/docs-bis.txt", meta(KIND_FILE));
+        let avant = idx.len();
+        // docs + lisez-moi.md + sous/profond.txt (sous/ n'a pas d'entrée)
+        assert_eq!(idx.remove("/home/test/docs"), 3);
+        assert_eq!(idx.len(), avant - 3);
+        assert!(idx.search("lisez", 10, None, None).is_empty());
+        assert!(idx.search("profond", 10, None, None).is_empty());
+        assert_eq!(idx.search("docs-bis", 10, None, None).len(), 1);
+    }
+
+    #[test]
+    fn pierre_tombale_sans_toucher_aux_postings() {
+        let mut idx = index_exemple();
+        let postings_avant: usize = idx.postings.values().map(Vec::len).sum();
+        assert!(idx.remove_path("/home/test/hyprdesk.lua"));
+        let postings_apres: usize = idx.postings.values().map(Vec::len).sum();
+        assert_eq!(postings_avant, postings_apres);
+        let hits = idx.search("hyprdesk", 10, None, None);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "HyprDesk.rs");
+        // recréé : nouvelle entrée, retrouvée
+        idx.push("/home/test/hyprdesk.lua", meta(KIND_FILE));
+        assert_eq!(idx.search("hyprdesk", 10, None, None).len(), 2);
+        assert_eq!(idx.len(), 5);
+    }
+
+    #[test]
+    fn collision_d_empreintes_resolue() {
+        let mut idx = index_exemple();
+        let a = b"/home/test/hyprdesk.lua";
+        let b = b"/home/test/HyprDesk.rs";
+        let ia = idx.indice_de(a).expect("a");
+        let ib = idx.indice_de(b).expect("b");
+        // même empreinte forcée pour deux chemins distincts
+        idx.by_path.clear();
+        idx.inscrire(7, a, ia);
+        idx.inscrire(7, b, ib);
+        assert_eq!(idx.chercher(7, a), Some(ia));
+        assert_eq!(idx.chercher(7, b), Some(ib));
+        idx.desinscrire(7, a, ia);
+        assert_eq!(idx.chercher(7, a), None);
+        assert_eq!(idx.chercher(7, b), Some(ib));
+        idx.desinscrire(7, b, ib);
+        assert_eq!(idx.chercher(7, b), None);
+        assert!(idx.collisions.is_empty());
     }
 
     #[test]

@@ -2934,6 +2934,7 @@
 "le démon d'index ne répond pas" = "the index daemon is not responding"
 "le démon d'index n'est pas lancé" = "the index daemon is not running"
 "veille impossible sur {p0} ({e}) : rescan périodique" = "watching impossible on {p0} ({e}): periodic rescan"
+"limite inotify atteinte (fs.inotify.max_user_watches) après {n} dossiers : le reste de {p0} passe au rescan périodique" = "inotify limit reached (fs.inotify.max_user_watches) after {n} folders: the rest of {p0} falls back to the periodic rescan"
 "aucun résultat dans l'index" = "no results in the index"
 "démon d'index arrêté" = "index daemon stopped"
 "démon d'index : {e}" = "index daemon: {e}"

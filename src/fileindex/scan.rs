@@ -9,18 +9,20 @@
 //! filtre d'entrée pour ne pas descendre du tout.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use regex::RegexSet;
 
+use crate::fileindex::IndexConfig;
 use crate::fileindex::index::{EntryMeta, KIND_DIR, KIND_FILE, KIND_LINK};
 
-/// Filtres d'indexation appliqués pendant le parcours : noms exclus
-/// (composants exacts), expressions régulières sur le chemin complet,
-/// extensions écartées et taille maximale (fichiers seulement).
+/// Filtres d'indexation appliqués pendant le parcours et à la veille :
+/// noms exclus (composants exacts), expressions régulières sur le chemin
+/// complet, sous-arbres exclus par chemin, extensions écartées et taille
+/// maximale (fichiers seulement).
 #[derive(Debug, Clone, Default)]
 pub struct Filtres {
     pub excludes: std::collections::HashSet<String>,
@@ -30,6 +32,116 @@ pub struct Filtres {
     pub cat_excl: std::collections::HashSet<u8>,
     /// Octets (0 : illimité).
     pub max_size: u64,
+    /// Sous-arbres exclus par chemin absolu : le dossier du snapshot, dont
+    /// l'écriture ne doit ni s'indexer ni réveiller la veille.
+    pub chemins_exclus: Vec<PathBuf>,
+}
+
+impl Filtres {
+    /// Filtres d'un démon : réglages de l'utilisateur compilés une fois,
+    /// plus le dossier du snapshot (`$XDG_CACHE_HOME` peut sortir de
+    /// `~/.cache`, exclu par nom, et retomber dans une racine surveillée).
+    pub fn depuis_config(config: &IndexConfig) -> Self {
+        Self {
+            excludes: config.excludes().into_iter().collect(),
+            regexes: compile_regexes(&config.exclude_regex),
+            ext_excl: config
+                .exclude_ext
+                .iter()
+                .map(|x| x.trim().trim_start_matches('.').to_lowercase())
+                .filter(|x| !x.is_empty())
+                .collect(),
+            max_size: config.max_size.saturating_mul(1024 * 1024),
+            cat_excl: config
+                .exclude_cat
+                .iter()
+                .filter_map(|n| crate::fileindex::index::categorie_code(n))
+                .collect(),
+            chemins_exclus: vec![crate::fileindex::store::snapshot_dir()],
+        }
+    }
+
+    /// Même jugement que le parcours, pour un chemin arrivé par la veille.
+    /// Le parcours ne descend pas dans un dossier écarté : chaque composant
+    /// entre la racine et `p` passe donc au filtre de nom et de regex (un
+    /// ancêtre écarté écarte tout son sous-arbre). Extension et catégorie
+    /// ne jugent que le dernier composant, et seulement si c'est un fichier
+    /// (`est_fichier` : `None` pour un chemin disparu, nature inconnue).
+    /// Hors de `racine` : écarté.
+    pub fn ecarte_chemin(&self, racine: &Path, p: &Path, est_fichier: Option<bool>) -> bool {
+        if self.chemins_exclus.iter().any(|x| p.starts_with(x)) {
+            return true;
+        }
+        let Ok(rel) = p.strip_prefix(racine) else {
+            return true;
+        };
+        let mut courant = racine.to_path_buf();
+        for c in rel.components() {
+            let Component::Normal(nom) = c else {
+                return true; // « .. » ou autre bizarrerie : pas pour nous
+            };
+            courant.push(nom);
+            if exclu(nom, &self.excludes) || self.regex_ecarte(&courant) {
+                return true;
+            }
+        }
+        if est_fichier == Some(true)
+            && let Some(nom) = p.file_name().and_then(|n| n.to_str())
+        {
+            return self.ext_ou_cat_ecartee(nom);
+        }
+        false
+    }
+
+    /// Fichier au-delà de la taille maximale (non indexé).
+    pub fn trop_gros(&self, kind: u8, taille: u64) -> bool {
+        self.max_size > 0 && kind == KIND_FILE && taille > self.max_size
+    }
+
+    fn regex_ecarte(&self, p: &Path) -> bool {
+        !self.regexes.is_empty() && self.regexes.is_match(p.to_string_lossy().as_ref())
+    }
+
+    /// Extension ou catégorie exclue, jugée sur le nom d'un fichier.
+    fn ext_ou_cat_ecartee(&self, nom: &str) -> bool {
+        if !self.ext_excl.is_empty()
+            && Path::new(nom)
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| self.ext_excl.contains(&x.to_lowercase()))
+        {
+            return true;
+        }
+        // catégorie déduite du nom au vol
+        !self.cat_excl.is_empty() && self.cat_excl.contains(&super::index::categorie_de(nom))
+    }
+}
+
+/// Parcours d'un sous-arbre avec les options et le filtre d'entrée du scan
+/// (cachés inclus, `.gitignore` respecté, pas de traversée de montage ni de
+/// lien). `dossiers_seuls` : ne livre que les dossiers (pose des watches de
+/// la veille), sans stat des fichiers.
+pub fn parcours(root: &Path, filtres: Arc<Filtres>, dossiers_seuls: bool) -> WalkBuilder {
+    let mut builder = WalkBuilder::new(root);
+    // fichiers cachés inclus (tout ce qui n'est pas exclu sert la
+    // recherche) ; les caches massifs sont dans la liste d'exclusions
+    builder
+        .hidden(false)
+        .git_ignore(true)
+        .ignore(true)
+        .parents(true)
+        .same_file_system(true)
+        .follow_links(false)
+        .filter_entry(move |e: &DirEntry| {
+            if e.depth() == 0 {
+                return true;
+            }
+            if dossiers_seuls && !e.file_type().is_some_and(|t| t.is_dir()) {
+                return false;
+            }
+            !ecarte(e, &filtres)
+        });
+    builder
 }
 
 /// Compile les motifs utilisateur ; une regex invalide est signalée puis
@@ -78,48 +190,35 @@ pub fn scan_volume(
     let errors = Arc::new(AtomicUsize::new(0));
     let filtres = Arc::new(filtres.clone());
 
-    let mut builder = WalkBuilder::new(root);
-    // fichiers cachés inclus (tout ce qui n'est pas exclu sert la
-    // recherche) ; les caches massifs sont dans la liste d'exclusions
-    builder
-        .hidden(false)
-        .git_ignore(true)
-        .ignore(true)
-        .parents(true)
-        .same_file_system(true)
-        .follow_links(false)
-        .filter_entry({
+    parcours(root, filtres.clone(), false)
+        .build_parallel()
+        .run(|| {
+            // état par fil : compteurs partagés en Arc, collecte via le mutex
+            // commun ; `run` attend une closure FnMut par fil de travail
+            let out = out.clone();
+            let scanned = scanned.clone();
+            let errors = errors.clone();
+            let prog = progress.clone();
             let filtres = filtres.clone();
-            move |e: &DirEntry| e.depth() == 0 || !ecarte(e, &filtres)
+            Box::new(move |res: Result<DirEntry, ignore::Error>| match res {
+                Ok(e) => {
+                    scanned.fetch_add(1, Ordering::Relaxed);
+                    if let Some(p) = &prog {
+                        p.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if let Some(entree) = vers_entree(&e, vol, &filtres)
+                        && let Ok(mut g) = out.lock()
+                    {
+                        g.push(entree);
+                    }
+                    WalkState::Continue
+                }
+                Err(_) => {
+                    errors.fetch_add(1, Ordering::Relaxed);
+                    WalkState::Continue
+                }
+            }) as Box<dyn FnMut(Result<DirEntry, ignore::Error>) -> WalkState + Send>
         });
-
-    builder.build_parallel().run(|| {
-        // état par fil : compteurs partagés en Arc, collecte via le mutex
-        // commun ; `run` attend une closure FnMut par fil de travail
-        let out = out.clone();
-        let scanned = scanned.clone();
-        let errors = errors.clone();
-        let prog = progress.clone();
-        let filtres = filtres.clone();
-        Box::new(move |res: Result<DirEntry, ignore::Error>| match res {
-            Ok(e) => {
-                scanned.fetch_add(1, Ordering::Relaxed);
-                if let Some(p) = &prog {
-                    p.fetch_add(1, Ordering::Relaxed);
-                }
-                if let Some(entree) = vers_entree(&e, vol, &filtres)
-                    && let Ok(mut g) = out.lock()
-                {
-                    g.push(entree);
-                }
-                WalkState::Continue
-            }
-            Err(_) => {
-                errors.fetch_add(1, Ordering::Relaxed);
-                WalkState::Continue
-            }
-        }) as Box<dyn FnMut(Result<DirEntry, ignore::Error>) -> WalkState + Send>
-    });
 
     let entries = Arc::try_unwrap(out)
         .expect("le parcours est fini, plus de lecteur")
@@ -144,7 +243,7 @@ fn vers_entree(e: &DirEntry, vol: u8, filtres: &Filtres) -> Option<(String, Entr
     } else {
         KIND_FILE
     };
-    if filtres.max_size > 0 && kind == KIND_FILE && meta.len() > filtres.max_size {
+    if filtres.trop_gros(kind, meta.len()) {
         return None;
     }
     let mtime = meta
@@ -165,40 +264,19 @@ fn vers_entree(e: &DirEntry, vol: u8, filtres: &Filtres) -> Option<(String, Entr
 }
 
 /// L'entrée est-elle écartée ? Par nom de composant (exclusion exacte),
-/// par regex sur le chemin complet, ou — fichiers seulement — par
-/// extension exclue.
+/// par regex sur le chemin complet, par sous-arbre exclu, ou — fichiers
+/// seulement — par extension ou catégorie exclue.
 fn ecarte(e: &DirEntry, filtres: &Filtres) -> bool {
-    if exclu(e.file_name(), &filtres.excludes) {
+    if exclu(e.file_name(), &filtres.excludes) || filtres.regex_ecarte(e.path()) {
         return true;
     }
-    if !filtres.regexes.is_empty()
-        && filtres
-            .regexes
-            .is_match(e.path().to_string_lossy().as_ref())
-    {
-        return true;
+    if filtres.chemins_exclus.iter().any(|x| e.path() == x) {
+        return true; // le parcours n'y descend pas : l'égalité suffit
     }
-    if !filtres.ext_excl.is_empty()
-        && e.file_type().is_some_and(|t| t.is_file())
-        && e.path()
-            .extension()
-            .and_then(|x| x.to_str())
-            .map(|x| filtres.ext_excl.contains(&x.to_lowercase()))
-            .unwrap_or(false)
-    {
-        return true;
-    }
-    // catégorie exclue (fichiers seulement, déduite du nom au vol)
-    if !filtres.cat_excl.is_empty()
-        && e.file_type().is_some_and(|t| t.is_file())
+    e.file_type().is_some_and(|t| t.is_file())
         && e.file_name()
             .to_str()
-            .map(|n| filtres.cat_excl.contains(&super::index::categorie_de(n)))
-            .unwrap_or(false)
-    {
-        return true;
-    }
-    false
+            .is_some_and(|n| filtres.ext_ou_cat_ecartee(n))
 }
 
 /// Le nom d'entrée est-il exclu ? (composant exact, insensible à la casse)
@@ -352,6 +430,74 @@ mod tests {
         // trop gros : non indexé
         assert!(!chemins.iter().any(|p| p.ends_with("gros.bin")));
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn filtre_de_chemin_comme_le_parcours() {
+        let filtres = Filtres {
+            excludes: crate::fileindex::DEFAULT_EXCLUDES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            regexes: compile_regexes(&["/build$".to_string()]),
+            ext_excl: ["iso".to_string()].into_iter().collect(),
+            chemins_exclus: vec![PathBuf::from("/home/u/.local/cache/hyprdesk/index")],
+            ..Default::default()
+        };
+        let r = Path::new("/home/u");
+        let ecarte = |p: &str, f: Option<bool>| filtres.ecarte_chemin(r, Path::new(p), f);
+        // ancêtre exclu par nom : tout le sous-arbre
+        assert!(ecarte("/home/u/projet/.git/objects/ab/cd", Some(true)));
+        assert!(ecarte("/home/u/projet/target/debug/deps", None));
+        assert!(ecarte("/home/u/projet/target", None));
+        // ancêtre écarté par regex (le fichier seul ne correspond pas)
+        assert!(ecarte("/home/u/projet/build/sortie.o", Some(true)));
+        // extension : fichiers seulement
+        assert!(ecarte("/home/u/disque.iso", Some(true)));
+        assert!(!ecarte("/home/u/dossier.iso", Some(false)));
+        // sous-arbre exclu par chemin (snapshot)
+        assert!(ecarte(
+            "/home/u/.local/cache/hyprdesk/index/snapshot.tmp",
+            Some(true)
+        ));
+        assert!(!ecarte("/home/u/.local/cache/autre", Some(true)));
+        // hors racine
+        assert!(ecarte("/ailleurs/a.txt", Some(true)));
+        // admis
+        assert!(!ecarte("/home/u/projet/src/main.rs", Some(true)));
+        assert!(!ecarte("/home/u", None));
+    }
+
+    #[test]
+    fn filtres_du_demon_excluent_le_snapshot() {
+        let f = Filtres::depuis_config(&IndexConfig {
+            roots: vec![],
+            ..Default::default()
+        });
+        let dir = crate::fileindex::store::snapshot_dir();
+        assert!(f.chemins_exclus.contains(&dir));
+        assert!(f.ecarte_chemin(Path::new("/"), &dir.join("snapshot.tmp"), Some(true)));
+        assert!(f.excludes.contains(".git"));
+    }
+
+    #[test]
+    fn parcours_exclut_le_dossier_du_snapshot() {
+        let base = std::env::temp_dir().join(format!("hyprdesk-snapexcl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let snap = base.join("cache").join("hyprdesk").join("index");
+        std::fs::create_dir_all(&snap).expect("mkdir");
+        std::fs::write(snap.join("snapshot.bin"), b"x").expect("write");
+        std::fs::write(base.join("garde.txt"), b"x").expect("write");
+        let filtres = Filtres {
+            chemins_exclus: vec![snap.clone()],
+            ..Default::default()
+        };
+        let (entries, _) = scan_volume(&base, &filtres, 0, None);
+        let chemins: HashSet<String> = entries.into_iter().map(|(p, _)| p).collect();
+        assert!(chemins.contains(&base.join("garde.txt").to_string_lossy().to_string()));
+        assert!(!chemins.iter().any(|p| p.contains("snapshot")));
+        assert!(!chemins.contains(&snap.to_string_lossy().to_string()));
         let _ = std::fs::remove_dir_all(&base);
     }
 
