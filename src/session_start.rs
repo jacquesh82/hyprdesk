@@ -313,7 +313,7 @@ pub fn save_ours(config_path: &Path, items: &[(bool, String)]) -> Result<(), Str
     .map_err(|e| e.to_string())?;
     if let Some(new) = with_require(&src) {
         backup(&hypr, &src).map_err(|e| e.to_string())?;
-        std::fs::write(&hypr, new).map_err(|e| e.to_string())?;
+        crate::history::write_file(&hypr, new, "demarrage").map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -327,7 +327,7 @@ pub fn set_hyprland(config_path: &Path, it: &Item, enabled: bool) -> Result<(), 
     })?;
     if new != src {
         backup(&hypr, &src).map_err(|e| e.to_string())?;
-        std::fs::write(&hypr, new).map_err(|e| e.to_string())?;
+        crate::history::write_file(&hypr, new, "demarrage").map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -340,7 +340,7 @@ pub fn remove_hyprland(config_path: &Path, it: &Item) -> Result<(), String> {
         crate::i18n::tr("hyprland.lua a changé entre-temps : la liste est relue.").to_string()
     })?;
     backup(&hypr, &src).map_err(|e| e.to_string())?;
-    std::fs::write(&hypr, new).map_err(|e| e.to_string())
+    crate::history::write_file(&hypr, new, "demarrage").map_err(|e| e.to_string())
 }
 
 /// Lance la commande tout de suite, par Hyprland.

@@ -810,13 +810,34 @@ fn watch_stream(path: &std::path::Path) -> impl Stream<Item = ()> + use<> {
                 .unwrap_or_else(|| PathBuf::from("."));
             let modules = dir.join("hyprdesk");
             let (target, mods) = (path.clone(), modules.clone());
+            // Historique de la configuration (MLG-138) : un fichier suivi a
+            // changé ; instantané `main` s'il ne vient pas de hyprdesk, en
+            // tâche de fond, regroupé.
+            let (htx, mut hrx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let config = path.clone();
+            tokio::spawn(async move {
+                while hrx.recv().await.is_some() {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    while hrx.try_recv().is_ok() {}
+                    let _ = tokio::task::spawn_blocking(crate::history::on_change).await;
+                }
+            });
             let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                if let Ok(ev) = res
-                    && !matches!(ev.kind, notify::EventKind::Access(_))
-                    && ev
-                        .paths
-                        .iter()
-                        .any(|p| p == &target || p.starts_with(&mods))
+                let Ok(ev) = res else { return };
+                if matches!(ev.kind, notify::EventKind::Access(_)) {
+                    return;
+                }
+                if ev
+                    .paths
+                    .iter()
+                    .any(|p| crate::history::may_track(&config, p))
+                {
+                    let _ = htx.send(());
+                }
+                if ev
+                    .paths
+                    .iter()
+                    .any(|p| p == &target || p.starts_with(&mods))
                 {
                     let _ = tx.send(());
                 }

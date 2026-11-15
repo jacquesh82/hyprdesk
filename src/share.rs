@@ -542,6 +542,10 @@ fn import_from(
     if opts.dry_run {
         return Ok(report);
     }
+    // Historique de la configuration : l'état d'avant l'import, et les
+    // écritures qui suivent rangées sous le même motif.
+    crate::history::before(config_path, "import");
+    let _reason = crate::history::reason("import");
     // 1. Sauvegarde de l'existant.
     if opts.backup {
         let backup = dir.join(format!(
@@ -582,6 +586,7 @@ fn import_from(
         .is_ok_and(|m| m.len() > 0)
     {
         std::fs::copy(stage.join("hyprdesk.lua"), config_path).map_err(|e| e.to_string())?;
+        crate::history::note(config_path);
     }
     // 3. Plugins (sans écraser), écrans sur demande.
     for p in &report.plugins_added {
@@ -592,11 +597,9 @@ fn import_from(
         )?;
     }
     if opts.screens && stage.join("monitors.lua").is_file() {
-        std::fs::copy(
-            stage.join("monitors.lua"),
-            crate::screens::monitors_path(config_path),
-        )
-        .map_err(|e| e.to_string())?;
+        let monitors = crate::screens::monitors_path(config_path);
+        std::fs::copy(stage.join("monitors.lua"), &monitors).map_err(|e| e.to_string())?;
+        crate::history::note(&monitors);
     }
     Ok(report)
 }

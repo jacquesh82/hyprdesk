@@ -198,6 +198,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "input" => input::TABS,
         "autostart" => autostart::TABS,
         "assistant" => assistant::TABS,
+        "hyprconfig" => hyprconfig::TABS,
         _ => &[],
     }
 }
@@ -490,7 +491,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "datetime" => datetime::load(),
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
-        "hyprconfig" => hyprconfig::load(app),
+        "hyprconfig" => Task::batch([hyprconfig::load(app), hyprconfig::load_history(app)]),
         "colors" => colors::load(),
         "workspaces" => workspaces::load_foreign(app.config_path.clone()),
         "login" => login::load(),

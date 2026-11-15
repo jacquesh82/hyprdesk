@@ -527,8 +527,8 @@ pub fn migrate(config_path: &Path) -> Result<Option<Done>, String> {
         ),
         None => format!("{}\n{}", header(), s.binds),
     };
-    std::fs::write(&file, new_binds).map_err(|e| e.to_string())?;
-    std::fs::write(&hypr, &s.hyprland).map_err(|e| e.to_string())?;
+    crate::history::write_file(&file, new_binds, "raccourcis").map_err(|e| e.to_string())?;
+    crate::history::write_file(&hypr, &s.hyprland, "raccourcis").map_err(|e| e.to_string())?;
     let _ = std::process::Command::new("hyprctl").arg("reload").output();
     std::thread::sleep(std::time::Duration::from_millis(300));
     let fresh: Vec<String> = crate::hyprcheck::config_errors()
@@ -774,7 +774,7 @@ pub struct Edited {
 /// si Hyprland signale une erreur nouvelle.
 fn write_checked(file: &Path, old: &str, new: &str) -> Result<(), String> {
     let before: BTreeSet<String> = crate::hyprcheck::config_errors().into_iter().collect();
-    std::fs::write(file, new).map_err(|e| e.to_string())?;
+    crate::history::write_file(file, new, "raccourcis").map_err(|e| e.to_string())?;
     let _ = std::process::Command::new("hyprctl").arg("reload").output();
     std::thread::sleep(std::time::Duration::from_millis(300));
     let fresh: Vec<String> = crate::hyprcheck::config_errors()

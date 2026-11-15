@@ -28,6 +28,7 @@ mod fx;
 mod greeter;
 mod greeter_setup;
 mod greeter_ui;
+mod history;
 mod hypr;
 mod hyprbars;
 mod hyprcheck;
@@ -125,6 +126,7 @@ Commandes :
                     image, video, audio, pdf, mail, ai
   config            réglages en ligne de commande, par paquet :
                     config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
+                    config history | diff <id> | rollback <id|date> [--yes] : historique sur 30 jours
   menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
   osd <volume|mic|brightness|kbd> <+N|-N|toggle>
                     règle le son ou la luminosité (touches XF86, keys.media)
@@ -417,6 +419,9 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     }
     // Fenêtres laissées de côté par un arrêt brutal, bureau affiché : on les rend.
     hypr::restore_leftover_stash();
+    // Historique de la configuration : élagage à 30 jours, et instantané des
+    // modifications faites à la main pendant l'absence du démon.
+    history::start_daemon();
     // Raccourcis de hyprland.lua rangés dans binds.lua (MLG-111) ; Hyprland
     // rechargé, tout rendu tel quel s'il signale une erreur nouvelle.
     match binds_file::migrate(&path) {
@@ -765,6 +770,9 @@ fn main() -> ExitCode {
     }
     // Langue de la ligne de commande (le démon la reprend de sa config).
     i18n::init_cli(&config_path);
+    // Historique de la configuration (MLG-138) : instantané avant chaque
+    // écriture d'un fichier suivi, quel que soit le processus.
+    history::init(&config_path);
     let replace = if let Some(i) = args.iter().position(|a| a == "--replace") {
         args.remove(i);
         true

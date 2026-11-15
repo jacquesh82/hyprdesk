@@ -320,6 +320,9 @@ See the [configuration reference](docs/ADVANCED.md#configuration-reference).
 - **Hyprland configuration** flags errors, duplicate bindings or startup
   entries, and programs that overlap with built-in services. **Tidy
   everything** backs up `hyprland.lua` and applies the fixes marked safe.
+  Its **History** tab keeps 30 days of configuration snapshots (one before
+  each change, and after each manual edit) and reverts to any of them; also
+  `hyprdesk config history`, `diff <id>` and `rollback <id|date> --yes`.
 - **Restore the default configuration** in **Settings → About**, or run
   `hyprdesk config reset --yes`, to restore the sample `hyprdesk.lua` and clear
   the settings saved in the drawer. Both files are backed up under

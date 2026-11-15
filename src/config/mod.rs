@@ -32,6 +32,7 @@ pub const EXAMPLE_EN: &str = include_str!("../../assets/hyprdesk.en.lua");
 /// Les fichiers de Hyprland (inputs.lua, monitors.lua, autostart.lua), les
 /// thèmes et les widgets ne bougent pas. Rend le dossier de la copie.
 pub fn reset_to_defaults(path: &Path) -> std::io::Result<PathBuf> {
+    crate::history::before(path, "reinitialisation");
     let settings = lua::settings_path(path);
     let dir = path.parent().unwrap_or(Path::new("."));
     let backup = dir
@@ -44,9 +45,10 @@ pub fn reset_to_defaults(path: &Path) -> std::io::Result<PathBuf> {
             std::fs::copy(f, backup.join(f.file_name().unwrap_or_default()))?;
         }
     }
-    std::fs::write(path, example())?;
+    crate::history::write_file(path, example(), "reinitialisation")?;
     if settings.is_file() {
         std::fs::remove_file(&settings)?;
+        crate::history::note(&settings);
     }
     Ok(backup)
 }

@@ -335,6 +335,10 @@ reste active. Voir la [référence de configuration](docs/ADVANCED.md#configurat
 - **Configuration de Hyprland** signale les erreurs, les liaisons ou démarrages
   en double, et les programmes qui font doublon avec les services intégrés.
   « Tout ranger » sauvegarde `hyprland.lua` et applique les corrections sûres.
+  Son onglet **Historique** garde 30 jours d'instantanés de la configuration
+  (un avant chaque modification, et après chaque modification à la main) et
+  permet d'y revenir ; aussi `hyprdesk config history`, `diff <id>` et
+  `rollback <id|date> --yes`.
 - **Restaurer la configuration par défaut**, dans **Réglages → À propos** ou
   par `hyprdesk config reset --yes`, remet le `hyprdesk.lua` d'exemple et
   efface les réglages du tiroir. Les deux fichiers sont sauvegardés sous

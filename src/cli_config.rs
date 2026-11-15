@@ -1280,7 +1280,8 @@ const USAGE: &str =
 Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
 bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
 fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
-forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none";
+forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none
+Historique (30 jours) : history [--json] | diff <id> | rollback <id|AAAA-MM-JJ[THH:MM]> [--yes]";
 
 /// `fx.anim.<élément>` : `on`, `off`, ou `<vitesse> [courbe] [style]`.
 fn parse_anim(leaf: &crate::fx::Leaf, raw: &str) -> Result<crate::fx::Anim, String> {
@@ -1333,7 +1334,65 @@ fn parse_anim(leaf: &crate::fx::Leaf, raw: &str) -> Result<crate::fx::Anim, Stri
 
 pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
     let full = || load_file(config_path).map(|l| l.config);
+    // Historique de la configuration : écritures faites d'ici, motif « cli ».
+    let _reason = crate::history::reason("cli");
     match args.first().map(String::as_str).unwrap_or("list") {
+        "history" | "historique" => history_list(config_path, args.iter().any(|a| a == "--json")),
+        "diff" => {
+            let id = args.get(1).ok_or_else(usage)?;
+            let (snap, diffs) = crate::history::diff(config_path, id)?;
+            if diffs.is_empty() {
+                return Ok(crate::tr!("{id} : identique à l'état actuel", id = snap.id));
+            }
+            let mut out = format!("{} — {}\n", snap.id, describe(&snap));
+            for d in &diffs {
+                out += &format!("\n{} ({})\n{}", d.file, d.change.label(), d.patch);
+            }
+            Ok(out.trim_end().to_string())
+        }
+        "rollback" | "retour" => {
+            let yes = args.iter().any(|a| a == "--yes");
+            let id = args[1..].iter().find(|a| *a != "--yes").ok_or_else(usage)?;
+            if !yes {
+                let (snap, plan) = crate::history::plan(config_path, id)?;
+                let mut out =
+                    crate::tr!("retour à {id} ({p0}) :", id = snap.id, p0 = describe(&snap));
+                if plan.restore.is_empty() && plan.remove.is_empty() {
+                    out += "\n  ";
+                    out += crate::i18n::tr("rien à changer : identique à l'état actuel");
+                }
+                for f in &plan.restore {
+                    out += "\n  ";
+                    out += &crate::tr!("restauré : {f}", f = f);
+                }
+                for f in &plan.remove {
+                    out += "\n  ";
+                    out += &crate::tr!("supprimé : {f}", f = f);
+                }
+                out += "\n";
+                out += &crate::tr!(
+                    "hyprdesk config rollback {id} --yes pour l'appliquer (l'état actuel est gardé dans l'historique)",
+                    id = snap.id
+                );
+                return Err(out);
+            }
+            let r = crate::history::rollback(config_path, id)?;
+            let mut out = crate::tr!(
+                "retour à {id} fait : {n} fichier(s) restauré(s), {m} supprimé(s)",
+                id = r.id,
+                n = r.plan.restore.len(),
+                m = r.plan.remove.len()
+            );
+            for f in r.plan.restore.iter().chain(&r.plan.remove) {
+                out += &format!("\n  {f}");
+            }
+            out += "\n";
+            out += &crate::tr!(
+                "état d'avant gardé : {id} (hyprdesk config rollback {id} pour y revenir)",
+                id = r.safety
+            );
+            Ok(out)
+        }
         // Configuration par défaut (copie des fichiers d'abord) ; --yes exigé.
         "reset" => {
             if args.get(1).map(String::as_str) != Some("--yes") {
@@ -1505,6 +1564,52 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
             p0 = usage()
         )),
     }
+}
+
+/// Date, heure et motif d'un instantané.
+fn describe(s: &crate::history::Snapshot) -> String {
+    format!(
+        "{} · {}",
+        s.time().format("%Y-%m-%d %H:%M:%S"),
+        crate::history::reason_label(&s.reason)
+    )
+}
+
+/// `hyprdesk config history [--json]`.
+fn history_list(config_path: &Path, json: bool) -> Result<String, String> {
+    let entries = crate::history::entries(config_path);
+    if json {
+        let v: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.snap.id,
+                    "time": e.snap.time().to_rfc3339(),
+                    "reason": e.snap.reason,
+                    "label": crate::history::reason_label(&e.snap.reason),
+                    "files": e.snap.files,
+                    "changed": e.changed,
+                })
+            })
+            .collect();
+        return serde_json::to_string_pretty(&v).map_err(|e| e.to_string());
+    }
+    if entries.is_empty() {
+        return Ok(crate::i18n::tr("historique vide : aucun instantané pour l'instant").into());
+    }
+    let mut out = String::new();
+    for e in &entries {
+        let changed = if e.changed.is_empty() {
+            "—".to_string()
+        } else {
+            e.changed.join(", ")
+        };
+        out += &format!("{:<34} {}  → {changed}\n", e.snap.id, describe(&e.snap));
+    }
+    out += crate::i18n::tr(
+        "(chaque instantané garde l'état d'avant la modification ; → : fichiers changés ensuite)",
+    );
+    Ok(out)
 }
 
 #[cfg(test)]

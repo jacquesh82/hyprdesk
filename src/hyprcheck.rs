@@ -469,7 +469,7 @@ pub fn apply(config_path: &Path, fixes: &[Fix]) -> Result<usize, String> {
             if src.ends_with('\n') {
                 out.push('\n');
             }
-            std::fs::write(&hypr, out).map_err(|e| e.to_string())?;
+            crate::history::write_file(&hypr, out, "menage").map_err(|e| e.to_string())?;
         }
     }
     for f in fixes {

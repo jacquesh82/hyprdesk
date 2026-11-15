@@ -13,7 +13,10 @@ pub fn revision() -> u64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Écriture atomique ; un fichier de configuration suivi passe d'abord par
+/// l'historique (`crate::history`), qui en garde l'état d'avant.
 pub fn write(path: &Path, contents: &[u8], revision: u64) -> io::Result<()> {
+    crate::history::before_write(path);
     let mut writes = WRITES
         .lock()
         .map_err(|_| io::Error::other("verrou d'enregistrement indisponible"))?;
@@ -37,6 +40,8 @@ pub fn write(path: &Path, contents: &[u8], revision: u64) -> io::Result<()> {
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
+    } else {
+        crate::history::note(path);
     }
     result
 }
