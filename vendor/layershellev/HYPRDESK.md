@@ -8,6 +8,14 @@ Ajout : glisser-déposer de fichiers vers les surfaces (`src/dnd.rs`).
 
 À reporter lors d'une mise à jour (ou à proposer en amont : waycrate/exwlshelleventloop).
 
+## Origine
+
+- Archive de départ : `layershellev-0.19.1.crate`, https://static.crates.io/crates/layershellev/layershellev-0.19.1.crate
+- Empreinte (sha256) de l'archive : `69fbd3ced50d91a5a118e3e00f49c72040ea6b48b78b159a3936104fc2632925` (la somme que crates.io publie pour cette version)
+- Dépôt amont : https://github.com/waycrate/exwlshelleventloop ; l'archive ne porte pas de `.cargo_vcs_info.json`, le commit amont exact n'est donc pas connu : l'archive vérifiée fait référence.
+- Modifications de hyprdesk : `patches/hyprdesk.patch` (diff de l'archive à cette copie). `scripts/verifier-vendor.sh` retélécharge l'archive, vérifie l'empreinte, applique le correctif et compare à la copie ; la CI le lance (MLG-151). Après une modification voulue : `scripts/verifier-vendor.sh --regenerer`, puis la décrire ci-dessus.
+- Veille : suivre les versions publiées de `layershellev` sur crates.io (et les avis RustSec, qui ne couvrent plus cette copie) ; à chaque nouvelle version, repartir de l'archive et réappliquer le correctif.
+
 ## Licence
 
 - Code d'origine : MIT © waycrate/exwlshelleventloop — texte dans `LICENSE` ;

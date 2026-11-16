@@ -1,0 +1,487 @@
+--- a/src/clipboard.rs
++++ b/src/clipboard.rs
+@@ -15,24 +15,34 @@
+ }
+ 
+ pub struct LayerShellClipboard {
+-    state: State,
++    state: std::cell::RefCell<State>,
+ }
+ 
+ enum State {
++    /// hyprdesk : pas encore relié. smithay-clipboard lance un fil qui tourne
++    /// sa propre boucle sur la connexion Wayland partagée, réveillé par
++    /// chaque événement de la surface (≈ 44 fois/s au repos, MLG-136) ; il
++    /// n'est relié que si wl-paste / wl-copy manquent ou échouent.
++    Lazy(std::sync::Arc<WindowWrapper>),
+     Connected(window_clipboard::Clipboard),
+     Unavailable,
+ }
+ 
+ impl LayerShellClipboard {
+     /// Creates a new [`Clipboard`] for the given window.
++    #[allow(unused)]
+     pub fn connect(window: &WindowWrapper) -> Self {
+-        #[allow(unsafe_code)]
+-        let state = unsafe { window_clipboard::Clipboard::connect(window) }
+-            .ok()
+-            .map(State::Connected)
+-            .unwrap_or(State::Unavailable);
++        Self {
++            state: std::cell::RefCell::new(connect_now(window)),
++        }
++    }
+ 
+-        Self { state }
++    /// hyprdesk : clipboard relié seulement au premier besoin que wl-clipboard
++    /// ne couvre pas.
++    pub fn lazy(window: std::sync::Arc<WindowWrapper>) -> Self {
++        Self {
++            state: std::cell::RefCell::new(State::Lazy(window)),
++        }
+     }
+ 
+     /// Creates a new [`Clipboard`] that isn't associated with a window.
+@@ -40,24 +50,54 @@
+     #[allow(unused)]
+     pub fn unconnected() -> Self {
+         Self {
+-            state: State::Unavailable,
++            state: std::cell::RefCell::new(State::Unavailable),
++        }
++    }
++
++    /// Relie smithay-clipboard s'il ne l'est pas encore.
++    fn ensure_connected(&self) {
++        let mut state = self.state.borrow_mut();
++        if let State::Lazy(window) = &*state {
++            let connected = connect_now(window);
++            *state = connected;
+         }
+     }
+ 
+     /// Reads the current content of the [`Clipboard`] as text.
++    ///
++    /// hyprdesk : `wl-paste` d'abord. Le « data device » ajouté à layershellev
++    /// pour le glisser-déposer reçoit la sélection à la place de celui de
++    /// smithay-clipboard (Hyprland n'en sert qu'un par client) : sans ce
++    /// détour, Ctrl+V ne colle rien dans les champs des surfaces.
+     pub fn read(&self, kind: Kind) -> Option<String> {
+-        match &self.state {
++        if is_disabled() {
++            return None;
++        }
++        if let Some(text) = wl_paste(kind) {
++            return Some(text);
++        }
++        self.ensure_connected();
++        match &*self.state.borrow() {
+             State::Connected(clipboard) => match kind {
+                 Kind::Standard => clipboard.read().ok(),
+                 Kind::Primary => clipboard.read_primary().and_then(Result::ok),
+             },
+-            State::Unavailable => None,
++            _ => None,
+         }
+     }
+ 
+     /// Writes the given text contents to the [`Clipboard`].
++    ///
++    /// hyprdesk : `wl-copy` d'abord, smithay-clipboard à défaut.
+     pub fn write(&mut self, kind: Kind, contents: String) {
+-        match &mut self.state {
++        if is_disabled() {
++            return;
++        }
++        if wl_copy(kind, &contents) {
++            return;
++        }
++        self.ensure_connected();
++        match &mut *self.state.borrow_mut() {
+             State::Connected(clipboard) => {
+                 let result = match kind {
+                     Kind::Standard => clipboard.write(contents),
+@@ -71,9 +111,107 @@
+                     }
+                 }
+             }
+-            State::Unavailable => {}
++            _ => {}
++        }
++    }
++}
++
++fn connect_now(window: &WindowWrapper) -> State {
++    #[allow(unsafe_code)]
++    unsafe { window_clipboard::Clipboard::connect(window) }
++        .ok()
++        .map(State::Connected)
++        .unwrap_or(State::Unavailable)
++}
++
++/// Copie par `wl-copy` (wl-clipboard), qui sert ensuite la sélection depuis
++/// son propre processus ; faux si l'outil manque ou échoue.
++fn wl_copy(kind: Kind, contents: &str) -> bool {
++    use std::io::Write as _;
++    use std::process::{Command, Stdio};
++    use std::time::{Duration, Instant};
++
++    let mut cmd = Command::new("wl-copy");
++    cmd.args(["--type", "text/plain;charset=utf-8"]);
++    if kind == Kind::Primary {
++        cmd.arg("--primary");
++    }
++    let Ok(mut child) = cmd
++        .stdin(Stdio::piped())
++        .stdout(Stdio::null())
++        .stderr(Stdio::null())
++        .spawn()
++    else {
++        return false;
++    };
++    if let Some(mut stdin) = child.stdin.take() {
++        if stdin.write_all(contents.as_bytes()).is_err() {
++            let _ = child.kill();
++            let _ = child.wait();
++            return false;
++        }
++    }
++    // wl-copy passe en arrière-plan dès la sélection prise : le parent sort.
++    let start = Instant::now();
++    loop {
++        match child.try_wait() {
++            Ok(Some(status)) => return status.success(),
++            Ok(None) if start.elapsed() < Duration::from_secs(1) => {
++                std::thread::sleep(Duration::from_millis(5));
++            }
++            _ => {
++                let _ = child.kill();
++                let _ = child.wait();
++                return false;
++            }
++        }
++    }
++}
++
++/// Texte de la sélection lu par `wl-paste` (wl-clipboard), en une seconde au
++/// plus : la boucle d'événements attend la réponse.
++fn wl_paste(kind: Kind) -> Option<String> {
++    use std::io::Read as _;
++    use std::process::{Command, Stdio};
++    use std::time::{Duration, Instant};
++
++    let mut cmd = Command::new("wl-paste");
++    cmd.args(["--no-newline", "--type", "text"]);
++    if kind == Kind::Primary {
++        cmd.arg("--primary");
++    }
++    let mut child = cmd
++        .stdin(Stdio::null())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::null())
++        .spawn()
++        .ok()?;
++    // Lecture à part : une grande sélection remplirait le tuyau.
++    let mut stdout = child.stdout.take()?;
++    let reader = std::thread::spawn(move || {
++        let mut bytes = Vec::new();
++        let _ = stdout.read_to_end(&mut bytes);
++        bytes
++    });
++    let start = Instant::now();
++    let status = loop {
++        match child.try_wait() {
++            Ok(Some(status)) => break status,
++            Ok(None) if start.elapsed() < Duration::from_secs(1) => {
++                std::thread::sleep(Duration::from_millis(5));
++            }
++            _ => {
++                let _ = child.kill();
++                let _ = child.wait();
++                return None;
++            }
+         }
++    };
++    let bytes = reader.join().ok()?;
++    if !status.success() || bytes.is_empty() {
++        return None;
+     }
++    String::from_utf8(bytes).ok()
+ }
+ 
+ impl Clipboard for LayerShellClipboard {
+--- a/src/conversion.rs
++++ b/src/conversion.rs
+@@ -32,6 +32,15 @@
+ ) -> Option<IcedEvent> {
+     match layerevent {
+         LayerShellEvent::CursorLeft => Some(IcedEvent::Mouse(mouse::Event::CursorLeft)),
++        LayerShellEvent::FileHovered(p) => Some(IcedEvent::Window(
++            iced_core::window::Event::FileHovered(p.clone()),
++        )),
++        LayerShellEvent::FileDropped(p) => Some(IcedEvent::Window(
++            iced_core::window::Event::FileDropped(p.clone()),
++        )),
++        LayerShellEvent::FilesHoveredLeft => {
++            Some(IcedEvent::Window(iced_core::window::Event::FilesHoveredLeft))
++        }
+         LayerShellEvent::CursorMoved { x, y } => {
+             let (x, y) = scale_down((*x, *y), application_scale_factor);
+             Some(IcedEvent::Mouse(mouse::Event::CursorMoved {
+--- a/src/event.rs
++++ b/src/event.rs
+@@ -99,6 +99,12 @@
+     Refresh,
+     Closed,
+     ThemeChanged(iced_core::theme::Mode),
++    /// Glisser-déposer (hyprdesk) : une offre de fichiers survole la surface.
++    FileHovered(std::path::PathBuf),
++    /// Glisser-déposer (hyprdesk) : un fichier déposé sur la surface.
++    FileDropped(std::path::PathBuf),
++    /// Glisser-déposer : l'offre a quitté la surface.
++    FilesHoveredLeft,
+ }
+ 
+ #[derive(Debug)]
+@@ -125,6 +131,14 @@
+                 ..
+             } => WindowEvent::CursorMoved { x: *x, y: *y },
+             DispatchMessage::MouseLeave => WindowEvent::CursorLeft,
++            // Glisser-déposer : la position suit le pointeur ; le dépôt est
++            // découpé par l'appelant (position, puis un événement par fichier).
++            DispatchMessage::DndEnter { x, y } | DispatchMessage::DndMotion { x, y } => {
++                WindowEvent::CursorMoved { x: *x, y: *y }
++            }
++            DispatchMessage::DndLeave | DispatchMessage::DndDrop { .. } => {
++                WindowEvent::FilesHoveredLeft
++            }
+             DispatchMessage::MouseButton { state, button, .. } => {
+                 let btn = from_u32_to_icedmouse(*button);
+                 match state {
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -45,6 +45,121 @@
+     clipboard::set_disabled();
+ }
+ 
++/// Graphics backend actually obtained by the compositor (hyprdesk addition):
++/// `ICED_BACKEND` lists what to try, and wgpu silently falls back to
++/// tiny-skia when no adapter works. `None` until the first surface exists.
++pub fn renderer_information() -> Option<RendererInformation> {
++    RENDERER.lock().ok()?.clone()
++}
++
++/// Copy of `iced_graphics::compositor::Information` (which is not `Clone`).
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RendererInformation {
++    /// Graphics adapter (`CPU` for tiny-skia).
++    pub adapter: String,
++    /// Backend: a wgpu backend (`Vulkan`, `Gl`…) or `tiny-skia`.
++    pub backend: String,
++}
++
++static RENDERER: std::sync::Mutex<Option<RendererInformation>> = std::sync::Mutex::new(None);
++
++static BACKEND: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
++
++/// Backends to try, in order (`"wgpu,tiny-skia"`), instead of the
++/// `ICED_BACKEND` environment variable — which child processes would
++/// inherit (hyprdesk addition). Call before `run`.
++pub fn set_backend(backends: &'static str) {
++    let _ = BACKEND.set(backends);
++}
++
++pub(crate) fn backend() -> Option<&'static str> {
++    BACKEND.get().copied()
++}
++
++pub(crate) fn set_renderer_information(info: iced_graphics::compositor::Information) {
++    if let Ok(mut r) = RENDERER.lock() {
++        *r = Some(RendererInformation {
++            adapter: info.adapter,
++            backend: info.backend,
++        });
++    }
++}
++
++/// Surfaces to redraw after a batch of messages (hyprdesk addition).
++///
++/// Upstream refreshes every surface after any message. The application may
++/// instead declare, for each message it handles, which surfaces it touched:
++/// [`damage::all`], [`damage::only`] or [`damage::none`]. The union over the
++/// batch is refreshed; a batch where a message declared nothing, or declared
++/// `all`, refreshes every surface as upstream does. Widgets that request a
++/// redraw themselves are unaffected.
++pub mod damage {
++    use iced_core::window::Id;
++    use std::sync::Mutex;
++
++    struct Acc {
++        /// Every message of the batch declared its damage.
++        declared: usize,
++        all: bool,
++        ids: Vec<Id>,
++    }
++
++    static ACC: Mutex<Acc> = Mutex::new(Acc {
++        declared: 0,
++        all: false,
++        ids: Vec::new(),
++    });
++
++    fn with(f: impl FnOnce(&mut Acc)) {
++        if let Ok(mut a) = ACC.lock() {
++            f(&mut a);
++        }
++    }
++
++    /// The message may have changed any surface.
++    pub fn all() {
++        with(|a| {
++            a.declared += 1;
++            a.all = true;
++        });
++    }
++
++    /// The message changed nothing on screen.
++    pub fn none() {
++        with(|a| a.declared += 1);
++    }
++
++    /// The message changed only these surfaces.
++    pub fn only(ids: impl IntoIterator<Item = Id>) {
++        with(|a| {
++            a.declared += 1;
++            a.ids.extend(ids);
++        });
++    }
++
++    pub(crate) fn begin() {
++        with(|a| {
++            a.declared = 0;
++            a.all = false;
++            a.ids.clear();
++        });
++    }
++
++    /// Surfaces to refresh after `messages` messages: `None` means all.
++    pub(crate) fn take(messages: usize) -> Option<Vec<Id>> {
++        let mut out = None;
++        with(|a| {
++            if !a.all && a.declared >= messages && messages > 0 {
++                out = Some(std::mem::take(&mut a.ids));
++            }
++            a.declared = 0;
++            a.all = false;
++            a.ids.clear();
++        });
++        out
++    }
++}
++
+ pub type Result = std::result::Result<(), error::Error>;
+ use iced_core::theme::Style as Appearance;
+ 
+--- a/src/multi_window.rs
++++ b/src/multi_window.rs
+@@ -199,6 +199,37 @@
+                     ev.set_virtual_keyboard(virtual_keyboard_in);
+                 }
+             }
++            // Début d'un glisser-déposer : la position, puis « survol de fichiers »
++            // (les chemins ne sont connus qu'au dépôt).
++            LayerShellEvent::RequestMessages(layershellev::DispatchMessage::DndEnter { x, y }) => {
++                waiting_layer_shell_events.push_back((
++                    layer_shell_id,
++                    IcedLayerShellEvent::Window(LayerShellWindowEvent::CursorMoved { x: *x, y: *y }),
++                ));
++                waiting_layer_shell_events.push_back((
++                    layer_shell_id,
++                    IcedLayerShellEvent::Window(LayerShellWindowEvent::FileHovered(
++                        std::path::PathBuf::new(),
++                    )),
++                ));
++            }
++            // Dépôt de fichiers : la position du dépôt, puis un événement par fichier.
++            LayerShellEvent::RequestMessages(layershellev::DispatchMessage::DndDrop {
++                x,
++                y,
++                paths,
++            }) => {
++                waiting_layer_shell_events.push_back((
++                    layer_shell_id,
++                    IcedLayerShellEvent::Window(LayerShellWindowEvent::CursorMoved { x: *x, y: *y }),
++                ));
++                for p in paths {
++                    waiting_layer_shell_events.push_back((
++                        layer_shell_id,
++                        IcedLayerShellEvent::Window(LayerShellWindowEvent::FileDropped(p.clone())),
++                    ));
++                }
++            }
+             LayerShellEvent::RequestMessages(message) => {
+                 waiting_layer_shell_events.push_back((
+                     layer_shell_id,
+@@ -329,9 +360,16 @@
+         display: DisplayWrapper,
+     ) -> Self {
+         let shell = Shell::new(self.proxy.clone());
+-        let mut new_compositor = C::new(self.compositor_settings, display, window.clone(), shell)
+-            .await
++        let mut new_compositor = C::with_backend(
++            self.compositor_settings,
++            display,
++            window.clone(),
++            shell,
++            crate::backend(),
++        )
++        .await
+             .expect("Cannot create compositer");
++        crate::set_renderer_information(new_compositor.information());
+         for font in self.fonts.clone() {
+             new_compositor.load_font(font);
+         }
+@@ -339,10 +377,11 @@
+         // Opt-out for clients that don't need clipboard access. Skipping
+         // connect() avoids spawning the smithay-clipboard worker thread,
+         // which otherwise runs an always-on wayland event loop (~0.4% CPU).
++        // hyprdesk: connected lazily, only if wl-clipboard is missing.
+         self.clipboard = if crate::clipboard::is_disabled() {
+             LayerShellClipboard::unconnected()
+         } else {
+-            LayerShellClipboard::connect(&window)
++            LayerShellClipboard::lazy(window.clone())
+         };
+         self
+     }
+@@ -952,16 +991,28 @@
+         }
+ 
+         if !self.messages.is_empty() {
+-            ev.request_refresh_all(RefreshRequest::NextFrame);
+             let (caches, application) = self.user_interfaces.extract_all();
+ 
+-            // Update application
++            // Update application. hyprdesk: only the surfaces the application
++            // declares touched are refreshed (see `crate::damage`).
++            let batch = self.messages.len();
++            crate::damage::begin();
+             update(
+                 application,
+                 &mut self.runtime,
+                 &mut self.messages,
+                 &mut self.waiting_layer_shell_actions,
+             );
++            match crate::damage::take(batch) {
++                None => ev.request_refresh_all(RefreshRequest::NextFrame),
++                Some(ids) => {
++                    for id in ids {
++                        if let Some(window) = self.window_manager.get(id) {
++                            ev.request_refresh(window.id, RefreshRequest::NextFrame);
++                        }
++                    }
++                }
++            }
+ 
+             for (_, window) in self.window_manager.iter_mut() {
+                 window.state.synchronize(application);
