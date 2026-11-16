@@ -8,6 +8,62 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-16
+
+Security hardening release (MLG-150 to MLG-155).
+
+### Security
+
+- **Imported archives never run their Lua unchecked** (MLG-150). **Check**
+  (`--dry-run`) only compiles the archive's Lua; the import reads its
+  settings in a sandbox (no files, no commands, no loading outside the
+  archive, memory capped). A theme carries no code. A full setup whose
+  `hyprdesk.lua` or plugins would run with your rights needs an explicit
+  consent (toggle in **Sharing**, `--trust-code`). AI services declared by an
+  archive are ignored. Links and special files are refused.
+- **Third-party plugins are reviewed before installation** (MLG-154): they
+  land in a quarantine outside the plugin folders; a review card shows the
+  source, the commit, the SHA-256 and the start of the code. Git sources must
+  be `https://` or ssh; `#<commit>` pins a revision.
+- **Verifiable releases** (MLG-151): `SHA256SUMS`, its keyless cosign
+  signature, a CycloneDX SBOM and a build provenance attestation are
+  published with each release; `install.sh` installs the repository's version
+  and checks checksum (and signature with cosign) before any `sudo`. CI
+  actions pinned by SHA, read-only token by default, release gated on the
+  checks, `cargo deny` and Dependabot. `update.sh` no longer sources remote
+  code; rustup is checksum-verified; LYRA and myMFA are pinned by commit.
+- **Nothing user-writable runs as root** (MLG-152): root steps and `pkexec`
+  only run `/usr/bin/hyprdesk` or a root-owned `/usr/local/bin/hyprdesk`.
+- **Lock and login** (MLG-153): fingerprint unlock is off by default and
+  labelled "instead of the password" (through a `hyprdesk-fingerprint` PAM
+  service when present, otherwise followed by the PAM account phase, and
+  logged); PAM account phase after the password, growing delay after three
+  failures; `/etc/pam.d/hyprdesk-lock` shipped by the packages; idle locking
+  on by default (5 min); the lid only suspends once the lock holds; no `/tmp`
+  fallback; passwords zeroized in memory; safer greeter restore and atomic
+  writes of `/etc/pam.d/greetd` and `config.toml`.
+- **polkit agent in its own process** (MLG-153): `hyprdesk polkit-ui`,
+  without Lua, supervised by the daemon; the request details (command,
+  program) can be unfolded and only polkit itself may call the agent.
+- **Sensitive data** (MLG-154, MLG-155): the 2FA QR capture is decoded in
+  memory (no file); clipboard history is off by default, text only, 100
+  items, with a **Clear** button; SmartUI automatic icons are opt-in and name
+  their AI provider; plain `http://` AI endpoints only towards localhost; a
+  failed update opens a window with **Ask LYRA** instead of reaching LYRA on
+  its own, with the log framed as untrusted data and credentials masked; AUR
+  packages are no longer built in one click without review (`yay -Sua`).
+- **Private runtime files**: state files, sockets and the Wi-Fi key file live
+  in a checked private runtime folder (never a shared `/tmp`); the file index
+  is stored 0600 in a 0700 folder and its daemon reads requests bounded.
+- **Machine policy**: `/etc/hyprdesk/policy.toml` (root-owned) can forbid
+  fingerprint unlock, third-party plugins, removable-media indexing and
+  clipboard history, and enforce a maximum idle-lock delay.
+
+### Added
+
+- Lua API: `hd.runtime_dir`, `hd.write_private(path, data)`.
+- `SECURITY.md`: response times, release verification, trust model.
+
 ## [0.1.4] - 2026-11-16
 
 ### Added
