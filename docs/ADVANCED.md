@@ -229,12 +229,31 @@ unlock it:
   already resolved from `$XDG_RUNTIME_DIR/hyprdesk/lock.json`, and falls back
   to safe defaults if the file is missing;
 - it checks the password through PAM (a small hand-written binding) on a
-  separate thread. The buffer is wiped afterwards, the password is never
+  separate thread: `pam_authenticate`, then the account phase
+  (`pam_acct_mgmt`: expired, disabled or `pam_access`-denied accounts do not
+  unlock). The PAM service is `hyprdesk-lock` (shipped by the packages:
+  system auth stack plus account phase), else `hyprlock`, else `login`.
+  After three failures, input is blocked for a growing delay (2 s, 4 s, 8 s…
+  up to 30 s). The buffer is wiped with `zeroize`, the password is never
   logged, and pasting is disabled;
-- it reads the fingerprint through fprintd over D-Bus, in parallel with the
-  password (`lock_fingerprint`). No PAM stack changes are needed;
-- only one instance runs, and nothing can unlock it from outside. The content
-  drifts slowly and fades out to avoid burn-in.
+- fingerprint (`lock_fingerprint`, **off by default**) replaces the password
+  when enabled: a recognised finger unlocks on its own. If the administrator
+  provides `/etc/pam.d/hyprdesk-fingerprint` (with `pam_fprintd`), the
+  fingerprint goes through that PAM service; otherwise fprintd is read over
+  D-Bus and the account phase of the lock service still decides. Every
+  fingerprint unlock is logged (authpriv);
+- only one instance runs, and nothing can unlock it from outside. If the
+  instance lock file cannot be taken, it locks anyway and exits with an
+  error. It never falls back to `/tmp`: `$XDG_RUNTIME_DIR` (or
+  `/run/user/<uid>`) must exist, belong to the user and be mode 0700. The
+  content drifts slowly and fades out to avoid burn-in.
+
+**Workstation policy.** `/etc/hyprdesk/policy.toml` (owned by root, not
+writable by others, otherwise ignored) overrides user settings:
+`fingerprint = false` forbids the fingerprint; `idle_lock_max = 600` forces
+idle management and locks after at most that many seconds ("never" refused).
+Idle locking is on by default (5 min); an hypridle started outside hyprdesk
+keeps control unless the policy imposes it.
 
 **`hyprdesk greeter`** is a login screen for
 [greetd](https://sr.ht/~kennylevinsen/greetd/). It speaks greetd's IPC

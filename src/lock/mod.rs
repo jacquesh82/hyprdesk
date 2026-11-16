@@ -4,9 +4,14 @@
 //! - protocole ext-session-lock-v1 (iced_sessionlock) : c'est Hyprland qui
 //!   garantit le verrou ; si ce processus s'arrête, la session reste verrouillée ;
 //! - processus distinct du démon, sans Lua (état lu dans `state::path()`) ;
-//! - mot de passe vérifié par PAM sur un fil à part, effacé après usage ;
-//!   pas de presse-papiers (pas de collage) ;
-//! - une seule instance (verrou de fichier), rien ne déverrouille de l'extérieur.
+//! - mot de passe vérifié par PAM sur un fil à part (authentification puis
+//!   phase account), effacé après usage (`zeroize`) ; pas de presse-papiers ;
+//! - délai croissant après trois échecs (2 s, 4 s… 30 s), saisie bloquée ;
+//! - empreinte désactivée par défaut et soumise à la politique du poste ;
+//!   acceptée, elle remplace le mot de passe (voir `pam`) ;
+//! - une seule instance (verrou de fichier), rien ne déverrouille de
+//!   l'extérieur ; un verrou de fichier impossible à prendre n'empêche pas
+//!   de verrouiller.
 //!
 //! Anti-marquage : le contenu dérive lentement, et s'estompe après un moment
 //! sans saisie (l'extinction de l'écran reste l'affaire de hypridle).
@@ -26,9 +31,16 @@ use iced::{Alignment, Border, Color, Element, Font, Length, Padding, Subscriptio
 use iced_sessionlock::to_session_message;
 
 use state::LockState;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Délai sans saisie avant d'estomper le contenu.
 const IDLE_DIM: Duration = Duration::from_secs(20);
+
+/// Attente imposée après `failures` échecs : rien jusqu'à deux, puis 2 s,
+/// 4 s, 8 s, 16 s, et 30 s au plus.
+fn backoff(failures: u32) -> Option<Duration> {
+    (failures >= 3).then(|| Duration::from_secs((1u64 << (failures - 2).min(5)).min(30)))
+}
 
 #[to_session_message]
 #[derive(Debug, Clone)]
@@ -53,6 +65,9 @@ enum Msg {
     Activity,
     /// Issue de la vérification d'empreinte (fprintd).
     Finger(fprint::Finger),
+    /// Issue de PAM pour l'empreinte : service dédié, ou phase account
+    /// après une empreinte reconnue par fprintd.
+    FingerPam(pam::Outcome),
 }
 
 struct Lock {
@@ -61,9 +76,11 @@ struct Lock {
     title_font: Font,
     user: String,
     real_name: String,
-    password: String,
+    password: Zeroizing<String>,
     checking: bool,
     failures: u32,
+    /// Saisie bloquée jusqu'à cet instant (délai croissant après des échecs).
+    retry_at: Option<Instant>,
     error: Option<String>,
     messages: Vec<String>,
     started: Instant,
@@ -209,9 +226,10 @@ impl Lock {
             real_name: real_name(&user),
             font,
             title_font,
-            password: String::new(),
+            password: Zeroizing::new(String::new()),
             checking: false,
             failures: 0,
+            retry_at: None,
             error: None,
             messages: Vec::new(),
             started: now,
@@ -282,15 +300,32 @@ impl Lock {
                 Msg::Avatar,
             ));
         }
-        // Empreinte en parallèle du mot de passe (sans lecteur : rien ne s'affiche).
+        // Empreinte en parallèle du mot de passe, si elle est choisie et que
+        // la politique du poste l'autorise (sans lecteur : rien ne s'affiche).
+        // Service PAM dédié s'il est posé, sinon fprintd puis phase account.
         let mut lock = lock;
-        if lock.st.fingerprint {
+        if lock.st.fingerprint && crate::policy::get().fingerprint_allowed() {
             lock.finger = true;
             let u = lock.user.clone();
-            tasks.push(Task::perform(
-                async move { fprint::verify(&u).await },
-                Msg::Finger,
-            ));
+            if pam::fingerprint_service().is_some() {
+                tasks.push(Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || pam::fingerprint(&u))
+                            .await
+                            .unwrap_or_else(|_| pam::Outcome {
+                                ok: false,
+                                error: None,
+                                messages: Vec::new(),
+                            })
+                    },
+                    Msg::FingerPam,
+                ));
+            } else {
+                tasks.push(Task::perform(
+                    async move { fprint::verify(&u).await },
+                    Msg::Finger,
+                ));
+            }
         }
         tasks.push(Task::done(Msg::Tick));
         (lock, Task::batch(tasks))
@@ -318,11 +353,15 @@ impl Lock {
                 }
                 Task::batch(t)
             }
-            Msg::Input(s) => {
+            Msg::Input(mut s) => {
                 self.last_input = Instant::now();
-                if !self.checking {
-                    self.password = s;
+                if !self.checking && !self.blocked() {
+                    // L'ancienne valeur est effacée, pas seulement libérée.
+                    self.password.zeroize();
+                    *self.password = s;
                     self.error = None;
+                } else {
+                    s.zeroize();
                 }
                 Task::none()
             }
@@ -332,40 +371,62 @@ impl Lock {
             }
             Msg::Submit => {
                 self.last_input = Instant::now();
-                if self.checking || self.password.is_empty() {
+                if self.checking || self.password.is_empty() || self.blocked() {
                     return Task::none();
                 }
                 self.checking = true;
                 self.messages.clear();
-                let mut pw = std::mem::take(&mut self.password);
+                // Effacé à la fin de la vérification (Zeroizing).
+                let pw = Zeroizing::new(std::mem::take(&mut *self.password));
                 let user = self.user.clone();
                 Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || {
-                            let r = pam::authenticate(&user, &pw);
-                            pam::wipe(&mut pw);
-                            r
-                        })
-                        .await
-                        .unwrap_or_else(|_| pam::Outcome {
-                            ok: false,
-                            error: Some(crate::i18n::tr("vérification interrompue").into()),
-                            messages: Vec::new(),
-                        })
+                        tokio::task::spawn_blocking(move || pam::authenticate(&user, &pw))
+                            .await
+                            .unwrap_or_else(|_| pam::Outcome {
+                                ok: false,
+                                error: Some(crate::i18n::tr("vérification interrompue").into()),
+                                messages: Vec::new(),
+                            })
                     },
                     Msg::Auth,
                 )
             }
-            Msg::Finger(f) => {
-                self.finger = false;
-                match f {
-                    fprint::Finger::Matched => Task::done(Msg::UnLock),
-                    fprint::Finger::Unavailable => Task::none(),
-                    fprint::Finger::Failed(m) => {
-                        self.messages.push(m);
-                        Task::none()
-                    }
+            Msg::Finger(f) => match f {
+                // Empreinte reconnue : la phase account de PAM décide encore.
+                fprint::Finger::Matched => {
+                    let u = self.user.clone();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || pam::account(&u))
+                                .await
+                                .unwrap_or_else(|_| pam::Outcome {
+                                    ok: false,
+                                    error: None,
+                                    messages: Vec::new(),
+                                })
+                        },
+                        Msg::FingerPam,
+                    )
                 }
+                fprint::Finger::Unavailable => {
+                    self.finger = false;
+                    Task::none()
+                }
+                fprint::Finger::Failed(m) => {
+                    self.finger = false;
+                    self.messages.push(m);
+                    Task::none()
+                }
+            },
+            Msg::FingerPam(o) => {
+                self.finger = false;
+                if o.ok {
+                    return Task::done(Msg::UnLock);
+                }
+                self.messages.extend(o.messages);
+                self.messages.extend(o.error);
+                Task::none()
             }
             Msg::Auth(o) => {
                 self.checking = false;
@@ -373,6 +434,7 @@ impl Lock {
                     return Task::done(Msg::UnLock);
                 }
                 self.failures += 1;
+                self.retry_at = backoff(self.failures).map(|d| Instant::now() + d);
                 self.error = o.error;
                 self.messages = o.messages;
                 iced::widget::operation::focus(INPUT_ID)
@@ -441,6 +503,17 @@ impl Lock {
             }
             Msg::UnLock => Task::none(),
         }
+    }
+
+    /// Saisie bloquée par le délai qui suit des échecs.
+    fn blocked(&self) -> bool {
+        self.retry_at.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// Secondes restantes avant un nouvel essai, pendant le délai.
+    fn wait_secs(&self) -> Option<u64> {
+        let left = self.retry_at?.checked_duration_since(Instant::now())?;
+        Some(left.as_secs() + u64::from(left.subsec_nanos() > 0))
     }
 
     /// Écran d'une surface : d'après sa taille si elle le désigne, sinon
@@ -514,13 +587,16 @@ impl Lock {
             accent
         };
         let bg = rgba(st.background, 0.55);
+        let wait = self.wait_secs();
         let input = text_input(
             if self.checking {
                 crate::i18n::tr("Vérification…")
+            } else if wait.is_some() {
+                crate::i18n::tr("Patientez…")
             } else {
                 "Mot de passe"
             },
-            &self.password,
+            self.password.as_str(),
         )
         .id(INPUT_ID)
         .secure(true)
@@ -569,6 +645,14 @@ impl Lock {
                 .font(self.font)
                 .size(14)
                 .color(Color::from_rgb8(0xff, 0x95, 0x80)),
+            );
+        }
+        if let Some(n) = wait {
+            notes = notes.push(
+                text(crate::tr!("Nouvel essai possible dans {n} s", n = n))
+                    .font(self.font)
+                    .size(13)
+                    .color(fg),
             );
         }
         for m in &self.messages {
@@ -774,21 +858,50 @@ fn video_part(
     crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))
 }
 
+/// Issue de la prise du verrou d'instance.
+#[derive(Debug)]
+enum Instance {
+    /// Verrou pris : cette instance verrouille la session.
+    Held(std::fs::File),
+    /// Une autre instance le tient : la session est déjà verrouillée.
+    Already,
+    /// Verrou impossible à prendre (dossier, fichier) : à ne pas confondre
+    /// avec « déjà verrouillé ».
+    Failed(String),
+}
+
 /// Une seule instance : verrou exclusif sur un fichier de la session.
-fn single_instance() -> Option<std::fs::File> {
-    let p = state::path().with_file_name("lock.pid");
-    if let Some(dir) = p.parent() {
-        let _ = std::fs::create_dir_all(dir);
+fn single_instance() -> Instance {
+    match state::ensure_dir() {
+        Ok(p) => try_instance(&p.with_file_name("lock.pid")),
+        Err(e) => Instance::Failed(e),
     }
-    let f = std::fs::OpenOptions::new()
+}
+
+fn try_instance(p: &std::path::Path) -> Instance {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = match std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(&p)
-        .ok()?;
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(p)
+    {
+        Ok(f) => f,
+        Err(e) => return Instance::Failed(format!("{} : {e}", p.display())),
+    };
     // SAFETY : descripteur valide, gardé ouvert tant que le fichier vit.
     let r = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    (r == 0).then_some(f)
+    if r == 0 {
+        return Instance::Held(f);
+    }
+    let e = std::io::Error::last_os_error();
+    if e.raw_os_error() == Some(libc::EWOULDBLOCK) {
+        Instance::Already
+    } else {
+        Instance::Failed(format!("flock {} : {e}", p.display()))
+    }
 }
 
 /// Un `hyprdesk lock` tient son verrou : la session est verrouillée.
@@ -798,7 +911,10 @@ fn single_instance() -> Option<std::fs::File> {
 /// croirait déjà lancé et laisserait la session ouverte).
 pub fn running() -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(m) = std::fs::metadata(state::path().with_file_name("lock.pid")) else {
+    let Ok(p) = state::path() else {
+        return false;
+    };
+    let Ok(m) = std::fs::metadata(p.with_file_name("lock.pid")) else {
         return false;
     };
     let Ok(locks) = std::fs::read_to_string("/proc/locks") else {
@@ -820,9 +936,21 @@ fn holds_flock(locks: &str, major: u32, minor: u32, ino: u64) -> bool {
 
 /// Point d'entrée de `hyprdesk lock`.
 pub fn run() -> ExitCode {
-    let Some(_guard) = single_instance() else {
+    let _guard = match single_instance() {
+        Instance::Held(f) => Some(f),
         // Déjà verrouillé : rien à faire (hypridle peut appeler plusieurs fois).
-        return ExitCode::SUCCESS;
+        Instance::Already => return ExitCode::SUCCESS,
+        // Verrou d'instance impossible : verrouiller quand même (une session
+        // laissée ouverte serait pire qu'un second écran de verrouillage).
+        Instance::Failed(e) => {
+            let msg = crate::tr!(
+                "hyprdesk lock : verrou d'instance impossible ({e}), verrouillage quand même",
+                e = e
+            );
+            eprintln!("{msg}");
+            pam::journal(&msg);
+            None
+        }
     };
     // Pas de presse-papiers : rien à coller dans le champ du mot de passe.
     iced_sessionlock::disable_clipboard();
@@ -854,5 +982,36 @@ mod tests {
         assert!(!holds_flock(locks, 0, 0x20, 71843340), "POSIX, pas FLOCK");
         assert!(!holds_flock(locks, 0, 0x20, 777), "attente, pas détention");
         assert!(!holds_flock(locks, 0, 0x21, 149598));
+    }
+
+    #[test]
+    fn delai_croissant() {
+        assert_eq!(backoff(0), None);
+        assert_eq!(backoff(2), None);
+        let s = |n| backoff(n).unwrap().as_secs();
+        assert_eq!([s(3), s(4), s(5), s(6), s(7), s(20)], [2, 4, 8, 16, 30, 30]);
+    }
+
+    /// Verrou déjà tenu (succès, rien à faire) distinct d'un verrou
+    /// impossible à prendre (on verrouille quand même).
+    #[test]
+    fn verrou_tenu_ou_impossible() {
+        let dir = std::env::temp_dir().join(format!("hyprdesk-lockpid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("lock.pid");
+        let first = try_instance(&p);
+        assert!(matches!(first, Instance::Held(_)), "{first:?}");
+        assert!(matches!(try_instance(&p), Instance::Already));
+        drop(first);
+        assert!(matches!(try_instance(&p), Instance::Held(_)));
+        assert!(matches!(
+            try_instance(&dir.join("absent").join("lock.pid")),
+            Instance::Failed(_)
+        ));
+        // Un lien posé à la place du fichier n'est pas suivi.
+        let link = dir.join("lien.pid");
+        std::os::unix::fs::symlink(&p, &link).unwrap();
+        assert!(matches!(try_instance(&link), Instance::Failed(_)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

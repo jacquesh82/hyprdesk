@@ -7,6 +7,11 @@
 //! changent. Le verrouillage passe par logind (`loginctl lock-session`) vers
 //! `hyprdesk lock`, y compris avant une mise en veille. Réglage coupé : rien
 //! n'est lancé, un hypridle configuré à la main reste maître.
+//!
+//! Activé par défaut (verrouillage après 5 min). Un hypridle lancé hors de
+//! hyprdesk reste maître : celui de hyprdesk ne démarre pas à côté. La
+//! politique du poste (`policy::idle_lock_max`) impose la gestion et borne
+//! le délai de verrouillage (« jamais » compris).
 
 use std::path::PathBuf;
 
@@ -16,12 +21,28 @@ use crate::config::{ComponentDef, IdleCfg};
 pub const COMPONENT: &str = "hypridle";
 
 /// Fichier de configuration généré (dossier de l'instance Hyprland : il
-/// disparaît avec la session, il est réécrit à chaque démarrage).
-pub fn conf_path() -> PathBuf {
+/// disparaît avec la session, il est réécrit à chaque démarrage). Sans
+/// dossier d'instance : le dossier d'exécution vérifié, jamais `/tmp`.
+pub fn conf_path() -> Result<PathBuf, String> {
     hyprpanel_core::ipc::instance_dir()
-        .or_else(|_| hyprpanel_core::ipc::runtime_dir())
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join("hyprdesk-hypridle.conf")
+        .map_err(|e| e.to_string())
+        .or_else(|_| crate::policy::runtime_dir())
+        .map(|d| d.join("hyprdesk-hypridle.conf"))
+}
+
+/// Réglages effectifs : ceux de l'utilisateur, bornés par la politique du
+/// poste (gestion imposée, délai de verrouillage au plus `idle_lock_max`).
+pub fn effective(c: &IdleCfg) -> IdleCfg {
+    effective_with(c, crate::policy::get())
+}
+
+fn effective_with(c: &IdleCfg, p: &crate::policy::Policy) -> IdleCfg {
+    let mut e = c.clone();
+    if p.idle_lock_max.is_some() {
+        e.manage = true;
+        e.lock = p.clamp_idle_lock(c.lock);
+    }
+    e
 }
 
 fn dpms(action: &str) -> String {
@@ -66,13 +87,24 @@ pub fn conf(c: &IdleCfg, exe: &str) -> String {
     out
 }
 
-/// Composant hypridle à superviser, si hyprdesk gère la veille.
+/// Composant hypridle à superviser, si hyprdesk gère la veille. Un hypridle
+/// étranger déjà lancé garde la main (deux verrouilleraient deux fois), sauf
+/// si la politique du poste impose la gestion par hyprdesk.
 pub fn component(c: &IdleCfg) -> Option<ComponentDef> {
-    c.manage.then(|| ComponentDef {
+    let imposed = crate::policy::get().idle_lock_max.is_some();
+    let c = effective(c);
+    if !c.manage || (!imposed && foreign_hypridle().is_some()) {
+        return None;
+    }
+    component_at(&conf_path().map_err(|e| tracing::warn!("{e}")).ok()?)
+}
+
+fn component_at(path: &std::path::Path) -> Option<ComponentDef> {
+    Some(ComponentDef {
         name: COMPONENT.into(),
         exec: format!(
             "hypridle -c {}",
-            crate::launch::sh_quote(&conf_path().display().to_string())
+            crate::launch::sh_quote(&path.display().to_string())
         ),
         restart: true,
     })
@@ -82,13 +114,15 @@ pub fn component(c: &IdleCfg) -> Option<ComponentDef> {
 /// relancé par `session::sync` quand sa définition change ; un changement de
 /// délais seul change le fichier, d'où le `restart` explicite de l'appelant.
 pub fn write(c: &IdleCfg) -> std::io::Result<()> {
+    let c = effective(c);
     if !c.manage {
         return Ok(());
     }
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "hyprdesk".into());
-    std::fs::write(conf_path(), conf(c, &exe))
+    let path = conf_path().map_err(std::io::Error::other)?;
+    std::fs::write(path, conf(&c, &exe))
 }
 
 /// `foreign_hypridle`, relevé récent (l'écran Réglages se redessine souvent).
@@ -168,15 +202,48 @@ mod tests {
 
     #[test]
     fn composant_seulement_si_gere() {
-        assert!(component(&IdleCfg::default()).is_none());
-        let d = component(&IdleCfg {
-            manage: true,
+        let off = IdleCfg {
+            manage: false,
             ..Default::default()
-        })
+        };
+        assert!(component(&off).is_none() || crate::policy::get().idle_lock_max.is_some());
+        let d = component_at(std::path::Path::new(
+            "/run/user/1000/hyprdesk-hypridle.conf",
+        ))
         .unwrap();
         assert_eq!(d.name, COMPONENT);
         assert!(d.exec.starts_with("hypridle -c '"));
         assert!(d.restart);
+    }
+
+    /// Verrouillage actif par défaut ; la politique impose la gestion et
+    /// borne le délai, « jamais » compris.
+    #[test]
+    fn defaut_et_politique() {
+        let d = IdleCfg::default();
+        assert!(d.manage && d.lock == 300);
+        let p = crate::policy::Policy {
+            idle_lock_max: Some(600),
+            ..Default::default()
+        };
+        let off = IdleCfg {
+            manage: false,
+            lock: 0,
+            ..Default::default()
+        };
+        let e = effective_with(&off, &p);
+        assert!(e.manage);
+        assert_eq!(e.lock, 600);
+        let long = IdleCfg {
+            lock: 3600,
+            ..Default::default()
+        };
+        assert_eq!(effective_with(&long, &p).lock, 600);
+        assert_eq!(
+            effective_with(&off, &crate::policy::Policy::default()),
+            off,
+            "sans politique : réglages de l'utilisateur"
+        );
     }
 }
 

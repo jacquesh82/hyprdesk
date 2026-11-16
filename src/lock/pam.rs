@@ -1,13 +1,28 @@
 //! Vérification du mot de passe par PAM, liaison minimale écrite à la main
-//! (`pam_start`, `pam_authenticate`, `pam_setcred`, `pam_end`), comme le font
-//! hyprlock et swaylock.
+//! (`pam_start`, `pam_authenticate`, `pam_acct_mgmt`, `pam_setcred`,
+//! `pam_end`), comme le font hyprlock et swaylock.
+//!
+//! Service du verrou ([`service`]) : `/etc/pam.d/hyprdesk-lock` (livré par
+//! les paquets : pile d'authentification du système et phase account), sinon
+//! celui de hyprlock, sinon `login`. Après l'authentification, la phase
+//! account est toujours évaluée : un compte expiré, désactivé ou refusé par
+//! pam_access ne déverrouille pas.
+//!
+//! Empreinte ([`fingerprint_service`]) : si l'administrateur a posé
+//! `/etc/pam.d/hyprdesk-fingerprint` (pam_fprintd, au choix), l'empreinte
+//! passe entièrement par PAM ([`fingerprint`]) ; sinon fprintd est lu par
+//! D-Bus et la phase account du service du verrou ([`account`]) décide.
+//! Chaque déverrouillage par empreinte est journalisé (authpriv).
 //!
 //! Le mot de passe n'est jamais journalisé ; sa copie remise à PAM est
-//! allouée par `libc` (PAM la libère), et le tampon de l'appelant est effacé
-//! par [`wipe`]. Les messages de PAM (compte bloqué par faillock, lecteur
+//! allouée par `libc` (PAM la libère), la copie de la conversation et le
+//! tampon de l'appelant sont effacés par `zeroize`, que l'optimiseur ne
+//! supprime pas. Les messages de PAM (compte bloqué par faillock, lecteur
 //! d'empreinte…) sont rendus pour être affichés.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
+
+use zeroize::Zeroize;
 
 const PAM_SUCCESS: c_int = 0;
 const PAM_PROMPT_ECHO_OFF: c_int = 1;
@@ -16,6 +31,7 @@ const PAM_ERROR_MSG: c_int = 3;
 const PAM_TEXT_INFO: c_int = 4;
 const PAM_BUF_ERR: c_int = 5;
 const PAM_CONV_ERR: c_int = 19;
+const PAM_NEW_AUTHTOK_REQD: c_int = 12;
 const PAM_REFRESH_CRED: c_int = 0x0010;
 
 #[repr(C)]
@@ -45,6 +61,7 @@ unsafe extern "C" {
         handle: *mut *mut c_void,
     ) -> c_int;
     fn pam_authenticate(handle: *mut c_void, flags: c_int) -> c_int;
+    fn pam_acct_mgmt(handle: *mut c_void, flags: c_int) -> c_int;
     fn pam_setcred(handle: *mut c_void, flags: c_int) -> c_int;
     fn pam_end(handle: *mut c_void, status: c_int) -> c_int;
     fn pam_strerror(handle: *mut c_void, errnum: c_int) -> *const c_char;
@@ -145,8 +162,91 @@ pub fn current_user() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
+/// Service PAM dédié à l'empreinte, si l'administrateur l'a posé.
+pub fn fingerprint_service() -> Option<&'static str> {
+    std::path::Path::new("/etc/pam.d/hyprdesk-fingerprint")
+        .is_file()
+        .then_some("hyprdesk-fingerprint")
+}
+
+/// Ce que la tentative demande à PAM.
+#[derive(Clone, Copy, PartialEq)]
+enum Steps {
+    /// Authentification puis phase account.
+    Authenticate,
+    /// Phase account seule (empreinte déjà vérifiée par fprintd).
+    AccountOnly,
+}
+
 /// Vérifie le mot de passe de `user` (bloquant : à lancer hors du fil de l'interface).
 pub fn authenticate(user: &str, password: &str) -> Outcome {
+    converse_with(service(), user, password, Steps::Authenticate)
+}
+
+/// Empreinte par le service PAM dédié (pam_fprintd attend le doigt :
+/// bloquant). Journalisé en cas de succès.
+pub fn fingerprint(user: &str) -> Outcome {
+    let Some(svc) = fingerprint_service() else {
+        return Outcome {
+            ok: false,
+            error: None,
+            messages: Vec::new(),
+        };
+    };
+    let o = converse_with(svc, user, "", Steps::Authenticate);
+    if o.ok {
+        journal(&format!(
+            "session de {user} déverrouillée par empreinte (PAM, service {svc})"
+        ));
+    }
+    o
+}
+
+/// Empreinte reconnue par fprintd (D-Bus) : la phase account du service du
+/// verrou décide encore (compte expiré, désactivé…). Journalisé.
+pub fn account(user: &str) -> Outcome {
+    let o = converse_with(service(), user, "", Steps::AccountOnly);
+    journal(&if o.ok {
+        format!(
+            "session de {user} déverrouillée par empreinte (fprintd, account {})",
+            service()
+        )
+    } else {
+        format!("empreinte de {user} reconnue, compte refusé par PAM")
+    });
+    o
+}
+
+/// Message de refus de la phase account.
+fn account_error(r: c_int, strerror: Option<String>) -> String {
+    if r == PAM_NEW_AUTHTOK_REQD {
+        crate::i18n::tr(
+            "Mot de passe expiré : changez-le (passwd, sur une console Ctrl+Alt+F3), puis déverrouillez.",
+        )
+        .to_string()
+    } else {
+        crate::tr!(
+            "Compte refusé : {e}",
+            e = strerror.unwrap_or_else(|| crate::tr!("échec (code {r})", r = r))
+        )
+    }
+}
+
+/// Journal d'authentification du système (authpriv) : déverrouillages par
+/// empreinte, qui ne laissent sinon pas toujours de trace PAM.
+pub fn journal(msg: &str) {
+    let Ok(m) = CString::new(msg.replace('\0', "")) else {
+        return;
+    };
+    // SAFETY : chaînes C valides le temps de l'appel ; format fixe « %s ».
+    unsafe {
+        libc::openlog(c"hyprdesk-lock".as_ptr(), libc::LOG_PID, libc::LOG_AUTHPRIV);
+        libc::syslog(libc::LOG_NOTICE, c"%s".as_ptr(), m.as_ptr());
+        libc::closelog();
+    }
+}
+
+fn converse_with(svc: &str, user: &str, password: &str, steps: Steps) -> Outcome {
     let fail = |e: &str| Outcome {
         ok: false,
         error: Some(e.to_string()),
@@ -155,7 +255,7 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
     let (Ok(cuser), Ok(cpass), Ok(svc)) = (
         CString::new(user),
         CString::new(password),
-        CString::new(service()),
+        CString::new(svc),
     ) else {
         return fail(crate::i18n::tr("caractère nul dans la saisie"));
     };
@@ -176,19 +276,28 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
         if r != PAM_SUCCESS || handle.is_null() {
             (false, Some(format!("PAM indisponible (code {r})")))
         } else {
-            let r = pam_authenticate(handle, 0);
-            let res = if r == PAM_SUCCESS {
-                // Rafraîchir les jetons (Kerberos…), sans effet sur l'issue.
-                let _ = pam_setcred(handle, PAM_REFRESH_CRED);
-                (true, None)
-            } else {
+            let strerror = |r: c_int| {
                 let e = pam_strerror(handle, r);
-                let msg = if e.is_null() {
-                    crate::tr!("échec (code {r})", r = r)
-                } else {
-                    CStr::from_ptr(e).to_string_lossy().into_owned()
-                };
+                (!e.is_null()).then(|| CStr::from_ptr(e).to_string_lossy().into_owned())
+            };
+            let mut r = if steps == Steps::Authenticate {
+                pam_authenticate(handle, 0)
+            } else {
+                PAM_SUCCESS
+            };
+            let res = if r != PAM_SUCCESS {
+                let msg = strerror(r).unwrap_or_else(|| crate::tr!("échec (code {r})", r = r));
                 (false, Some(msg))
+            } else {
+                // Phase account : compte expiré, désactivé, pam_access…
+                r = pam_acct_mgmt(handle, 0);
+                if r == PAM_SUCCESS {
+                    // Rafraîchir les jetons (Kerberos…), sans effet sur l'issue.
+                    let _ = pam_setcred(handle, PAM_REFRESH_CRED);
+                    (true, None)
+                } else {
+                    (false, Some(account_error(r, strerror(r))))
+                }
             };
             pam_end(handle, r);
             res
@@ -196,7 +305,7 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
     };
     // Effacer la copie du mot de passe gardée pour la conversation.
     let mut bytes = std::mem::take(&mut conv.password).into_bytes_with_nul();
-    bytes.iter_mut().for_each(|b| *b = 0);
+    bytes.zeroize();
     Outcome {
         ok,
         error,
@@ -204,13 +313,10 @@ pub fn authenticate(user: &str, password: &str) -> Outcome {
     }
 }
 
-/// Efface un mot de passe en mémoire avant de le rendre.
+/// Efface un mot de passe en mémoire avant de le rendre (écritures que
+/// l'optimiseur ne supprime pas).
 pub fn wipe(s: &mut String) {
-    // SAFETY : on n'écrit que des zéros, qui restent de l'UTF-8 valide.
-    unsafe {
-        s.as_bytes_mut().iter_mut().for_each(|b| *b = 0);
-    }
-    s.clear();
+    s.zeroize();
 }
 
 #[cfg(test)]
@@ -288,5 +394,14 @@ mod tests {
         wipe(&mut s);
         assert!(s.is_empty());
         assert!(!current_user().is_empty());
+    }
+
+    #[test]
+    fn refus_de_la_phase_account() {
+        assert!(account_error(PAM_NEW_AUTHTOK_REQD, None).contains("expiré"));
+        assert!(
+            account_error(13, Some("User account has expired".into()))
+                .contains("User account has expired")
+        );
     }
 }

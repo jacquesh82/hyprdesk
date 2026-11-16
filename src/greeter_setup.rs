@@ -3,11 +3,14 @@
 //! (GDM, SDDM, LightDM…).
 //!
 //! Lecture sans droits (`status`) pour Réglages → Écran de connexion ; les
-//! gestes système passent par `pkexec hyprdesk greeter setup <action>`,
-//! exécuté en root :
+//! gestes système passent par `pkexec <hyprdesk de root> greeter setup
+//! <action>`, exécuté en root. Seul un hyprdesk installé en root est lancé
+//! ainsi (`/usr/bin/hyprdesk` du paquet, sinon `/usr/local/bin/hyprdesk` posé
+//! en root par `scripts/install.sh --from-source`) : jamais celui de
+//! `~/.local/bin`, que l'utilisateur peut remplacer (MLG-152).
 //!
 //! - `packages` : installe greetd et cage (pacman, apt, dnf, zypper) ;
-//! - `install <profil.json>` : copie hyprdesk dans `/usr/local/bin`
+//! - `install <profil.json>` : fait lancer ce hyprdesk de root par greetd
 //!   (l'utilisateur `greeter` ne lit pas `~/.local/bin`), installe le profil
 //!   de l'écran (`/etc/greetd/hyprdesk.json` : disposition du clavier,
 //!   couleurs, empreinte), écrit `/etc/greetd/config.toml` (l'ancien, d'un
@@ -18,7 +21,11 @@
 //!   prochain démarrage : la session ouverte n'est pas coupée) ; refusé tant
 //!   qu'il manque une pièce, pour ne jamais laisser la machine sans écran
 //!   de connexion ;
-//! - `restore` : revient au gestionnaire d'avant (noté par `enable`).
+//! - `restore` : revient au gestionnaire d'avant (noté par `enable`), activé
+//!   avant que greetd soit coupé, et seulement s'il est installé.
+//!
+//! Les fichiers de `/etc` sont réécrits d'un coup (temporaire, fsync,
+//! renommage) : une coupure ne laisse jamais un PAM ou un config.toml tronqué.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,7 +47,7 @@ pub const HYPRLAND_CONFIG: &str = "/etc/greetd/hyprdesk-hyprland.lua";
 /// Dossier d'état du greeter (à l'utilisateur `greeter`) : dernier
 /// utilisateur et dernière session.
 pub const STATE_DIR: &str = "/var/lib/hyprdesk-greeter";
-/// Copie de hyprdesk lisible par l'utilisateur `greeter`.
+/// hyprdesk posé en root par `scripts/install.sh --from-source` (sans paquet).
 pub const SYSTEM_BIN: &str = "/usr/local/bin/hyprdesk";
 /// Binaire installé par le paquet (nfpm), lisible par tous.
 const PACKAGED_BIN: &str = "/usr/bin/hyprdesk";
@@ -591,10 +598,8 @@ fn has_program(name: &str) -> bool {
 pub fn status() -> Status {
     let dm = unit_of_link(Path::new(DM_LINK));
     let exe = current_exe();
-    let binary = [PACKAGED_BIN, SYSTEM_BIN]
-        .into_iter()
-        .find(|p| Path::new(p).is_file())
-        .map(str::to_string);
+    // Seul un hyprdesk installé en root compte (voir `root_bin`).
+    let binary = root_bin().ok().map(str::to_string);
     let binary_stale = binary.as_deref() == Some(SYSTEM_BIN)
         && exe
             .as_deref()
@@ -631,39 +636,70 @@ pub fn status() -> Status {
     }
 }
 
+/// Binaire sûr pour root : appartient à root, n'est modifiable ni par le
+/// groupe ni par les autres, dans un dossier qui ne l'est pas non plus (on
+/// ne lance jamais en root un fichier que l'utilisateur peut remplacer).
+fn root_owned(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let safe = |m: &std::fs::Metadata| m.uid() == 0 && m.mode() & 0o022 == 0;
+    let Ok(m) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    m.is_file()
+        && safe(&m)
+        && path
+            .parent()
+            .and_then(|d| std::fs::metadata(d).ok())
+            .is_some_and(|d| safe(&d))
+}
+
+/// hyprdesk à lancer en root : celui du paquet, sinon celui posé en root par
+/// `scripts/install.sh --from-source` ; jamais celui de l'utilisateur.
+fn pick_root_bin(trusted: impl Fn(&Path) -> bool) -> Result<&'static str, String> {
+    [PACKAGED_BIN, SYSTEM_BIN]
+        .into_iter()
+        .find(|p| trusted(Path::new(p)))
+        .ok_or_else(|| {
+            crate::tr!(
+                "Aucun hyprdesk installé en root ({a} ou {b}) : installez le paquet hyprdesk ou lancez scripts/install.sh --from-source. Le hyprdesk de l'utilisateur n'est jamais lancé en root.",
+                a = PACKAGED_BIN,
+                b = SYSTEM_BIN
+            )
+        })
+}
+
+/// hyprdesk à lancer en root (pkexec, écran de connexion).
+pub fn root_bin() -> Result<&'static str, String> {
+    pick_root_bin(root_owned)
+}
+
 /// Arguments de `pkexec` pour une action (`hyprdesk greeter setup <action>`).
-pub fn pkexec_argv(action: &str, extra: &[String]) -> Vec<String> {
-    let exe = current_exe()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "hyprdesk".into());
+pub fn pkexec_argv(action: &str, extra: &[String]) -> Result<Vec<String>, String> {
     let mut v = vec![
         "pkexec".into(),
-        exe,
+        root_bin()?.into(),
         "greeter".into(),
         "setup".into(),
         action.into(),
     ];
     v.extend(extra.iter().cloned());
-    v
+    Ok(v)
 }
 
 /// Profil à installer, écrit pour root dans le dossier d'exécution de
-/// l'utilisateur ; renvoie son chemin.
+/// l'utilisateur (vérifié, jamais `/tmp`) ; renvoie son chemin.
 pub fn stage_profile(p: &Profile) -> Result<String, String> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("hyprdesk");
+    let dir = crate::policy::runtime_dir()?.join("hyprdesk");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("greeter-profile.json");
     let body = serde_json::to_string_pretty(p).map_err(|e| e.to_string())?;
-    std::fs::write(&path, body).map_err(|e| e.to_string())?;
+    crate::policy::write_private(&path, body.as_bytes()).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
 /// Lance l'action par pkexec (bloquant) ; `Err` : sortie d'erreur.
 pub fn run_privileged(action: &str, extra: &[String]) -> Result<(), String> {
-    let argv = pkexec_argv(action, extra);
+    let argv = pkexec_argv(action, extra)?;
     let out = Command::new(&argv[0])
         .args(&argv[1..])
         .output()
@@ -858,28 +894,14 @@ fn install_backdrop(src: &str, dest: &str) -> Result<(), String> {
     }
 }
 
-/// Copie hyprdesk dans /usr/local/bin (sauf binaire du paquet), installe le
-/// profil, écrit la configuration de greetd et ses lignes PAM, prépare le
-/// dossier d'état du greeter.
+/// Fait lancer par greetd le hyprdesk installé en root (paquet, sinon
+/// /usr/local/bin posé par les scripts : jamais une copie du binaire de
+/// l'utilisateur), installe le profil, écrit la configuration de greetd et
+/// ses lignes PAM, prépare le dossier d'état du greeter.
 fn install(profile: Option<&str>) -> Result<(), String> {
     let io = |e: std::io::Error| e.to_string();
     let mut p = read_profile(profile)?;
-    let bin = if Path::new(PACKAGED_BIN).is_file() {
-        PACKAGED_BIN
-    } else {
-        let exe =
-            current_exe().ok_or_else(|| crate::i18n::tr("hyprdesk introuvable.").to_string())?;
-        if exe != Path::new(SYSTEM_BIN) {
-            std::fs::create_dir_all("/usr/local/bin").map_err(io)?;
-            // Copie à côté puis renommage : un greeter lancé n'est pas coupé.
-            let tmp = format!("{SYSTEM_BIN}.nouveau");
-            std::fs::copy(&exe, &tmp).map_err(io)?;
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).map_err(io)?;
-            std::fs::rename(&tmp, SYSTEM_BIN).map_err(io)?;
-        }
-        SYSTEM_BIN
-    };
+    let bin = root_bin()?;
     std::fs::create_dir_all("/etc/greetd").map_err(io)?;
     for (src, vertical, field) in [
         (p.wallpaper_source.clone(), false, &mut p.wallpaper),
@@ -915,11 +937,13 @@ fn install(profile: Option<&str>) -> Result<(), String> {
             .to_string()
     })?;
     if matches!(comp, Compositor::Hyprland(_)) {
-        std::fs::write(HYPRLAND_CONFIG, hyprland_lua(bin, &p)).map_err(io)?;
+        write_atomic(Path::new(HYPRLAND_CONFIG), hyprland_lua(bin, &p).as_bytes()).map_err(io)?;
     }
-    std::fs::write(
-        PROFILE,
-        serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?,
+    write_atomic(
+        Path::new(PROFILE),
+        serde_json::to_string_pretty(&p)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
     )
     .map_err(io)?;
     let old = std::fs::read_to_string(CONFIG).unwrap_or_default();
@@ -928,7 +952,7 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         std::fs::write(&bak, &old).map_err(io)?;
     }
     let vt = parse_config(&old).1.unwrap_or(1);
-    std::fs::write(CONFIG, config_toml(bin, vt, &p, comp)).map_err(io)?;
+    write_atomic(Path::new(CONFIG), config_toml(bin, vt, &p, comp).as_bytes()).map_err(io)?;
     // PAM : seulement si le paquet greetd a posé son fichier (sinon greetd
     // n'est pas installé, et un fichier inventé ici serait faux).
     if let Ok(src) = std::fs::read_to_string(PAM) {
@@ -939,7 +963,7 @@ fn install(profile: Option<&str>) -> Result<(), String> {
             keyring_module() && p.gnome_keyring,
         );
         if new != src {
-            std::fs::write(PAM, new).map_err(io)?;
+            write_atomic(Path::new(PAM), new.as_bytes()).map_err(io)?;
         }
     }
     // Dossier d'état, à l'utilisateur greeter seul.
@@ -969,15 +993,92 @@ fn enable() -> Result<(), String> {
     run(&["systemctl", "enable", "greetd.service"])
 }
 
-/// Revient au gestionnaire d'avant (GDM à défaut).
-fn restore() -> Result<(), String> {
-    let prev = std::fs::read_to_string(PREVIOUS)
-        .ok()
+/// Écrit `data` dans `path` sans fenêtre où le fichier serait vide ou
+/// tronqué : fichier temporaire du même dossier (mode et propriétaire de
+/// l'ancien, 0644 root sinon), fsync, puis renommage.
+fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    let old = std::fs::metadata(path).ok();
+    let mode = old.as_ref().map_or(0o644, |m| m.mode() & 0o7777);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.hyprdesk-{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&tmp)?;
+    let res = (|| {
+        f.write_all(data)?;
+        if let Some(m) = &old {
+            // Propriétaire d'origine (root en pratique) ; sans droit, on garde le nôtre.
+            let _ = std::os::unix::fs::fchown(&f, Some(m.uid()), Some(m.gid()));
+        }
+        f.set_permissions(std::fs::Permissions::from_mode(mode))?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        // Le renommage lui-même, sur disque.
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+        }
+        Ok(())
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
+}
+
+/// Unité systemd connue (`systemctl cat`) : on ne bascule pas vers une unité
+/// absente.
+fn unit_exists(unit: &str) -> bool {
+    Command::new("systemctl")
+        .args(["cat", "--", unit])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Gestionnaire à rétablir : celui retenu à la bascule, sinon le premier
+/// installé des courants ; aucun : `None` (rien n'est changé).
+fn previous_dm(saved: Option<String>, exists: impl Fn(&str) -> bool) -> Option<String> {
+    saved
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && s != "greetd.service")
-        .unwrap_or_else(|| "gdm.service".into());
+        .into_iter()
+        .chain(
+            [
+                "gdm.service",
+                "sddm.service",
+                "lightdm.service",
+                "ly.service",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .find(|u| exists(u))
+}
+
+/// Revient au gestionnaire d'avant : il est activé d'abord, greetd n'est
+/// coupé qu'ensuite ; sans gestionnaire installé, rien ne change (le poste
+/// ne doit jamais rester sans écran de connexion).
+fn restore() -> Result<(), String> {
+    let prev = previous_dm(std::fs::read_to_string(PREVIOUS).ok(), unit_exists).ok_or_else(|| {
+        crate::i18n::tr(
+            "Aucun autre gestionnaire de connexion installé (GDM, SDDM, LightDM, ly) : greetd reste en place.",
+        )
+        .to_string()
+    })?;
+    run(&["systemctl", "enable", "--force", &prev])?;
     let _ = run(&["systemctl", "disable", "greetd.service"]);
-    run(&["systemctl", "enable", &prev])
+    // Le lien display-manager.service vise maintenant `prev` (enable --force).
+    Ok(())
 }
 
 /// Profil de l'écran de connexion d'après la session, comme Réglages →
@@ -1063,6 +1164,75 @@ pub fn cli(action: Option<&str>, arg: Option<&str>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// En root, seul un hyprdesk installé en root est lancé, paquet d'abord ;
+    /// le binaire de l'utilisateur jamais.
+    #[test]
+    fn binaire_lance_en_root() {
+        assert_eq!(pick_root_bin(|_| true), Ok(PACKAGED_BIN));
+        assert_eq!(
+            pick_root_bin(|p| p == Path::new(SYSTEM_BIN)),
+            Ok(SYSTEM_BIN)
+        );
+        let e = pick_root_bin(|_| false).unwrap_err();
+        assert!(e.contains("install.sh --from-source"), "{e}");
+        // Un fichier de l'utilisateur (le test ne tourne pas en root) n'est
+        // pas sûr pour root.
+        let f = std::env::temp_dir().join(format!("hyprdesk-rootbin-{}", std::process::id()));
+        std::fs::write(&f, b"#!/bin/sh\n").unwrap();
+        if unsafe { libc::getuid() } != 0 {
+            assert!(!root_owned(&f));
+        }
+        let _ = std::fs::remove_file(&f);
+        assert!(!root_owned(Path::new("/nexiste/pas/hyprdesk")));
+    }
+
+    /// Restauration : l'unité retenue si elle existe, sinon un gestionnaire
+    /// installé ; aucun : rien.
+    #[test]
+    fn gestionnaire_a_retablir() {
+        let only = |names: &'static [&'static str]| move |u: &str| names.contains(&u);
+        assert_eq!(
+            previous_dm(Some("sddm.service\n".into()), only(&["sddm.service"])).as_deref(),
+            Some("sddm.service")
+        );
+        assert_eq!(
+            previous_dm(Some("sddm.service".into()), only(&["lightdm.service"])).as_deref(),
+            Some("lightdm.service"),
+            "unité retenue absente : une autre installée"
+        );
+        assert_eq!(
+            previous_dm(Some("greetd.service".into()), only(&["greetd.service"])),
+            None
+        );
+        assert_eq!(previous_dm(None, only(&[])), None, "rien : greetd reste");
+    }
+
+    /// Écriture atomique : contenu remplacé, mode d'origine gardé, pas de
+    /// fichier temporaire laissé.
+    #[test]
+    fn ecriture_atomique() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("hyprdesk-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("greetd");
+        std::fs::write(&p, b"ancien").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640)).unwrap();
+        write_atomic(&p, b"nouveau").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"nouveau");
+        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        write_atomic(&dir.join("neuf.toml"), b"x").unwrap();
+        let mode = std::fs::metadata(dir.join("neuf.toml"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o644);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     const ARCH_PAM: &str = "#%PAM-1.0\n\nauth       required     pam_securetty.so\nauth       requisite    pam_nologin.so\nauth       include      system-local-login\naccount    include      system-local-login\nsession    include      system-local-login\n";
 

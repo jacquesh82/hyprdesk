@@ -273,11 +273,11 @@ impl App {
                 match (&s.binary, s.binary_stale) {
                     (Some(b), false) => crate::tr!("lisible par greetd : {b}", b = b),
                     (Some(b), true) => crate::tr!(
-                        "{b} est plus ancien que le hyprdesk lancé : réécrire la configuration",
+                        "{b} est plus ancien que le hyprdesk lancé : relancez scripts/install.sh (il le réinstalle en root)",
                         b = b
                     ),
                     (None, _) => crate::i18n::tr(
-                        "absent de /usr : l'utilisateur greeter ne peut pas lire votre dossier",
+                        "pas de hyprdesk installé en root dans /usr : installez le paquet ou lancez scripts/install.sh --from-source",
                     )
                     .to_string(),
                 },
@@ -530,9 +530,10 @@ impl App {
         });
         col = col.push(small(
             crate::tr!(
-                "« Écrire » copie hyprdesk dans {b} et fait lancer « cage -s -- hyprdesk greeter » \
-                 par greetd. Un fichier d'un autre outil est gardé en config.toml.bak.",
-                b = greeter_setup::SYSTEM_BIN
+                "« Écrire » fait lancer « cage -s -- hyprdesk greeter » par greetd, avec le hyprdesk \
+                 installé en root ({b}) : jamais une copie du vôtre. Un fichier d'un autre outil est \
+                 gardé en config.toml.bak.",
+                b = s.binary.as_deref().unwrap_or(greeter_setup::SYSTEM_BIN)
             ),
             dim,
         ));

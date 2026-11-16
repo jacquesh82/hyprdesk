@@ -257,7 +257,8 @@ pub struct LockCfg {
     pub show_user: bool,
     pub show_battery: bool,
     pub show_media: bool,
-    /// Empreinte (fprintd) en plus du mot de passe, si un lecteur est là.
+    /// Empreinte (fprintd) acceptée à la place du mot de passe, si un lecteur
+    /// est là. Désactivée par défaut ; la politique du poste peut l'interdire.
     pub fingerprint: bool,
 }
 
@@ -270,7 +271,7 @@ impl Default for LockCfg {
             show_user: true,
             show_battery: true,
             show_media: true,
-            fingerprint: true,
+            fingerprint: false,
         }
     }
 }
@@ -299,7 +300,9 @@ pub struct IdleCfg {
 impl Default for IdleCfg {
     fn default() -> Self {
         IdleCfg {
-            manage: false,
+            // Verrouillage sur inactivité actif par défaut (5 min) ; un
+            // hypridle lancé hors de hyprdesk reste maître (`idle::component`).
+            manage: true,
             dim: 240,
             lock: 300,
             dpms: 360,

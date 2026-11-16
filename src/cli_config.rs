@@ -541,7 +541,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.lock.show_media),
         |s, v, c| { s.lock_show_media = Some(parse_bool(v)?); Ok(()) },
         |s| s.lock_show_media = None;
-    "lock_fingerprint", "lock", "on | off — empreinte (fprintd) en plus du mot de passe, si un lecteur est là",
+    "lock_fingerprint", "lock", "on | off — empreinte (fprintd) à la place du mot de passe, si un lecteur est là (désactivée par défaut)",
         |c| on_off(c.general.lock.fingerprint),
         |s, v, c| { s.lock_fingerprint = Some(parse_bool(v)?); Ok(()) },
         |s| s.lock_fingerprint = None;
