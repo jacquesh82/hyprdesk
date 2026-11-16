@@ -100,6 +100,11 @@ and this project adheres to
 
 ### Changed
 
+- **Readable `settings.lua`** (MLG-146): settings grouped in commented
+  sections (Desktop, Appearance, Shortcuts, Launcher, Hyprland, Performance,
+  Lock and idle, Applications and AI, File index, Session) and long tables
+  spread over several indented lines.
+
 - **Config consistency fixes** (MLG-140):
   - `binds.lua` agrees with what hyprdesk handles: combinations hyprdesk
     takes (unified launcher, media and capture keys, `keys.take`) are

@@ -1499,9 +1499,26 @@ impl Settings {
             cfg.push(format!("apps = {{ {} }}", f.join(", ")));
         }
         if !cfg.is_empty() {
+            // Présentation lisible (MLG-146) : réglages rangés en sections
+            // commentées, tables longues sur plusieurs lignes. Une clé simple
+            // reste sur sa ligne (lecture précoce, `i18n::setting_line`).
+            let mut lines: Vec<(usize, usize, String)> = cfg
+                .into_iter()
+                .enumerate()
+                .map(|(i, l)| (section_of(l.split(" =").next().unwrap_or("")), i, l))
+                .collect();
+            lines.sort_by_key(|(s, i, _)| (*s, *i));
             let _ = writeln!(o, "hd.config({{");
-            for line in cfg {
-                let _ = writeln!(o, "    {line},");
+            let mut current = usize::MAX;
+            for (s, _, line) in lines {
+                if s != current {
+                    if current != usize::MAX {
+                        let _ = writeln!(o);
+                    }
+                    let _ = writeln!(o, "    -- {}", crate::i18n::tr(SECTIONS[s]));
+                    current = s;
+                }
+                let _ = writeln!(o, "    {},", pretty_entry(&line, 4));
             }
             let _ = writeln!(o, "}})\n");
         }
@@ -2846,5 +2863,163 @@ mod tests {
             )
         );
         assert!(!b.move_entry((0, 5), (1, 0)));
+    }
+}
+
+/// Sections de `hd.config` dans settings.lua, dans l'ordre.
+const SECTIONS: &[&str] = &[
+    "Bureau",
+    "Apparence",
+    "Raccourcis",
+    "Lanceur",
+    "Hyprland",
+    "Performance",
+    "Verrouillage et veille",
+    "Applications et IA",
+    "Index de fichiers",
+    "Session",
+];
+
+/// Section d'une clé de `hd.config`.
+fn section_of(key: &str) -> usize {
+    let k = key.trim();
+    let starts = |p: &[&str]| p.iter().any(|x| k.starts_with(x));
+    if starts(&["launcher", "apps_", "smartui"]) {
+        3
+    } else if starts(&["lock_", "idle_"]) {
+        6
+    } else if starts(&["index_"]) {
+        8
+    } else {
+        match k {
+            "theme" | "background" | "font" | "font_size" | "icon_theme" | "app_themes"
+            | "screen_colors" | "language" => 1,
+            "keys" | "suspend_binds" => 2,
+            "fx" | "hypr" | "layout" | "layout_workspaces" | "dwindle" | "master" | "scrolling"
+            | "hyprbars" | "hyprbars_path" => 4,
+            "renderer" | "gpu" | "worker_threads" => 5,
+            "apps" | "autostart" | "assistant_mode" | "ai_services" | "ai_use" => 7,
+            "clipboard_history" | "advanced_settings" | "tour_seen" | "plugin_options"
+            | "update_commands" | "disabled_plugins" => 9,
+            _ => 0,
+        }
+    }
+}
+
+/// Largeur au-delà de laquelle une table passe sur plusieurs lignes.
+const WIDTH: usize = 96;
+
+/// `clé = valeur` avec la valeur présentée par `pretty`.
+fn pretty_entry(entry: &str, indent: usize) -> String {
+    match split_key(entry) {
+        Some((k, v)) if v.starts_with('{') => format!("{k} = {}", pretty(v, indent)),
+        _ => entry.to_string(),
+    }
+}
+
+/// Coupe `clé = valeur` au premier `=` de premier niveau (hors chaînes).
+fn split_key(entry: &str) -> Option<(&str, &str)> {
+    let mut quote: Option<char> = None;
+    let mut depth = 0i32;
+    let mut esc = false;
+    for (i, c) in entry.char_indices() {
+        if esc {
+            esc = false;
+            continue;
+        }
+        match (quote, c) {
+            (Some(_), '\\') => esc = true,
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '{' | '[' | '(') => depth += 1,
+            (None, '}' | ']' | ')') => depth -= 1,
+            (None, '=') if depth == 0 => {
+                return Some((entry[..i].trim_end(), entry[i + 1..].trim_start()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Table Lua sur une ligne si elle tient, sinon une entrée par ligne
+/// (récursivement), indentée à partir de `indent`.
+fn pretty(table: &str, indent: usize) -> String {
+    let t = table.trim();
+    if indent + t.len() <= WIDTH || !(t.starts_with('{') && t.ends_with('}')) {
+        return t.to_string();
+    }
+    let inner = &t[1..t.len() - 1];
+    let mut parts: Vec<String> = Vec::new();
+    let (mut quote, mut depth, mut esc, mut start) = (None::<char>, 0i32, false, 0usize);
+    for (i, c) in inner.char_indices() {
+        if esc {
+            esc = false;
+            continue;
+        }
+        match (quote, c) {
+            (Some(_), '\\') => esc = true,
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '{' | '[' | '(') => depth += 1,
+            (None, '}' | ']' | ')') => depth -= 1,
+            (None, ',') if depth == 0 => {
+                parts.push(inner[start..i].trim().to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = inner[start..].trim();
+    if !last.is_empty() {
+        parts.push(last.to_string());
+    }
+    if parts.is_empty() {
+        return "{}".into();
+    }
+    let pad = " ".repeat(indent + 4);
+    let mut out = String::from("{\n");
+    for p in parts {
+        let shown = match split_key(&p) {
+            Some((k, v)) if v.starts_with('{') => format!("{k} = {}", pretty(v, indent + 4)),
+            _ if p.starts_with('{') => pretty(&p, indent + 4),
+            _ => p,
+        };
+        out.push_str(&format!("{pad}{shown},\n"));
+    }
+    out.push_str(&" ".repeat(indent));
+    out.push('}');
+    out
+}
+
+#[cfg(test)]
+mod pretty_tests {
+    use super::*;
+
+    #[test]
+    fn tables_longues_sur_plusieurs_lignes() {
+        let fx = "fx = { [\"animations.enabled\"] = false, [\"debug.vfr\"] = true, animations = { windows = { enabled = true, speed = 3.5, curve = \"default\", style = \"popin\" } }, note = \"a, b = { c }\" }";
+        let out = pretty_entry(fx, 4);
+        assert!(out.starts_with("fx = {\n"));
+        assert!(out.contains("        [\"debug.vfr\"] = true,\n"));
+        assert!(
+            out.contains("note = \"a, b = { c }\","),
+            "chaîne intacte : {out}"
+        );
+        // Reste du Lua valide, de même contenu.
+        let lua = mlua::Lua::new();
+        let a: mlua::Table = lua.load(format!("return {{ {fx} }}")).eval().unwrap();
+        let b: mlua::Table = lua.load(format!("return {{ {out} }}")).eval().unwrap();
+        let fa: mlua::Table = a.get("fx").unwrap();
+        let fb: mlua::Table = b.get("fx").unwrap();
+        assert_eq!(
+            fa.get::<bool>("debug.vfr").unwrap(),
+            fb.get::<bool>("debug.vfr").unwrap()
+        );
+        assert_eq!(pretty_entry("mode = \"opaque\"", 4), "mode = \"opaque\"");
+        assert_eq!(section_of("renderer"), 5);
+        assert_eq!(section_of("launcher_size"), 3);
     }
 }
