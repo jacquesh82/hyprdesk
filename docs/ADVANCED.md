@@ -201,7 +201,7 @@ already holds it, so your existing setup stays in charge.
 | Wallpaper | native (replaces hyprpaper) | — |
 | Notifications | native `org.freedesktop.Notifications` 1.2 daemon (bubbles, history, Do Not Disturb) | name taken with `DoNotQueue`: mako, dunst, swaync… keep it |
 | Tray | native StatusNotifierItem host, `dbusmenu` menus rendered natively | — |
-| polkit agent | native, speaks to `polkit-agent-helper-1` | the existing agent stays |
+| polkit agent | native, speaks to `polkit-agent-helper-1`, in its own process without Lua (`hyprdesk polkit-ui`, supervised by the daemon) | the existing agent stays |
 | Lock screen | native (`ext-session-lock-v1`, PAM, optional fprintd) | — |
 | Idle | orchestrates **hypridle** (`idle_manage`): hyprdesk writes its config and supervises it | a hand-configured hypridle stays in charge |
 | Clipboard history | orchestrates **cliphist** (`wl-paste --watch cliphist store`) | an existing watcher is left alone |

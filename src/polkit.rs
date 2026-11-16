@@ -436,11 +436,57 @@ impl AgentState {
 
 static STATE: Mutex<AgentState> = Mutex::new(AgentState::Starting);
 
+/// Fichier d'état partagé : l'agent (`hyprdesk polkit-ui`) l'écrit, le démon
+/// le lit (`hyprdesk status`, conflits). Une ligne : `<pid> <état> <texte>`.
+fn state_file() -> std::path::PathBuf {
+    crate::policy::private_runtime_or_unusable().join("hyprdesk-polkit.state")
+}
+
+fn encode(pid: u32, s: &AgentState) -> String {
+    let (k, v) = match s {
+        AgentState::Starting => ("starting", String::new()),
+        AgentState::Active(x) => ("active", x.clone()),
+        AgentState::Busy(x) => ("busy", x.clone().unwrap_or_default()),
+        AgentState::Error(x) => ("error", x.replace('\n', " ")),
+    };
+    format!("{pid} {k} {v}")
+}
+
+fn decode(line: &str) -> Option<(u32, AgentState)> {
+    let mut it = line.trim_end().splitn(3, ' ');
+    let pid = it.next()?.parse().ok()?;
+    let k = it.next()?;
+    let v = it.next().unwrap_or_default().to_string();
+    Some((
+        pid,
+        match k {
+            "active" => AgentState::Active(v),
+            "busy" => AgentState::Busy((!v.is_empty()).then_some(v)),
+            "error" => AgentState::Error(v),
+            _ => AgentState::Starting,
+        },
+    ))
+}
+
+/// État de l'agent : celui de ce processus s'il est l'agent, sinon celui
+/// publié par le processus de l'agent (s'il tourne encore).
 pub fn state() -> AgentState {
-    STATE.lock().map(|s| s.clone()).unwrap_or_default()
+    let local = STATE.lock().map(|s| s.clone()).unwrap_or_default();
+    if local != AgentState::Starting {
+        return local;
+    }
+    std::fs::read_to_string(state_file())
+        .ok()
+        .and_then(|l| decode(&l))
+        .filter(|(pid, _)| std::path::Path::new(&format!("/proc/{pid}")).exists())
+        .map(|(_, s)| s)
+        .unwrap_or_default()
 }
 
 pub fn set_state(s: AgentState) {
+    // Les tests n'écrivent pas l'état de l'agent réel de la session.
+    #[cfg(not(test))]
+    let _ = crate::policy::write_private(&state_file(), encode(std::process::id(), &s).as_bytes());
     if let Ok(mut st) = STATE.lock() {
         *st = s;
     }
@@ -646,6 +692,19 @@ impl Prompter for TtyPrompter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn etat_partage_entre_processus() {
+        for st in [
+            AgentState::Active("c2".into()),
+            AgentState::Busy(Some("polkit-kde".into())),
+            AgentState::Busy(None),
+            AgentState::Error("refus D-Bus".into()),
+        ] {
+            assert_eq!(decode(&encode(42, &st)), Some((42, st)));
+        }
+        assert_eq!(decode("x"), None);
+    }
 
     #[test]
     fn lignes_de_l_outil() {

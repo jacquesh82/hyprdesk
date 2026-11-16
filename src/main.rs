@@ -155,6 +155,7 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
+  polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
@@ -1401,6 +1402,9 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Agent polkit de la session, avec sa carte : processus à part, sans
+        // Lua, lancé et supervisé par le démon.
+        "polkit-ui" => ui::polkit::run(config_path.clone()),
         // Agent polkit au terminal : mot de passe demandé ici (comme pkttyagent).
         "polkit-agent" => block_on(async {
             let _conn = match polkit::register(std::sync::Arc::new(polkit::TtyPrompter)).await {

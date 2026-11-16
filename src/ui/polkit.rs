@@ -1,10 +1,16 @@
-//! Fenêtre d'authentification polkit du démon : l'agent (`crate::polkit`)
-//! est enregistré par un abonnement ; chaque saisie demandée par polkit
-//! ouvre une carte du thème au centre de l'écran actif (message de
-//! l'action, compte, mot de passe), le clavier pris pour la saisie.
+//! Agent d'authentification polkit en processus à part : `hyprdesk polkit-ui`
+//! (MLG-153), lancé et supervisé par le démon comme composant de session.
+//! Le mot de passe d'administration ne transite jamais par le démon, qui
+//! exécute la configuration Lua et les plugins de l'utilisateur : ce
+//! processus ne charge aucun Lua (thème lu dans l'état du verrouillage, en
+//! JSON ; langue lue dans settings.lua comme texte).
 //!
-//! La réponse repart par un canal à usage unique vers l'agent, qui l'écrit à
-//! l'outil de polkit puis l'efface ; ici, la saisie est effacée dès l'envoi.
+//! L'agent (`crate::polkit`) est enregistré par un abonnement ; chaque
+//! saisie demandée par polkit ouvre une carte du thème au centre de l'écran
+//! actif (message de l'action, compte, détails, mot de passe). La réponse
+//! repart par un canal à usage unique vers l'agent, qui l'écrit à l'outil de
+//! polkit puis l'efface ; ici, la saisie est effacée dès l'envoi. Le démon ne
+//! garde que le dessin de la carte ([`card`]), pour l'aperçu.
 
 use std::sync::{Arc, Mutex};
 
@@ -17,7 +23,13 @@ use iced_layershell::reexport::{
 };
 use tokio::sync::oneshot;
 
+use iced::Font;
+use iced_layershell::build_pattern::daemon;
+use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
+use iced_layershell::to_layer_message;
+
 use super::{App, Msg, color};
+use crate::config::Rgba;
 use crate::polkit::{Prompter, Reply, Request};
 
 pub const NAMESPACE: &str = "hyprdesk-polkit";
@@ -206,22 +218,258 @@ pub struct Dialog {
     pub show_details: bool,
 }
 
-impl App {
-    pub(super) fn polkit_update(&mut self, m: PMsg) -> Task<Msg> {
-        match m {
-            // État de l'agent changé : `hyprdesk status` le reflète.
-            PMsg::Event(Event::State) => {
-                self.publish_status();
-                Task::none()
+/// Couleurs et polices de la carte.
+#[derive(Debug, Clone, Copy)]
+pub struct Look {
+    pub fg: Rgba,
+    pub bg: Rgba,
+    pub accent: Rgba,
+    pub font: Font,
+    pub title_font: Font,
+}
+
+/// La carte de saisie (démon pour l'aperçu, agent pour de vrai).
+pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
+    // Contrastes WCAG AA garantis (texte 4,5:1, champ et boutons 3:1),
+    // sur un fond opaque : la fenêtre ne dépend pas de ce qu'il y a dessous.
+    let r = crate::theme::readable(look.fg, look.bg, look.accent);
+    let (font, title_font) = (look.font, look.title_font);
+    let fg = color(r.fg, 1.0);
+    let dim = color(r.dim, 1.0);
+    let error = color(r.error, 1.0);
+    let edge = color(r.edge, 1.0);
+    let focus = color(r.focus, 1.0);
+    let btn = color(r.button, 1.0);
+    let on_btn = color(r.on_button, 1.0);
+    let bg = color(look.bg, 1.0);
+    let waiting = d.reply.is_none();
+    let wrap = |m: PMsg| m;
+    let mut input = text_input(
+        if waiting {
+            crate::i18n::tr("Vérification…")
+        } else {
+            d.text.trim_end().trim_end_matches(':').trim_end()
+        },
+        d.input.as_str(),
+    )
+    .id(INPUT_ID)
+    .secure(!d.echo)
+    .font(font)
+    .size(16)
+    .padding(12)
+    .width(Length::Fill)
+    .style(move |_, status| {
+        let border = match status {
+            text_input::Status::Focused { .. } => focus,
+            _ if d.message.as_ref().is_some_and(|(_, e)| *e) => error,
+            _ => edge,
+        };
+        text_input::Style {
+            background: bg.into(),
+            border: Border::default().rounded(10).width(2).color(border),
+            icon: fg,
+            placeholder: dim,
+            value: fg,
+            selection: Color { a: 0.4, ..focus },
+        }
+    });
+    if !waiting {
+        input = input
+            .on_input(move |s| wrap(PMsg::Input(s)))
+            .on_submit(wrap(PMsg::Submit));
+    }
+    let mut col = column![
+        text(crate::i18n::tr("Authentification requise"))
+            .font(title_font)
+            .size(20)
+            .color(fg),
+        text(d.req.message.clone()).font(font).size(14).color(fg),
+        text(crate::tr!(
+            "Compte : {u} · {a}",
+            u = d.req.user,
+            a = d.req.action
+        ))
+        .font(font)
+        .size(11)
+        .color(dim),
+    ]
+    .spacing(12);
+    // Détails de la demande (commande exacte de pkexec…), dépliés à la demande.
+    if d.show_details {
+        let mut lines = column![].spacing(2);
+        for (k, v) in d.req.details.iter().take(6) {
+            lines = lines.push(
+                text(format!("{k} : {v}"))
+                    .font(iced::Font::MONOSPACE)
+                    .size(11)
+                    .color(fg)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            );
+        }
+        col = col.push(lines);
+    }
+    col = col.push(input);
+    if let Some((m, is_error)) = &d.message {
+        col = col.push(text(m.clone()).font(font).size(12).color(if *is_error {
+            error
+        } else {
+            dim
+        }));
+    }
+    // Désactivé (vérification en cours) : mêmes couleurs, donc mêmes
+    // contrastes ; seul le contour passe à la couleur des champs.
+    let ok_style = move |_: &iced::Theme, st: button::Status| button::Style {
+        background: Some(
+            match st {
+                button::Status::Hovered | button::Status::Pressed => {
+                    color(crate::theme::mix(r.button, r.on_button, 0.12), 1.0)
+                }
+                _ => btn,
             }
-            PMsg::Event(Event::Prompt {
+            .into(),
+        ),
+        text_color: on_btn,
+        border: Border::default().rounded(10).width(2).color(
+            if matches!(st, button::Status::Disabled) {
+                edge
+            } else {
+                btn
+            },
+        ),
+        ..Default::default()
+    };
+    let cancel_style = move |_: &iced::Theme, st: button::Status| button::Style {
+        background: matches!(st, button::Status::Hovered | button::Status::Pressed)
+            .then(|| Color { a: 0.12, ..fg }.into()),
+        text_color: fg,
+        border: Border::default().rounded(10).width(2).color(edge),
+        ..Default::default()
+    };
+    let mut ok = button(text(crate::i18n::tr("Authentifier")).font(font).size(14))
+        .padding([8, 16])
+        .style(ok_style);
+    if !waiting {
+        ok = ok.on_press(wrap(PMsg::Submit));
+    }
+    let details: Element<'_, PMsg> = if d.req.details.is_empty() {
+        iced::widget::Space::new().into()
+    } else {
+        button(
+            text(if d.show_details {
+                crate::i18n::tr("Masquer les détails")
+            } else {
+                crate::i18n::tr("Détails")
+            })
+            .font(font)
+            .size(12)
+            .color(dim),
+        )
+        .padding([6, 4])
+        .style(|_, _| button::Style::default())
+        .on_press(wrap(PMsg::Details))
+        .into()
+    };
+    col = col.push(
+        row![
+            details,
+            iced::widget::Space::new().width(Length::Fill),
+            button(text(crate::i18n::tr("Annuler")).font(font).size(14))
+                .padding([8, 16])
+                .style(cancel_style)
+                .on_press(wrap(PMsg::Cancel)),
+            ok,
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    );
+    let card = container(col)
+        .padding(22)
+        .width(WIDTH)
+        .height(height(d))
+        .style(move |_| container::Style {
+            background: Some(bg.into()),
+            border: Border::default()
+                .rounded(super::design::RADIUS)
+                .width(1)
+                .color(edge),
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
+                offset: Vector::new(0.0, 8.0),
+                blur_radius: 22.0,
+            },
+            text_color: Some(fg),
+            ..Default::default()
+        });
+    container(card).padding(SHADOW).into()
+}
+
+impl App {
+    /// La carte polkit de l'aperçu (`hyprdesk preview polkit`) ; le démon
+    /// n'est plus l'agent.
+    pub(super) fn view_polkit(&self) -> Element<'_, Msg> {
+        let Some(d) = &self.polkit else {
+            return iced::widget::Space::new().into();
+        };
+        let th = &self.cfg.general.theme;
+        let look = Look {
+            fg: th.fg,
+            bg: th.bg,
+            accent: th.accent,
+            font: self.font,
+            title_font: self.title_font(),
+        };
+        card(d, &look).map(|_| Msg::Noop)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Processus de l'agent
+
+#[to_layer_message(multi)]
+#[derive(Debug, Clone)]
+pub enum AMsg {
+    P(PMsg),
+    Closed(Id),
+}
+
+struct Agent {
+    dialog: Option<Dialog>,
+    look: Look,
+}
+
+impl Agent {
+    fn boot() -> (Agent, Task<AMsg>) {
+        // Thème : celui que le démon prépare pour le verrouillage (JSON).
+        let st = crate::lock::state::read();
+        let rgba = |c: [u8; 4]| Rgba(c[0], c[1], c[2], c[3]);
+        let font = match &st.font {
+            Some(f) if !f.is_empty() => Font::with_name(Box::leak(f.clone().into_boxed_str())),
+            _ => crate::fonts::DEFAULT,
+        };
+        let look = Look {
+            fg: rgba(st.fg),
+            bg: rgba(st.background),
+            accent: rgba(st.accent),
+            font,
+            title_font: Font {
+                weight: iced::font::Weight::Bold,
+                ..font
+            },
+        };
+        (Agent { dialog: None, look }, Task::none())
+    }
+
+    fn update(&mut self, m: AMsg) -> Task<AMsg> {
+        match m {
+            AMsg::P(PMsg::Event(Event::State)) => Task::none(),
+            AMsg::P(PMsg::Event(Event::Prompt {
                 req,
                 text,
                 echo,
                 reply,
-            }) => {
+            })) => {
                 let focus = iced::widget::operation::focus(INPUT_ID);
-                if let Some(d) = self.polkit.as_mut() {
+                if let Some(d) = self.dialog.as_mut() {
                     // Nouvelle tentative : même carte, message gardé.
                     d.req = req;
                     d.text = text;
@@ -231,7 +479,7 @@ impl App {
                     return focus;
                 }
                 let win = Id::unique();
-                self.polkit = Some(Dialog {
+                self.dialog = Some(Dialog {
                     win,
                     req,
                     text,
@@ -242,7 +490,7 @@ impl App {
                     show_details: false,
                 });
                 Task::batch([
-                    Task::done(Msg::NewLayerShell {
+                    Task::done(AMsg::NewLayerShell {
                         settings: NewLayerShellSettings {
                             size: Some((
                                 (WIDTH + 2.0 * SHADOW) as u32,
@@ -264,14 +512,14 @@ impl App {
                     focus,
                 ])
             }
-            PMsg::Event(Event::Show { text, error }) => {
-                if let Some(d) = self.polkit.as_mut() {
+            AMsg::P(PMsg::Event(Event::Show { text, error })) => {
+                if let Some(d) = self.dialog.as_mut() {
                     d.message = Some((text, error));
                 }
                 Task::none()
             }
-            PMsg::Event(Event::Done { ok }) => {
-                tracing::info!(
+            AMsg::P(PMsg::Event(Event::Done { ok })) => {
+                eprintln!(
                     "{}",
                     if ok {
                         crate::i18n::tr("polkit : autorisé")
@@ -279,17 +527,17 @@ impl App {
                         crate::i18n::tr("polkit : refusé ou annulé")
                     }
                 );
-                self.close_polkit()
+                self.close()
             }
-            PMsg::Input(s) => {
-                if let Some(d) = self.polkit.as_mut() {
+            AMsg::P(PMsg::Input(s)) => {
+                if let Some(d) = self.dialog.as_mut() {
                     crate::lock::pam::wipe(&mut d.input);
                     *d.input = s;
                 }
                 Task::none()
             }
-            PMsg::Submit => {
-                if let Some(d) = self.polkit.as_mut()
+            AMsg::P(PMsg::Submit) => {
+                if let Some(d) = self.dialog.as_mut()
                     && let Some(r) = d.reply.take()
                 {
                     d.message = None;
@@ -297,10 +545,10 @@ impl App {
                 }
                 Task::none()
             }
-            PMsg::Details => match self.polkit.as_mut() {
+            AMsg::P(PMsg::Details) => match self.dialog.as_mut() {
                 Some(d) => {
                     d.show_details = !d.show_details;
-                    Task::done(Msg::SizeChange {
+                    Task::done(AMsg::SizeChange {
                         id: d.win,
                         size: (
                             (WIDTH + 2.0 * SHADOW) as u32,
@@ -310,18 +558,31 @@ impl App {
                 }
                 None => Task::none(),
             },
-            PMsg::Cancel => {
-                if let Some(r) = self.polkit.as_mut().and_then(|d| d.reply.take()) {
+            AMsg::P(PMsg::Cancel) => {
+                if let Some(r) = self.dialog.as_mut().and_then(|d| d.reply.take()) {
                     r.send(None);
                 }
-                self.close_polkit()
+                self.close()
             }
+            // Carte fermée par le compositeur : la saisie est annulée.
+            AMsg::Closed(id) => {
+                if self.dialog.as_ref().is_some_and(|d| d.win == id)
+                    && let Some(mut d) = self.dialog.take()
+                {
+                    if let Some(r) = d.reply.take() {
+                        r.send(None);
+                    }
+                    crate::lock::pam::wipe(&mut d.input);
+                }
+                Task::none()
+            }
+            _ => Task::none(),
         }
     }
 
     /// Ferme la carte ; une saisie encore attendue est annulée.
-    pub(super) fn close_polkit(&mut self) -> Task<Msg> {
-        match self.polkit.take() {
+    fn close(&mut self) -> Task<AMsg> {
+        match self.dialog.take() {
             Some(mut d) => {
                 if let Some(r) = d.reply.take() {
                     r.send(None);
@@ -333,191 +594,79 @@ impl App {
         }
     }
 
-    pub(super) fn view_polkit(&self) -> Element<'_, Msg> {
-        let Some(d) = &self.polkit else {
-            return iced::widget::Space::new().into();
-        };
-        let th = &self.cfg.general.theme;
-        // Contrastes WCAG AA garantis (texte 4,5:1, champ et boutons 3:1),
-        // sur un fond opaque : la fenêtre ne dépend pas de ce qu'il y a dessous.
-        let r = crate::theme::readable(th.fg, th.bg, th.accent);
-        let fg = color(r.fg, 1.0);
-        let dim = color(r.dim, 1.0);
-        let error = color(r.error, 1.0);
-        let edge = color(r.edge, 1.0);
-        let focus = color(r.focus, 1.0);
-        let btn = color(r.button, 1.0);
-        let on_btn = color(r.on_button, 1.0);
-        let bg = color(th.bg, 1.0);
-        let waiting = d.reply.is_none();
-        let wrap = |m: PMsg| Msg::Polkit(m);
-        let mut input = text_input(
-            if waiting {
-                crate::i18n::tr("Vérification…")
-            } else {
-                d.text.trim_end().trim_end_matches(':').trim_end()
-            },
-            d.input.as_str(),
-        )
-        .id(INPUT_ID)
-        .secure(!d.echo)
-        .font(self.font)
-        .size(16)
-        .padding(12)
-        .width(Length::Fill)
-        .style(move |_, status| {
-            let border = match status {
-                text_input::Status::Focused { .. } => focus,
-                _ if d.message.as_ref().is_some_and(|(_, e)| *e) => error,
-                _ => edge,
-            };
-            text_input::Style {
-                background: bg.into(),
-                border: Border::default().rounded(10).width(2).color(border),
-                icon: fg,
-                placeholder: dim,
-                value: fg,
-                selection: Color { a: 0.4, ..focus },
-            }
-        });
-        if !waiting {
-            input = input
-                .on_input(move |s| wrap(PMsg::Input(s)))
-                .on_submit(wrap(PMsg::Submit));
+    fn view(&self, id: Id) -> Element<'_, AMsg> {
+        match &self.dialog {
+            Some(d) if d.win == id => card(d, &self.look).map(AMsg::P),
+            _ => iced::widget::Space::new().into(),
         }
-        let mut col = column![
-            text(crate::i18n::tr("Authentification requise"))
-                .font(self.title_font())
-                .size(20)
-                .color(fg),
-            text(d.req.message.clone())
-                .font(self.font)
-                .size(14)
-                .color(fg),
-            text(crate::tr!(
-                "Compte : {u} · {a}",
-                u = d.req.user,
-                a = d.req.action
-            ))
-            .font(self.font)
-            .size(11)
-            .color(dim),
-        ]
-        .spacing(12);
-        // Détails de la demande (commande exacte de pkexec…), dépliés à la demande.
-        if d.show_details {
-            let mut lines = column![].spacing(2);
-            for (k, v) in d.req.details.iter().take(6) {
-                lines = lines.push(
-                    text(format!("{k} : {v}"))
-                        .font(iced::Font::MONOSPACE)
-                        .size(11)
-                        .color(fg)
-                        .wrapping(iced::widget::text::Wrapping::None),
-                );
-            }
-            col = col.push(lines);
-        }
-        col = col.push(input);
-        if let Some((m, is_error)) = &d.message {
-            col = col.push(
-                text(m.clone())
-                    .font(self.font)
-                    .size(12)
-                    .color(if *is_error { error } else { dim }),
-            );
-        }
-        // Désactivé (vérification en cours) : mêmes couleurs, donc mêmes
-        // contrastes ; seul le contour passe à la couleur des champs.
-        let ok_style = move |_: &iced::Theme, st: button::Status| button::Style {
-            background: Some(
-                match st {
-                    button::Status::Hovered | button::Status::Pressed => {
-                        color(crate::theme::mix(r.button, r.on_button, 0.12), 1.0)
-                    }
-                    _ => btn,
-                }
-                .into(),
-            ),
-            text_color: on_btn,
-            border: Border::default().rounded(10).width(2).color(
-                if matches!(st, button::Status::Disabled) {
-                    edge
-                } else {
-                    btn
-                },
-            ),
-            ..Default::default()
-        };
-        let cancel_style = move |_: &iced::Theme, st: button::Status| button::Style {
-            background: matches!(st, button::Status::Hovered | button::Status::Pressed)
-                .then(|| Color { a: 0.12, ..fg }.into()),
-            text_color: fg,
-            border: Border::default().rounded(10).width(2).color(edge),
-            ..Default::default()
-        };
-        let mut ok = button(
-            text(crate::i18n::tr("Authentifier"))
-                .font(self.font)
-                .size(14),
-        )
-        .padding([8, 16])
-        .style(ok_style);
-        if !waiting {
-            ok = ok.on_press(wrap(PMsg::Submit));
-        }
-        let details: Element<'_, Msg> = if d.req.details.is_empty() {
-            iced::widget::Space::new().into()
-        } else {
-            button(
-                text(if d.show_details {
-                    crate::i18n::tr("Masquer les détails")
-                } else {
-                    crate::i18n::tr("Détails")
-                })
-                .font(self.font)
-                .size(12)
-                .color(dim),
-            )
-            .padding([6, 4])
-            .style(|_, _| button::Style::default())
-            .on_press(wrap(PMsg::Details))
-            .into()
-        };
-        col = col.push(
-            row![
-                details,
-                iced::widget::Space::new().width(Length::Fill),
-                button(text(crate::i18n::tr("Annuler")).font(self.font).size(14))
-                    .padding([8, 16])
-                    .style(cancel_style)
-                    .on_press(wrap(PMsg::Cancel)),
-                ok,
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-        );
-        let card = container(col)
-            .padding(22)
-            .width(WIDTH)
-            .height(height(d))
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                border: Border::default()
-                    .rounded(super::design::RADIUS)
-                    .width(1)
-                    .color(edge),
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
-                    offset: Vector::new(0.0, 8.0),
-                    blur_radius: 22.0,
-                },
-                text_color: Some(fg),
-                ..Default::default()
-            });
-        container(card).padding(SHADOW).into()
+    }
+
+    fn subscription(&self) -> iced::Subscription<AMsg> {
+        iced::Subscription::batch([
+            iced::Subscription::run(stream).map(|e| AMsg::P(PMsg::Event(e))),
+            iced::window::close_events().map(AMsg::Closed),
+        ])
     }
 }
+
+/// `hyprdesk polkit-ui` : l'agent polkit de la session, avec sa carte. Une
+/// seule instance par session.
+pub fn run(config_path: std::path::PathBuf) -> std::process::ExitCode {
+    let verrou = crate::policy::private_runtime_or_unusable().join("hyprdesk-polkit.lock");
+    let Ok(_garde) = crate::single::acquire(&verrou) else {
+        eprintln!(
+            "{}",
+            crate::i18n::tr("hyprdesk polkit-ui : un agent hyprdesk tourne déjà")
+        );
+        return std::process::ExitCode::SUCCESS;
+    };
+    crate::i18n::init_cli(&config_path);
+    // Pas de presse-papiers : rien à coller dans le champ du mot de passe.
+    iced_layershell::disable_clipboard();
+    let r = daemon(
+        Agent::boot,
+        || NAMESPACE.to_string(),
+        Agent::update,
+        Agent::view,
+    )
+    .subscription(Agent::subscription)
+    .style(|_, _| iced::theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: Color::WHITE,
+    })
+    .settings(Settings {
+        fonts: crate::fonts::bundled(),
+        default_font: crate::fonts::DEFAULT,
+        layer_settings: LayerShellSettings {
+            start_mode: StartMode::Background,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .run();
+    match r {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{}", crate::tr!("hyprdesk polkit-ui : {e}", e = e));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// Composant de session du démon : l'agent, relancé s'il s'arrête.
+pub fn component() -> crate::config::ComponentDef {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "hyprdesk".into());
+    crate::config::ComponentDef {
+        name: COMPONENT.into(),
+        exec: format!("'{}' polkit-ui", exe.replace('\'', "'\\''")),
+        restart: true,
+    }
+}
+
+/// Nom du composant de session.
+pub const COMPONENT: &str = "polkit-agent";
 
 #[cfg(test)]
 mod tests {

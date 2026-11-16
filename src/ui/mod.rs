@@ -35,7 +35,7 @@ mod osd;
 mod overview;
 mod panel;
 pub(crate) mod plugins;
-mod polkit;
+pub mod polkit;
 mod popover;
 pub mod preview;
 mod problem;
@@ -252,8 +252,6 @@ pub enum Msg {
     Rotate,
     /// L'affichage à l'écran (OSD) s'efface-t-il ?
     OsdTick,
-    /// Agent polkit : demande de mot de passe, saisie, réponse.
-    Polkit(polkit::PMsg),
     /// Trousseau myMFA : état, demandes de déverrouillage, carte.
     Mymfa(mymfa::MMsg),
     MymfaF(mymfa_fenetre::FMsg),
@@ -1248,6 +1246,12 @@ impl App {
                 },
                 |_| Msg::Noop,
             ));
+            // Agent polkit : processus à part, sans Lua (`hyprdesk polkit-ui`) ;
+            // le mot de passe d'administration ne passe pas par le démon.
+            let pk = polkit::component();
+            if !defs.iter().any(|c| c.name == pk.name) {
+                defs.push(pk);
+            }
             // Historique du presse-papiers : cliphist, sauf veilleur déjà en route.
             if let Some(d) = crate::clipboard::component(n.clipboard_history)
                 && !defs.iter().any(|c| c.name == d.name)
@@ -4248,7 +4252,6 @@ impl App {
                 Task::none()
             }
             Msg::OsdTick => self.osd_tick(),
-            Msg::Polkit(m) => self.polkit_update(m),
             Msg::Mymfa(m) => self.mfa_update(m),
             Msg::MymfaF(m) => self.mfa_fenetre_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
@@ -4779,16 +4782,6 @@ impl App {
                     self.mfa_fenetre_oublier();
                     return Task::none();
                 }
-                // Carte polkit fermée par le compositeur : la saisie est annulée.
-                if self.polkit.as_ref().is_some_and(|d| d.win == id) {
-                    if let Some(mut d) = self.polkit.take() {
-                        if let Some(r) = d.reply.take() {
-                            r.send(None);
-                        }
-                        crate::lock::pam::wipe(&mut d.input);
-                    }
-                    return Task::none();
-                }
                 if self
                     .popover
                     .as_ref()
@@ -5110,8 +5103,6 @@ impl App {
             Subscription::run(control::server_stream).map(Msg::Control),
             // État du démon d'index : la loupe du dock affiche la pastille.
             Subscription::run(crate::ui::plugins::index::status_stream),
-            // Agent polkit (fenêtre de saisie) ; inactif si un autre agent est en place.
-            Subscription::run(polkit::stream).map(|e| Msg::Polkit(polkit::PMsg::Event(e))),
             // Trousseau myMFA : état et demandes de déverrouillage (sans client : rien).
             Subscription::run(mymfa::stream).map(|e| Msg::Mymfa(mymfa::MMsg::Event(e))),
             // Démon de notifications (bulles) ; inactif si un autre tient le nom.
@@ -5730,7 +5721,6 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::Frame => "Frame",
         Msg::Rotate => "Rotate",
         Msg::OsdTick => "OsdTick",
-        Msg::Polkit(..) => "Polkit",
         Msg::Toasts(..) => "Toasts",
         Msg::Problem(..) => "Problem",
         Msg::Search(..) => "Search",

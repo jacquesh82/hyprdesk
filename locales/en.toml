@@ -1365,6 +1365,9 @@
 "hyprdesk polkit-agent : enregistrement refusé ({e}) — un autre agent est-il déjà en place ?" = "hyprdesk polkit-agent: registration refused ({e}) — is another agent already running?"
 "polkit : {e}" = "polkit: {e}"
 "polkit-agent-helper-1 introuvable" = "polkit-agent-helper-1 not found"
+"  polkit-ui         agent d'authentification polkit de la session (lancé par le démon)" = "  polkit-ui         the session’s polkit authentication agent (started by the daemon)"
+"hyprdesk polkit-ui : un agent hyprdesk tourne déjà" = "hyprdesk polkit-ui: a hyprdesk agent is already running"
+"hyprdesk polkit-ui : {e}" = "hyprdesk polkit-ui: {e}"
 "  polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)" = "  polkit-agent      polkit authentication agent in the terminal (testing, or a session without the daemon)"
 
 # Fenêtre de l'agent polkit (MLG-5).
