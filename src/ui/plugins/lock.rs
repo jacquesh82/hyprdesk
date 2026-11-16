@@ -144,21 +144,33 @@ impl App {
                 toggler(l.show_media)
                     .label(crate::i18n::tr("Morceau en cours, lecture / pause"))
                     .on_toggle(|v| wrap(Msg::ShowMedia(v))),
-                toggler(l.fingerprint)
+                toggler(l.fingerprint && crate::policy::get().fingerprint_allowed())
                     .label(crate::i18n::tr(
-                        "Empreinte digitale en plus du mot de passe (fprintd)"
+                        "Empreinte digitale à la place du mot de passe (fprintd)"
                     ))
-                    .on_toggle(|v| wrap(Msg::Fingerprint(v))),
-                text(if crate::doctor::has("fprintd") {
-                    crate::i18n::tr(
-                        "fprintd est installé : l'écran de verrouillage propose l'empreinte \
-                         dès qu'un lecteur et une empreinte enregistrée (fprintd-enroll) sont là.",
+                    .on_toggle_maybe(
+                        crate::policy::get()
+                            .fingerprint_allowed()
+                            .then_some(|v| wrap(Msg::Fingerprint(v)))
+                    ),
+                text(if !crate::policy::get().fingerprint_allowed() {
+                    crate::tr!(
+                        "Empreinte interdite par l'administrateur ({p}).",
+                        p = crate::policy::PATH
+                    )
+                } else if crate::doctor::has("fprintd") {
+                    crate::tr!(
+                        "Activée, une empreinte reconnue suffit à déverrouiller, sans mot de passe. \
+                         Vérifiée par le service PAM « {s} », sinon par fprintd puis la phase \
+                         account de PAM ; chaque déverrouillage par empreinte est journalisé.",
+                        s = crate::lock::pam::fingerprint_service().unwrap_or("hyprdesk-fingerprint")
                     )
                 } else {
                     crate::i18n::tr(
                         "fprintd n'est pas installé (paquet fprintd) : sans lui, \
                          l'écran de verrouillage ne demande que le mot de passe.",
                     )
+                    .to_string()
                 })
                 .font(self.font)
                 .size(12)
@@ -172,7 +184,8 @@ impl App {
             self.section("Sécurité"),
             text(crate::tr!(
                 "Protocole de verrouillage de Wayland : si l'écran de verrouillage s'arrête, \
-                 la session reste verrouillée. Mot de passe vérifié par PAM (service « {p0} »). \
+                 la session reste verrouillée. Mot de passe vérifié par PAM (service « {p0} », \
+                 phase account comprise), délai croissant après trois échecs. \
                  Le contenu dérive lentement et s'estompe au repos, pour ne pas marquer l'écran.",
                 p0 = crate::lock::pam::service()
             ))
@@ -206,6 +219,18 @@ impl App {
             ),
         ]
         .spacing(14);
+        if let Some(max) = crate::policy::get().idle_lock_max {
+            col = col.push(
+                text(crate::tr!(
+                    "Imposé par l'administrateur ({p}) : verrouillage au plus tard après {n} min d'inactivité.",
+                    p = crate::policy::PATH,
+                    n = (max as u64).div_ceil(60)
+                ))
+                .font(self.font)
+                .size(12)
+                .color(warn),
+            );
+        }
         if !crate::launch::executable("hypridle") {
             col = col.push(
                 text("hypridle est absent (paquet hypridle) : rien ne se passera à l'inactivité.")

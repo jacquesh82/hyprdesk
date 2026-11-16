@@ -855,15 +855,17 @@ impl Preview {
                     user: "jacques".into(),
                     cookie: String::new(),
                     attempt: 2,
+                    details: vec![("program".into(), "/usr/bin/udisksctl".into())],
                 },
                 text: "Mot de passe :".into(),
                 echo: false,
-                input: "secret".into(),
+                input: zeroize::Zeroizing::new("secret".into()),
                 message: Some((
                     crate::i18n::tr("Mot de passe refusé, réessayez.").into(),
                     true,
                 )),
                 reply: Some(super::polkit::Responder::detached()),
+                show_details: false,
             });
         }
         // Les bulles n'appartiennent qu'à leur scène.

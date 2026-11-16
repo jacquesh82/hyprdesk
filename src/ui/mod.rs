@@ -1255,7 +1255,9 @@ impl App {
                 defs.push(d);
             }
             // Délais changés, composant identique : relire le fichier.
-            let reload_idle = idle_changed && o.idle.manage && n.idle.manage;
+            let reload_idle = idle_changed
+                && crate::idle::effective(&o.idle).manage
+                && crate::idle::effective(&n.idle).manage;
             tasks.push(Task::perform(
                 async move {
                     crate::session::sync(&defs).await;

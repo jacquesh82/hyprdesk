@@ -47,8 +47,10 @@ pub enum Response {
     },
 }
 
+/// Envoie un message à greetd. Le tampon sérialisé (qui porte le mot de
+/// passe d'une réponse) est effacé ensuite, que l'envoi réussisse ou non.
 pub fn write_msg<T: serde::Serialize>(s: &mut impl Write, msg: &T) -> std::io::Result<()> {
-    let body = serde_json::to_vec(msg).map_err(std::io::Error::other)?;
+    let body = zeroize::Zeroizing::new(serde_json::to_vec(msg).map_err(std::io::Error::other)?);
     s.write_all(&(body.len() as u32).to_ne_bytes())?;
     s.write_all(&body)?;
     s.flush()

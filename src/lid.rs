@@ -190,11 +190,28 @@ fn systemctl(verb: &str) -> Result<(), String> {
         .ok_or_else(|| crate::tr!("systemctl {v} a échoué", v = verb))
 }
 
-/// Ligne `hl.monitor` gardée pour rallumer l'écran du portable à l'ouverture.
-fn saved_path(name: &str) -> PathBuf {
-    ipc::runtime_dir()
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("hyprdesk-lid-{name}.lua"))
+/// Ligne `hl.monitor` gardée pour rallumer l'écran du portable à l'ouverture
+/// (évaluée par Hyprland : dossier d'exécution vérifié seulement, jamais
+/// `/tmp`).
+fn saved_path(name: &str) -> Option<PathBuf> {
+    crate::policy::runtime_dir()
+        .ok()
+        .map(|d| d.join(format!("hyprdesk-lid-{name}.lua")))
+}
+
+/// Attend que l'écran de verrouillage tienne la session (sondage), au plus
+/// `max` ; vrai s'il la tient.
+fn wait_locked(max: std::time::Duration, locked: impl Fn() -> bool) -> bool {
+    let start = std::time::Instant::now();
+    loop {
+        if locked() {
+            return true;
+        }
+        if start.elapsed() >= max {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 /// `hyprdesk lid close` : le capot vient de se fermer.
@@ -226,8 +243,9 @@ pub fn close(c: &IdleCfg) -> Result<String, String> {
                     if let Some(s) = crate::screens::detect()
                         .ok()
                         .and_then(|l| l.into_iter().find(|s| &s.name == m))
+                        && let Some(p) = saved_path(m)
                     {
-                        let _ = std::fs::write(saved_path(m), s.lua());
+                        let _ = crate::policy::write_private(&p, s.lua().as_bytes());
                     }
                     ipc::eval(&format!(
                         "hl.monitor({{ output = \"{}\", disabled = true }})",
@@ -244,9 +262,21 @@ pub fn close(c: &IdleCfg) -> Result<String, String> {
             }
         }
         "suspend" | "hibernate" | "hybrid-sleep" | "suspend-then-hibernate" | "sleep" => {
-            // Verrouillé avant de dormir : la surface a le temps de s'afficher.
+            // Verrouillé avant de dormir : la veille attend que l'écran de
+            // verrouillage tienne la session ; sinon, pas de veille (un
+            // portable endormi déverrouillé serait ouvert au réveil).
             lock();
-            std::thread::sleep(std::time::Duration::from_millis(700));
+            if !wait_locked(std::time::Duration::from_secs(3), crate::lock::running) {
+                let msg = crate::i18n::tr(
+                    "Capot fermé : le verrouillage n'a pas pris, la mise en veille est annulée.",
+                );
+                tracing::warn!("{msg}");
+                let _ = crate::hypr::exec(&format!(
+                    "notify-send -u critical hyprdesk {}",
+                    crate::launch::sh_quote(msg)
+                ));
+                return Err(msg.to_string());
+            }
             systemctl(if verb == "sleep" { "suspend" } else { &verb })?;
         }
         "poweroff" | "reboot" | "halt" => systemctl(&verb)?,
@@ -264,7 +294,9 @@ pub fn open() -> Result<String, String> {
     let all = crate::screens::detect().unwrap_or_default();
     for s in all.iter().filter(|s| is_internal(&s.name)) {
         let path = saved_path(&s.name);
-        if let Ok(line) = std::fs::read_to_string(&path) {
+        if let Some(path) = path
+            && let Ok(line) = std::fs::read_to_string(&path)
+        {
             ipc::eval(&line).map_err(|e| e.to_string())?;
             let _ = std::fs::remove_file(&path);
             back.push(s.name.clone());
@@ -379,6 +411,22 @@ pub fn run(c: &IdleCfg, args: &[String]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// La veille n'attend que le verrou, et pas au-delà du délai.
+    #[test]
+    fn veille_apres_verrouillage_seulement() {
+        use std::cell::Cell;
+        use std::time::Duration;
+        let n = Cell::new(0);
+        assert!(wait_locked(Duration::from_secs(3), || {
+            n.set(n.get() + 1);
+            n.get() >= 3
+        }));
+        assert_eq!(n.get(), 3);
+        let t = std::time::Instant::now();
+        assert!(!wait_locked(Duration::from_millis(120), || false));
+        assert!(t.elapsed() >= Duration::from_millis(120));
+    }
 
     #[test]
     fn situation_du_capot() {

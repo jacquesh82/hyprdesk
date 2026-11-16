@@ -32,13 +32,10 @@ pub struct LockState {
     /// Image propre au verrouillage (`lock_image`) : la même sur tous les écrans.
     #[serde(default)]
     pub own_image: bool,
-    /// Empreinte (fprintd) en plus du mot de passe.
-    #[serde(default = "yes")]
+    /// Empreinte (fprintd) acceptée à la place du mot de passe (désactivée
+    /// par défaut).
+    #[serde(default)]
     pub fingerprint: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 /// Part d'une scène étalée pour un écran : sa taille logique et son image.
@@ -76,14 +73,23 @@ impl Default for LockState {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/hyprdesk/lock.json` (propre à l'utilisateur et à la session).
-pub fn path() -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("hyprdesk-{}", unsafe { libc::getuid() }))
-        });
-    base.join("hyprdesk").join("lock.json")
+/// `$XDG_RUNTIME_DIR/hyprdesk/lock.json` (propre à l'utilisateur et à la
+/// session). Le dossier d'exécution est vérifié (à l'utilisateur, 0700) :
+/// jamais de repli sur `/tmp`, qu'un autre compte pourrait préparer.
+pub fn path() -> Result<PathBuf, String> {
+    Ok(crate::policy::runtime_dir()?
+        .join("hyprdesk")
+        .join("lock.json"))
+}
+
+/// Dossier de `path()`, créé au besoin (0700).
+pub fn ensure_dir() -> Result<PathBuf, String> {
+    let p = path()?;
+    let dir = p.parent().map(PathBuf::from).unwrap_or_default();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{} : {e}", dir.display()))?;
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    Ok(p)
 }
 
 /// État du verrouillage d'après la config, pour l'écran principal et le
@@ -131,7 +137,10 @@ pub fn from_config(cfg: &Config, monitor: &str, workspace: &str) -> LockState {
 /// Sans scène étalée : chaque écran garde son propre fond (`own`, dans
 /// l'ordre de `screens`) ; une image propre au verrouillage vaut pour tous.
 pub fn prepare_span(s: &mut LockState, screens: &[crate::span::Screen], own: &[Option<PathBuf>]) {
-    prepare_span_in(s, screens, own, &path().with_file_name("lock-span"));
+    match path() {
+        Ok(p) => prepare_span_in(s, screens, own, &p.with_file_name("lock-span")),
+        Err(e) => tracing::warn!("{e}"),
+    }
 }
 
 fn prepare_span_in(
@@ -230,12 +239,7 @@ pub fn first_image(dir: &Path) -> Option<PathBuf> {
 
 /// Écrit l'état (atomique, lisible par l'utilisateur seul).
 pub fn write(s: &LockState) -> std::io::Result<()> {
-    let p = path();
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir)?;
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-    }
+    let p = ensure_dir().map_err(std::io::Error::other)?;
     let json = serde_json::to_vec_pretty(s).map_err(std::io::Error::other)?;
     if std::fs::read(&p).ok().as_deref() == Some(json.as_slice()) {
         return Ok(());
@@ -245,8 +249,9 @@ pub fn write(s: &LockState) -> std::io::Result<()> {
 
 /// Lit l'état ; valeurs par défaut s'il manque ou s'il est illisible.
 pub fn read() -> LockState {
-    std::fs::read(path())
+    path()
         .ok()
+        .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
 }

@@ -131,6 +131,53 @@ pub struct Request {
     pub cookie: String,
     /// Tentative en cours (1…ATTEMPTS).
     pub attempt: usize,
+    /// Détails de la demande (`program`, `command_line` de pkexec…), triés,
+    /// montrés dans la carte.
+    pub details: Vec<(String, String)>,
+}
+
+/// Détails montrés : tout ce que polkit transmet, sauf la mécanique de
+/// traduction et d'icône ; triés, la commande d'abord.
+pub fn shown_details(details: &HashMap<String, String>) -> Vec<(String, String)> {
+    let rank = |k: &str| match k {
+        "command_line" => 0,
+        "program" => 1,
+        "polkit.message" => 2,
+        _ => 3,
+    };
+    let mut v: Vec<(String, String)> = details
+        .iter()
+        .filter(|(k, v)| {
+            !v.trim().is_empty()
+                && !matches!(k.as_str(), "polkit.gettext_domain" | "polkit.icon_name")
+        })
+        .map(|(k, v)| (k.clone(), v.chars().take(400).collect()))
+        .collect();
+    v.sort_by(|a, b| rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.0.cmp(&b.0)));
+    v
+}
+
+/// L'appel vient bien de polkitd : l'expéditeur est le propriétaire actuel
+/// de `org.freedesktop.PolicyKit1` sur le bus système (sinon, n'importe quel
+/// client du bus pourrait faire afficher une demande de mot de passe).
+async fn from_polkitd(
+    conn: &zbus::Connection,
+    hdr: &zbus::message::Header<'_>,
+) -> zbus::fdo::Result<()> {
+    let refuse = || zbus::fdo::Error::AccessDenied(crate::i18n::tr("appel hors de polkit").into());
+    let sender = hdr.sender().ok_or_else(refuse)?;
+    let owner = zbus::fdo::DBusProxy::new(conn)
+        .await?
+        .get_name_owner(
+            zbus::names::BusName::from_static_str("org.freedesktop.PolicyKit1")
+                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?,
+        )
+        .await?;
+    if sender.as_str() == owner.as_str() {
+        Ok(())
+    } else {
+        Err(refuse())
+    }
 }
 
 pub type Reply<'a> = Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>>;
@@ -273,15 +320,19 @@ struct Agent {
 
 #[zbus::interface(name = "org.freedesktop.PolicyKit1.AuthenticationAgent")]
 impl Agent {
+    #[allow(clippy::too_many_arguments)]
     async fn begin_authentication(
         &self,
+        #[zbus(connection)] conn: &zbus::Connection,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         action_id: &str,
         message: &str,
         _icon_name: &str,
-        _details: HashMap<String, String>,
+        details: HashMap<String, String>,
         cookie: &str,
         identities: Vec<(String, HashMap<String, OwnedValue>)>,
     ) -> zbus::fdo::Result<()> {
+        from_polkitd(conn, &hdr).await?;
         let me = unsafe { libc::getuid() };
         let uid = pick_identity(&identities, me).ok_or_else(|| {
             zbus::fdo::Error::Failed(crate::i18n::tr("aucune identité utilisable").into())
@@ -299,6 +350,7 @@ impl Agent {
             user,
             cookie: cookie.into(),
             attempt: 0,
+            details: shown_details(&details),
         };
         let mut result = Outcome::Failure;
         for n in 1..=ATTEMPTS {
@@ -337,7 +389,13 @@ impl Agent {
         }
     }
 
-    async fn cancel_authentication(&self, cookie: &str) -> zbus::fdo::Result<()> {
+    async fn cancel_authentication(
+        &self,
+        #[zbus(connection)] conn: &zbus::Connection,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        cookie: &str,
+    ) -> zbus::fdo::Result<()> {
+        from_polkitd(conn, &hdr).await?;
         if let Some(tx) = self
             .active
             .lock()
@@ -657,7 +715,25 @@ mod tests {
             user: "alice".into(),
             cookie: "c00k1e".into(),
             attempt: 1,
+            details: Vec::new(),
         }
+    }
+
+    #[test]
+    fn details_montres() {
+        let d: HashMap<String, String> = [
+            ("polkit.gettext_domain", "udisks2"),
+            ("program", "/usr/bin/bash"),
+            ("command_line", "/usr/bin/bash -c id"),
+            ("user", "root"),
+            ("cwd", " "),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let v = shown_details(&d);
+        let keys: Vec<&str> = v.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["command_line", "program", "user"]);
     }
 
     async fn helper_side(

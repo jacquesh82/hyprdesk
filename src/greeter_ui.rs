@@ -99,7 +99,8 @@ pub struct Greeter {
     sessions: Vec<Session>,
     session: usize,
     user: String,
-    answer: String,
+    /// Réponse en cours (mot de passe) : effacée, pas seulement libérée.
+    answer: zeroize::Zeroizing<String>,
     phase: Phase,
     started: bool,
     messages: Vec<String>,
@@ -201,10 +202,12 @@ fn default_video_path() -> Option<std::path::PathBuf> {
     POSED
         .get_or_init(|| {
             let dirs = [
-                std::env::var_os("XDG_RUNTIME_DIR")
-                    .map(|d| std::path::PathBuf::from(d).join("hyprdesk")),
+                // Dossiers privés seulement : une copie posée dans /tmp par
+                // un autre compte s'afficherait à l'écran de connexion.
+                crate::policy::runtime_dir()
+                    .ok()
+                    .map(|d| d.join("hyprdesk")),
                 Some(std::path::PathBuf::from(crate::greeter_setup::STATE_DIR)),
-                Some(std::env::temp_dir().join("hyprdesk")),
             ];
             for dir in dirs.into_iter().flatten() {
                 let p = dir.join("fond.mp4");
@@ -564,7 +567,7 @@ impl Greeter {
             sessions,
             session,
             user: last.user,
-            answer: String::new(),
+            answer: Default::default(),
             phase: Phase::User,
             started: false,
             messages: Vec::new(),
@@ -673,7 +676,7 @@ impl Greeter {
         g.wallpaper = Some(image::Handle::from_bytes(DEFAULT_WALLPAPER));
         g.anchor = 8;
         g.user = "jacques".into();
-        g.answer = "secret".into();
+        *g.answer = "secret".into();
         g.phase = Phase::Ask(AuthKind::Secret, "Mot de passe :".into());
         g.messages = vec!["Touchez le lecteur d'empreintes ou saisissez le mot de passe.".into()];
         g
@@ -748,7 +751,9 @@ impl Greeter {
                 }
             }
             GMsg::Answer(a) => {
-                self.answer = a;
+                // L'ancienne valeur est effacée avant d'être remplacée.
+                crate::lock::pam::wipe(&mut self.answer);
+                *self.answer = a;
                 Task::none()
             }
             GMsg::Send => {
@@ -756,8 +761,7 @@ impl Greeter {
                     return Task::none();
                 }
                 if self.demo {
-                    let mut a = std::mem::take(&mut self.answer);
-                    crate::lock::pam::wipe(&mut a);
+                    crate::lock::pam::wipe(&mut self.answer);
                     if self.film {
                         // Comme une session qui s'ouvre : l'attente, puis l'écran part.
                         self.phase = Phase::Waiting;
@@ -773,7 +777,8 @@ impl Greeter {
                     return iced::widget::operation::focus(USER_ID);
                 }
                 self.phase = Phase::Waiting;
-                let a = std::mem::take(&mut self.answer);
+                // Effacée par `send` une fois envoyée.
+                let a = std::mem::take(&mut *self.answer);
                 send(
                     self.stream.clone(),
                     Request::PostAuthMessageResponse { response: Some(a) },
@@ -880,7 +885,7 @@ impl Greeter {
             GMsg::Cancelled(m) => {
                 self.phase = Phase::User;
                 self.error = Some(m);
-                self.answer.clear();
+                crate::lock::pam::wipe(&mut self.answer);
                 iced::widget::operation::focus(USER_ID)
             }
             _ => Task::none(),
@@ -952,7 +957,7 @@ impl Greeter {
             Phase::Ask(kind, q) => {
                 col = col.push(text(q.clone()).font(self.font).size(14).color(fg));
                 col = col.push(
-                    text_input("", &self.answer)
+                    text_input("", self.answer.as_str())
                         .id(ANSWER_ID)
                         .secure(*kind == AuthKind::Secret)
                         .on_input(GMsg::Answer)

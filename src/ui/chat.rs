@@ -1704,7 +1704,7 @@ fn paste_clipboard(text: bool) -> Task<Msg> {
                 if out.stdout.is_empty() {
                     return None;
                 }
-                let dir = crate::lock::state::path().with_file_name("chat");
+                let dir = crate::lock::state::path().ok()?.with_file_name("chat");
                 Some(Clip::Image((|| {
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     let p = dir.join(format!("image-{}.{ext}", crate::storage::revision()));

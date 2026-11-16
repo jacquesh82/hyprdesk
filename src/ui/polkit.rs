@@ -76,6 +76,17 @@ pub enum PMsg {
     Input(String),
     Submit,
     Cancel,
+    /// Déplie ou replie les détails de la demande.
+    Details,
+}
+
+/// Hauteur de la carte : détails dépliés, une ligne par détail en plus.
+fn height(d: &Dialog) -> f32 {
+    if d.show_details && !d.req.details.is_empty() {
+        HEIGHT + 12.0 + 18.0 * d.req.details.len().min(6) as f32
+    } else {
+        HEIGHT
+    }
 }
 
 /// Prompter de l'agent : relaie vers l'interface et attend la réponse.
@@ -186,10 +197,13 @@ pub struct Dialog {
     pub req: Request,
     pub text: String,
     pub echo: bool,
-    pub input: String,
+    /// Saisie : effacée (pas seulement libérée) à chaque remplacement.
+    pub input: zeroize::Zeroizing<String>,
     /// Dernier message de PAM (texte, erreur).
     pub message: Option<(String, bool)>,
     pub reply: Option<Responder>,
+    /// Détails de la demande dépliés (commande de pkexec…).
+    pub show_details: bool,
 }
 
 impl App {
@@ -222,9 +236,10 @@ impl App {
                     req,
                     text,
                     echo,
-                    input: String::new(),
+                    input: Default::default(),
                     message: None,
                     reply: Some(reply),
+                    show_details: false,
                 });
                 Task::batch([
                     Task::done(Msg::NewLayerShell {
@@ -268,8 +283,8 @@ impl App {
             }
             PMsg::Input(s) => {
                 if let Some(d) = self.polkit.as_mut() {
-                    let mut old = std::mem::replace(&mut d.input, s);
-                    crate::lock::pam::wipe(&mut old);
+                    crate::lock::pam::wipe(&mut d.input);
+                    *d.input = s;
                 }
                 Task::none()
             }
@@ -278,10 +293,23 @@ impl App {
                     && let Some(r) = d.reply.take()
                 {
                     d.message = None;
-                    r.send(Some(std::mem::take(&mut d.input)));
+                    r.send(Some(std::mem::take(&mut *d.input)));
                 }
                 Task::none()
             }
+            PMsg::Details => match self.polkit.as_mut() {
+                Some(d) => {
+                    d.show_details = !d.show_details;
+                    Task::done(Msg::SizeChange {
+                        id: d.win,
+                        size: (
+                            (WIDTH + 2.0 * SHADOW) as u32,
+                            (height(d) + 2.0 * SHADOW) as u32,
+                        ),
+                    })
+                }
+                None => Task::none(),
+            },
             PMsg::Cancel => {
                 if let Some(r) = self.polkit.as_mut().and_then(|d| d.reply.take()) {
                     r.send(None);
@@ -329,7 +357,7 @@ impl App {
             } else {
                 d.text.trim_end().trim_end_matches(':').trim_end()
             },
-            &d.input,
+            d.input.as_str(),
         )
         .id(INPUT_ID)
         .secure(!d.echo)
@@ -374,9 +402,23 @@ impl App {
             .font(self.font)
             .size(11)
             .color(dim),
-            input,
         ]
         .spacing(12);
+        // Détails de la demande (commande exacte de pkexec…), dépliés à la demande.
+        if d.show_details {
+            let mut lines = column![].spacing(2);
+            for (k, v) in d.req.details.iter().take(6) {
+                lines = lines.push(
+                    text(format!("{k} : {v}"))
+                        .font(iced::Font::MONOSPACE)
+                        .size(11)
+                        .color(fg)
+                        .wrapping(iced::widget::text::Wrapping::None),
+                );
+            }
+            col = col.push(lines);
+        }
+        col = col.push(input);
         if let Some((m, is_error)) = &d.message {
             col = col.push(
                 text(m.clone())
@@ -424,8 +466,27 @@ impl App {
         if !waiting {
             ok = ok.on_press(wrap(PMsg::Submit));
         }
+        let details: Element<'_, Msg> = if d.req.details.is_empty() {
+            iced::widget::Space::new().into()
+        } else {
+            button(
+                text(if d.show_details {
+                    crate::i18n::tr("Masquer les détails")
+                } else {
+                    crate::i18n::tr("Détails")
+                })
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            )
+            .padding([6, 4])
+            .style(|_, _| button::Style::default())
+            .on_press(wrap(PMsg::Details))
+            .into()
+        };
         col = col.push(
             row![
+                details,
                 iced::widget::Space::new().width(Length::Fill),
                 button(text(crate::i18n::tr("Annuler")).font(self.font).size(14))
                     .padding([8, 16])
@@ -439,7 +500,7 @@ impl App {
         let card = container(col)
             .padding(22)
             .width(WIDTH)
-            .height(HEIGHT)
+            .height(height(d))
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
@@ -472,6 +533,7 @@ mod tests {
             user: "alice".into(),
             cookie: "c".into(),
             attempt: 1,
+            details: Vec::new(),
         };
         let ask = tokio::spawn(async move { p.prompt(&req, "Mot de passe :", false).await });
         let Some(Event::Prompt { reply, echo, .. }) = rx.recv().await else {
@@ -494,6 +556,7 @@ mod tests {
             user: "alice".into(),
             cookie: "c".into(),
             attempt: 1,
+            details: Vec::new(),
         };
         let ask = tokio::spawn(async move { p.prompt(&req, "Mot de passe :", false).await });
         let Some(Event::Prompt { reply, .. }) = rx.recv().await else {
