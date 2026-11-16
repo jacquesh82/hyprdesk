@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-16
+
 ### Added
 
 - **Screens: drag to place** (MLG-147): screens move with the mouse on the
