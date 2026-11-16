@@ -93,3 +93,48 @@ sha256sum -c --ignore-missing SHA256SUMS
 `scripts/install.sh` does both before installing anything as root (the
 signature when `cosign` is installed; set `HYPRDESK_REQUIRE_SIGNATURE=1` to
 make it mandatory).
+
+## Trust model
+
+What hyprdesk assumes, and what it does not protect against:
+
+- **Code that runs as you is trusted.** `hyprdesk.lua`, the plugins in
+  `hyprdesk/widgets/` and `settings.lua` run with your rights. hyprdesk
+  never runs code you did not accept:
+  - an archive (`hyprdesk import`, the **Sharing** package, a theme) is
+    checked without running its Lua, read in a sandbox (no files, no
+    commands), and its `hyprdesk.lua` and plugins are only installed after an
+    explicit consent (`--trust-code`); a theme alone carries no code; AI
+    services declared by an archive are ignored;
+  - a third-party plugin goes into quarantine first and is installed only
+    after its review card (source, commit, SHA-256, start of the code) has
+    been accepted; git sources must be `https://` or ssh.
+- **The myMFA vault, once open, answers any process of the session.** The
+  myMFA Linux client exposes `today.mindlog.MyMfa1` on the session bus;
+  hyprdesk calls it (passwords, codes, content) without a token, like any
+  other client would. Checking the caller (executable, confirmation for a
+  reveal requested by another process, access log) belongs to the myMFA
+  daemon. Until it does, treat malware running as you as able to read the
+  open vault, and lock the vault when you leave the machine.
+- **Root only runs root-owned binaries.** Scripts and `pkexec` steps run
+  `/usr/bin/hyprdesk` (package) or a root-owned `/usr/local/bin/hyprdesk`,
+  never a binary from `~/.local/bin`.
+- **Data sent to AI services** is sent on a gesture: a failed update opens
+  a window with **Ask LYRA** instead of reaching LYRA on its own; SmartUI's
+  automatic icons are off until enabled; plain `http://` endpoints are only
+  accepted towards `localhost`.
+
+### Machine policy
+
+An administrator can pin some settings in `/etc/hyprdesk/policy.toml`
+(owned by root, not writable by group or others — otherwise it is ignored);
+neither the Lua configuration, the Settings nor an imported archive can
+override it:
+
+```toml
+fingerprint = false            # no fingerprint unlock
+idle_lock_max = 600            # idle lock enforced, at most 600 s
+third_party_plugins = false    # no third-party plugin installation
+index_removable = false        # removable media are not indexed
+clipboard_history = false      # no clipboard history
+```

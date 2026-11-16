@@ -4,7 +4,8 @@
 -- dnd|clear`), sinon wayle s'il tourne (sa CLI), sinon le dernier état
 -- publié par hyprdesk ($XDG_RUNTIME_DIR/hyprdesk-notifications.txt).
 
-local STATE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hyprdesk-notifications.txt"
+-- Écrit par hyprdesk dans son dossier d'exécution privé (jamais /tmp).
+local STATE = (hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR") or "/nonexistent") .. "/hyprdesk-notifications.txt"
 
 -- La liste de wayle ne sert qu'au menu : `with_list` seulement à son ouverture.
 local function wayle(with_list)

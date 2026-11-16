@@ -716,9 +716,7 @@ fn set_table(
     for v in r.iter().chain(&g).chain(&b) {
         bytes.extend_from_slice(&v.to_ne_bytes());
     }
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+    let dir = crate::policy::private_runtime_or_unusable();
     let path = dir.join(format!("hyprdesk-gamma-{}", std::process::id()));
     let mut f = std::fs::OpenOptions::new()
         .read(true)

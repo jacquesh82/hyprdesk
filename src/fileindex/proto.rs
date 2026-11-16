@@ -75,14 +75,7 @@ pub fn socket_path() -> PathBuf {
     if let Ok(d) = hyprpanel_core::ipc::instance_dir() {
         return d.join("hyprdesk-index.sock");
     }
-    let rt = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let uid = unsafe { libc::getuid() };
-            PathBuf::from(format!("/tmp/runtime-{uid}"))
-        });
-    rt.join("hyprdesk-index.sock")
+    crate::policy::private_runtime_or_unusable().join("hyprdesk-index.sock")
 }
 
 /// Le lanceur demande-t-il une recherche de fichiers ?

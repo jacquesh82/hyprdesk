@@ -4,7 +4,8 @@
 -- qu'il écrit et l'affiche. Un échec est confié au démon : l'assistant LYRA
 -- s'il est là, sinon une fenêtre de détail copiable.
 
-local STATE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hyprdesk-updates.txt"
+-- Écrit par hyprdesk dans son dossier d'exécution privé (jamais /tmp).
+local STATE = (hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR") or "/nonexistent") .. "/hyprdesk-updates.txt"
 -- Relevé relancé au plus toutes les heures.
 local MAX_AGE = 3600
 

@@ -141,6 +141,7 @@
 ---@class HD.API
 ---@field version string
 ---@field exe string Path of the running hyprdesk (e.g. hd.spawn(hd.exe .. " lock")).
+---@field runtime_dir string? Private, checked runtime folder (0700); nil if there is none. Never /tmp.
 hd = {}
 
 ---@param spec HD.ConfigSpec
@@ -244,6 +245,12 @@ function hd.spawn(cmd) end
 ---@param cmd string
 ---@return string
 function hd.exec(cmd) end
+
+--- Creates a 0600 file exclusively, without following links, and writes `data` to it.
+---@param path string
+---@param data string
+---@return boolean ok, string? error
+function hd.write_private(path, data) end
 
 --- Launches a command through Hyprland, without waiting for its output.
 ---@param cmd string

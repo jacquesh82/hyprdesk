@@ -11,7 +11,7 @@ local function cmd(args)
 end
 
 local function recording()
-    local dir = os.getenv("XDG_RUNTIME_DIR")
+    local dir = hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR")
     if not dir then return nil end
     local f = io.open(dir .. "/hyprdesk-recording", "r")
     if not f then return nil end

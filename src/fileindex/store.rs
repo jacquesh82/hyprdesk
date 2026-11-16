@@ -67,7 +67,14 @@ pub fn snapshot_path() -> PathBuf {
 pub fn save(index: &Index) -> std::io::Result<()> {
     let path = snapshot_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        // Les chemins de tout le home (et des supports indexés) : dossier
+        // fermé aux autres comptes, même si le home est lisible.
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)?;
+        let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
     }
     save_to(&path, index)
 }
@@ -77,10 +84,9 @@ pub fn save_to(path: &std::path::Path, index: &Index) -> std::io::Result<()> {
     let mut gz = GzEncoder::new(Vec::new(), Compression::default());
     gz.write_all(&encoder(index))?;
     let data = gz.finish()?;
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, &data)?;
-    // renommage atomique : un crash laisse l'ancien snapshot intact
-    fs::rename(&tmp, path)
+    // Fichier 0600 créé à neuf, puis renommage atomique : un crash laisse
+    // l'ancien snapshot intact.
+    crate::policy::write_private(path, &data)
 }
 
 /// Charge le snapshot par défaut.

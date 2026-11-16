@@ -103,14 +103,14 @@ local function set_airplane(on)
     end
 end
 
--- Connexion avec mot de passe, sans le mettre sur une ligne de commande.
+-- Connexion avec mot de passe, sans le mettre sur une ligne de commande :
+-- fichier 0600 créé de façon exclusive dans le dossier d'exécution privé,
+-- effacé aussitôt la connexion tentée.
 local function connect_with_password(ssid, password)
-    local dir = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
-    local file = dir .. "/hyprdesk-wifi-" .. tostring(os.time()) .. ".secret"
-    local f = io.open(file, "w")
-    if not f then return end
-    f:write("802-11-wireless-security.psk:" .. password .. "\n")
-    f:close()
+    local dir = hd.runtime_dir
+    if not dir or not hd.write_private then return end
+    local file = dir .. "/hyprdesk-wifi-" .. tostring(os.time()) .. "-" .. tostring(math.random(1000000000)) .. ".secret"
+    if not hd.write_private(file, "802-11-wireless-security.psk:" .. password .. "\n") then return end
     hd.spawn("sh -c " .. q(
         "umask 077; nmcli connection add type wifi con-name " .. q(ssid) .. " ssid " .. q(ssid)
         .. " wifi-sec.key-mgmt wpa-psk >/dev/null && nmcli connection up id " .. q(ssid)

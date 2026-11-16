@@ -324,10 +324,7 @@ pub fn mask_credentials(s: &str) -> String {
 /// puis une ligne `source=<libellé>|<n>|<paquets séparés par des espaces>`
 /// par source.
 pub fn state_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("hyprdesk-updates.txt")
+    crate::policy::private_runtime_or_unusable().join("hyprdesk-updates.txt")
 }
 
 /// Rapport du dernier échec (`hyprdesk updates --report` le renvoie au démon).

@@ -2450,6 +2450,24 @@ fn install_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|_, ()| Ok(crate::i18n::code()))?,
     )?;
     hd.set("version", env!("CARGO_PKG_VERSION"))?;
+    // Dossier d'exécution privé et vérifié (jamais /tmp partagé) ; absent :
+    // nil. Les plugins y rangent leurs fichiers d'état.
+    if let Ok(d) = crate::policy::private_runtime() {
+        hd.set("runtime_dir", d.display().to_string())?;
+    }
+    // Fichier secret : créé en 0600, de façon exclusive, sans suivre de lien.
+    hd.set(
+        "write_private",
+        lua.create_function(|_, (path, data): (String, mlua::LuaString)| {
+            use std::io::Write;
+            let r = crate::policy::create_private(Path::new(&path))
+                .and_then(|mut f| f.write_all(&data.as_bytes()));
+            Ok(match r {
+                Ok(()) => (true, None),
+                Err(e) => (false, Some(e.to_string())),
+            })
+        })?,
+    )?;
     // Chemin du hyprdesk en cours : les plugins l'appellent sans dépendre du PATH.
     hd.set(
         "exe",
@@ -2681,6 +2699,7 @@ local function refused() return nil, "sandbox" end
 local stub = { __index = function() return refused end }
 hd.exec = function() return "" end
 hd.spawn = function() end
+hd.write_private = refused
 io = setmetatable({}, stub)
 load = nil
 loadfile = nil

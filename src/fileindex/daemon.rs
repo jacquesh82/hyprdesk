@@ -39,6 +39,9 @@ const SAVE_DEBOUNCE_SECS: i64 = 60;
 const MAX_HITS: usize = 200;
 /// Plafond d'une ligne de requête (localement suffisant).
 const MAX_LINE: usize = 64 * 1024;
+/// Connexions servies en même temps, et délai de lecture d'une requête.
+const MAX_CONNEXIONS: usize = 32;
+const DELAI_REQUETE: Duration = Duration::from_secs(2);
 /// Plancher du rescan périodique : `index.interval = 0` ne doit pas
 /// enchaîner les scans complets.
 const MIN_INTERVAL_SECS: u64 = 60;
@@ -612,14 +615,13 @@ async fn servir(etat: Arc<Etat>) -> anyhow::Result<()> {
         );
     }
     let _ = std::fs::remove_file(&path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let listener = UnixListener::bind(&path)?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
+    // Socket créée d'emblée en 0600 (umask 077 le temps du bind), pas
+    // refermée après coup ; son dossier est le dossier d'exécution privé.
+    // SAFETY : umask n'échoue pas ; rétabli aussitôt.
+    let old = unsafe { libc::umask(0o077) };
+    let bound = UnixListener::bind(&path);
+    unsafe { libc::umask(old) };
+    let listener = bound?;
     tracing::info!(
         "{}",
         crate::tr!("index en écoute sur {p0}", p0 = path.display())
@@ -644,23 +646,34 @@ async fn servir(etat: Arc<Etat>) -> anyhow::Result<()> {
         std::process::exit(0);
     });
 
+    let places = Arc::new(tokio::sync::Semaphore::new(MAX_CONNEXIONS));
     loop {
         let Ok((stream, _)) = listener.accept().await else {
             continue;
         };
+        // Au-delà du plafond, la connexion est refermée aussitôt.
+        let Ok(place) = places.clone().try_acquire_owned() else {
+            drop(stream);
+            continue;
+        };
         let etat = etat.clone();
         tokio::spawn(async move {
+            let _place = place;
             let _ = gerer(stream, &etat).await;
         });
     }
 }
 
 async fn gerer(stream: UnixStream, etat: &Arc<Etat>) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
     let (r, mut w) = tokio::io::split(stream);
-    let mut lecteur = BufReader::new(r);
+    // Lecture bornée en taille et en temps : une ligne sans fin n'épuise
+    // pas la mémoire du démon.
+    let mut lecteur = BufReader::new(r.take(MAX_LINE as u64 + 1));
     let mut ligne = String::new();
-    if lecteur.read_line(&mut ligne).await? == 0 || ligne.len() > MAX_LINE {
-        return Ok(());
+    match tokio::time::timeout(DELAI_REQUETE, lecteur.read_line(&mut ligne)).await {
+        Ok(Ok(n)) if n > 0 && ligne.len() <= MAX_LINE => {}
+        _ => return Ok(()),
     }
     let rep = match serde_json::from_str::<Request>(ligne.trim()) {
         Ok(req) => traiter(etat, req),

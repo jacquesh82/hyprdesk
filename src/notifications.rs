@@ -81,10 +81,7 @@ pub enum Event {
 /// `$XDG_RUNTIME_DIR/hyprdesk-notifications.txt` — `dnd=0|1`, `count=N`,
 /// puis `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
 pub fn state_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("hyprdesk-notifications.txt")
+    crate::policy::private_runtime_or_unusable().join("hyprdesk-notifications.txt")
 }
 
 /// « Ne pas déranger » gardé d'une session à l'autre.

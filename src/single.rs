@@ -19,7 +19,7 @@ pub struct Guard {
 pub fn lock_path() -> PathBuf {
     hyprpanel_core::ipc::instance_dir()
         .or_else(|_| hyprpanel_core::ipc::runtime_dir())
-        .unwrap_or_else(|_| std::env::temp_dir())
+        .unwrap_or_else(|_| crate::policy::private_runtime_or_unusable())
         .join("hyprdesk.lock")
 }
 

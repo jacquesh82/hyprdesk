@@ -158,6 +158,8 @@ This is how the bundled `reseau` plugin asks for a Wi-Fi password:
 | `hd.exec(cmd)` | runs `sh -c cmd` and **waits**, returning its standard output with trailing newlines removed. **5 s maximum**; on timeout the process group is killed. A missing command (exit code 127) raises a clear error |
 | `hd.spawn(cmd)` | starts a program through Hyprland and returns **immediately**. Use it for GUI apps and long tasks |
 | `hd.exe` | path of the running hyprdesk binary: `hd.spawn(hd.exe .. " lock")` |
+| `hd.runtime_dir` | the user's private runtime folder (`$XDG_RUNTIME_DIR`, checked: owned by the user, mode 0700), or `nil`. Put state files there, never in `/tmp` |
+| `hd.write_private(path, data)` | creates `path` with mode 0600, exclusively (fails if it exists) and without following links, then writes `data`; returns `true`, or `false, error`. For secrets handed to another program (a Wi-Fi key file), deleted right after |
 
 - To call hyprdesk, always use **`hd.exe`**, never `"hyprdesk"` from the
   `PATH`: the binary in the `PATH` may be another version, or not there at

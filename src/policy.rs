@@ -20,9 +20,6 @@
 //! lui appartient et n'est ouvert qu'à lui (0700). Jamais de repli sur `/tmp`,
 //! partagé entre comptes.
 
-// Fonctions branchées au fil des lots MLG-150 à MLG-155.
-#![allow(dead_code)]
-
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -146,18 +143,52 @@ fn check_private(dir: &Path, uid: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// Sous-dossier privé (0700) du dossier d'exécution, créé au besoin.
+/// Sous-dossier privé (0700) du dossier d'exécution, créé au besoin. Un
+/// dossier déjà là, à l'utilisateur mais trop ouvert (créé avant en 0755),
+/// est refermé ; un lien ou un dossier d'un autre compte est refusé.
 pub fn runtime_subdir(name: &str) -> Result<PathBuf, String> {
-    use std::os::unix::fs::DirBuilderExt;
-    let dir = runtime_dir()?.join(name);
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    private_dir(&runtime_dir()?.join(name))
+}
+
+fn private_dir(dir: &Path) -> Result<PathBuf, String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(format!("{} : {e}", dir.display())),
     }
     // SAFETY : getuid ne peut pas échouer.
-    check_private(&dir, unsafe { libc::getuid() })?;
-    Ok(dir)
+    let uid = unsafe { libc::getuid() };
+    if let Ok(m) = std::fs::symlink_metadata(dir)
+        && m.is_dir()
+        && m.uid() == uid
+        && m.mode() & 0o077 != 0
+    {
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    check_private(dir, uid)?;
+    Ok(dir.to_path_buf())
+}
+
+/// Dossier d'exécution pour les fichiers d'état (états de la barre, verrou
+/// d'instance, sockets) : [`runtime_dir`], sinon — session lancée sans
+/// logind — `/tmp/hyprdesk-<uid>`, créé en 0700 et vérifié (propriétaire,
+/// mode, pas de lien) : un dossier préparé par un autre compte est refusé.
+pub fn private_runtime() -> Result<PathBuf, String> {
+    runtime_dir().or_else(|_| {
+        // SAFETY : getuid ne peut pas échouer.
+        let uid = unsafe { libc::getuid() };
+        private_dir(&PathBuf::from(format!("/tmp/hyprdesk-{uid}")))
+    })
+}
+
+/// [`private_runtime`], ou un chemin inutilisable : écrire y échoue
+/// proprement plutôt que de tomber dans un dossier partagé.
+pub fn private_runtime_or_unusable() -> PathBuf {
+    private_runtime().unwrap_or_else(|e| {
+        eprintln!("hyprdesk : {e}");
+        PathBuf::from("/nonexistent/hyprdesk-runtime")
+    })
 }
 
 /// Crée un fichier privé (0600) de façon exclusive, sans suivre de lien.

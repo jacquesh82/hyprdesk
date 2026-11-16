@@ -93,10 +93,14 @@ impl IndexConfig {
 
 /// Racines par défaut : le home et les volumes amovibles montés
 /// (clés USB, disques Windows NTFS… sous /media et /run/media/$USER).
+/// `index_removable = false` dans la politique du poste : le home seul.
 pub fn default_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = home_dir() {
         roots.push(home);
+    }
+    if !crate::policy::get().removable_allowed() {
+        return roots;
     }
     for base in media_bases() {
         if let Ok(entries) = std::fs::read_dir(&base) {

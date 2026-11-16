@@ -82,14 +82,11 @@ pub fn path() -> Result<PathBuf, String> {
         .join("lock.json"))
 }
 
-/// Dossier de `path()`, créé au besoin (0700).
+/// Dossier de `path()`, créé au besoin (0700, refermé s'il était ouvert ;
+/// un lien ou un dossier d'un autre compte est refusé).
 pub fn ensure_dir() -> Result<PathBuf, String> {
-    let p = path()?;
-    let dir = p.parent().map(PathBuf::from).unwrap_or_default();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{} : {e}", dir.display()))?;
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    Ok(p)
+    crate::policy::runtime_subdir("hyprdesk")?;
+    path()
 }
 
 /// État du verrouillage d'après la config, pour l'écran principal et le
