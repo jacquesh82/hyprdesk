@@ -380,8 +380,14 @@ The **Plugins** package shows everything that is installed:
   the core and always stay enabled (`CORE_PLUGINS`).
 - **Lua plugins.** Each one shows whether it is active and where it comes from:
   built-in, shipped, or third-party (with its path). A third-party plugin is
-  installed from a `.lua` file, an `init.lua` folder or a git repository, into
-  `~/.config/hypr/hyprdesk/widgets/` (`widgets::plugins::install`).
+  installed from a `.lua` file, an `init.lua` folder or a git repository
+  (https:// or ssh only; `#<commit>` at the end of the URL pins a revision), into
+  `~/.config/hypr/hyprdesk/widgets/`. It first goes into quarantine
+  (`widgets::plugins::fetch`, outside the plugin folders: nothing is loaded);
+  the review card shows the source, the commit, the SHA-256 and the start of
+  the code, and installation only happens after consent
+  (`widgets::plugins::confirm`). `third_party_plugins = false` in
+  `/etc/hyprdesk/policy.toml` forbids it on the machine.
   Removing it moves it to `.retired/`, from where it can be restored.
 - **Configure.** A plugin that declares `options` has a "Configure" button:
   each option is set there (a switch for a boolean, a field for a number or

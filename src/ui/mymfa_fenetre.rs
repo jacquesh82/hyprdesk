@@ -1070,24 +1070,28 @@ impl Fenetre {
                 }
                 Err(e) => Task::done(Msg::MymfaF(FMsg::Message(true, e))),
             },
+            // Capture vers la sortie standard, décodée en mémoire : l'image du
+            // QR (la graine du second facteur) n'est jamais écrite sur disque.
             FMsg::CapturerEcran => Task::perform(
                 async {
-                    tokio::process::Command::new("sh")
+                    let o = tokio::process::Command::new("sh")
                         .arg("-c")
-                        .arg("grim -g \"$(slurp)\" /tmp/hyprdesk-qr.png && echo ok")
+                        .arg("zone=\"$(slurp)\" && exec grim -g \"$zone\" -t png -")
+                        .stdin(std::process::Stdio::null())
                         .output()
                         .await
+                        .ok()
+                        .filter(|o| o.status.success() && !o.stdout.is_empty())?;
+                    tokio::task::spawn_blocking(move || decoder_octets(&o.stdout))
+                        .await
+                        .ok()
                 },
-                |r| {
-                    let ok = r.map(|o| o.status.success()).unwrap_or(false);
-                    if ok {
-                        Msg::MymfaF(FMsg::Capture(Ok("/tmp/hyprdesk-qr.png".into())))
-                    } else {
-                        Msg::MymfaF(FMsg::Capture(Err(crate::i18n::tr(
-                            "Capture interrompue (sélection annulée ?).",
-                        )
-                        .to_string())))
-                    }
+                |r| match r {
+                    Some(decode) => Msg::MymfaF(FMsg::ImageDecode(decode)),
+                    None => Msg::MymfaF(FMsg::Capture(Err(crate::i18n::tr(
+                        "Capture interrompue (sélection annulée ?).",
+                    )
+                    .to_string()))),
                 },
             ),
             FMsg::Capture(r) => match r {
@@ -3210,6 +3214,16 @@ pub fn solidite(mot: &str) -> (u8, u32) {
 /// Décode le premier QR d'une image (chemin local) : renvoie son contenu.
 fn decoder_image(chemin: &str) -> Result<String, String> {
     let img = image::open(chemin).map_err(|e| format!("image illisible : {e}"))?;
+    decoder_qr(img)
+}
+
+/// Décode le premier QR d'une image en mémoire (capture d'écran).
+fn decoder_octets(octets: &[u8]) -> Result<String, String> {
+    let img = image::load_from_memory(octets).map_err(|e| format!("image illisible : {e}"))?;
+    decoder_qr(img)
+}
+
+fn decoder_qr(img: image::DynamicImage) -> Result<String, String> {
     let luma = img.to_luma8();
     let mut preparee = rqrr::PreparedImage::prepare(luma);
     for grille in preparee.detect_grids() {

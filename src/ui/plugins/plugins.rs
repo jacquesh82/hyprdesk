@@ -56,6 +56,8 @@ pub struct State {
     /// relevé et mise à jour de hyprdesk.
     pub update_sources: Vec<(String, String, String, String)>,
     pub opt_error: Option<String>,
+    /// Plugin tiers en quarantaine, en attente d'accord.
+    pub pending: Option<crate::widgets::plugins::Pending>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,10 @@ pub enum Msg {
     Package(String, bool),
     Source(String),
     Install,
+    /// Plugin mis en quarantaine : relecture et accord avant installation.
+    Fetched(Result<crate::widgets::plugins::Pending, String>),
+    /// Accord (`true`) ou renoncement pour le plugin en quarantaine.
+    Confirm(bool),
     Installed(Result<String, String>),
     /// Retire un plugin tiers (fichier du plugin).
     Retire(std::path::PathBuf),
@@ -305,6 +311,74 @@ impl App {
                 Ok(m) => text(m.clone()).font(self.font).size(12).color(accent),
                 Err(e) => text(e.clone()).font(self.font).size(12).color(warn),
             });
+        }
+        if let Some(q) = &p.plugins.pending {
+            let mut card =
+                column![
+                text(crate::tr!("Relire « {name} » avant de l'installer", name = q.name))
+                    .font(self.ui_font(iced::font::Weight::Medium))
+                    .size(14)
+                    .color(fg),
+                text(crate::i18n::tr(
+                    "Un plugin s'exécute avec vos droits : il peut lire vos fichiers et lancer des \
+                     commandes. N'installez que le code d'un auteur que vous connaissez.",
+                ))
+                .font(self.font)
+                .size(12)
+                .color(warn),
+                text(crate::tr!("Source : {s}", s = q.source))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            ]
+                .spacing(6);
+            if let Some(c) = &q.commit {
+                card = card.push(
+                    text(crate::tr!("Commit : {c}", c = c))
+                        .font(iced::Font::MONOSPACE)
+                        .size(12)
+                        .color(dim),
+                );
+            }
+            card = card
+                .push(
+                    text(crate::tr!(
+                        "SHA-256 du point d'entrée : {h} — {n} fichier(s) Lua",
+                        h = q.digest,
+                        n = q.lua_files
+                    ))
+                    .font(iced::Font::MONOSPACE)
+                    .size(11)
+                    .color(dim),
+                )
+                .push(
+                    container(
+                        text(q.preview.clone())
+                            .font(iced::Font::MONOSPACE)
+                            .size(11)
+                            .color(fg),
+                    )
+                    .padding(8)
+                    .width(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: Some(Color { a: 0.06, ..fg }.into()),
+                        border: Border::default().rounded(8),
+                        ..Default::default()
+                    }),
+                )
+                .push(
+                    row![
+                        button(text("Installer ce code").font(self.font).size(13))
+                            .padding([6, 14])
+                            .on_press(wrap(Msg::Confirm(true))),
+                        button(text("Annuler").font(self.font).size(13))
+                            .padding([6, 14])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Confirm(false))),
+                    ]
+                    .spacing(10),
+                );
+            add = add.push(card);
         }
 
         // Onglets : paquets intégrés | plugins de widget de barre.
@@ -737,10 +811,50 @@ impl App {
                     return Task::none();
                 };
                 let dest = user_dir(self);
+                if let Some(old) = self.panel.as_mut().and_then(|p| p.plugins.pending.take()) {
+                    crate::widgets::plugins::discard(&old);
+                }
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            crate::widgets::plugins::install(&source, &dest)
+                            crate::widgets::plugins::fetch(&source, &dest)
+                        })
+                        .await
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r)
+                    },
+                    |r| wrap(Msg::Fetched(r)),
+                )
+            }
+            Msg::Fetched(r) => {
+                if let Some(p) = self.panel.as_mut() {
+                    match r {
+                        Ok(q) => {
+                            p.plugins.report = None;
+                            p.plugins.pending = Some(q);
+                        }
+                        Err(e) => p.plugins.report = Some(Err(e)),
+                    }
+                }
+                Task::none()
+            }
+            Msg::Confirm(yes) => {
+                let Some(q) = self.panel.as_mut().and_then(|p| p.plugins.pending.take()) else {
+                    return Task::none();
+                };
+                if !yes {
+                    crate::widgets::plugins::discard(&q);
+                    if let Some(p) = self.panel.as_mut() {
+                        p.plugins.report =
+                            Some(Ok(crate::i18n::tr("Installation annulée.").into()));
+                    }
+                    return Task::none();
+                }
+                let dest = user_dir(self);
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::widgets::plugins::confirm(&q, &dest)
                         })
                         .await
                         .map_err(|e| e.to_string())

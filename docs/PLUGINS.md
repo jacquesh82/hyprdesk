@@ -382,8 +382,14 @@ Le paquet **Plugins** montre tout ce qui est installé :
   le cœur et restent toujours actifs (`CORE_PLUGINS`).
 - **Plugins Lua.** Chacun indique s'il est actif et d'où il vient : intégré,
   livré, ou tiers (avec son chemin). Un plugin tiers s'installe depuis un
-  fichier `.lua`, un dossier `init.lua` ou un dépôt git, dans
-  `~/.config/hypr/hyprdesk/widgets/` (`widgets::plugins::install`). Le
+  fichier `.lua`, un dossier `init.lua` ou un dépôt git (https:// ou ssh
+  seulement ; `#<commit>` à la fin de l'URL épingle une révision), dans
+  `~/.config/hypr/hyprdesk/widgets/`. Il passe d'abord en quarantaine
+  (`widgets::plugins::fetch`, hors des dossiers de plugins : rien n'est
+  chargé) ; la carte de relecture montre la source, le commit, l'empreinte
+  SHA-256 et le début du code, et l'installation n'a lieu qu'après accord
+  (`widgets::plugins::confirm`). `third_party_plugins = false` dans
+  `/etc/hyprdesk/policy.toml` l'interdit sur le poste. Le
   retirer le déplace dans `.retired/`, d'où on peut le remettre.
 - **Configurer.** Un plugin qui déclare des `options` a un bouton
   « Configurer » : chaque option s'y règle (interrupteur pour un booléen,
