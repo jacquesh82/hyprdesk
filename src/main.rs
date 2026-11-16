@@ -49,8 +49,8 @@ mod mymfa;
 mod notifications;
 mod osd;
 mod perf;
-mod polkit;
 mod policy;
+mod polkit;
 mod portal;
 mod processes;
 mod render;
@@ -1041,7 +1041,7 @@ fn main() -> ExitCode {
                 eprintln!(
                     "{}",
                     crate::tr!(
-                        "hyprdesk import <archive.tar.gz> [--theme] [--dry-run] [--screens]"
+                        "hyprdesk import <archive.tar.gz> [--theme] [--dry-run] [--screens] [--trust-code]"
                     )
                 );
                 return ExitCode::FAILURE;
@@ -1056,6 +1056,7 @@ fn main() -> ExitCode {
                 screens,
                 dry_run: dry,
                 backup: true,
+                trust_code: args.iter().any(|a| a == "--trust-code"),
             };
             match share::import(&file, &config_path, opts) {
                 Ok(r) => {

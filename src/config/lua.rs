@@ -2668,6 +2668,54 @@ pub fn load_source(src: &str, chunk_name: &str, base_dir: &Path) -> Result<Loade
 /// Exécute plusieurs sources dans le MÊME état Lua, dans l'ordre : ce qui
 /// vient après l'emporte (dernière déclaration, dernière valeur de `hd.config`).
 pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Result<Loaded, String> {
+    load_chunks_with(chunks, base_dir, false)
+}
+
+/// Bac à sable d'une configuration venue d'ailleurs (archive importée) : ni
+/// fichiers, ni commandes, ni chargement de code hors du dossier de
+/// l'archive (`io.*`, `os.execute`… rendent `nil, "sandbox"`, `hd.exec` une
+/// chaîne vide). Le calcul pur (tables, chaînes, maths, `os.time`/`os.date`)
+/// reste permis : c'est ce qu'il faut pour lire les réglages qu'elle déclare.
+const SANDBOX: &str = r#"
+local function refused() return nil, "sandbox" end
+local stub = { __index = function() return refused end }
+hd.exec = function() return "" end
+hd.spawn = function() end
+io = setmetatable({}, stub)
+load = nil
+loadfile = nil
+dofile = nil
+loadstring = nil
+if os then
+    os = setmetatable(
+        { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime },
+        stub
+    )
+end
+if package then
+    package.loadlib = nil
+    package.cpath = ""
+    if package.searchers then
+        -- Seul le chercheur des modules Lua (package.path) reste.
+        package.searchers = { package.searchers[1], package.searchers[2] }
+    end
+end
+"#;
+
+/// Comme [`load_chunks`], dans le bac à sable [`SANDBOX`] : `require` et les
+/// plugins ne viennent que de `base_dir/hyprdesk` (et des plugins livrés).
+pub fn load_chunks_sandboxed(
+    chunks: &[(String, String, Origin)],
+    base_dir: &Path,
+) -> Result<Loaded, String> {
+    load_chunks_with(chunks, base_dir, true)
+}
+
+fn load_chunks_with(
+    chunks: &[(String, String, Origin)],
+    base_dir: &Path,
+    sandbox: bool,
+) -> Result<Loaded, String> {
     let lua = Lua::new();
     reset_budget(&lua).map_err(|e| e.to_string())?;
     let setup = || -> mlua::Result<()> {
@@ -2675,18 +2723,30 @@ pub fn load_chunks(chunks: &[(String, String, Origin)], base_dir: &Path) -> Resu
         let package: Table = lua.globals().get("package")?;
         let old: String = package.get("path")?;
         let mods = base_dir.join("hyprdesk");
-        package.set(
-            "path",
-            format!("{0}/?.lua;{0}/?/init.lua;{old}", mods.display()),
-        )?;
+        let path = if sandbox {
+            format!("{0}/?.lua;{0}/?/init.lua", mods.display())
+        } else {
+            format!("{0}/?.lua;{0}/?/init.lua;{old}", mods.display())
+        };
+        package.set("path", path)?;
+        if sandbox {
+            lua.load(SANDBOX).set_name("=sandbox").exec()?;
+            lua.set_memory_limit(64 << 20)?;
+        }
         Ok(())
     };
     setup().map_err(|e| format!("initialisation Lua : {e}"))?;
     // Plugins de widgets : chargés avant la config, chacun isolément ; un
     // plugin cassé apparaît en erreur dans le catalogue sans bloquer le reste.
+    // Bac à sable : seulement ceux du dossier chargé, pas ceux du poste.
+    let plugin_dirs = if sandbox {
+        vec![base_dir.join("hyprdesk").join("widgets")]
+    } else {
+        crate::widgets::plugins::dirs(base_dir)
+    };
     let mut catalog = crate::widgets::builtin_types();
     let mut plugins = std::collections::HashMap::new();
-    for (id, source) in crate::widgets::plugins::all(&crate::widgets::plugins::dirs(base_dir)) {
+    for (id, source) in crate::widgets::plugins::all(&plugin_dirs) {
         let broken = |error: String| WidgetType {
             id: id.clone(),
             name: id.clone(),
@@ -2870,6 +2930,41 @@ pub fn load_file(path: &Path) -> Result<Loaded, String> {
         .map_err(|e| format!("lecture de {} : {e}", path.display()))?;
     chunks.push((src, path.display().to_string(), Origin::User));
     load_chunks(&chunks, base)
+}
+
+/// [`load_file`] dans le bac à sable : configuration d'une archive importée.
+pub fn load_file_sandboxed(path: &Path) -> Result<Loaded, String> {
+    let base = path.parent().unwrap_or(Path::new("."));
+    let mut chunks = Vec::new();
+    let sp = settings_path(path);
+    if let Ok(src) = std::fs::read_to_string(&sp) {
+        chunks.push((src, sp.display().to_string(), Origin::Settings));
+    }
+    if let Ok(src) = std::fs::read_to_string(path) {
+        chunks.push((src, path.display().to_string(), Origin::User));
+    }
+    load_chunks_sandboxed(&chunks, base)
+}
+
+/// `settings.lua` seul, dans le bac à sable (archive importée).
+pub fn load_settings_only_sandboxed(config_path: &Path) -> Result<Config, String> {
+    let sp = settings_path(config_path);
+    let Ok(src) = std::fs::read_to_string(&sp) else {
+        return Ok(Config::default());
+    };
+    let base = config_path.parent().unwrap_or(Path::new("."));
+    load_chunks_sandboxed(&[(src, sp.display().to_string(), Origin::Settings)], base)
+        .map(|l| l.config)
+}
+
+/// Compile sans exécuter : erreur de syntaxe éventuelle d'une source Lua.
+pub fn syntax_check(src: &str, chunk_name: &str) -> Result<(), String> {
+    Lua::new()
+        .load(src)
+        .set_name(format!("@{chunk_name}"))
+        .into_function()
+        .map(|_| ())
+        .map_err(|e| short_lua_error(&e))
 }
 
 /// Charge SEULEMENT `settings.lua`, pour que l'écran Réglages relise ses propres valeurs.

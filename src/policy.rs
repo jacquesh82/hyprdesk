@@ -135,7 +135,10 @@ fn check_private(dir: &Path, uid: u32) -> Result<(), String> {
         return Err(format!("{} n'est pas un dossier", dir.display()));
     }
     if meta.uid() != uid {
-        return Err(format!("{} n'appartient pas à l'utilisateur", dir.display()));
+        return Err(format!(
+            "{} n'appartient pas à l'utilisateur",
+            dir.display()
+        ));
     }
     if meta.mode() & 0o077 != 0 {
         return Err(format!("{} est ouvert à d'autres comptes", dir.display()));

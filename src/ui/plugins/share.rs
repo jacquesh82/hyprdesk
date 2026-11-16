@@ -36,6 +36,10 @@ pub struct State {
     pub report: Option<Result<String, String>>,
     /// L'archive à importer a été vérifiée (simulation) : l'import est permis.
     pub checked: bool,
+    /// La vérification a trouvé du code Lua (tout le setup) : l'import attend
+    /// l'accord explicite de l'utilisateur.
+    pub has_code: bool,
+    pub trust_code: bool,
 }
 
 impl Default for State {
@@ -51,6 +55,8 @@ impl Default for State {
             screens: false,
             report: None,
             checked: false,
+            has_code: false,
+            trust_code: false,
         }
     }
 }
@@ -65,15 +71,18 @@ pub enum Msg {
     Export,
     /// Simulation (`dry_run`), puis import réel.
     Check,
+    /// Accord pour le code Lua de l'archive.
+    TrustCode(bool),
     Import,
+    /// Compte rendu ; `bool` : l'archive contient du code Lua.
     Done(Result<String, String>, Op),
+    Checked(Result<(String, bool), String>),
 }
 
 /// Opération dont vient un compte rendu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
     Export,
-    Check,
     Import,
 }
 
@@ -177,7 +186,9 @@ impl App {
                     .on_press_maybe((!s.import_from.trim().is_empty()).then(|| wrap(Msg::Check))),
                 button(text("Importer").font(self.font).size(13))
                     .padding([6, 14])
-                    .on_press_maybe(s.checked.then(|| wrap(Msg::Import))),
+                    .on_press_maybe(
+                        (s.checked && (!s.has_code || s.trust_code)).then(|| wrap(Msg::Import))
+                    ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -188,6 +199,15 @@ impl App {
                 Ok(m) => text(m.clone()).font(self.font).size(12).color(accent),
                 Err(e) => text(e.clone()).font(self.font).size(12).color(warn),
             });
+        }
+        if s.checked && s.has_code {
+            col = col.push(
+                toggler(s.trust_code)
+                    .label(crate::i18n::tr(
+                        "J'accepte le code Lua de cette archive : il s'exécutera avec mes droits",
+                    ))
+                    .on_toggle(|v| wrap(Msg::TrustCode(v))),
+            );
         }
         col.into()
     }
@@ -261,6 +281,10 @@ impl App {
                     |r| wrap(Msg::Done(r, Op::Export)),
                 )
             }
+            Msg::TrustCode(v) => {
+                st.trust_code = v;
+                Task::none()
+            }
             m @ (Msg::Check | Msg::Import) => {
                 let dry = matches!(m, Msg::Check);
                 let opts = crate::share::ImportOpts {
@@ -268,31 +292,39 @@ impl App {
                     screens: st.screens,
                     dry_run: dry,
                     backup: true,
+                    trust_code: !dry && st.trust_code,
                 };
                 let (file, cfg) = (path(&st.import_from), self.config_path.clone());
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            crate::share::import(&file, &cfg, opts).map(|r| r.to_string())
-                        })
+                let run = move || {
+                    crate::share::import(&file, &cfg, opts).map(|r| (r.to_string(), r.has_code()))
+                };
+                let job = async move {
+                    tokio::task::spawn_blocking(run)
                         .await
                         .map_err(|e| e.to_string())
                         .and_then(|r| r)
-                    },
-                    move |r| wrap(Msg::Done(r, if dry { Op::Check } else { Op::Import })),
-                )
+                };
+                if dry {
+                    Task::perform(job, |r| wrap(Msg::Checked(r)))
+                } else {
+                    Task::perform(job, |r| wrap(Msg::Done(r.map(|(m, _)| m), Op::Import)))
+                }
+            }
+            Msg::Checked(r) => {
+                st.has_code = r.as_ref().is_ok_and(|(_, code)| *code);
+                st.trust_code = false;
+                st.checked = r.is_ok();
+                st.report = Some(r.map(|(m, _)| m));
+                Task::none()
             }
             Msg::Done(r, op) => {
                 let ok = r.is_ok();
                 st.report = Some(r);
                 match op {
-                    Op::Check => {
-                        st.checked = ok;
-                        Task::none()
-                    }
                     // Import réel : la config a changé sur disque, on la relit.
                     Op::Import => {
                         st.checked = false;
+                        st.trust_code = false;
                         if ok {
                             Task::done(UiMsg::ConfigChanged)
                         } else {

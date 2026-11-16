@@ -466,14 +466,22 @@ confirmation si le message parle de « gaps », un choix s'il parle de « couleu
 ## 8. Partager un setup
 
 `hyprdesk export [fichier] [--theme] [--screens]` et `hyprdesk import
-<archive> [--theme] [--dry-run] [--screens]`, ou le paquet **Partage**, qui
+<archive> [--theme] [--dry-run] [--screens] [--trust-code]`, ou le paquet **Partage**, qui
 propose deux portées : **tout le setup**, ou **le thème seul**.
 
 - **L'archive** contient `hyprdesk.lua`, `settings.lua`, les plugins tiers,
   les **images** des fonds d'écran, un `manifest.json`, et `monitors.lua`
   sur demande (il décrit les écrans de la machine).
 - **À l'import** :
-  - la configuration importée est vérifiée avant tout changement ;
+  - la configuration importée est vérifiée avant tout changement : la
+    vérification (`--dry-run`, bouton **Vérifier**) compile le Lua sans
+    jamais l'exécuter ;
+  - le Lua de l'archive n'est lu que dans un bac à sable (ni fichiers, ni
+    commandes) ; le thème seul n'emporte aucun code ;
+  - tout le setup recopie `hyprdesk.lua` et les plugins, qui s'exécuteront
+    ensuite avec vos droits : l'import l'annonce et demande votre accord
+    (`--trust-code`, ou la case du paquet **Partage**) ;
+  - les services d'IA de l'archive sont ignorés : les vôtres restent ;
   - la configuration en place est sauvegardée dans `hyprdesk/backups/` ;
   - les fonds sont copiés dans `~/.local/share/hyprdesk/wallpapers/<archive>/`,
     et leurs chemins réécrits ;

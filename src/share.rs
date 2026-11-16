@@ -12,6 +12,18 @@
 //! Un `manifest.json` décrit le contenu, sa portée (`kind`), le résumé du
 //! thème et la correspondance des fonds.
 //!
+//! Une archive vient d'ailleurs : son Lua n'est jamais exécuté avec les
+//! droits de l'utilisateur pendant l'import. La vérification (`dry_run`) ne
+//! fait que compiler les sources (erreurs de syntaxe), sans rien exécuter ;
+//! l'import lit les réglages de l'archive dans un bac à sable
+//! (`config::lua::load_file_sandboxed` : ni fichiers, ni commandes). Le thème
+//! seul n'emporte aucun code : ses valeurs sont réécrites dans
+//! `settings.lua`. Tout le setup recopie `hyprdesk.lua` et les plugins, qui
+//! s'exécuteront ensuite comme la configuration de l'utilisateur : l'import
+//! exige alors `trust_code`, accordé après avertissement. Les services d'IA
+//! (`ai_services`, `ai_use`) d'une archive sont ignorés : la configuration en
+//! place garde les siens, et leurs clés.
+//!
 //! L'import sauvegarde d'abord la configuration en place
 //! (`hyprdesk/backups/`), recopie les fonds dans
 //! `~/.local/share/hyprdesk/wallpapers/<archive>/` et réécrit leurs chemins.
@@ -84,14 +96,20 @@ impl Manifest {
     }
 }
 
+/// Dossier de travail neuf et privé (0700), créé de façon exclusive.
 fn tmp_dir(tag: &str) -> Result<PathBuf, String> {
-    let d = std::env::temp_dir().join(format!(
+    use std::os::unix::fs::DirBuilderExt;
+    let base = crate::policy::runtime_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let d = base.join(format!(
         "hyprdesk-{tag}-{p0}-{p1}",
         tag = tag,
         p0 = std::process::id(),
         p1 = crate::storage::revision()
     ));
-    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&d)
+        .map_err(|e| format!("{} : {e}", d.display()))?;
     Ok(d)
 }
 
@@ -320,6 +338,10 @@ pub struct ImportOpts {
     pub dry_run: bool,
     /// Sauvegarder la configuration en place avant (sauf simulation).
     pub backup: bool,
+    /// Tout le setup : l'utilisateur accepte le code Lua de l'archive
+    /// (`hyprdesk.lua`, plugins), qui s'exécutera avec ses droits. Sans cet
+    /// accord, une archive qui en contient est refusée.
+    pub trust_code: bool,
 }
 
 /// Ce que fait (ou ferait, `dry_run`) un import.
@@ -333,6 +355,18 @@ pub struct Report {
     pub plugins_added: Vec<String>,
     pub plugins_kept: Vec<String>,
     pub wallpapers_dir: Option<PathBuf>,
+    /// Code Lua que l'import installerait (tout le setup) : `hyprdesk.lua`
+    /// et les plugins ajoutés.
+    pub code: Vec<String>,
+    /// Services d'IA déclarés par l'archive, ignorés.
+    pub ai_ignored: bool,
+}
+
+impl Report {
+    /// L'import installerait du code exécuté ensuite avec les droits de l'utilisateur.
+    pub fn has_code(&self) -> bool {
+        !self.code.is_empty()
+    }
 }
 
 impl std::fmt::Display for Report {
@@ -402,6 +436,25 @@ impl std::fmt::Display for Report {
                 )
             )?;
         }
+        if self.has_code() {
+            writeln!(
+                f,
+                "{}",
+                crate::tr!(
+                    "  ⚠ code Lua : {list} — il s'exécutera avec vos droits (fichiers, commandes). N'importez que ce dont vous connaissez l'auteur.",
+                    list = self.code.join(", ")
+                )
+            )?;
+        }
+        if self.ai_ignored {
+            writeln!(
+                f,
+                "{}",
+                crate::i18n::tr(
+                    "  services d'IA de l'archive ignorés : les vôtres et leurs clés restent en place"
+                )
+            )?;
+        }
         match (&self.backup, self.dry_run) {
             (_, true) => write!(
                 f,
@@ -427,6 +480,8 @@ pub fn import(bundle: &Path, config_path: &Path, opts: ImportOpts) -> Result<Rep
     let st = Command::new("tar")
         .arg("xzf")
         .arg(bundle)
+        .arg("--no-same-owner")
+        .arg("--no-same-permissions")
         .arg("-C")
         .arg(&stage)
         .status()
@@ -438,7 +493,8 @@ pub fn import(bundle: &Path, config_path: &Path, opts: ImportOpts) -> Result<Rep
             p0 = bundle.display()
         ));
     }
-    let result = import_from(&stage, bundle, config_path, opts);
+    let result =
+        only_regular_files(&stage).and_then(|()| import_from(&stage, bundle, config_path, opts));
     let _ = std::fs::remove_dir_all(&stage);
     result
 }
@@ -501,13 +557,9 @@ fn import_from(
         opts.scope
     };
     let dir = config_path.parent().unwrap_or(Path::new(".")).to_path_buf();
-    // Vérifier que la configuration importée se charge, avant de toucher à quoi que ce soit.
     if !stage.join("hyprdesk.lua").is_file() {
         std::fs::write(stage.join("hyprdesk.lua"), "").map_err(|e| e.to_string())?;
     }
-    let imported = crate::config::lua::load_file(&stage.join("hyprdesk.lua"))
-        .map_err(|e| crate::tr!("configuration importée invalide : {e}", e = e))?
-        .config;
     let user_widgets = dir.join("hyprdesk/widgets");
     let mut report = Report {
         manifest: manifest.clone(),
@@ -517,30 +569,56 @@ fn import_from(
     };
     if scope == Scope::All {
         for p in &manifest.plugins {
+            // Le nom vient de l'archive : jamais de chemin.
+            if !crate::widgets::plugins::valid_id(p.strip_suffix(".lua").unwrap_or(p)) {
+                return Err(crate::tr!("plugin « {p} » : nom invalide", p = p));
+            }
             if user_widgets.join(p).exists() {
                 report.plugins_kept.push(p.clone());
             } else {
                 report.plugins_added.push(p.clone());
             }
         }
+        if has_lua_code(&stage.join("hyprdesk.lua")) {
+            report.code.push("hyprdesk.lua".into());
+        }
+        report.code.extend(
+            report
+                .plugins_added
+                .iter()
+                .map(|p| crate::tr!("plugin {p}", p = p)),
+        );
     }
-    let name = bundle
-        .file_stem()
-        .and_then(|n| n.to_str())
-        .unwrap_or("setup")
-        .trim_end_matches(".tar")
-        .to_string();
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
-        });
-    let wall_dir = data.join("hyprdesk/wallpapers").join(&name);
+    // Vérification : les sources sont compilées, jamais exécutées.
+    syntax_check_stage(stage)?;
+    if opts.dry_run {
+        let name = bundle_name(bundle);
+        if !manifest.wallpapers.is_empty() {
+            report.wallpapers_dir = Some(wall_dir_for(&name));
+        }
+        report.ai_ignored = scope == Scope::All && declares_ai(stage);
+        return Ok(report);
+    }
+    if scope == Scope::All && report.has_code() && !opts.trust_code {
+        return Err(crate::tr!(
+            "cette archive contient du code Lua ({list}) qui s'exécuterait avec vos droits : confirmez pour l'importer",
+            list = report.code.join(", ")
+        ));
+    }
+    // Les réglages de l'archive, lus dans le bac à sable. Thème seul : à
+    // défaut de hyprdesk.lua, ceux de settings.lua suffisent.
+    let imported = match crate::config::lua::load_file_sandboxed(&stage.join("hyprdesk.lua")) {
+        Ok(l) => l.config,
+        Err(_) if scope == Scope::Theme => {
+            crate::config::lua::load_settings_only_sandboxed(&stage.join("hyprdesk.lua"))
+                .map_err(|e| crate::tr!("configuration importée invalide : {e}", e = e))?
+        }
+        Err(e) => return Err(crate::tr!("configuration importée invalide : {e}", e = e)),
+    };
+    let name = bundle_name(bundle);
+    let wall_dir = wall_dir_for(&name);
     if !manifest.wallpapers.is_empty() {
         report.wallpapers_dir = Some(wall_dir.clone());
-    }
-    if opts.dry_run {
-        return Ok(report);
     }
     // Historique de la configuration : l'état d'avant l'import, et les
     // écritures qui suivent rangées sous le même motif.
@@ -558,9 +636,15 @@ fn import_from(
     // 2. Fonds d'écran, puis réglages aux chemins réécrits.
     let mut map: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
     for (orig, inside) in &manifest.wallpapers {
+        // Chemin venu du manifeste : une image du dossier wallpapers/ de l'archive, rien d'autre.
+        let file = Path::new(inside).file_name().unwrap_or_default();
+        let src = stage.join("wallpapers").join(file);
+        if file.is_empty() || !std::fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
+            return Err(crate::tr!("fond « {p} » : chemin invalide", p = inside));
+        }
         std::fs::create_dir_all(&wall_dir).map_err(|e| e.to_string())?;
-        let target = wall_dir.join(Path::new(inside).file_name().unwrap_or_default());
-        std::fs::copy(stage.join(inside), &target).map_err(|e| e.to_string())?;
+        let target = wall_dir.join(file);
+        std::fs::copy(&src, &target).map_err(|e| e.to_string())?;
         map.insert(PathBuf::from(orig), target);
     }
     if scope == Scope::Theme {
@@ -574,9 +658,15 @@ fn import_from(
         return Ok(report);
     }
     if stage.join("hyprdesk/settings.lua").is_file() {
-        let cfg = crate::config::lua::load_settings_only(&stage.join("hyprdesk.lua"))?;
+        let cfg = crate::config::lua::load_settings_only_sandboxed(&stage.join("hyprdesk.lua"))?;
         let mut s = Settings::from_config(&cfg);
         s.wallpapers = relocate(std::mem::take(&mut s.wallpapers), &map, &wall_dir, false);
+        // Services d'IA : ceux en place, jamais ceux de l'archive (un
+        // endpoint détourné recevrait la clé rangée sous le même nom).
+        let mine = Settings::from_config(&crate::config::lua::load_settings_only(config_path)?);
+        report.ai_ignored = s.ai_services.is_some() || !s.ai_use.is_empty();
+        s.ai_services = mine.ai_services;
+        s.ai_use = mine.ai_use;
         s.save_versioned(config_path, crate::storage::revision())
             .map_err(|e| crate::tr!("settings.lua : {e}", e = e))?;
     }
@@ -602,6 +692,96 @@ fn import_from(
         crate::history::note(&monitors);
     }
     Ok(report)
+}
+
+/// Une archive ne contient que des dossiers et des fichiers ordinaires : un
+/// lien (vers un fichier de l'utilisateur) ou un fichier spécial est refusé.
+fn only_regular_files(stage: &Path) -> Result<(), String> {
+    let mut stack = vec![stage.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let rd = std::fs::read_dir(&d).map_err(|e| e.to_string())?;
+        for e in rd.flatten() {
+            let t = e.file_type().map_err(|e| e.to_string())?;
+            if t.is_dir() {
+                stack.push(e.path());
+            } else if !t.is_file() {
+                return Err(crate::tr!(
+                    "archive refusée : {p} n'est pas un fichier ordinaire",
+                    p = e.path().strip_prefix(stage).unwrap_or(&e.path()).display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn bundle_name(bundle: &Path) -> String {
+    bundle
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("setup")
+        .trim_end_matches(".tar")
+        .to_string()
+}
+
+fn wall_dir_for(name: &str) -> PathBuf {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
+        });
+    data.join("hyprdesk/wallpapers").join(name)
+}
+
+/// `hyprdesk.lua` contient autre chose que des commentaires et des blancs.
+fn has_lua_code(path: &Path) -> bool {
+    let Ok(src) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    src.lines().any(|l| {
+        let l = l.trim();
+        !l.is_empty() && !l.starts_with("--")
+    })
+}
+
+/// L'archive déclare des services d'IA (lecture du texte, sans exécution).
+fn declares_ai(stage: &Path) -> bool {
+    ["hyprdesk/settings.lua", "hyprdesk.lua"].iter().any(|f| {
+        std::fs::read_to_string(stage.join(f)).is_ok_and(|s| {
+            s.contains("ai_services") || s.contains("ai_use") || s.contains("ai_provider")
+        })
+    })
+}
+
+/// Compile (sans les exécuter) les sources Lua de l'archive.
+fn syntax_check_stage(stage: &Path) -> Result<(), String> {
+    let mut files = vec![
+        stage.join("hyprdesk.lua"),
+        stage.join("hyprdesk/settings.lua"),
+    ];
+    let mut stack = vec![stage.join("hyprdesk/widgets")];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            match e.file_type() {
+                Ok(t) if t.is_dir() => stack.push(p),
+                Ok(t) if t.is_file() && p.extension().is_some_and(|x| x == "lua") => files.push(p),
+                _ => {}
+            }
+        }
+    }
+    for f in files {
+        let Ok(src) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        let name = f.strip_prefix(stage).unwrap_or(&f).display().to_string();
+        crate::config::lua::syntax_check(&src, &name)
+            .map_err(|e| crate::tr!("configuration importée invalide : {e}", e = e))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -648,10 +828,19 @@ mod tests {
         let opts = |dry_run| ImportOpts {
             dry_run,
             backup: true,
+            trust_code: true,
             ..Default::default()
         };
         let r = import(&bundle, &b.join("hyprdesk.lua"), opts(true)).unwrap();
         assert!(r.backup.is_none() && !b.join("hyprdesk.lua").exists());
+        assert_eq!(r.code.len(), 2, "hyprdesk.lua et le plugin : {:?}", r.code);
+        // Sans accord, le code de l'archive n'est pas installé.
+        let refused = ImportOpts {
+            trust_code: false,
+            ..opts(false)
+        };
+        assert!(import(&bundle, &b.join("hyprdesk.lua"), refused).is_err());
+        assert!(!b.join("hyprdesk.lua").exists());
         // Import sur B (XDG_DATA_HOME isolé).
         let data = data_home();
         let r = import(&bundle, &b.join("hyprdesk.lua"), opts(false)).unwrap();
@@ -755,6 +944,147 @@ mod tests {
             .config;
         assert_eq!(cfg.general.workspaces, Some(5));
         assert_eq!(cfg.general.theme.name, "Nuit");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Archive piégée : son Lua tente d'écrire un fichier témoin et de lancer
+    /// une commande. Ni la vérification, ni le thème, ni l'import accordé
+    /// (bac à sable) ne l'exécutent avec les droits de l'utilisateur.
+    #[test]
+    fn archive_piegee_sans_effet() {
+        let base = std::env::temp_dir().join(format!("hyprdesk-piege-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (stage, b) = (base.join("stage"), base.join("b"));
+        std::fs::create_dir_all(stage.join("hyprdesk/widgets/espion")).unwrap();
+        std::fs::create_dir_all(b.join("hyprdesk")).unwrap();
+        std::fs::write(b.join("hyprdesk.lua"), "").unwrap();
+        let w1 = base.join("temoin-io");
+        let w2 = base.join("temoin-exec");
+        let w3 = base.join("temoin-plugin");
+        let piege = |w: &Path| {
+            format!(
+                "local f = io.open({w:?}, 'w') if f then f:write('x') f:close() end
+                 os.execute('touch {w}-os') hd.exec('touch {w}-hd') hd.spawn('touch {w}-sp')
+",
+                w = w.display().to_string()
+            )
+        };
+        std::fs::write(
+            stage.join("hyprdesk.lua"),
+            format!(
+                "{}hd.config({{ theme = {{ name = \"Piège\" }} }})\n",
+                piege(&w1)
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            stage.join("hyprdesk/settings.lua"),
+            format!(
+                "{}hd.config({{ workspaces = 2, ai_services = {{ {{ id = \"claude\", kind = \"anthropic\", endpoint = \"https://evil.example\" }} }} }})\n",
+                piege(&w2)
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            stage.join("hyprdesk/widgets/espion/init.lua"),
+            format!(
+                "{}return {{ render = function() return '' end }}",
+                piege(&w3)
+            ),
+        )
+        .unwrap();
+        let manifest = Manifest {
+            kind: "setup".into(),
+            plugins: vec!["espion".into()],
+            ..Manifest::new(Scope::All, false)
+        };
+        std::fs::write(
+            stage.join("manifest.json"),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        let bundle = base.join("piege.tar.gz");
+        assert!(
+            Command::new("tar")
+                .arg("czf")
+                .arg(&bundle)
+                .arg("-C")
+                .arg(&stage)
+                .arg(".")
+                .status()
+                .unwrap()
+                .success()
+        );
+        let cfg = b.join("hyprdesk.lua");
+        let witnesses = || {
+            [&w1, &w2, &w3].iter().any(|w| {
+                ["", "-os", "-hd", "-sp"]
+                    .iter()
+                    .any(|s| Path::new(&format!("{}{s}", w.display())).exists())
+            })
+        };
+        // Vérifier.
+        let r = import(
+            &bundle,
+            &cfg,
+            ImportOpts {
+                dry_run: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(r.has_code() && r.ai_ignored);
+        assert!(r.to_string().contains("espion"));
+        // Thème seul.
+        let _ = data_home();
+        let _ = import(
+            &bundle,
+            &cfg,
+            ImportOpts {
+                scope: Scope::Theme,
+                ..Default::default()
+            },
+        );
+        // Tout, sans accord : refusé ; avec accord : réglages lus en bac à sable.
+        assert!(import(&bundle, &cfg, ImportOpts::default()).is_err());
+        let r = import(
+            &bundle,
+            &cfg,
+            ImportOpts {
+                trust_code: true,
+                ..Default::default()
+            },
+        )
+        .expect("le bac à sable laisse passer une config qui teste ses appels");
+        assert!(r.ai_ignored);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !witnesses(),
+            "le Lua de l'archive a agi hors du bac à sable"
+        );
+        // Les services d'IA de l'archive ne remplacent pas ceux en place.
+        let mine = crate::config::lua::load_settings_only(&cfg).unwrap();
+        assert!(
+            !mine
+                .general
+                .ai
+                .services
+                .iter()
+                .any(|s| s.endpoint.contains("evil"))
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn lien_dans_l_archive_refuse() {
+        let base = std::env::temp_dir().join(format!("hyprdesk-lien-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("s/hyprdesk")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", base.join("s/hyprdesk.lua")).unwrap();
+        assert!(only_regular_files(&base.join("s")).is_err());
+        std::fs::remove_file(base.join("s/hyprdesk.lua")).unwrap();
+        std::fs::write(base.join("s/hyprdesk.lua"), "").unwrap();
+        assert!(only_regular_files(&base.join("s")).is_ok());
         let _ = std::fs::remove_dir_all(&base);
     }
 }
