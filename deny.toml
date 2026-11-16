@@ -52,7 +52,8 @@ confidence-threshold = 0.9
 # zbus en tirent plusieurs, hors de notre main).
 multiple-versions = "warn"
 wildcards = "deny"
-# vendor/layershellev et vendor/iced_layershell ([patch.crates-io]).
+# vendor/layershellev, vendor/iced_layershell, vendor/iced_wgpu et
+# vendor/iced_tiny_skia ([patch.crates-io]).
 allow-wildcard-paths = true
 
 [sources]

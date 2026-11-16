@@ -52,3 +52,8 @@ zeroize = "1.9.1"
 [patch.crates-io]
 layershellev = { path = "vendor/layershellev" }
 iced_layershell = { path = "vendor/iced_layershell" }
+# Ouverture des tiroirs : iced_wgpu et iced_tiny_skia rechargeaient toutes
+# les polices du système pour chaque nouvelle surface (cache SVG par moteur
+# de rendu). Base de polices commune au processus (MLG-156).
+iced_wgpu = { path = "vendor/iced_wgpu" }
+iced_tiny_skia = { path = "vendor/iced_tiny_skia" }

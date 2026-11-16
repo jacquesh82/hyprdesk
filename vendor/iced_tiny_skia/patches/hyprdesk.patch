@@ -1,0 +1,79 @@
+--- a/src/vector.rs
++++ b/src/vector.rs
+@@ -73,7 +73,40 @@
+     tree_hits: FxHashSet<u64>,
+     rasters: FxHashMap<RasterKey, tiny_skia::Pixmap>,
+     raster_hits: FxHashSet<RasterKey>,
+-    fontdb: Option<Arc<usvg::fontdb::Database>>,
++}
++
++/// hyprdesk : base de polices des SVG, commune à tout le processus.
++///
++/// L'original en chargeait une par cache, c'est-à-dire par moteur de rendu,
++/// donc par surface : chaque tiroir ouvert relisait toutes les polices du
++/// système sur le fil principal (MLG-156). Elle n'est chargée qu'une fois,
++/// et seulement pour un SVG qui porte du texte (ou compressé, illisible
++/// avant décodage) ; les icônes reçoivent une base vide.
++fn shared_fontdb(data: &[u8]) -> Arc<usvg::fontdb::Database> {
++    use std::sync::OnceLock;
++    static EMPTY: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
++    static SYSTEM: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
++    let gzip = data.starts_with(&[0x1f, 0x8b]);
++    if gzip || data.windows(5).any(|w| w == b"<text") {
++        SYSTEM
++            .get_or_init(|| {
++                let mut fontdb = usvg::fontdb::Database::new();
++                fontdb.load_system_fonts();
++                Arc::new(fontdb)
++            })
++            .clone()
++    } else {
++        EMPTY
++            .get_or_init(|| Arc::new(usvg::fontdb::Database::new()))
++            .clone()
++    }
++}
++
++fn svg_options(data: &[u8]) -> usvg::Options<'static> {
++    usvg::Options {
++        fontdb: shared_fontdb(data),
++        ..usvg::Options::default()
++    }
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+@@ -87,31 +120,17 @@
+     fn load(&mut self, handle: &Handle) -> Option<&usvg::Tree> {
+         let id = handle.id();
+ 
+-        // TODO: Reuse `cosmic-text` font database
+-        if self.fontdb.is_none() {
+-            let mut fontdb = usvg::fontdb::Database::new();
+-            fontdb.load_system_fonts();
+-
+-            self.fontdb = Some(Arc::new(fontdb));
+-        }
+-
+-        let options = usvg::Options {
+-            fontdb: self
+-                .fontdb
+-                .as_ref()
+-                .expect("fontdb must be initialized")
+-                .clone(),
+-            ..usvg::Options::default()
+-        };
+-
++        // hyprdesk : base de polices commune, voir `shared_fontdb` (MLG-156).
+         if let hash_map::Entry::Vacant(entry) = self.trees.entry(id) {
+             let svg = match handle.data() {
+                 Data::Path(path) => {
+                     fs::read_to_string(path).ok().and_then(|contents| {
++                        let options = svg_options(contents.as_bytes());
+                         usvg::Tree::from_str(&contents, &options).ok()
+                     })
+                 }
+                 Data::Bytes(bytes) => {
++                    let options = svg_options(bytes);
+                     usvg::Tree::from_data(bytes, &options).ok()
+                 }
+             };

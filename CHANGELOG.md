@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Drawers open at once** (MLG-156). Opening the LYRA or Settings drawer
+  could freeze the desktop for up to 4 s: iced re-read every system font for
+  each new surface (its SVG cache is per renderer). The SVG font database is
+  now shared by the whole process and loaded only for an SVG that contains
+  text; icons no longer need it. Local copies `vendor/iced_wgpu` and
+  `vendor/iced_tiny_skia`, checked by `scripts/verifier-vendor.sh`.
+
 ## [0.1.5] - 2026-11-16
 
 Security hardening release (MLG-150 to MLG-155).
