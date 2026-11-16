@@ -1,12 +1,20 @@
 //! Historique du presse-papiers (MLG-13) : hyprdesk orchestre cliphist plutôt
 //! que de le refaire.
 //!
-//! Réglage activé (`clipboard_history`, par défaut) et cliphist installé,
-//! hyprdesk lance `wl-paste --watch cliphist store` comme composant de
-//! session supervisé — sauf si un tel veilleur tourne déjà (lancé par
+//! Réglage activé (`clipboard_history`, coupé par défaut : ce qui est copié
+//! peut être un mot de passe ou un code) et cliphist installé, hyprdesk lance
+//! `wl-paste --type text --watch cliphist -max-items 100 store` comme
+//! composant de session supervisé — sauf si un tel veilleur tourne déjà (lancé par
 //! hyprland.lua, par exemple). Dans le lanceur (`hyprdesk search`), une
 //! requête qui commence par `:clip` cherche dans l'historique ; Entrée remet
 //! l'élément choisi dans le presse-papiers (`cliphist decode | wl-copy`).
+//!
+//! Le veilleur ne garde que du texte (pas les captures d'écran) et au plus
+//! [`MAX_ITEMS`] éléments ; une copie marquée sensible par son application
+//! (`x-kde-passwordManagerHint`, que wl-paste rend en
+//! `CLIPBOARD_STATE=sensitive`) n'est pas enregistrée par cliphist.
+//! [`wipe`] vide l'historique (Réglages → Bureau). `clipboard_history = false`
+//! dans la politique du poste l'interdit.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -19,6 +27,8 @@ pub const COMPONENT: &str = "cliphist";
 pub const PREFIX: &str = ":clip";
 /// Éléments lus au plus dans l'historique.
 const LIMIT: usize = 200;
+/// Éléments gardés au plus par cliphist.
+pub const MAX_ITEMS: usize = 100;
 
 /// Un élément de l'historique, tel que `cliphist list` le donne.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,13 +69,14 @@ pub fn available() -> bool {
 
 /// Commande du veilleur.
 pub fn watcher_exec() -> String {
-    "wl-paste --watch cliphist store".into()
+    format!("wl-paste --type text --watch cliphist -max-items {MAX_ITEMS} store")
 }
 
 /// Composant à superviser : réglage activé, cliphist installé, pas d'autre
 /// veilleur déjà en route.
 pub fn component(enabled: bool) -> Option<ComponentDef> {
-    (enabled && available() && foreign_watcher().is_none()).then(|| ComponentDef {
+    let allowed = crate::policy::get().clipboard_allowed();
+    (enabled && allowed && available() && foreign_watcher().is_none()).then(|| ComponentDef {
         name: COMPONENT.into(),
         exec: watcher_exec(),
         restart: true,
@@ -96,6 +107,19 @@ pub fn foreign_watcher() -> Option<u32> {
         .find(|pid| {
             std::fs::read_to_string(format!("/proc/{pid}/cmdline")).is_ok_and(|c| is_watcher(&c))
         })
+}
+
+/// Vide l'historique de cliphist (bloquant).
+pub fn wipe() -> Result<(), String> {
+    let st = Command::new("cliphist")
+        .arg("wipe")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| crate::tr!("cliphist : {e}", e = e))?;
+    st.success()
+        .then_some(())
+        .ok_or_else(|| crate::i18n::tr("cliphist wipe a échoué").into())
 }
 
 /// Historique (bloquant : à appeler hors du fil de l'interface).

@@ -920,6 +920,7 @@ impl Preview {
                     code: Some(1),
                     tail: ":: Processing package changes...\nerror: failed to commit transaction (conflicting files)\npython-foo: /usr/lib/python3.13/site-packages/foo/__init__.py exists in filesystem\nErrors occurred, no packages were upgraded.".into(),
                 }),
+                origin: crate::i18n::tr("Mises à jour").to_string(),
                 copied: false,
             });
         } else {

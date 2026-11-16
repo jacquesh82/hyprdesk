@@ -592,7 +592,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.launcher.smartui),
         |s, v, c| { s.launcher_smartui = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_smartui = None;
-    "smartui_auto", "launcher", "on | off — SmartUI design : icônes générées et validées d'office (défaut : on si LYRA est installée)",
+    "smartui_auto", "launcher", "on | off — SmartUI design : icônes générées et validées d'office (défaut : off ; envoie nom et icône de chaque application au fournisseur d'IA)",
         |c| on_off(crate::smartui::auto_on(c)),
         |s, v, c| { s.smartui_auto = Some(parse_bool(v)?); Ok(()) },
         |s| s.smartui_auto = None;

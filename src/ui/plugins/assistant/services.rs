@@ -507,13 +507,10 @@ impl App {
                     "Génération automatique (icônes validées d'office)"
                 ))
                 .on_toggle(|v| wrap(Msg::SmartAutoToggle(v))),
-            text(if self.cfg.general.launcher.smartui_auto.is_none() {
-                crate::i18n::tr(
-                    "Par défaut : active quand LYRA est installée. Chaque nouvelle application du lanceur reçoit son icône.",
-                )
-            } else {
-                crate::i18n::tr("Chaque nouvelle application du lanceur reçoit son icône.")
-            })
+            text(crate::tr!(
+                "Chaque nouvelle application du lanceur reçoit son icône : son nom, sa classe et son icône d'origine partent à {provider}. Coupée par défaut.",
+                provider = self.cfg.general.ai.for_consumer("smartui").label()
+            ))
             .font(self.font)
             .size(12)
             .color(dim),

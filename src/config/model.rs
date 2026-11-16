@@ -434,8 +434,8 @@ pub struct LauncherCfg {
     pub smartui: bool,
     /// Style demandé à l'IA ; vide : celui de hyprdesk ([`crate::smartui::DEFAULT_STYLE`]).
     pub smartui_style: String,
-    /// Génération automatique (icônes validées d'office) ; `None` : active
-    /// si LYRA est installée ([`crate::smartui::auto_on`]).
+    /// Génération automatique (icônes validées d'office) ; `None` : coupée
+    /// ([`crate::smartui::auto_on`]).
     pub smartui_auto: Option<bool>,
 }
 
@@ -1279,7 +1279,8 @@ impl Default for General {
         General {
             keys: Keys::default(),
             suspend_binds: true,
-            clipboard_history: true,
+            // Coupé par défaut : une copie peut être un mot de passe ou un code.
+            clipboard_history: false,
             index_paths: Vec::new(),
             index_exclude: Vec::new(),
             index_exclude_regex: Vec::new(),

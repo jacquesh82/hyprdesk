@@ -1,7 +1,8 @@
 //! Problème signalé au démon (`control::Command::Problem`, par exemple une
-//! mise à jour qui a échoué) : soumis à l'assistant LYRA s'il sait se faire
-//! dessiner ici ; sinon une fenêtre du thème montre le détail, avec un bouton
-//! pour le copier.
+//! mise à jour qui a échoué) : une fenêtre du thème montre le détail, avec un
+//! bouton pour le copier et, si LYRA est là, un bouton pour le lui confier.
+//! Rien ne part à l'assistant sans ce geste ; une demande explicite
+//! (`ProblemShow`, `Ask`) va droit à LYRA.
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::window::Id;
@@ -21,12 +22,16 @@ pub struct Problem {
     pub win: Id,
     pub text: String,
     pub copied: bool,
+    /// Titre de la conversation LYRA si l'utilisateur la lui confie.
+    pub origin: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum PrMsg {
     Copy,
     Copied,
+    /// Confier le problème à LYRA (geste de l'utilisateur).
+    Ask,
     Close,
 }
 
@@ -44,12 +49,15 @@ impl App {
         text: String,
         show: bool,
     ) -> Task<Msg> {
-        if let Some(t) = self.ask_assistant(text.clone(), origin, show) {
+        // Sans demande explicite, rien ne part à l'assistant (service en
+        // ligne possible) : la fenêtre propose de le lui confier.
+        if show && let Some(t) = self.ask_assistant(text.clone(), origin, true) {
             return t;
         }
         if let Some(p) = self.problem.as_mut() {
             p.text = text;
             p.copied = false;
+            p.origin = origin.to_string();
             return Task::none();
         }
         let win = Id::unique();
@@ -57,6 +65,7 @@ impl App {
             win,
             text,
             copied: false,
+            origin: origin.to_string(),
         });
         Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -109,6 +118,16 @@ impl App {
                 }
                 Task::none()
             }
+            PrMsg::Ask => {
+                let Some(p) = self.problem.take() else {
+                    return Task::none();
+                };
+                let close = iced::window::close(p.win);
+                match self.ask_assistant(p.text, &p.origin, true) {
+                    Some(t) => Task::batch([close, t]),
+                    None => close,
+                }
+            }
             PrMsg::Close => match self.problem.take() {
                 Some(p) => iced::window::close(p.win),
                 None => Task::none(),
@@ -127,6 +146,8 @@ impl App {
             th.bg,
             th.effect(crate::config::Place::Menus).opacity.max(0.97),
         );
+        let lyra =
+            self.cfg.plugin_on("assistant") && crate::assistant::serve_command(&self.cfg).is_some();
         let detail = container(
             scrollable(
                 text(p.text.clone())
@@ -171,8 +192,14 @@ impl App {
                     .on_press(Msg::Problem(PrMsg::Close)),
                 button(text(crate::i18n::tr("Copier")).font(self.font).size(14))
                     .padding([8, 16])
+                    .style(if lyra { button::secondary } else { button::primary })
                     .on_press(Msg::Problem(PrMsg::Copy)),
             ]
+            .push(lyra.then(|| {
+                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(14))
+                    .padding([8, 16])
+                    .on_press(Msg::Problem(PrMsg::Ask))
+            }))
             .spacing(10)
             .align_y(Alignment::Center),
         ]

@@ -42,6 +42,8 @@ pub struct State {
     pub window_places: usize,
     /// Hyprbars : chemin trouvé (relevé à l'arrivée sur la page).
     pub hyprbars: Option<Option<std::path::PathBuf>>,
+    /// Compte rendu du dernier « Vider l'historique du presse-papiers ».
+    pub clip_report: Option<String>,
 }
 
 /// Hyprbars installé ? (relevé hors du fil de l'interface)
@@ -86,6 +88,9 @@ pub enum Msg {
     FontSize(f32),
     Fonts(Vec<String>),
     ClipboardHistory(bool),
+    /// Vider l'historique du presse-papiers, puis son compte rendu.
+    ClipboardWipe,
+    ClipboardWiped(Result<(), String>),
     Autostart(bool),
     AutostartEntry(String, bool),
     DesktopFiles(bool),
@@ -466,7 +471,7 @@ impl App {
         ));
         col = col.push(
             text(if crate::clipboard::available() {
-                "Chaque copie est gardée par cliphist. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."
+                "Le texte copié est gardé par cliphist (100 éléments au plus, sans les images ni ce qu'une application marque comme sensible) : pensez-y avant de copier un mot de passe. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."
             } else {
                 "cliphist et wl-clipboard ne sont pas installés (voir Dépendances)."
             })
@@ -474,6 +479,25 @@ impl App {
             .size(12)
             .color(dim),
         );
+        if crate::clipboard::available() {
+            col = col.push(
+                button(
+                    text("Vider l'historique du presse-papiers")
+                        .font(self.font)
+                        .size(12),
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::ClipboardWipe)),
+            );
+            if let Some(r) = self
+                .panel
+                .as_ref()
+                .and_then(|p| p.desktop.clip_report.as_ref())
+            {
+                col = col.push(text(r.clone()).font(self.font).size(12).color(dim));
+            }
+        }
         col = col.push(
             text("Démarrage automatique (hyprland.lua, applications XDG) : Réglages → Démarrage automatique.")
                 .font(self.font)
@@ -706,6 +730,22 @@ impl App {
             Msg::ClipboardHistory(v) => {
                 self.settings.clipboard_history = Some(v);
                 self.commit()
+            }
+            Msg::ClipboardWipe => Task::perform(
+                async {
+                    tokio::task::spawn_blocking(crate::clipboard::wipe)
+                        .await
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r)
+                },
+                |r| wrap(Msg::ClipboardWiped(r)),
+            ),
+            Msg::ClipboardWiped(r) => {
+                panel.desktop.clip_report = Some(match r {
+                    Ok(()) => crate::i18n::tr("Historique du presse-papiers vidé.").to_string(),
+                    Err(e) => e,
+                });
+                Task::none()
             }
             Msg::Autostart(v) => {
                 self.settings.autostart = Some(v);

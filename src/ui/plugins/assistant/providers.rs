@@ -169,14 +169,13 @@ impl App {
                     return Task::none();
                 };
                 let endpoint = d.endpoint.trim();
-                let error = if !endpoint.is_empty()
-                    && !(endpoint.starts_with("https://") || endpoint.starts_with("http://"))
+                let error = if let Some(e) = (!endpoint.is_empty())
+                    .then(|| crate::ai_services::endpoint_ok(endpoint).err())
+                    .flatten()
                 {
-                    Some(crate::i18n::tr(
-                        "L'endpoint commence par https:// ou http://",
-                    ))
+                    Some(e)
                 } else if d.model.trim().is_empty() && d.kind.default_model().is_empty() {
-                    Some(crate::i18n::tr("Modèle à préciser pour ce fournisseur"))
+                    Some(crate::i18n::tr("Modèle à préciser pour ce fournisseur").to_string())
                 } else {
                     None
                 };

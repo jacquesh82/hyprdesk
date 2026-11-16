@@ -292,13 +292,11 @@ pub fn clear() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Génération automatique : demandée explicitement, ou par défaut quand
-/// LYRA est là.
+/// Génération automatique : seulement demandée explicitement. Elle envoie
+/// au fournisseur d'IA le nom, la classe et l'icône de chaque application
+/// nouvelle : jamais sans l'accord de l'utilisateur.
 pub fn auto_on(cfg: &crate::config::Config) -> bool {
-    cfg.general
-        .launcher
-        .smartui_auto
-        .unwrap_or_else(crate::assistant::lyra_installed)
+    cfg.general.launcher.smartui_auto == Some(true)
 }
 
 /// File de la génération automatique (une à la fois ; une application

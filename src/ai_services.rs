@@ -509,15 +509,40 @@ fn missing_key(svc: &Service) -> String {
     )
 }
 
-/// POST JSON par curl : la configuration (URL, en-têtes, dont la clé) sur
-/// l'entrée standard, le corps dans un fichier privé.
-fn post(url: &str, headers: &[String], body: &Value) -> Result<Value, String> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
+/// Un endpoint chiffré (`https://`), ou `http://` vers la machine elle-même
+/// seulement : la clé API et la demande ne passent jamais en clair sur le
+/// réseau.
+pub fn endpoint_ok(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") {
+        return Ok(());
+    }
+    let Some(rest) = url.strip_prefix("http://") else {
         return Err(crate::tr!(
             "endpoint invalide : {url}",
             url = url.to_string()
         ));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = if let Some(v6) = host.strip_prefix('[') {
+        v6.split(']').next().unwrap_or_default()
+    } else {
+        host.split(':').next().unwrap_or_default()
+    };
+    if matches!(host, "localhost" | "127.0.0.1" | "::1") || host.starts_with("127.") {
+        Ok(())
+    } else {
+        Err(crate::tr!(
+            "endpoint {url} : http:// en clair seulement vers cette machine (localhost) — utilisez https://",
+            url = url.to_string()
+        ))
     }
+}
+
+/// POST JSON par curl : la configuration (URL, en-têtes, dont la clé) sur
+/// l'entrée standard, le corps dans un fichier privé.
+fn post(url: &str, headers: &[String], body: &Value) -> Result<Value, String> {
+    endpoint_ok(url)?;
     let dir = cache_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file = dir.join(format!(
@@ -702,6 +727,27 @@ pub fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_en_clair_seulement_en_local() {
+        for ok in [
+            "https://api.anthropic.com/v1/messages",
+            "http://localhost:11434/v1/chat/completions",
+            "http://127.0.0.1:8080/v1",
+            "http://[::1]:8080/v1",
+        ] {
+            assert!(endpoint_ok(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://proxy.interne/v1",
+            "http://localhost.evil.example/v1",
+            "http://user@10.0.0.2/v1",
+            "ftp://x",
+            "api.openai.com",
+        ] {
+            assert!(endpoint_ok(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn fournisseurs() {
