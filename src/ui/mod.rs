@@ -21,6 +21,7 @@ mod chat;
 pub(crate) mod color_picker;
 mod context;
 mod convex;
+mod curves;
 mod design;
 mod desk_layout;
 mod hyprset;
@@ -138,6 +139,8 @@ pub enum Msg {
     Panel(PanelMsg),
     /// Options de Hyprland (rendu unique, `hyprset.rs`).
     HyprSet(hyprset::Msg),
+    /// Courbes d'animation (paquet Animations, onglet Courbes).
+    Curves(curves::Msg),
     /// Tiroir de l'assistant (LYRA, protocole serve).
     Chat(chat::ChatMsg),
     SettingsLoaded(u64, DeskSettings),
@@ -575,6 +578,8 @@ pub struct App {
     hypr_source: Option<Arc<crate::hyprsrc::Source>>,
     /// Aperçu ou essais : rien n'est écrit dans les fichiers de Hyprland.
     preview: bool,
+    /// Nom de la courbe d'animation en cours de création.
+    curve_name: String,
 }
 
 /// Surfaces qu'un message peut changer (MLG-131, `iced_layershell::damage`) :
@@ -1043,6 +1048,7 @@ impl App {
             hypr_current: Default::default(),
             hypr_source: None,
             preview,
+            curve_name: String::new(),
         };
         let apps = Task::perform(
             async {
@@ -4238,6 +4244,7 @@ impl App {
             Msg::Problem(m) => self.problem_update(m),
             Msg::Search(m) => self.search_update(m),
             Msg::HyprSet(m) => self.hyprset_update(m),
+            Msg::Curves(m) => self.curves_update(m),
             Msg::IconContext(win, idx) => {
                 self.drag = None;
                 self.open_icon_menu(win, idx)

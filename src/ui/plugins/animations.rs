@@ -28,7 +28,11 @@ pub const INFO: PluginInfo = PluginInfo {
 };
 
 /// Onglets du paquet.
-pub const TABS: &[super::SubTab] = &[("animations", "Animations"), ("effets", "Effets")];
+pub const TABS: &[super::SubTab] = &[
+    ("animations", "Animations"),
+    ("courbes", "Courbes"),
+    ("effets", "Effets"),
+];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Animations(m)))
@@ -130,6 +134,7 @@ impl App {
     pub(in crate::ui) fn animations_page(&self) -> Element<'_, UiMsg> {
         match self.subtab(INFO.id) {
             "effets" => self.fx_effects(),
+            "courbes" => self.curves_page(),
             _ => self.fx_animations(),
         }
     }
@@ -202,12 +207,17 @@ impl App {
             .color(dim),
         ]
         .spacing(14);
+        // Catalogue de hyprdesk, puis courbes de l'utilisateur (MLG-143).
         let curves: Vec<Choice<String>> = fx::CURVES
             .iter()
             .map(|c| Choice {
                 value: c.name.to_string(),
                 label: crate::i18n::tr(c.label).to_string(),
             })
+            .chain(self.cfg.general.fx.curves.keys().map(|n| Choice {
+                value: n.clone(),
+                label: crate::tr!("{n} (la vôtre)", n = n),
+            }))
             .collect();
         for l in fx::LEAVES
             .iter()

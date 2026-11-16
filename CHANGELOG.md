@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- **Animations → Curves** (MLG-143): your curves (taken over from
+  `hyprland.lua` or created here) drawn and editable — Bézier control
+  points or spring mass, stiffness and damping — next to hyprdesk's
+  catalogue; they are written to `animations.lua` and offered for every
+  animated element. A curve in use cannot be deleted.
+
 - **hyprdesk writes the Hyprland settings it manages** (MLG-137, MLG-139).
   Effects, animations, curves, layouts, borders, rules, environment and the
   new options below are written to generated files, one per domain
