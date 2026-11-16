@@ -19,7 +19,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-NFPM_IMAGE="goreleaser/nfpm:v2.48.0"
+# Épinglée par condensat (MLG-151) : une étiquette déplacée ne change pas
+# l'outil qui assemble les paquets publiés.
+NFPM_IMAGE="goreleaser/nfpm:v2.48.0@sha256:d57a1452e7a019896b355f7b1ec67262278f6c503631f652d4fce7aef9ac8df7"
 FORMATS=()
 RELEASE=1
 BUILD=1

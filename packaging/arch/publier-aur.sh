@@ -6,7 +6,7 @@
 #
 # Il faut : une clé SSH déclarée sur le compte AUR (My Account → SSH Public
 # Key), le tag v$pkgver poussé sur GitHub, et le sha256 renseigné (job release
-# de ci.yml) : un PKGBUILD à 'SKIP' est refusé ici.
+# de ci.yml, dont la pull request est fusionnée) : un PKGBUILD à 'SKIP' est refusé ici.
 set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
 PUSH=0
@@ -14,10 +14,12 @@ PUSH=0
 DEST="${AUR_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/hyprdesk-aur}"
 
 cd "$ICI"
-# shellcheck disable=SC1091
-source <(grep -E '^(pkgname|pkgver|pkgrel)=' PKGBUILD)
+# Lus comme données (pas de source du PKGBUILD).
+pkgver="$(sed -n 's/^pkgver=\([0-9A-Za-z._]*\)$/\1/p' PKGBUILD)"
+pkgrel="$(sed -n 's/^pkgrel=\([0-9]*\)$/\1/p' PKGBUILD)"
+[[ -n "$pkgver" && -n "$pkgrel" ]] || { echo "pkgver ou pkgrel illisible dans PKGBUILD" >&2; exit 1; }
 grep -q "^sha256sums=('SKIP')" PKGBUILD && {
-    echo "sha256sums vaut 'SKIP' : poussez le tag v$pkgver, laissez le job release le renseigner, puis git pull." >&2
+    echo "sha256sums vaut 'SKIP' : poussez le tag v$pkgver, laissez le job release le renseigner, fusionnez sa pull request, puis git pull." >&2
     exit 1
 }
 curl -fsIL -o /dev/null "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v$pkgver.tar.gz" || {

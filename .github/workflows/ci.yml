@@ -4,93 +4,192 @@ on:
     branches: ['**']
     tags: ['v*']
   pull_request:
+  # Avis RustSec publiés après une release : cargo-deny chaque lundi sur main.
+  schedule:
+    - cron: '17 5 * * 1'
   # Lancement à la main : Actions → Vérifications → Run workflow. Le job
   # packages construit deb, rpm et pkg.tar.zst et les dépose en artefacts du
   # run (sans release ni commit) — pour tester un paquet sans couper un tag.
   workflow_dispatch:
+
+# Jeton en lecture par défaut ; seul le job release écrit (MLG-151).
+permissions:
+  contents: read
+
+# Actions épinglées par SHA de commit complet (version en commentaire), mises
+# à jour par Dependabot (.github/dependabot.yml) : une étiquette déplacée chez
+# un tiers ne change pas ce qui s'exécute ici.
 jobs:
-  # Branches et pull requests seulement : un tag v* pointe un commit déjà
-  # vérifié par le push ou la PR qui l'a produit, il ne relance donc ni rust ni
-  # shellcheck — seuls les jobs packages (et release sur tag) s'exécutent là.
+  # Aussi sur les tags : la publication attend ces vérifications (needs du job
+  # packages), elle ne suppose pas qu'un push les a déjà faites.
   rust:
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable (branche, figée ici)
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
       # Mêmes paquets que le job packages : libpam0g-dev (liaison PAM de
       # src/lock/pam.rs) et libssl-dev manquent sur le runner Ubuntu nu.
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11 libpam0g-dev libssl-dev
-      - uses: Swatinem/rust-cache@v2
+      # Cache des jobs de vérification seulement : jamais dans celui qui
+      # construit les paquets publiés.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: bash scripts/verify.sh
+
   shellcheck:
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck scripts/*.sh
-  packages:
-    # Sur un tag v* : les paquets alimentent la release GitHub et le sha256
-    # committé dans le PKGBUILD. Sur un lancement à la main
-    # (Actions → Run workflow) : les mêmes paquets sont déposés en artefacts
-    # du run, sans toucher à la release ni au PKGBUILD.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # Historique complet : le checkout est détaché sur le tag, et le hash
-          # du PKGBUILD est committé sur main juste après (git checkout main).
-          # La version des paquets vient de Cargo.toml, pas de git describe.
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck scripts/*.sh packaging/arch/*.sh packaging/*.sh
+
+  # Dépendances : avis RustSec, licences, sources (deny.toml), bloquant.
+  dependances:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2.1.2
+        with:
+          command: check
+
+  # Traçabilité : copies de vendor/ = archive crates.io + correctifs, et
+  # paquet AUR cohérent avec Cargo.toml (et le tag, sur un tag).
+  coherence:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: bash scripts/verifier-vendor.sh
+      - name: PKGBUILD et .SRCINFO
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            bash scripts/verifier-arch.sh --tag "$GITHUB_REF_NAME"
+          else
+            bash scripts/verifier-arch.sh
+          fi
+
+  packages:
+    # Sur un tag v* : les paquets alimentent la release (job release). Sur un
+    # lancement à la main : les mêmes paquets en artefacts du run, sans
+    # release ni PKGBUILD. Jamais sans que les vérifications aient réussi.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [rust, shellcheck, dependances, coherence]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable (branche, figée ici)
         with:
           toolchain: 1.99.1
       # Mêmes paquets que le job rust, plus ceux que scripts/package.sh réclame
       # (via scripts/deps.sh : libpam0g-dev, libssl-dev) et binutils (objdump,
-      # strip, pour la version glibc). nfpm tourne dans son image Docker
-      # (goreleaser/nfpm:v2.48.0), déjà disponible sur le runner.
+      # strip, pour la version glibc). nfpm tourne dans son image Docker,
+      # épinglée par condensat dans scripts/package.sh.
       - run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libfontconfig1-dev libegl1-mesa-dev dbus-x11 libpam0g-dev libssl-dev binutils
-      - uses: Swatinem/rust-cache@v2
+      # Pas de rust-cache ici : le binaire publié est compilé de zéro.
       - run: MAINTAINER="Jacques HULLU <jacquesh82@users.noreply.github.com>" bash scripts/package.sh deb rpm arch
-      # Lancement à la main : les paquets en artefacts du run (90 jours).
-      - name: "Artefacts du run (deb, rpm, arch)"
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        uses: actions/upload-artifact@v4
+      # Composition du binaire (CycloneDX, depuis Cargo.lock), jointe à la release.
+      - name: SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/hyprdesk.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Empreintes (SHA256SUMS)
+        run: |
+          cd dist
+          sha256sum -- *.deb *.rpm *.pkg.tar.zst hyprdesk.cdx.json > SHA256SUMS
+          cat SHA256SUMS
+      - name: "Paquets, SBOM et empreintes (artefact du run)"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hyprdesk-${{ github.sha }}
           path: |
             dist/*.deb
             dist/*.rpm
             dist/*.pkg.tar.zst
+            dist/hyprdesk.cdx.json
+            dist/SHA256SUMS
           if-no-files-found: error
-      - name: Empreinte du tarball du tag
-        if: startsWith(github.ref, 'refs/tags/v')
+
+  # Publication, sur un tag seulement : signature, attestation de provenance,
+  # release, puis le sha256 du PKGBUILD proposé en pull request (pas de push
+  # direct sur main).
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write         # release, branche de la PR
+      pull-requests: write    # PR du sha256 du PKGBUILD
+      id-token: write         # signature cosign sans clé (OIDC de GitHub)
+      attestations: write     # attestation de provenance
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Historique complet : la PR du PKGBUILD part de main.
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hyprdesk-${{ github.sha }}
+          path: dist
+      - name: Empreintes revérifiées
+        run: cd dist && sha256sum -c SHA256SUMS
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      # Signature sans clé : certificat Sigstore lié à ce workflow et à ce tag,
+      # vérifié par scripts/release.sh (cosign verify-blob) à l'installation.
+      - name: Signature de SHA256SUMS (cosign)
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: Attestation de provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Release GitHub
         run: |
-          HASH="$(curl -fsSL "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | awk '{print $1}')"
-          echo "Tarball ${GITHUB_REF_NAME}.tar.gz : sha256 $HASH"
-          echo "HASH=$HASH" >> "$GITHUB_ENV"
-      - name: "PKGBUILD et .SRCINFO : sha256 committé sur main"
-        if: startsWith(github.ref, 'refs/tags/v')
+          gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.pkg.tar.zst \
+            dist/hyprdesk.cdx.json dist/SHA256SUMS dist/SHA256SUMS.sigstore.json \
+            --title "hyprdesk ${GITHUB_REF_NAME#v}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # Empreinte calculée depuis le tag (git archive, comme GitHub), puis
+      # comparée à l'archive que GitHub sert : un écart arrête tout.
+      - name: Empreinte de l'archive du tag
+        run: |
+          LOCAL="$(git -c tar.tar.gz.command='gzip -cn' archive --format=tar.gz --prefix="hyprdesk-${GITHUB_REF_NAME#v}/" "$GITHUB_REF_NAME" | sha256sum | awk '{print $1}')"
+          SERVED="$(curl -fsSL "https://github.com/jacquesh82/hyprdesk/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | awk '{print $1}')"
+          echo "archive ${GITHUB_REF_NAME} : git archive $LOCAL, GitHub $SERVED"
+          [ "$LOCAL" = "$SERVED" ] || { echo "l'archive servie par GitHub diffère du tag" >&2; exit 1; }
+          echo "HASH=$LOCAL" >> "$GITHUB_ENV"
+      - name: "PKGBUILD et .SRCINFO : sha256 en pull request"
         run: |
           git config user.name "hyprdesk-ci"
           git config user.email "hyprdesk-ci@users.noreply.github.com"
-          git checkout main
-          git pull --ff-only
+          BR="ci/arch-sha256-${GITHUB_REF_NAME}"
+          git checkout -B "$BR" origin/main
           sed -i "s/^sha256sums=('.*')$/sha256sums=('$HASH')/" packaging/arch/PKGBUILD
-          # .SRCINFO (lu par l'AUR) suit le PKGBUILD.
-          sed -i "s/^\tsha256sums = .*/\tsha256sums = $HASH/" packaging/arch/.SRCINFO
+          bash scripts/verifier-arch.sh --corriger
           git add packaging/arch/PKGBUILD packaging/arch/.SRCINFO
-          git commit -m "arch : sha256 du tarball ${GITHUB_REF_NAME} (job release)"
-          git push
-      - name: Release GitHub
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.pkg.tar.zst --title "hyprdesk ${GITHUB_REF_NAME#v}" --generate-notes
+          if git diff --cached --quiet; then echo "PKGBUILD déjà à jour"; exit 0; fi
+          git commit -m "arch : sha256 de l'archive ${GITHUB_REF_NAME} (job release)"
+          git push -f origin "$BR"
+          gh pr create --base main --head "$BR" \
+            --title "arch : sha256 de l'archive ${GITHUB_REF_NAME}" \
+            --body "Empreinte calculée par git archive du tag ${GITHUB_REF_NAME} et identique à l'archive servie par GitHub." \
+            || echo "::warning::PR non créée : autoriser GitHub Actions à créer des pull requests (Settings → Actions → General), ou fusionner la branche $BR à la main."
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}

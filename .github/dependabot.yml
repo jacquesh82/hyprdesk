@@ -1,0 +1,19 @@
+# Mises à jour proposées par Dependabot (MLG-151) : dépendances Rust
+# (Cargo.lock) et actions GitHub (épinglées par SHA dans
+# .github/workflows/ci.yml, le commentaire de version suit).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # vendor/ (copies modifiées, [patch.crates-io]) : à la main, voir
+    # vendor/*/HYPRDESK.md.
+    ignore:
+      - dependency-name: layershellev
+      - dependency-name: iced_layershell
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

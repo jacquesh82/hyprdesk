@@ -1,0 +1,64 @@
+# cargo-deny (https://embarkstudios.github.io/cargo-deny/) : avis de sécurité
+# RustSec, licences, doublons et sources des dépendances. Lancé par la CI
+# (job « dependances » de .github/workflows/ci.yml), bloquant, et chaque
+# semaine sur main pour les avis publiés après une release (MLG-151).
+#
+#   cargo deny check                 tout
+#   cargo deny check advisories      les avis seulement
+
+[graph]
+# Les cibles des paquets publiés : x86_64 et aarch64, Linux (scripts/package.sh).
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+
+[advisories]
+# Avis de vulnérabilité : toujours bloquants. « unmaintained » ne bloque que
+# pour les dépendances directes (une transitive sans mainteneur se signale
+# ici, sa remplaçante dépend de l'amont).
+unmaintained = "workspace"
+yanked = "deny"
+# Un avis accepté s'ajoute ici avec sa raison et sa date, jamais en silence :
+# { id = "RUSTSEC-AAAA-NNNN", reason = "…" }
+ignore = [
+    # lru 0.16 (via iced → cryoglyph) : pop() n'est pas sûr si le Drop d'une
+    # clé panique sous catch_unwind ; les clés de cryoglyph n'ont pas de Drop
+    # qui panique. À retirer quand iced passera à lru ≥ 0.18.2. (2026-11-16)
+    { id = "RUSTSEC-2026-0253", reason = "lru transitif via iced/cryoglyph, chemin non atteignable" },
+]
+
+[licenses]
+# Licences compatibles avec la GPL-3.0-or-later de hyprdesk.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "GPL-3.0-or-later",
+    "ISC",
+    "LGPL-2.1-or-later",
+    "MIT",
+    "MPL-2.0",
+    "NCSA",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Plusieurs versions d'une même crate : signalé, pas bloquant (iced, wgpu et
+# zbus en tirent plusieurs, hors de notre main).
+multiple-versions = "warn"
+wildcards = "deny"
+# vendor/layershellev et vendor/iced_layershell ([patch.crates-io]).
+allow-wildcard-paths = true
+
+[sources]
+# crates.io, et le seul dépôt git autorisé : mindlog.hyprland_tools
+# (hyprpanel-core, épinglé par commit dans Cargo.toml).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/jacquesh82/mindlog.hyprland_tools"]
