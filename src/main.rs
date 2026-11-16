@@ -50,6 +50,7 @@ mod notifications;
 mod osd;
 mod perf;
 mod polkit;
+mod policy;
 mod portal;
 mod processes;
 mod render;
