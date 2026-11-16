@@ -12,11 +12,20 @@
 #   ./scripts/install.sh [options]     installation directe, sans assistant (aussi
 #                                      sans terminal : scripts, conteneurs)
 #
-# hyprdesk est installé depuis la dernière release publiée : le paquet
-# précompilé (deb, rpm ou pkg.tar.zst selon le gestionnaire de paquets) est
-# téléchargé depuis GitHub et installé. Pour compiler le dépôt en l'état
-# (dernier commit, ou l'arbre de travail modifié — hors release) :
-# ./scripts/install_nightly_build.sh, ou --from-source ici.
+# hyprdesk est installé depuis la release de la version de ce dépôt
+# (Cargo.toml, pas « la dernière » : scripts relus et paquet vont ensemble) :
+# le paquet précompilé (deb, rpm ou pkg.tar.zst selon le gestionnaire de
+# paquets) est téléchargé depuis GitHub, vérifié AVANT toute élévation —
+# empreinte de SHA256SUMS, et signature cosign de SHA256SUMS quand cosign
+# est installé (HYPRDESK_REQUIRE_SIGNATURE=1 l'exige) — puis installé
+# (/usr/bin/hyprdesk). Pour compiler le dépôt en l'état (dernier commit, ou
+# l'arbre de travail modifié — hors release) : ./scripts/install_nightly_build.sh,
+# ou --from-source ici (binaire dans ~/.local/bin).
+#
+# Rien n'est lancé en root depuis ~/.local/bin, que tout programme de
+# l'utilisateur peut remplacer (MLG-152) : les étapes root visent
+# /usr/bin/hyprdesk (paquet) ou, en compilation, la copie installée en root
+# dans /usr/local/bin.
 #
 # Par défaut, l'installation s'en tient au bureau : l'écran de connexion, LYRA et
 # myMFA ne s'installent que demandés (cochés dans l'assistant, ou --greeter,
@@ -219,8 +228,9 @@ hyprdesk_preflight || PREFLIGHT=$?
 hyprdesk_deps
 
 # -- Release ou compilation ------------------------------------------------------------
-# Par défaut : le paquet précompilé de la dernière release publiée (pas de
-# Rust requis pour hyprdesk). --from-source : compilation du dépôt en l'état.
+# Par défaut : le paquet précompilé de la release de ce dépôt (pas de Rust
+# requis pour hyprdesk), vérifié avant sudo. --from-source : compilation du
+# dépôt en l'état.
 if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
     hd_step "🦀" "Compilation" "Build" \
         "cargo build --release : 3 à 10 min la première fois, quelques secondes ensuite." \
@@ -230,21 +240,27 @@ if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
     hd_run "$(t "compilation de hyprdesk" "building hyprdesk")" cargo build --release --locked
     PKG_FILE=""
 else
-    hd_step "🏷" "Dernière release" "Latest release" \
-        "Le paquet précompilé pour ce système, téléchargé depuis GitHub." \
-        "The prebuilt package for this system, downloaded from GitHub."
+    hd_step "🏷" "Release" "Release" \
+        "Le paquet précompilé de la version de ce dépôt, téléchargé depuis GitHub et vérifié." \
+        "The prebuilt package of this repository's version, downloaded from GitHub and verified."
     HD_HINT="$(t "rejoignable ? réseau, ou install_nightly_build.sh pour compiler le dépôt" \
                  "reachable? network, or install_nightly_build.sh to build this repository")"
-    REL="$(release_latest)"
-    [[ -n "$REL" ]] || { hd_die_line "$(t "dernière release injoignable (api.github.com)" \
-        "latest release unreachable (api.github.com)")"; exit 1; }
+    REL="$(release_version)"
+    [[ -n "$REL" ]] || { hd_die_line "$(t "version illisible dans Cargo.toml" \
+        "unreadable version in Cargo.toml")"; exit 1; }
     PM="$(hyprdesk_pm)"
     PKG_URL="$(release_pkg_url "$REL" "$PM")"
     [[ -n "$PKG_URL" ]] || { hd_die_line "$(t "pas de paquet $REL pour $(uname -m) / $PM : install_nightly_build.sh compile le dépôt" \
         "no $REL package for $(uname -m) / $PM: install_nightly_build.sh builds this repository")"; exit 1; }
     PKG_FILE="$(mktemp -d)/$(basename "$PKG_URL")"
     hd_run "$(t "téléchargement de" "downloading") hyprdesk $REL" \
-        curl -fsSL --max-time 300 -o "$PKG_FILE" "$PKG_URL"
+        curl -fsSL --proto '=https' --max-time 300 -o "$PKG_FILE" "$PKG_URL"
+    # Vérifié avant toute élévation : un paquet refusé n'atteint jamais sudo.
+    if ! hd_run "$(t "empreinte et signature du paquet" "package checksum and signature")" release_verify "$REL" "$PKG_FILE"; then
+        hd_die_line "$(t "paquet hyprdesk $REL refusé : empreinte ou signature invalide, ou release non vérifiable (détail : $HD_LOG) ; install_nightly_build.sh compile le dépôt" \
+            "hyprdesk $REL package refused: invalid checksum or signature, or unverifiable release (details: $HD_LOG); install_nightly_build.sh builds this repository")"
+        exit 1
+    fi
     hd_sudo_ready "$(t "installer le paquet hyprdesk $REL" "install the hyprdesk $REL package")" || exit 1
     hd_run "$(t "installation du paquet" "installing the package")" release_pkg_install "$PKG_FILE" "$PM"
     hd_ok "hyprdesk $REL → /usr/bin/hyprdesk"
@@ -261,6 +277,10 @@ if command -v fc-cache >/dev/null 2>&1; then
 fi
 
 # -- Binaire ---------------------------------------------------------------------------
+# Paquet : /usr/bin/hyprdesk (root) est la référence, sans copie dans
+# ~/.local/bin. Compilation : ~/.local/bin/hyprdesk, pour la session
+# seulement (jamais lancé en root, MLG-152).
+[[ "${FROM_SOURCE:-0}" == 1 ]] || BIN=/usr/bin/hyprdesk
 hd_step "📥" "Binaire" "Binary" "$BIN" "$BIN"
 HD_HINT="$(t "vérifiez que $BIN_DIR est accessible en écriture" "check that $BIN_DIR is writable")"
 mkdir -p "$BIN_DIR"
@@ -271,10 +291,12 @@ if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
     mv -f -- "$HYPRDESK_INSTALL_STAGE" "$BIN"
     trap - EXIT
 else
-    # Le paquet a posé /usr/bin/hyprdesk ; ~/.local/bin est en tête de PATH :
-    # la copie locale reste la référence (l'écran de connexion et l'unité
-    # systemd utilisateur la visent).
-    [[ "$BIN" == /usr/bin/hyprdesk ]] || install -m755 /usr/bin/hyprdesk "$BIN"
+    # Une ancienne copie dans ~/.local/bin (installations d'avant, ou une
+    # compilation) passerait devant /usr/bin dans le PATH : retirée.
+    if [[ -e "$BIN_DIR/hyprdesk" || -L "$BIN_DIR/hyprdesk" ]]; then
+        rm -f -- "$BIN_DIR/hyprdesk"
+        hd_note "$(t "ancienne copie retirée : $BIN_DIR/hyprdesk (le paquet fait foi)" "old copy removed: $BIN_DIR/hyprdesk (the package is the reference)")"
+    fi
 fi
 hd_ok "$("$BIN" --version 2>/dev/null || echo hyprdesk) → $BIN"
 
@@ -307,18 +329,15 @@ if [[ "$LYRA" == 1 ]]; then
             hd_run "$(t "mise à jour des sources" "updating the sources") ($LYRA_REF)" \
                 bash -c "git -C '$LYRA_SRC' fetch -q --depth 1 origin '$LYRA_REF' && git -C '$LYRA_SRC' checkout -q FETCH_HEAD"
         else
+            # Le tag de scripts/versions.sh, et lui seulement : ni repli sur
+            # main, ni archive téléchargée sans contrôle (MLG-154).
             rm -rf "$LYRA_SRC"
-            if command -v git >/dev/null 2>&1; then
-                # Tag ou branche ; introuvable (dépôt d'un fork…) : main.
-                git ls-remote --exit-code "$LYRA_REPO" "refs/tags/$LYRA_REF" "refs/heads/$LYRA_REF" >/dev/null 2>&1 || LYRA_REF=main
-                hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
-                    git clone -q --depth 1 -b "$LYRA_REF" "$LYRA_REPO" "$LYRA_SRC"
-            else
-                mkdir -p "$LYRA_SRC"
-                hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
-                    bash -c "curl -fsSL '$LYRA_REPO/archive/$LYRA_REF.tar.gz' | tar xz --strip-components=1 -C '$LYRA_SRC'"
-            fi
+            command -v git >/dev/null 2>&1 || { hd_die_line "$(t "git requis pour télécharger LYRA" "git is required to download LYRA")"; false; }
+            hd_run "$(t "téléchargement des sources" "downloading the sources") ($LYRA_REF)" \
+                git clone -q --depth 1 -b "$LYRA_REF" -- "$LYRA_REPO" "$LYRA_SRC"
         fi
+        # Le commit obtenu est celui épinglé par versions.sh, sinon rien n'est compilé.
+        [[ -n "${HYPRDESK_LYRA_SRC:-}" ]] || hyprdesk_check_commit "$LYRA_SRC" "$LYRA_COMMIT" LYRA
         hd_run "$(t "compilation de LYRA" "building LYRA")" \
             cargo build --release --locked --manifest-path "$LYRA_SRC/Cargo.toml" -p hyprpanel-chat -p hyprpanel-server
         install -m755 "$LYRA_SRC/target/release/hyprpanel-chat" "$LYRA_SRC/target/release/hyprpanel" "$BIN_DIR/"
@@ -449,8 +468,8 @@ if [[ "$MYMFA" == 1 ]]; then
                 hd_log_note "myMFA : dépôt joint par $MYMFA_HOW ($MYMFA_REPO)"
                 case "$MYMFA_HOW" in
                     gh) MYMFA_CLONE=(gh repo clone "$MYMFA_REPO" "$MYMFA_SRC" -- -q --depth 1 -b "$MYMFA_REF") ;;
-                    https) MYMFA_CLONE=(env GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 -b "$MYMFA_REF" "$MYMFA_REPO" "$MYMFA_SRC") ;;
-                    *) MYMFA_CLONE=(env GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -q --depth 1 -b "$MYMFA_REF" "$MYMFA_REPO" "$MYMFA_SRC") ;;
+                    https) MYMFA_CLONE=(env GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 -b "$MYMFA_REF" -- "$MYMFA_REPO" "$MYMFA_SRC") ;;
+                    *) MYMFA_CLONE=(env GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -q --depth 1 -b "$MYMFA_REF" -- "$MYMFA_REPO" "$MYMFA_SRC") ;;
                 esac
                 if hd_run "$(t "téléchargement des sources" "downloading the sources") ($MYMFA_REF)" "${MYMFA_CLONE[@]}"; then
                     MYMFA_OK=1
@@ -460,6 +479,13 @@ if [[ "$MYMFA" == 1 ]]; then
                 hd_hint "$(t "un accès réseau au dépôt $MYMFA_GH, ou HYPRDESK_MYMFA_SRC=<copie des sources>, puis relancer" "network access to the $MYMFA_GH repository, or HYPRDESK_MYMFA_SRC=<copy of the sources>, then run again")"
                 hd_log_note "myMFA : dépôt public $MYMFA_GH inaccessible (HTTPS, SSH, gh absent ou non connecté) — étape sautée"
             fi
+        fi
+        # Sources téléchargées : au commit épinglé par versions.sh, sinon rien
+        # n'est compilé ni installé (son module PAM finit en root, MLG-154).
+        if [[ "$MYMFA_OK" == 1 ]] && [[ -z "${HYPRDESK_MYMFA_SRC:-}" ]] \
+            && ! hyprdesk_check_commit "$MYMFA_SRC" "$MYMFA_COMMIT" myMFA; then
+            MYMFA_OK=0
+            hd_warn "$(t "myMFA non installé : le reste continue sans lui" "myMFA not installed: the rest goes on without it")"
         fi
         if [[ "$MYMFA_OK" == 1 ]]; then
             # Son propre script : compilation, binaire, unit, activation D-Bus, démon.
@@ -482,11 +508,19 @@ if [[ "$MYMFA" == 1 ]]; then
     fi
     # Module PAM : le coffre s'ouvre à la connexion (l'écran de connexion de
     # hyprdesk pose ses lignes dans /etc/pam.d/greetd quand il le trouve).
+    # Compilé depuis les sources vérifiées ci-dessus (commit épinglé), puis
+    # posé en root, propriété de root ; sa livraison par un paquet signé
+    # reste à faire (MLG-154).
     PAM_LIB="$MYMFA_SRC/linux/target/release/libpam_mymfa.so"
     PAM_DEST="$(pam_dir)/pam_mymfa.so"
-    if [[ -n "$(mymfa_bin)" ]] && [[ -f "$PAM_LIB" ]] && ! cmp -s "$PAM_LIB" "$PAM_DEST"; then
+    PAM_SRC_OK=1
+    if [[ -z "${HYPRDESK_MYMFA_SRC:-}" ]] && [[ -d "$MYMFA_SRC/.git" ]] \
+        && ! hyprdesk_check_commit "$MYMFA_SRC" "$MYMFA_COMMIT" "myMFA (PAM)"; then
+        PAM_SRC_OK=0
+    fi
+    if [[ "$PAM_SRC_OK" == 1 ]] && [[ -n "$(mymfa_bin)" ]] && [[ -f "$PAM_LIB" ]] && ! cmp -s "$PAM_LIB" "$PAM_DEST"; then
         if hd_sudo_ready "$(t "installer le module PAM de myMFA" "install the myMFA PAM module")" \
-            && hd_run "$(t "module PAM" "PAM module") ($PAM_DEST)" hyprdesk_root install -Dm0755 "$PAM_LIB" "$PAM_DEST"; then
+            && hd_run "$(t "module PAM" "PAM module") ($PAM_DEST)" hyprdesk_root install -D -o root -g root -m0755 "$PAM_LIB" "$PAM_DEST"; then
             hd_ok "$(t "coffre ouvert à la connexion (avec l'écran de connexion de hyprdesk)" "vault opened at login (with the hyprdesk login screen)")"
         else
             hd_warn "$(t "module PAM non installé : le coffre se déverrouillera à la main" "PAM module not installed: the vault will be unlocked by hand")"
@@ -541,23 +575,40 @@ if [[ "$HYPRBARS" == 1 ]]; then
             # dans /var/cache/hyprpm : au premier plan (HYPRDESK_VERBOSE), une
             # invite de mot de passe reste visible au lieu d'être effacée par
             # l'animation ; jeton sudo redemandé avant chaque appel et entretenu
-            # pendant l'étape. Ses questions [Y/n] : « yes » y répond.
+            # pendant l'étape. Ses questions [Y/n] sont posées à l'utilisateur
+            # (plus de « yes | » qui les acceptait d'office, MLG-154) : sans
+            # terminal, l'étape est sautée.
             hb_keep=""
             if [[ "$(id -u)" != 0 ]] && command -v sudo >/dev/null 2>&1; then
                 (while sleep 45; do sudo -n true 2>/dev/null || exit; done) &
                 hb_keep=$!
             fi
+            # Au premier plan, l'entrée reliée au terminal (hd_run la ferme) :
+            # l'utilisateur répond lui-même aux questions de hyprpm.
             hb_hyprpm() { # hb_hyprpm <libellé> <arguments de hyprpm…>
-                local label="$1"; shift
+                local label="$1" rc=0; shift
                 hd_sudo_ready "$label" || return 1
-                HYPRDESK_VERBOSE=1 hd_run "$label" bash -c 'yes | hyprpm "$@"' hyprpm "$@"
+                hd_info "$label"
+                printf '\n### %s — %s\n$ hyprpm %s\n' "$(date +%T)" "$label" "$*" >>"$HD_LOG"
+                hyprpm "$@" > >(tee -a "$HD_LOG") 2>&1 || rc=$?
+                if [[ "$rc" == 0 ]]; then hd_ok "$label"; else hd_ko "$label"; fi
+                return "$rc"
             }
             HB_REPO=https://github.com/hyprwm/hyprland-plugins
-            hb_hyprpm "$(t "en-têtes de Hyprland (hyprpm update)" "Hyprland headers (hyprpm update)")" update || true
-            if [[ -z "$(hyprbars_so)" ]]; then
-                hb_hyprpm "$(t "compilation des plugins (hyprpm add hyprland-plugins)" "building the plugins (hyprpm add hyprland-plugins)")" add "$HB_REPO" \
-                    || { [[ -z "$(hyprbars_so)" ]] \
-                         && hb_hyprpm "$(t "nouvel essai (hyprpm add)" "second try (hyprpm add)")" add "$HB_REPO"; } || true
+            # Révision : celle de versions.sh si elle est fixée, sinon le commit
+            # que les commit_pins (SHA) du dépôt de hyprwm associent au
+            # Hyprland qui tourne.
+            HB_ADD=(add "$HB_REPO")
+            [[ -n "${HYPRLAND_PLUGINS_REV:-}" ]] && HB_ADD+=("$HYPRLAND_PLUGINS_REV")
+            if [[ ! -t 0 ]]; then
+                hd_warn "$(t "sans terminal : hyprpm pose des questions, étape sautée" "no terminal: hyprpm asks questions, step skipped")"
+            else
+                hb_hyprpm "$(t "en-têtes de Hyprland (hyprpm update)" "Hyprland headers (hyprpm update)")" update || true
+                if [[ -z "$(hyprbars_so)" ]]; then
+                    hb_hyprpm "$(t "compilation des plugins (hyprpm add hyprland-plugins)" "building the plugins (hyprpm add hyprland-plugins)")" "${HB_ADD[@]}" \
+                        || { [[ -z "$(hyprbars_so)" ]] \
+                             && hb_hyprpm "$(t "nouvel essai (hyprpm add)" "second try (hyprpm add)")" "${HB_ADD[@]}"; } || true
+                fi
             fi
             [[ -n "$hb_keep" ]] && kill "$hb_keep" 2>/dev/null
             if [[ -n "$(hyprbars_so)" ]]; then
@@ -707,7 +758,14 @@ HD_HINT="$(t "le service ne démarre pas : journalctl --user -u hyprdesk -n 50" 
 mkdir -p "$UNIT_DIR"
 # Pas de WAYLAND_DISPLAY figé : il change d'un poste et d'une session à
 # l'autre ; Hyprland le transmet à systemd au démarrage.
-install -m644 assets/hyprdesk.service "$UNIT_DIR/hyprdesk.service"
+# Paquet : ExecStart sur /usr/bin/hyprdesk (comme l'unit du paquet), pas sur
+# une copie de ~/.local/bin.
+if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
+    install -m644 assets/hyprdesk.service "$UNIT_DIR/hyprdesk.service"
+else
+    sed -e 's#%h/\.local/bin/hyprdesk#/usr/bin/hyprdesk#' assets/hyprdesk.service > "$UNIT_DIR/hyprdesk.service"
+    chmod 644 "$UNIT_DIR/hyprdesk.service"
+fi
 if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
     systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP 2>/dev/null || true
 fi
@@ -858,11 +916,24 @@ if [[ "$GREETER" == yes ]]; then
     PROFILE="$(mktemp --suffix=.json)"
     LANG="$GREETER_LANG" "$BIN" greeter setup profile "$PROFILE" >>"$HD_LOG" 2>&1
     chmod 644 "$PROFILE"
-    if hd_sudo_ready "$(t "installer l'écran de connexion" "install the login screen")" \
+    # Binaire lancé en root : jamais celui de ~/.local/bin (MLG-152). Paquet :
+    # /usr/bin/hyprdesk ; compilation : le binaire construit, installé d'abord
+    # en root dans /usr/local/bin (c'est aussi celui que lance greetd).
+    ROOT_BIN=""
+    if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
+        hd_sudo_ready "$(t "installer l'écran de connexion" "install the login screen")" \
+            && hd_run "$(t "binaire root de l'écran de connexion" "login screen root binary") (/usr/local/bin/hyprdesk)" \
+                hyprdesk_root_install_build target/release/hyprdesk \
+            && ROOT_BIN=/usr/local/bin/hyprdesk
+    else
+        ROOT_BIN="$(hyprdesk_root_bin || true)"
+    fi
+    [[ -n "$ROOT_BIN" ]] || hd_warn "$(t "aucun binaire hyprdesk appartenant à root : rien n'est lancé en root" "no root-owned hyprdesk binary: nothing is run as root")"
+    if [[ -n "$ROOT_BIN" ]] && hd_sudo_ready "$(t "installer l'écran de connexion" "install the login screen")" \
         && { [[ "$GREETER_READY" == 1 ]] \
-            || hd_run "$(t "paquets greetd et cage" "greetd and cage packages")" hyprdesk_root "$BIN" greeter setup packages; } \
-        && hd_run "$(t "configuration de greetd" "greetd configuration")" hyprdesk_root "$BIN" greeter setup install "$PROFILE" \
-        && hd_run "$(t "bascule vers greetd" "switch to greetd")" hyprdesk_root "$BIN" greeter setup enable; then
+            || hd_run "$(t "paquets greetd et cage" "greetd and cage packages")" hyprdesk_root "$ROOT_BIN" greeter setup packages; } \
+        && hd_run "$(t "configuration de greetd" "greetd configuration")" hyprdesk_root "$ROOT_BIN" greeter setup install "$PROFILE" \
+        && hd_run "$(t "bascule vers greetd" "switch to greetd")" hyprdesk_root "$ROOT_BIN" greeter setup enable; then
         DM_UNIT="greetd.service"
         GREETER_NEW=1
         hd_ok "$(t "activé : il s'affichera au prochain démarrage" "enabled: shown at next boot")"

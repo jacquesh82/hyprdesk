@@ -87,6 +87,65 @@ hyprdesk_root() {
     fi
 }
 
+# Vrai si $1 est un exécutable ordinaire (pas un lien) appartenant à root,
+# dans un dossier appartenant à root, ni l'un ni l'autre modifiable par le
+# groupe ou les autres : un binaire que l'utilisateur ne peut pas remplacer.
+hyprdesk_root_owned() {
+    local f="$1" d
+    [[ -f "$f" && -x "$f" && ! -L "$f" ]] || return 1
+    d="$(dirname "$f")"
+    [[ "$(stat -c %u "$f")" == 0 && "$(stat -c %u "$d")" == 0 ]] || return 1
+    (( (8#$(stat -c %a "$f") & 8#022) == 0 && (8#$(stat -c %a "$d") & 8#022) == 0 ))
+}
+
+# Binaire hyprdesk à lancer en root (MLG-152) : jamais celui de ~/.local/bin,
+# que tout programme de l'utilisateur peut remplacer. Celui du paquet
+# (/usr/bin), sinon la copie root de l'écran de connexion (/usr/local/bin).
+# Rien : code 1 (compilation : hyprdesk_root_install_build d'abord).
+hyprdesk_root_bin() {
+    local f
+    for f in /usr/bin/hyprdesk /usr/local/bin/hyprdesk; do
+        hyprdesk_root_owned "$f" && { echo "$f"; return 0; }
+    done
+    return 1
+}
+
+# Compilation depuis le dépôt : le binaire construit, installé en root dans
+# /usr/local/bin avant tout appel en root (qui vise alors cette copie).
+hyprdesk_root_install_build() {
+    hyprdesk_root install -o root -g root -m0755 "$1" /usr/local/bin/hyprdesk
+}
+
+# hyprdesk_check_commit <dossier> <commit attendu> <nom> (MLG-154) : la copie
+# git est-elle au commit épinglé par scripts/versions.sh ? Commit attendu vide
+# (référence passée à la main) : signalé, accepté. Différent : code 1.
+hyprdesk_check_commit() {
+    local dir="$1" want="$2" what="$3" got
+    got="$(git -C "$dir" rev-parse 'HEAD^{commit}' 2>/dev/null)" || {
+        hd_ko "$what : $(hyprdesk_t "copie git illisible" "unreadable git copy") ($dir)"
+        return 1
+    }
+    if [[ -z "$want" ]]; then
+        hd_warn "$what : $(hyprdesk_t "référence choisie à la main, commit non vérifié" "reference chosen by hand, commit not checked") (${got:0:12})"
+        return 0
+    fi
+    [[ "$got" == "$want" ]] && return 0
+    hd_ko "$what : $(hyprdesk_t "commit $got, attendu $want (étiquette déplacée ou dépôt substitué) : rien n'est compilé" "commit $got, expected $want (tag moved or repository substituted): nothing is built")"
+    return 1
+}
+
+# Valeurs de scripts/versions.sh lues comme données (MLG-151) : le fichier
+# d'une autre révision (update.sh, avant le git pull) n'est jamais exécuté.
+#   hyprdesk_versions_get <texte de versions.sh> <NOM> → la valeur par défaut
+# Seules les lignes NOM="${HYPRDESK_NOM:-valeur}" sont reconnues ; une valeur
+# hors de [A-Za-z0-9._/-] est refusée (vide).
+hyprdesk_versions_get() {
+    local text="$1" name="$2" v
+    v="$(printf '%s\n' "$text" | sed -n "s/^$name=\"\\\${HYPRDESK_$name:-\\([^}\"]*\\)}\"\$/\\1/p" | head -1)"
+    [[ "$v" =~ ^[A-Za-z0-9._/-]*$ ]] || v=""
+    printf '%s' "$v"
+}
+
 hyprdesk_install_packages() {
     local pm="$1"; shift
     case "$pm" in
@@ -211,6 +270,33 @@ hyprdesk_preflight() {
     return 0
 }
 
+# rustup-init de l'architecture, téléchargé avec son empreinte publiée
+# (static.rust-lang.org, HTTPS imposé), vérifié, puis lancé : pas de
+# « curl | sh » d'un script qu'on n'a pas contrôlé.
+hyprdesk_rustup_init() {
+    local triple tmp url
+    case "$(uname -m)" in
+        x86_64) triple=x86_64-unknown-linux-gnu ;;
+        aarch64) triple=aarch64-unknown-linux-gnu ;;
+        *) echo "architecture non prise en charge : $(uname -m)" >&2; return 1 ;;
+    esac
+    url="https://static.rust-lang.org/rustup/dist/$triple/rustup-init"
+    tmp="$(mktemp -d)"
+    if ! curl --proto '=https' --tlsv1.2 -fsSL -o "$tmp/rustup-init" "$url" \
+        || ! curl --proto '=https' --tlsv1.2 -fsSL -o "$tmp/rustup-init.sha256" "$url.sha256"; then
+        rm -rf "$tmp"; return 1
+    fi
+    if [ "$(awk '{print $1}' "$tmp/rustup-init.sha256")" != "$(sha256sum "$tmp/rustup-init" | awk '{print $1}')" ]; then
+        echo "rustup-init : empreinte différente de celle publiée, non lancé" >&2
+        rm -rf "$tmp"; return 1
+    fi
+    chmod +x "$tmp/rustup-init"
+    local rc=0
+    RUSTUP_INIT_SKIP_PATH_CHECK=yes "$tmp/rustup-init" -y -q --profile minimal --default-toolchain stable --no-modify-path || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+
 hyprdesk_deps() {
     local dry=0
     [ "${1:-}" = "--dry-run" ] && dry=1
@@ -299,13 +385,25 @@ hyprdesk_deps() {
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
     if ! command -v rustup >/dev/null 2>&1; then
-        # Rust de la distribution déjà là : rustup s'installe à côté, sans la retirer.
-        hd_run "$(hyprdesk_t "installation de rustup dans ~/.cargo (sans sudo)" "installing rustup in ~/.cargo (no sudo)")" \
-            bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_INIT_SKIP_PATH_CHECK=yes sh -s -- -y -q --profile minimal --default-toolchain stable --no-modify-path" || {
-            hd_hint "$(hyprdesk_t "voir https://rustup.rs, puis relancer" "see https://rustup.rs, then run again")"
-            return 1
-        }
-        export PATH="$HOME/.cargo/bin:$PATH"
+        # rustup de la distribution (paquet signé) quand il ne heurte pas une
+        # Rust déjà installée par elle ; sinon rustup-init, vérifié par son
+        # empreinte publiée avant d'être lancé (MLG-151), dans ~/.cargo, sans
+        # sudo, à côté de la Rust de la distribution, sans la retirer.
+        local pm
+        pm="$(hyprdesk_pm)"
+        if ! command -v rustc >/dev/null 2>&1 && [ -n "$pm" ] && hyprdesk_pkg_available "$pm" rustup \
+            && hd_sudo_ready "$(hyprdesk_t "installer rustup (paquet de la distribution)" "install rustup (distribution package)")" \
+            && hd_run "$(hyprdesk_t "rustup, paquet de la distribution" "rustup, distribution package")" hyprdesk_install_packages "$pm" rustup; then
+            hd_run "$(hyprdesk_t "Rust stable par rustup" "Rust stable through rustup")" \
+                rustup -q toolchain install stable --profile minimal || return 1
+        else
+            hd_run "$(hyprdesk_t "installation de rustup dans ~/.cargo (sans sudo), empreinte vérifiée" "installing rustup in ~/.cargo (no sudo), checksum verified")" \
+                hyprdesk_rustup_init || {
+                hd_hint "$(hyprdesk_t "voir https://rustup.rs, puis relancer" "see https://rustup.rs, then run again")"
+                return 1
+            }
+            export PATH="$HOME/.cargo/bin:$PATH"
+        fi
     else
         hd_run "$(hyprdesk_t "Rust stable par rustup" "Rust stable through rustup")" \
             rustup -q toolchain install stable --profile minimal || return 1

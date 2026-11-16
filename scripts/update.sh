@@ -11,9 +11,10 @@
 #   --verbose                      sortie complète des commandes
 #
 # Relevé :
-#   - hyprdesk : la dernière release publiée (paquet précompilé, installé par
-#     install.sh) comparée à la version installée ; le dépôt cloné est tiré
-#     au passage (scripts, ressources, traductions). Installé depuis le dépôt
+#   - hyprdesk : la release de la version du dépôt distant (Cargo.toml de la
+#     branche suivie, lu comme donnée ; paquet précompilé et vérifié, installé
+#     par install.sh) comparée à la version installée ; le dépôt cloné est
+#     tiré au passage (scripts, ressources, traductions). Installé depuis le dépôt
 #     en l'état (install_nightly_build.sh) ? la release ne sera pas plus
 #     récente que votre binaire : mettez à jour avec le même script ;
 #   - Hyprbars (hyprpm) : recompilé quand la version de Hyprland change ;
@@ -24,6 +25,10 @@
 # dernière installation (install-options) ; LYRA et myMFA recompilés s'ils
 # ont changé ; copie du binaire de l'écran de connexion rafraîchie ; bilan.
 # Un dépôt modifié localement n'est pas tiré (rien n'est écrasé).
+# Rien du dépôt distant n'est exécuté avant la confirmation (le relevé, et
+# --check, le lisent comme données). HYPRDESK_REQUIRE_SIGNATURE=1 : le commit
+# tiré doit porter une signature valide (git verify-commit), sinon rien n'est
+# tiré ni lancé.
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
@@ -82,12 +87,14 @@ DIRTY="$(git status --porcelain --untracked-files=no)"
 # précompilé est installé par install.sh (scripts/release.sh).
 # shellcheck source=release.sh disable=SC1091
 source scripts/release.sh
-REL="$(release_latest || true)"
-if [[ -z "$REL" ]]; then
-    hd_warn "$(t "dernière release injoignable : relevé local seulement" "latest release unreachable: local check only")"
-    REL="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-fi
-INSTALLED_V="$("$BIN_DIR/hyprdesk" --version 2>/dev/null | sed -n 's/^hyprdesk //p')"
+# La version qu'installera install.sh après le git pull : celle du
+# Cargo.toml distant (lu comme donnée, validé), sinon du dépôt local.
+REL="$(git show "$UP_C:Cargo.toml" 2>/dev/null | sed -n 's/^version = "\([0-9A-Za-z.+-]*\)"$/\1/p' | head -1)"
+[[ -n "$REL" ]] || REL="$(release_version)"
+# Binaire de la session : compilé (~/.local/bin) ou du paquet (/usr/bin).
+INSTALLED_BIN="$BIN_DIR/hyprdesk"
+[[ -x "$INSTALLED_BIN" ]] || INSTALLED_BIN=/usr/bin/hyprdesk
+INSTALLED_V="$("$INSTALLED_BIN" --version 2>/dev/null | sed -n 's/^hyprdesk //p')"
 if [[ -z "$INSTALLED_V" ]]; then
     hd_warn "$(t "version installée inconnue : installation proposée" "installed version unknown: install offered")"
     PENDING+=("hyprdesk")
@@ -115,17 +122,29 @@ fi
 # shellcheck source=versions.sh disable=SC1091
 source scripts/versions.sh
 if ((BEHIND > 0)) && [[ -z "$DIRTY" ]]; then
-    # shellcheck disable=SC1090
-    source <(git show "$UP_C:scripts/versions.sh" 2>/dev/null) || true
+    # versions.sh distant lu comme données (jamais sourcé, MLG-151) : les
+    # valeurs reconnues et validées seulement, les variables HYPRDESK_* de
+    # l'environnement passent toujours outre.
+    UP_VERSIONS="$(git show "$UP_C:scripts/versions.sh" 2>/dev/null || true)"
+    v="$(hyprdesk_versions_get "$UP_VERSIONS" LYRA_REF)";     [[ -n "$v" && -z "${HYPRDESK_LYRA_REF:-}" ]] && LYRA_REF="$v"
+    v="$(hyprdesk_versions_get "$UP_VERSIONS" LYRA_COMMIT)";  [[ "$v" =~ ^[0-9a-f]{40}$ && -z "${HYPRDESK_LYRA_REF:-}${HYPRDESK_LYRA_COMMIT:-}" ]] && LYRA_COMMIT="$v"
+    v="$(hyprdesk_versions_get "$UP_VERSIONS" MYMFA_REF)";    [[ -n "$v" && -z "${HYPRDESK_MYMFA_REF:-}" ]] && MYMFA_REF="$v"
+    v="$(hyprdesk_versions_get "$UP_VERSIONS" MYMFA_COMMIT)"; [[ "$v" =~ ^[0-9a-f]{40}$ && -z "${HYPRDESK_MYMFA_REF:-}${HYPRDESK_MYMFA_COMMIT:-}" ]] && MYMFA_COMMIT="$v"
+    unset v UP_VERSIONS
 fi
 # Le commit d'un tag annoté (FETCH_HEAD désigne l'objet tag) ou d'une branche.
 fetched() { git -C "$1" rev-parse 'FETCH_HEAD^{commit}'; }
 LYRA_NEW=""
+# Commit récupéré conforme à celui épinglé par versions.sh (vide : référence
+# passée à la main, non vérifiée) ; sinon la mise à jour est refusée.
+pinned() { [[ -z "$2" || "$(fetched "$1")" == "$2" ]]; }
 if [[ -d "$LYRA_SRC/.git" ]]; then
+    # Le tag de versions.sh seulement : plus de repli sur main (MLG-154).
     REF="$LYRA_REF"
-    git -C "$LYRA_SRC" ls-remote --exit-code origin "refs/tags/$REF" "refs/heads/$REF" >/dev/null 2>&1 || REF=main
     if git -C "$LYRA_SRC" fetch -q --depth 1 origin "$REF" >/dev/null 2>&1; then
-        if [[ "$(git -C "$LYRA_SRC" rev-parse HEAD)" != "$(fetched "$LYRA_SRC")" ]]; then
+        if ! pinned "$LYRA_SRC" "$LYRA_COMMIT"; then
+            hd_ko "LYRA : $(t "le tag $REF désigne $(fetched "$LYRA_SRC"), attendu $LYRA_COMMIT : mise à jour refusée" "tag $REF points to $(fetched "$LYRA_SRC"), expected $LYRA_COMMIT: update refused")"
+        elif [[ "$(git -C "$LYRA_SRC" rev-parse HEAD)" != "$(fetched "$LYRA_SRC")" ]]; then
             LYRA_NEW="$(git -C "$LYRA_SRC" log -1 --format='%h %s' FETCH_HEAD)"
             hd_info "LYRA : $(t "nouvelle version" "new version") ($REF) — $LYRA_NEW"
             PENDING+=("LYRA")
@@ -142,7 +161,9 @@ MYMFA_NEW=""
 if [[ -d "$MYMFA_SRC/.git" ]]; then
     if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8" \
         git -C "$MYMFA_SRC" fetch -q --depth 1 origin "$MYMFA_REF" >/dev/null 2>&1; then
-        if [[ "$(git -C "$MYMFA_SRC" rev-parse HEAD)" != "$(fetched "$MYMFA_SRC")" ]]; then
+        if ! pinned "$MYMFA_SRC" "$MYMFA_COMMIT"; then
+            hd_ko "myMFA : $(t "le tag $MYMFA_REF désigne $(fetched "$MYMFA_SRC"), attendu $MYMFA_COMMIT : mise à jour refusée" "tag $MYMFA_REF points to $(fetched "$MYMFA_SRC"), expected $MYMFA_COMMIT: update refused")"
+        elif [[ "$(git -C "$MYMFA_SRC" rev-parse HEAD)" != "$(fetched "$MYMFA_SRC")" ]]; then
             MYMFA_NEW="$(git -C "$MYMFA_SRC" log -1 --format='%h %s' FETCH_HEAD)"
             hd_info "myMFA : $(t "nouvelle version" "new version") ($MYMFA_REF) — $MYMFA_NEW"
             PENDING+=("myMFA")
@@ -171,7 +192,9 @@ if [[ -d "/var/cache/hyprpm/$USER/hyprland-plugins" ]] && command -v hyprpm >/de
     fi
 fi
 
-# Écran de connexion de hyprdesk : il lance sa propre copie du binaire.
+# Écran de connexion de hyprdesk installé depuis une compilation : il lance
+# sa propre copie root du binaire (/usr/local/bin). Avec le paquet, greetd
+# lance /usr/bin/hyprdesk, mis à jour par le paquet lui-même.
 greeter_stale() {
     [[ -x /usr/local/bin/hyprdesk ]] && [[ -x "$BIN_DIR/hyprdesk" ]] \
         && "$BIN_DIR/hyprdesk" greeter setup status 2>/dev/null | grep -q hyprdesk \
@@ -205,6 +228,15 @@ fi
 
 # -- Application -----------------------------------------------------------------------------
 DONE=()
+if ((BEHIND > 0)) && [[ -z "$DIRTY" ]] && [[ "${HYPRDESK_REQUIRE_SIGNATURE:-0}" == 1 ]]; then
+    # Rien n'est tiré ni lancé si le commit distant n'est pas signé par une
+    # clé de confiance (gpg.ssh.allowedSignersFile ou trousseau GnuPG).
+    if ! git verify-commit "$UP_C" >>"$HD_LOG" 2>&1; then
+        hd_die_line "$(t "commit $UP_C non signé ou signature non reconnue (HYPRDESK_REQUIRE_SIGNATURE=1) : rien n'est tiré" "commit $UP_C unsigned or signature not trusted (HYPRDESK_REQUIRE_SIGNATURE=1): nothing pulled")"
+        exit 1
+    fi
+    hd_ok "$(t "signature du commit $UP_C vérifiée" "commit $UP_C signature verified")"
+fi
 if ((BEHIND > 0)) && [[ -z "$DIRTY" ]]; then
     hd_step "⬇" "Récupération" "Pull"
     hd_run "git pull --ff-only" git pull -q --ff-only "${UP%%/*}" "${UP#*/}"
@@ -257,7 +289,7 @@ if [[ -n "$MYMFA_NEW" ]]; then
                 # la suite ; l'ancien module reste en place.
                 # shellcheck disable=SC2015
                 hd_sudo_ready "$(t "mettre à jour le module PAM de myMFA" "update the myMFA PAM module")" \
-                    && hd_run "$(t "module PAM" "PAM module")" hyprdesk_root install -Dm0755 "$PAM_LIB" "$d/pam_mymfa.so" || true
+                    && hd_run "$(t "module PAM" "PAM module")" hyprdesk_root install -D -o root -g root -m0755 "$PAM_LIB" "$d/pam_mymfa.so" || true
             fi
         done
     else
@@ -266,8 +298,17 @@ if [[ -n "$MYMFA_NEW" ]]; then
 fi
 if [[ -n "$HYPRBARS_NEW" ]]; then
     hd_step "🪟" "Hyprbars" "Hyprbars"
-    if hd_sudo_ready "$(t "recompiler les plugins de Hyprland (hyprpm)" "rebuild the Hyprland plugins (hyprpm)")" \
-        && HYPRDESK_VERBOSE=1 hd_run "$(t "en-têtes et plugins (hyprpm update)" "headers and plugins (hyprpm update)")" bash -c 'yes | hyprpm update'; then
+    # Questions de hyprpm posées à l'utilisateur (plus de « yes | », MLG-154) :
+    # au premier plan, entrée reliée au terminal ; sans terminal, sautée.
+    hb_update() {
+        hd_info "$(t "en-têtes et plugins (hyprpm update)" "headers and plugins (hyprpm update)")"
+        printf '\n### %s — hyprpm update\n' "$(date +%T)" >>"$HD_LOG"
+        hyprpm update > >(tee -a "$HD_LOG") 2>&1
+    }
+    if [[ ! -t 0 ]]; then
+        hd_warn "$(t "sans terminal : hyprpm pose des questions, Hyprbars non recompilé (hyprpm update au terminal)" "no terminal: hyprpm asks questions, Hyprbars not rebuilt (hyprpm update in a terminal)")"
+    elif hd_sudo_ready "$(t "recompiler les plugins de Hyprland (hyprpm)" "rebuild the Hyprland plugins (hyprpm)")" \
+        && hb_update; then
         printf '%s\n' "$HYPRBARS_NEW" > "$STATE_DIR/hyprbars-hyprland"
         hd_ok "Hyprbars : Hyprland $HYPRBARS_NEW"
         DONE+=("Hyprbars")
@@ -278,8 +319,11 @@ fi
 # Écran de connexion : copie du binaire rafraîchie (après la réinstallation).
 if greeter_stale; then
     hd_step "🚪" "Écran de connexion" "Login screen"
+    # Le binaire compilé est d'abord installé en root, puis c'est cette
+    # copie root qui est lancée : jamais ~/.local/bin en root (MLG-152).
     if hd_sudo_ready "$(t "mettre à jour l'écran de connexion" "update the login screen")" \
-        && hd_run "$(t "copie du binaire et profil" "binary copy and profile")" hyprdesk_root "$BIN_DIR/hyprdesk" greeter setup install; then
+        && hd_run "$(t "copie root du binaire" "root copy of the binary") (/usr/local/bin/hyprdesk)" hyprdesk_root_install_build "$BIN_DIR/hyprdesk" \
+        && hd_run "$(t "profil de l'écran de connexion" "login screen profile")" hyprdesk_root /usr/local/bin/hyprdesk greeter setup install; then
         DONE+=("$(t "écran de connexion" "login screen")")
     else
         hd_warn "$(t "écran de connexion non mis à jour : sudo hyprdesk greeter setup install" "login screen not updated: sudo hyprdesk greeter setup install")"

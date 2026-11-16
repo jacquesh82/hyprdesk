@@ -50,8 +50,11 @@ done
 [[ -n "${UI:-}" ]] || { [[ "${LANG:-}" == fr* ]] && UI=fr || UI=en; }
 export UI
 
-# shellcheck source=ui.sh disable=SC1091
-source scripts/ui.sh
+# deps.sh : ui.sh, et hyprdesk_root_bin (binaire à lancer en root).
+# shellcheck disable=SC2034
+HYPRDESK_ROOT="$PWD"
+# shellcheck source=deps.sh disable=SC1091
+source scripts/deps.sh
 t() { hyprdesk_t "$@"; }
 
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -136,17 +139,24 @@ if [[ "$DRY" == 0 && "$YES" == 0 ]]; then
 fi
 
 # -- 1. Écran de connexion (avant le binaire, qui sait le défaire) ----------------------
+# En root : le binaire du paquet ou la copie root de l'écran de connexion,
+# jamais celui de ~/.local/bin, modifiable par l'utilisateur (MLG-152).
 hd_section "🖥" "Écran de connexion" "Login screen"
-if greeter_ours; then
+ROOT_BIN="$(hyprdesk_root_bin || true)"
+if greeter_ours && [[ -z "$ROOT_BIN" ]]; then
+    hd_ko "$(t "aucun binaire hyprdesk appartenant à root (/usr/bin ou /usr/local/bin) : écran de connexion non rétabli, désinstallation arrêtée" "no root-owned hyprdesk binary (/usr/bin or /usr/local/bin): login screen not restored, uninstall stopped")"
+    hd_hint "$(t "après avoir vérifié le binaire : sudo install -o root -g root -m0755 <binaire> /usr/local/bin/hyprdesk, puis relancer" "after checking the binary: sudo install -o root -g root -m0755 <binary> /usr/local/bin/hyprdesk, then run again")"
+    exit 1
+elif greeter_ours; then
     if [[ "$DRY" == 1 ]]; then
-        hd_info "$(t "ferait :" "would:") sudo $BIN greeter setup restore"
+        hd_info "$(t "ferait :" "would:") sudo $ROOT_BIN greeter setup restore"
     elif hd_sudo_ready "$(t "rendre l'écran de connexion d'avant" "restore the previous login screen")" \
-        && sudo "$BIN" greeter setup restore; then
+        && hyprdesk_root "$ROOT_BIN" greeter setup restore; then
         hd_ok "$(t "gestionnaire de connexion d'avant rétabli" "previous display manager restored")"
         TODO+=("$(t "redémarrer pour retrouver l'écran de connexion d'avant : systemctl reboot" "reboot to get the previous login screen back: systemctl reboot")")
     else
         hd_ko "$(t "écran de connexion non rétabli : désinstallation arrêtée (rien d'autre n'a changé)" "login screen not restored: uninstall stopped (nothing else changed)")"
-        hd_cmd "sudo $BIN greeter setup restore"
+        hd_cmd "sudo $ROOT_BIN greeter setup restore"
         exit 1
     fi
 else
