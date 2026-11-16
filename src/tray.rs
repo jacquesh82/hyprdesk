@@ -215,28 +215,67 @@ async fn item(conn: &zbus::Connection, service: &str) -> Option<TrayItem> {
         )
         .await
         .ok()?;
-    let props: HashMap<String, OwnedValue> = reply.body().deserialize().ok()?;
-    let pixmap = get::<Vec<(i32, i32, Vec<u8>)>>(&props, "IconPixmap")
+    let body = reply.body();
+    // Décodage typé d'abord ; une application qui donne à une propriété un
+    // type inattendu passe par la lecture champ par champ, plus tolérante.
+    let p = body.deserialize::<ItemProps>().ok().or_else(|| {
+        let props: HashMap<String, OwnedValue> = body.deserialize().ok()?;
+        Some(ItemProps::from_values(&props))
+    })?;
+    let pixmap = p
+        .icon_pixmap
         .and_then(pick_pixmap)
         .map(|(w, h, d)| shrink(w, h, argb_to_rgba(&d)));
-    let title = get::<String>(&props, "Title")
+    let title = p
+        .title
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| get::<String>(&props, "Id"))
+        .or(p.id)
         .unwrap_or_default();
     Some(TrayItem {
         key: format!("{bus}{path}"),
         title,
-        icon_name: get::<String>(&props, "IconName").filter(|s| !s.is_empty()),
-        icon_theme_path: get::<String>(&props, "IconThemePath").filter(|s| !s.is_empty()),
+        icon_name: p.icon_name.filter(|s| !s.is_empty()),
+        icon_theme_path: p.icon_theme_path.filter(|s| !s.is_empty()),
         pixmap,
-        menu: get::<OwnedObjectPath>(&props, "Menu")
-            .map(|p| p.to_string())
-            .filter(|p| p != "/"),
-        item_is_menu: get::<bool>(&props, "ItemIsMenu").unwrap_or(false),
-        passive: get::<String>(&props, "Status").is_some_and(|s| s == "Passive"),
+        menu: p.menu.map(|p| p.to_string()).filter(|p| p != "/"),
+        item_is_menu: p.item_is_menu.unwrap_or(false),
+        passive: p.status.is_some_and(|s| s == "Passive"),
         bus,
         path,
     })
+}
+
+/// Propriétés d'un `StatusNotifierItem`, décodées droit dans leurs types.
+/// Passer par `OwnedValue` fait d'une icône de 1024 × 1024 (ZCode, une
+/// application Electron, n'en publie pas d'autre) quatre millions de `Value`,
+/// clonées puis converties, toutes les 2 s : un cinquième de cœur (MLG-126).
+#[derive(zbus::zvariant::DeserializeDict, zbus::zvariant::Type, Default, Debug)]
+#[zvariant(signature = "a{sv}", rename_all = "PascalCase")]
+struct ItemProps {
+    icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>>,
+    title: Option<String>,
+    id: Option<String>,
+    icon_name: Option<String>,
+    icon_theme_path: Option<String>,
+    menu: Option<OwnedObjectPath>,
+    item_is_menu: Option<bool>,
+    status: Option<String>,
+}
+
+impl ItemProps {
+    /// Repli : chaque propriété lue à part, celle de type inattendu ignorée.
+    fn from_values(props: &HashMap<String, OwnedValue>) -> Self {
+        Self {
+            icon_pixmap: get(props, "IconPixmap"),
+            title: get(props, "Title"),
+            id: get(props, "Id"),
+            icon_name: get(props, "IconName"),
+            icon_theme_path: get(props, "IconThemePath"),
+            menu: get(props, "Menu"),
+            item_is_menu: get(props, "ItemIsMenu"),
+            status: get(props, "Status"),
+        }
+    }
 }
 
 /// Éléments actuels (vide s'il n'y a pas de watcher dans la session).
@@ -712,6 +751,49 @@ mod tests {
         assert_eq!(pick_pixmap(vec![px(16), px(32)]).unwrap().0, 32);
         // Taille incohérente : ignorée.
         assert!(pick_pixmap(vec![(8, 8, vec![0; 10])]).is_none());
+    }
+
+    /// Corps d'un `GetAll` encodé comme sur le bus.
+    fn get_all(
+        props: HashMap<&str, Value<'_>>,
+    ) -> zbus::zvariant::serialized::Data<'static, 'static> {
+        use zbus::zvariant::{LE, serialized::Context, to_bytes};
+        to_bytes(Context::new_dbus(LE, 0), &props).unwrap()
+    }
+
+    #[test]
+    fn proprietes_decodees_sans_value_par_octet() {
+        let pix = vec![(1024, 1024, vec![7u8; 1024 * 1024 * 4])];
+        let data = get_all(HashMap::from([
+            ("IconPixmap", Value::from(pix.clone())),
+            ("Title", Value::from("ZCode")),
+            (
+                "Menu",
+                Value::from(OwnedObjectPath::try_from("/MenuBar").unwrap()),
+            ),
+            ("Status", Value::from("Active")),
+            ("Inconnue", Value::from(3u32)),
+        ]));
+        let (p, _): (ItemProps, _) = data.deserialize().unwrap();
+        assert_eq!(p.icon_pixmap, Some(pix));
+        assert_eq!(p.title.as_deref(), Some("ZCode"));
+        assert_eq!(p.menu.map(|m| m.to_string()).as_deref(), Some("/MenuBar"));
+        assert_eq!(p.item_is_menu, None);
+    }
+
+    #[test]
+    fn propriete_de_type_inattendu_ignoree_seule() {
+        // `Menu` en chaîne au lieu d'un chemin d'objet : le décodage typé
+        // échoue, le repli garde le reste.
+        let data = get_all(HashMap::from([
+            ("Title", Value::from("App")),
+            ("Menu", Value::from("/MenuBar")),
+        ]));
+        assert!(data.deserialize::<ItemProps>().is_err());
+        let (props, _): (HashMap<String, OwnedValue>, _) = data.deserialize().unwrap();
+        let p = ItemProps::from_values(&props);
+        assert_eq!(p.title.as_deref(), Some("App"));
+        assert!(p.menu.is_none());
     }
 
     #[test]
