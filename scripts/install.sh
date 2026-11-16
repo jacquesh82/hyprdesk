@@ -111,7 +111,7 @@ while [ $# -gt 0 ]; do
         --no-mymfa) MYMFA=0 ;;
         --no-hyprbars) HYPRBARS=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
-        -h|--help) sed -n '6,65p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '7,65p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
