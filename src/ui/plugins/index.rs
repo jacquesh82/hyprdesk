@@ -7,7 +7,7 @@
 
 use crate::i18n::text;
 use iced::futures::{SinkExt, Stream};
-use iced::widget::{button, column, row, text_input};
+use iced::widget::{button, column, row, text_input, toggler};
 use iced::{Alignment, Element, Task};
 
 use super::super::panel::PanelMsg;
@@ -29,7 +29,7 @@ pub fn wrap(m: Msg) -> UiMsg {
 /// L'état du démon, relu du JSON de `hyprdesk index status`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatusView {
-    /// "scan" (premier parcours), "pret", "attente".
+    /// "scan" (premier parcours), "chargement" (snapshot), "pret", "attente".
     pub phase: String,
     /// Fichiers indexés (index chargé).
     pub files: u64,
@@ -148,6 +148,8 @@ pub enum Msg {
     CatToggle(String),
     MaxText(String),
     Interval(String),
+    /// Démon lancé avec hyprdesk (`index_autostart`), appliqué aussitôt.
+    Autostart(bool),
     /// Applique tous les champs aux réglages ; le démon reprendra les
     /// réglages à son prochain démarrage (il est arrêté au passage).
     Appliquer,
@@ -253,7 +255,7 @@ impl App {
         match &s.status {
             None => {
                 col = col.push(
-                    text("Pas encore de démon d'index : il démarre au premier « :f » dans le lanceur, ou maintenant :")
+                    text("Démon d'index arrêté : il démarre avec hyprdesk (réglage ci-dessous) ou au premier « :f » dans le lanceur, ou maintenant :")
                         .font(self.font)
                         .size(12)
                         .color(dim),
@@ -262,6 +264,14 @@ impl App {
                     button(text("Démarrer l'indexation").font(self.font).size(13))
                         .padding([6, 14])
                         .on_press(wrap(Msg::Demarrer)),
+                );
+            }
+            Some(st) if st.phase == "chargement" => {
+                col = col.push(
+                    text("Chargement de l'index…")
+                        .font(self.font)
+                        .size(13)
+                        .color(fg),
                 );
             }
             Some(st) if st.phase == "scan" => {
@@ -496,6 +506,19 @@ impl App {
             ),
         );
 
+        // — Démarrage —
+        col = col.push(self.field(
+            "Lancer l'index avec hyprdesk",
+            "index_autostart",
+            toggler(self.cfg.general.index_autostart).on_toggle(|v| wrap(Msg::Autostart(v))),
+        ));
+        col = col.push(
+            text("Désactivé : le démon démarre à la première recherche « :f ».")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        );
+
         // — Rescan —
         col = col.push(
             self.field(
@@ -688,6 +711,10 @@ impl App {
                     p.index.interval_text = v;
                 }
                 Task::none()
+            }
+            Msg::Autostart(v) => {
+                self.settings.index_autostart = Some(v);
+                self.commit()
             }
             Msg::Appliquer => {
                 let champs = {

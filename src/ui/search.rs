@@ -44,6 +44,8 @@ pub struct FilesState {
     pub hits: Vec<crate::fileindex::index::Hit>,
     /// Scan initial en cours : entrées déjà vues (aucun résultat servi).
     pub scanning: Option<u64>,
+    /// Snapshot en cours de chargement par le démon (aucun résultat servi).
+    pub loading: bool,
     /// Démon indisponible ou réponse d'erreur.
     pub erreur: Option<String>,
     /// Nature demandée ([`KIND_FILE`], [`KIND_DIR`], [`KIND_LINK`]) ;
@@ -178,6 +180,9 @@ pub enum SMsg {
     /// Réponse du démon d'index pour la requête `:f` donnée (le mot, sans
     /// le préfixe — une réponse en retard pour un autre mot est jetée).
     Files(String, FilesState),
+    /// Redemande au démon pendant un chargement ou un scan, si le mot n'a
+    /// pas changé entre-temps.
+    FilesRetry(String),
     /// Nature demandée dans l'UI fichiers (None : toutes) — relance la
     /// requête avec le filtre.
     FileFilter(Option<u8>),
@@ -554,22 +559,7 @@ impl App {
             .and_then(|s| s.files.as_ref())
             .map(|f| (f.kind, f.cat))
             .unwrap_or((None, None));
-        let mut reglage = crate::fileindex::IndexConfig::default();
-        if !self.cfg.general.index_paths.is_empty() {
-            reglage.roots = self
-                .cfg
-                .general
-                .index_paths
-                .iter()
-                .map(|p| crate::fileindex::expand_root(p))
-                .collect();
-        }
-        reglage.extra_excludes = self.cfg.general.index_exclude.clone();
-        reglage.exclude_regex = self.cfg.general.index_exclude_regex.clone();
-        reglage.exclude_ext = self.cfg.general.index_exclude_ext.clone();
-        reglage.exclude_cat = self.cfg.general.index_exclude_cat.clone();
-        reglage.max_size = self.cfg.general.index_max_size;
-        reglage.interval = self.cfg.general.index_interval;
+        let reglage = crate::fileindex::IndexConfig::depuis_general(&self.cfg.general);
         let mot_reponse = mot.clone();
         Task::perform(
             async move {
@@ -588,9 +578,15 @@ impl App {
             },
             move |rep| {
                 let st = match rep {
-                    Ok(crate::fileindex::proto::Reply::Hits { hits, scanning, .. }) => FilesState {
+                    Ok(crate::fileindex::proto::Reply::Hits {
                         hits,
                         scanning,
+                        loading,
+                        ..
+                    }) => FilesState {
+                        hits,
+                        scanning,
+                        loading,
                         erreur: None,
                         kind,
                         cat,
@@ -598,6 +594,7 @@ impl App {
                     Ok(crate::fileindex::proto::Reply::Err(m)) => FilesState {
                         hits: Vec::new(),
                         scanning: None,
+                        loading: false,
                         erreur: Some(m),
                         kind,
                         cat,
@@ -605,6 +602,7 @@ impl App {
                     Err(e) => FilesState {
                         hits: Vec::new(),
                         scanning: None,
+                        loading: false,
                         erreur: Some(e),
                         kind,
                         cat,
@@ -788,6 +786,9 @@ impl App {
             }
             SMsg::Files(mot, st) => {
                 let mut a_jour = false;
+                // chargement ou scan : la réponse viendra, sans attendre une
+                // nouvelle frappe
+                let patienter = st.loading || st.scanning.is_some();
                 if let Some(s) = self.search.as_mut()
                     && crate::fileindex::proto::query(&s.query) == Some(mot.as_str())
                 {
@@ -797,6 +798,22 @@ impl App {
                     a_jour = true;
                 }
                 let mut taches: Vec<Task<Msg>> = Vec::new();
+                if a_jour && patienter {
+                    let delai = if self
+                        .search
+                        .as_ref()
+                        .and_then(|s| s.files.as_ref())
+                        .is_some_and(|f| f.loading)
+                    {
+                        500
+                    } else {
+                        2000
+                    };
+                    taches.push(Task::perform(
+                        tokio::time::sleep(std::time::Duration::from_millis(delai)),
+                        move |_| Msg::Search(SMsg::FilesRetry(mot.clone())),
+                    ));
+                }
                 if a_jour {
                     // icônes des résultats, résolues hors du thread UI
                     let noms: std::collections::HashSet<&'static str> = self
@@ -813,6 +830,17 @@ impl App {
                     taches.extend(noms.into_iter().map(|n| self.want_icon(n)));
                 }
                 Task::batch(taches)
+            }
+            SMsg::FilesRetry(mot) => {
+                if self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| crate::fileindex::proto::query(&s.query) == Some(mot.as_str()))
+                {
+                    self.fichiers_requete()
+                } else {
+                    Task::none()
+                }
             }
             SMsg::FileFilter(k) => {
                 if let Some(s) = self.search.as_mut()
@@ -1090,6 +1118,7 @@ impl App {
         let note = match s.files.as_ref() {
             None => Some(tr("Démarrage du démon d'index…").to_string()),
             Some(f) => match (&f.scanning, &f.erreur) {
+                _ if f.loading => Some(tr("Chargement de l'index…").to_string()),
                 (Some(n), _) => Some(format!("{} ({n})", tr("Indexation en cours…"))),
                 (_, Some(e)) => Some(format!("{} : {e}", tr("Index indisponible"))),
                 _ if suffixe.is_empty() => {

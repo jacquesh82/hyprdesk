@@ -278,6 +278,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.index_interval.to_string(),
         |s, v, c| { s.index_interval = Some(v.trim().parse().map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?); Ok(()) },
         |s| s.index_interval = None;
+    "index.autostart", "index", "on | off — démon d'index lancé avec hyprdesk (off : au premier « :f »)",
+        |c| on_off(c.general.index_autostart),
+        |s, v, c| { s.index_autostart = Some(parse_bool(v)?); Ok(()) },
+        |s| s.index_autostart = None;
     "autostart", "desktop", "on | off — lancer les applications de ~/.config/autostart et /etc/xdg/autostart (une fois par session)",
         |c| on_off(c.general.autostart),
         |s, v, c| { s.autostart = Some(parse_bool(v)?); Ok(()) },

@@ -33,6 +33,7 @@ hd.config({
     -- index_exclude_ext   = { "iso", "vdi" }, -- extensions écartées
     -- index_max_size      = 512,     -- taille max indexée par fichier (Mio ; 0 : illimité)
     -- index_interval  = 21600,     -- rescan de sûreté (secondes ; défaut 6 h)
+    -- index_autostart = true,      -- démon d'index lancé avec hyprdesk (false : au premier :f)
     -- icon_double_click = true,    -- double clic pour ouvrir (un clic sélectionne)
     -- icon_theme      = "Papirus-Dark",
     -- font            = "Mindlog",   -- police embarquée par défaut, ou une famille installée

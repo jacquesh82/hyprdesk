@@ -1161,6 +1161,9 @@ pub struct General {
     /// Index de fichiers : secondes entre deux rescans de sûreté (inotify
     /// peut rater des changements sur FUSE/NTFS).
     pub index_interval: u64,
+    /// Index de fichiers : démon lancé avec hyprdesk (sinon : au premier
+    /// `:f`). Il charge son snapshot ou fait son premier scan en arrière-plan.
+    pub index_autostart: bool,
     /// Démarrage automatique XDG (`crate::autostart`), une fois par session.
     pub autostart: bool,
     /// Bureau type gestionnaire de fichiers : le dossier Bureau XDG en icônes (`crate::desktop_files`).
@@ -1291,6 +1294,7 @@ impl Default for General {
             index_exclude_cat: Vec::new(),
             index_max_size: 0,
             index_interval: crate::fileindex::DEFAULT_INTERVAL_SECS,
+            index_autostart: true,
             autostart: false,
             desktop_files: false,
             float_launched: true,

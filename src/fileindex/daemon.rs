@@ -63,6 +63,11 @@ struct Etat {
     index: RwLock<Option<Index>>,
     /// Scan complet en cours (les requêtes annoncent la progression).
     scanning: AtomicBool,
+    /// Snapshot à charger (démarrage, requête après déchargement) : la
+    /// maintenance s'en charge, la socket répond pendant ce temps.
+    a_charger: AtomicBool,
+    /// Snapshot en cours de chargement (les requêtes l'annoncent).
+    chargement: AtomicBool,
     /// Entrées vues par le scan en cours.
     progress: Arc<AtomicUsize>,
     /// Époques (s) : dernier scan fini, dernière requête, dernière tentative
@@ -103,6 +108,8 @@ impl Etat {
             filtres,
             index: RwLock::new(None),
             scanning: AtomicBool::new(false),
+            a_charger: AtomicBool::new(false),
+            chargement: AtomicBool::new(false),
             progress: Arc::new(AtomicUsize::new(0)),
             dernier_scan: AtomicI64::new(0),
             dernier_usage: AtomicI64::new(maintenant),
@@ -163,11 +170,16 @@ fn epoque() -> i64 {
 }
 
 /// Point d'entrée `hyprdesk index daemon` : bloque jusqu'à l'arrêt.
+///
+/// La socket est liée avant tout le reste : le lanceur qui vient de
+/// démarrer le démon a sa réponse en quelques millisecondes, même quand
+/// le snapshot (plusieurs centaines de Mo en mémoire) met des secondes à
+/// se charger sous pression mémoire ; il reçoit `loading` en attendant.
 pub fn run(config: IndexConfig) -> anyhow::Result<()> {
+    let (socket, _verrou) = lier_socket()?;
     let etat = Arc::new(Etat::new(config));
-    if !charger_snapshot(&etat) {
-        etat.rescan.store(true, Ordering::SeqCst);
-    }
+    // chargement du snapshot (ou premier scan) par la maintenance
+    etat.a_charger.store(true, Ordering::SeqCst);
 
     let veille_etat = etat.clone();
     std::thread::Builder::new()
@@ -183,7 +195,51 @@ pub fn run(config: IndexConfig) -> anyhow::Result<()> {
         .worker_threads(2)
         .enable_all()
         .build()?;
-    rt.block_on(servir(etat))
+    rt.block_on(async move {
+        let listener = UnixListener::from_std(socket)?;
+        servir(etat, listener).await
+    })
+}
+
+/// Une seule instance par session : verrou exclusif à côté de la socket,
+/// pris avant d'y toucher (deux démons lancés au même instant ne se
+/// volent pas la socket), puis socket liée en 0600.
+fn lier_socket() -> anyhow::Result<(std::os::unix::net::UnixListener, std::fs::File)> {
+    use std::os::fd::AsRawFd;
+    let path = socket_path();
+    let verrou = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_extension("lock"))?;
+    // SAFETY : descripteur valide, tenu jusqu'à la sortie du processus.
+    if unsafe { libc::flock(verrou.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        anyhow::bail!(
+            "{}",
+            crate::tr!("un démon d'index tourne déjà ({p0})", p0 = path.display())
+        );
+    }
+    // un démon antérieur sans verrou ? on sonne avant de toucher à sa socket
+    if std::os::unix::net::UnixStream::connect(&path).is_ok() {
+        anyhow::bail!(
+            "{}",
+            crate::tr!("un démon d'index tourne déjà ({p0})", p0 = path.display())
+        );
+    }
+    let _ = std::fs::remove_file(&path);
+    // Socket créée d'emblée en 0600 (umask 077 le temps du bind), pas
+    // refermée après coup ; son dossier est le dossier d'exécution privé.
+    // SAFETY : umask n'échoue pas ; rétabli aussitôt.
+    let old = unsafe { libc::umask(0o077) };
+    let bound = std::os::unix::net::UnixListener::bind(&path);
+    unsafe { libc::umask(old) };
+    let listener = bound?;
+    listener.set_nonblocking(true)?;
+    tracing::info!(
+        "{}",
+        crate::tr!("index en écoute sur {p0}", p0 = path.display())
+    );
+    Ok((listener, verrou))
 }
 
 // ——————————————————————— chargement / scan ———————————————————————
@@ -530,6 +586,19 @@ fn vol_de(config: &IndexConfig, p: &Path) -> Option<u8> {
 
 fn boucle_maintenance(etat: &Arc<Etat>) {
     while !etat.stop.load(Ordering::SeqCst) {
+        // snapshot à charger : démarrage, ou requête après déchargement
+        if etat.a_charger.swap(false, Ordering::SeqCst) {
+            if !etat.index_charge() && !etat.scanning.load(Ordering::SeqCst) {
+                etat.chargement.store(true, Ordering::SeqCst);
+                let charge =
+                    !etat.perte_evenements.load(Ordering::SeqCst) && charger_snapshot(etat);
+                etat.chargement.store(false, Ordering::SeqCst);
+                if !charge {
+                    etat.rescan.store(true, Ordering::SeqCst);
+                }
+            }
+            continue;
+        }
         let maintenant = epoque();
 
         // rescan demandé ou requis (premier lancement sans snapshot)
@@ -605,28 +674,7 @@ fn prochaine_echeance(etat: &Etat, maintenant: i64) -> Duration {
 
 // ——————————————————————— serveur de socket ———————————————————————
 
-async fn servir(etat: Arc<Etat>) -> anyhow::Result<()> {
-    let path = socket_path();
-    // un démon déjà en place ? on sonne avant de toucher à sa socket
-    if std::os::unix::net::UnixStream::connect(&path).is_ok() {
-        anyhow::bail!(
-            "{}",
-            crate::tr!("un démon d'index tourne déjà ({p0})", p0 = path.display())
-        );
-    }
-    let _ = std::fs::remove_file(&path);
-    // Socket créée d'emblée en 0600 (umask 077 le temps du bind), pas
-    // refermée après coup ; son dossier est le dossier d'exécution privé.
-    // SAFETY : umask n'échoue pas ; rétabli aussitôt.
-    let old = unsafe { libc::umask(0o077) };
-    let bound = UnixListener::bind(&path);
-    unsafe { libc::umask(old) };
-    let listener = bound?;
-    tracing::info!(
-        "{}",
-        crate::tr!("index en écoute sur {p0}", p0 = path.display())
-    );
-
+async fn servir(etat: Arc<Etat>, listener: UnixListener) -> anyhow::Result<()> {
     // SIGTERM (systemd) / SIGINT (Ctrl+C) : sauvegarde puis sortie
     let sig_etat = etat.clone();
     tokio::spawn(async move {
@@ -700,13 +748,16 @@ fn traiter(etat: &Arc<Etat>, req: Request) -> Reply {
             if etat.scanning.load(Ordering::Relaxed) {
                 return en_scan(etat);
             }
-            // index déchargé par l'inactivité : rechargement paresseux
-            if !etat.index_charge()
-                && (etat.perte_evenements.load(Ordering::Relaxed) || !charger_snapshot(etat))
-            {
-                etat.rescan.store(true, Ordering::SeqCst);
+            if etat.chargement.load(Ordering::SeqCst) || etat.a_charger.load(Ordering::SeqCst) {
+                return en_chargement();
+            }
+            // index déchargé par l'inactivité : rechargé par la maintenance,
+            // hors du fil de la requête (snapshot illisible ou périmé :
+            // rescan complet)
+            if !etat.index_charge() {
+                etat.a_charger.store(true, Ordering::SeqCst);
                 etat.reveiller();
-                return en_scan(etat);
+                return en_chargement();
             }
             let t0 = Instant::now();
             let g = etat.index.read().unwrap_or_else(|e| e.into_inner());
@@ -719,6 +770,7 @@ fn traiter(etat: &Arc<Etat>, req: Request) -> Reply {
                 total: idx.len(),
                 elapsed_ms: t0.elapsed().as_millis() as u64,
                 scanning: None,
+                loading: false,
             }
         }
         Request::Status => Reply::Status(statut_json(etat)),
@@ -742,6 +794,18 @@ fn en_scan(etat: &Arc<Etat>) -> Reply {
         total: 0,
         elapsed_ms: 0,
         scanning: Some(etat.progress.load(Ordering::Relaxed) as u64),
+        loading: false,
+    }
+}
+
+/// Réponse « snapshot en cours de chargement » : redemander dans un instant.
+fn en_chargement() -> Reply {
+    Reply::Hits {
+        hits: Vec::new(),
+        total: 0,
+        elapsed_ms: 0,
+        scanning: None,
+        loading: true,
     }
 }
 
@@ -754,6 +818,8 @@ fn statut_json(etat: &Arc<Etat>) -> String {
         .unwrap_or_default();
     let phase = if etat.scanning.load(Ordering::Relaxed) {
         "scan"
+    } else if etat.chargement.load(Ordering::Relaxed) || etat.a_charger.load(Ordering::Relaxed) {
+        "chargement"
     } else if fichiers > 0 {
         "pret"
     } else {
@@ -850,6 +916,36 @@ mod tests {
         etat.dernier_usage
             .store(t - 2 * IDLE_UNLOAD_SECS, Ordering::SeqCst);
         assert_eq!(prochaine_echeance(&etat, t), Duration::ZERO);
+    }
+
+    #[test]
+    fn requete_sans_index_annonce_le_chargement() {
+        let etat = Arc::new(etat_test());
+        let req = || Request::Query {
+            q: "x".into(),
+            limit: 10,
+            kinds: None,
+            cat: None,
+        };
+        // index absent : chargement confié à la maintenance, pas fait ici
+        assert!(matches!(
+            traiter(&etat, req()),
+            Reply::Hits { loading: true, .. }
+        ));
+        assert!(etat.a_charger.load(Ordering::SeqCst));
+        assert!(!etat.index_charge());
+        assert!(statut_json(&etat).contains("\"chargement\""));
+        // index en mémoire : résultats servis
+        etat.a_charger.store(false, Ordering::SeqCst);
+        *etat.index.write().unwrap() = Some(Index::new());
+        assert!(matches!(
+            traiter(&etat, req()),
+            Reply::Hits {
+                loading: false,
+                scanning: None,
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -1293,6 +1293,30 @@ impl App {
                 },
             ));
         }
+        // Démon d'index (recherche `:f`) lancé avec hyprdesk : au premier
+        // chargement, quelques secondes après l'ouverture de session, ou
+        // aussitôt le réglage activé. Déjà en route (il survit aux
+        // redémarrages de hyprdesk) : rien à faire.
+        if !self.preview && n.index_autostart && (!o.index_autostart || old.catalog.is_empty()) {
+            let reglage = crate::fileindex::IndexConfig::depuis_general(n);
+            let delai = if old.catalog.is_empty() { 5 } else { 0 };
+            tasks.push(Task::perform(
+                async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(delai)).await;
+                    tokio::task::spawn_blocking(move || {
+                        crate::fileindex::proto::ensure_daemon(&reglage)
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
+                },
+                |r| {
+                    if let Err(e) = r {
+                        tracing::warn!("{}", crate::tr!("index : {m}", m = e));
+                    }
+                    Msg::Noop
+                },
+            ));
+        }
         if o.suspend_binds != n.suspend_binds {
             tasks.push(self.sync_submap());
         }

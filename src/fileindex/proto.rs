@@ -55,6 +55,12 @@ pub enum Reply {
         total: usize,
         elapsed_ms: u64,
         scanning: Option<u64>,
+        /// Index en cours de chargement depuis son snapshot (démarrage du
+        /// démon, ou reprise après déchargement) : aucun résultat servi,
+        /// redemander dans un instant. Absent des réponses d'un démon
+        /// antérieur : faux.
+        #[serde(default)]
+        loading: bool,
     },
     /// État (chaîne JSON, affichée ou analysée telle quelle).
     Status(String),
@@ -106,17 +112,62 @@ pub fn request(req: &Request) -> Result<Reply, String> {
     serde_json::from_str(rep.trim()).map_err(|e| format!("réponse illisible : {e}"))
 }
 
+/// Un seul lancement à la fois dans ce processus : des frappes rapprochées
+/// dans `:f` (et le démarrage avec hyprdesk) ne lancent pas chacune leur
+/// démon — le second appel trouve la socket du premier.
+static LANCEMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Le démon tourne-t-il ? Sinon, le lance en arrière-plan (même binaire)
 /// et attend la socket, avec les réglages résolus par hyprdesk (`index.*` —
-/// racines vides : défauts du démon). Utilisé par le lanceur au premier
-/// `:f` et par la page Réglages.
+/// racines vides : défauts du démon). Utilisé au démarrage de hyprdesk
+/// (`index.autostart`), par le lanceur au premier `:f` et par la page
+/// Réglages.
+///
+/// Le démon lie sa socket avant de charger son snapshot : il répond en
+/// quelques millisecondes, puis annonce le chargement (`loading`) tant
+/// que l'index n'est pas en mémoire.
 pub fn ensure_daemon(config: &crate::fileindex::IndexConfig) -> Result<(), String> {
     if request(&Request::Status).is_ok() {
         return Ok(());
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let _verrou = LANCEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    // lancé entre-temps par un autre appel
+    if request(&Request::Status).is_ok() {
+        return Ok(());
+    }
+    let mut enfant = commande(config)
+        .spawn()
+        .map_err(|e| format!("{} : {e}", crate::tr!("lancement du démon d'index")))?;
+    // Le démon survit à hyprdesk (groupe à lui) ; tant qu'il est notre
+    // enfant, sa fin est recueillie ici plutôt que de laisser un zombie.
+    let pid = enfant.id();
+    let attente = std::thread::Builder::new()
+        .name("fileindex-reap".into())
+        .spawn(move || {
+            let _ = enfant.wait();
+        });
+    if let Err(e) = attente {
+        tracing::warn!(
+            "{}",
+            crate::tr!("démon d'index (pid {pid}) : {e}", pid = pid, e = e)
+        );
+    }
+    for _ in 0..50 {
+        std::thread::sleep(Duration::from_millis(100));
+        if request(&Request::Status).is_ok() {
+            return Ok(());
+        }
+    }
+    Err(crate::tr!("le démon d'index ne répond pas").to_string())
+}
+
+/// Ligne de commande du démon : réglages en arguments, sorties fermées,
+/// groupe de processus à lui, priorité basse (processeur et disque) — un
+/// scan complet ne dispute pas la machine à la session.
+fn commande(config: &crate::fileindex::IndexConfig) -> std::process::Command {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("hyprdesk"));
     let mut cmd = Command::new(exe);
     cmd.args(["index", "daemon"]);
     if !config.roots.is_empty() {
@@ -149,18 +200,34 @@ pub fn ensure_daemon(config: &crate::fileindex::IndexConfig) -> Result<(), Strin
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()
-        .map_err(|e| format!("{} : {e}", crate::tr!("lancement du démon d'index")))?;
-    // le démon charge son snapshot ou démarre un scan : quelques centaines
-    // de millisecondes pour lier la socket
-    for _ in 0..30 {
-        std::thread::sleep(Duration::from_millis(100));
-        if request(&Request::Status).is_ok() {
-            return Ok(());
-        }
+        .process_group(0);
+    // SAFETY : entre fork et exec, seulement deux appels système sans
+    // allocation ; un échec laisse la priorité normale.
+    unsafe {
+        cmd.pre_exec(|| {
+            priorite_basse();
+            Ok(())
+        });
     }
-    Err(crate::tr!("le démon d'index ne répond pas").to_string())
+    cmd
+}
+
+/// nice 10 et classe d'E/S « best effort » au plus bas (7) : le démon
+/// reste servi sans attendre, mais cède au reste de la session.
+fn priorite_basse() {
+    // ioprio : classe << 13 | niveau ; IOPRIO_CLASS_BE = 2, qui = processus.
+    const IOPRIO_WHO_PROCESS: libc::c_long = 1;
+    const IOPRIO_BE_BAS: libc::c_long = (2 << 13) | 7;
+    // SAFETY : appels sans pointeur, sur le processus courant.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+        libc::syscall(
+            libc::SYS_ioprio_set,
+            IOPRIO_WHO_PROCESS,
+            0 as libc::c_long,
+            IOPRIO_BE_BAS,
+        );
+    }
 }
 
 /// Arrête proprement le démon s'il tourne (sauvegarde du snapshot).

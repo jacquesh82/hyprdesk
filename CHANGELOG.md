@@ -8,7 +8,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **The file index starts with hyprdesk** (MLG-157). New setting
+  `index.autostart` (on by default; Settings → Index): the `:f` index daemon
+  is launched a few seconds after the session opens, at low CPU and I/O
+  priority, instead of on the first search. Off: started on the first `:f`,
+  as before.
+
 ### Fixed
+
+- **"The index daemon is not responding" on the first `:f`** (MLG-157). The
+  daemon loaded its snapshot (hundreds of MB in memory) before opening its
+  socket, and the launcher gave up after 3 s under memory pressure although
+  the daemon went on starting. The socket now opens first, the snapshot loads
+  in the background (also after the idle unload), and the launcher shows
+  "Loading the index…" and asks again on its own. A single daemon per session
+  (lock file), launches serialised, and its exit is reaped: no more zombie
+  `hyprdesk` process.
 
 - **Drawers open at once** (MLG-156). Opening the LYRA or Settings drawer
   could freeze the desktop for up to 4 s: iced re-read every system font for

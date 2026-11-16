@@ -1194,6 +1194,10 @@ impl App {
                     crate::tr!("Recherche de fichiers — indexation en cours…").to_string(),
                     Some(crate::ui::plugins::index::IndexInk::Scan),
                 ),
+                Some(st) if st.phase == "chargement" => (
+                    crate::tr!("Recherche de fichiers — chargement de l'index…").to_string(),
+                    Some(crate::ui::plugins::index::IndexInk::Scan),
+                ),
                 Some(st) => (
                     crate::tr!(
                         "Recherche de fichiers — index prêt ({n} fichiers)",

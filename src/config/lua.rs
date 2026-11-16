@@ -611,6 +611,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "index_exclude_cat",
             "index_max_size",
             "index_interval",
+            "index_autostart",
             "autostart",
             "desktop_files",
             "float_launched",
@@ -737,6 +738,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_num(t, "index_interval", CTX)? {
         g.index_interval = v.max(0.0) as u64;
+    }
+    if let Some(v) = opt_bool(t, "index_autostart", CTX)? {
+        g.index_autostart = v;
     }
     if let Some(v) = opt_bool(t, "autostart", CTX)? {
         g.autostart = v;

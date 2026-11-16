@@ -76,6 +76,23 @@ impl Default for IndexConfig {
 }
 
 impl IndexConfig {
+    /// Réglages `index.*` résolus de la configuration (racines vides :
+    /// défauts du démon) — les mêmes pour le lanceur et le démarrage avec
+    /// hyprdesk.
+    pub fn depuis_general(g: &crate::config::General) -> Self {
+        let mut c = Self::default();
+        if !g.index_paths.is_empty() {
+            c.roots = g.index_paths.iter().map(|p| expand_root(p)).collect();
+        }
+        c.extra_excludes = g.index_exclude.clone();
+        c.exclude_regex = g.index_exclude_regex.clone();
+        c.exclude_ext = g.index_exclude_ext.clone();
+        c.exclude_cat = g.index_exclude_cat.clone();
+        c.max_size = g.index_max_size;
+        c.interval = g.index_interval;
+        c
+    }
+
     /// Liste d'exclusion complète : défauts + réglage utilisateur.
     pub fn excludes(&self) -> Vec<String> {
         let mut v: Vec<String> = DEFAULT_EXCLUDES.iter().map(|s| s.to_string()).collect();

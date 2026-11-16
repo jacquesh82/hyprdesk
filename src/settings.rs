@@ -121,6 +121,7 @@ pub struct Settings {
     pub index_exclude_cat: Option<Vec<String>>,
     pub index_max_size: Option<u64>,
     pub index_interval: Option<u64>,
+    pub index_autostart: Option<bool>,
     pub autostart: Option<bool>,
     pub desktop_files: Option<bool>,
     pub float_launched: Option<bool>,
@@ -364,6 +365,7 @@ impl Settings {
             index_exclude_cat: has("index_exclude_cat").then(|| g.index_exclude_cat.clone()),
             index_max_size: has("index_max_size").then_some(g.index_max_size),
             index_interval: has("index_interval").then_some(g.index_interval),
+            index_autostart: has("index_autostart").then_some(g.index_autostart),
             autostart: has("autostart").then_some(g.autostart),
             desktop_files: has("desktop_files").then_some(g.desktop_files),
             float_launched: has("float_launched").then_some(g.float_launched),
@@ -668,6 +670,7 @@ impl Settings {
         set!(index_exclude_cat, "index_exclude_cat", g.index_exclude_cat);
         set!(index_max_size, "index_max_size", g.index_max_size);
         set!(index_interval, "index_interval", g.index_interval);
+        set!(index_autostart, "index_autostart", g.index_autostart);
         set!(autostart, "autostart", g.autostart);
         set!(desktop_files, "desktop_files", g.desktop_files);
         set!(float_launched, "float_launched", g.float_launched);
@@ -1154,6 +1157,9 @@ impl Settings {
         }
         if let Some(v) = self.index_interval {
             cfg.push(format!("index_interval = {v}"));
+        }
+        if let Some(v) = self.index_autostart {
+            cfg.push(format!("index_autostart = {v}"));
         }
         if let Some(v) = self.autostart {
             cfg.push(format!("autostart = {v}"));
