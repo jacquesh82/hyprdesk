@@ -580,6 +580,10 @@ impl App {
                         .font(self.ui_font(iced::font::Weight::Medium))
                         .width(Length::Fill),
                 );
+                // Paquet de la configuration avancée : point cyan.
+                if plugins::is_advanced(tab, None) {
+                    content = content.push(text("●").size(9).color(plugins::ADV_COLOR));
+                }
                 if searching && n > 0 {
                     content = content.push(
                         container(
@@ -657,33 +661,39 @@ impl App {
                     let on = self.subtab(i.id);
                     for (t, l) in plugins::visible_tabs(i.id, adv) {
                         let active = t == on;
+                        let mut tab_label = row![
+                            text(crate::i18n::tr(l))
+                                .font(if active { self.title_font() } else { self.font })
+                                .size(12)
+                                .width(Length::Fill)
+                        ]
+                        .align_y(Alignment::Center);
+                        if plugins::is_advanced(i.id, Some(t)) {
+                            tab_label = tab_label.push(text("●").size(8).color(plugins::ADV_COLOR));
+                        }
                         nav = nav.push(
-                            button(
-                                text(crate::i18n::tr(l))
-                                    .font(if active { self.title_font() } else { self.font })
-                                    .size(12),
-                            )
-                            .width(Length::Fill)
-                            .padding(iced::Padding {
-                                top: 5.0,
-                                bottom: 5.0,
-                                left: 40.0,
-                                right: 8.0,
-                            })
-                            .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
-                            .style(move |_, status| button::Style {
-                                background: if matches!(
-                                    status,
-                                    button::Status::Hovered | button::Status::Pressed
-                                ) {
-                                    Some(Color { a: 0.06, ..fg }.into())
-                                } else {
-                                    None
-                                },
-                                text_color: if active { ink.accent } else { ink.dim },
-                                border: Border::default().rounded(8),
-                                ..Default::default()
-                            }),
+                            button(tab_label)
+                                .width(Length::Fill)
+                                .padding(iced::Padding {
+                                    top: 5.0,
+                                    bottom: 5.0,
+                                    left: 40.0,
+                                    right: 8.0,
+                                })
+                                .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
+                                .style(move |_, status| button::Style {
+                                    background: if matches!(
+                                        status,
+                                        button::Status::Hovered | button::Status::Pressed
+                                    ) {
+                                        Some(Color { a: 0.06, ..fg }.into())
+                                    } else {
+                                        None
+                                    },
+                                    text_color: if active { ink.accent } else { ink.dim },
+                                    border: Border::default().rounded(8),
+                                    ..Default::default()
+                                }),
                         );
                     }
                 }

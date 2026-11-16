@@ -394,6 +394,95 @@ pub fn overlapping(list: &[Screen]) -> bool {
     })
 }
 
+/// Position aimantée d'un écran déplacé à la souris (MLG-147) : chaque axe
+/// se colle, s'il en est à moins de `threshold` px, au bord ou au centre le
+/// plus proche d'un autre écran actif (côte à côte, bords alignés, centres
+/// alignés). Renvoie la position et les axes aimantés.
+pub fn snap(list: &[Screen], name: &str, x: i32, y: i32, threshold: i32) -> (i32, i32, bool, bool) {
+    let Some(m) = list.iter().find(|s| s.name == name) else {
+        return (x, y, false, false);
+    };
+    let (w, h) = m.logical();
+    let mut bx: Option<(i32, i32)> = None;
+    let mut by: Option<(i32, i32)> = None;
+    let keep = |best: &mut Option<(i32, i32)>, cand: i32, cur: i32| {
+        let d = (cand - cur).abs();
+        if d <= threshold && best.is_none_or(|(_, bd)| d < bd) {
+            *best = Some((cand, d));
+        }
+    };
+    for o in list
+        .iter()
+        .filter(|o| o.name != name && o.enabled && o.mirror.is_empty())
+    {
+        let (ox, oy, ow, oh) = rect(o);
+        for c in [ox - w, ox + ow, ox, ox + ow - w, ox + (ow - w) / 2] {
+            keep(&mut bx, c, x);
+        }
+        for c in [oy - h, oy + oh, oy, oy + oh - h, oy + (oh - h) / 2] {
+            keep(&mut by, c, y);
+        }
+    }
+    (
+        bx.map_or(x, |b| b.0),
+        by.map_or(y, |b| b.0),
+        bx.is_some(),
+        by.is_some(),
+    )
+}
+
+/// Bord d'un écran partagé avec un voisin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SharedEdge {
+    pub side: Side,
+    /// Segment partagé, en px logiques le long du bord, depuis le coin
+    /// haut-gauche de l'écran.
+    pub from: i32,
+    pub to: i32,
+    pub neighbor: String,
+}
+
+/// Bords que `name` partage avec ses voisins (repères d'alignement de
+/// « Identifier », MLG-147).
+pub fn shared_edges(list: &[Screen], name: &str) -> Vec<SharedEdge> {
+    let Some(m) = list.iter().find(|s| s.name == name) else {
+        return Vec::new();
+    };
+    let (mx, my, mw, mh) = rect(m);
+    let mut out = Vec::new();
+    for o in list
+        .iter()
+        .filter(|o| o.name != name && o.enabled && o.mirror.is_empty())
+    {
+        let (ox, oy, ow, oh) = rect(o);
+        let vertical = (my.max(oy), (my + mh).min(oy + oh));
+        let horizontal = (mx.max(ox), (mx + mw).min(ox + ow));
+        let mut push = |side: Side, (a, b): (i32, i32), base: i32| {
+            if b > a {
+                out.push(SharedEdge {
+                    side,
+                    from: a - base,
+                    to: b - base,
+                    neighbor: o.name.clone(),
+                });
+            }
+        };
+        if ox == mx + mw {
+            push(Side::Right, vertical, my);
+        }
+        if ox + ow == mx {
+            push(Side::Left, vertical, my);
+        }
+        if oy == my + mh {
+            push(Side::Below, horizontal, mx);
+        }
+        if oy + oh == my {
+            push(Side::Above, horizontal, mx);
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // monitors.lua
 
@@ -483,6 +572,27 @@ mod tests {
               "availableModes": ["2560x1440@59.95Hz", "2560x1440@165.00Hz"] }
         ]);
         parse(&json)
+    }
+
+    #[test]
+    fn aimantation_et_bords_partages() {
+        // HDMI-A-2 2560×1440 en 0×0 ; DP-1 portrait 1440×2560 en 2560,-560.
+        let l = bureau();
+        // Glissé presque contre le bord droit, centre presque aligné.
+        let (x, y, sx, sy) = snap(&l, "DP-1", 2575, -585, 40);
+        assert_eq!((x, sx), (2560, true), "collé au bord droit");
+        assert_eq!((y, sy), (-560, true), "centres alignés : (1440 - 2560) / 2");
+        // Trop loin : rien.
+        let (x, _, sx, _) = snap(&l, "DP-1", 2700, -560, 40);
+        assert_eq!((x, sx), (2700, false));
+        // Bords partagés : la hauteur de HDMI-A-2 entière, sur sa droite.
+        let e = shared_edges(&l, "HDMI-A-2");
+        assert_eq!(e.len(), 1);
+        assert_eq!((e[0].side, e[0].from, e[0].to), (Side::Right, 0, 1440));
+        // Vu de DP-1 : sur sa gauche, de 560 à 2000.
+        let e = shared_edges(&l, "DP-1");
+        assert_eq!((e[0].side, e[0].from, e[0].to), (Side::Left, 560, 2000));
+        assert_eq!(e[0].neighbor, "HDMI-A-2");
     }
 
     #[test]

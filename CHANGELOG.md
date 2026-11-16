@@ -10,6 +10,21 @@ and this project adheres to
 
 ### Added
 
+- **Screens: drag to place** (MLG-147): screens move with the mouse on the
+  Settings → Screens plan, snapping to the edges and centres of their
+  neighbours (Shift: no snapping), with arrow buttons for a pixel-exact
+  adjustment (Shift: 10 px). Overlapping positions are refused.
+- **Identify shows alignment guides** (MLG-147): each screen gets a band on
+  every edge it shares with a neighbour (with the segment's ends), and grid
+  lines at the same global coordinates on all screens, so misalignment is
+  visible across the seam. Click-through; Identify again removes them.
+- **Advanced settings marked in cyan** (MLG-148): a dot in the menu for
+  advanced packages and tabs, an "Advanced" badge on their pages, a cyan
+  frame around advanced option sections.
+- **About updated** (MLG-149): renderer in use, lines taken over from
+  `hyprland.lua`, history; the Lua files of `~/.config/hypr` (generated or
+  yours) with Open folder and History buttons; What's new.
+
 - **Animations → Curves** (MLG-143): your curves (taken over from
   `hyprland.lua` or created here) drawn and editable — Bézier control
   points or spring mass, stiffness and damping — next to hyprdesk's

@@ -1334,6 +1334,24 @@ impl Preview {
                 lyra: Some("~/.local/bin/hyprpanel-chat".into()),
                 deps: (21, 23),
                 smartui_icons: 6,
+                files: [
+                    ("autostart.lua", false),
+                    ("binds.lua", false),
+                    ("hyprland.lua", false),
+                    ("animations.lua", true),
+                    ("appearance.lua", true),
+                    ("env.lua", true),
+                    ("inputs.lua", true),
+                    ("layouts.lua", true),
+                    ("monitors.lua", true),
+                    ("rules.lua", true),
+                    ("system.lua", true),
+                ]
+                .into_iter()
+                .map(|(n, g)| (n.to_string(), g))
+                .collect(),
+                adopted: 99,
+                history: (14, Some("16/11 09:42 · Réglages".into())),
             });
         }
         // Mots de passe : coffre ouvert, gnome-keyring encore là, reprise à confirmer.

@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, radio, row, toggler};
+use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -34,6 +34,75 @@ pub fn wrap(m: Msg) -> UiMsg {
 #[derive(Default)]
 pub struct State {
     pub screen_sel: Option<String>,
+    /// Dernière position du pointeur sur le plan (px du plan).
+    pub cursor: iced::Point,
+    /// Écran en cours de déplacement à la souris (MLG-147).
+    pub drag: Option<Drag>,
+}
+
+/// Plan des écrans : échelle et décalages (px du plan ↔ px logiques).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Geom {
+    pub k: f32,
+    pub ox: f32,
+    pub oy: f32,
+    pub x0: f32,
+    pub y0: f32,
+}
+
+impl Geom {
+    fn to_logical(self, p: iced::Point) -> (f32, f32) {
+        (
+            (p.x - self.ox) / self.k + self.x0,
+            (p.y - self.oy) / self.k + self.y0,
+        )
+    }
+}
+
+/// Glissé en cours : géométrie figée (le plan ne se recadre pas sous la
+/// souris), prise dans l'écran, position aimantée.
+#[derive(Debug, Clone)]
+pub struct Drag {
+    pub name: String,
+    pub geom: Geom,
+    /// Décalage pointeur → coin de l'écran, en px logiques.
+    pub grab: (f32, f32),
+    pub start: (i32, i32),
+    pub pos: (i32, i32),
+    pub snapped: (bool, bool),
+}
+
+/// Taille du plan des écrans dans le tiroir (≈ 520 px utiles).
+const MAP_W: f32 = 420.0;
+const MAP_H: f32 = 210.0;
+
+/// Géométrie du plan pour ces écrans actifs.
+fn geometry(on: &[&Screen]) -> Geom {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for s in on {
+        let (w, h) = s.logical();
+        let (x, y) = (s.x as f32, s.y as f32);
+        (x0, y0, x1, y1) = (
+            x0.min(x),
+            y0.min(y),
+            x1.max(x + w as f32),
+            y1.max(y + h as f32),
+        );
+    }
+    if on.is_empty() {
+        return Geom {
+            k: 1.0,
+            ..Default::default()
+        };
+    }
+    let k = ((MAP_W - 8.0) / (x1 - x0).max(1.0)).min((MAP_H - 8.0) / (y1 - y0).max(1.0));
+    Geom {
+        k,
+        ox: (MAP_W - (x1 - x0) * k) / 2.0,
+        oy: (MAP_H - (y1 - y0) * k) / 2.0,
+        x0,
+        y0,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +126,14 @@ pub enum Msg {
     IdentifyEnd(u64),
     /// Garder la disposition appliquée (écrite dans monitors.lua).
     ScreensKeep,
+    /// Pointeur sur le plan (px du plan).
+    MapMove(iced::Point),
+    /// Bouton pressé sur un écran du plan : début de glissé.
+    DragStart(String),
+    /// Bouton relâché (ou pointeur sorti du plan) : position appliquée.
+    DragEnd,
+    /// Déplace l'écran sélectionné de (dx, dy) px logiques.
+    Nudge(i32, i32),
     /// Revenir à la disposition d'avant.
     ScreensRevert,
 }
@@ -140,22 +217,31 @@ impl App {
             );
         }
 
-        // Plan des écrans actifs, à l'échelle ; un clic sélectionne.
-        // Le plan et la cote verticale tiennent dans le tiroir (≈ 520 px utiles).
-        const MAP_W: f32 = 420.0;
-        const MAP_H: f32 = 210.0;
+        // Plan des écrans actifs, à l'échelle ; un clic sélectionne, un
+        // glissé déplace (aimanté aux voisins ; Maj : sans aimant, MLG-147).
         let on: Vec<&Screen> = l.iter().filter(|s| s.enabled).collect();
+        let drag = self.panel.as_ref().and_then(|p| p.screens.drag.clone());
+        let geom = drag.as_ref().map_or_else(|| geometry(&on), |d| d.geom);
         let rect = |s: &Screen| {
             let (w, h) = s.logical();
-            (s.x as f32, s.y as f32, w as f32, h as f32)
+            let (x, y) = match &drag {
+                Some(d) if d.name == s.name => d.pos,
+                _ => (s.x, s.y),
+            };
+            (x as f32, y as f32, w as f32, h as f32)
         };
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for s in &on {
             let (x, y, w, h) = rect(s);
             (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + w), y1.max(y + h));
         }
-        let k = ((MAP_W - 8.0) / (x1 - x0).max(1.0)).min((MAP_H - 8.0) / (y1 - y0).max(1.0));
-        let (ox, oy) = ((MAP_W - (x1 - x0) * k) / 2.0, (MAP_H - (y1 - y0) * k) / 2.0);
+        let Geom {
+            k,
+            ox,
+            oy,
+            x0: gx0,
+            y0: gy0,
+        } = geom;
         let tiles: Vec<Element<'_, UiMsg>> = on
             .iter()
             .map(|s| {
@@ -198,40 +284,39 @@ impl App {
                             .size(12)
                             .color(dim),
                     );
-                let tile = button(container(label).center(Length::Fill))
-                    .width((w * k - 4.0).max(24.0))
-                    .height((h * k - 4.0).max(24.0))
-                    .padding(4)
-                    .on_press(wrap(Msg::ScreenSelect(s.name.clone())))
-                    .style(move |_, st| button::Style {
-                        background: Some(
-                            Color {
-                                a: if selected {
-                                    0.30
-                                } else if matches!(st, button::Status::Hovered) {
-                                    0.16
+                let moving = drag.as_ref().is_some_and(|d| d.name == s.name);
+                let tile = mouse_area(
+                    container(label)
+                        .center(Length::Fill)
+                        .width((w * k - 4.0).max(24.0))
+                        .height((h * k - 4.0).max(24.0))
+                        .padding(4)
+                        .style(move |_| container::Style {
+                            background: Some(
+                                Color {
+                                    a: if selected || moving { 0.30 } else { 0.10 },
+                                    ..if selected || moving { accent } else { fg }
+                                }
+                                .into(),
+                            ),
+                            text_color: Some(fg),
+                            border: Border::default()
+                                .rounded(6)
+                                .width(if selected || moving { 2 } else { 1 })
+                                .color(if selected || moving {
+                                    accent
                                 } else {
-                                    0.08
-                                },
-                                ..if selected { accent } else { fg }
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
-                        border: Border::default()
-                            .rounded(6)
-                            .width(if selected { 2 } else { 1 })
-                            .color(if selected {
-                                accent
-                            } else {
-                                Color { a: 0.3, ..fg }
-                            }),
-                        ..Default::default()
-                    });
+                                    Color { a: 0.3, ..fg }
+                                }),
+                            ..Default::default()
+                        }),
+                )
+                .interaction(iced::mouse::Interaction::Grab)
+                .on_press(wrap(Msg::DragStart(s.name.clone())));
                 container(tile)
                     .padding(iced::Padding {
-                        left: ox + (x - x0) * k + 2.0,
-                        top: oy + (y - y0) * k + 2.0,
+                        left: ox + (x - gx0) * k + 2.0,
+                        top: oy + (y - gy0) * k + 2.0,
                         ..iced::Padding::ZERO
                     })
                     .width(MAP_W)
@@ -239,14 +324,19 @@ impl App {
                     .into()
             })
             .collect();
-        let map = container(iced::widget::Stack::with_children(tiles))
-            .width(MAP_W)
-            .height(MAP_H)
-            .style(move |_| container::Style {
-                background: Some(Color { a: 0.04, ..fg }.into()),
-                border: Border::default().rounded(10),
-                ..Default::default()
-            });
+        let map = mouse_area(
+            container(iced::widget::Stack::with_children(tiles))
+                .width(MAP_W)
+                .height(MAP_H)
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.04, ..fg }.into()),
+                    border: Border::default().rounded(10),
+                    ..Default::default()
+                }),
+        )
+        .on_move(|p| wrap(Msg::MapMove(p)))
+        .on_release(wrap(Msg::DragEnd))
+        .on_exit(wrap(Msg::DragEnd));
         // Cotes de l'ensemble (pixels logiques), comme sur un plan : largeur
         // sous le plan, hauteur à droite, alignées sur les écrans.
         let (span_w, span_h) = ((x1 - x0).max(0.0), (y1 - y0).max(0.0));
@@ -313,12 +403,52 @@ impl App {
             .font(self.font)
             .size(13)
             .color(self.ink().fg),
-            text("Sous chaque écran : sa taille d'image et sa position.")
-                .font(self.font)
-                .size(13)
-                .color(dim),
+            text(match &drag {
+                Some(d) => crate::tr!(
+                    "{n} : {x}, {y}{s} — relâchez pour appliquer.",
+                    n = d.name,
+                    x = d.pos.0,
+                    y = d.pos.1,
+                    s = if d.snapped.0 || d.snapped.1 {
+                        crate::i18n::tr(" (aimanté)")
+                    } else {
+                        ""
+                    }
+                ),
+                None => crate::i18n::tr(
+                    "Glissez un écran pour le déplacer : il s'aimante aux bords et aux centres \
+                     de ses voisins (Maj : sans aimant). Sous chaque écran : sa taille \
+                     d'image et sa position.",
+                )
+                .to_string(),
+            })
+            .font(self.font)
+            .size(13)
+            .color(dim),
         ]
         .spacing(6);
+        // Réglage fin de l'écran sélectionné : au pixel près (Maj : 10 px).
+        let nudge = |label: &'static str, dx: i32, dy: i32| {
+            button(text(label).font(self.font).size(14))
+                .padding([3, 10])
+                .style(button::secondary)
+                .on_press_maybe((!sel.is_empty()).then_some(wrap(Msg::Nudge(dx, dy))))
+        };
+        let fine = row![
+            small(if sel.is_empty() {
+                crate::i18n::tr("Choisissez un écran sur le plan pour l'ajuster au pixel près.")
+                    .to_string()
+            } else {
+                crate::tr!("Ajuster {n} :", n = sel)
+            }),
+            nudge("←", -1, 0),
+            nudge("↑", 0, -1),
+            nudge("↓", 0, 1),
+            nudge("→", 1, 0),
+            small(crate::i18n::tr("1 px (Maj : 10 px)").to_string()),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
         let off: Vec<String> = l
             .iter()
             .filter(|s| !s.enabled)
@@ -340,6 +470,7 @@ impl App {
             col = col
                 .push(self.section("Disposition"))
                 .push(map)
+                .push(fine)
                 .push(chips)
                 .push(
                     row![
@@ -618,6 +749,30 @@ impl App {
         self.screens = next.clone();
         apply_screens(next)
     }
+    /// Place un écran à une position logique (glissé, réglage fin) ; refusé
+    /// s'il chevaucherait un autre écran (la disposition automatique le
+    /// déplacerait ailleurs).
+    pub(in crate::ui) fn move_screen(&mut self, name: &str, pos: (i32, i32)) -> Task<UiMsg> {
+        let mut next = self.screens.clone();
+        if let Some(s) = next.iter_mut().find(|s| s.name == name) {
+            (s.x, s.y) = pos;
+        }
+        if screens::overlapping(&next) {
+            hypr::notify(
+                3,
+                3000,
+                crate::i18n::tr("hyprdesk : les écrans se chevaucheraient — position refusée"),
+            );
+            return Task::none();
+        }
+        let name = name.to_string();
+        self.edit_screens(move |l, _| {
+            if let Some(s) = l.iter_mut().find(|s| s.name == name) {
+                (s.x, s.y) = pos;
+            }
+        })
+    }
+
     pub(in crate::ui) fn edit_selected(&mut self, f: impl FnOnce(&mut Screen)) -> Task<UiMsg> {
         let Some(sel) = self.screen_sel() else {
             return Task::none();
@@ -780,6 +935,67 @@ impl App {
                         .map(|(id, _)| iced::window::close(id)),
                 )
             }
+            Msg::MapMove(p) => {
+                panel.screens.cursor = p;
+                let Some(d) = panel.screens.drag.as_mut() else {
+                    return Task::none();
+                };
+                let (lx, ly) = d.geom.to_logical(p);
+                let (x, y) = (
+                    (lx - d.grab.0).round() as i32,
+                    (ly - d.grab.1).round() as i32,
+                );
+                // Aimant : ~10 px du plan, au moins 8 px logiques.
+                let threshold = ((10.0 / d.geom.k) as i32).max(8);
+                let (x, y, sx, sy) = if self.mods.shift() {
+                    (x, y, false, false)
+                } else {
+                    screens::snap(&self.screens, &d.name, x, y, threshold)
+                };
+                d.pos = (x, y);
+                d.snapped = (sx, sy);
+                Task::none()
+            }
+            Msg::DragStart(name) => {
+                let on: Vec<&Screen> = self.screens.iter().filter(|s| s.enabled).collect();
+                let geom = geometry(&on);
+                let Some(s) = self.screens.iter().find(|s| s.name == name) else {
+                    return Task::none();
+                };
+                let (lx, ly) = geom.to_logical(panel.screens.cursor);
+                panel.screens.screen_sel = Some(name.clone());
+                panel.screens.drag = Some(Drag {
+                    name,
+                    geom,
+                    grab: (lx - s.x as f32, ly - s.y as f32),
+                    start: (s.x, s.y),
+                    pos: (s.x, s.y),
+                    snapped: (false, false),
+                });
+                Task::none()
+            }
+            Msg::DragEnd => {
+                let Some(d) = panel.screens.drag.take() else {
+                    return Task::none();
+                };
+                if d.pos == d.start {
+                    // Simple clic : l'écran choisi, ses réglages dans « Écran ».
+                    self.subtabs.insert(INFO.id, "ecran");
+                    return Task::none();
+                }
+                self.move_screen(&d.name, d.pos)
+            }
+            Msg::Nudge(dx, dy) => {
+                let Some(sel) = self.screen_sel() else {
+                    return Task::none();
+                };
+                let step = if self.mods.shift() { 10 } else { 1 };
+                let Some(s) = self.screens.iter().find(|s| s.name == sel) else {
+                    return Task::none();
+                };
+                let pos = (s.x + dx * step, s.y + dy * step);
+                self.move_screen(&sel, pos)
+            }
             Msg::ScreensKeep => self.screens_keep(),
             Msg::ScreensRevert => self.screens_revert(),
         }
@@ -787,27 +1003,35 @@ impl App {
 }
 
 impl App {
-    /// Numéro (dans l'ordre de l'onglet), nom et modèle sur chaque écran actif,
-    /// pendant trois secondes, au-dessus de tout.
+    /// Repères d'alignement sur chaque écran actif (MLG-147) : numéro, nom
+    /// et modèle au centre, bandes sur les bords partagés avec chaque voisin,
+    /// lignes graduées aux mêmes coordonnées globales sur tous les écrans.
+    /// Surfaces plein écran qui laissent passer la souris ; un second clic
+    /// les retire (et au bout de 2 min). Elles suivent la disposition en
+    /// direct pendant un glissé sur le plan.
     pub(in crate::ui) fn identify_screens(&mut self) -> Task<UiMsg> {
         use iced_layershell::reexport::{
             Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
         };
         self.identify_gen = self.identify_gen.wrapping_add(1);
+        let open = !self.identify.is_empty();
         let mut tasks: Vec<Task<UiMsg>> = std::mem::take(&mut self.identify)
             .into_iter()
             .map(|(id, _)| iced::window::close(id))
             .collect();
+        if open {
+            return Task::batch(tasks);
+        }
         for (i, s) in self.screens.iter().enumerate().filter(|(_, s)| s.enabled) {
             let id = iced::window::Id::unique();
             self.identify
                 .push((id, format!("{}\n{}\n{}", i + 1, s.name, s.description)));
             tasks.push(Task::done(UiMsg::NewLayerShell {
                 settings: NewLayerShellSettings {
-                    size: Some((520, 260)),
+                    size: None,
                     layer: Layer::Overlay,
-                    anchor: Anchor::empty(),
-                    exclusive_zone: Some(0),
+                    anchor: Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right,
+                    exclusive_zone: Some(-1),
                     keyboard_interactivity: KeyboardInteractivity::None,
                     output_option: OutputOption::OutputName(s.name.clone()),
                     namespace: Some("hyprdesk-identify".into()),
@@ -815,16 +1039,22 @@ impl App {
                 },
                 id,
             }));
+            // Aucune zone de saisie : clics et survol passent au travers.
+            tasks.push(Task::done(UiMsg::SetInputRegion {
+                id,
+                callback: iced_layershell::actions::ActionCallback::new(|_region| {}),
+            }));
         }
         let generation = self.identify_gen;
         tasks.push(Task::perform(
-            async { tokio::time::sleep(Duration::from_secs(3)).await },
+            async { tokio::time::sleep(Duration::from_secs(120)).await },
             move |_| wrap(Msg::IdentifyEnd(generation)),
         ));
         Task::batch(tasks)
     }
 
-    /// Carte d'identification d'un écran : grand numéro, connecteur, modèle.
+    /// Repères d'un écran : lignes graduées et bords partagés (canvas), et
+    /// au centre la carte numéro, connecteur, modèle.
     pub(in crate::ui) fn view_identify(&self, label: &str) -> Element<'_, UiMsg> {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
@@ -834,25 +1064,187 @@ impl App {
             parts.next().unwrap_or_default().to_string(),
             parts.next().unwrap_or_default().to_string(),
         );
-        let bg = color(th.bg, 0.94);
-        container(
+        let bg = color(th.bg, 0.88);
+        let card = container(
             column![
                 text(n).font(self.title_font()).size(96).color(accent),
-                text(name).font(self.title_font()).size(28).color(fg),
+                text(name.clone())
+                    .font(self.title_font())
+                    .size(28)
+                    .color(fg),
                 text(model)
                     .font(self.font)
                     .size(14)
                     .color(Color { a: 0.7, ..fg }),
+                text("Repères d'alignement : Identifier à nouveau pour les retirer.")
+                    .font(self.font)
+                    .size(12)
+                    .color(Color { a: 0.6, ..fg }),
             ]
             .spacing(4)
             .align_x(Alignment::Center),
         )
-        .center(Length::Fill)
+        .padding(24)
         .style(move |_| container::Style {
             background: Some(bg.into()),
             border: Border::default().rounded(18).width(2).color(accent),
             ..Default::default()
-        })
+        });
+        let Some(s) = self.screens.iter().find(|s| s.name == name) else {
+            return container(card).center(Length::Fill).into();
+        };
+        let number = |n: &str| {
+            self.screens
+                .iter()
+                .position(|o| o.name == n)
+                .map_or(String::new(), |i| format!("{} · {n}", i + 1))
+        };
+        let guides = Guides {
+            origin: (s.x, s.y),
+            edges: screens::shared_edges(&self.screens, &name)
+                .into_iter()
+                .map(|e| (e.side, e.from, e.to, number(&e.neighbor)))
+                .collect(),
+            accent,
+            fg,
+        };
+        iced::widget::Stack::with_children([
+            iced::widget::canvas(guides)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            container(card).center(Length::Fill).into(),
+        ])
         .into()
+    }
+}
+
+/// Repères dessinés sur un écran pendant « Identifier » (MLG-147).
+struct Guides {
+    /// Position de l'écran dans la disposition (px logiques).
+    origin: (i32, i32),
+    /// Bords partagés : côté, segment local, voisin (« 2 · HDMI-A-2 »).
+    edges: Vec<(Side, i32, i32, String)>,
+    accent: Color,
+    fg: Color,
+}
+
+impl iced::widget::canvas::Program<UiMsg> for Guides {
+    type State = ();
+
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &iced::Theme,
+        bounds: iced::Rectangle,
+        _: iced::mouse::Cursor,
+    ) -> Vec<iced::widget::canvas::Geometry> {
+        use iced::widget::canvas::{Frame, Path, Stroke, Text};
+        use iced::{Point, Size};
+        let mut f = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let (gx, gy) = self.origin;
+        let label = |f: &mut Frame, s: String, p: Point, c: Color| {
+            f.fill_text(Text {
+                content: s,
+                position: p,
+                color: c,
+                size: iced::Pixels(13.0),
+                ..Default::default()
+            });
+        };
+        // Lignes graduées en coordonnées globales : toutes les 100 px, plus
+        // marquées toutes les 500 ; les mêmes valeurs sur chaque écran
+        // permettent de vérifier qu'elles se prolongent d'un écran à l'autre.
+        let first = |g: i32| ((g as f32 / 100.0).ceil() as i32) * 100;
+        let mut v = first(gy);
+        while (v - gy) as f32 <= h {
+            let y = (v - gy) as f32;
+            let strong = v % 500 == 0;
+            let c = Color {
+                a: if strong { 0.45 } else { 0.15 },
+                ..self.fg
+            };
+            f.stroke(
+                &Path::line(Point::new(0.0, y), Point::new(w, y)),
+                Stroke::default().with_width(1.0).with_color(c),
+            );
+            if strong {
+                label(&mut f, format!("y {v}"), Point::new(6.0, y + 2.0), c);
+                label(&mut f, format!("y {v}"), Point::new(w - 64.0, y + 2.0), c);
+            }
+            v += 100;
+        }
+        let mut u = first(gx);
+        while (u - gx) as f32 <= w {
+            let x = (u - gx) as f32;
+            let strong = u % 500 == 0;
+            let c = Color {
+                a: if strong { 0.45 } else { 0.15 },
+                ..self.fg
+            };
+            f.stroke(
+                &Path::line(Point::new(x, 0.0), Point::new(x, h)),
+                Stroke::default().with_width(1.0).with_color(c),
+            );
+            if strong {
+                label(&mut f, format!("x {u}"), Point::new(x + 4.0, 6.0), c);
+                label(&mut f, format!("x {u}"), Point::new(x + 4.0, h - 22.0), c);
+            }
+            u += 100;
+        }
+        // Bords partagés : bande d'accent sur le segment commun, et le voisin.
+        const BAND: f32 = 10.0;
+        for (side, from, to, who) in &self.edges {
+            let (a, b) = (*from as f32, *to as f32);
+            let (rect, text_at, arrow) = match side {
+                Side::Right => (
+                    (Point::new(w - BAND, a), Size::new(BAND, b - a)),
+                    Point::new(w - 220.0, (a + b) / 2.0),
+                    "→",
+                ),
+                Side::Left => (
+                    (Point::new(0.0, a), Size::new(BAND, b - a)),
+                    Point::new(BAND + 8.0, (a + b) / 2.0),
+                    "←",
+                ),
+                Side::Below => (
+                    (Point::new(a, h - BAND), Size::new(b - a, BAND)),
+                    Point::new((a + b) / 2.0 - 60.0, h - BAND - 24.0),
+                    "↓",
+                ),
+                Side::Above => (
+                    (Point::new(a, 0.0), Size::new(b - a, BAND)),
+                    Point::new((a + b) / 2.0 - 60.0, BAND + 8.0),
+                    "↑",
+                ),
+            };
+            f.fill_rectangle(rect.0, rect.1, self.accent);
+            label(&mut f, format!("{arrow} {who}"), text_at, self.accent);
+            // Bornes du segment : où le voisin commence et finit.
+            for (p, q) in match side {
+                Side::Right | Side::Left => {
+                    let x = if *side == Side::Right { w - 40.0 } else { 0.0 };
+                    vec![
+                        (Point::new(x, a), Point::new(x + 40.0, a)),
+                        (Point::new(x, b), Point::new(x + 40.0, b)),
+                    ]
+                }
+                Side::Above | Side::Below => {
+                    let y = if *side == Side::Below { h - 40.0 } else { 0.0 };
+                    vec![
+                        (Point::new(a, y), Point::new(a, y + 40.0)),
+                        (Point::new(b, y), Point::new(b, y + 40.0)),
+                    ]
+                }
+            } {
+                f.stroke(
+                    &Path::line(p, q),
+                    Stroke::default().with_width(3.0).with_color(self.accent),
+                );
+            }
+        }
+        vec![f.into_geometry()]
     }
 }

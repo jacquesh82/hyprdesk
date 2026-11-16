@@ -190,6 +190,60 @@ pub const ADVANCED_PLACES: &[(&str, &str, &str)] = &[
     ("animations", "effets", "flou"),
 ];
 
+/// Couleur des réglages de la configuration avancée (liseré, pastille,
+/// point dans le menu) : distincte de l'accent et de l'orange des
+/// avertissements.
+pub const ADV_COLOR: iced::Color = iced::Color::from_rgb(0.545, 0.914, 0.992);
+
+/// Réglage avancé : cadre cyan, fond à peine teinté.
+pub fn adv_frame<'a>(e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
+    use iced::widget::container;
+    container(e)
+        .width(iced::Length::Fill)
+        .padding([10, 12])
+        .style(|_| container::Style {
+            background: Some(
+                iced::Color {
+                    a: 0.04,
+                    ..ADV_COLOR
+                }
+                .into(),
+            ),
+            border: iced::Border::default()
+                .rounded(10)
+                .width(1)
+                .color(iced::Color {
+                    a: 0.45,
+                    ..ADV_COLOR
+                }),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Pastille « Avancé » en tête d'une page ou d'un onglet avancé.
+pub fn adv_badge<'a>(font: iced::Font) -> Element<'a, Msg> {
+    use iced::widget::container;
+    container(
+        crate::i18n::text("Avancé")
+            .font(font)
+            .size(11)
+            .color(iced::Color::from_rgb8(0x14, 0x14, 0x1c)),
+    )
+    .padding([2, 8])
+    .style(|_| container::Style {
+        background: Some(ADV_COLOR.into()),
+        border: iced::Border::default().rounded(999),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Paquet ou onglet réservé à la configuration avancée.
+pub fn is_advanced(id: &str, tab: Option<&str>) -> bool {
+    ADVANCED_ONLY.contains(&id) || tab.is_some_and(|t| ADVANCED_TABS.contains(&(id, t)))
+}
+
 /// Le paquet est affiché (configuration de base ou avancée).
 pub fn visible(id: &str, advanced: bool) -> bool {
     advanced || !ADVANCED_ONLY.contains(&id)
@@ -282,7 +336,7 @@ impl App {
     /// laisser d'espace dans la colonne).
     pub(in crate::ui) fn adv<'a>(&self, e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
         if self.advanced() {
-            e.into()
+            adv_frame(e)
         } else {
             iced::widget::Space::new().width(0).height(0).into()
         }
@@ -455,11 +509,17 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
 }
 
 pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
-    let page = page(app, p, id);
+    let tab = app.subtab(id);
+    let mut page = page(app, p, id);
+    // Page ou onglet avancé : pastille en tête.
+    if is_advanced(id, Some(tab)) {
+        page = iced::widget::column![adv_badge(app.font), page]
+            .spacing(10)
+            .into();
+    }
     if !app.advanced() {
         return page;
     }
-    let tab = app.subtab(id);
     let extra: Vec<&str> = ADVANCED_PLACES
         .iter()
         .filter(|(pkg, t, _)| *pkg == id && (t.is_empty() || *t == tab))
@@ -470,7 +530,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
     }
     let mut col = iced::widget::column![page].spacing(14);
     for k in extra {
-        col = col.push(app.hyprset_tab(k));
+        col = col.push(adv_frame(app.hyprset_tab(k)));
     }
     col.into()
 }
@@ -551,7 +611,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "login" => login::load(),
         "passwords" => passwords::load(),
         "assistant" => assistant::on_show(app),
-        "about" => about::load(),
+        "about" => about::load(app.config_path.clone()),
         "theme" => theme::load_library(app.config_path.clone()),
         // Relu à chaque arrivée sur l'onglet : les images ajoutées ou retirées
         // apparaissent (vignettes déjà faites gardées, seules les nouvelles se chargent).

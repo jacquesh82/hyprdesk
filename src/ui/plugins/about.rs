@@ -33,6 +33,12 @@ pub struct Facts {
     pub lyra: Option<String>,
     pub deps: (usize, usize),
     pub smartui_icons: usize,
+    /// Fichiers Lua de ~/.config/hypr : (nom, généré par hyprdesk).
+    pub files: Vec<(String, bool)>,
+    /// Lignes de hyprland.lua reprises par hyprdesk (`-- [hyprdesk]`).
+    pub adopted: usize,
+    /// Historique : nombre d'instantanés, et le plus récent (date, motif).
+    pub history: (usize, Option<String>),
 }
 
 #[derive(Default)]
@@ -51,6 +57,10 @@ pub enum Msg {
     Copy,
     Copied,
     OpenRepo,
+    /// Ouvre ~/.config/hypr dans le gestionnaire de fichiers.
+    OpenConfigDir,
+    /// Va à Configuration → Historique.
+    History,
     /// Remise à la configuration par défaut (deux clics).
     Reset,
     ResetCancel,
@@ -72,14 +82,50 @@ fn tilde(p: impl AsRef<std::path::Path>) -> String {
     }
 }
 
-pub fn load() -> Task<UiMsg> {
+pub fn load(config_path: std::path::PathBuf) -> Task<UiMsg> {
     Task::perform(
-        async { tokio::task::spawn_blocking(facts).await.unwrap_or_default() },
+        async {
+            tokio::task::spawn_blocking(move || facts(&config_path))
+                .await
+                .unwrap_or_default()
+        },
         |f| wrap(Msg::Facts(f)),
     )
 }
 
-fn facts() -> Facts {
+fn facts(config_path: &std::path::Path) -> Facts {
+    let dir = config_path.parent().unwrap_or(std::path::Path::new("."));
+    let mut files: Vec<(String, bool)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "lua"))
+        .filter(|e| !e.file_name().to_string_lossy().ends_with(".meta.lua"))
+        .map(|e| {
+            let generated =
+                std::fs::read_to_string(e.path()).is_ok_and(|s| crate::hyprsrc::generated(&s));
+            (e.file_name().to_string_lossy().to_string(), generated)
+        })
+        .collect();
+    files.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
+    let adopted = std::fs::read_to_string(dir.join("hyprland.lua"))
+        .map(|s| {
+            s.lines()
+                .filter(|l| l.trim_start().starts_with(crate::adopt::MARK.trim_end()))
+                .count()
+        })
+        .unwrap_or(0);
+    let snaps = crate::history::list();
+    let history = (
+        snaps.len(),
+        snaps.first().map(|s| {
+            format!(
+                "{} · {}",
+                s.time().format("%d/%m %H:%M"),
+                crate::history::reason_label(&s.reason)
+            )
+        }),
+    );
     let os = std::fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|s| {
@@ -118,6 +164,9 @@ fn facts() -> Facts {
         lyra: crate::assistant::lyra().map(tilde),
         deps,
         smartui_icons,
+        files,
+        adopted,
+        history,
     }
 }
 
@@ -171,6 +220,25 @@ impl App {
                 "Thème SmartUI : {n} icône(s), {dir}",
                 n = f.smartui_icons.to_string(),
                 dir = tilde(crate::smartui::theme_dir())
+            ),
+            crate::tr!(
+                "Rendu : {r}",
+                r = crate::render::running_summary()
+                    .unwrap_or_else(|| crate::i18n::tr("pas encore relevé").to_string())
+            ),
+            crate::tr!(
+                "hyprland.lua : {n} ligne(s) reprise(s) par hyprdesk",
+                n = f.adopted.to_string()
+            ),
+            crate::tr!(
+                "Historique : {n} instantané(s){last}",
+                n = f.history.0.to_string(),
+                last = f
+                    .history
+                    .1
+                    .as_ref()
+                    .map(|l| crate::tr!(", le dernier : {l}", l = l))
+                    .unwrap_or_default()
             ),
         ]
         .join("\n")
@@ -269,6 +337,25 @@ impl App {
                 .font(self.font)
                 .size(12)
                 .color(dim),
+            self.section("Fichiers de configuration"),
+            text("Dans ~/.config/hypr : les fichiers générés par hyprdesk sont réécrits par les Réglages (ne pas les éditer) ; hyprland.lua et les autres restent à vous. Chaque changement est gardé 30 jours dans l'historique.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            self.about_files(p),
+            row![
+                button(text("Ouvrir le dossier").font(self.font).size(13))
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::OpenConfigDir)),
+                button(text("Historique…").font(self.font).size(13))
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::History)),
+            ]
+            .spacing(10),
+            self.section("Nouveautés"),
+            self.about_news(),
             self.section("Configuration par défaut"),
             text("Remet hyprdesk.lua (configuration d'exemple) et tous les réglages faits ici par défaut. Une copie est gardée dans ~/.config/hypr/hyprdesk/sauvegardes ; les fichiers de Hyprland (clavier, écrans, démarrage), vos thèmes et widgets ne bougent pas.")
                 .font(self.font)
@@ -309,8 +396,87 @@ impl App {
         .into()
     }
 
+    /// Fichiers Lua de ~/.config/hypr, généré par hyprdesk ou à vous.
+    fn about_files(&self, p: &super::super::panel::Panel) -> Element<'_, UiMsg> {
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let accent = color(self.cfg.general.theme.accent, 1.0);
+        let Some(f) = &p.about.facts else {
+            return Space::new().into();
+        };
+        let col = f
+            .files
+            .iter()
+            .fold(column![].spacing(4), |c, (name, generated)| {
+                c.push(
+                    row![
+                        text(name.clone())
+                            .font(self.font)
+                            .size(13)
+                            .color(fg)
+                            .width(170),
+                        text(if *generated {
+                            crate::i18n::tr("généré par hyprdesk")
+                        } else {
+                            crate::i18n::tr("à vous")
+                        })
+                        .font(self.font)
+                        .size(12)
+                        .color(if *generated { accent } else { dim }),
+                    ]
+                    .spacing(10),
+                )
+            });
+        container(col)
+            .padding(12)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                border: iced::Border::default()
+                    .rounded(10)
+                    .width(1)
+                    .color(Color { a: 0.18, ..fg }),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Ce qu'apporte cette version (en bref ; le détail : CHANGELOG.md).
+    fn about_news(&self) -> Element<'_, UiMsg> {
+        const NEWS: &[&str] = &[
+            "Réglages de Hyprland écrits dans des fichiers générés (appearance.lua, animations.lua, layouts.lua, rules.lua, env.lua, system.lua), et hyprland.lua repris : il ne dit plus autre chose que ce qui tourne.",
+            "Historique de la configuration sur 30 jours, avec retour arrière (Configuration → Historique).",
+            "Fenêtres : espacement, bordures (aux couleurs du thème si vous voulez), règles par application, groupes à onglets.",
+            "Clavier et souris : curseur, gestes ; Animations : vos courbes, dessinées et éditables.",
+            "Écrans : glisser-déposer sur le plan avec aimant, réglage au pixel, repères d'alignement avec Identifier.",
+            "Performance : moteur de rendu matériel ou logiciel, carte graphique, fils ; moins de processus et de réveils au repos.",
+            "Réglages réorganisés par sujet ; les réglages avancés sont marqués en cyan.",
+        ];
+        let dim = self.ink().dim;
+        NEWS.iter()
+            .fold(column![].spacing(6), |c, n| {
+                c.push(
+                    row![
+                        text("•").font(self.font).size(13).color(dim),
+                        text(crate::i18n::tr(n)).font(self.font).size(13),
+                    ]
+                    .spacing(8),
+                )
+            })
+            .into()
+    }
+
     pub(in crate::ui) fn about_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
+            Msg::OpenConfigDir => {
+                let dir = self
+                    .config_path
+                    .parent()
+                    .map(std::path::Path::to_path_buf)
+                    .unwrap_or_default();
+                let _ = crate::launch::open_path(&dir);
+                Task::none()
+            }
+            Msg::History => self.panel_update(super::super::panel::PanelMsg::Tab("history")),
             Msg::Facts(f) => {
                 if let Some(p) = self.panel.as_mut() {
                     p.about.facts = Some(f);
