@@ -58,6 +58,6 @@ pkgbase = hyprdesk
 	options = !lto
 	backup = etc/pam.d/hyprdesk-lock
 	source = hyprdesk-0.1.5.tar.gz::https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v0.1.5.tar.gz
-	sha256sums = SKIP
+	sha256sums = c69c9ba3eaeaa3dc02645eff97d34b47c3b95091202c47feeed5fdb535027842
 
 pkgname = hyprdesk
