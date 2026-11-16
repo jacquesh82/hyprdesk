@@ -904,6 +904,8 @@
 "règles de workspace : {e}" = "workspace rules: {e}"
 "workspace {ws} : écran de sa règle absent, placé sur {m}" = "workspace {ws}: its rule's monitor is absent, placed on {m}"
 "règles de workspace : {r}" = "workspace rules: {r}"
+"écran {m} rebranché sur le workspace {cur} : ramené sur {ws}" = "monitor {m} plugged back on workspace {cur}: brought back to {ws}"
+"retour d'écran : {r}" = "monitor return: {r}"
 "Règles en place :" = "Current rules:"
 "Récentes" = "Recent"
 "Réglages" = "Settings"

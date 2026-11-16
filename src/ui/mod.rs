@@ -1393,6 +1393,12 @@ impl App {
 
     /// (Ré)installe les workspaces permanents et l'affectation des applications.
     fn install_rules(&self) -> Task<Msg> {
+        self.install_rules_with(Vec::new())
+    }
+
+    /// Pose les règles, puis ramène les écrans `added` (tout juste branchés)
+    /// sur leur workspace par défaut.
+    fn install_rules_with(&self, added: Vec<String>) -> Task<Msg> {
         // Paquet « Workspaces » coupé : aucune règle (les anciennes sont retirées).
         let (n, rules) = if self.cfg.plugin_on("workspaces") {
             (self.cfg.general.workspaces, self.cfg.assigns.clone())
@@ -1412,7 +1418,7 @@ impl App {
         Task::perform(
             async move {
                 match tokio::task::spawn_blocking(move || {
-                    hypr::install_rules(n, &placement, &rules, primary.as_deref())
+                    hypr::install_rules(n, &placement, &rules, primary.as_deref(), &added)
                 })
                 .await
                 {
@@ -2714,9 +2720,20 @@ impl App {
         tasks.push(self.sync_lyra_drawer());
         let names = |l: &[Monitor]| l.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
         // Écrans changés : placement à refaire, et workspaces d'un écran parti
-        // (règles d'autres sources comprises) à reloger.
+        // (règles d'autres sources comprises) à reloger. Un écran branché en
+        // cours de session revient sur son workspace (MLG-158) ; pas au
+        // démarrage, où l'écran affiche peut-être un workspace choisi exprès.
         if names(&old) != names(&self.monitors) && self.cfg.plugin_on("workspaces") {
-            tasks.push(self.install_rules());
+            let added: Vec<String> = if old.is_empty() {
+                Vec::new()
+            } else {
+                self.monitors
+                    .iter()
+                    .filter(|m| !old.iter().any(|o| o.name == m.name))
+                    .map(|m| m.name.clone())
+                    .collect()
+            };
+            tasks.push(self.install_rules_with(added));
         }
         // Chaque écran prend le mode du workspace qu'il affiche.
         tasks.push(self.sync_modes());

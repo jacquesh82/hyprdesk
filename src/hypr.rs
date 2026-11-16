@@ -1149,6 +1149,8 @@ pub fn install_rules(
     placement: &[Placement],
     rules: &[crate::config::AssignRule],
     primary: Option<&str>,
+    // Écrans branchés depuis la dernière pose : ramenés sur leur workspace.
+    added: &[String],
 ) -> Result<(), ipc::IpcError> {
     use crate::config::AppMatch;
     // Écrans relus au moment de poser : deux poses en vol (démarrage, écran
@@ -1213,7 +1215,141 @@ pub fn install_rules(
             ),
         );
     }
+    if !added.is_empty()
+        && let Ok(mons) = monitors()
+    {
+        rehome(&rehome_plan(
+            placement,
+            workspaces.unwrap_or(0) as usize,
+            added,
+            &mons,
+        ));
+    }
     Ok(())
+}
+
+/// Écran branché à ramener sur son workspace par défaut.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rehome {
+    pub monitor: String,
+    pub default: String,
+    /// Workspace où Hyprland l'a mis.
+    pub current: String,
+    /// Ses fenêtres suivent l'écran (workspace qu'aucune règle ne déclare).
+    pub take_windows: bool,
+}
+
+/// Écrans branchés (`added`) que Hyprland a mis sur un workspace hors de leur
+/// liste (MLG-158). Hyprland choisit le workspace d'un écran qui arrive avant
+/// que hyprdesk ne repose sa règle par défaut (retirée quand l'écran est
+/// parti) : il prend alors le premier numéro libre et non lié à un autre
+/// écran — 11 quand 1 à 6 existent et que 7 à 10 sont liés au principal
+/// (écran dédié). Les fenêtres d'un tel workspace suivent l'écran sur son
+/// workspace (le premier, vide, disparaît) ; celles d'un workspace déclaré
+/// ailleurs restent chez lui.
+pub fn rehome_plan(
+    placement: &[Placement],
+    permanent: usize,
+    added: &[String],
+    monitors: &[Monitor],
+) -> Vec<Rehome> {
+    let declared = |ws: &str| {
+        placement.iter().any(|(w, _, _)| w == ws)
+            || ws
+                .parse::<usize>()
+                .is_ok_and(|i| (1..=permanent).contains(&i))
+    };
+    monitors
+        .iter()
+        .filter(|m| added.contains(&m.name))
+        .filter_map(|m| {
+            let (default, _, _) = placement.iter().find(|(_, mon, d)| *d && mon == &m.name)?;
+            let cur = m.base.as_str();
+            if cur.is_empty()
+                || cur.starts_with("special")
+                || placement
+                    .iter()
+                    .any(|(w, mon, _)| w == cur && mon == &m.name)
+            {
+                return None;
+            }
+            Some(Rehome {
+                monitor: m.name.clone(),
+                default: default.clone(),
+                current: cur.to_string(),
+                take_windows: !declared(cur),
+            })
+        })
+        .collect()
+}
+
+/// Applique `rehome_plan`, puis rend le focus à la fenêtre (ou à l'écran)
+/// qui l'avait.
+fn rehome(plan: &[Rehome]) {
+    if plan.is_empty() {
+        return;
+    }
+    let before = ipc::query_json("activewindow").ok().and_then(|v| {
+        v["address"]
+            .as_str()
+            .filter(|a| !a.is_empty())
+            .map(String::from)
+    });
+    let focused = monitors()
+        .ok()
+        .and_then(|l| l.into_iter().find(|m| m.focused).map(|m| m.name));
+    // Fenêtres cachées comprises (avalées par un terminal…) : toutes suivent.
+    let clients = ipc::query_json("clients").ok();
+    let run = |lua: String| match ipc::dispatch(&lua) {
+        Ok(r) if r.trim() == "ok" => {}
+        Ok(r) => tracing::warn!("{}", crate::tr!("retour d'écran : {r}", r = r.trim())),
+        Err(e) => tracing::warn!("{}", crate::tr!("retour d'écran : {r}", r = e)),
+    };
+    for p in plan {
+        tracing::info!(
+            "{}",
+            crate::tr!(
+                "écran {m} rebranché sur le workspace {cur} : ramené sur {ws}",
+                m = p.monitor,
+                cur = p.current,
+                ws = p.default
+            )
+        );
+        if p.take_windows
+            && let Some(v) = &clients
+        {
+            for a in v
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|c| c["workspace"]["name"].as_str() == Some(p.current.as_str()))
+                .filter_map(|c| c["address"].as_str())
+            {
+                if let Err(e) = move_window(a, &p.default) {
+                    tracing::warn!("{}", e);
+                }
+            }
+        }
+        run(format!(
+            "hl.dsp.focus({{ monitor = \"{}\" }})",
+            ipc::lua_escape(&p.monitor)
+        ));
+        run(format!(
+            "hl.dsp.focus({{ workspace = {} }})",
+            workspace_dispatch_arg(&p.default)
+        ));
+    }
+    match (before, focused) {
+        (Some(a), _) => run(format!(
+            "hl.dsp.focus({{ window = \"address:{}\" }})",
+            ipc::lua_escape(&a)
+        )),
+        (None, Some(m)) => run(format!(
+            "hl.dsp.focus({{ monitor = \"{}\" }})",
+            ipc::lua_escape(&m)
+        )),
+        _ => {}
+    }
 }
 
 /// Marges extérieures de Hyprland (`general:gaps_out`) : haut, droite, bas, gauche.
@@ -2449,5 +2585,43 @@ mod tests {
         assert!(sub.contains(r#"hl.bind("SUPER + Left", hl.dsp.focus({ workspace = "-1" })"#));
         assert!(sub.contains(r#"hl.bind("SUPER + Right", hl.dsp.focus({ workspace = "+1" })"#));
         assert!(sub.contains("' search\""), "{sub}");
+    }
+
+    /// MLG-158 : HDMI-A-2, dédié au 6, rebranché sur 11 (1 à 6 existants,
+    /// 7 à 10 liés au DP-1) revient sur 6 avec les fenêtres du 11.
+    #[test]
+    fn ecran_rebranche_ramene_sur_son_workspace() {
+        let mon = |name: &str, ws: &str| {
+            parse_monitors(&serde_json::json!([{
+                "name": name, "width": 1920, "height": 1080,
+                "activeWorkspace": { "name": ws }, "specialWorkspace": { "name": "" }
+            }]))
+            .remove(0)
+        };
+        let mut placement: Vec<Placement> = (1..=10)
+            .filter(|i| *i != 6)
+            .map(|i| (i.to_string(), "DP-1".to_string(), i == 1))
+            .collect();
+        placement.push(("6".into(), "HDMI-A-2".into(), true));
+        let added = vec!["HDMI-A-2".to_string()];
+        let mons = [mon("DP-1", "3"), mon("HDMI-A-2", "11")];
+        assert_eq!(
+            rehome_plan(&placement, 6, &added, &mons),
+            vec![Rehome {
+                monitor: "HDMI-A-2".into(),
+                default: "6".into(),
+                current: "11".into(),
+                take_windows: true,
+            }]
+        );
+        // Déjà sur un workspace de sa liste, ou écran non branché : rien.
+        assert!(rehome_plan(&placement, 6, &added, &[mon("HDMI-A-2", "6")]).is_empty());
+        assert!(rehome_plan(&placement, 6, &[], &mons).is_empty());
+        // Sur un workspace déclaré ailleurs (le 3) : ses fenêtres restent à lui.
+        let p = rehome_plan(&placement, 6, &added, &[mon("HDMI-A-2", "3")]);
+        assert!(!p[0].take_windows);
+        // Écran sans workspace par défaut : laissé à Hyprland.
+        let added = vec!["DP-2".to_string()];
+        assert!(rehome_plan(&placement, 6, &added, &[mon("DP-2", "11")]).is_empty());
     }
 }
