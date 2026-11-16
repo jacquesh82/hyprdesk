@@ -27,6 +27,31 @@ contents:
     dst: /usr/lib/systemd/user/hyprdesk.service
     file_info:
       mode: 0644
+  # Pile PAM du verrouillage (MLG-153) : /etc/pam.d/hyprdesk-lock, fichier de
+  # configuration gardé s'il a été modifié. deb : common-auth ; archlinux :
+  # system-auth ; rpm (Fedora : system-auth, openSUSE : common-auth) : choisi
+  # par packaging/postinstall.sh d'après la distribution, depuis les modèles
+  # de /usr/share/hyprdesk/pam/.
+  - src: packaging/pam/hyprdesk-lock.common-auth
+    dst: /etc/pam.d/hyprdesk-lock
+    type: config|noreplace
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: packaging/pam/hyprdesk-lock.system-auth
+    dst: /etc/pam.d/hyprdesk-lock
+    type: config|noreplace
+    packager: archlinux
+    file_info:
+      mode: 0644
+  - src: packaging/pam/hyprdesk-lock.system-auth
+    dst: /usr/share/hyprdesk/pam/hyprdesk-lock.system-auth
+    file_info:
+      mode: 0644
+  - src: packaging/pam/hyprdesk-lock.common-auth
+    dst: /usr/share/hyprdesk/pam/hyprdesk-lock.common-auth
+    file_info:
+      mode: 0644
   # Police Mindlog (OFL), utilisée par l'interface.
   - src: assets/fonts/mindlog/*.ttf
     dst: /usr/share/fonts/hyprdesk/Mindlog/
@@ -64,6 +89,20 @@ contents:
 
 scripts:
   postinstall: packaging/postinstall.sh
+
+# Signature des paquets (MLG-151) : demande une clé privée, à fournir en
+# secret de la CI (jamais dans le dépôt). En attendant, l'intégrité passe
+# par SHA256SUMS signé par cosign (job release de ci.yml), vérifié par
+# scripts/release.sh avant l'installation. Pour l'activer : une clé GPG
+# dédiée, NFPM_PASSPHRASE et le chemin de la clé dans l'environnement du job
+# packages, puis décommenter :
+# deb:
+#   signature:
+#     key_file: ${NFPM_SIGNING_KEY_FILE}
+# rpm:
+#   signature:
+#     key_file: ${NFPM_SIGNING_KEY_FILE}
+# (archlinux : signature détachée .sig par gpg --detach-sign, hors nfpm.)
 
 # Arch : packager inscrit dans .PKGINFO (sinon « Unknown Packager »).
 archlinux:

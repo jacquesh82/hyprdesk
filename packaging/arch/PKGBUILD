@@ -75,6 +75,8 @@ optdepends=(
 # du bitcode GCC que rust-lld ne lit pas (undefined symbol: lua_rotate…).
 options=('!lto')
 install=hyprdesk.install
+# Pile PAM du verrouillage (MLG-153), gardée à la mise à jour si modifiée.
+backup=('etc/pam.d/hyprdesk-lock')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # Renseigné par la CI au moment du tag (job release de ci.yml) : empreinte
 # de git archive du tag, égale à l'archive servie par GitHub, proposée en
@@ -113,6 +115,12 @@ package() {
       assets/hyprdesk.service > hyprdesk.service
   grep -q '^ExecStart=/usr/bin/hyprdesk ' hyprdesk.service
   install -Dm0644 -t "$pkgdir/usr/lib/systemd/user/" hyprdesk.service
+
+  # Pile PAM du verrouillage : authentification et phase account du système
+  # (archives à partir de la 0.1.5 ; celle de la 0.1.4 ne la contient pas).
+  if [[ -f packaging/pam/hyprdesk-lock.system-auth ]]; then
+    install -Dm0644 packaging/pam/hyprdesk-lock.system-auth "$pkgdir/etc/pam.d/hyprdesk-lock"
+  fi
 
   install -Dm0644 -t "$pkgdir/usr/share/fonts/$pkgname/Mindlog/" assets/fonts/mindlog/*.ttf
   install -Dm0644 -t "$pkgdir/usr/share/doc/$pkgname/" \

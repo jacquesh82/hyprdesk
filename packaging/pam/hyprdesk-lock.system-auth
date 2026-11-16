@@ -1,0 +1,12 @@
+#%PAM-1.0
+# Verrouillage de session de hyprdesk (hyprdesk lock, MLG-153), installé par
+# le paquet hyprdesk (Arch Linux, Fedora : pile system-auth). Fichier de
+# configuration, gardé à la mise à jour s'il a été modifié.
+#
+# Pile d'authentification du système (faillock, sssd, systemd-homed…) et
+# phase account (compte expiré ou désactivé, pam_access, pam_time) :
+# hyprdesk appelle pam_authenticate puis pam_acct_mgmt, et ne déverrouille
+# que si les deux réussissent. Sans ce fichier, hyprdesk se replie sur la
+# pile de hyprlock, puis sur « login ».
+auth      include   system-auth
+account   include   system-auth

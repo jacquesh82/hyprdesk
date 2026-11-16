@@ -56,6 +56,7 @@ pkgbase = hyprdesk
 	optdepends = kitty: application theme (terminal)
 	optdepends = wayle: notifications through wayle (AUR; without it, hyprdesk shows them)
 	options = !lto
+	backup = etc/pam.d/hyprdesk-lock
 	source = hyprdesk-0.1.4.tar.gz::https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v0.1.4.tar.gz
 	sha256sums = d3a368cf9ce38ffe4985f3c4f08970fc0c0f54d8d270aab5e675f9f89b2083e0
 

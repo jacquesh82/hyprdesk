@@ -1,0 +1,13 @@
+#%PAM-1.0
+# Verrouillage de session de hyprdesk (hyprdesk lock, MLG-153), installé par
+# le paquet hyprdesk (Debian, Ubuntu, openSUSE : piles common-auth et
+# common-account). Fichier de configuration, gardé à la mise à jour s'il a
+# été modifié.
+#
+# Pile d'authentification du système (faillock, sssd…) et phase account
+# (compte expiré ou désactivé, pam_access) : hyprdesk appelle
+# pam_authenticate puis pam_acct_mgmt, et ne déverrouille que si les deux
+# réussissent. Sans ce fichier, hyprdesk se replie sur la pile de hyprlock,
+# puis sur « login ».
+auth      include   common-auth
+account   include   common-account
