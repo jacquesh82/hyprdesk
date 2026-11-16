@@ -20,16 +20,15 @@ pub const INFO: PluginInfo = PluginInfo {
     id: "hyprconfig",
     label: "Configuration de Hyprland",
     icon: "preferences-system",
-    summary: "Ménage de hyprland.lua : erreurs, doublons, programmes absents ou faits par hyprdesk, vieilles copies ; historique de la configuration sur 30 jours, avec retour arrière.",
+    summary: "Ménage de hyprland.lua (erreurs, doublons, programmes faits par hyprdesk, fichiers plus lus), variables d'environnement, comportement et options avancées de Hyprland.",
     builtin: true,
 };
 
-/// Onglets : le ménage de hyprland.lua, puis l'historique de la configuration.
+/// Onglets : le ménage de hyprland.lua, puis les réglages de Hyprland hors
+/// fenêtres (l'historique a son propre paquet, `history`).
 pub const TABS: &[super::SubTab] = &[
     ("menage", "Ménage"),
-    ("historique", "Historique"),
     ("environnement", "Environnement"),
-    ("comportement", "Comportement"),
     ("avance", "Avancé"),
 ];
 
@@ -161,15 +160,9 @@ fn apply(app: &App, fixes: Vec<Fix>) -> Task<UiMsg> {
 
 impl App {
     pub(in crate::ui) fn hyprconfig_page(&self) -> Element<'_, UiMsg> {
-        if self.on_subtab(INFO.id, "historique") {
-            return self.hyprconfig_history();
-        }
         // Onglets tenus par le registre `hyprset` (MLG-144).
         if self.on_subtab(INFO.id, "environnement") {
             return self.env_editor();
-        }
-        if self.on_subtab(INFO.id, "comportement") {
-            return self.hyprset_tab("comportement");
         }
         if self.on_subtab(INFO.id, "avance") {
             return self.hyprset_tab("avance");
@@ -303,7 +296,7 @@ impl App {
 
     /// Onglet « Historique » : instantanés groupés par jour, extrait du diff
     /// d'un instantané déplié, retour arrière confirmé en deux temps.
-    fn hyprconfig_history(&self) -> Element<'_, UiMsg> {
+    pub(in crate::ui) fn hyprconfig_history(&self) -> Element<'_, UiMsg> {
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);

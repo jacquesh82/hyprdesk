@@ -21,6 +21,7 @@ pub const INFO: PluginInfo = PluginInfo {
 
 pub const TABS: &[super::SubTab] = &[
     ("apparence", "Apparence"),
+    ("comportement", "Comportement"),
     ("regles", "Règles"),
     ("groupes", "Groupes"),
 ];
@@ -30,6 +31,9 @@ impl App {
         let dim = self.ink().dim;
         if self.on_subtab(INFO.id, "regles") {
             return self.rules_editor();
+        }
+        if self.on_subtab(INFO.id, "comportement") {
+            return self.hyprset_tab("comportement-fenetres");
         }
         if self.on_subtab(INFO.id, "groupes") {
             return iced::widget::column![

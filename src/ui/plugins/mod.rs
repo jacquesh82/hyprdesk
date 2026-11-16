@@ -26,6 +26,7 @@ pub mod datetime;
 pub mod desktop;
 pub mod effects;
 pub mod energy;
+pub mod history;
 pub mod hyprconfig;
 pub mod icons;
 pub mod index;
@@ -98,6 +99,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     passwords::INFO,
     share::INFO,
     plugins::INFO,
+    history::INFO,
     hyprconfig::INFO,
     about::INFO,
 ];
@@ -115,32 +117,40 @@ pub struct Group {
 pub const GROUPS: &[Group] = &[
     Group {
         label: "Bureau",
-        ids: &["desktop", "keys", "wallpaper", "icons", "widgets"],
-    },
-    Group {
-        label: "Apparence",
-        ids: &["theme", "apptheme", "effects", "animations"],
+        ids: &["desktop", "wallpaper", "icons", "widgets"],
     },
     Group {
         label: "Barre et lanceur",
         ids: &["bar", "launcher"],
     },
     Group {
-        label: "Fenêtres et écrans",
-        ids: &["screens", "colors", "workspaces", "layouts", "windows"],
+        label: "Apparence",
+        ids: &["theme", "apptheme", "animations", "effects"],
     },
     Group {
-        label: "Périphériques et réseau",
-        ids: &["network", "bt", "sound", "input"],
+        label: "Fenêtres",
+        ids: &["windows", "workspaces", "layouts"],
+    },
+    Group {
+        label: "Écrans",
+        ids: &["screens", "colors"],
+    },
+    Group {
+        label: "Clavier et souris",
+        ids: &["input", "keys"],
+    },
+    Group {
+        label: "Son et réseau",
+        ids: &["sound", "network", "bt"],
     },
     Group {
         label: "Système",
         ids: &[
             "energy",
             "performance",
-            "datetime",
             "lock",
             "login",
+            "datetime",
             "passwords",
         ],
     },
@@ -149,8 +159,8 @@ pub const GROUPS: &[Group] = &[
         ids: &["apps", "autostart", "assistant", "index"],
     },
     Group {
-        label: "hyprdesk",
-        ids: &["plugins", "hyprconfig", "share", "about"],
+        label: "Configuration",
+        ids: &["history", "hyprconfig", "plugins", "share", "about"],
     },
 ];
 
@@ -162,6 +172,22 @@ pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "session"),
     ("theme", "effets"),
     ("layouts", "custom"),
+    ("windows", "comportement"),
+    ("hyprconfig", "avance"),
+];
+
+/// Options avancées de Hyprland (registre `hyprset`) rangées sous une page
+/// existante, là où on les cherche : (paquet, onglet — vide : la page sans
+/// onglet —, clé de groupe de `hyprset::GROUPS`). Affichées en configuration
+/// avancée seulement.
+pub const ADVANCED_PLACES: &[(&str, &str, &str)] = &[
+    ("input", "souris", "souris"),
+    ("input", "pave", "pave"),
+    ("workspaces", "ecrans", "workspaces"),
+    ("keys", "ensemble", "raccourcis"),
+    ("lock", "veille", "veille"),
+    ("wallpaper", "", "fond"),
+    ("animations", "effets", "flou"),
 ];
 
 /// Le paquet est affiché (configuration de base ou avancée).
@@ -325,6 +351,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "perf" | "performances" | "rendu" | "gpu" | "cpu" => "performance",
         "applications" | "defaults" => "apps",
         "hyprland" | "hyprland.lua" | "menage" | "ménage" | "conflits" => "hyprconfig",
+        "historique" | "history" | "rollback" | "retour" => "history",
         "demarrage"
         | "démarrage"
         | "demarrage-automatique"
@@ -428,6 +455,27 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
 }
 
 pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
+    let page = page(app, p, id);
+    if !app.advanced() {
+        return page;
+    }
+    let tab = app.subtab(id);
+    let extra: Vec<&str> = ADVANCED_PLACES
+        .iter()
+        .filter(|(pkg, t, _)| *pkg == id && (t.is_empty() || *t == tab))
+        .map(|(_, _, k)| *k)
+        .collect();
+    if extra.is_empty() {
+        return page;
+    }
+    let mut col = iced::widget::column![page].spacing(14);
+    for k in extra {
+        col = col.push(app.hyprset_tab(k));
+    }
+    col.into()
+}
+
+fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
     match id {
         "icons" => app.tab_icons(p),
         "keys" => app.keys_page(),
@@ -456,6 +504,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
         "input" => app.input_page(),
         "autostart" => app.autostart_page(),
         "hyprconfig" => app.hyprconfig_page(),
+        "history" => app.hyprconfig_history(),
         "colors" => app.colors_page(),
         "login" => app.login_page(),
         "passwords" => app.passwords_page(),
@@ -495,7 +544,8 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "datetime" => datetime::load(),
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
-        "hyprconfig" => Task::batch([hyprconfig::load(app), hyprconfig::load_history(app)]),
+        "hyprconfig" => hyprconfig::load(app),
+        "history" => hyprconfig::load_history(app),
         "colors" => colors::load(),
         "workspaces" => workspaces::load_foreign(app.config_path.clone()),
         "login" => login::load(),
@@ -515,6 +565,32 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn placements_avances_coherents() {
+        // Chaque groupe du registre a sa place : un onglet propre ou une page.
+        let own = [
+            "fenetres",
+            "comportement-fenetres",
+            "groupes",
+            "curseur",
+            "gestes",
+            "avance",
+        ];
+        for (k, title, _) in crate::hyprset::GROUPS {
+            assert!(
+                own.contains(k) || ADVANCED_PLACES.iter().any(|(_, _, p)| p == k),
+                "groupe « {title} » ({k}) sans place"
+            );
+        }
+        for (pkg, tab, _) in ADVANCED_PLACES {
+            assert!(BUILTIN.iter().any(|p| p.id == *pkg), "paquet {pkg}");
+            assert!(
+                tab.is_empty() || tabs(pkg).iter().any(|(t, _)| t == tab),
+                "onglet {pkg}/{tab}"
+            );
+        }
+    }
 
     #[test]
     fn chaque_paquet_a_son_icone() {

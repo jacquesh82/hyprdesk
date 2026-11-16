@@ -100,6 +100,21 @@ and this project adheres to
 
 ### Changed
 
+- **Settings navigation reorganised** for the many new settings: ten groups,
+  one topic each — Desktop; Bar and launcher; Appearance (themes,
+  animations, effects); Windows (windows, workspaces, layouts); Screens;
+  Keyboard and mouse (with Shortcuts); Sound and network; System;
+  Applications; Configuration. **History** is now its own entry
+  (Configuration → History) instead of a tab of the Hyprland configuration,
+  and the Advanced tab of Hyprland configuration shows with advanced
+  settings only. Advanced Hyprland options no longer sit in catch-all tabs:
+  they appear, with advanced settings on, on the page where one looks for
+  them — mouse and touchpad options under Mouse and Touchpad, workspace
+  navigation under Workspaces, shortcut timing under Shortcuts, wake and
+  lock restore under Lock → Idle, logo and default wallpaper under
+  Wallpaper, advanced blur under Animations → Effects, focus, fullscreen and
+  swallowing in a new Windows → Behaviour tab.
+
 - **Readable `settings.lua`** (MLG-146): settings grouped in commented
   sections (Desktop, Appearance, Shortcuts, Launcher, Hyprland, Performance,
   Lock and idle, Applications and AI, File index, Session) and long tables

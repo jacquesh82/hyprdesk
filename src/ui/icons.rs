@@ -62,6 +62,7 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "preferences-desktop-keyboard-shortcuts" => "input-keyboard",
         "preferences-desktop-color" => "preferences-desktop-theme",
         "preferences-system-windows" => "hyprdesk-desktop-windows",
+        "document-open-recent" => "preferences-system-time",
         other => other,
     };
     let owned: String;

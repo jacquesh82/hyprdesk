@@ -28,7 +28,6 @@ pub const TABS: &[super::SubTab] = &[
     ("pave", "Pavé tactile"),
     ("curseur", "Curseur"),
     ("gestes", "Gestes"),
-    ("avance", "Avancé"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -137,9 +136,6 @@ impl App {
         }
         if self.on_subtab(INFO.id, "gestes") {
             return self.hyprset_tab("gestes");
-        }
-        if self.on_subtab(INFO.id, "avance") {
-            return self.hyprset_tab("entrees");
         }
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {

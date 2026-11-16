@@ -656,7 +656,12 @@ pub const OPTIONS: &[Opt] = &[
     ),
 ];
 
-/// Groupes d'affichage : (paquet/onglet, titre de section, chemins).
+/// Groupes d'affichage : (clé de placement, titre de section, chemins).
+/// La clé dit où le groupe s'affiche : un onglet qui lui est propre
+/// (`fenetres`, `comportement-fenetres`, `groupes`, `curseur`, `gestes`,
+/// `avance`), ou une section avancée ajoutée sous une page existante
+/// (`ui::plugins::ADVANCED_PLACES` : souris, pavé, workspaces, raccourcis,
+/// veille, fond, flou) — là où on cherche le réglage.
 pub const GROUPS: &[(&str, &str, &[&str])] = &[
     (
         "fenetres",
@@ -680,15 +685,30 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
             "general.extend_border_grab_area",
             "general.hover_icon_on_border",
             "decoration.border_part_of_window",
+            "decoration.shadow.color",
         ],
     ),
     (
-        "fenetres",
-        "Comportement",
+        "comportement-fenetres",
+        "Focus et plein écran",
         &[
+            "misc.focus_on_activate",
+            "misc.mouse_move_focuses_monitor",
+            "misc.on_focus_under_fullscreen",
+            "misc.exit_window_retains_fullscreen",
+            "misc.initial_workspace_tracking",
+            "misc.layers_hog_keyboard_focus",
             "general.snap.enabled",
             "general.allow_tearing",
-            "decoration.shadow.color",
+        ],
+    ),
+    (
+        "comportement-fenetres",
+        "Terminal avalé",
+        &[
+            "misc.enable_swallow",
+            "misc.swallow_regex",
+            "misc.swallow_exception_regex",
         ],
     ),
     (
@@ -742,20 +762,6 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
         ],
     ),
     (
-        "entrees",
-        "Pointeur et défilement",
-        &[
-            "input.force_no_accel",
-            "input.scroll_method",
-            "input.scroll_factor",
-            "input.special_fallthrough",
-            "input.mouse_refocus",
-            "input.touchpad.middle_button_emulation",
-            "input.touchpad.drag_lock",
-            "input.touchpad.tap-and-drag",
-        ],
-    ),
-    (
         "gestes",
         "Glissement entre workspaces",
         &[
@@ -766,52 +772,70 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
         ],
     ),
     (
-        "comportement",
-        "Écrans et focus",
+        "souris",
+        "Pointeur et défilement (avancé)",
         &[
-            "misc.mouse_move_enables_dpms",
-            "misc.key_press_enables_dpms",
-            "misc.mouse_move_focuses_monitor",
-            "misc.focus_on_activate",
-            "misc.initial_workspace_tracking",
-            "misc.on_focus_under_fullscreen",
-            "misc.exit_window_retains_fullscreen",
-            "misc.layers_hog_keyboard_focus",
-            "misc.vrr",
+            "input.force_no_accel",
+            "input.scroll_method",
+            "input.scroll_factor",
+            "input.special_fallthrough",
+            "input.mouse_refocus",
+            "misc.middle_click_paste",
         ],
     ),
     (
-        "comportement",
-        "Terminal avalé",
+        "pave",
+        "Pavé tactile (avancé)",
         &[
-            "misc.enable_swallow",
-            "misc.swallow_regex",
-            "misc.swallow_exception_regex",
+            "input.touchpad.middle_button_emulation",
+            "input.touchpad.drag_lock",
+            "input.touchpad.tap-and-drag",
         ],
     ),
     (
-        "comportement",
-        "Raccourcis",
+        "workspaces",
+        "Navigation (avancé)",
         &[
             "binds.workspace_back_and_forth",
             "binds.allow_workspace_cycles",
-            "binds.scroll_event_delay",
-            "binds.movefocus_cycles_fullscreen",
-            "binds.hide_special_on_workspace_change",
-            "misc.middle_click_paste",
             "misc.close_special_on_empty",
+            "binds.hide_special_on_workspace_change",
         ],
     ),
     (
-        "comportement",
-        "Session",
+        "raccourcis",
+        "Comportement des raccourcis (avancé)",
+        &[
+            "binds.scroll_event_delay",
+            "binds.movefocus_cycles_fullscreen",
+        ],
+    ),
+    (
+        "veille",
+        "Réveil et verrouillage (avancé)",
+        &[
+            "misc.mouse_move_enables_dpms",
+            "misc.key_press_enables_dpms",
+            "misc.allow_session_lock_restore",
+        ],
+    ),
+    (
+        "fond",
+        "Sous le bureau (avancé)",
         &[
             "misc.disable_hyprland_logo",
             "misc.disable_splash_rendering",
             "misc.force_default_wallpaper",
             "misc.background_color",
-            "misc.allow_session_lock_restore",
-            "misc.disable_autoreload",
+        ],
+    ),
+    (
+        "flou",
+        "Flou (avancé)",
+        &[
+            "decoration.blur.ignore_opacity",
+            "decoration.blur.proportional",
+            "render.use_shader_blur_blend",
         ],
     ),
     (
@@ -825,12 +849,11 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
     ),
     (
         "avance",
-        "Rendu",
+        "Rendu et rechargement",
         &[
-            "render.use_shader_blur_blend",
             "render.expand_undersized_textures",
-            "decoration.blur.ignore_opacity",
-            "decoration.blur.proportional",
+            "misc.vrr",
+            "misc.disable_autoreload",
         ],
     ),
     (

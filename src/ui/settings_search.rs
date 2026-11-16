@@ -26,6 +26,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("effects", include_str!("plugins/effects.rs")),
     ("energy", include_str!("plugins/energy.rs")),
     ("hyprconfig", include_str!("plugins/hyprconfig.rs")),
+    ("history", include_str!("plugins/history.rs")),
     ("icons", include_str!("plugins/icons.rs")),
     ("index", include_str!("plugins/index.rs")),
     ("input", include_str!("plugins/input.rs")),
