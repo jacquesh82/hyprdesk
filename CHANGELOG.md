@@ -8,6 +8,10 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-17
+
+Performance and robustness release (MLG-126, MLG-156 to MLG-158).
+
 ### Added
 
 - **The file index starts with hyprdesk** (MLG-157). New setting
@@ -33,6 +37,22 @@ and this project adheres to
   now shared by the whole process and loaded only for an SVG that contains
   text; icons no longer need it. Local copies `vendor/iced_wgpu` and
   `vendor/iced_tiny_skia`, checked by `scripts/verifier-vendor.sh`.
+
+- **Tray icons no longer cost a fifth of a CPU core** (MLG-126). An
+  application publishing only a 1024 × 1024 icon (ZCode, Electron) turned
+  into four million D-Bus values, cloned and converted every 2 s. The
+  StatusNotifierItem properties are now decoded straight into typed fields;
+  a property of an unexpected type is read on its own and only it is
+  ignored.
+
+- **A replugged screen comes back to its workspace** (MLG-158). A dedicated
+  screen (say HDMI-A-2 → workspace 6) unplugged then plugged back landed on
+  a new workspace 11: Hyprland picks a workspace for an arriving screen
+  before hyprdesk puts back its default rule, and takes the first free
+  number not bound to another screen (7 to 10 being bound to the primary).
+  After a screen is plugged in during the session, hyprdesk now brings it
+  back to its default workspace; the windows of the stray workspace follow,
+  and focus returns to the window that had it.
 
 ## [0.1.5] - 2026-11-16
 
