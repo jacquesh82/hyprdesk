@@ -177,29 +177,33 @@ pub(in crate::ui) fn load_thumb(p: PathBuf) -> Task<UiMsg> {
             let p2 = p.clone();
             static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
             let _permit = DECODERS.acquire().await;
-            // Vidéo : la première trame (ffmpeg) ; image : décodage normal.
-            // Dimensions si elles se lisent (ffprobe) : l'avis de résolution.
-            let h = tokio::task::spawn_blocking(move || {
-                if crate::video::is_video(&p2) {
-                    let dims = crate::video::dimensions(&p2);
-                    return crate::video::first_frame(&p2, THUMB.0 * 2, THUMB.1 * 2)
-                        .map(|d| (image::Handle::from_rgba(THUMB.0 * 2, THUMB.1 * 2, d), dims));
-                }
-                let full = ::image::open(&p2).ok()?;
-                let dims = (full.width(), full.height());
-                let img = full.thumbnail(THUMB.0 * 2, THUMB.1 * 2).to_rgba8();
-                Some((
-                    image::Handle::from_rgba(img.width(), img.height(), img.into_raw()),
-                    Some(dims),
-                ))
-            })
-            .await
-            .ok()
-            .flatten();
+            let h = tokio::task::spawn_blocking(move || decode_thumb(&p2))
+                .await
+                .ok()
+                .flatten();
             (p, h)
         },
         |(p, h)| wrap(Msg::Thumb(p, h)),
     )
+}
+/// Vignette d'un fond (à appeler hors du fil de l'interface) et dimensions
+/// d'origine. Vidéo : la première trame (ffmpeg) ; image : décodage normal.
+/// Dimensions si elles se lisent (ffprobe) : l'avis de résolution.
+pub(in crate::ui) fn decode_thumb(
+    p: &std::path::Path,
+) -> Option<(image::Handle, Option<(u32, u32)>)> {
+    if crate::video::is_video(p) {
+        let dims = crate::video::dimensions(p);
+        return crate::video::first_frame(p, THUMB.0 * 2, THUMB.1 * 2)
+            .map(|d| (image::Handle::from_rgba(THUMB.0 * 2, THUMB.1 * 2, d), dims));
+    }
+    let full = ::image::open(p).ok()?;
+    let dims = (full.width(), full.height());
+    let img = full.thumbnail(THUMB.0 * 2, THUMB.1 * 2).to_rgba8();
+    Some((
+        image::Handle::from_rgba(img.width(), img.height(), img.into_raw()),
+        Some(dims),
+    ))
 }
 
 impl App {

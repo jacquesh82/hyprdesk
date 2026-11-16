@@ -45,6 +45,7 @@ mod switcher;
 mod toasts;
 mod tour;
 mod widget_view;
+mod wizard;
 
 use crate::i18n::text;
 use iced::widget::{Space, Stack, column, container, image, mouse_area, pin, svg};
@@ -260,6 +261,8 @@ pub enum Msg {
     Toasts(toasts::TMsg),
     /// Fenêtre de détail d'un problème.
     Problem(problem::PrMsg),
+    /// Assistant de configuration.
+    Wizard(wizard::WMsg),
     /// Lanceur avec recherche.
     Search(search::SMsg),
     /// Clic droit sur une icône du bureau (surface, icône).
@@ -465,6 +468,8 @@ pub struct App {
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
     problem: Option<problem::Problem>,
+    /// Assistant de configuration ouvert.
+    wizard: Option<wizard::Wizard>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
     /// État du démon d'index (loupe du dock : pastille et bulle).
@@ -591,8 +596,9 @@ enum Damage {
     Only(Vec<Id>),
 }
 
-/// Premier démarrage (posé par main) : les Réglages s'ouvrent une fois l'interface prête.
-pub static OPEN_SETTINGS_AT_START: std::sync::atomic::AtomicBool =
+/// Premier démarrage (posé par main) : l'assistant de configuration s'ouvre
+/// une fois l'interface prête (la visite guidée reste proposée ensuite).
+pub static OPEN_WIZARD_AT_START: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
@@ -976,6 +982,7 @@ impl App {
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
+            wizard: None,
             search: None,
             icon_menu: None,
             switcher: None,
@@ -1059,11 +1066,11 @@ impl App {
             Msg::Apps,
         );
         let mut tasks = vec![app.load_config(), apps];
-        if !preview && OPEN_SETTINGS_AT_START.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        if !preview && OPEN_WIZARD_AT_START.swap(false, std::sync::atomic::Ordering::Relaxed) {
             // Écrans et configuration connus d'abord.
             tasks.push(Task::perform(
                 tokio::time::sleep(Duration::from_secs(2)),
-                |_| Msg::Control(control::Command::Settings("desktop".into())),
+                |_| Msg::Control(control::Command::Wizard),
             ));
         }
         let t = Task::batch(tasks);
@@ -1677,6 +1684,7 @@ impl App {
             || self.search.is_some()
             || self.switcher.is_some()
             || self.overview.is_some()
+            || self.wizard.is_some()
             || self.mfa_dialog.is_some()
             || self.mfa_fenetre.is_some()
             || !self.launcher_surfaces.is_empty()
@@ -3675,6 +3683,7 @@ impl App {
                     }
                 }
                 control::Command::Switch(back) => self.switch_windows(back),
+                control::Command::Wizard => self.open_wizard(),
                 control::Command::Tour => {
                     let o = self.open_panel();
                     Task::batch([
@@ -4242,6 +4251,7 @@ impl App {
             Msg::MymfaF(m) => self.mfa_fenetre_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
+            Msg::Wizard(m) => self.wizard_update(m),
             Msg::Search(m) => self.search_update(m),
             Msg::HyprSet(m) => self.hyprset_update(m),
             Msg::Curves(m) => self.curves_update(m),
@@ -4738,6 +4748,10 @@ impl App {
                     self.problem = None;
                     return Task::none();
                 }
+                if self.wizard.as_ref().is_some_and(|w| w.win == id) {
+                    self.wizard = None;
+                    return Task::none();
+                }
                 if self.search.as_ref().is_some_and(|s| s.win == id) {
                     self.search = None;
                     return Task::none();
@@ -4885,6 +4899,12 @@ impl App {
                     .is_some_and(|p| p.keys.capture.is_some())
                 {
                     return Task::none();
+                }
+                // Assistant de configuration : Échap le ferme (les choix restent).
+                if self.wizard.is_some()
+                    && key == keyboard::Key::Named(keyboard::key::Named::Escape)
+                {
+                    return self.wizard_update(wizard::WMsg::Finish);
                 }
                 // Carte myMFA : Échap l'annule ; Entrée referme « Coffre prêt » ; Tab
                 // passe du mot de passe à sa confirmation et retour.
@@ -5303,6 +5323,9 @@ impl App {
         }
         if self.problem.as_ref().is_some_and(|p| p.win == id) {
             return self.view_problem();
+        }
+        if self.wizard.as_ref().is_some_and(|w| w.win == id) {
+            return self.view_wizard();
         }
         if self.search.as_ref().is_some_and(|s| s.win == id) {
             return self.view_search();

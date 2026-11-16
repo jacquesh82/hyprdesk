@@ -642,7 +642,7 @@ impl Place {
             Place::Bar => &["hyprdesk-bar", "hyprdesk-convex-frame"],
             Place::Menus => &["hyprdesk-popover"],
             Place::Launcher => &["hyprdesk-launcher", "hyprdesk-launcher-popup"],
-            Place::Settings => &["hyprdesk-settings"],
+            Place::Settings => &["hyprdesk-settings", "hyprdesk-wizard"],
             Place::Widgets => &[],
         }
     }

@@ -106,6 +106,7 @@ Commandes :
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
                     à la fenêtre suivante (prev : précédente)
   tour              ouvre les réglages sur la visite guidée
+  wizard            assistant de configuration : les premiers réglages, étape par étape
                     (paquet : desktop, icons, launcher, wallpaper, widgets, bar,
                     screens, workspaces, effects, theme…)
   export [fichier] [--theme] [--screens]
@@ -519,9 +520,9 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             crate::tr!("création de {p0} : {e}", p0 = path.display(), e = e)
         ),
     }
-    // Premier démarrage : les Réglages s'ouvrent pour faire connaissance.
+    // Premier démarrage : l'assistant de configuration s'ouvre pour faire connaissance.
     if bar_offer::first_start() {
-        ui::OPEN_SETTINGS_AT_START.store(true, std::sync::atomic::Ordering::Relaxed);
+        ui::OPEN_WIZARD_AT_START.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // Modules de barre livrés depuis : ajoutés une fois à la barre réglée.
     bar_offer::run(&path);

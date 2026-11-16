@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 128] = [
+const SCENES: [&str; 138] = [
     "desktop",
     "typography",
     "icons",
@@ -148,6 +148,16 @@ const SCENES: [&str; 128] = [
     "bar-convex-sides",
     "bar-convex-dock-shown",
     "bar-convex-notification",
+    "wizard-1",
+    "wizard-2",
+    "wizard-3",
+    "wizard-4",
+    "wizard-5",
+    "wizard-6",
+    "wizard-7",
+    "wizard-8",
+    "wizard-9",
+    "wizard-10",
     "performance",
     "fenetres-apparence",
     "fenetres-regles",
@@ -914,6 +924,14 @@ impl Preview {
             });
         } else {
             self.app.problem = None;
+        }
+        // Assistant de configuration, étape N.
+        match SCENES[self.scene]
+            .strip_prefix("wizard-")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            Some(n) => self.wizard_scene(n - 1),
+            None => self.app.wizard = None,
         }
         // Lanceur : grande feuille (« applications ») ou carte centrée
         // (« lanceur-central ») ; quelques applications, par catégorie, et
@@ -2745,6 +2763,14 @@ impl Preview {
                     .into(),
             );
         }
+        if self.app.wizard.is_some() {
+            layers.push(
+                container(self.app.view_wizard())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into(),
+            );
+        }
         if self.app.problem.is_some() {
             layers.push(
                 container(self.app.view_problem())
@@ -2835,6 +2861,112 @@ impl Preview {
             .height(Length::Fill)
             .into();
         view.map(|m| PreviewMsg::Ui(Box::new(m)))
+    }
+
+    /// Assistant de configuration à l'étape `step` : clavier, fonds, applications
+    /// et veille fictifs (rien n'est lu ni écrit sur la machine, sauf les
+    /// images livrées et les icônes du thème).
+    fn wizard_scene(&mut self, step: usize) {
+        let win = Id::unique();
+        self.app.sizes.insert(win, self.size);
+        let app = |id: &str, name: &str, icon: &str, cat: &str| crate::launch::AppInfo {
+            id: id.into(),
+            name: name.into(),
+            icon: Some(icon.into()),
+            wm_class: None,
+            mime_types: Vec::new(),
+            categories: vec![cat.into()],
+            available: true,
+        };
+        self.app.apps = Arc::new(vec![
+            app("kitty", "kitty", "kitty", "TerminalEmulator"),
+            app("Alacritty", "Alacritty", "Alacritty", "TerminalEmulator"),
+            app(
+                "org.gnome.Console",
+                "Console",
+                "org.gnome.Console",
+                "TerminalEmulator",
+            ),
+            app("firefox", "Firefox", "firefox", "WebBrowser"),
+            app("chromium", "Chromium", "chromium", "WebBrowser"),
+            app("brave-browser", "Brave", "brave-browser", "WebBrowser"),
+            app(
+                "org.gnome.Nautilus",
+                "Fichiers",
+                "org.gnome.Nautilus",
+                "FileManager",
+            ),
+            app("thunar", "Thunar", "org.xfce.thunar", "FileManager"),
+        ]);
+        for a in self.app.apps.clone().iter() {
+            let p = crate::launch::icon_for_class(&a.id, &self.app.apps, None, 48);
+            let img = self.app.handle_for(p.as_deref());
+            self.app.class_imgs.insert(a.id.clone(), img);
+        }
+        // État d'ouverture identique pour chaque scène (les choix d'une scène
+        // précédente ne doivent pas passer pour l'état d'avant).
+        let cfg = Arc::make_mut(&mut self.app.cfg);
+        cfg.general.apps.remove("terminal");
+        cfg.general.idle = Default::default();
+        let mut w = wizard::Wizard::new(win, self.app.settings.clone(), self.app.cfg.clone());
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/screenshots");
+        w.walls = [
+            "Turquoise Twilight Over a Futuristic City.png",
+            "Turquoise Anime Girl at Sunset Overlook.png",
+            "Teal Siren Over a Neon Spring City.png",
+        ]
+        .iter()
+        .map(|n| root.join(n))
+        .collect();
+        for p in &w.walls {
+            if let Some(h) = wizard::scene_thumb(p) {
+                w.thumbs.insert(p.clone(), h);
+            }
+        }
+        let first = w.walls[0].clone();
+        let fit = self.app.current_fit(&Selector::default());
+        self.app
+            .settings
+            .set_wallpaper(Selector::default(), WallSource::Path(first), fit);
+        let inputs = crate::inputs::Inputs {
+            kb_layout: "fr,us".into(),
+            ..Default::default()
+        };
+        w.kb = wizard::Keyboard {
+            layouts: [
+                ("fr", "French"),
+                ("be", "Belgian"),
+                ("us", "English (US)"),
+                ("gb", "English (UK)"),
+                ("de", "German"),
+                ("ch", "Switzerland"),
+                ("es", "Spanish"),
+                ("it", "Italian"),
+            ]
+            .iter()
+            .map(|(c, d)| (c.to_string(), d.to_string()))
+            .collect(),
+            before: Some(inputs.clone()),
+            cur: Some(inputs),
+            try_text: "Bonjour, à bientôt !".into(),
+        };
+        for i in 0..step {
+            w.go(i);
+        }
+        w.go(step);
+        self.app.wizard = Some(w);
+        // Quelques choix déjà faits : le récapitulatif les marque, la veille
+        // montre l'avertissement (verrouillage après l'extinction).
+        let cfg = Arc::make_mut(&mut self.app.cfg);
+        cfg.general.apps.insert("terminal".into(), "kitty".into());
+        cfg.general.idle = config::IdleCfg {
+            manage: true,
+            dim: 240,
+            lock: 480,
+            dpms: 360,
+            suspend: 1800,
+            ..Default::default()
+        };
     }
 
     /// Deux fenêtres fictives en mosaïque : illustrer les modes du bureau

@@ -42,6 +42,8 @@ pub enum Command {
     Assistant,
     /// Ouvre les réglages sur la visite guidée.
     Tour,
+    /// Ouvre l'assistant de configuration.
+    Wizard,
     /// Ouvre ou referme le lanceur avec recherche.
     Search,
     /// Ouvre ou referme la recherche de fichiers (loupe du dock, mode `:f`).
@@ -88,6 +90,7 @@ impl Command {
             "quit" => Command::Quit,
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
+            "wizard" => Command::Wizard,
             "search" => Command::Search,
             "files" => Command::Files,
             "clipboard" | "clip" => Command::Clipboard,
@@ -158,6 +161,7 @@ impl Command {
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
+            Command::Wizard => "wizard",
             Command::Search => "search",
             Command::Files => "files",
             Command::Clipboard => "clipboard",
@@ -402,6 +406,8 @@ mod tests {
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,
+            Command::Tour,
+            Command::Wizard,
         ] {
             assert_eq!(
                 Command::parse(&format!("{}\n", c.to_line())),

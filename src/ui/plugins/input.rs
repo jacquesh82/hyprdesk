@@ -111,7 +111,7 @@ fn toggle(
 }
 
 /// Applique à chaud puis enregistre `inputs.lua`, hors du fil de l'interface.
-fn save(config_path: std::path::PathBuf, i: Inputs) -> Task<UiMsg> {
+pub(in crate::ui) fn save(config_path: std::path::PathBuf, i: Inputs) -> Task<UiMsg> {
     Task::perform(
         async move {
             tokio::task::spawn_blocking(move || {

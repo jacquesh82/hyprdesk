@@ -120,8 +120,11 @@ The binary is installed in `~/.local/bin` (copied from the package, or built
 with `--from-source`) and the systemd user service is set up. The script
 creates `~/.config/hypr/hyprdesk.lua` if needed and backs up `hyprland.lua`
 before editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report
-shows which components are running and any actions still needed. Settings
-open on the first launch.
+shows which components are running and any actions still needed. On the
+first launch, a visual setup wizard walks through the essentials (language,
+screens, keyboard, theme and wallpaper, bar, desktop, performance, sleep,
+default apps), each choice applied at once; it opens again from the
+**Assistant** button of Settings or with `hyprdesk wizard`.
 
 <details>
 <summary>Installer options and integrations</summary>

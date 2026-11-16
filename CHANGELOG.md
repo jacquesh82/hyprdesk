@@ -24,7 +24,20 @@ and this project adheres to
 - **About updated** (MLG-149): renderer in use, lines taken over from
   `hyprland.lua`, history; the Lua files of `~/.config/hypr` (generated or
   yours) with Open folder and History buttons; What's new.
-
+- **Setup wizard** (MLG-145). A large card over the dimmed desktop walks
+  through ten visual steps: language, primary screen (proportional layout
+  map), keyboard layout (keycap cards and a try-it field), theme cards,
+  wallpaper thumbnails and theme-coloured borders, bar style (Continuité,
+  Graphite, Island, Convex, with captures) and position, permanent
+  workspaces, opaque or glass desktop and Desktop-folder icons, performance
+  profiles and renderer, an idle timeline (dim → lock → screens off → sleep)
+  that warns when the session would lock after the screens turn off, default
+  terminal, browser and file manager, then a summary. Each choice goes
+  through the existing settings and applies at once; a history snapshot
+  (“Setup assistant”) taken on opening backs **Undo the wizard**. It opens
+  on the first launch instead of Settings (the guided tour stays offered
+  there), from the **Assistant** button in the Settings header, and with
+  `hyprdesk wizard`.
 - **Animations → Curves** (MLG-143): your curves (taken over from
   `hyprland.lua` or created here) drawn and editable — Bézier control
   points or spring mass, stiffness and damping — next to hyprdesk's

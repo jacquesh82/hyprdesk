@@ -759,6 +759,10 @@ impl App {
             .padding([4, 10])
             .style(button::text)
             .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start))),
+            button(text(crate::i18n::tr("Assistant")).font(self.font).size(12))
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(Msg::Control(crate::control::Command::Wizard)),
             toggler(adv)
                 .label(crate::i18n::tr("Configuration avancée"))
                 .text_size(12)

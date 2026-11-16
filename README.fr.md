@@ -123,7 +123,11 @@ avec `--from-source`) et le service systemd utilisateur est mis en place. Le
 script crée `~/.config/hypr/hyprdesk.lua` s'il manque et sauvegarde
 `hyprland.lua` avant d'y toucher (`hyprland.lua.avant-hyprdesk-*.bak`). Le
 bilan final montre les composants en marche et ce qu'il reste à faire. Au
-premier démarrage, les Réglages s'ouvrent d'eux-mêmes.
+premier démarrage, un assistant de configuration visuel passe en revue
+l'essentiel (langue, écrans, clavier, thème et fond d'écran, barre, bureau,
+performance, veille, applications par défaut), chaque choix appliqué
+aussitôt ; il se rouvre par le bouton **Assistant** des Réglages ou
+`hyprdesk wizard`.
 
 <details>
 <summary>Options d'installation et intégrations</summary>

@@ -550,6 +550,21 @@ impl Store {
         self.take(config_path, reason, now, true)
     }
 
+    /// Instantané qui tient l'état actuel, pour y revenir plus tard
+    /// (assistant de configuration) : pris sans regroupement par motif ;
+    /// identique au dernier, c'est le dernier. `None` : aucun fichier suivi.
+    pub fn mark_at(
+        &self,
+        config_path: &Path,
+        reason: &str,
+        now: DateTime<Local>,
+    ) -> io::Result<Option<String>> {
+        Ok(match self.take(config_path, reason, now, false)? {
+            Some(s) => Some(s.id),
+            None => self.latest().map(|s| s.id),
+        })
+    }
+
     fn take(
         &self,
         config_path: &Path,
@@ -1045,6 +1060,11 @@ pub fn snapshot(config_path: &Path, reason: &str) -> io::Result<Option<Snapshot>
     Store::user().snapshot_at(config_path, reason, Local::now())
 }
 
+/// Instantané de l'état actuel à rétablir ensuite (`Store::mark_at`).
+pub fn mark(config_path: &Path, reason: &str) -> io::Result<Option<String>> {
+    Store::user().mark_at(config_path, reason, Local::now())
+}
+
 #[allow(dead_code)]
 pub fn list() -> Vec<Snapshot> {
     Store::user().list()
@@ -1187,6 +1207,31 @@ mod tests {
                 .is_some()
         );
         assert_eq!(s.list().len(), 3);
+    }
+
+    /// Repère de l'assistant : jamais regroupé avec l'instantané précédent
+    /// du même motif, et le dernier s'il tient déjà l'état actuel.
+    #[test]
+    fn repere_de_l_assistant() {
+        let (cfg, s) = setup("repere");
+        let a = s
+            .mark_at(&cfg, "assistant", t("2026-11-16 10:00:00"))
+            .unwrap()
+            .unwrap();
+        // Rien de changé : le même instantané.
+        let b = s
+            .mark_at(&cfg, "assistant", t("2026-11-16 10:00:10"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(a, b);
+        // Changé 20 s plus tard, même motif : un nouvel instantané quand même.
+        write(&cfg, "hyprland.lua", "x\n");
+        let c = s
+            .mark_at(&cfg, "assistant", t("2026-11-16 10:00:20"))
+            .unwrap()
+            .unwrap();
+        assert_ne!(a, c);
+        assert_eq!(s.list().len(), 2);
     }
 
     #[test]
