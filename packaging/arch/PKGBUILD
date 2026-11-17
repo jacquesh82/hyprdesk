@@ -82,7 +82,7 @@ source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # de git archive du tag, égale à l'archive servie par GitHub, proposée en
 # pull request sur main. 'SKIP' en attendant. Cohérence avec .SRCINFO et
 # Cargo.toml : scripts/verifier-arch.sh (CI).
-sha256sums=('SKIP')
+sha256sums=('4ab68c475d263ebcf3bd74f4820d3d9a8eb27a808628f47663e601e6fb543769')
 
 prepare() {
   cd "$pkgname-$pkgver"
