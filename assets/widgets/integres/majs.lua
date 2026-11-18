@@ -8,6 +8,17 @@
 local STATE = (hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR") or "/nonexistent") .. "/hyprdesk-updates.txt"
 -- Relevé relancé au plus toutes les heures.
 local MAX_AGE = 3600
+-- Choix « un seul mot de passe par mise à jour » (MLG-160), gardé par hyprdesk.
+local POLKIT = (os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state"))
+    .. "/hyprdesk/updates-polkit"
+
+local function polkit_keep()
+    local f = io.open(POLKIT, "r")
+    if not f then return false end
+    local v = f:read("*l")
+    f:close()
+    return v == "on"
+end
 
 local function exe(arg)
     return string.format("%q updates %s", hd.exe, arg)
@@ -102,6 +113,10 @@ return {
             m[#m + 1] = { label = hd.t("Voir le problème…"), action = function() hd.spawn(exe("--report")) end }
         end
         m[#m + 1] = { label = hd.t("Vérifier maintenant"), action = function() hd.spawn(exe("--refresh")) end }
+        m[#m + 1] = "-"
+        m[#m + 1] = { label = hd.t("Un seul mot de passe par mise à jour"), checked = polkit_keep(),
+                      detail = hd.t("5 min, gestionnaires de paquets (règle polkit)"),
+                      action = function() hd.spawn(exe("--polkit toggle")) end }
         return m
     end,
 }

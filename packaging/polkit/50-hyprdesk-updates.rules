@@ -1,0 +1,27 @@
+// hyprdesk (MLG-160) : un seul mot de passe par mise à jour.
+//
+// pkexec demande le mot de passe à chaque appel (auth_admin). Pour les seuls
+// gestionnaires de paquets, cette règle garde l'autorisation 5 minutes
+// (AUTH_ADMIN_KEEP) : les appels suivants du MÊME processus (la mise à jour
+// lancée par hyprdesk, ou yay / paru qui appellent pkexec plusieurs fois) ne
+// redemandent rien. Un autre programme, un autre terminal, une autre commande
+// que celles-ci redemandent toujours. Le mot de passe n'est gardé nulle part :
+// polkitd retient seulement que ce processus s'est authentifié.
+//
+// Posée et retirée par hyprdesk (Réglages → Plugins → Mises à jour, ou
+// `hyprdesk updates --polkit on|off`).
+polkit.addRule(function (action, subject) {
+    if (action.id != "org.freedesktop.policykit.exec") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    var programs = [
+        "/usr/bin/pacman", "/usr/sbin/pacman",
+        "/usr/bin/apt-get", "/usr/sbin/apt-get",
+        "/usr/bin/dnf", "/usr/sbin/dnf", "/usr/bin/dnf5",
+        "/usr/bin/zypper", "/usr/sbin/zypper"
+    ];
+    if (programs.indexOf(action.lookup("program")) >= 0 && subject.local && subject.active) {
+        return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **One password per update** (MLG-160). An optional polkit rule
+  (`/etc/polkit-1/rules.d/50-hyprdesk-updates.rules`) keeps the pkexec
+  authorisation of package managers (pacman, apt-get, dnf, zypper) for
+  5 minutes for the same process: the steps of one update, or yay / paru
+  calling pkexec several times, ask for the password once. Any other
+  command still asks; the password is kept nowhere. Off by default; switch
+  in Settings → Plugins → Updates → Configure, in the widget menu, or
+  `hyprdesk updates --polkit on|off`.
+
 ## [0.1.7] - 2026-11-18
 
 Lock screen fix release (MLG-159).

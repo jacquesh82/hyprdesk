@@ -1429,6 +1429,40 @@ fn main() -> ExitCode {
         }),
         // Mises à jour en attente, et mise à jour non interactive.
         "updates" => {
+            // Un seul mot de passe par mise à jour (MLG-160) : règle polkit.
+            if args.get(1).map(String::as_str) == Some("--polkit") {
+                let on = match args.get(2).map(String::as_str) {
+                    Some("on") => true,
+                    Some("off") => false,
+                    Some("toggle") => !updates::polkit_keep(),
+                    _ => {
+                        println!("{}", if updates::polkit_keep() { "on" } else { "off" });
+                        return ExitCode::SUCCESS;
+                    }
+                };
+                return match updates::set_polkit_keep(on) {
+                    Ok(()) => {
+                        crate::hypr::notify(
+                            1,
+                            5000,
+                            if on {
+                                crate::i18n::tr(
+                                    "hyprdesk : un seul mot de passe par mise à jour (5 min)",
+                                )
+                            } else {
+                                crate::i18n::tr(
+                                    "hyprdesk : mot de passe demandé à chaque étape de mise à jour",
+                                )
+                            },
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
             let sources = updates::configured_sources(&config_path);
             if sources.is_empty() {
                 eprintln!("{}", crate::i18n::tr("aucune source de paquets reconnue"));

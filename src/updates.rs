@@ -219,8 +219,8 @@ pub fn tail(out: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
-/// Journal complet des mises à jour (tournant : 1 Mio, 3 anciens gardés).
-pub fn log_path() -> std::path::PathBuf {
+/// Dossier d'état de hyprdesk (`~/.local/state/hyprdesk`).
+fn state_dir() -> std::path::PathBuf {
     std::env::var_os("XDG_STATE_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
@@ -228,7 +228,69 @@ pub fn log_path() -> std::path::PathBuf {
                 .join(".local/state")
         })
         .join("hyprdesk")
-        .join("updates.log")
+}
+
+/// Journal complet des mises à jour (tournant : 1 Mio, 3 anciens gardés).
+pub fn log_path() -> std::path::PathBuf {
+    state_dir().join("updates.log")
+}
+
+/// Règle polkit « un seul mot de passe par mise à jour » (MLG-160) : pkexec
+/// des gestionnaires de paquets en AUTH_ADMIN_KEEP (5 min, même processus).
+pub const POLKIT_RULE: &str = include_str!("../packaging/polkit/50-hyprdesk-updates.rules");
+pub const POLKIT_RULE_PATH: &str = "/etc/polkit-1/rules.d/50-hyprdesk-updates.rules";
+
+/// Choix retenu (`on` / `off`) : `/etc/polkit-1/rules.d` n'est pas lisible
+/// par l'utilisateur, on garde ce qu'il a posé ou retiré.
+pub fn polkit_marker() -> std::path::PathBuf {
+    state_dir().join("updates-polkit")
+}
+
+/// La règle est-elle posée (d'après le dernier choix réussi) ?
+pub fn polkit_keep() -> bool {
+    std::fs::read_to_string(polkit_marker()).is_ok_and(|s| s.trim() == "on")
+}
+
+/// Pose (`on`) ou retire la règle, par pkexec (mot de passe demandé une fois).
+/// La règle est celle compilée dans hyprdesk, passée à `tee` sur son entrée :
+/// aucun fichier de l'utilisateur n'est lu en root.
+pub fn set_polkit_keep(on: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("pkexec");
+    if on {
+        cmd.args(["tee", POLKIT_RULE_PATH]);
+    } else {
+        cmd.args(["rm", "-f", POLKIT_RULE_PATH]);
+    }
+    let mut child = cmd
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| crate::tr!("pkexec introuvable : {e}", e = e))?;
+    if let Some(mut stdin) = child.stdin.take()
+        && on
+    {
+        stdin
+            .write_all(POLKIT_RULE.as_bytes())
+            .map_err(|e| e.to_string())?;
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(match out.status.code() {
+            Some(126) | Some(127) if err.is_empty() => {
+                crate::i18n::tr("Authentification annulée.").to_string()
+            }
+            _ if err.is_empty() => crate::i18n::tr("Échec, sans message.").to_string(),
+            _ => err,
+        });
+    }
+    let path = polkit_marker();
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    std::fs::write(&path, if on { "on\n" } else { "off\n" }).map_err(|e| e.to_string())
 }
 
 fn open_log() -> crate::processes::RotatingLog {

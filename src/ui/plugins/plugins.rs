@@ -55,6 +55,10 @@ pub struct State {
     /// Sources de paquets de la machine (mises à jour) : id, libellé,
     /// relevé et mise à jour de hyprdesk.
     pub update_sources: Vec<(String, String, String, String)>,
+    /// Règle polkit « un seul mot de passe par mise à jour » posée (MLG-160) ;
+    /// `polkit_busy` : pkexec en cours.
+    pub polkit_keep: bool,
+    pub polkit_busy: bool,
     pub opt_error: Option<String>,
     /// Plugin tiers en quarantaine, en attente d'accord.
     pub pending: Option<crate::widgets::plugins::Pending>,
@@ -89,6 +93,9 @@ pub enum Msg {
     UpdSubmit(String, bool),
     /// Commandes d'une source rendues à hyprdesk.
     UpdReset(String),
+    /// Pose ou retire la règle polkit des mises à jour (MLG-160).
+    PolkitKeep(bool),
+    PolkitDone(bool, Result<(), String>),
 }
 
 /// Dossier des plugins de l'utilisateur.
@@ -520,6 +527,34 @@ impl App {
             );
         }
         if t.id == "majs" {
+            let keep = toggler(p.plugins.polkit_keep);
+            let keep = if p.plugins.polkit_busy {
+                keep
+            } else {
+                keep.on_toggle(|v| wrap(Msg::PolkitKeep(v)))
+            };
+            col = col.push(
+                row![
+                    text(crate::i18n::tr("Un seul mot de passe par mise à jour"))
+                        .font(self.font)
+                        .size(13)
+                        .width(Length::Fill),
+                    keep,
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+            col = col.push(
+                text(crate::i18n::tr(
+                    "Règle polkit : pendant 5 minutes, les étapes d'une même mise à jour \
+                     (pacman, apt-get, dnf, zypper, appelés par pkexec, aussi par yay ou paru) \
+                     ne redemandent pas le mot de passe. Toute autre commande le redemande. \
+                     Posée dans /etc/polkit-1/rules.d (mot de passe demandé une fois).",
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
             col = col.push(
                 text(crate::i18n::tr("Commandes utilisées"))
                     .font(self.title_font())
@@ -668,6 +703,7 @@ impl App {
                     return Task::none();
                 }
                 if id == "majs" {
+                    p.plugins.polkit_keep = crate::updates::polkit_keep();
                     p.plugins.update_sources = crate::updates::sources()
                         .into_iter()
                         .map(|s| {
@@ -778,6 +814,34 @@ impl App {
                         .retain(|k, _| !k.starts_with(&format!("upd:{source}:")));
                 }
                 self.commit()
+            }
+            Msg::PolkitKeep(on) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                p.plugins.polkit_busy = true;
+                p.plugins.opt_error = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::updates::set_polkit_keep(on))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |r| wrap(Msg::PolkitDone(on, r)),
+                )
+            }
+            Msg::PolkitDone(on, r) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.plugins.polkit_busy = false;
+                    match r {
+                        Ok(()) => p.plugins.polkit_keep = on,
+                        Err(e) => {
+                            p.plugins.polkit_keep = crate::updates::polkit_keep();
+                            p.plugins.opt_error = Some(e);
+                        }
+                    }
+                }
+                Task::none()
             }
             Msg::Tab(tab) => {
                 if let Some(p) = self.panel.as_mut() {

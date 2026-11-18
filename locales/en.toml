@@ -3591,3 +3591,11 @@
 "Détails" = "Details"
 "Masquer les détails" = "Hide details"
 "on | off — empreinte (fprintd) à la place du mot de passe, si un lecteur est là (désactivée par défaut)" = "on | off — fingerprint (fprintd) instead of the password, when a reader is present (off by default)"
+
+# Mises à jour : progression (MLG-161), un seul mot de passe (MLG-160).
+"Un seul mot de passe par mise à jour" = "One password per update"
+"5 min, gestionnaires de paquets (règle polkit)" = "5 min, package managers (polkit rule)"
+"pkexec introuvable : {e}" = "pkexec not found: {e}"
+"hyprdesk : un seul mot de passe par mise à jour (5 min)" = "hyprdesk: one password per update (5 min)"
+"hyprdesk : mot de passe demandé à chaque étape de mise à jour" = "hyprdesk: password asked at each update step"
+"Règle polkit : pendant 5 minutes, les étapes d'une même mise à jour (pacman, apt-get, dnf, zypper, appelés par pkexec, aussi par yay ou paru) ne redemandent pas le mot de passe. Toute autre commande le redemande. Posée dans /etc/polkit-1/rules.d (mot de passe demandé une fois)." = "polkit rule: for 5 minutes, the steps of one update (pacman, apt-get, dnf, zypper, called through pkexec, also by yay or paru) do not ask for the password again. Any other command still asks. Installed in /etc/polkit-1/rules.d (password asked once)."

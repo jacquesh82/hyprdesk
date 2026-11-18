@@ -1454,6 +1454,7 @@ impl Preview {
         {
             p.plugins.tab = super::plugins::plugins::Tab::Widgets;
             p.plugins.configuring = Some("majs".into());
+            p.plugins.polkit_keep = true;
             p.plugins.update_sources = vec![
                 (
                     "pacman".into(),
