@@ -10,8 +10,12 @@ use layershellev::{
 
 use std::sync::Arc;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct IcedXdgWindowSettings {
+    /// Window title (hyprdesk : fenêtres reconnues par les règles de Hyprland).
+    pub title: Option<String>,
+    /// xdg app_id (la « class » des règles de Hyprland).
+    pub app_id: Option<String>,
     /// The initial window size.
     pub size: Option<(u32, u32)>,
     /// Request client-side decorations instead of the default server-side mode.
@@ -21,7 +25,8 @@ pub struct IcedXdgWindowSettings {
 impl From<IcedXdgWindowSettings> for NewXdgWindowSettings {
     fn from(val: IcedXdgWindowSettings) -> Self {
         NewXdgWindowSettings {
-            title: None,
+            title: val.title,
+            app_id: val.app_id,
             size: val.size,
             client_side_decorations: val.client_side_decorations,
         }

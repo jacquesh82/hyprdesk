@@ -24,7 +24,11 @@ and this project adheres to
   windows. **Settings → Panorama** (in Bar and launcher), `hd.config({
   panorama = { screens, pages, declined, sleep_minutes } })`,
   `hyprdesk config set panorama.*` and `hyprdesk panorama
-  [toggle|show|hide|page <n|id>|detect]`.
+  [toggle|show|hide|page <n|id>|detect]`. A **preview** shows the Panorama
+  in a floating window with the live player and system, to try it without
+  a strip screen: Settings → Panorama → Preview (2560×720, 1920×480,
+  1280×400, 720×2560 portrait) or `hyprdesk panorama preview [WxH]`; the
+  window can be resized and the layout follows.
 - **GPU switch in the bar** (MLG-162). On a passthrough machine, the new
   `gpu` widget shows the NVIDIA GPU reserved for VMs (VFIO, VM when a VM
   holds it, NVIDIA) and switches it live between vfio-pci and the nvidia

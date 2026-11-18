@@ -260,7 +260,8 @@ closes the dock or returns focus to the full desktop.
   clock. hyprdesk offers it on its own when such a screen is plugged in, ties
   the touch device to that screen, keeps the bar off it, and never takes the
   keyboard from your windows. Tuck it away to use the screen for windows;
-  **Settings → Panorama** or `hyprdesk panorama`.
+  **Settings → Panorama** or `hyprdesk panorama`; no strip screen? Try it in
+  a floating window with `hyprdesk panorama preview`.
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 

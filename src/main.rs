@@ -158,9 +158,10 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
-  panorama [toggle|show|hide|page <n|id>|detect]
+  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]]
                     Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
-                    page ; detect : relit les écrans et refait les propositions
+                    page ; detect : relit les écrans et refait les propositions ;
+                    preview : aperçu en fenêtre flottante (2560x720 par défaut)
   polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]

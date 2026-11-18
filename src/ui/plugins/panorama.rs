@@ -38,7 +38,17 @@ pub enum Msg {
     Detect,
     /// Afficher ou escamoter le Panorama de cet écran.
     Toggle(String),
+    /// Fenêtre d'aperçu au format donné.
+    Preview((u32, u32)),
 }
+
+/// Formats proposés pour l'aperçu : (taille simulée, libellé).
+const PREVIEW_FORMATS: &[((u32, u32), &str)] = &[
+    ((2560, 720), "2560×720"),
+    ((1920, 480), "1920×480"),
+    ((1280, 400), "1280×400"),
+    ((720, 2560), "720×2560 (portrait)"),
+];
 
 pub fn load() -> Task<UiMsg> {
     super::super::panorama::detect_task()
@@ -146,6 +156,35 @@ impl App {
                 .padding([4, 10])
                 .on_press(wrap(Msg::Detect)),
         );
+        col = col.push(self.section("Aperçu"));
+        col = col.push(
+            text(
+                "Le Panorama dans une fenêtre flottante, avec le lecteur et le système en \
+                 direct : pour l'essayer sans écran bandeau. Pages au glisser de la souris ; \
+                 la fenêtre se redimensionne (plus haute que large : portrait).",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        );
+        let open = self.panorama.preview.map(|p| p.virtual_size);
+        let mut formats = row![].spacing(8);
+        for (size, label) in PREVIEW_FORMATS {
+            let on = open == Some(*size);
+            formats = formats.push(
+                button(text(crate::i18n::tr(label)).font(self.font).size(12))
+                    .padding([4, 10])
+                    .style(move |t, st| {
+                        if on {
+                            button::primary(t, st)
+                        } else {
+                            button::secondary(t, st)
+                        }
+                    })
+                    .on_press(wrap(Msg::Preview(*size))),
+            );
+        }
+        col = col.push(formats);
         col.into()
     }
 
@@ -307,6 +346,7 @@ impl App {
             }
             Msg::SleepCommit => self.commit(),
             Msg::Detect => self.panorama_command("detect"),
+            Msg::Preview(size) => self.panorama_update(super::super::panorama::PMsg::Preview(size)),
             Msg::Toggle(name) => {
                 self.panorama_update(super::super::panorama::PMsg::Toggle(Some(name)))
             }

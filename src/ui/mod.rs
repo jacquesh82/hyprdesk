@@ -619,6 +619,8 @@ pub fn run(config_path: PathBuf) -> Result<(), iced_layershell::Error> {
         text_color: Color::WHITE,
     })
     .theme(|app: &App, _| Some(app.theme.clone()))
+    // Titre des fenêtres ordinaires (xdg) ; les surfaces layer-shell n'en ont pas.
+    .title(|app: &App, id| app.panorama_title(id))
     .settings(Settings {
         fonts: crate::fonts::bundled(),
         default_font: crate::fonts::DEFAULT,
@@ -5207,7 +5209,7 @@ impl App {
         if self.osd.is_some() {
             subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
         }
-        if !self.panorama.surfaces.is_empty() {
+        if self.panorama_ticking() {
             subs.push(
                 iced::time::every(panorama::TICK).map(|_| Msg::Panorama(panorama::PMsg::Tick)),
             );

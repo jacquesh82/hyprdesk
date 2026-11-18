@@ -272,7 +272,8 @@ ou rend le clavier au bureau complet.
   ou à la souris : lecteur multimédia, système, horloge. hyprdesk le propose
   de lui-même au branchement d'un tel écran, y rattache le tactile, en retire
   la barre et ne prend jamais le clavier aux fenêtres. Escamotez-le pour
-  rendre l'écran aux fenêtres ; **Réglages → Panorama** ou `hyprdesk panorama`.
+  rendre l'écran aux fenêtres ; **Réglages → Panorama** ou `hyprdesk panorama` ; pas d'écran bandeau ?
+  Essayez-le en fenêtre flottante avec `hyprdesk panorama preview`.
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.

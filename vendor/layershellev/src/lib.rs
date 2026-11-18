@@ -2823,6 +2823,7 @@ impl<T: 'static> WindowState<T> {
                         ReturnData::NewXdgBase((
                             NewXdgWindowSettings {
                                 title,
+                                app_id,
                                 size,
                                 client_side_decorations,
                             },
@@ -2834,6 +2835,9 @@ impl<T: 'static> WindowState<T> {
                             let toplevel = wl_xdg_surface.get_toplevel(&qh, ());
 
                             toplevel.set_title(title.unwrap_or("".to_owned()));
+                            if let Some(app_id) = app_id {
+                                toplevel.set_app_id(app_id);
+                            }
 
                             let decoration = if let Some(decoration_manager) =
                                 &zxdg_decoration_manager

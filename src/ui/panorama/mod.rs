@@ -29,6 +29,59 @@ use swipe::{Axis, swipe};
 /// Poignée de l'écran escamoté.
 const HANDLE_W: u32 = 180;
 const HANDLE_H: u32 = 26;
+/// Clé de page et d'état de la fenêtre d'aperçu (pas un écran).
+pub const PREVIEW: &str = "\u{0}aperçu";
+/// app_id de la fenêtre d'aperçu (règle de Hyprland : flottante, centrée).
+pub const PREVIEW_APP_ID: &str = "hyprdesk-panorama-preview";
+/// Format simulé par défaut (Xeneon Edge et ses semblables).
+pub const PREVIEW_SIZE: (u32, u32) = (2560, 720);
+/// Densité simulée d'un écran bandeau de 14,5″ (≈ 183 ppp), en px/mm.
+const PREVIEW_PX_PER_MM: f32 = 7.4;
+/// Part maximale de l'écran courant occupée par l'aperçu.
+const PREVIEW_FIT: f32 = 0.85;
+
+/// Fenêtre d'aperçu : le Panorama dans une fenêtre flottante.
+#[derive(Debug, Clone, Copy)]
+pub struct Preview {
+    pub win: Id,
+    /// Format simulé (pixels logiques de l'écran bandeau).
+    pub virtual_size: (u32, u32),
+    /// Taille de la fenêtre / taille simulée (≤ 1 : l'aperçu tient à l'écran).
+    pub scale: f32,
+}
+
+/// Taille de la fenêtre pour un format simulé sur un écran `screen` :
+/// le format lui-même s'il tient dans 85 % de l'écran, réduit sinon.
+pub fn preview_fit(virtual_size: (u32, u32), screen: (u32, u32)) -> ((u32, u32), f32) {
+    let (vw, vh) = (virtual_size.0.max(1) as f32, virtual_size.1.max(1) as f32);
+    let (sw, sh) = (screen.0.max(1) as f32, screen.1.max(1) as f32);
+    let scale = (PREVIEW_FIT * sw / vw).min(PREVIEW_FIT * sh / vh).min(1.0);
+    (
+        ((vw * scale).round() as u32, (vh * scale).round() as u32),
+        scale,
+    )
+}
+
+/// `WxH` (`2560x720`, `720×2560`).
+pub fn parse_size(s: &str) -> Option<(u32, u32)> {
+    let (w, h) = s.split_once(['x', 'X', '×'])?;
+    let (w, h) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    ((200..=8000).contains(&w) && (200..=8000).contains(&h)).then_some((w, h))
+}
+
+fn preview_title(size: (u32, u32)) -> String {
+    crate::tr!("Panorama — aperçu {w}×{h}", w = size.0, h = size.1)
+}
+
+/// Règle de Hyprland de la fenêtre d'aperçu (remplace la précédente).
+fn preview_rule_lua(w: u32, h: u32) -> String {
+    format!(
+        "if __hyprdesk_panorama_preview then pcall(function() __hyprdesk_panorama_preview:set_enabled(false) end) end\n\
+         __hyprdesk_panorama_preview = hl.window_rule({{ name = \"hyprdesk-panorama-preview\", \
+         match = {{ class = \"^({PREVIEW_APP_ID})$\" }}, float = true, center = true, size = \"{w} {h}\" }})\n"
+    )
+}
+
 /// Relevés (lecteur, système) tant qu'un Panorama est affiché.
 pub const TICK: Duration = Duration::from_secs(1);
 
@@ -40,6 +93,7 @@ const ICONS: &[&str] = &[
     "audio-x-generic-symbolic",
     "go-down-symbolic",
     "go-up-symbolic",
+    "window-close-symbolic",
 ];
 
 #[derive(Debug, Default)]
@@ -65,6 +119,8 @@ pub struct State {
     /// Dernier toucher (la veille attend `sleep_minutes` sans toucher ni lecture).
     pub last_press: Option<Instant>,
     pub cover: Option<(String, image::Handle)>,
+    /// Fenêtre d'aperçu ouverte.
+    pub preview: Option<Preview>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +143,10 @@ pub enum PMsg {
     Control(&'static str),
     Pressed,
     Touch(Result<(), String>),
+    /// Ouvre l'aperçu au format donné (taille simulée), ou le ferme s'il
+    /// est ouvert au même format.
+    Preview((u32, u32)),
+    ClosePreview,
 }
 
 fn wrap(m: PMsg) -> Msg {
@@ -327,6 +387,7 @@ impl App {
                 self.panorama.page.insert(mon, i);
                 Task::none()
             }
+            PMsg::Hide(mon) if mon == PREVIEW => self.panorama_update(PMsg::ClosePreview),
             PMsg::Hide(mon) => {
                 self.panorama.hidden.insert(mon);
                 self.sync_panorama()
@@ -395,7 +456,7 @@ impl App {
                 iced::window::close(id)
             }
             PMsg::Tick => {
-                if self.panorama.surfaces.is_empty() {
+                if !self.panorama_ticking() {
                     return Task::none();
                 }
                 let media =
@@ -404,6 +465,8 @@ impl App {
                     .panorama
                     .surfaces
                     .values()
+                    .map(String::as_str)
+                    .chain(self.panorama.preview.map(|_| PREVIEW))
                     .any(|m| self.panorama_page_id(m) == "system");
                 if !wants_sys {
                     return media;
@@ -465,6 +528,20 @@ impl App {
                 self.panorama.last_press = Some(Instant::now());
                 Task::none()
             }
+            PMsg::Preview(size) => {
+                if let Some(p) = self.panorama.preview.take() {
+                    let close = iced::window::close(p.win);
+                    if p.virtual_size == size {
+                        return close;
+                    }
+                    return Task::batch([close, self.panorama_open_preview(size)]);
+                }
+                self.panorama_open_preview(size)
+            }
+            PMsg::ClosePreview => match self.panorama.preview.take() {
+                Some(p) => iced::window::close(p.win),
+                None => Task::none(),
+            },
             PMsg::Touch(r) => {
                 if let Err(e) = r {
                     tracing::warn!(
@@ -486,6 +563,10 @@ impl App {
                 // Nouvelle passe : les écrans déjà proposés peuvent l'être encore.
                 self.panorama.offered.clear();
                 detect_task()
+            }
+            ("preview", _) => {
+                let size = it.next().and_then(parse_size).unwrap_or(PREVIEW_SIZE);
+                self.panorama_update(PMsg::Preview(size))
             }
             ("toggle", m) => self.panorama_update(PMsg::Toggle(m)),
             ("show", Some(m)) => self.panorama_update(PMsg::Show(m)),
@@ -511,15 +592,71 @@ impl App {
         }
     }
 
-    /// Surface fermée par le compositeur (écran débranché…).
+    /// Ouvre la fenêtre d'aperçu (règle flottante posée d'abord).
+    fn panorama_open_preview(&mut self, size: (u32, u32)) -> Task<Msg> {
+        let screen = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .or(self.monitors.first())
+            .map(|m| (m.width, m.height))
+            .unwrap_or((1920, 1080));
+        let ((w, h), scale) = preview_fit(size, screen);
+        let win = Id::unique();
+        self.panorama.preview = Some(Preview {
+            win,
+            virtual_size: size,
+            scale,
+        });
+        self.panorama.last_press = Some(Instant::now());
+        let lua = preview_rule_lua(w, h);
+        let mut tasks: Vec<Task<Msg>> = ICONS.iter().map(|n| self.want_icon(n)).collect();
+        tasks.push(Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || hyprpanel_core::ipc::eval(&lua)).await;
+            },
+            move |_| Msg::NewBaseWindow {
+                settings: iced_layershell::actions::IcedXdgWindowSettings {
+                    title: Some(preview_title(size)),
+                    app_id: Some(PREVIEW_APP_ID.into()),
+                    size: Some((w, h)),
+                    client_side_decorations: false,
+                },
+                id: win,
+            },
+        ));
+        tasks.push(Task::done(wrap(PMsg::Tick)));
+        Task::batch(tasks)
+    }
+
+    /// Titre de la fenêtre d'aperçu (aucun pour les autres surfaces).
+    pub(super) fn panorama_title(&self, id: Id) -> Option<String> {
+        self.panorama
+            .preview
+            .filter(|p| p.win == id)
+            .map(|p| preview_title(p.virtual_size))
+    }
+
+    /// Relevés utiles : un Panorama ou son aperçu est affiché.
+    pub(super) fn panorama_ticking(&self) -> bool {
+        !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some()
+    }
+
+    /// Surface fermée par le compositeur (écran débranché…) ou fenêtre
+    /// d'aperçu fermée par l'utilisateur.
     pub(super) fn panorama_closed(&mut self, id: Id) -> bool {
+        if self.panorama.preview.is_some_and(|p| p.win == id) {
+            self.panorama.preview = None;
+            return true;
+        }
         self.panorama.surfaces.remove(&id).is_some()
             || self.panorama.handles.remove(&id).is_some()
             || self.panorama.offers.remove(&id).is_some()
     }
 
     pub(super) fn panorama_owns(&self, id: Id) -> bool {
-        self.panorama.surfaces.contains_key(&id)
+        self.panorama.preview.is_some_and(|p| p.win == id)
+            || self.panorama.surfaces.contains_key(&id)
             || self.panorama.handles.contains_key(&id)
             || self.panorama.offers.contains_key(&id)
     }
@@ -553,26 +690,44 @@ impl App {
         if let Some(o) = self.panorama.offers.get(&id) {
             return self.view_panorama_offer(id, o);
         }
-        let Some(mon) = self.panorama.surfaces.get(&id) else {
-            return Space::new().into();
-        };
-        let Some(m) = self.monitors.iter().find(|x| &x.name == mon) else {
-            return Space::new().into();
-        };
-        let ppm = self
-            .panorama
-            .screens
-            .iter()
-            .find(|s| &s.name == mon)
-            .and_then(Screen::px_per_mm);
         // Taille réelle de la surface d'abord : après une rotation, la liste
-        // des écrans peut avoir un temps de retard.
-        let (w, h) = self
+        // des écrans peut avoir un temps de retard ; la fenêtre d'aperçu,
+        // elle, se redimensionne à la main.
+        let real = self
             .sizes
             .get(&id)
             .map(|s| (s.width, s.height))
-            .filter(|(w, h)| *w > 0.0 && *h > 0.0)
-            .unwrap_or((m.width as f32, m.height as f32));
+            .filter(|(w, h)| *w > 0.0 && *h > 0.0);
+        let (mon, (w, h), ppm) = match self.panorama.preview.filter(|p| p.win == id) {
+            Some(p) => (
+                PREVIEW.to_string(),
+                real.unwrap_or((
+                    p.virtual_size.0 as f32 * p.scale,
+                    p.virtual_size.1 as f32 * p.scale,
+                )),
+                Some(PREVIEW_PX_PER_MM * p.scale),
+            ),
+            None => {
+                let Some(mon) = self.panorama.surfaces.get(&id) else {
+                    return Space::new().into();
+                };
+                let Some(m) = self.monitors.iter().find(|x| &x.name == mon) else {
+                    return Space::new().into();
+                };
+                let ppm = self
+                    .panorama
+                    .screens
+                    .iter()
+                    .find(|s| &s.name == mon)
+                    .and_then(Screen::px_per_mm);
+                (
+                    mon.clone(),
+                    real.unwrap_or((m.width as f32, m.height as f32)),
+                    ppm,
+                )
+            }
+        };
+        let mon = &mon;
         let z = layout::zones(w, h, ppm);
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
@@ -600,8 +755,17 @@ impl App {
         let accent = color(th.accent, 1.0);
         let tgt = z.target;
         let hide = button(
-            self.icon_named("go-down-symbolic", tgt * 0.3, fg)
-                .unwrap_or_else(|| text("▾").size(tgt * 0.4).color(fg).into()),
+            // Aperçu : le bouton ferme la fenêtre ; sinon il escamote.
+            self.icon_named(
+                if mon == PREVIEW {
+                    "window-close-symbolic"
+                } else {
+                    "go-down-symbolic"
+                },
+                tgt * 0.3,
+                fg,
+            )
+            .unwrap_or_else(|| text("▾").size(tgt * 0.4).color(fg).into()),
         )
         .width(tgt)
         .height(tgt)
@@ -1123,5 +1287,40 @@ impl App {
             ..Default::default()
         })
         .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apercu_tient_a_l_ecran() {
+        // 2560×720 sur un 2560×1440 : réduit à 85 % de la largeur.
+        let ((w, h), s) = preview_fit((2560, 720), (2560, 1440));
+        assert_eq!((w, h), (2176, 612));
+        assert!((s - 0.85).abs() < 1e-3);
+        // Assez petit : taille réelle.
+        assert_eq!(preview_fit((1280, 400), (2560, 1440)), ((1280, 400), 1.0));
+        // Portrait : limité par la hauteur.
+        let ((w, h), _) = preview_fit((720, 2560), (2560, 1440));
+        assert_eq!(h, 1224);
+        assert!((w as f32 / h as f32 - 720.0 / 2560.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn format_lu() {
+        assert_eq!(parse_size("2560x720"), Some((2560, 720)));
+        assert_eq!(parse_size("720×2560"), Some((720, 2560)));
+        assert_eq!(parse_size("10x10"), None);
+        assert_eq!(parse_size("abc"), None);
+    }
+
+    #[test]
+    fn regle_flottante() {
+        let l = preview_rule_lua(1280, 360);
+        assert!(l.contains(r#"class = "^(hyprdesk-panorama-preview)$""#));
+        assert!(l.contains(r#"float = true, center = true, size = "1280 360""#));
+        assert!(l.contains("set_enabled(false)"));
     }
 }

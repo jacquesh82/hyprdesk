@@ -140,6 +140,8 @@ pub struct NewPopUpSettings {
 pub struct NewXdgWindowSettings {
     /// The window title.
     pub title: Option<String>,
+    /// xdg app_id (hyprdesk : la « class » des règles de Hyprland).
+    pub app_id: Option<String>,
     /// The initial window size.
     pub size: Option<(u32, u32)>,
     /// Request client-side decorations instead of the default server-side mode.
