@@ -35,6 +35,9 @@ pub struct Inputs {
     /// Clic à deux doigts = clic droit (clickfinger).
     pub tp_clickfinger: bool,
     pub tp_scroll_factor: f64,
+    /// Écran des périphériques tactiles (vide : choix de Hyprland) ; tenu par
+    /// le Panorama (MLG-164).
+    pub touch_output: String,
 }
 
 impl Default for Inputs {
@@ -57,6 +60,7 @@ impl Default for Inputs {
             tp_disable_while_typing: true,
             tp_clickfinger: false,
             tp_scroll_factor: 1.0,
+            touch_output: String::new(),
         }
     }
 }
@@ -125,6 +129,10 @@ pub fn read() -> Inputs {
         &mut i.tp_clickfinger,
     );
     f("input:touchpad:scroll_factor", &mut i.tp_scroll_factor);
+    s("input:touchdevice:output", &mut i.touch_output);
+    if i.touch_output == "[[Auto]]" {
+        i.touch_output.clear();
+    }
     i
 }
 
@@ -178,6 +186,12 @@ impl Inputs {
                 num(self.tp_scroll_factor),
             ),
         ]);
+        if !self.touch_output.is_empty() {
+            f.push(format!(
+                "touchdevice = {{ output = {} }}",
+                q(&self.touch_output)
+            ));
+        }
         format!("hl.config({{ input = {{ {} }} }})", f.join(", "))
     }
 

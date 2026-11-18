@@ -13,6 +13,7 @@
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # plugin options (Settings → Plugins → Configure), for every instance except options written on the instance
 ---@field update_commands? table<string, { check?: string, upgrade?: string }> # update commands per source (pacman, aur, apt, dnf, zypper, flatpak), as shell; empty: hyprdesk's own
 ---@field forced_modes? table<string, "no-desktop"|"launcher-only"|"full-desktop"> # forced mode: screen ("DP-1") or workspace ("ws:5"); no-desktop: never a desktop there; the others: the desktop switches to it on arrival
+---@field panorama? { screens?: string[], pages?: ("media"|"system"|"clock")[], declined?: string[], sleep_minutes?: integer } # Panorama (touch strip screens): screens with the role (connector "DP-3" or EDID id), pages in order, declined offers, minutes before the idle clock (0: never)
 ---@field autostart? boolean # launch XDG autostart applications (~/.config/autostart, /etc/xdg/autostart), once per session
 ---@field desktop_files? boolean # files of the Desktop folder (xdg-user-dir DESKTOP) and Trash as desktop icons
 ---@field float_launched? boolean # opened from the shown desktop: floating, centered window

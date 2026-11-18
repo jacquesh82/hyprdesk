@@ -37,6 +37,7 @@ pub mod layouts;
 pub mod lock;
 pub mod login;
 pub mod network;
+pub mod panorama;
 pub mod passwords;
 pub mod performance;
 #[allow(clippy::module_inception)]
@@ -80,6 +81,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     wallpaper::INFO,
     widgets::INFO,
     bar::INFO,
+    panorama::INFO,
     screens::INFO,
     colors::INFO,
     workspaces::INFO,
@@ -121,7 +123,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Barre et lanceur",
-        ids: &["bar", "launcher"],
+        ids: &["bar", "launcher", "panorama"],
     },
     Group {
         label: "Apparence",
@@ -271,6 +273,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "screens" => screens::TABS,
         "launcher" => launcher::TABS,
         "bar" => bar::TABS,
+        "panorama" => panorama::TABS,
         "workspaces" => workspaces::TABS,
         "layouts" => layouts::TABS,
         "animations" => animations::TABS,
@@ -392,6 +395,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "icones" | "icônes" => "icons",
         "fond" => "wallpaper",
         "barre" => "bar",
+        "bandeau" | "edge" | "tactile" | "touch" | "ecran-tactile" | "écran-tactile" => "panorama",
         "effets" => "effects",
         "thème" | "themes" | "thèmes" | "couleurs" | "apparence" => "theme",
         "kitty" | "theme-apps" | "thème-applications" => "apptheme",
@@ -468,6 +472,7 @@ pub enum PluginMsg {
     Theme(theme::Msg),
     AppTheme(apptheme::Msg),
     About(about::Msg),
+    Panorama(panorama::Msg),
 }
 
 pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
@@ -505,6 +510,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Theme(m) => app.theme_update(m),
         PluginMsg::AppTheme(m) => app.apptheme_update(m),
         PluginMsg::About(m) => app.about_update(m),
+        PluginMsg::Panorama(m) => app.panorama_settings_update(m),
     }
 }
 
@@ -550,6 +556,7 @@ fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
         "wallpaper" => app.tab_wallpaper(p),
         "widgets" => app.tab_widgets(p),
         "bar" => app.tab_bar(),
+        "panorama" => app.panorama_page(),
         "screens" => app.tab_screens(),
         "workspaces" => app.tab_workspaces(p),
         "layouts" => app.layouts_page(),
@@ -586,6 +593,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             desktop::load_hyprbars(app.cfg.general.hyprbars_path.clone()),
         ]),
         "screens" => App::detect_screens(),
+        "panorama" => panorama::load(),
         "keys" => app.keys_load(),
         "index" => {
             index::init_fields(app);

@@ -13,6 +13,7 @@
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # options des plugins (Réglages → Plugins → Configurer), pour chaque instance sauf les options écrites sur l'instance
 ---@field update_commands? table<string, { check?: string, upgrade?: string }> # commandes des mises à jour par source (pacman, aur, apt, dnf, zypper, flatpak), en shell ; vide : celle de hyprdesk
 ---@field forced_modes? table<string, "no-desktop"|"launcher-only"|"full-desktop"> # mode imposé : écran ("DP-1") ou workspace ("ws:5") ; no-desktop : jamais de bureau là ; les autres : le bureau y passe en arrivant
+---@field panorama? { screens?: string[], pages?: ("media"|"system"|"clock")[], declined?: string[], sleep_minutes?: integer } # Panorama (écrans bandeau tactiles) : écrans au rôle (connecteur "DP-3" ou identifiant EDID), pages dans l'ordre, propositions refusées, minutes avant l'horloge de veille (0 : jamais)
 ---@field autostart? boolean # lancer les applications du démarrage automatique XDG (~/.config/autostart, /etc/xdg/autostart), une fois par session
 ---@field desktop_files? boolean # fichiers du dossier Bureau (xdg-user-dir DESKTOP) et Corbeille en icônes du bureau
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée

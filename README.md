@@ -254,6 +254,13 @@ closes the dock or returns focus to the full desktop.
   kept fresh by inotify and a periodic rescan, and is tuned in
   **Settings → File index**: roots, exclusions by name or regular
   expression, ignored extensions and categories, maximum file size.
+- **Turn a strip screen into a Panorama.** A very wide screen (2560×720,
+  1920×480, 1280×400…, landscape or portrait), touch or not, becomes a full
+  screen of pages you swipe with a finger or the mouse: media player, system,
+  clock. hyprdesk offers it on its own when such a screen is plugged in, ties
+  the touch device to that screen, keeps the bar off it, and never takes the
+  keyboard from your windows. Tuck it away to use the screen for windows;
+  **Settings → Panorama** or `hyprdesk panorama`.
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 

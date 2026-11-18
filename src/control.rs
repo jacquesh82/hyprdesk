@@ -72,6 +72,9 @@ pub enum Command {
     ProblemShow(String),
     /// Trousseau myMFA : `unlock` (carte de déverrouillage), `lock`.
     Mymfa(String),
+    /// Panorama des écrans bandeau : `toggle`, `show`, `hide`, `page <n|id>`,
+    /// `detect` (MLG-164).
+    Panorama(String),
 }
 
 impl Command {
@@ -113,6 +116,8 @@ impl Command {
                 Command::Notifications(m[14..].trim().to_string())
             }
             m if m.starts_with("mymfa ") => Command::Mymfa(m[6..].trim().to_string()),
+            "panorama" => Command::Panorama("toggle".into()),
+            m if m.starts_with("panorama ") => Command::Panorama(m[9..].trim().to_string()),
             m if m.starts_with("problem-show ") => {
                 Command::ProblemShow(serde_json::from_str(&m[13..]).ok()?)
             }
@@ -131,6 +136,7 @@ impl Command {
             ),
             Command::Notifications(a) => format!("notifications {a}"),
             Command::Mymfa(a) => format!("mymfa {a}"),
+            Command::Panorama(a) => format!("panorama {a}"),
             Command::Ask(o, t) => format!(
                 "ask {}",
                 serde_json::to_string(&(o, t)).unwrap_or_else(|_| "[\"\",\"\"]".into())
@@ -175,6 +181,7 @@ impl Command {
             Command::Problem(_) => "problem",
             Command::ProblemShow(_) => "problem-show",
             Command::Mymfa(_) => "mymfa",
+            Command::Panorama(_) => "panorama",
         }
     }
 }

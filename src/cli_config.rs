@@ -746,6 +746,37 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(b) = s.bar.as_mut() { b.colors.opacity = None; } };
+    "panorama.screens", "panorama", "<écran>,… | none — écrans au rôle Panorama (connecteur ou identifiant EDID)",
+        |c| c.general.panorama.screens.join(","),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.screens = if matches!(v, "none" | "") { Vec::new() } else { v.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect() };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.screens.clear(); } };
+    "panorama.pages", "panorama", "media,system,clock — pages du Panorama, dans l'ordre",
+        |c| c.general.panorama.pages.join(","),
+        |s, v, c| {
+            let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
+            if l.is_empty() {
+                return Err(crate::i18n::tr("pages connues : media, system, clock").to_string());
+            }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.pages = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.pages = crate::panorama::Config::default().pages; } };
+    "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
+        |c| c.general.panorama.sleep_minutes.to_string(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.sleep_minutes = number(v, 0u32, 120)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.sleep_minutes = crate::panorama::Config::default().sleep_minutes; } };
     "primary", "screens", "<écran> | none — écran principal (ancre 0×0, bureau, barre, réglages)",
         |c| c.general.primary.clone().unwrap_or_default(),
         |s, v, c| { s.primary = (!matches!(v, "none" | "")).then(|| v.to_string()); Ok(()) },

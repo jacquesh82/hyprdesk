@@ -34,6 +34,7 @@ mod controls;
 mod osd;
 mod overview;
 mod panel;
+mod panorama;
 pub(crate) mod plugins;
 pub mod polkit;
 mod popover;
@@ -254,6 +255,8 @@ pub enum Msg {
     OsdTick,
     /// Trousseau myMFA : état, demandes de déverrouillage, carte.
     Mymfa(mymfa::MMsg),
+    /// Panorama des écrans bandeau (MLG-164).
+    Panorama(panorama::PMsg),
     MymfaF(mymfa_fenetre::FMsg),
     /// Bulles de notifications.
     Toasts(toasts::TMsg),
@@ -458,6 +461,8 @@ pub struct App {
     /// Trousseau myMFA : état connu, carte de déverrouillage ouverte.
     pub(crate) mfa: crate::mymfa::State,
     mfa_dialog: Option<mymfa::Dialog>,
+    /// Panorama : surfaces, pages, propositions (MLG-164).
+    panorama: panorama::State,
     mfa_fenetre: Option<mymfa_fenetre::Fenetre>,
     /// Accueil myMFA de l'ouverture de session (création du coffre, ou
     /// dernière saisie avant le sceau) encore à faire ; démarrage du démon.
@@ -976,6 +981,7 @@ impl App {
             polkit: None,
             mfa: Default::default(),
             mfa_dialog: None,
+            panorama: Default::default(),
             mfa_fenetre: None,
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
@@ -1214,6 +1220,10 @@ impl App {
             tasks.push(self.close_launcher_popup());
             self.last_poll.retain(|k, _| !k.starts_with("bar:"));
             tasks.push(Task::done(Msg::Poll));
+        }
+        if o.panorama != n.panorama || o.disabled_plugins != n.disabled_plugins {
+            tasks.push(self.sync_bars());
+            tasks.push(self.sync_panorama());
         }
         let idle_changed = o.idle != n.idle;
         if old.components != self.cfg.components
@@ -2717,6 +2727,9 @@ impl App {
         }
         tasks.push(self.refresh_walls());
         tasks.push(self.sync_bars());
+        tasks.push(self.sync_panorama());
+        // Écrans relus (EDID, taille physique, tactiles) : rôle et propositions.
+        tasks.push(panorama::detect_task());
         tasks.push(self.sync_lyra_drawer());
         let names = |l: &[Monitor]| l.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
         // Écrans changés : placement à refaire, et workspaces d'un écran parti
@@ -3706,6 +3719,7 @@ impl App {
                     _ => self.mfa_update(mymfa::MMsg::Ask),
                 },
                 control::Command::Apps => self.toggle_apps(),
+                control::Command::Panorama(a) => self.panorama_command(&a),
                 control::Command::Ask(origin, text) => self.show_problem_from(&origin, text, true),
                 control::Command::Notifications(a) => {
                     self.toasts.command(&a);
@@ -4294,6 +4308,7 @@ impl App {
             }
             Msg::OsdTick => self.osd_tick(),
             Msg::Mymfa(m) => self.mfa_update(m),
+            Msg::Panorama(m) => self.panorama_update(m),
             Msg::MymfaF(m) => self.mfa_fenetre_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
@@ -4782,6 +4797,9 @@ impl App {
                 Task::batch([self.convex_frame_input(id), self.convex_dock_input(id)])
             }
             Msg::Closed(id) => {
+                if self.panorama_closed(id) {
+                    return Task::none();
+                }
                 if self.osd.as_ref().is_some_and(|o| o.win == id) {
                     self.osd = None;
                     return Task::none();
@@ -5189,6 +5207,11 @@ impl App {
         if self.osd.is_some() {
             subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Msg::OsdTick));
         }
+        if !self.panorama.surfaces.is_empty() {
+            subs.push(
+                iced::time::every(panorama::TICK).map(|_| Msg::Panorama(panorama::PMsg::Tick)),
+            );
+        }
         if self.listens_to_events() {
             let tracking = self.drag.is_some()
                 || self.wdrag.is_some()
@@ -5318,6 +5341,9 @@ impl App {
         }
         if self.bar_surfaces.contains_key(&id) {
             return self.view_bar(id);
+        }
+        if self.panorama_owns(id) {
+            return self.view_panorama(id);
         }
         if self.panel.as_ref().is_some_and(|p| p.surface == id) {
             return self.view_panel();

@@ -49,6 +49,7 @@ mod lock;
 mod mymfa;
 mod notifications;
 mod osd;
+mod panorama;
 mod perf;
 mod policy;
 mod polkit;
@@ -157,6 +158,9 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
+  panorama [toggle|show|hide|page <n|id>|detect]
+                    Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
+                    page ; detect : relit les écrans et refait les propositions
   polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]

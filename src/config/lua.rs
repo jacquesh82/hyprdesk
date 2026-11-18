@@ -668,6 +668,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspace_dedicated",
             "forced_modes",
             "screen_colors",
+            "panorama",
             "overview_command",
             "plugin_options",
             "update_commands",
@@ -1300,6 +1301,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             }
             g.forced_modes.insert(k.to_str()?.to_string(), v);
         }
+    }
+    if let Some(p) = t.get::<Option<Table>>("panorama")? {
+        g.panorama = crate::panorama::config::from_lua(&p)?;
     }
     if let Some(map) = t.get::<Option<Table>>("screen_colors")? {
         const C: &str = "hd.config.screen_colors";

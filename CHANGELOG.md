@@ -10,6 +10,21 @@ and this project adheres to
 
 ### Added
 
+- **Panorama for strip screens** (MLG-164). A very wide screen (aspect
+  ratio of 2.5:1 or more, landscape or portrait: 2560×720, 1920×480,
+  1280×400…), touch or not, gets a full-screen Panorama: pages you swipe
+  with a finger or the mouse (media player over MPRIS, system, clock), page
+  dots, and an idle clock after `sleep_minutes` without playback or touch.
+  No screen model is hard-coded: hyprdesk offers the role once when such a
+  screen shows up, ties the touch device to it (screen maker in the device
+  name, a single candidate, or the screen where “Yes” is tapped) through
+  `inputs.lua`, and remembers a refusal by EDID id, not by port. The
+  Panorama surface never takes keyboard focus, the bar leaves that screen,
+  and it can be tucked away behind a small handle to use the screen for
+  windows. **Settings → Panorama** (in Bar and launcher), `hd.config({
+  panorama = { screens, pages, declined, sleep_minutes } })`,
+  `hyprdesk config set panorama.*` and `hyprdesk panorama
+  [toggle|show|hide|page <n|id>|detect]`.
 - **GPU switch in the bar** (MLG-162). On a passthrough machine, the new
   `gpu` widget shows the NVIDIA GPU reserved for VMs (VFIO, VM when a VM
   holds it, NVIDIA) and switches it live between vfio-pci and the nvidia

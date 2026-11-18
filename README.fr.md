@@ -266,6 +266,13 @@ ou rend le clavier au bureau complet.
   rescan périodique, et se règle dans **Réglages → Index de fichiers** :
   racines, exclusions par nom ou par expression régulière, extensions et
   catégories à ignorer, taille maximale par fichier.
+- **Faites d'un écran bandeau un Panorama.** Un écran très allongé
+  (2560×720, 1920×480, 1280×400…, à l'horizontale ou à la verticale),
+  tactile ou non, devient un plein écran à pages qu'on fait glisser au doigt
+  ou à la souris : lecteur multimédia, système, horloge. hyprdesk le propose
+  de lui-même au branchement d'un tel écran, y rattache le tactile, en retire
+  la barre et ne prend jamais le clavier aux fenêtres. Escamotez-le pour
+  rendre l'écran aux fenêtres ; **Réglages → Panorama** ou `hyprdesk panorama`.
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.

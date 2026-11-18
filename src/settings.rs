@@ -186,6 +186,8 @@ pub struct Settings {
     pub forced_modes: Option<BTreeMap<String, String>>,
     /// Couleurs de chaque écran.
     pub screen_colors: Option<BTreeMap<String, crate::colors::Adjust>>,
+    /// Panorama (écrans bandeau tactiles).
+    pub panorama: Option<crate::panorama::Config>,
     pub plugin_options: Option<BTreeMap<String, BTreeMap<String, crate::tiling::OptValue>>>,
     pub update_commands: Option<BTreeMap<String, (String, String)>>,
     /// Écrans dédiés.
@@ -439,6 +441,7 @@ impl Settings {
                 .then(|| g.workspace_monitors_declared.clone()),
             forced_modes: has("forced_modes").then(|| g.forced_modes.clone()),
             screen_colors: has("screen_colors").then(|| g.screen_colors.clone()),
+            panorama: has("panorama").then(|| g.panorama.clone()),
             plugin_options: has("plugin_options").then(|| g.plugin_options.clone()),
             update_commands: has("update_commands").then(|| g.update_commands.clone()),
             workspace_dedicated: has("workspace_dedicated").then(|| g.workspace_dedicated.clone()),
@@ -816,6 +819,9 @@ impl Settings {
         }
         if free("screen_colors") {
             g.screen_colors = self.screen_colors.clone().unwrap_or_default();
+        }
+        if free("panorama") {
+            g.panorama = self.panorama.clone().unwrap_or_default();
         }
         if free("plugin_options") {
             g.plugin_options = self.plugin_options.clone().unwrap_or_default();
@@ -1467,6 +1473,9 @@ impl Settings {
             if !f.is_empty() {
                 cfg.push(format!("screen_colors = {{ {} }}", f.join(", ")));
             }
+        }
+        if let Some(p) = self.panorama.as_ref() {
+            cfg.push(format!("panorama = {}", p.to_lua()));
         }
         if let Some(m) = self.forced_modes.as_ref().filter(|m| !m.is_empty()) {
             let f: Vec<String> = m

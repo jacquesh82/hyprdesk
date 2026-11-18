@@ -499,6 +499,8 @@ impl App {
             Some(b) => self
                 .monitors
                 .iter()
+                // Un écran Panorama n'a pas de barre (MLG-164).
+                .filter(|m| !self.is_panorama(&m.name))
                 .filter(|m| {
                     b.monitors.as_ref().is_none_or(|l| {
                         l.contains(&m.name)
