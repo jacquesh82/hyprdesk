@@ -8,6 +8,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-18
+
+Lock screen fix release (MLG-159).
+
+### Fixed
+
+- **The lock screen accepts the right password again** (MLG-159). Waking
+  from sleep, the lock screen refused the correct password. Without
+  `/etc/pam.d/hyprdesk-lock` (build from source: only the package installs
+  it), hyprdesk fell back on the `hyprlock` PAM service, whose Arch file only
+  declares `auth include login`. Since MLG-153, `pam_acct_mgmt` runs after
+  authentication: with no account phase, Linux-PAM takes the one of `other`
+  (`pam_deny`), hence a systematic refusal. hyprdesk now falls back on
+  `hyprlock` only when its file declares an account phase (`account`,
+  `-account`, `@include`), otherwise on `login`; `install.sh --from-source`
+  installs `/etc/pam.d/hyprdesk-lock` like the package, never overwriting it.
+
 ## [0.1.6] - 2026-11-17
 
 Performance and robustness release (MLG-126, MLG-156 to MLG-158).
