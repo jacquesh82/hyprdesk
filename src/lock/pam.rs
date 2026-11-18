@@ -3,8 +3,9 @@
 //! `pam_end`), comme le font hyprlock et swaylock.
 //!
 //! Service du verrou ([`service`]) : `/etc/pam.d/hyprdesk-lock` (livré par
-//! les paquets : pile d'authentification du système et phase account), sinon
-//! celui de hyprlock, sinon `login`. Après l'authentification, la phase
+//! les paquets et par `install.sh --from-source` : pile d'authentification
+//! du système et phase account), sinon celui de hyprlock s'il déclare une
+//! phase account, sinon `login`. Après l'authentification, la phase
 //! account est toujours évaluée : un compte expiré, désactivé ou refusé par
 //! pam_access ne déverrouille pas.
 //!
@@ -138,16 +139,31 @@ pub struct Outcome {
     pub messages: Vec<String>,
 }
 
-/// Service PAM : le nôtre s'il est installé, sinon celui de hyprlock, sinon `login`.
+/// Service PAM : le nôtre s'il est installé, sinon celui de hyprlock s'il
+/// déclare une phase account, sinon `login`.
+///
+/// hyprlock n'appelle que `pam_authenticate` : le fichier de son paquet
+/// (Arch : `auth include login`, rien d'autre) n'a pas de phase account, que
+/// Linux-PAM prend alors dans `other` (`pam_deny`). Le choisir refuserait
+/// tout déverrouillage, mot de passe juste compris.
 pub fn service() -> &'static str {
-    let has = |s: &str| std::path::Path::new("/etc/pam.d").join(s).is_file();
-    if has("hyprdesk-lock") {
+    let read = |s: &str| std::fs::read_to_string(std::path::Path::new("/etc/pam.d").join(s));
+    if std::path::Path::new("/etc/pam.d/hyprdesk-lock").is_file() {
         "hyprdesk-lock"
-    } else if has("hyprlock") {
+    } else if read("hyprlock").is_ok_and(|t| declares_account(&t)) {
         "hyprlock"
     } else {
         "login"
     }
+}
+
+/// Le fichier de service déclare-t-il une phase account (ligne `account`,
+/// `-account`, ou `@include` à la Debian, qui l'apporte) ?
+fn declares_account(text: &str) -> bool {
+    text.lines().any(|l| {
+        let first = l.split_whitespace().next().unwrap_or("");
+        matches!(first, "account" | "-account" | "@include")
+    })
 }
 
 /// Utilisateur de la session.
@@ -394,6 +410,19 @@ mod tests {
         wipe(&mut s);
         assert!(s.is_empty());
         assert!(!current_user().is_empty());
+    }
+
+    /// Le fichier de hyprlock (Arch) n'a pas de phase account : écarté.
+    #[test]
+    fn phase_account_declaree() {
+        let hyprlock = "# PAM configuration file for hyprlock\n\
+                        # the 'login' configuration file (see /etc/pam.d/login)\n\n\
+                        auth        include     login\n";
+        assert!(!declares_account(hyprlock));
+        assert!(!declares_account("# account include login\n"));
+        assert!(declares_account("auth include login\naccount include login\n"));
+        assert!(declares_account("-account optional pam_foo.so\n"));
+        assert!(declares_account("@include common-auth\n"));
     }
 
     #[test]

@@ -239,6 +239,24 @@ if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
                  "read the error above; a missing development library is fixed by running again without --no-deps")"
     hd_run "$(t "compilation de hyprdesk" "building hyprdesk")" cargo build --release --locked
     PKG_FILE=""
+    # Pile PAM du verrouillage, que le paquet pose sinon (postinstall.sh) :
+    # sans elle, hyprdesk se replie sur « login ». Jamais écrasée.
+    if [[ ! -e /etc/pam.d/hyprdesk-lock ]]; then
+        PAM_LOCK_SRC=""
+        if [[ -f /etc/pam.d/system-auth ]]; then
+            PAM_LOCK_SRC=packaging/pam/hyprdesk-lock.system-auth
+        elif [[ -f /etc/pam.d/common-auth && -f /etc/pam.d/common-account ]]; then
+            PAM_LOCK_SRC=packaging/pam/hyprdesk-lock.common-auth
+        fi
+        if [[ -n "$PAM_LOCK_SRC" ]] \
+            && hd_sudo_ready "$(t "poser la pile PAM du verrouillage" "install the lock screen PAM stack")" \
+            && hd_run "$(t "pile PAM du verrouillage" "lock screen PAM stack") (/etc/pam.d/hyprdesk-lock)" \
+                hyprdesk_root install -o root -g root -m0644 "$PAM_LOCK_SRC" /etc/pam.d/hyprdesk-lock; then
+            hd_ok "$(t "verrouillage : /etc/pam.d/hyprdesk-lock" "lock screen: /etc/pam.d/hyprdesk-lock")"
+        else
+            hd_warn "$(t "/etc/pam.d/hyprdesk-lock non posé : le verrouillage passe par « login »" "/etc/pam.d/hyprdesk-lock not installed: the lock screen uses “login”")"
+        fi
+    fi
 else
     hd_step "🏷" "Release" "Release" \
         "Le paquet précompilé de la version de ce dépôt, téléchargé depuis GitHub et vérifié." \
