@@ -4,19 +4,29 @@
 //! L'état se lit dans sysfs et /proc, sans lancer de processus : le widget le
 //! relit souvent. Seuls comptent les GPU NVIDIA d'une machine de passthrough
 //! (sur vfio-pci, ou réservés à vfio au démarrage, ou gardés sur nvidia par
-//! hyprdesk) ; une carte qui affiche le bureau n'est jamais proposée.
+//! hyprdesk) ; une carte NVIDIA qui affiche le bureau hors passthrough n'est
+//! jamais proposée.
+//!
+//! Trois cibles :
+//! - `vfio` : la carte est réservée aux VM (vfio-pci).
+//! - `nvidia` : calcul seul. `nvidia_drm` reste déchargé : aucune carte DRM
+//!   n'apparaît, Hyprland n'ouvre pas le GPU et ne retient pas le pilote, donc
+//!   le retour à vfio-pci se fait à chaud. CUDA, NVENC, nvidia-smi et les
+//!   conteneurs marchent ; pas les écrans branchés sur la carte.
+//! - `display` : `nvidia` plus `nvidia_drm` (modeset, sans fbdev) : les écrans
+//!   branchés sur la carte s'allument, Hyprland les prend à chaud. Hyprland
+//!   tient alors la carte : en sortir (vers `vfio` ou `nvidia`) n'aboutit
+//!   qu'hors session, d'où le choix « au prochain démarrage » seul (`next`).
 //!
 //! Choix qui protègent la session en cours (repris de `gpu-switch`) :
-//! - `nvidia_drm` n'est jamais chargé : aucune carte DRM n'apparaît, Hyprland
-//!   n'ouvre pas le GPU et ne retient pas le pilote. CUDA, NVENC, nvidia-smi
-//!   et les conteneurs marchent ; pas le rendu graphique déporté.
 //! - La fonction audio de la carte reste sur vfio-pci.
 //! - `nvidia` est libéré par `rmmod`, jamais en détachant le pilote dans
 //!   sysfs : `rmmod` échoue proprement si le pilote sert, le détachement peut
 //!   bloquer dans le noyau.
 //!
 //! Prochains démarrages : à chaque bascule, l'utilisateur choisit « cette
-//! session » (le démarrage reste tel quel) ou « aussi au démarrage ». Le choix
+//! session » (le démarrage reste tel quel), « aussi au démarrage », ou
+//! « au prochain démarrage » sans rien basculer maintenant. Le choix
 //! est gardé dans `/etc/hyprdesk/gpu-boot` et appliqué tôt par le service
 //! système `hyprdesk-gpu.service`, avant le gestionnaire de connexion ; la
 //! ligne de démarrage (`vfio-pci.ids`) n'est jamais modifiée. Revenir au
@@ -49,8 +59,11 @@ const NVIDIA_NODES: &[&str] = &[
 /// Pilote visé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
+    /// nvidia, calcul seul (nvidia_drm déchargé).
     Nvidia,
     Vfio,
+    /// nvidia avec les sorties d'affichage (nvidia_drm).
+    Display,
 }
 
 impl Target {
@@ -58,6 +71,7 @@ impl Target {
         match s {
             "nvidia" => Some(Target::Nvidia),
             "vfio" | "vfio-pci" => Some(Target::Vfio),
+            "display" => Some(Target::Display),
             _ => None,
         }
     }
@@ -66,13 +80,46 @@ impl Target {
         match self {
             Target::Nvidia => "nvidia",
             Target::Vfio => "vfio",
+            Target::Display => "display",
         }
     }
 
-    fn driver(self) -> &'static str {
+    /// Nom dans les messages.
+    fn label(self) -> &'static str {
         match self {
             Target::Nvidia => "nvidia",
             Target::Vfio => "vfio-pci",
+            Target::Display => crate::i18n::tr("nvidia + affichage"),
+        }
+    }
+}
+
+/// Quand une bascule s'applique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Persist {
+    /// Maintenant, jusqu'au prochain démarrage.
+    Session,
+    /// Maintenant et aux prochains démarrages.
+    Boot,
+    /// Aux prochains démarrages seulement, rien ne bascule maintenant.
+    Next,
+}
+
+impl Persist {
+    fn parse(s: &str) -> Option<Persist> {
+        match s {
+            "session" => Some(Persist::Session),
+            "boot" => Some(Persist::Boot),
+            "next" => Some(Persist::Next),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Persist::Session => "session",
+            Persist::Boot => "boot",
+            Persist::Next => "next",
         }
     }
 }
@@ -94,6 +141,8 @@ pub struct Gpu {
     pub boot_saved: Option<Target>,
     /// Le module nvidia est installé pour ce noyau.
     pub nvidia_module: bool,
+    /// La carte a ses sorties d'affichage (carte DRM de nvidia_drm).
+    pub display: bool,
 }
 
 impl Gpu {
@@ -105,16 +154,18 @@ impl Gpu {
     /// Pilote actuel, au sens de la bascule.
     pub fn current(&self) -> Option<Target> {
         match self.driver.as_str() {
+            "nvidia" if self.display => Some(Target::Display),
             "nvidia" => Some(Target::Nvidia),
             "vfio-pci" => Some(Target::Vfio),
             _ => None,
         }
     }
 
-    /// nvidia | vfio | vm | none
+    /// nvidia | display | vfio | vm | none
     pub fn state(&self) -> &'static str {
         match self.current() {
             Some(Target::Nvidia) => "nvidia",
+            Some(Target::Display) => "display",
             Some(Target::Vfio) if self.vm => "vm",
             Some(Target::Vfio) => "vfio",
             None => "none",
@@ -390,11 +441,12 @@ pub fn list_in(r: &Roots) -> Vec<Gpu> {
             Target::Nvidia
         };
         let boot_saved = saved.get(&address).copied();
-        // Une carte DRM : elle sert (ou peut servir) au bureau, on n'y touche pas.
+        // Carte DRM : sorties d'affichage actives. Hors passthrough, c'est la
+        // carte du bureau (écartée ci-dessous) ; en passthrough, le mode display.
         let drm = dev.join("drm").exists();
         let passthrough =
             driver == "vfio-pci" || boot_default == Target::Vfio || boot_saved.is_some();
-        if drm || !passthrough || !matches!(driver.as_str(), "vfio-pci" | "nvidia" | "none") {
+        if !passthrough || !matches!(driver.as_str(), "vfio-pci" | "nvidia" | "none") {
             continue;
         }
         let procs = procs.get_or_insert_with(|| processes(r));
@@ -407,6 +459,7 @@ pub fn list_in(r: &Roots) -> Vec<Gpu> {
             boot_default,
             boot_saved,
             nvidia_module: nvidia_module(r),
+            display: drm,
         });
     }
     out
@@ -490,6 +543,9 @@ fn to_vfio(r: &Roots, dev: &Path) -> Result<(), String> {
             if module == "nvidia" {
                 run("modprobe", &["-i", "nvidia_uvm"]);
             }
+            if module == "nvidia_drm" {
+                return Err(crate::i18n::tr(DISPLAY_HELD).to_string());
+            }
             return Err(crate::tr!(
                 "Impossible de décharger {m} : il est encore utilisé",
                 m = module
@@ -518,9 +574,40 @@ fn to_vfio(r: &Roots, dev: &Path) -> Result<(), String> {
     }
 }
 
-fn to_nvidia(r: &Roots, dev: &Path, address: &str) -> Result<(), String> {
-    if driver_of(dev) == "nvidia" {
+/// Hyprland (ou une autre session graphique) tient les sorties de la carte.
+const DISPLAY_HELD: &str = "Affichage actif sur la carte : la session graphique la tient. Choisir ce pilote pour le prochain démarrage, ou basculer hors session.";
+
+/// Sorties d'affichage de la carte : `nvidia_drm` chargé ou déchargé.
+fn set_display(dev: &Path, on: bool) -> Result<(), String> {
+    let drm = dev.join("drm");
+    if drm.exists() == on {
         return Ok(());
+    }
+    if on {
+        // Sans fbdev : la console ne prend pas la carte, rmmod reste possible.
+        run("modprobe", &["nvidia_drm", "modeset=1", "fbdev=0"]);
+        // La carte DRM apparaît peu après le chargement.
+        for _ in 0..20 {
+            if drm.exists() {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        return Err(crate::i18n::tr(
+            "nvidia est chargé, mais nvidia_drm n'a pas créé de sortie d'affichage (voir journalctl -k)",
+        )
+        .to_string());
+    }
+    if run("rmmod", &["nvidia_drm"]) {
+        Ok(())
+    } else {
+        Err(crate::i18n::tr(DISPLAY_HELD).to_string())
+    }
+}
+
+fn to_nvidia(r: &Roots, dev: &Path, address: &str, display: bool) -> Result<(), String> {
+    if driver_of(dev) == "nvidia" {
+        return set_display(dev, display);
     }
     if vm_holds(r, dev, address, &processes(r)) {
         return Err(crate::i18n::tr("GPU utilisé par une VM en cours d'exécution").to_string());
@@ -544,7 +631,8 @@ fn to_nvidia(r: &Roots, dev: &Path, address: &str) -> Result<(), String> {
             || run("timeout", &["20", "nvidia-smi", "-L"]);
         if driver_of(dev) == "nvidia" && smi_ok {
             let _ = write(&dev.join("driver_override"), "\n");
-            return Ok(());
+            // Échec de l'affichage : nvidia reste chargé (calcul), on le dit.
+            return set_display(dev, display);
         }
     }
     let back = to_vfio(r, dev);
@@ -620,13 +708,14 @@ fn find(r: &Roots, address: &str) -> Result<Gpu, String> {
 fn switch(r: &Roots, gpu: &Gpu, target: Target) -> Result<(), String> {
     let dev = r.sys.join("bus/pci/devices").join(&gpu.address);
     match target {
-        Target::Nvidia => to_nvidia(r, &dev, &gpu.address),
+        Target::Nvidia => to_nvidia(r, &dev, &gpu.address, false),
+        Target::Display => to_nvidia(r, &dev, &gpu.address, true),
         Target::Vfio => to_vfio(r, &dev),
     }
 }
 
-/// `hyprdesk gpu apply <nvidia|vfio> <adresse> <session|boot>` (root).
-fn apply(target: Target, address: &str, boot: bool) -> Result<(), String> {
+/// `hyprdesk gpu apply <nvidia|display|vfio> <adresse> <session|boot|next>` (root).
+fn apply(target: Target, address: &str, persist: Persist) -> Result<(), String> {
     // SAFETY: geteuid n'a pas de précondition.
     if unsafe { libc::geteuid() } != 0 {
         return Err(
@@ -639,8 +728,10 @@ fn apply(target: Target, address: &str, boot: bool) -> Result<(), String> {
     }
     let r = Roots::default();
     let gpu = find(&r, address)?;
-    switch(&r, &gpu, target)?;
-    if boot {
+    if persist != Persist::Next {
+        switch(&r, &gpu, target)?;
+    }
+    if persist != Persist::Session {
         save_boot(&r, &gpu, target)?;
     }
     Ok(())
@@ -671,9 +762,9 @@ fn notify(ok: bool, msg: &str) {
     let _ = hyprpanel_core::ipc::notify(u8::from(ok), if ok { 5000 } else { 10000 }, "0", msg);
 }
 
-/// `hyprdesk gpu <nvidia|vfio|toggle> [--boot] [--device ADRESSE]` :
+/// `hyprdesk gpu <nvidia|display|vfio|toggle> [--boot | --next-boot] [--device ADRESSE]` :
 /// bascule par pkexec, notification du résultat.
-fn request(target: &str, boot: bool, device: Option<&str>) -> Result<String, String> {
+fn request(target: &str, persist: Persist, device: Option<&str>) -> Result<String, String> {
     let gpus = list();
     let gpu = match device {
         Some(a) => gpus
@@ -695,7 +786,7 @@ fn request(target: &str, boot: bool, device: Option<&str>) -> Result<String, Str
         },
         t => Target::parse(t).ok_or_else(|| crate::tr!("cible inconnue : {t}", t = t))?,
     };
-    if target == Target::Nvidia && !gpu.nvidia_module {
+    if target != Target::Vfio && !gpu.nvidia_module {
         return Err(crate::i18n::tr("pilote nvidia absent pour ce noyau").to_string());
     }
     // Un hyprdesk root plus ancien ne connaît pas `gpu` : le dire avant de
@@ -708,7 +799,7 @@ fn request(target: &str, boot: bool, device: Option<&str>) -> Result<String, Str
     let out = Ok::<_, String>(bin).and_then(|bin| {
         Command::new("pkexec")
             .args([bin, "gpu", "apply", target.as_str(), &gpu.address])
-            .arg(if boot { "boot" } else { "session" })
+            .arg(persist.as_str())
             .output()
             .map_err(|e| e.to_string())
     });
@@ -726,19 +817,23 @@ fn request(target: &str, boot: bool, device: Option<&str>) -> Result<String, Str
             _ => err.trim_start_matches("hyprdesk gpu : ").to_string(),
         });
     }
-    Ok(if boot {
-        crate::tr!(
+    Ok(match persist {
+        Persist::Boot => crate::tr!(
             "{n} : pilote {d}, aussi aux prochains démarrages",
             n = gpu.name,
-            d = target.driver()
-        )
-    } else {
-        crate::tr!(
+            d = target.label()
+        ),
+        Persist::Session => crate::tr!(
             "{n} : pilote {d} jusqu'au prochain démarrage (démarrage : {b})",
             n = gpu.name,
-            d = target.driver(),
-            b = gpu.boot().driver()
-        )
+            d = target.label(),
+            b = gpu.boot().label()
+        ),
+        Persist::Next => crate::tr!(
+            "{n} : pilote {d} aux prochains démarrages, rien ne change maintenant",
+            n = gpu.name,
+            d = target.label()
+        ),
     })
 }
 
@@ -755,7 +850,7 @@ fn status() {
             g.state(),
             crate::tr!(
                 "démarrage : {b}{s}",
-                b = g.boot().driver(),
+                b = g.boot().label(),
                 s = if g.boot_saved.is_some() {
                     crate::i18n::tr(" (choix hyprdesk)")
                 } else {
@@ -774,18 +869,25 @@ pub fn cli(args: &[String]) -> ExitCode {
             status();
             return ExitCode::SUCCESS;
         }
-        ["apply", t, address, persist] => match Target::parse(t) {
-            Some(t) => apply(t, address, *persist == "boot"),
-            None => Err(crate::tr!("cible inconnue : {t}", t = t)),
+        ["apply", t, address, persist] => match (Target::parse(t), Persist::parse(persist)) {
+            (Some(t), Some(p)) => apply(t, address, p),
+            (None, _) => Err(crate::tr!("cible inconnue : {t}", t = t)),
+            (_, None) => Err(crate::tr!("cible inconnue : {t}", t = persist)),
         },
         ["boot"] => boot(),
-        [t @ ("nvidia" | "vfio" | "toggle"), rest @ ..] => {
-            let boot = rest.contains(&"--boot");
+        [t @ ("nvidia" | "display" | "vfio" | "toggle"), rest @ ..] => {
+            let persist = if rest.contains(&"--next-boot") {
+                Persist::Next
+            } else if rest.contains(&"--boot") {
+                Persist::Boot
+            } else {
+                Persist::Session
+            };
             let device = rest
                 .iter()
                 .position(|x| *x == "--device")
                 .and_then(|i| rest.get(i + 1).copied());
-            match request(t, boot, device) {
+            match request(t, persist, device) {
                 Ok(msg) => {
                     notify(true, &msg);
                     println!("{msg}");
@@ -801,7 +903,7 @@ pub fn cli(args: &[String]) -> ExitCode {
             eprintln!(
                 "{}",
                 crate::i18n::tr(
-                    "usage : hyprdesk gpu [status | nvidia | vfio | toggle] [--boot] [--device <adresse>]"
+                    "usage : hyprdesk gpu [status | nvidia | display | vfio | toggle] [--boot | --next-boot] [--device <adresse>]"
                 )
             );
             return ExitCode::from(2);
@@ -924,16 +1026,31 @@ mod tests {
         // NVIDIA sans passthrough : rien à basculer, le widget se cache.
         let (_t, r) = machine("nvidia", "quiet");
         assert!(list_in(&r).is_empty());
-        // Sur nvidia avec une carte DRM (nvidia_drm) : elle peut servir au bureau.
-        let (_t, r) = machine("nvidia", "vfio-pci.ids=10de:2488");
+        // Même avec ses sorties d'affichage (nvidia_drm) : c'est la carte du bureau.
+        let (_t, r) = machine("nvidia", "quiet");
         std::fs::create_dir_all(r.sys.join("bus/pci/devices/0000:01:00.0/drm")).unwrap();
         assert!(list_in(&r).is_empty());
+    }
+
+    #[test]
+    fn carte_de_passthrough_avec_affichage() {
+        // Carte réservée aux VM, passée sur nvidia avec nvidia_drm : mode display.
+        let (_t, r) = machine("nvidia", "vfio-pci.ids=10de:2488");
+        std::fs::create_dir_all(r.sys.join("bus/pci/devices/0000:01:00.0/drm")).unwrap();
+        let g = &list_in(&r)[0];
+        assert!(g.display);
+        assert_eq!(g.state(), "display");
+        assert_eq!(g.current(), Some(Target::Display));
+        // Sans carte DRM : calcul seul.
+        let (_t, r) = machine("nvidia", "vfio-pci.ids=10de:2488");
+        assert_eq!(list_in(&r)[0].state(), "nvidia");
     }
 
     #[test]
     fn fichier_de_demarrage_relu() {
         let mut m = BTreeMap::new();
         m.insert("0000:01:00.0".to_string(), Target::Nvidia);
+        m.insert("0000:02:00.0".to_string(), Target::Display);
         assert_eq!(parse_boot(&render_boot(&m)), m);
         assert!(parse_boot("0000:01:00.0=amdgpu\n").is_empty());
     }

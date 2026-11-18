@@ -309,11 +309,12 @@ function hd.batteries() end
 ---@field address string # PCI address (0000:01:00.0)
 ---@field name string # "GeForce RTX 3070"
 ---@field driver string # nvidia | vfio-pci | none
----@field state "nvidia"|"vfio"|"vm"|"none" # vm: on vfio-pci and held by a VM
----@field boot "nvidia"|"vfio" # driver at the next boots
+---@field state "nvidia"|"display"|"vfio"|"vm"|"none" # display: nvidia with its display outputs (nvidia_drm); vm: on vfio-pci and held by a VM
+---@field boot "nvidia"|"display"|"vfio" # driver at the next boots
 ---@field boot_default "nvidia"|"vfio" # the boot driver without a hyprdesk choice
 ---@field boot_saved boolean # a hyprdesk choice is kept for boot
 ---@field nvidia_module boolean # the nvidia driver is installed for this kernel
+---@field display boolean # the card has its display outputs (nvidia_drm)
 ---@field busy boolean # a `hyprdesk gpu` switch is running
 ---@field ready boolean # a root hyprdesk can switch (pkexec)
 

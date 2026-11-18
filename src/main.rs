@@ -162,9 +162,11 @@ Commandes :
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
                     --upgrade : mise à jour non interactive (pkexec), échec confié au démon
-  gpu [status | nvidia | vfio | toggle] [--boot] [--device <adresse>]
+  gpu [status | nvidia | display | vfio | toggle] [--boot | --next-boot] [--device <adresse>]
                     GPU NVIDIA réservé aux VM : bascule à chaud entre vfio-pci et nvidia
                     (pkexec) ; --boot : garde aussi ce pilote aux prochains démarrages
+                    display : nvidia avec les écrans branchés sur la carte (nvidia_drm)
+                    --next-boot : pilote des prochains démarrages, sans basculer maintenant
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon

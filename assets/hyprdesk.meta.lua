@@ -309,11 +309,12 @@ function hd.batteries() end
 ---@field address string # adresse PCI (0000:01:00.0)
 ---@field name string # « GeForce RTX 3070 »
 ---@field driver string # nvidia | vfio-pci | none
----@field state "nvidia"|"vfio"|"vm"|"none" # vm : sur vfio-pci et tenu par une VM
----@field boot "nvidia"|"vfio" # pilote des prochains démarrages
+---@field state "nvidia"|"display"|"vfio"|"vm"|"none" # display : nvidia avec les sorties d'affichage (nvidia_drm) ; vm : sur vfio-pci et tenu par une VM
+---@field boot "nvidia"|"display"|"vfio" # pilote des prochains démarrages
 ---@field boot_default "nvidia"|"vfio" # celui du démarrage sans choix de hyprdesk
 ---@field boot_saved boolean # un choix de hyprdesk est gardé pour le démarrage
 ---@field nvidia_module boolean # le pilote nvidia est installé pour ce noyau
+---@field display boolean # la carte a ses sorties d'affichage (nvidia_drm)
 ---@field busy boolean # une bascule `hyprdesk gpu` est en cours
 ---@field ready boolean # un hyprdesk root sait basculer (pkexec)
 

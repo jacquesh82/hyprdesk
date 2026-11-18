@@ -16,11 +16,15 @@ and this project adheres to
   driver (CUDA, NVENC, containers), without rebooting. Every switch asks
   whether it is for this session only or also for the next boots; a boot
   choice is kept in `/etc/hyprdesk/gpu-boot` and applied early by
-  `hyprdesk-gpu.service`, the kernel command line is never edited. The
-  card never drives the desktop (nvidia_drm stays unloaded) and nvidia is
-  released with rmmod. Also `hyprdesk gpu [status | nvidia | vfio | toggle]
-  [--boot]` (root part through pkexec) and `hd.gpus()` for plugins. Hidden
-  without passthrough; added once to the bar.
+  `hyprdesk-gpu.service`, the kernel command line is never edited. Two
+  nvidia modes: compute only (nvidia_drm stays unloaded, so going back to
+  vfio-pci works live) and display (DISPLAY in the bar: nvidia_drm is
+  loaded and the screens plugged into the card light up, Hyprland picks
+  them up live). In display mode Hyprland holds the card, so the menu only
+  offers to change the driver for the next boot. nvidia is released with
+  rmmod. Also `hyprdesk gpu [status | nvidia | display | vfio | toggle]
+  [--boot | --next-boot]` (root part through pkexec) and `hd.gpus()` for
+  plugins. Hidden without passthrough; added once to the bar.
 - **Update progress in the bar** (MLG-161). While an update runs, the
   updates widget shows its progress instead of “…”: “42 %” in compact mode,
   a thin gauge and the percentage in detailed mode (option `detaille`,

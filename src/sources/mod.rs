@@ -565,6 +565,7 @@ pub fn install(lua: &Lua, hd: &Table) -> mlua::Result<()> {
                 e.set("boot_default", g.boot_default.as_str())?;
                 e.set("boot_saved", g.boot_saved.is_some())?;
                 e.set("nvidia_module", g.nvidia_module)?;
+                e.set("display", g.display)?;
                 e.set("busy", busy)?;
                 e.set("ready", ready)?;
                 t.set(i + 1, e)?;
