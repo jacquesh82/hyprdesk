@@ -3422,6 +3422,35 @@ mod tests {
             "notifications-disabled-symbolic"
         );
 
+        // MLG-162 : GPU sur vfio-pci, sans processus ; sans passthrough, caché.
+        lua.load(
+            r#"
+            hd.exe = "/usr/bin/hyprdesk"
+            hd.gpus = function() return { { address = "0000:01:00.0", name = "GeForce RTX 3070",
+                driver = "vfio-pci", state = "vfio", boot = "vfio", boot_default = "vfio",
+                boot_saved = false, nvidia_module = true, busy = false, ready = true } } end
+            "#,
+        )
+        .exec()
+        .unwrap();
+        let r = render(&lua, "gpu").unwrap();
+        assert_eq!(r.get::<String>("text").unwrap(), "VFIO");
+        assert!(r.get::<String>("tooltip").unwrap().contains("01:00.0"));
+        let w: Table = lua.load(bundled("gpu")).eval().unwrap();
+        let menu: Table = w.get::<Function>("menu").unwrap().call(()).unwrap();
+        let labels: Vec<String> = menu
+            .sequence_values::<Value>()
+            .filter_map(|v| match v.unwrap() {
+                Value::Table(t) => t.get::<Option<String>>("label").unwrap(),
+                _ => None,
+            })
+            .collect();
+        assert!(labels.iter().any(|l| l == "Cette session seulement"), "{labels:?}");
+        assert!(labels.iter().any(|l| l == "Aussi aux prochains démarrages"), "{labels:?}");
+        lua.load("hd.gpus = function() return {} end").exec().unwrap();
+        let r = render(&lua, "gpu").unwrap();
+        assert_eq!(r.get::<String>("state").unwrap(), "hidden");
+
         // Services injoignables : retour aux commandes d'avant.
         lua.load(
             r#"

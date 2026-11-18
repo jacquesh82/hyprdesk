@@ -254,7 +254,7 @@ folders, the first match wins:
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `vkbd`, `notifications`,
+The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `notifications`,
 `session`) are built into the binary, and a file with the same name replaces them.
 
 ```lua
@@ -295,7 +295,8 @@ connections with SSID and signal strength), `hd.bluetooth()` (BlueZ: adapter
 powered, paired or connected devices, battery), `hd.power_profile()` (active
 and offered power profiles) return `nil` when the service is unreachable: the
 plugin then falls back to `hd.exec`. Alongside them, `hd.batteries()`
-(`/sys/class/power_supply`), `hd.index_status()` (file index daemon, `nil`
+(`/sys/class/power_supply`), `hd.gpus()` (NVIDIA GPUs that switch between
+vfio-pci and nvidia, read from sysfs; `gpu` widget), `hd.index_status()` (file index daemon, `nil`
 when stopped) and `hd.notifications()` (`nil` when a daemon other than
 hyprdesk shows notifications). The fields are described in
 `hyprdesk.meta.en.lua`; the built-in widgets `reseau`, `bluetooth`,

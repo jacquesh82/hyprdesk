@@ -10,6 +10,17 @@ and this project adheres to
 
 ### Added
 
+- **GPU switch in the bar** (MLG-162). On a passthrough machine, the new
+  `gpu` widget shows the NVIDIA GPU reserved for VMs (VFIO, VM when a VM
+  holds it, NVIDIA) and switches it live between vfio-pci and the nvidia
+  driver (CUDA, NVENC, containers), without rebooting. Every switch asks
+  whether it is for this session only or also for the next boots; a boot
+  choice is kept in `/etc/hyprdesk/gpu-boot` and applied early by
+  `hyprdesk-gpu.service`, the kernel command line is never edited. The
+  card never drives the desktop (nvidia_drm stays unloaded) and nvidia is
+  released with rmmod. Also `hyprdesk gpu [status | nvidia | vfio | toggle]
+  [--boot]` (root part through pkexec) and `hd.gpus()` for plugins. Hidden
+  without passthrough; added once to the bar.
 - **Update progress in the bar** (MLG-161). While an update runs, the
   updates widget shows its progress instead of “…”: “42 %” in compact mode,
   a thin gauge and the percentage in detailed mode (option `detaille`,

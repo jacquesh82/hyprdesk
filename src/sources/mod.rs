@@ -546,6 +546,32 @@ pub fn install(lua: &Lua, hd: &Table) -> mlua::Result<()> {
             None => Ok(Value::Nil),
         })?,
     )?;
+    // GPU NVIDIA basculables vfio-pci ⇄ nvidia (MLG-162), lus dans sysfs.
+    hd.set(
+        "gpus",
+        lua.create_function(|lua, ()| {
+            let busy = crate::gpu::busy();
+            let gpus = crate::gpu::list();
+            // Sondé seulement s'il y a un GPU à basculer (puis gardé en cache).
+            let ready = !gpus.is_empty() && crate::gpu::switch_bin().is_some();
+            let t = lua.create_table()?;
+            for (i, g) in gpus.iter().enumerate() {
+                let e = lua.create_table()?;
+                e.set("address", g.address.as_str())?;
+                e.set("name", g.name.as_str())?;
+                e.set("driver", g.driver.as_str())?;
+                e.set("state", g.state())?;
+                e.set("boot", g.boot().as_str())?;
+                e.set("boot_default", g.boot_default.as_str())?;
+                e.set("boot_saved", g.boot_saved.is_some())?;
+                e.set("nvidia_module", g.nvidia_module)?;
+                e.set("busy", busy)?;
+                e.set("ready", ready)?;
+                t.set(i + 1, e)?;
+            }
+            Ok(t)
+        })?,
+    )?;
     hd.set(
         "notifications",
         lua.create_function(|lua, ()| {

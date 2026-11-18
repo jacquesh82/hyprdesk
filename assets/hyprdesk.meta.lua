@@ -305,6 +305,23 @@ function hd.power_profile() end
 ---@return { name: string, cap: integer, status: string, device: boolean }[]
 function hd.batteries() end
 
+---@class HD.Gpu
+---@field address string # adresse PCI (0000:01:00.0)
+---@field name string # « GeForce RTX 3070 »
+---@field driver string # nvidia | vfio-pci | none
+---@field state "nvidia"|"vfio"|"vm"|"none" # vm : sur vfio-pci et tenu par une VM
+---@field boot "nvidia"|"vfio" # pilote des prochains démarrages
+---@field boot_default "nvidia"|"vfio" # celui du démarrage sans choix de hyprdesk
+---@field boot_saved boolean # un choix de hyprdesk est gardé pour le démarrage
+---@field nvidia_module boolean # le pilote nvidia est installé pour ce noyau
+---@field busy boolean # une bascule `hyprdesk gpu` est en cours
+---@field ready boolean # un hyprdesk root sait basculer (pkexec)
+
+--- GPU NVIDIA basculables entre vfio-pci (VM) et nvidia, lus dans sysfs
+--- (jamais nil : liste vide sans passthrough). Bascule : `hyprdesk gpu`.
+---@return HD.Gpu[]
+function hd.gpus() end
+
 --- Démon d'index de fichiers (son socket) ; nil s'il est arrêté.
 ---@return { phase: string, fichiers: integer, progression: integer }?
 function hd.index_status() end

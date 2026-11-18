@@ -305,6 +305,23 @@ function hd.power_profile() end
 ---@return { name: string, cap: integer, status: string, device: boolean }[]
 function hd.batteries() end
 
+---@class HD.Gpu
+---@field address string # PCI address (0000:01:00.0)
+---@field name string # "GeForce RTX 3070"
+---@field driver string # nvidia | vfio-pci | none
+---@field state "nvidia"|"vfio"|"vm"|"none" # vm: on vfio-pci and held by a VM
+---@field boot "nvidia"|"vfio" # driver at the next boots
+---@field boot_default "nvidia"|"vfio" # the boot driver without a hyprdesk choice
+---@field boot_saved boolean # a hyprdesk choice is kept for boot
+---@field nvidia_module boolean # the nvidia driver is installed for this kernel
+---@field busy boolean # a `hyprdesk gpu` switch is running
+---@field ready boolean # a root hyprdesk can switch (pkexec)
+
+--- NVIDIA GPUs that can switch between vfio-pci (VMs) and nvidia, read from sysfs
+--- (never nil: empty list without passthrough). Switching: `hyprdesk gpu`.
+---@return HD.Gpu[]
+function hd.gpus() end
+
 --- File index daemon (its socket); nil when it is stopped.
 ---@return { phase: string, fichiers: integer, progression: integer }?
 function hd.index_status() end

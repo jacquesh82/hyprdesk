@@ -180,6 +180,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "view-app-grid" => {
             r#"<rect x="3" y="15" width="18" height="6" rx="3"/><rect x="5" y="9" width="4" height="4" rx="1"/><rect x="10" y="9" width="4" height="4" rx="1"/><rect x="15" y="9" width="4" height="4" rx="1"/>"#
         }
+        // Carte graphique : ventilateur et connecteur PCIe (widget gpu, MLG-162).
+        "hyprdesk-gpu" => {
+            r#"<rect x="2" y="5" width="20" height="12" rx="2"/><circle cx="9" cy="11" r="3"/><path d="M15 9h4M15 13h4M6 17v3h9v-3"/>"#
+        }
         "video-display" => {
             r#"<rect x="2" y="5" width="12" height="9" rx="2"/><rect x="16" y="3" width="6" height="12" rx="1.5"/><path d="M6 19h4M8 14v5"/>"#
         }

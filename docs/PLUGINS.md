@@ -254,7 +254,7 @@ de recherche, le premier trouvé l'emporte :
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `vkbd`, `notifications`,
+Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `notifications`,
 `session`) sont intégrés au binaire, et un fichier du même nom les remplace.
 
 ```lua
@@ -295,7 +295,9 @@ pas de sondage) des instantanés lus aussitôt. `hd.network()` (NetworkManager :
 `hd.bluetooth()` (BlueZ : adaptateur allumé, appareils appairés ou connectés,
 batterie), `hd.power_profile()` (profil d'énergie actif et proposés) rendent
 `nil` si le service est injoignable : le plugin retombe alors sur `hd.exec`.
-S'y ajoutent `hd.batteries()` (`/sys/class/power_supply`), `hd.index_status()`
+S'y ajoutent `hd.batteries()` (`/sys/class/power_supply`), `hd.gpus()` (GPU
+NVIDIA basculables entre vfio-pci et nvidia, lus dans sysfs ; widget `gpu`),
+`hd.index_status()`
 (démon d'index, `nil` s'il est arrêté) et `hd.notifications()` (`nil` si un
 autre démon que hyprdesk affiche les notifications). Les champs sont décrits
 dans `hyprdesk.meta.lua` ; les widgets intégrés `reseau`, `bluetooth`,

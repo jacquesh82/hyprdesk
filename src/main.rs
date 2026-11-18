@@ -27,6 +27,7 @@ mod fileindex;
 mod fonts;
 mod fx;
 mod genfiles;
+mod gpu;
 mod greeter;
 mod greeter_setup;
 mod greeter_ui;
@@ -161,6 +162,9 @@ Commandes :
   updates [--upgrade | --refresh | --report]
                     paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
                     --upgrade : mise à jour non interactive (pkexec), échec confié au démon
+  gpu [status | nvidia | vfio | toggle] [--boot] [--device <adresse>]
+                    GPU NVIDIA réservé aux VM : bascule à chaud entre vfio-pci et nvidia
+                    (pkexec) ; --boot : garde aussi ce pilote aux prochains démarrages
   reload            relit la configuration
   status            état du démon
   quit              arrête le démon
@@ -1428,6 +1432,8 @@ fn main() -> ExitCode {
             let _ = tokio::signal::ctrl_c().await;
             ExitCode::SUCCESS
         }),
+        // GPU NVIDIA réservé aux VM : bascule vfio-pci ⇄ nvidia (MLG-162).
+        "gpu" => gpu::cli(&args[1..]),
         // Mises à jour en attente, et mise à jour non interactive.
         "updates" => {
             // Un seul mot de passe par mise à jour (MLG-160) : règle polkit.

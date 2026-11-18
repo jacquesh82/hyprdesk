@@ -668,6 +668,15 @@ fn pick_root_bin(trusted: impl Fn(&Path) -> bool) -> Result<&'static str, String
         })
 }
 
+/// hyprdesk installés en root, dans l'ordre de préférence (paquet, puis
+/// compilation) ; jamais celui de l'utilisateur.
+pub fn root_bins() -> Vec<&'static str> {
+    [PACKAGED_BIN, SYSTEM_BIN]
+        .into_iter()
+        .filter(|p| root_owned(Path::new(p)))
+        .collect()
+}
+
 /// hyprdesk à lancer en root (pkexec, écran de connexion).
 pub fn root_bin() -> Result<&'static str, String> {
     pick_root_bin(root_owned)
