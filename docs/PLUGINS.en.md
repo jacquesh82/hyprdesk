@@ -270,6 +270,10 @@ return {
 }
 ```
 
+A long task can return `progress` (a number from 0 to 1): the bar draws a
+thin gauge in the module, in its state colour, before the text (the `majs`
+plugin uses it during an update, option `detaille`).
+
 A menu entry can also be a **text field**: `{ input = "Password",
 label = "Wi-Fi “Home”", secret = true, action = function(text) … end }`. Enter
 calls the action with the typed text, then the menu closes; `secret` masks the input,

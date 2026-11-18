@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 138] = [
+const SCENES: [&str; 139] = [
     "desktop",
     "typography",
     "icons",
@@ -111,6 +111,7 @@ const SCENES: [&str; 138] = [
     "bar-menu-closing",
     "bar-bottom",
     "bar-overflow",
+    "bar-majs-progression",
     "bar-still",
     "bar-graphite-idle",
     "bar-graphite-pressed",
@@ -1444,6 +1445,7 @@ impl Preview {
                     toggleable: true,
                     error: None,
                     options: vec![
+                        ("detaille".into(), OptValue::Bool(true)),
                         ("masquer_a_jour".into(), OptValue::Bool(false)),
                         ("texte".into(), OptValue::Bool(true)),
                     ],
@@ -2055,6 +2057,51 @@ impl Preview {
                     "barcontrols".into(),
                     popover::Kind::Widget("barcontrols".into()),
                 );
+            }
+            // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis
+            // mode détaillé (jauge et %), côte à côte.
+            if SCENES[self.scene] == "bar-majs-progression" {
+                for (id, progress) in [
+                    ("preview-majs-compact", None),
+                    ("preview-majs-detaille", Some(0.42)),
+                ] {
+                    let mut w = widget(
+                        id,
+                        WidgetKind::Lua {
+                            func: 0,
+                            click: None,
+                            scroll: None,
+                            menu: Some(0),
+                            toggle: None,
+                        },
+                        Anchor::TopRight,
+                    );
+                    w.in_bar = true;
+                    self.app.values.insert(
+                        id.to_string(),
+                        widgets::Value::Rich(config::Rendered {
+                            icon: Some("software-update-available-symbolic".into()),
+                            text: "42 %".into(),
+                            state: config::RenderState::Active,
+                            progress,
+                            ..Default::default()
+                        }),
+                    );
+                    let cfg = Arc::make_mut(&mut self.app.cfg);
+                    cfg.widgets.push(w);
+                    let bar = cfg.bar.as_mut().unwrap();
+                    // Seuls ces deux modules à droite : rien ne part dans « … ».
+                    bar.zones[2].retain(
+                        |i| matches!(i, BarItem::Widget(w) if w.starts_with("preview-majs")),
+                    );
+                    bar.zones[2].push(BarItem::Widget(id.into()));
+                    if let Some(p) = bar.portrait.as_mut() {
+                        p[2].retain(
+                            |i| matches!(i, BarItem::Widget(w) if w.starts_with("preview-majs")),
+                        );
+                        p[2].push(BarItem::Widget(id.into()));
+                    }
+                }
             }
             if SCENES[self.scene] == "bar-overflow" {
                 self.app

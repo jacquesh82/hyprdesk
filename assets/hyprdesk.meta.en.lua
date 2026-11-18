@@ -121,6 +121,7 @@
 ---@field icon? string
 ---@field tooltip? string
 ---@field toggled? boolean
+---@field progress? number # 0 to 1: a progress bar in the module
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuItem
@@ -211,6 +212,7 @@ function hd.component(name, spec) end
 ---@field icon? string # theme icon name ("…-symbolic": tinted) or path
 ---@field tooltip? string
 ---@field toggled? boolean
+---@field progress? number # 0 to 1: a progress bar in the module
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuEntry

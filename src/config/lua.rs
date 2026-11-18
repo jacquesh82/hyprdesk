@@ -2523,7 +2523,7 @@ impl Loaded {
     }
 
     /// Appelle la fonction `render` d'un widget Lua.
-    /// Appelle `render` : une chaîne, ou une table { text, icon, tooltip, state }.
+    /// Appelle `render` : une chaîne, ou une table { text, icon, tooltip, state, progress }.
     pub fn render(&self, idx: usize) -> Result<Rendered, String> {
         reset_budget(&self.lua).map_err(|e| e.to_string())?;
         let f = self.func(idx).map_err(|e| e.to_string())?;
@@ -2543,6 +2543,20 @@ impl Loaded {
                     tooltip: s("tooltip")?,
                     state,
                     toggled: opt_bool(&t, "toggled", "render").map_err(|e| short_lua_error(&e))?,
+                    progress: match t
+                        .get::<Value>("progress")
+                        .map_err(|e| short_lua_error(&e))?
+                    {
+                        Value::Nil => None,
+                        Value::Integer(n) => Some((n as f32).clamp(0.0, 1.0)),
+                        Value::Number(n) if n.is_finite() => Some((n as f32).clamp(0.0, 1.0)),
+                        v => {
+                            return Err(crate::tr!(
+                                "render : progress doit être un nombre de 0 à 1, pas {t}",
+                                t = v.type_name()
+                            ));
+                        }
+                    },
                 })
             }
             other => Ok(Rendered {

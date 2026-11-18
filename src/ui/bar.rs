@@ -1827,6 +1827,21 @@ impl App {
                             content = content.push(icon);
                             has_icon = true;
                         }
+                        // Avancement d'une tâche (MLG-161) : une jauge fine, de la
+                        // couleur du module, sur une piste discrète.
+                        if let Some(p) = r.progress {
+                            let track = tint.scale_alpha(0.25);
+                            content = content.push(
+                                iced::widget::progress_bar(0.0..=1.0, p)
+                                    .girth(4)
+                                    .length(Length::Fixed((isz * 2.5).round()))
+                                    .style(move |_| iced::widget::progress_bar::Style {
+                                        background: track.into(),
+                                        bar: tint.into(),
+                                        border: iced::Border::default().rounded(2),
+                                    }),
+                            );
+                        }
                         if !r.text.is_empty() && !(compact && has_icon) {
                             content = content.push(self.label(truncate(&r.text, 48), size, tint));
                         }

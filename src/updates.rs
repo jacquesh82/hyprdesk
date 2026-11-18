@@ -300,10 +300,28 @@ fn open_log() -> crate::processes::RotatingLog {
 /// Met à jour chaque source, l'une après l'autre ; s'arrête au premier échec.
 pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
     let mut steps = Vec::new();
-    for s in sources.iter().filter(|s| !s.upgrade.is_empty()) {
+    let todo: Vec<&Source> = sources.iter().filter(|s| !s.upgrade.is_empty()).collect();
+    // Poids des étapes : paquets en attente de chaque source (dernier relevé).
+    let pending = pending_counts();
+    let counts: Vec<usize> = todo
+        .iter()
+        .map(|s| {
+            pending
+                .iter()
+                .find(|(label, _)| label == crate::i18n::tr(s.label))
+                .map_or(0, |(_, n)| *n)
+        })
+        .collect();
+    let overall = std::sync::Arc::new(std::sync::Mutex::new(crate::update_progress::Overall::new(
+        &counts,
+    )));
+    write_progress(0, "", "prepare", None);
+    for (i, s) in todo.iter().enumerate() {
         let (prog, args) = s.upgrade.split_first().expect("commande non vide");
         let mut cmd = tokio::process::Command::new(prog);
         cmd.args(args).env("LC_ALL", "C");
+        let label = crate::i18n::tr(s.label).to_string();
+        let sink = progress_sink(s.id, counts[i], i, label, overall.clone());
         let mut log = open_log();
         log.write(
             format!(
@@ -313,34 +331,124 @@ pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
             )
             .as_bytes(),
         );
-        let step =
-            match crate::processes::output_logged(&mut cmd, Duration::from_secs(3600), log).await {
-                Ok(o) => {
-                    let mut log = String::from_utf8_lossy(&o.stdout).into_owned();
-                    log.push_str(&String::from_utf8_lossy(&o.stderr));
-                    Step {
-                        source: s.id,
-                        command: s.upgrade.join(" "),
-                        ok: o.status.success(),
-                        code: o.status.code(),
-                        tail: tail(&log, TAIL_LINES),
-                    }
-                }
-                Err(e) => Step {
+        let step = match crate::processes::output_logged_lines(
+            &mut cmd,
+            Duration::from_secs(3600),
+            log,
+            sink,
+        )
+        .await
+        {
+            Ok(o) => {
+                let mut log = String::from_utf8_lossy(&o.stdout).into_owned();
+                log.push_str(&String::from_utf8_lossy(&o.stderr));
+                Step {
                     source: s.id,
                     command: s.upgrade.join(" "),
-                    ok: false,
-                    code: None,
-                    tail: e.to_string(),
-                },
-            };
+                    ok: o.status.success(),
+                    code: o.status.code(),
+                    tail: tail(&log, TAIL_LINES),
+                }
+            }
+            Err(e) => Step {
+                source: s.id,
+                command: s.upgrade.join(" "),
+                ok: false,
+                code: None,
+                tail: e.to_string(),
+            },
+        };
         let failed = !step.ok;
         steps.push(step);
         if failed {
             break;
         }
+        let done = overall.lock().unwrap_or_else(|e| e.into_inner()).finish(i);
+        write_progress(percent(done), "", "prepare", None);
     }
     steps
+}
+
+/// Pourcentage affiché : jamais 100 avant la fin réelle.
+fn percent(f: f32) -> u8 {
+    ((f * 100.0).floor() as u8).min(99)
+}
+
+/// Paquets en attente par source (libellé affiché, nombre), d'après l'état
+/// écrit au dernier relevé.
+fn pending_counts() -> Vec<(String, usize)> {
+    std::fs::read_to_string(state_path())
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.strip_prefix("source="))
+        .filter_map(|v| {
+            let mut it = v.splitn(3, '|');
+            let label = it.next()?.to_string();
+            let n = it.next()?.parse().ok()?;
+            Some((label, n))
+        })
+        .collect()
+}
+
+/// Lecteur de la sortie d'une étape : l'avancement passe dans l'état partagé
+/// avec le plugin, au plus quatre fois par seconde (ou à chaque changement de
+/// pourcentage ou de paquet).
+fn progress_sink(
+    source: &'static str,
+    expected: usize,
+    step: usize,
+    label: String,
+    overall: std::sync::Arc<std::sync::Mutex<crate::update_progress::Overall>>,
+) -> crate::processes::LineSink {
+    let mut tracker = crate::update_progress::Tracker::new(source, expected);
+    let mut last: Option<(u8, Option<String>, std::time::Instant)> = None;
+    std::sync::Arc::new(std::sync::Mutex::new(move |line: &str| {
+        if !tracker.feed(line) {
+            return;
+        }
+        let f = overall
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .at(step, tracker.fraction());
+        let pct = percent(f);
+        let due = match &last {
+            None => true,
+            Some((p, cur, at)) => {
+                *p != pct
+                    || (*cur != tracker.current
+                        && at.elapsed() >= std::time::Duration::from_millis(250))
+            }
+        };
+        if due {
+            write_progress(pct, &label, tracker.phase.key(), tracker.current.as_deref());
+            last = Some((pct, tracker.current.clone(), std::time::Instant::now()));
+        }
+    }))
+}
+
+/// Lignes d'avancement de l'état partagé (`progress=`, `step=`, `phase=`,
+/// `current=`), remplacées sans toucher au reste.
+const PROGRESS_KEYS: [&str; 4] = ["progress=", "step=", "phase=", "current="];
+
+fn without_progress(old: &str) -> Vec<String> {
+    old.lines()
+        .filter(|l| !PROGRESS_KEYS.iter().any(|k| l.starts_with(k)))
+        .map(String::from)
+        .collect()
+}
+
+/// Écrit l'avancement (pourcentage, source, phase, paquet en cours).
+pub fn write_progress(pct: u8, step: &str, phase: &str, current: Option<&str>) {
+    let path = state_path();
+    let mut lines = without_progress(&std::fs::read_to_string(&path).unwrap_or_default());
+    let clean = |s: &str| s.replace(['\n', '\r'], " ");
+    lines.push(format!("progress={pct}"));
+    lines.push(format!("step={}", clean(step)));
+    lines.push(format!("phase={phase}"));
+    if let Some(c) = current {
+        lines.push(format!("current={}", clean(c)));
+    }
+    let _ = std::fs::write(&path, lines.join("\n") + "\n");
 }
 
 /// Description d'un échec, à copier ou à soumettre à l'assistant.
@@ -384,7 +492,8 @@ pub fn mask_credentials(s: &str) -> String {
 /// faciles à lire en Lua :
 /// `state=idle|checking|running|failed`, `checked=<unix>`, `total=<n>`,
 /// puis une ligne `source=<libellé>|<n>|<paquets séparés par des espaces>`
-/// par source.
+/// par source ; pendant une mise à jour, `progress=<0-99>`, `step=<source>`,
+/// `phase=prepare|download|check|install|hooks` et `current=<paquet>`.
 pub fn state_path() -> std::path::PathBuf {
     crate::policy::private_runtime_or_unusable().join("hyprdesk-updates.txt")
 }
@@ -439,10 +548,10 @@ pub fn effective_state(s: &str, alive: impl Fn(u32) -> bool) -> Option<String> {
 pub fn set_state(state: &str) {
     let path = state_path();
     let old = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut lines: Vec<String> = old
-        .lines()
+    // L'avancement d'une mise à jour précédente ne survit pas à l'état suivant.
+    let mut lines: Vec<String> = without_progress(&old)
+        .into_iter()
         .filter(|l| !l.starts_with("state=") && !l.starts_with("pid="))
-        .map(String::from)
         .collect();
     lines.insert(0, format!("state={state}"));
     // Tâche en cours : son processus, pour reconnaître une tâche interrompue.

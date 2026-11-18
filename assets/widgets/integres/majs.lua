@@ -3,6 +3,10 @@
 -- (relevé, mise à jour non interactive par pkexec) ; ce plugin lit l'état
 -- qu'il écrit et l'affiche. Un échec est confié au démon : l'assistant LYRA
 -- s'il est là, sinon une fenêtre de détail copiable.
+--
+-- Pendant la mise à jour (MLG-161), l'avancement : « 42 % » en mode compact,
+-- une barre de progression et le pourcentage en mode détaillé (option
+-- `detaille`) ; l'info-bulle dit la source, la phase et le paquet en cours.
 
 -- Écrit par hyprdesk dans son dossier d'exécution privé (jamais /tmp).
 local STATE = (hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR") or "/nonexistent") .. "/hyprdesk-updates.txt"
@@ -11,6 +15,14 @@ local MAX_AGE = 3600
 -- Choix « un seul mot de passe par mise à jour » (MLG-160), gardé par hyprdesk.
 local POLKIT = (os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state"))
     .. "/hyprdesk/updates-polkit"
+
+local PHASES = {
+    prepare  = hd.t("préparation"),
+    download = hd.t("téléchargement"),
+    check    = hd.t("vérifications"),
+    install  = hd.t("installation"),
+    hooks    = hd.t("finalisation"),
+}
 
 local function polkit_keep()
     local f = io.open(POLKIT, "r")
@@ -34,6 +46,10 @@ local function read()
         elseif k == "pid" then s.pid = tonumber(v)
         elseif k == "checked" then s.checked = tonumber(v) or 0
         elseif k == "total" then s.total = tonumber(v) or 0
+        elseif k == "progress" then s.progress = tonumber(v)
+        elseif k == "step" then s.step = v
+        elseif k == "phase" then s.phase = v
+        elseif k == "current" then s.current = v
         elseif k == "source" then
             local label, n, pkgs = v:match("^(.-)|(%d+)|(.*)$")
             if label then
@@ -52,6 +68,17 @@ local function read()
     return s
 end
 
+-- « Dépôts Arch — installation : firefox »
+local function progress_detail(s)
+    local parts = {}
+    if s.step and s.step ~= "" then parts[#parts + 1] = s.step end
+    local phase = PHASES[s.phase or ""]
+    if phase then
+        parts[#parts + 1] = s.current and s.current ~= "" and (phase .. " : " .. s.current) or phase
+    end
+    return table.concat(parts, " — ")
+end
+
 local function refresh_if_old(s)
     local busy = s and (s.state == "checking" or s.state == "running")
     if not busy and (not s or os.time() - s.checked > MAX_AGE) then
@@ -62,10 +89,11 @@ end
 return {
     name        = hd.t("Mises à jour"),
     description = hd.t("Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher)."),
-    -- Lecture d'un petit fichier : assez souvent pour voir la fin d'une mise à jour.
-    interval    = 5,
+    -- Lecture d'un petit fichier : assez souvent pour suivre une mise à jour.
+    interval    = 2,
     anchor      = "top-right",
-    options     = { texte = true, masquer_a_jour = false },
+    -- detaille : barre de progression et % pendant la mise à jour (sinon %).
+    options     = { texte = true, masquer_a_jour = false, detaille = false },
     render = function(o)
         local s = read()
         refresh_if_old(s)
@@ -74,8 +102,16 @@ return {
                      tooltip = hd.t("Recherche des mises à jour…") }
         end
         if s.state == "running" then
-            return { icon = "software-update-available-symbolic", text = o.texte and "…" or "",
-                     tooltip = hd.t("Mise à jour en cours…"), state = "active" }
+            local pct = s.progress
+            local detail = progress_detail(s)
+            local tip = pct and string.format(hd.t("Mise à jour en cours : %d %%"), pct)
+                or hd.t("Mise à jour en cours…")
+            if detail ~= "" then tip = tip .. "\n" .. detail end
+            local label = pct and string.format("%d %%", pct) or "…"
+            return { icon = "software-update-available-symbolic",
+                     text = o.texte and label or "",
+                     progress = o.detaille and (pct or 0) / 100 or nil,
+                     tooltip = tip, state = "active" }
         end
         if s.state == "failed" then
             return { icon = "software-update-available-symbolic", text = o.texte and "!" or "",
@@ -103,7 +139,9 @@ return {
         end
         m[#m + 1] = "-"
         if s.state == "running" then
-            m[#m + 1] = { label = hd.t("Mise à jour en cours…") }
+            m[#m + 1] = { label = s.progress and string.format(hd.t("Mise à jour en cours : %d %%"), s.progress)
+                                  or hd.t("Mise à jour en cours…"),
+                          detail = progress_detail(s) ~= "" and progress_detail(s) or nil }
         elseif s.total > 0 then
             m[#m + 1] = { label = hd.t("Tout mettre à jour"), icon = "software-update-available-symbolic",
                           confirm = string.format(hd.t("Mettre à jour %d paquet(s) ?"), s.total),

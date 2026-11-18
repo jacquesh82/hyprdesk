@@ -10,6 +10,15 @@ and this project adheres to
 
 ### Added
 
+- **Update progress in the bar** (MLG-161). While an update runs, the
+  updates widget shows its progress instead of “…”: “42 %” in compact mode,
+  a thin gauge and the percentage in detailed mode (option `detaille`,
+  Settings → Plugins → Updates → Configure); the tooltip and the menu give
+  the source, the phase (downloading, checking, installing, finishing) and
+  the package in progress. `hyprdesk updates --upgrade` follows the package
+  managers' output as it runs (pacman and yay / paru, apt, dnf, zypper,
+  flatpak); the progress never goes backwards. Plugins can draw the same
+  gauge by returning `progress` (0 to 1) from `render`.
 - **One password per update** (MLG-160). An optional polkit rule
   (`/etc/polkit-1/rules.d/50-hyprdesk-updates.rules`) keeps the pkexec
   authorisation of package managers (pacman, apt-get, dnf, zypper) for

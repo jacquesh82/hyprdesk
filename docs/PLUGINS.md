@@ -270,6 +270,10 @@ return {
 }
 ```
 
+Une tâche longue peut rendre `progress` (nombre de 0 à 1) : la barre dessine
+une jauge fine dans le module, à la couleur de son état, avant le texte
+(le plugin `majs` s'en sert pendant une mise à jour, option `detaille`).
+
 Une entrée de menu peut aussi être un **champ de saisie** : `{ input = "Mot de passe",
 label = "Wi-Fi « Maison »", secret = true, action = function(texte) … end }`. Entrée
 appelle l'action avec le texte saisi, puis le menu se ferme ; `secret` masque la saisie,

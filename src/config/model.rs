@@ -716,6 +716,9 @@ pub struct Rendered {
     pub state: RenderState,
     /// État confirmé d'un interrupteur proposé dans le centre de contrôle.
     pub toggled: Option<bool>,
+    /// Avancement d'une tâche (0 à 1) : une barre de progression dans le
+    /// module (MLG-161).
+    pub progress: Option<f32>,
 }
 
 /// Entrée d'un menu déroulant (plugin, zone de notification).

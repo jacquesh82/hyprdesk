@@ -420,7 +420,9 @@ mod tests {
                         auth        include     login\n";
         assert!(!declares_account(hyprlock));
         assert!(!declares_account("# account include login\n"));
-        assert!(declares_account("auth include login\naccount include login\n"));
+        assert!(declares_account(
+            "auth include login\naccount include login\n"
+        ));
         assert!(declares_account("-account optional pam_foo.so\n"));
         assert!(declares_account("@include common-auth\n"));
     }

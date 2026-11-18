@@ -121,8 +121,50 @@ impl RotatingLog {
 
 type Shared = std::sync::Arc<std::sync::Mutex<Option<RotatingLog>>>;
 
-async fn read_tail(mut reader: impl AsyncRead + Unpin, log: Shared) -> io::Result<Vec<u8>> {
+/// Reçoit chaque ligne d'une sortie, au fil de l'eau (`\n` ou `\r` : une
+/// barre de progression réécrite sur place compte aussi).
+pub type LineSink = std::sync::Arc<std::sync::Mutex<dyn FnMut(&str) + Send>>;
+
+/// Ligne en cours d'un flux, rendue à `sink` à chaque fin de ligne.
+struct Lines {
+    sink: LineSink,
+    partial: Vec<u8>,
+}
+
+impl Lines {
+    /// Au-delà, une « ligne » sans fin est coupée (mémoire bornée).
+    const MAX: usize = 4096;
+
+    fn feed(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            if b == b'\n' || b == b'\r' {
+                self.flush();
+            } else if self.partial.len() < Self::MAX {
+                self.partial.push(b);
+            }
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.partial.is_empty() {
+            return;
+        }
+        let line = String::from_utf8_lossy(&self.partial).into_owned();
+        self.partial.clear();
+        (self.sink.lock().unwrap_or_else(|e| e.into_inner()))(&line);
+    }
+}
+
+async fn read_tail(
+    mut reader: impl AsyncRead + Unpin,
+    log: Shared,
+    sink: Option<LineSink>,
+) -> io::Result<Vec<u8>> {
     let mut tail = Tail::new(KEEP);
+    let mut lines = sink.map(|sink| Lines {
+        sink,
+        partial: Vec::new(),
+    });
     let mut chunk = [0u8; 8192];
     loop {
         let n = reader.read(&mut chunk).await?;
@@ -133,6 +175,12 @@ async fn read_tail(mut reader: impl AsyncRead + Unpin, log: Shared) -> io::Resul
         if let Some(l) = log.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             l.write(&chunk[..n]);
         }
+        if let Some(l) = lines.as_mut() {
+            l.feed(&chunk[..n]);
+        }
+    }
+    if let Some(l) = lines.as_mut() {
+        l.flush();
     }
     Ok(tail.into_vec())
 }
@@ -142,23 +190,26 @@ pub async fn output(
     command: &mut tokio::process::Command,
     timeout: Duration,
 ) -> io::Result<Output> {
-    run(command, timeout, None).await
+    run(command, timeout, None, None).await
 }
 
 /// Comme `output`, et toute la sortie (standard et d'erreur) va aussi dans
-/// un journal tournant (`log`).
-pub async fn output_logged(
+/// un journal tournant (`log`) ; chaque ligne passe aussi par `sink` pendant
+/// que la commande tourne (avancement d'une mise à jour).
+pub async fn output_logged_lines(
     command: &mut tokio::process::Command,
     timeout: Duration,
     log: RotatingLog,
+    sink: LineSink,
 ) -> io::Result<Output> {
-    run(command, timeout, Some(log)).await
+    run(command, timeout, Some(log), Some(sink)).await
 }
 
 async fn run(
     command: &mut tokio::process::Command,
     timeout: Duration,
     log: Option<RotatingLog>,
+    sink: Option<LineSink>,
 ) -> io::Result<Output> {
     let log: Shared = std::sync::Arc::new(std::sync::Mutex::new(log));
     let mut child = command
@@ -178,8 +229,8 @@ async fn run(
         .ok_or_else(|| io::Error::other("stderr indisponible"))?;
     let result = tokio::time::timeout(timeout, async {
         let (stdout, stderr, status) = tokio::try_join!(
-            read_tail(stdout, log.clone()),
-            read_tail(stderr, log.clone()),
+            read_tail(stdout, log.clone(), sink.clone()),
+            read_tail(stderr, log.clone(), sink.clone()),
             child.wait()
         )?;
         Ok(Output {
@@ -237,17 +288,29 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hyprdesk-proc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let log = RotatingLog::open(&dir.join("t.log"), 100_000, 2);
-        let o = output_logged(
-            tokio::process::Command::new("sh")
-                .args(["-c", "head -c 200000 /dev/zero | tr '\\0' a; echo FIN"]),
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let s2 = seen.clone();
+        let o = output_logged_lines(
+            tokio::process::Command::new("sh").args([
+                "-c",
+                "head -c 200000 /dev/zero | tr '\\0' a; echo FIN; printf 'x\\ry'",
+            ]),
             Duration::from_secs(10),
             log,
+            std::sync::Arc::new(std::sync::Mutex::new(move |l: &str| {
+                s2.lock().unwrap().push(l.to_string())
+            })),
         )
         .await
         .unwrap();
         assert!(o.status.success());
         assert_eq!(o.stdout.len(), KEEP);
-        assert!(o.stdout.ends_with(b"aFIN\n"));
+        assert!(o.stdout.ends_with(b"aFIN\nx\ry"));
+        // Lignes au fil de l'eau : une ligne trop longue est coupée, `\r` sépare.
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0].len(), Lines::MAX);
+        assert_eq!(&seen[1..], ["x", "y"]);
         // Journal : 200 004 octets en fichiers de 100 000 au plus, 2 anciens gardés.
         let size = |n: &str| std::fs::metadata(dir.join(n)).map(|m| m.len()).unwrap_or(0);
         assert!(size("t.log") <= 100_000 && size("t.log.1") <= 100_000);

@@ -71,6 +71,7 @@ mod theme;
 mod tiling;
 mod tray;
 mod ui;
+mod update_progress;
 mod updates;
 mod video;
 mod widgets;
