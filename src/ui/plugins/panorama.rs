@@ -40,6 +40,26 @@ pub enum Msg {
     Toggle(String),
     /// Fenêtre d'aperçu au format donné.
     Preview((u32, u32)),
+    Layout(crate::panorama::config::Layout),
+    /// Zone, widget.
+    PaneWidget(usize, String),
+    SourceName(String),
+    SourceUrl(String),
+    SourceAdd,
+    SourceRemove(usize),
+    SourcesReset,
+    Browser(String),
+    BrowserCommit,
+}
+
+/// Libellé d'une disposition.
+fn layout_label(l: crate::panorama::config::Layout) -> &'static str {
+    use crate::panorama::config::Layout;
+    match l {
+        Layout::Single => "Une page à la fois",
+        Layout::Split2 => "Écran partagé en 2",
+        Layout::Split3 => "Écran partagé en 3",
+    }
 }
 
 /// Formats proposés pour l'aperçu : (taille simulée, libellé).
@@ -189,16 +209,65 @@ impl App {
     }
 
     fn panorama_pages_tab(&self) -> Element<'_, UiMsg> {
+        use crate::panorama::config::Layout;
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
-        let mut col = column![
+        let mut col = column![self.section("Disposition")].spacing(10);
+        for l in Layout::ALL {
+            col = col.push(
+                iced::widget::radio(crate::i18n::tr(layout_label(l)), l, Some(c.layout), |v| {
+                    wrap(Msg::Layout(v))
+                })
+                .font(self.font)
+                .size(16)
+                .text_size(13),
+            );
+        }
+        if c.layout != Layout::Single {
+            let options: Vec<String> = crate::panorama::PAGES
+                .iter()
+                .map(|(id, _)| id.to_string())
+                .collect();
+            for i in 0..c.layout.panes() {
+                let cur = c.pane(i).to_string();
+                col = col.push(
+                    row![
+                        text(crate::tr!("Zone {n}", n = i + 1))
+                            .font(self.font)
+                            .size(13)
+                            .width(80),
+                        iced::widget::pick_list(options.clone(), Some(cur), move |v| {
+                            wrap(Msg::PaneWidget(i, v))
+                        })
+                        .text_size(13),
+                        text(crate::i18n::tr(crate::panorama::page_label(c.pane(i))))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            }
+        }
+        col = col.push(
+            text(
+                "Sur l'écran, les boutons 1 | 2 | 3 changent la disposition, et ◀ ▶ le widget \
+                 de chaque zone.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        );
+        col = col.push(self.panorama_sources_section());
+        col = col.extend([
             self.section("Pages"),
             text("Glisser d'une page à l'autre ; les points en bas de l'écran y mènent aussi.")
                 .font(self.font)
                 .size(12)
-                .color(dim),
-        ]
-        .spacing(10);
+                .color(dim)
+                .into(),
+        ]);
         // Pages actives dans leur ordre, puis les autres.
         let mut ids: Vec<String> = c.pages.clone();
         for (id, _) in crate::panorama::PAGES {
@@ -263,8 +332,173 @@ impl App {
         col.into()
     }
 
+    /// Sources du widget Vidéo et navigateur.
+    fn panorama_sources_section(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        let mut col = column![
+            self.section("Sources vidéo"),
+            text(
+                "Le widget Vidéo ouvre ces services dans votre navigateur (fenêtre d'application, \
+                 votre profil habituel : déjà connecté), posée exactement dans sa zone. Les \
+                 services protégés (Netflix, Disney+…) demandent un navigateur Chromium avec \
+                 Widevine ; sous Linux, ils sont limités à 720p.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(8);
+        for (i, s) in c.sources.iter().enumerate() {
+            col = col.push(
+                row![
+                    text(s.name.clone()).font(self.font).size(13).width(160),
+                    text(s.url.clone())
+                        .font(self.font)
+                        .size(12)
+                        .color(dim)
+                        .width(Length::Fill),
+                    self.delete_button(false, wrap(Msg::SourceRemove(i))),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
+        let (name, url) = &self.panorama.draft;
+        col = col.push(
+            row![
+                iced::widget::text_input(crate::i18n::tr("Nom"), name)
+                    .on_input(|v| wrap(Msg::SourceName(v)))
+                    .size(13)
+                    .width(160),
+                iced::widget::text_input("https://…", url)
+                    .on_input(|v| wrap(Msg::SourceUrl(v)))
+                    .on_submit(wrap(Msg::SourceAdd))
+                    .size(13),
+                button(text("Ajouter").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press_maybe(
+                        (url.starts_with("https://") || url.starts_with("http://"))
+                            .then(|| wrap(Msg::SourceAdd))
+                    ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+        col = col.push(
+            button(text("Sources par défaut").font(self.font).size(12))
+                .padding([4, 10])
+                .on_press(wrap(Msg::SourcesReset)),
+        );
+        let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
+        col = col.push(
+            self.field(
+                "Navigateur",
+                "panorama",
+                iced::widget::text_input(
+                    found
+                        .as_deref()
+                        .unwrap_or("brave, chromium, google-chrome-stable…"),
+                    &self
+                        .panorama
+                        .browser_draft
+                        .clone()
+                        .unwrap_or_else(|| c.browser.clone()),
+                )
+                .on_input(|v| wrap(Msg::Browser(v)))
+                .on_submit(wrap(Msg::BrowserCommit))
+                .size(13)
+                .width(320),
+            ),
+        );
+        col = col.push(
+            text(match found {
+                Some(cmd) => crate::tr!(
+                    "Navigateur utilisé : {cmd} (vide : détection automatique).",
+                    cmd = cmd
+                ),
+                None => crate::i18n::tr(
+                    "Aucun navigateur Chromium trouvé : installez Brave, Chromium ou Chrome.",
+                )
+                .to_string(),
+            })
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        );
+        col.into()
+    }
+
     pub(in crate::ui) fn panorama_settings_update(&mut self, m: Msg) -> Task<UiMsg> {
         match m {
+            Msg::Layout(l) => {
+                let mut c = self.panorama_cfg();
+                c.layout = l;
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::PaneWidget(i, w) => {
+                let mut c = self.panorama_cfg();
+                while c.panes.len() <= i {
+                    c.panes.push("media".into());
+                }
+                c.panes[i] = w;
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::SourceName(v) => {
+                self.panorama.draft.0 = v;
+                Task::none()
+            }
+            Msg::SourceUrl(v) => {
+                self.panorama.draft.1 = v.trim().to_string();
+                Task::none()
+            }
+            Msg::SourceAdd => {
+                let (name, url) = std::mem::take(&mut self.panorama.draft);
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    self.panorama.draft = (name, url);
+                    return Task::none();
+                }
+                let mut c = self.panorama_cfg();
+                c.sources.push(crate::panorama::config::Source {
+                    name: if name.trim().is_empty() {
+                        crate::panorama::video::host(&url)
+                    } else {
+                        name.trim().to_string()
+                    },
+                    url,
+                });
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::SourceRemove(i) => {
+                let mut c = self.panorama_cfg();
+                if i < c.sources.len() {
+                    c.sources.remove(i);
+                }
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::SourcesReset => {
+                let mut c = self.panorama_cfg();
+                c.sources = crate::panorama::config::default_sources();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::Browser(v) => {
+                self.panorama.browser_draft = Some(v);
+                Task::none()
+            }
+            Msg::BrowserCommit => {
+                let Some(v) = self.panorama.browser_draft.take() else {
+                    return Task::none();
+                };
+                let mut c = self.panorama_cfg();
+                c.browser = v.trim().to_string();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
             Msg::Role(name, on) => {
                 let mut c = self.panorama_cfg();
                 let screen = self

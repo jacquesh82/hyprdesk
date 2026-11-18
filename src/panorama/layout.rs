@@ -30,6 +30,43 @@ pub struct Zones {
     pub target: f32,
     /// Marge intérieure.
     pub pad: f32,
+    /// Zone presque carrée (une des zones d'un écran partagé) : la pochette
+    /// passe au-dessus, le reste dessous.
+    pub compact: bool,
+    /// Longueur de référence des tailles de texte.
+    pub unit: f32,
+}
+
+/// En dessous de ce rapport (grand côté / petit côté), mise en page compacte.
+const COMPACT_RATIO: f32 = 1.9;
+
+/// Découpe une surface `w`×`h` en `n` zones égales le long du grand côté,
+/// séparées de `gap`.
+pub fn panes(w: f32, h: f32, n: usize, gap: f32) -> Vec<Rect> {
+    let n = n.max(1);
+    let along = w >= h;
+    let len = if along { w } else { h };
+    let each = ((len - gap * (n - 1) as f32) / n as f32).max(1.0);
+    (0..n)
+        .map(|i| {
+            let o = i as f32 * (each + gap);
+            if along {
+                Rect {
+                    x: o,
+                    y: 0.0,
+                    w: each,
+                    h,
+                }
+            } else {
+                Rect {
+                    x: 0.0,
+                    y: o,
+                    w,
+                    h: each,
+                }
+            }
+        })
+        .collect()
 }
 
 /// Cible tactile minimale : 9 mm.
@@ -60,6 +97,42 @@ pub fn zones(w: f32, h: f32, px_per_mm: Option<f32>) -> Zones {
     let short = w.min(h);
     let long = w.max(h);
     let pad = (short * 0.05).clamp(8.0, 32.0);
+    if long / short.max(1.0) < COMPACT_RATIO {
+        // Pochette au-dessus, sur 45 % de la hauteur au plus ; aucune si
+        // elle ne laisse pas la place des commandes (zone basse).
+        let t = target(px_per_mm);
+        let mut art_side = (w - 2.0 * pad).min(h * 0.45).max(1.0);
+        if art_side < t * 2.2 || h - art_side - 3.0 * pad < t * 3.2 {
+            art_side = 0.0;
+        }
+        return Zones {
+            orientation,
+            art: Rect {
+                x: pad,
+                y: pad,
+                w: art_side,
+                h: art_side,
+            },
+            main: {
+                let top = if art_side > 0.0 {
+                    art_side + 2.0 * pad
+                } else {
+                    pad
+                };
+                Rect {
+                    x: pad,
+                    y: top,
+                    w: (w - 2.0 * pad).max(1.0),
+                    h: (h - top - pad).max(1.0),
+                }
+            },
+            side: None,
+            target: target(px_per_mm),
+            pad,
+            compact: true,
+            unit: short * 0.75,
+        };
+    }
     let art_side = short - 2.0 * pad;
     // Colonne latérale : un tiers de la longueur restante, si la zone
     // principale garde assez de place.
@@ -116,6 +189,8 @@ pub fn zones(w: f32, h: f32, px_per_mm: Option<f32>) -> Zones {
         side,
         target: target(px_per_mm),
         pad,
+        compact: false,
+        unit: short,
     }
 }
 
@@ -162,6 +237,28 @@ mod tests {
             // Pochette carrée.
             assert_eq!(z.art.w, z.art.h);
         }
+    }
+
+    #[test]
+    fn zones_d_un_ecran_partage() {
+        // 2560×720 en 3 : trois zones de ~840×720, compactes.
+        let p = panes(2560.0, 720.0, 3, 12.0);
+        assert_eq!(p.len(), 3);
+        assert!((p[2].x + p[2].w - 2560.0).abs() < 0.5);
+        for r in &p {
+            let z = zones(r.w, r.h, None);
+            assert!(z.compact);
+            assert!(inside(z.art, r.w, r.h) && inside(z.main, r.w, r.h), "{z:?}");
+        }
+        // Portrait : empilées.
+        let p = panes(720.0, 2560.0, 2, 0.0);
+        assert_eq!((p[1].x, p[1].y, p[1].w), (0.0, 1280.0, 720.0));
+        // Zone basse (aperçu réduit) : pas de pochette, les commandes d'abord.
+        let z = zones(400.0, 300.0, None);
+        assert!(z.compact && z.art.w == 0.0 && z.main.h > 250.0);
+        // En 2 sur 2560×720 : 1280×720, encore compact (1,78).
+        assert!(zones(1280.0, 720.0, None).compact);
+        assert!(!zones(2560.0, 720.0, None).compact);
     }
 
     #[test]

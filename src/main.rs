@@ -162,6 +162,9 @@ Commandes :
                     Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
                     page ; detect : relit les écrans et refait les propositions ;
                     preview : aperçu en fenêtre flottante (2560x720 par défaut)
+  panorama layout <single|split2|split3> | video <n|nom|close>
+                    une page, ou l'écran partagé en 2 ou 3 zones ; ouvre une source du
+                    widget Vidéo (Free TV, Netflix…) dans sa zone, ou la ferme
   polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
   updates [--upgrade | --refresh | --report]

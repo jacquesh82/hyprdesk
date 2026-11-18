@@ -12,17 +12,19 @@
 pub mod config;
 pub mod detect;
 pub mod layout;
+pub mod video;
 
 pub use config::Config;
 
 /// Namespace layer-shell de la surface (règles de calque de Hyprland).
 pub const NAMESPACE: &str = "hyprdesk-panorama";
 
-/// Pages connues, dans l'ordre par défaut : (identifiant, libellé).
+/// Widgets connus (pages et zones), dans l'ordre par défaut : (identifiant, libellé).
 pub const PAGES: &[(&str, &str)] = &[
     ("media", "Média"),
     ("system", "Système"),
     ("clock", "Horloge"),
+    ("video", "Vidéo"),
 ];
 
 /// Libellé d'une page (« Page » si elle est inconnue).

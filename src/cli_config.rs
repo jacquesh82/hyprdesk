@@ -755,12 +755,12 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.screens.clear(); } };
-    "panorama.pages", "panorama", "media,system,clock — pages du Panorama, dans l'ordre",
+    "panorama.pages", "panorama", "media,system,clock,video — pages du Panorama, dans l'ordre",
         |c| c.general.panorama.pages.join(","),
         |s, v, c| {
             let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
             if l.is_empty() {
-                return Err(crate::i18n::tr("pages connues : media, system, clock").to_string());
+                return Err(crate::i18n::tr("widgets connus : media, system, clock, video").to_string());
             }
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.pages = l;
@@ -768,6 +768,38 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.pages = crate::panorama::Config::default().pages; } };
+    "panorama.layout", "panorama", "single | split2 | split3 — une page à la fois, ou l'écran partagé en 2 ou 3 zones",
+        |c| c.general.panorama.layout.id().to_string(),
+        |s, v, c| {
+            let l = crate::panorama::config::Layout::parse(v).ok_or_else(|| crate::i18n::tr("dispositions : single, split2, split3").to_string())?;
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.layout = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.layout = Default::default(); } };
+    "panorama.panes", "panorama", "media,video,system — widget de chaque zone de l'écran partagé",
+        |c| c.general.panorama.panes.join(","),
+        |s, v, c| {
+            let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
+            if l.is_empty() {
+                return Err(crate::i18n::tr("widgets connus : media, system, clock, video").to_string());
+            }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.panes = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.panes = crate::panorama::config::default_panes(); } };
+    "panorama.browser", "panorama", "<commande> | auto — navigateur Chromium des sources vidéo",
+        |c| if c.general.panorama.browser.is_empty() { "auto".into() } else { c.general.panorama.browser.clone() },
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.browser = if matches!(v, "auto" | "") { String::new() } else { v.to_string() };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.browser.clear(); } };
     "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
         |c| c.general.panorama.sleep_minutes.to_string(),
         |s, v, c| {

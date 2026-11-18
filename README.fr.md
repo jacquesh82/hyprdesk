@@ -274,6 +274,9 @@ ou rend le clavier au bureau complet.
   la barre et ne prend jamais le clavier aux fenêtres. Escamotez-le pour
   rendre l'écran aux fenêtres ; **Réglages → Panorama** ou `hyprdesk panorama` ; pas d'écran bandeau ?
   Essayez-le en fenêtre flottante avec `hyprdesk panorama preview`.
+  Partagez-le en 2 ou 3 zones, chacune avec son widget ; le widget Vidéo
+  lit Free TV, Netflix, Disney+, HBO Max… dans sa zone (une fenêtre
+  d'application du navigateur posée là).
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.

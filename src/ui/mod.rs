@@ -1226,6 +1226,7 @@ impl App {
         if o.panorama != n.panorama || o.disabled_plugins != n.disabled_plugins {
             tasks.push(self.sync_bars());
             tasks.push(self.sync_panorama());
+            tasks.push(self.sync_pip());
         }
         let idle_changed = o.idle != n.idle;
         if old.components != self.cfg.components
@@ -4796,7 +4797,14 @@ impl App {
             ),
             Msg::Resized(id, size) => {
                 self.sizes.insert(id, size);
-                Task::batch([self.convex_frame_input(id), self.convex_dock_input(id)])
+                // Panorama : les zones bougent, la vidéo et les trous suivent.
+                let pip = if self.panorama_owns(id) {
+                    self.panorama.regions.remove(&id);
+                    self.sync_pip()
+                } else {
+                    Task::none()
+                };
+                Task::batch([self.convex_frame_input(id), self.convex_dock_input(id), pip])
             }
             Msg::Closed(id) => {
                 if self.panorama_closed(id) {

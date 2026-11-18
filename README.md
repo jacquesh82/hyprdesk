@@ -261,7 +261,9 @@ closes the dock or returns focus to the full desktop.
   the touch device to that screen, keeps the bar off it, and never takes the
   keyboard from your windows. Tuck it away to use the screen for windows;
   **Settings → Panorama** or `hyprdesk panorama`; no strip screen? Try it in
-  a floating window with `hyprdesk panorama preview`.
+  a floating window with `hyprdesk panorama preview`. Split it into 2 or 3
+  zones, each with its own widget; the Video widget plays Free TV, Netflix,
+  Disney+, HBO Max… right in its zone (a browser app window placed there).
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 

@@ -28,7 +28,17 @@ and this project adheres to
   in a floating window with the live player and system, to try it without
   a strip screen: Settings → Panorama → Preview (2560×720, 1920×480,
   1280×400, 720×2560 portrait) or `hyprdesk panorama preview [WxH]`; the
-  window can be resized and the layout follows.
+  window can be resized and the layout follows. **Split screen**: one page
+  at a time, or the screen split into 2 or 3 zones (1 | 2 | 3 buttons on
+  the screen, `layout = "split2"`), each zone with its own widget chosen
+  with ◀ ▶ (media, system, clock, video). The new **Video** widget opens a
+  service (Free TV, Netflix, Disney+, HBO Max, Canal+, Prime Video,
+  YouTube; list editable in Settings → Panorama) in a Chromium browser app
+  window with the usual profile, then floats, pins and places it exactly
+  in its zone, borderless; the Panorama surface leaves a hole there
+  (picture and input). Also in the preview window. `hyprdesk panorama
+  layout <single|split2|split3>`, `hyprdesk panorama video <n|name|close>`,
+  `hyprdesk config set panorama.layout|panes|browser`.
 - **GPU switch in the bar** (MLG-162). On a passthrough machine, the new
   `gpu` widget shows the NVIDIA GPU reserved for VMs (VFIO, VM when a VM
   holds it, NVIDIA) and switches it live between vfio-pci and the nvidia

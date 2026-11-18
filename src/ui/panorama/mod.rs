@@ -8,12 +8,13 @@
 //! - proposée d'elle-même à la détection d'un écran candidat
 //!   (`crate::panorama::detect`), une fois par écran.
 
+mod panes;
 mod swipe;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use iced::widget::{Space, button, column, container, image, row, stack, text};
+use iced::widget::{Space, button, column, container, image, row, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Task};
 use iced_layershell::reexport::{
@@ -24,7 +25,6 @@ use super::{App, Msg, color};
 use crate::panorama::detect::{self, Offer, Screen};
 use crate::panorama::layout::{self, Orientation, Zones};
 use crate::widgets::media::Status;
-use swipe::{Axis, swipe};
 
 /// Poignée de l'écran escamoté.
 const HANDLE_W: u32 = 180;
@@ -121,6 +121,17 @@ pub struct State {
     pub cover: Option<(String, image::Handle)>,
     /// Fenêtre d'aperçu ouverte.
     pub preview: Option<Preview>,
+    /// Vidéo du widget Vidéo (fenêtre de navigateur posée dans sa zone).
+    pub video: Option<panes::Video>,
+    /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
+    pub regions: HashMap<Id, Vec<layout::Rect>>,
+    /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
+    /// aucun écran Panorama n'a de zone Vidéo).
+    pub preview_at: Option<(i32, i32)>,
+    /// Réglages : nouvelle source (nom, adresse) en cours de saisie.
+    pub draft: (String, String),
+    /// Réglages : navigateur en cours de saisie.
+    pub browser_draft: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +158,18 @@ pub enum PMsg {
     /// est ouvert au même format.
     Preview((u32, u32)),
     ClosePreview,
+    /// Disposition : une page, 2 ou 3 zones.
+    Layout(crate::panorama::config::Layout),
+    /// Widget suivant (+1) ou précédent (-1) de la zone.
+    Pane(usize, i32),
+    /// Ouvre la source vidéo n° (liste `sources`).
+    VideoOpen(usize),
+    /// Recherche de la fenêtre lancée (essai n°).
+    VideoPoll(u32),
+    VideoFound(Option<String>),
+    VideoPlaced(Result<(), String>),
+    VideoClose,
+    PreviewAt(Option<(i32, i32)>),
 }
 
 fn wrap(m: PMsg) -> Msg {
@@ -369,8 +392,26 @@ impl App {
         self.commit()
     }
 
+    /// Traite un message, puis remet zone de saisie et fenêtre vidéo à leur
+    /// place (sans rien envoyer si rien n'a bougé).
     pub(super) fn panorama_update(&mut self, m: PMsg) -> Task<Msg> {
+        let t = self.panorama_update_inner(m);
+        Task::batch([t, self.sync_pip()])
+    }
+
+    fn panorama_update_inner(&mut self, m: PMsg) -> Task<Msg> {
         match m {
+            m @ (PMsg::Layout(_)
+            | PMsg::Pane(..)
+            | PMsg::VideoOpen(_)
+            | PMsg::VideoPoll(_)
+            | PMsg::VideoFound(_)
+            | PMsg::VideoPlaced(_)
+            | PMsg::VideoClose) => self.panorama_panes_update(m),
+            PMsg::PreviewAt(at) => {
+                self.panorama.preview_at = at;
+                Task::none()
+            }
             PMsg::Detected(screens, touch) => {
                 self.panorama.screens = screens;
                 self.panorama.touch = touch;
@@ -459,15 +500,52 @@ impl App {
                 if !self.panorama_ticking() {
                     return Task::none();
                 }
-                let media =
-                    Task::perform(crate::widgets::media::status(), |s| wrap(PMsg::Media(s)));
+                self.panorama_video_gone();
+                // Vidéo posée dans l'aperçu : la fenêtre suit la sienne.
+                // (dès l'ouverture : la position est connue quand elle apparaît).
+                let follow = if self.panorama.preview.is_some() && self.panorama.video.is_some() {
+                    Task::perform(
+                        async {
+                            tokio::task::spawn_blocking(|| {
+                                let c = hyprpanel_core::ipc::query_json("clients").ok()?;
+                                c.as_array()?.iter().find_map(|w| {
+                                    (w["class"].as_str() == Some(PREVIEW_APP_ID)).then(|| {
+                                        (
+                                            w["at"][0].as_i64().unwrap_or(0) as i32,
+                                            w["at"][1].as_i64().unwrap_or(0) as i32,
+                                        )
+                                    })
+                                })
+                            })
+                            .await
+                            .ok()
+                            .flatten()
+                        },
+                        |at| wrap(PMsg::PreviewAt(at)),
+                    )
+                } else {
+                    Task::none()
+                };
+                let media = Task::batch([
+                    follow,
+                    Task::perform(crate::widgets::media::status(), |s| wrap(PMsg::Media(s))),
+                ]);
                 let wants_sys = self
                     .panorama
                     .surfaces
                     .values()
                     .map(String::as_str)
                     .chain(self.panorama.preview.map(|_| PREVIEW))
-                    .any(|m| self.panorama_page_id(m) == "system");
+                    .any(|m| self.panorama_page_id(m) == "system")
+                    || (self.cfg.general.panorama.layout
+                        != crate::panorama::config::Layout::Single
+                        && self
+                            .cfg
+                            .general
+                            .panorama
+                            .panes
+                            .iter()
+                            .any(|p| p == "system"));
                 if !wants_sys {
                     return media;
                 }
@@ -563,6 +641,32 @@ impl App {
                 // Nouvelle passe : les écrans déjà proposés peuvent l'être encore.
                 self.panorama.offered.clear();
                 detect_task()
+            }
+            ("layout", _) => match it.next().and_then(crate::panorama::config::Layout::parse) {
+                Some(l) => self.panorama_update(PMsg::Layout(l)),
+                None => Task::none(),
+            },
+            ("video", _) => {
+                let want = it.collect::<Vec<_>>().join(" ");
+                if want == "close" || want == "stop" {
+                    return self.panorama_update(PMsg::VideoClose);
+                }
+                let sources = &self.cfg.general.panorama.sources;
+                let i = want
+                    .parse::<usize>()
+                    .ok()
+                    .map(|n| n.saturating_sub(1))
+                    .or_else(|| {
+                        let w = want.to_lowercase();
+                        sources.iter().position(|s| {
+                            s.name.to_lowercase() == w
+                                || crate::panorama::video::host(&s.url).contains(&w)
+                        })
+                    });
+                match i {
+                    Some(i) if i < sources.len() => self.panorama_update(PMsg::VideoOpen(i)),
+                    _ => Task::none(),
+                }
             }
             ("preview", _) => {
                 let size = it.next().and_then(parse_size).unwrap_or(PREVIEW_SIZE);
@@ -690,146 +794,7 @@ impl App {
         if let Some(o) = self.panorama.offers.get(&id) {
             return self.view_panorama_offer(id, o);
         }
-        // Taille réelle de la surface d'abord : après une rotation, la liste
-        // des écrans peut avoir un temps de retard ; la fenêtre d'aperçu,
-        // elle, se redimensionne à la main.
-        let real = self
-            .sizes
-            .get(&id)
-            .map(|s| (s.width, s.height))
-            .filter(|(w, h)| *w > 0.0 && *h > 0.0);
-        let (mon, (w, h), ppm) = match self.panorama.preview.filter(|p| p.win == id) {
-            Some(p) => (
-                PREVIEW.to_string(),
-                real.unwrap_or((
-                    p.virtual_size.0 as f32 * p.scale,
-                    p.virtual_size.1 as f32 * p.scale,
-                )),
-                Some(PREVIEW_PX_PER_MM * p.scale),
-            ),
-            None => {
-                let Some(mon) = self.panorama.surfaces.get(&id) else {
-                    return Space::new().into();
-                };
-                let Some(m) = self.monitors.iter().find(|x| &x.name == mon) else {
-                    return Space::new().into();
-                };
-                let ppm = self
-                    .panorama
-                    .screens
-                    .iter()
-                    .find(|s| &s.name == mon)
-                    .and_then(Screen::px_per_mm);
-                (
-                    mon.clone(),
-                    real.unwrap_or((m.width as f32, m.height as f32)),
-                    ppm,
-                )
-            }
-        };
-        let mon = &mon;
-        let z = layout::zones(w, h, ppm);
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
-        let bg = color(th.bg, 1.0);
-        let pages = &self.cfg.general.panorama.pages;
-        let page_id = if self.panorama_asleep() {
-            "clock"
-        } else {
-            self.panorama_page_id(mon)
-        };
-        let body: Element<'_, Msg> = match page_id {
-            "system" => self.panorama_system(&z, fg),
-            "clock" => self.panorama_clock(&z, fg),
-            _ => self.panorama_media(&z, fg),
-        };
-        let axis = match z.orientation {
-            Orientation::Landscape => Axis::Horizontal,
-            Orientation::Portrait => Axis::Vertical,
-        };
-        let mon_s = mon.clone();
-        let paged = swipe(body, axis, move |d| wrap(PMsg::Swipe(mon_s.clone(), d)))
-            .on_press(wrap(PMsg::Pressed));
-        // Points des pages (touchables) et bouton d'escamotage.
-        let cur = self.panorama.page.get(mon).copied().unwrap_or(0);
-        let accent = color(th.accent, 1.0);
-        let tgt = z.target;
-        let hide = button(
-            // Aperçu : le bouton ferme la fenêtre ; sinon il escamote.
-            self.icon_named(
-                if mon == PREVIEW {
-                    "window-close-symbolic"
-                } else {
-                    "go-down-symbolic"
-                },
-                tgt * 0.3,
-                fg,
-            )
-            .unwrap_or_else(|| text("▾").size(tgt * 0.4).color(fg).into()),
-        )
-        .width(tgt)
-        .height(tgt)
-        .on_press(wrap(PMsg::Hide(mon.clone())))
-        .style(move |_, st| button::Style {
-            background: Some(
-                Color {
-                    a: if matches!(st, button::Status::Pressed | button::Status::Hovered) {
-                        0.18
-                    } else {
-                        0.08
-                    },
-                    ..fg
-                }
-                .into(),
-            ),
-            border: Border::default().rounded(tgt / 2.0),
-            ..Default::default()
-        });
-        let chrome = container(
-            // En bas à droite : rien du lecteur n'y est posé.
-            row![
-                Space::new().width(Length::Fill),
-                self.panorama_dots(pages.len(), cur, mon, fg, accent),
-                hide
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding(z.pad / 2.0)
-        .align_y(iced::alignment::Vertical::Bottom);
-        let backdrop = container(Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_| container::Style {
-                background: Some(bg.into()),
-                ..Default::default()
-            });
-        let mut layers: Vec<Element<'_, Msg>> = vec![backdrop.into()];
-        if let Some((_, h)) = &self.panorama.cover
-            && page_id == "media"
-        {
-            // Pochette en fond, très atténuée.
-            layers.push(
-                container(
-                    image(h.clone())
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .content_fit(iced::ContentFit::Cover)
-                        .opacity(0.18_f32),
-                )
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            );
-        }
-        layers.push(paged.into());
-        layers.push(chrome.into());
-        stack(layers)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        self.view_panorama_surface(id)
     }
 
     fn panorama_dots<'a>(
@@ -923,7 +888,7 @@ impl App {
             .into(),
         };
         let tgt = z.target;
-        let short = z.art.w + 2.0 * z.pad;
+        let short = z.unit;
         let (title, sub, playing, pos, len) = match &self.panorama.media {
             Some(s) => (
                 if s.title.is_empty() {
@@ -950,7 +915,8 @@ impl App {
             ),
         };
         let progress: Element<'_, Msg> = match (pos, len) {
-            (Some(p), Some(l)) if l > 0 => {
+            // Un direct annonce parfois une durée absurde : rien plutôt que faux.
+            (Some(p), Some(l)) if l > 0 && l < 48 * 3600 && (0..=l).contains(&p) => {
                 let r = (p as f32 / l as f32).clamp(0.0, 1.0);
                 let filled = (r * 1000.0) as u16;
                 let bar = |portion: u16, c: Option<Color>| -> Element<'_, Msg> {
@@ -1045,6 +1011,12 @@ impl App {
             (None, _) => Space::new().width(0).into(),
         };
         let pad = z.pad;
+        if z.compact {
+            if z.art.w < 1.0 {
+                return container(info).padding(pad).into();
+            }
+            return column![art, info].spacing(pad).padding(pad).into();
+        }
         match z.orientation {
             Orientation::Landscape => row![art, info, side]
                 .spacing(pad)
@@ -1063,7 +1035,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let accent = color(th.accent, 1.0);
         let dim = Color { a: 0.6, ..fg };
-        let short = z.art.w + 2.0 * z.pad;
+        let short = z.unit;
         let cards: Vec<Element<'_, Msg>> = self
             .panorama
             .sys
@@ -1121,9 +1093,26 @@ impl App {
             })
             .collect();
         let pad = z.pad;
-        let body: Element<'_, Msg> = match z.orientation {
-            Orientation::Landscape => row(cards).spacing(pad).into(),
-            Orientation::Portrait => column(cards).spacing(pad).into(),
+        let body: Element<'_, Msg> = if z.compact {
+            // Zone presque carrée : une grille de deux colonnes.
+            let mut col = column![].spacing(pad);
+            let mut it = cards.into_iter().peekable();
+            while it.peek().is_some() {
+                let mut line = row![].spacing(pad);
+                for _ in 0..2 {
+                    line = line.push(
+                        it.next()
+                            .unwrap_or_else(|| Space::new().width(Length::Fill).into()),
+                    );
+                }
+                col = col.push(line);
+            }
+            col.into()
+        } else {
+            match z.orientation {
+                Orientation::Landscape => row(cards).spacing(pad).into(),
+                Orientation::Portrait => column(cards).spacing(pad).into(),
+            }
         };
         container(body)
             .padding(iced::Padding {
@@ -1139,7 +1128,7 @@ impl App {
 
     fn panorama_clock(&self, z: &Zones, fg: Color) -> Element<'_, Msg> {
         let dim = Color { a: 0.6, ..fg };
-        let short = z.art.w + 2.0 * z.pad;
+        let short = z.unit;
         let now = chrono::Local::now();
         let date = now
             .format_localized("%A %e %B", crate::i18n::chrono_locale())
