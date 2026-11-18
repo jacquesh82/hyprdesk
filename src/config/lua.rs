@@ -690,6 +690,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "language",
             "renderer",
             "gpu",
+            "hyprland_gpu",
             "worker_threads",
             "layout",
             "layout_workspaces",
@@ -1154,10 +1155,21 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ))
         })?;
     }
+    if let Some(s) = opt_string(t, "hyprland_gpu", CTX)? {
+        let s = s.trim();
+        if !s.is_empty() && !crate::render_gpu::valid_slot(s) {
+            return Err(err(crate::tr!(
+                "{CTX} : hyprland_gpu « {s} » : adresse PCI attendue (0000:01:00.0), ou vide",
+                CTX = CTX,
+                s = s.to_string()
+            )));
+        }
+        g.hyprland_gpu = s.to_string();
+    }
     if let Some(s) = opt_string(t, "gpu", CTX)? {
         g.gpu = crate::render::Gpu::from_id(&s).ok_or_else(|| {
             err(crate::tr!(
-                "{CTX} : gpu « {s} » inconnu (low, high)",
+                "{CTX} : gpu « {s} » inconnu (hyprland, low, high)",
                 CTX = CTX,
                 s = s
             ))

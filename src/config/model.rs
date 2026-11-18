@@ -1264,6 +1264,9 @@ pub struct General {
     pub renderer: crate::render::Renderer,
     /// Carte graphique préférée du rendu matériel (à la relance).
     pub gpu: crate::render::Gpu,
+    /// Carte de rendu de Hyprland (adresse PCI, vide : son choix) ; posée
+    /// par `env.lua` au démarrage de Hyprland (`crate::render_gpu`).
+    pub hyprland_gpu: String,
     /// Fils d'exécution de l'interface (0 : un par cœur ; à la relance).
     pub worker_threads: u16,
     /// Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
@@ -1350,6 +1353,7 @@ impl Default for General {
             language: "auto".into(),
             renderer: Default::default(),
             gpu: Default::default(),
+            hyprland_gpu: String::new(),
             worker_threads: crate::render::DEFAULT_WORKERS,
             tiling: Default::default(),
             fx: Default::default(),

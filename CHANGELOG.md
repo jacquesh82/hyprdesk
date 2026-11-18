@@ -10,6 +10,20 @@ and this project adheres to
 
 ### Added
 
+- **Render card for Hyprland and hyprdesk** (MLG-171, Settings → Performance →
+  Graphics card). Hyprland draws every frame on one card; when the screens
+  are plugged into another one, every frame is copied across (an iGPU at
+  full load for two 1440p 144 Hz screens on the discrete card). The tab
+  lists the cards (driver, connected screens, the one rendering now, read
+  from Hyprland's log), warns when the screens are on another card, and
+  sets `hyprland_gpu` (PCI address): `env.lua` finds the card by that
+  address at every Hyprland start (`cardN` numbers change, `by-path` names
+  contain the `:` separator) and puts it first in `AQ_DRM_DEVICES`, the
+  others after it; a missing card (vfio) falls back to the others. hyprdesk
+  gets a new default, **Like Hyprland**: it renders on the same card
+  (`HYPRDESK_WGPU_PCI`, adapter picked by PCI id in the vendored
+  iced_wgpu), so its surfaces are never copied either. Also `hyprdesk
+  config set hyprland_gpu <0000:01:00.0|auto>` and `gpu hyprland`.
 - **Panorama for strip screens** (MLG-164). A very wide screen (aspect
   ratio of 2.5:1 or more, landscape or portrait: 2560×720, 1920×480,
   1280×400…), touch or not, gets a full-screen Panorama: pages you swipe

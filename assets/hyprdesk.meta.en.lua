@@ -47,7 +47,8 @@
 ---@field tour_seen? boolean Guided tour done or dismissed (no longer offered)
 ---@field language? "auto"|"fr"|"en" Interface language (auto: the system's)
 ---@field renderer? "hardware"|"software" Interface rendering engine: graphics card (wgpu, software fallback) or processor (tiny-skia); applied on restart
----@field gpu? "low"|"high" Graphics card for hardware rendering: power-saving (integrated) or powerful (discrete); applied on restart
+---@field gpu? "hyprland"|"low"|"high" Graphics card for hyprdesk: Hyprland’s (default, no copy), power-saving (integrated) or powerful (discrete); applied on restart
+---@field hyprland_gpu? string Hyprland’s render card by PCI address ("0000:01:00.0", lspci); set in env.lua (AQ_DRM_DEVICES), on the next Hyprland start
 ---@field worker_threads? integer Interface worker threads (default 4, 0: one per core); applied on restart
 ---@field layout? string Default layout: "dwindle", "master", "scrolling", "monocle", "grid", "columns", "rows", "centered" or "lua:<name>"
 ---@field layout_workspaces? table<string|integer, string> Layout of some workspaces ({ [3] = "monocle" })

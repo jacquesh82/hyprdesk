@@ -88,10 +88,36 @@ impl Compositor {
             force_fallback_adapter: false,
         };
 
-        let adapter =
-            instance.request_adapter(&adapter_options).await.map_err(
+        // hyprdesk : adaptateur imposé par son identifiant PCI
+        // (`HYPRDESK_WGPU_PCI=10de:2488`), compatible avec la surface ; sinon
+        // le choix habituel de wgpu.
+        let wanted = std::env::var("HYPRDESK_WGPU_PCI").ok().and_then(|v| {
+            let (vendor, device) = v.trim().split_once(':')?;
+            Some((
+                u32::from_str_radix(vendor, 16).ok()?,
+                u32::from_str_radix(device, 16).ok()?,
+            ))
+        });
+        let chosen = wanted.and_then(|(vendor, device)| {
+            instance
+                .enumerate_adapters(settings.backends)
+                .into_iter()
+                .find(|a| {
+                    let info = a.get_info();
+                    info.vendor == vendor
+                        && info.device == device
+                        && compatible_surface
+                            .as_ref()
+                            .is_none_or(|s| a.is_surface_supported(s))
+                })
+        });
+
+        let adapter = match chosen {
+            Some(adapter) => adapter,
+            None => instance.request_adapter(&adapter_options).await.map_err(
                 |_error| Error::NoAdapterFound(format!("{adapter_options:?}")),
-            )?;
+            )?,
+        };
 
         log::info!("Selected: {:#?}", adapter.get_info());
 

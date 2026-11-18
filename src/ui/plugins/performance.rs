@@ -29,11 +29,37 @@ pub const INFO: PluginInfo = PluginInfo {
     builtin: true,
 };
 
-/// Onglets : effets de Hyprland, moteur de hyprdesk.
+/// Onglets : effets de Hyprland, carte de rendu, moteur de hyprdesk.
 pub const TABS: &[super::SubTab] = &[
     ("hyprland", "Effets de Hyprland"),
+    ("gpu", "Carte graphique"),
     ("hyprdesk", "Moteur de hyprdesk"),
 ];
+
+/// Cartes graphiques relevées (onglet « Carte graphique »).
+#[derive(Debug, Clone, Default)]
+pub struct State {
+    pub cards: Vec<crate::render_gpu::Card>,
+    /// Carte de rendu de la session Hyprland en cours (adresse PCI).
+    pub current: Option<String>,
+    pub loaded: bool,
+}
+
+/// Relève les cartes et la carte de rendu de Hyprland (hors du fil de l'interface).
+pub fn load() -> Task<UiMsg> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(|| State {
+                cards: crate::render_gpu::cards(),
+                current: crate::render_gpu::hyprland_current(),
+                loaded: true,
+            })
+            .await
+            .unwrap_or_default()
+        },
+        |s| wrap(Msg::Cards(s)),
+    )
+}
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Performance(m)))
@@ -55,6 +81,9 @@ pub enum Msg {
     Workers(u16),
     /// Relance hyprdesk sur le moteur choisi.
     Restart,
+    Cards(State),
+    /// Carte de rendu de Hyprland (adresse PCI ; vide : son choix).
+    HyprlandGpu(String),
 }
 
 /// Valeur lisible d'un profil pour une option (`None` : hyprland.lua).
@@ -222,28 +251,11 @@ impl App {
         ));
 
         col = col.push(self.section("Carte graphique"));
-        col = col.push(
-            self.field(
-                "Carte préférée",
-                "gpu",
-                row(Gpu::ALL.map(|v| {
-                    radio(crate::i18n::tr(v.label()), v, Some(g.gpu), |v| {
-                        wrap(Msg::Gpu(v))
-                    })
-                    .font(self.font)
-                    .into()
-                }))
-                .spacing(16),
-            ),
-        );
         col = col.push(small(
-            crate::i18n::tr(
-                "Économe : la carte intégrée dessine, et la carte dédiée d'un portable \
-                 hybride reste en veille. Puissante : la carte dédiée est réveillée pour \
-                 hyprdesk — utile seulement si les écrans y sont branchés. Sans effet avec \
-                 une seule carte ou en rendu logiciel.",
-            )
-            .into(),
+            crate::tr!(
+                "{g} — réglée dans l'onglet « Carte graphique », avec celle de Hyprland.",
+                g = crate::i18n::tr(g.gpu.label())
+            ),
             dim,
         ));
 
@@ -286,9 +298,186 @@ impl App {
         col.into()
     }
 
+    /// Carte de rendu de Hyprland et de hyprdesk (onglet « Carte graphique »).
+    fn gpu_page(&self) -> Element<'_, UiMsg> {
+        let ink = self.ink();
+        let (fg, dim, warn) = (ink.fg, ink.dim, ink.accent);
+        let g = &self.cfg.general;
+        let small = |s: String, c: Color| text(s).font(self.font).size(12).color(c);
+        let Some(st) = self
+            .panel
+            .as_ref()
+            .map(|p| &p.performance)
+            .filter(|s| s.loaded)
+        else {
+            return small(crate::i18n::tr("Lecture des cartes…").into(), dim).into();
+        };
+        let mut col = column![small(
+            crate::i18n::tr(
+                "Hyprland dessine toutes les images sur une seule carte. Si les écrans sont \
+                 branchés sur une autre, chaque image y est recopiée : la carte de rendu \
+                 travaille pour rien. Choisir la carte où sont branchés les écrans."
+            )
+            .into(),
+            dim
+        )]
+        .spacing(14);
+        let name_of = |slot: &str| {
+            st.cards
+                .iter()
+                .find(|c| c.slot == slot)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| slot.to_string())
+        };
+        // État : carte de rendu en cours, écrans branchés ailleurs.
+        match &st.current {
+            Some(cur) => {
+                col = col.push(small(
+                    crate::tr!("Hyprland rend en ce moment sur : {c}.", c = name_of(cur)),
+                    fg,
+                ));
+                let elsewhere: Vec<&crate::render_gpu::Card> = st
+                    .cards
+                    .iter()
+                    .filter(|c| &c.slot != cur && !c.outputs.is_empty())
+                    .collect();
+                if !elsewhere.is_empty()
+                    && st
+                        .cards
+                        .iter()
+                        .find(|c| &c.slot == cur)
+                        .is_some_and(|c| c.outputs.is_empty())
+                {
+                    col = col.push(small(
+                        crate::tr!(
+                            "Les écrans sont branchés sur {c}, mais Hyprland rend sur {r} : \
+                             chaque image est recopiée d'une carte à l'autre. Choisir {c} \
+                             ci-dessous, puis fermer et rouvrir la session.",
+                            c = elsewhere[0].name.clone(),
+                            r = name_of(cur)
+                        ),
+                        warn,
+                    ));
+                }
+            }
+            None => {
+                col = col.push(small(
+                    crate::i18n::tr("Carte de rendu de Hyprland inconnue (journal illisible).")
+                        .into(),
+                    dim,
+                ));
+            }
+        }
+        col = col.push(self.section("Rendu de Hyprland"));
+        let chosen = g.hyprland_gpu.clone();
+        // Choix par rang (iced veut une valeur Copy) : 0 automatique, puis les cartes.
+        let slots: Vec<String> = std::iter::once(String::new())
+            .chain(st.cards.iter().map(|c| c.slot.clone()))
+            .collect();
+        let selected = slots.iter().position(|s| *s == chosen);
+        let pick =
+            move |i: usize| wrap(Msg::HyprlandGpu(slots.get(i).cloned().unwrap_or_default()));
+        col = col.push(
+            radio(
+                crate::i18n::tr("Automatique (choix de Hyprland)"),
+                0usize,
+                selected,
+                pick.clone(),
+            )
+            .font(self.font),
+        );
+        for (i, c) in st.cards.iter().enumerate() {
+            let mut what = vec![c.driver.clone()];
+            if c.outputs.is_empty() {
+                what.push(crate::i18n::tr("aucun écran").to_string());
+            } else {
+                what.push(crate::tr!("écrans : {o}", o = c.outputs.join(", ")));
+            }
+            if st.current.as_deref() == Some(c.slot.as_str()) {
+                what.push(crate::i18n::tr("en cours").to_string());
+            }
+            col = col.push(
+                radio(
+                    format!("{} ({}) — {}", c.name, c.slot, what.join(" · ")),
+                    i + 1,
+                    selected,
+                    pick.clone(),
+                )
+                .font(self.font),
+            );
+        }
+        if !chosen.is_empty() && !st.cards.iter().any(|c| c.slot == chosen) {
+            col = col.push(small(
+                crate::tr!(
+                    "Carte choisie absente ({s}) : réservée aux machines virtuelles (vfio-pci) \
+                     ou débranchée ; Hyprland rend sur une autre au démarrage.",
+                    s = chosen.clone()
+                ),
+                warn,
+            ));
+        }
+        if st
+            .current
+            .as_deref()
+            .is_some_and(|c| !chosen.is_empty() && c != chosen)
+        {
+            col = col.push(small(
+                crate::i18n::tr(
+                    "Pris en compte au prochain démarrage de Hyprland : fermer puis rouvrir la session.",
+                )
+                .into(),
+                warn,
+            ));
+        }
+        col = col.push(small(
+            crate::i18n::tr(
+                "Écrit dans env.lua (AQ_DRM_DEVICES) : la carte est retrouvée par son adresse \
+                 PCI à chaque démarrage, les autres restent utilisables à la suite.",
+            )
+            .into(),
+            dim,
+        ));
+        col = col.push(self.section("Rendu de hyprdesk"));
+        col = col.push(
+            self.field(
+                "Carte de la barre, du dock et des bureaux",
+                "gpu",
+                column(Gpu::ALL.map(|v| {
+                    radio(crate::i18n::tr(v.label()), v, Some(g.gpu), |v| {
+                        wrap(Msg::Gpu(v))
+                    })
+                    .font(self.font)
+                    .into()
+                }))
+                .spacing(8),
+            ),
+        );
+        if render::restart_pending(g.renderer, g.gpu, g.worker_threads) {
+            col = col.push(
+                row![
+                    small(
+                        crate::i18n::tr("Réglages modifiés : ils prennent effet à la relance.")
+                            .into(),
+                        warn
+                    )
+                    .width(Length::Fill),
+                    button(text("Relancer hyprdesk").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::Restart)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+        col.into()
+    }
+
     pub(in crate::ui) fn performance_page(&self) -> Element<'_, UiMsg> {
         if self.on_subtab(INFO.id, "hyprdesk") {
             return self.engine_page();
+        }
+        if self.on_subtab(INFO.id, "gpu") {
+            return self.gpu_page();
         }
         self.hyprland_page()
     }
@@ -406,6 +595,16 @@ impl App {
             }
             Msg::Gpu(g) => {
                 self.settings.gpu = Some(g);
+                self.commit()
+            }
+            Msg::Cards(s) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.performance = s;
+                }
+                Task::none()
+            }
+            Msg::HyprlandGpu(slot) => {
+                self.settings.hyprland_gpu = Some(slot);
                 self.commit()
             }
             Msg::Workers(n) => {

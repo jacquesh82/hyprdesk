@@ -102,6 +102,15 @@ pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
         let mut body = String::new();
         match *module {
             "env" => {
+                if !cfg.general.hyprland_gpu.is_empty() {
+                    body += &format!(
+                        "\n-- {}\n{}",
+                        crate::i18n::tr(
+                            "Carte de rendu de Hyprland (Réglages → Performance → Carte graphique), retrouvée par son adresse PCI"
+                        ),
+                        crate::render_gpu::env_lua(&cfg.general.hyprland_gpu)
+                    );
+                }
                 if !hypr.env.is_empty() {
                     body += &format!("\n-- {}\n", crate::i18n::tr("Variables d'environnement"));
                     for (k, v) in &hypr.env {

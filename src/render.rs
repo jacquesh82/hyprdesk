@@ -8,10 +8,14 @@
 //!   passe directement à la copie locale d'iced_layershell
 //!   (`iced_layershell::set_backend`) ; les processus à part (verrouillage,
 //!   fenêtre myMFA, greeter) la reçoivent par `ICED_BACKEND`.
-//! - **Carte graphique** : iced demande par défaut la plus puissante
+//! - **Carte graphique** : par défaut, celle qui fait le rendu de Hyprland
+//!   (`HYPRDESK_WGPU_PCI`, lu par la copie locale d'iced_wgpu ; voir
+//!   `crate::render_gpu`) : les surfaces de hyprdesk ne sont jamais
+//!   recopiées d'une carte à l'autre. Sinon iced demande la plus puissante
 //!   (`HighPerformance`), ce qui réveille la carte dédiée d'un portable
-//!   hybride pour dessiner une barre. « Économe » pose `WGPU_POWER_PREF=low`,
-//!   seule entrée qu'offre iced_wgpu ; « Puissante » ne pose rien.
+//!   hybride pour dessiner une barre : « Économe » pose `WGPU_POWER_PREF=low`
+//!   (aussi le repli de « Comme Hyprland » si sa carte reste inconnue) ;
+//!   « Puissante » ne pose rien.
 //! - **Fils** : l'exécuteur tokio par défaut d'iced crée un fil par cœur (20
 //!   sur un i7 récent) ; [`Executor`] en crée le nombre réglé, sans passer
 //!   par l'environnement.
@@ -75,18 +79,27 @@ impl Renderer {
 /// Carte graphique préférée par le rendu matériel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Gpu {
-    /// Carte intégrée (`WGPU_POWER_PREF=low`).
+    /// La carte de rendu de Hyprland (`HYPRDESK_WGPU_PCI`) : ses surfaces ne
+    /// sont jamais recopiées d'une carte à l'autre. Économe si elle reste
+    /// inconnue.
     #[default]
+    Hyprland,
+    /// Carte intégrée (`WGPU_POWER_PREF=low`).
     Low,
     /// Carte dédiée (choix d'iced sans réglage).
     High,
 }
 
+/// Adaptateur imposé à wgpu par son identifiant PCI (`10de:2488`), lu par
+/// la copie locale d'iced_wgpu.
+pub const PCI_ENV: &str = "HYPRDESK_WGPU_PCI";
+
 impl Gpu {
-    pub const ALL: [Gpu; 2] = [Gpu::Low, Gpu::High];
+    pub const ALL: [Gpu; 3] = [Gpu::Hyprland, Gpu::Low, Gpu::High];
 
     pub fn id(self) -> &'static str {
         match self {
+            Gpu::Hyprland => "hyprland",
             Gpu::Low => "low",
             Gpu::High => "high",
         }
@@ -94,6 +107,7 @@ impl Gpu {
 
     pub fn from_id(s: &str) -> Option<Gpu> {
         match s.trim().to_lowercase().as_str() {
+            "hyprland" | "same" | "compositor" | "auto" => Some(Gpu::Hyprland),
             "low" | "lowpower" | "integrated" | "igpu" => Some(Gpu::Low),
             "high" | "highperformance" | "discrete" | "dgpu" => Some(Gpu::High),
             _ => None,
@@ -102,10 +116,22 @@ impl Gpu {
 
     pub fn label(self) -> &'static str {
         match self {
+            Gpu::Hyprland => "Comme Hyprland (même carte, sans recopie)",
             Gpu::Low => "Économe (carte intégrée)",
             Gpu::High => "Puissante (carte dédiée)",
         }
     }
+}
+
+/// Identifiant PCI de la carte de rendu de Hyprland : celle choisie
+/// (`hyprland_gpu`) si elle est là, sinon celle de la session en cours.
+pub fn hyprland_pci(chosen: Option<&str>) -> Option<String> {
+    let cards = crate::render_gpu::cards();
+    let present = |slot: &str| cards.iter().find(|c| c.slot == slot).map(|c| c.pci_id());
+    chosen
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| present(s.trim()))
+        .or_else(|| crate::render_gpu::hyprland_current().and_then(|s| present(&s)))
 }
 
 /// Fils d'exécution par défaut : largement assez pour un bureau (IPC,
@@ -175,9 +201,22 @@ pub fn init(config_path: &Path, daemon: bool) {
     let gpu = setting("gpu")
         .and_then(|v| Gpu::from_id(&v))
         .unwrap_or_default();
+    // « Comme Hyprland » : l'adaptateur par son identifiant PCI ; inconnu,
+    // la carte économe comme avant.
+    let pci = (gpu == Gpu::Hyprland)
+        .then(|| hyprland_pci(setting("hyprland_gpu").as_deref()))
+        .flatten();
+    if let Some(v) = external(PCI_ENV) {
+        forced.push(format!("{PCI_ENV}={v}"));
+    } else if let Some(id) = &pci {
+        unsafe { std::env::set_var(PCI_ENV, id) };
+        own.push(PCI_ENV);
+    } else {
+        unsafe { std::env::remove_var(PCI_ENV) };
+    }
     if let Some(v) = external("WGPU_POWER_PREF") {
         forced.push(format!("WGPU_POWER_PREF={v}"));
-    } else if gpu == Gpu::Low {
+    } else if gpu == Gpu::Low || (gpu == Gpu::Hyprland && pci.is_none()) {
         unsafe { std::env::set_var("WGPU_POWER_PREF", "low") };
         own.push("WGPU_POWER_PREF");
     } else {
@@ -310,7 +349,8 @@ mod tests {
         assert_eq!(Renderer::from_id("opengl"), None);
         assert_eq!(Gpu::from_id("dGPU"), Some(Gpu::High));
         assert_eq!(Renderer::default(), Renderer::Hardware);
-        assert_eq!(Gpu::default(), Gpu::Low);
+        assert_eq!(Gpu::default(), Gpu::Hyprland);
+        assert_eq!(Gpu::from_id("same"), Some(Gpu::Hyprland));
     }
 
     #[test]

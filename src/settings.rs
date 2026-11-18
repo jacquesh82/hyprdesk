@@ -207,6 +207,8 @@ pub struct Settings {
     pub renderer: Option<crate::render::Renderer>,
     /// Carte graphique (`gpu = "low" | "high"`).
     pub gpu: Option<crate::render::Gpu>,
+    /// Carte de rendu de Hyprland (`hyprland_gpu = "0000:01:00.0"`).
+    pub hyprland_gpu: Option<String>,
     /// Fils d'exécution (`worker_threads = 4`, 0 : un par cœur).
     pub worker_threads: Option<u16>,
     /// Layouts (`layout`, `layout_workspaces`, `dwindle`, `master`, `scrolling`).
@@ -470,6 +472,7 @@ impl Settings {
             language: has("language").then(|| g.language.clone()),
             renderer: has("renderer").then_some(g.renderer),
             gpu: has("gpu").then_some(g.gpu),
+            hyprland_gpu: has("hyprland_gpu").then(|| g.hyprland_gpu.clone()),
             worker_threads: has("worker_threads").then_some(g.worker_threads),
             tiling: [
                 "layout",
@@ -744,6 +747,7 @@ impl Settings {
         set!(language, "language", g.language);
         set!(renderer, "renderer", g.renderer);
         set!(gpu, "gpu", g.gpu);
+        set!(hyprland_gpu, "hyprland_gpu", g.hyprland_gpu);
         set!(worker_threads, "worker_threads", g.worker_threads);
         set!(fx, "fx", g.fx);
         set!(hypr, "hypr", g.hypr);
@@ -1269,6 +1273,9 @@ impl Settings {
         }
         if let Some(v) = self.gpu {
             cfg.push(format!("gpu = {}", q(v.id())));
+        }
+        if let Some(v) = self.hyprland_gpu.as_ref().filter(|v| !v.is_empty()) {
+            cfg.push(format!("hyprland_gpu = {}", q(v)));
         }
         if let Some(v) = self.worker_threads {
             cfg.push(format!("worker_threads = {v}"));
@@ -2912,7 +2919,7 @@ fn section_of(key: &str) -> usize {
             "keys" | "suspend_binds" => 2,
             "fx" | "hypr" | "layout" | "layout_workspaces" | "dwindle" | "master" | "scrolling"
             | "hyprbars" | "hyprbars_path" => 4,
-            "renderer" | "gpu" | "worker_threads" => 5,
+            "renderer" | "gpu" | "hyprland_gpu" | "worker_threads" => 5,
             "apps" | "autostart" | "assistant_mode" | "ai_services" | "ai_use" => 7,
             "clipboard_history" | "advanced_settings" | "tour_seen" | "plugin_options"
             | "update_commands" | "disabled_plugins" => 9,

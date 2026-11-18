@@ -314,15 +314,30 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.renderer = None;
-    "gpu", "performance", "low | high — carte graphique du rendu matériel : économe (intégrée, défaut) ou puissante (dédiée, réveille la carte d'un portable hybride) ; pris en compte à la relance",
+    "gpu", "performance", "hyprland | low | high — carte graphique de hyprdesk : celle de Hyprland (défaut, sans recopie), économe (intégrée) ou puissante (dédiée) ; pris en compte à la relance",
         |c| c.general.gpu.id().into(),
         |s, v, c| {
             s.gpu = Some(crate::render::Gpu::from_id(v).ok_or_else(|| {
-                crate::tr!("« {v} » : low ou high", v = v)
+                crate::tr!("« {v} » : hyprland, low ou high", v = v)
             })?);
             Ok(())
         },
         |s| s.gpu = None;
+    "hyprland_gpu", "performance", "<adresse PCI> | auto — carte de rendu de Hyprland (0000:01:00.0, voir lspci) ; prise en compte au prochain démarrage de Hyprland",
+        |c| if c.general.hyprland_gpu.is_empty() { "auto".into() } else { c.general.hyprland_gpu.clone() },
+        |s, v, c| {
+            let v = v.trim();
+            if matches!(v, "auto" | "") {
+                s.hyprland_gpu = Some(String::new());
+                return Ok(());
+            }
+            if !crate::render_gpu::valid_slot(v) {
+                return Err(crate::tr!("« {v} » : adresse PCI attendue (0000:01:00.0) ou auto", v = v.to_string()));
+            }
+            s.hyprland_gpu = Some(v.to_string());
+            Ok(())
+        },
+        |s| s.hyprland_gpu = None;
     "worker_threads", "performance", "0..64 — fils d'exécution de l'interface (défaut 4 ; 0 : un par cœur) ; pris en compte à la relance",
         |c| c.general.worker_threads.to_string(),
         |s, v, c| {

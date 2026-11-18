@@ -47,7 +47,8 @@
 ---@field tour_seen? boolean Visite guidée faite ou écartée (plus proposée)
 ---@field language? "auto"|"fr"|"en" Langue de l'interface (auto : celle du système)
 ---@field renderer? "hardware"|"software" Moteur de rendu de l'interface : carte graphique (wgpu, repli logiciel) ou processeur (tiny-skia) ; pris en compte à la relance
----@field gpu? "low"|"high" Carte graphique du rendu matériel : économe (intégrée) ou puissante (dédiée) ; à la relance
+---@field gpu? "hyprland"|"low"|"high" Carte graphique de hyprdesk : celle de Hyprland (défaut, sans recopie), économe (intégrée) ou puissante (dédiée) ; à la relance
+---@field hyprland_gpu? string Carte de rendu de Hyprland par son adresse PCI ("0000:01:00.0", lspci) ; posée dans env.lua (AQ_DRM_DEVICES), au prochain démarrage de Hyprland
 ---@field worker_threads? integer Fils d'exécution de l'interface (défaut 4, 0 : un par cœur) ; à la relance
 ---@field layout? string Layout par défaut : "dwindle", "master", "scrolling", "monocle", "grid", "columns", "rows", "centered" ou "lua:<nom>"
 ---@field layout_workspaces? table<string|integer, string> Layout de certains workspaces ({ [3] = "monocle" })

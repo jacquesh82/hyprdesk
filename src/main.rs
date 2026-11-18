@@ -56,6 +56,7 @@ mod polkit;
 mod portal;
 mod processes;
 mod render;
+mod render_gpu;
 mod screens;
 mod search;
 mod session;
