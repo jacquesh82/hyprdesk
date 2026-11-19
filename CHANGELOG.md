@@ -23,6 +23,16 @@ and this project adheres to
   [mods]`); Settings keeps the personal shortcuts and composition.
   `hyprdesk panorama icons music` has SmartUI draw the music services.
 - **Panorama background image: Browse…** opens the file chooser (portal).
+- **Panorama: composable pages** (MLG-172). After the default view, the
+  carousel holds pages, each with its own composition (`pages = { { name =
+  "System", tiles = { … } } }`); by default a System page with six metric
+  graphs. Settings → Panorama → Pages adds, renames, orders and removes
+  pages; Compose edits any of them in the Composition tab. New tiles:
+  `metric:<cpu|ram|disk|load|uptime|cpu_temp|gpu_temp>[:gauges|cards]`
+  (one metric per tile) and `playlist`. Old widget-name pages still load.
+  The default layout is now the composition.
+- **Playing a new media stops the previous one**: every MPRIS player still
+  playing is paused before a Panorama source starts.
 - **Panorama Music: Playlist and Webradio tabs, music on request through
   LYRA** (MLG-172). The Music column has two tabs: the music services, and
   Webradio — favourite radios (FIP, France Inter, franceinfo, France

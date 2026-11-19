@@ -39,6 +39,13 @@ fn temperature(gpu: bool) -> Option<f32> {
     None
 }
 
+/// Relevé de chaque mesure demandée : (identifiant, ligne).
+pub fn sample_ids(ids: &[String]) -> Vec<(String, SysLine)> {
+    ids.iter()
+        .filter_map(|id| sample(id).pop().map(|l| (id.clone(), l)))
+        .collect()
+}
+
 pub fn sample(metrics: &str) -> Vec<SysLine> {
     metrics
         .split(',')

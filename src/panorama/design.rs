@@ -5,6 +5,80 @@ pub const PRESETS: &[&str] = &["cinematic", "forest", "telemetry", "studio", "ap
 pub const CLOCKS: &[&str] = &["digital", "flip", "analog"];
 pub const SYSTEMS: &[&str] = &["cards", "gauges", "graphs"];
 pub const MEDIA: &[&str] = &["standard", "vinyl", "compact"];
+/// Mesures système, une par tuile `metric:<id>[:<style>]`.
+pub const METRICS: &[&str] = &["cpu", "ram", "disk", "load", "uptime", "cpu_temp", "gpu_temp"];
+
+/// Libellé d'une mesure.
+pub fn metric_label(id: &str) -> &'static str {
+    match id {
+        "cpu" => "Processeur",
+        "ram" => "Mémoire",
+        "disk" => "Disque",
+        "load" => "Charge",
+        "uptime" => "Allumé depuis",
+        "cpu_temp" => "Température CPU",
+        "gpu_temp" => "Température GPU",
+        _ => "Mesure",
+    }
+}
+
+/// Tuile d'une mesure : (mesure, présentation ; graphs par défaut).
+pub fn metric_of(widget: &str) -> Option<(&str, &str)> {
+    let rest = widget.strip_prefix("metric:")?;
+    let (id, style) = rest.split_once(':').unwrap_or((rest, "graphs"));
+    (METRICS.contains(&id) && SYSTEMS.contains(&style)).then_some((id, style))
+}
+
+/// Page du carrousel du Panorama, après la vue par défaut : un nom et sa
+/// composition (zones en part de l'écran, comme la composition libre).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Page {
+    pub name: String,
+    pub tiles: Vec<Tile>,
+}
+
+impl Page {
+    /// Page d'un seul widget, sur tout l'écran (anciennes pages).
+    pub fn single(widget: &str) -> Page {
+        Page {
+            name: super::page_label(widget).to_string(),
+            tiles: vec![Tile::new(widget, 0.0, 0.0, 1.0, 1.0)],
+        }
+    }
+
+    /// Page Système : le plus de mesures possible, en graphiques.
+    pub fn system() -> Page {
+        let ids = ["cpu", "ram", "disk", "cpu_temp", "gpu_temp", "load"];
+        let tiles = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let (c, r) = ((i % 3) as f32, (i / 3) as f32);
+                Tile::new(&format!("metric:{id}"), c * 0.34, r * 0.5, 0.32, 0.5)
+            })
+            .collect();
+        Page {
+            name: "Système".into(),
+            tiles,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Panorama : chaque page a un nom.".into());
+        }
+        if self.tiles.is_empty() || self.tiles.len() > 16 {
+            return Err("Panorama : 1 à 16 zones par page.".into());
+        }
+        self.tiles.iter().try_for_each(Tile::validate)
+    }
+}
+
+/// Pages par défaut : la page Système.
+pub fn default_pages() -> Vec<Page> {
+    vec![Page::system()]
+}
 /// Profils du bloc de raccourcis : média vidéo, média audio, télécommande,
 /// système (la liste personnalisable `shortcuts`).
 pub const PROFILES: &[&str] = &["video", "audio", "remote", "system"];
@@ -179,6 +253,7 @@ impl Tile {
         // `playlist` : colonne des services du lecteur (profils Vidéo, Musique).
         if !super::PAGES.iter().any(|(id, _)| *id == self.widget)
             && self.widget != "playlist"
+            && metric_of(&self.widget).is_none()
             && !self
                 .widget
                 .strip_prefix("widget:")
@@ -641,19 +716,7 @@ pub fn from_lua(t: &Table) -> mlua::Result<Design> {
         d.set(&key, &value).map_err(err)?;
     }
     if let Some(tiles) = t.get::<Option<Table>>("tiles")? {
-        d.tiles.clear();
-        for row in tiles.sequence_values::<Table>() {
-            let row = row?;
-            let tile = Tile::new(
-                &row.get::<String>("widget")?,
-                row.get("x")?,
-                row.get("y")?,
-                row.get("w")?,
-                row.get("h")?,
-            );
-            tile.validate().map_err(err)?;
-            d.tiles.push(tile);
-        }
+        d.tiles = tiles_from_lua(&tiles)?;
         if d.tiles.is_empty() || d.tiles.len() > 16 {
             return Err(err("Panorama : 1 à 16 zones attendues.".into()));
         }
@@ -680,6 +743,84 @@ pub fn from_lua(t: &Table) -> mlua::Result<Design> {
     }
     Ok(d)
 }
+/// Zones d'une composition, lues en Lua et validées.
+pub fn tiles_from_lua(tiles: &Table) -> mlua::Result<Vec<Tile>> {
+    let mut out = Vec::new();
+    for row in tiles.sequence_values::<Table>() {
+        let row = row?;
+        let tile = Tile::new(
+            &row.get::<String>("widget")?,
+            row.get("x")?,
+            row.get("y")?,
+            row.get("w")?,
+            row.get("h")?,
+        );
+        tile.validate().map_err(err)?;
+        out.push(tile);
+    }
+    Ok(out)
+}
+
+/// Zones d'une composition en Lua.
+pub fn tiles_lua(tiles: &[Tile]) -> String {
+    format!(
+        "{{ {} }}",
+        tiles
+            .iter()
+            .map(|t| format!(
+                "{{ widget = {}, x = {}, y = {}, w = {}, h = {} }}",
+                q(&t.widget),
+                t.x,
+                t.y,
+                t.w,
+                t.h
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Pages en Lua.
+pub fn pages_lua(pages: &[Page]) -> String {
+    format!(
+        "{{ {} }}",
+        pages
+            .iter()
+            .map(|p| format!("{{ name = {}, tiles = {} }}", q(&p.name), tiles_lua(&p.tiles)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Pages lues en Lua : une table { name, tiles } par page, ou le nom d'un
+/// widget (page d'un seul widget, ancienne forme).
+pub fn pages_from_lua(l: &Table) -> mlua::Result<Vec<Page>> {
+    let mut out = Vec::new();
+    for v in l.sequence_values::<Value>() {
+        match v? {
+            Value::String(s) => {
+                let id = s.to_str()?.trim().to_string();
+                if super::PAGES.iter().any(|(p, _)| *p == id) {
+                    out.push(Page::single(&id));
+                }
+            }
+            Value::Table(p) => {
+                let page = Page {
+                    name: p.get::<Option<String>>("name")?.unwrap_or_default().trim().to_string(),
+                    tiles: match p.get::<Option<Table>>("tiles")? {
+                        Some(t) => tiles_from_lua(&t)?,
+                        None => Vec::new(),
+                    },
+                };
+                page.validate().map_err(err)?;
+                out.push(page);
+            }
+            _ => return Err(err("panorama.pages : page { name, tiles } attendue.".into())),
+        }
+    }
+    Ok(out)
+}
+
 fn q(s: &str) -> String {
     format!("\"{}\"", hyprpanel_core::ipc::lua_escape(s))
 }
@@ -695,21 +836,7 @@ impl Design {
         for key in FLAGS {
             f.push(format!("{key} = {}", self.flag(key).unwrap()));
         }
-        f.push(format!(
-            "tiles = {{ {} }}",
-            self.tiles
-                .iter()
-                .map(|t| format!(
-                    "{{ widget = {}, x = {}, y = {}, w = {}, h = {} }}",
-                    q(&t.widget),
-                    t.x,
-                    t.y,
-                    t.w,
-                    t.h
-                ))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        f.push(format!("tiles = {}", tiles_lua(&self.tiles)));
         f.push(format!(
             "shortcuts = {{ {} }}",
             self.shortcuts

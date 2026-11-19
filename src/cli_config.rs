@@ -770,13 +770,22 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.screens.clear(); } };
-    "panorama.pages", "panorama", "media,system,clock,video — pages du Panorama, dans l'ordre",
-        |c| c.general.panorama.pages.join(","),
+    "panorama.pages", "panorama", "JSON — pages après la vue par défaut [{name,tiles:[{widget,x,y,w,h}]}] ; ou media,system,clock… (une page par widget)",
+        |c| serde_json::to_string(&c.general.panorama.pages).unwrap_or_default(),
         |s, v, c| {
-            let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
-            if l.is_empty() {
-                return Err(crate::i18n::tr("widgets connus : media, system, clock, video").to_string());
-            }
+            let l: Vec<crate::panorama::design::Page> = if v.trim_start().starts_with('[') {
+                let l: Vec<crate::panorama::design::Page> = serde_json::from_str(v).map_err(|e| e.to_string())?;
+                for p in &l {
+                    p.validate()?;
+                }
+                l
+            } else {
+                let l: Vec<_> = v.split(',').map(str::trim).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).map(crate::panorama::design::Page::single).collect();
+                if l.is_empty() {
+                    return Err(crate::i18n::tr("widgets connus : media, system, clock, video").to_string());
+                }
+                l
+            };
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.pages = l;
             s.panorama = Some(p);

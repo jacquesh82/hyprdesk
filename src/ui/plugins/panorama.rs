@@ -37,9 +37,15 @@ pub fn wrap(m: Msg) -> UiMsg {
 pub enum Msg {
     /// Écran (connecteur), rôle Panorama.
     Role(String, bool),
-    Page(String, bool),
-    /// Page, ±1 dans l'ordre.
-    Move(String, i32),
+    /// Page (indice), ±1 dans l'ordre.
+    PageMove(usize, i32),
+    /// Nouvelle page : vide (une horloge), ou Système (graphiques).
+    PageAdd(bool),
+    PageRemove(usize),
+    PageName(usize, String),
+    PageNameCommit(usize),
+    /// Composer la vue par défaut (`None`) ou une page.
+    ComposePage(Option<usize>),
     Sleep(u32),
     SleepCommit,
     /// Relit les écrans et refait les propositions.
@@ -415,41 +421,56 @@ impl App {
                 .color(dim)
                 .into(),
         ]);
-        // Pages actives dans leur ordre, puis les autres.
-        let mut ids: Vec<String> = c.pages.clone();
-        for (id, _) in crate::panorama::PAGES {
-            if !ids.iter().any(|p| p == id) {
-                ids.push(id.to_string());
-            }
-        }
-        for id in ids {
-            let on = c.pages.contains(&id);
-            let (a, b) = (id.clone(), id.clone());
-            let mut line = row![
-                toggler(on)
-                    .label(crate::i18n::tr(crate::panorama::page_label(&id)))
-                    .text_size(13)
-                    .on_toggle(move |v| wrap(Msg::Page(a.clone(), v))),
-                Space::new().width(Length::Fill),
+        // Vue par défaut, puis chaque page : nom, ordre, composition.
+        col = col.push(
+            row![
+                text(crate::i18n::tr("Vue par défaut")).size(13).width(Length::Fill),
+                button(text("Composer").size(12))
+                    .padding([2, 10])
+                    .on_press(wrap(Msg::ComposePage(None))),
             ]
             .spacing(8)
-            .align_y(Alignment::Center);
-            if on && c.pages.len() > 1 {
-                let up = b.clone();
-                line = line
-                    .push(
-                        button(text("↑").size(12))
-                            .padding([2, 8])
-                            .on_press(wrap(Msg::Move(up, -1))),
-                    )
-                    .push(
-                        button(text("↓").size(12))
-                            .padding([2, 8])
-                            .on_press(wrap(Msg::Move(b, 1))),
-                    );
-            }
-            col = col.push(line);
+            .align_y(Alignment::Center),
+        );
+        let n = c.pages.len();
+        for (i, p) in c.pages.iter().enumerate() {
+            let name = self
+                .panorama
+                .page_names
+                .get(&i)
+                .cloned()
+                .unwrap_or_else(|| p.name.clone());
+            col = col.push(
+                row![
+                    iced::widget::text_input("", &name)
+                        .on_input(move |v| wrap(Msg::PageName(i, v)))
+                        .on_submit(wrap(Msg::PageNameCommit(i)))
+                        .size(13)
+                        .width(Length::Fill),
+                    text(crate::tr!("{n} zone(s)", n = p.tiles.len().to_string())).size(12),
+                    self.panorama_move_buttons(i, n, |i, d| wrap(Msg::PageMove(i, d))),
+                    button(text("Composer").size(12))
+                        .padding([2, 10])
+                        .on_press(wrap(Msg::ComposePage(Some(i)))),
+                    button(text("Retirer").size(12))
+                        .padding([2, 10])
+                        .on_press(wrap(Msg::PageRemove(i))),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
         }
+        col = col.push(
+            row![
+                button(text("Ajouter une page").size(12))
+                    .padding([4, 10])
+                    .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(false)))),
+                button(text("Ajouter une page Système").size(12))
+                    .padding([4, 10])
+                    .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(true)))),
+            ]
+            .spacing(8),
+        );
         col = col.push(self.section("Veille"));
         col = col.push(
             self.field(
@@ -901,27 +922,68 @@ impl App {
                 self.settings.panorama = Some(c);
                 Task::batch([self.commit(), touch])
             }
-            Msg::Page(id, on) => {
+            Msg::PageMove(i, d) => {
                 let mut c = self.panorama_cfg();
-                if on {
-                    if !c.pages.contains(&id) {
-                        c.pages.push(id);
-                    }
-                } else if c.pages.len() > 1 {
-                    c.pages.retain(|p| p != &id);
+                let j = i as i64 + d as i64;
+                if i < c.pages.len() && j >= 0 && (j as usize) < c.pages.len() {
+                    c.pages.swap(i, j as usize);
                 }
                 self.panorama.page.clear();
+                self.panorama.page_names.clear();
                 self.settings.panorama = Some(c);
                 self.commit()
             }
-            Msg::Move(id, d) => {
+            Msg::PageAdd(system) => {
                 let mut c = self.panorama_cfg();
-                if let Some(i) = c.pages.iter().position(|p| p == &id) {
-                    let j = (i as i64 + d as i64).clamp(0, c.pages.len() as i64 - 1) as usize;
-                    c.pages.swap(i, j);
+                let mut p = if system {
+                    crate::panorama::design::Page::system()
+                } else {
+                    crate::panorama::design::Page::single("clock")
+                };
+                p.name = if system {
+                    crate::i18n::tr("Système").to_string()
+                } else {
+                    crate::tr!("Page {n}", n = (c.pages.len() + 2).to_string())
+                };
+                c.pages.push(p);
+                self.panorama.page_names.clear();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::PageRemove(i) => {
+                let mut c = self.panorama_cfg();
+                if i < c.pages.len() {
+                    c.pages.remove(i);
+                }
+                if self.panorama.edit_board == Some(i) {
+                    self.panorama.edit_board = None;
+                }
+                self.panorama.page.clear();
+                self.panorama.page_names.clear();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::PageName(i, v) => {
+                self.panorama.page_names.insert(i, v);
+                Task::none()
+            }
+            Msg::PageNameCommit(i) => {
+                let Some(v) = self.panorama.page_names.remove(&i) else {
+                    return Task::none();
+                };
+                let mut c = self.panorama_cfg();
+                match c.pages.get_mut(i) {
+                    Some(p) if !v.trim().is_empty() => p.name = v.trim().to_string(),
+                    _ => return Task::none(),
                 }
                 self.settings.panorama = Some(c);
                 self.commit()
+            }
+            Msg::ComposePage(board) => {
+                self.panorama.edit_board = board;
+                self.panorama.selected_tile = 0;
+                self.subtabs.insert(INFO.id, "composition");
+                Task::none()
             }
             Msg::Sleep(v) => {
                 let mut c = self.panorama_cfg();

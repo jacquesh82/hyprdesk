@@ -213,16 +213,51 @@ impl App {
 
     pub(super) fn panorama_composition_tab(&self) -> Element<'_, UiMsg> {
         let c = self.panorama_cfg();
+        let board = self.panorama.edit_board.filter(|i| *i < c.pages.len());
+        let tiles = board_tiles(&c, board).clone();
         let selected = self
             .panorama
             .selected_tile
-            .min(c.design.tiles.len().saturating_sub(1));
-        let mut col=column![self.section("Composition libre"),
-            text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(12),
-            button(text("Utiliser cette composition").size(13)).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))),
-            self.panorama_design_error(),
-        ].spacing(12);
-        for (i, t) in c.design.tiles.iter().enumerate() {
+            .min(tiles.len().saturating_sub(1));
+        // Composition réglée : la vue par défaut ou une page.
+        let mut boards = row![].spacing(6);
+        let pick = |label: String, b: Option<usize>| {
+            let on = board == b;
+            button(text(label).size(12))
+                .padding([4, 10])
+                .style(move |th, st| {
+                    if on {
+                        button::primary(th, st)
+                    } else {
+                        button::secondary(th, st)
+                    }
+                })
+                .on_press(wrap(Msg::ComposePage(b)))
+        };
+        boards = boards.push(pick(crate::i18n::tr("Vue par défaut").to_string(), None));
+        for (i, p) in c.pages.iter().enumerate() {
+            boards = boards.push(pick(p.name.clone(), Some(i)));
+        }
+        let mut col = column![
+            self.section("Composition"),
+            iced::widget::scrollable(boards).direction(
+                iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4),
+                )
+            ),
+        ]
+        .spacing(12);
+        col = match board {
+            None => col.extend([
+                text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(12).into(),
+                button(text("Utiliser cette composition").size(13)).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))).into(),
+            ]),
+            Some(_) => col.push(text("Page du carrousel, après la vue par défaut : glissez sur le bandeau pour y aller. Mesures : une tuile par mesure, en graphique (metric:cpu) ou en jauge (metric:cpu:gauges).").size(12)),
+        };
+        col = col.push(self.panorama_design_error());
+        for (i, t) in tiles.iter().enumerate() {
             let on = i == selected;
             col = col.push(
                 button(
@@ -247,17 +282,23 @@ impl App {
         col = col.push(
             row![
                 button(text("Ajouter une zone").size(12))
-                    .on_press_maybe((c.design.tiles.len() < 16).then(|| wrap(Msg::TileAdd))),
+                    .on_press_maybe((tiles.len() < 16).then(|| wrap(Msg::TileAdd))),
                 button(text("Retirer la zone").size(12))
-                    .on_press_maybe((c.design.tiles.len() > 1).then(|| wrap(Msg::TileRemove)))
+                    .on_press_maybe((tiles.len() > 1).then(|| wrap(Msg::TileRemove)))
             ]
             .spacing(8),
         );
-        if let Some(tile) = c.design.tiles.get(selected) {
+        if let Some(tile) = tiles.get(selected) {
             let mut options: Vec<String> = crate::panorama::PAGES
                 .iter()
                 .map(|(id, _)| id.to_string())
                 .collect();
+            options.push("playlist".into());
+            for m in crate::panorama::design::METRICS {
+                options.push(format!("metric:{m}"));
+                options.push(format!("metric:{m}:gauges"));
+                options.push(format!("metric:{m}:cards"));
+            }
             options.extend(self.cfg.widgets.iter().map(|w| format!("widget:{}", w.id)));
             col = col.push(text("Widget de la zone").size(12)).push(
                 pick_list(options, Some(tile.widget.clone()), |v| {
@@ -351,6 +392,7 @@ impl App {
 
     pub(super) fn panorama_design_update(&mut self, m: Msg) -> Task<UiMsg> {
         let mut c = self.panorama_cfg();
+        let board = self.panorama.edit_board;
         match m {
             Msg::Preset(id) => {
                 if let Err(e) = c.design.apply_preset(&id) {
@@ -425,12 +467,14 @@ impl App {
                 return Task::none();
             }
             Msg::TileWidget(w) => {
-                if let Some(t) = c.design.tiles.get_mut(self.panorama.selected_tile) {
+                if let Some(t) = board_tiles_mut(&mut c, board).get_mut(self.panorama.selected_tile)
+                {
                     t.widget = w;
                 }
             }
             Msg::TileNumber(key, v) => {
-                if let Some(t) = c.design.tiles.get_mut(self.panorama.selected_tile) {
+                if let Some(t) = board_tiles_mut(&mut c, board).get_mut(self.panorama.selected_tile)
+                {
                     match key.as_str() {
                         "x" => t.x = v.clamp(0.0, 1.0 - t.w),
                         "y" => t.y = v.clamp(0.0, 1.0 - t.h),
@@ -443,16 +487,17 @@ impl App {
                 return Task::none();
             }
             Msg::TileAdd => {
-                if c.design.tiles.len() < 16 {
-                    c.design.tiles.push(Tile::new("clock", 0.0, 0.0, 0.3, 0.5));
-                    self.panorama.selected_tile = c.design.tiles.len() - 1;
+                let tiles = board_tiles_mut(&mut c, board);
+                if tiles.len() < 16 {
+                    tiles.push(Tile::new("clock", 0.0, 0.0, 0.3, 0.5));
+                    self.panorama.selected_tile = tiles.len() - 1;
                 }
             }
             Msg::TileRemove => {
-                if c.design.tiles.len() > 1 {
-                    c.design
-                        .tiles
-                        .remove(self.panorama.selected_tile.min(c.design.tiles.len() - 1));
+                let tiles = board_tiles_mut(&mut c, board);
+                if tiles.len() > 1 {
+                    let i = self.panorama.selected_tile.min(tiles.len() - 1);
+                    tiles.remove(i);
                     self.panorama.selected_tile = 0;
                 }
             }
@@ -500,5 +545,20 @@ impl App {
         self.panorama.design_error = None;
         self.settings.panorama = Some(c);
         self.commit()
+    }
+}
+
+/// Zones de la composition réglée : la vue par défaut (`None`) ou une page.
+fn board_tiles(c: &crate::panorama::Config, board: Option<usize>) -> &Vec<Tile> {
+    match board.and_then(|i| c.pages.get(i)) {
+        Some(p) => &p.tiles,
+        None => &c.design.tiles,
+    }
+}
+
+fn board_tiles_mut(c: &mut crate::panorama::Config, board: Option<usize>) -> &mut Vec<Tile> {
+    match board {
+        Some(i) if i < c.pages.len() => &mut c.pages[i].tiles,
+        _ => &mut c.design.tiles,
     }
 }

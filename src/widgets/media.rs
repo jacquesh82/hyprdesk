@@ -75,6 +75,26 @@ fn media_from_props(bus: &str, props: &HashMap<String, OwnedValue>) -> MediaInfo
     }
 }
 
+/// Met en pause tous les lecteurs qui jouent (avant d'en lancer un autre :
+/// jamais deux médias l'un par-dessus l'autre).
+pub async fn pause_all() {
+    let Ok(conn) = bus().await else {
+        return;
+    };
+    let Ok(names) = players(conn).await else {
+        return;
+    };
+    for name in names {
+        let playing = player_props(conn, &name)
+            .await
+            .map(|p| media_from_props(&name, &p).playing)
+            .unwrap_or(false);
+        if playing {
+            media_control(name, "Pause").await;
+        }
+    }
+}
+
 /// Lecteur à afficher : celui qui joue en priorité, filtré par `player`.
 pub async fn media(player: &str) -> Value {
     let run = async {

@@ -160,51 +160,59 @@ impl App {
     pub(super) fn panorama_geo(&self, s: &Surf) -> Geo {
         let c = &self.cfg.general.panorama;
         let target = layout::target(s.ppm);
+        // Zones d'une composition (fractions de l'écran) en rectangles.
+        let map = |tiles: &[crate::panorama::design::Tile], bare: bool| -> Vec<Pane> {
+            let pad = c.design.padding;
+            let gap = c.design.gap;
+            tiles
+                .iter()
+                .map(|t| {
+                    let (x, y, w, h) = if s.w >= s.h {
+                        (t.x, t.y, t.w, t.h)
+                    } else {
+                        (t.y, t.x, t.h, t.w)
+                    };
+                    Pane {
+                        rect: Rect {
+                            x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
+                            y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
+                            w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
+                            h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
+                        },
+                        widget: t.widget.clone(),
+                        index: None,
+                        bare,
+                    }
+                })
+                .collect()
+        };
+        let full = |widget: &str| {
+            vec![Pane {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: s.w,
+                    h: s.h,
+                },
+                widget: widget.to_string(),
+                index: None,
+                bare: false,
+            }]
+        };
         let panes = match self.panorama_layout_at(&s.key) {
-            Layout::Single => {
-                let widget = if self.panorama_asleep() {
-                    "clock"
-                } else {
-                    self.panorama_page_id(&s.key)
-                };
-                vec![Pane {
-                    rect: Rect {
-                        x: 0.0,
-                        y: 0.0,
-                        w: s.w,
-                        h: s.h,
-                    },
-                    widget: widget.to_string(),
-                    index: None,
-                    bare: false,
-                }]
-            }
+            // Pages : leur composition ; un seul widget sur tout l'écran
+            // garde l'écran entier. La veille passe à l'horloge.
+            Layout::Single => match self.panorama_page_at(&s.key) {
+                _ if self.panorama_asleep() => full("clock"),
+                Some(p) if p.tiles.len() == 1 && p.tiles[0].w >= 0.99 && p.tiles[0].h >= 0.99 => {
+                    full(&p.tiles[0].widget)
+                }
+                Some(p) => map(&p.tiles, false),
+                None => full("clock"),
+            },
             Layout::Dashboard => {
                 let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
-                c.design
-                    .active_tiles(s.w, s.h)
-                    .iter()
-                    .map(|t| {
-                        let pad = c.design.padding;
-                        let gap = c.design.gap;
-                        let (x, y, w, h) = if s.w >= s.h {
-                            (t.x, t.y, t.w, t.h)
-                        } else {
-                            (t.y, t.x, t.h, t.w)
-                        };
-                        Pane {
-                            rect: Rect {
-                                x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
-                                y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
-                                w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
-                                h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
-                            },
-                            widget: t.widget.clone(),
-                            index: None,
-                            bare: player,
-                        }
-                    })
-                    .collect()
+                map(&c.design.active_tiles(s.w, s.h), player)
             }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
                 .into_iter()
@@ -708,6 +716,9 @@ impl App {
                 close,
                 Task::perform(
                     async move {
+                        // Ce qui joue encore (autre lecteur, ancienne fenêtre
+                        // pas encore fermée) s'arrête avant le nouveau média.
+                        crate::widgets::media::pause_all().await;
                         tokio::task::spawn_blocking(move || video::launch(&cmd, &url))
                             .await
                             .unwrap_or_else(|e| Err(e.to_string()))
@@ -1011,6 +1022,10 @@ impl App {
         if lay == Layout::Dashboard {
             return fx::stage(paged(self.panorama_dashboard(&s, &geo, video_at)), scene);
         }
+        // Page composée de plusieurs zones : rendue comme la composition.
+        if lay == Layout::Single && geo.panes.len() > 1 {
+            return fx::stage(paged(self.panorama_dashboard(&s, &geo, video_at)), scene);
+        }
         if lay == Layout::Single {
             let p = &geo.panes[0];
             let key = s.key.clone();
@@ -1128,6 +1143,21 @@ impl App {
         let body: Element<'_, Msg> = match p.widget.as_str() {
             "calendar" => self.panorama_calendar(iced::Size::new(content.w, content.h)),
             "shortcuts" => self.panorama_shortcuts(iced::Size::new(content.w, content.h)),
+            // Tuile d'une mesure : graphique, jauge ou carte.
+            w if crate::panorama::design::metric_of(w).is_some() => {
+                let (m, style) = crate::panorama::design::metric_of(w).unwrap_or_default();
+                let lines: Vec<crate::widgets::SysLine> =
+                    self.panorama.sys_ids.get(m).cloned().into_iter().collect();
+                super::instruments::metrics(
+                    style,
+                    &lines,
+                    &self.panorama.history,
+                    self.cfg.general.panorama.design.history_seconds as usize,
+                    (fg, accent),
+                    self.panorama_font(),
+                    self.cfg.general.panorama.design.text_scale,
+                )
+            }
             "system" if self.cfg.general.panorama.design.system_style != "cards" => {
                 super::instruments::metrics(
                     &self.cfg.general.panorama.design.system_style,

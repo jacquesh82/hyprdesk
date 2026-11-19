@@ -201,8 +201,9 @@ pub fn default_music_sources() -> Vec<Source> {
 pub struct Config {
     /// Écrans au rôle Panorama : connecteur (`DP-3`) ou identifiant EDID.
     pub screens: Vec<String>,
-    /// Pages affichées une à une (disposition `single`), dans l'ordre.
-    pub pages: Vec<String>,
+    /// Pages du carrousel après la vue par défaut (une page à la fois en
+    /// disposition `single`), chacune avec sa composition.
+    pub pages: Vec<super::design::Page>,
     pub layout: Layout,
     /// Réglages propres à chaque découpage (1x2, 1x3, 2x2, 3x3) : chacun
     /// garde les siens quand on passe de l'un à l'autre.
@@ -253,8 +254,8 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             screens: Vec::new(),
-            pages: super::PAGES.iter().map(|(id, _)| id.to_string()).collect(),
-            layout: Layout::Single,
+            pages: super::design::default_pages(),
+            layout: Layout::Dashboard,
             zones: BTreeMap::new(),
             sources: default_sources(),
             music_sources: default_music_sources(),
@@ -353,10 +354,11 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(l) = list(t, "screens")? {
         c.screens = l;
     }
-    if let Some(l) = list(t, "pages")? {
-        let known: Vec<String> = l.into_iter().filter(|p| known_widget(p)).collect();
-        if !known.is_empty() {
-            c.pages = known;
+    if let Some(l) = t.get::<Option<Table>>("pages")? {
+        let pages = super::design::pages_from_lua(&l)?;
+        // Que des widgets inconnus : les pages par défaut.
+        if !pages.is_empty() || l.raw_len() == 0 {
+            c.pages = pages;
         }
     }
     if let Some(s) = t.get::<Option<String>>("layout")? {
@@ -507,7 +509,7 @@ impl Config {
         let d = Config::default();
         let mut f = vec![format!("screens = {}", lua_list(&self.screens))];
         if self.pages != d.pages {
-            f.push(format!("pages = {}", lua_list(&self.pages)));
+            f.push(format!("pages = {}", super::design::pages_lua(&self.pages)));
         }
         // Toujours écrite hors défaut, et avec un préréglage autre que
         // « cinematic » (sans elle, la relecture choisit la composition libre).
@@ -678,7 +680,10 @@ mod tests {
     fn aller_retour() {
         let c = Config {
             screens: vec!["DP-3".into(), "Corsair XENEON EDGE S1".into()],
-            pages: vec!["clock".into(), "media".into()],
+            pages: vec![
+                crate::panorama::design::Page::single("clock"),
+                crate::panorama::design::Page::system(),
+            ],
             layout: Layout::Split3,
             zones: BTreeMap::from([
                 (
@@ -739,7 +744,7 @@ mod tests {
         assert!(eval("{ layout = 'split9' }").is_err());
         assert!(eval("{ sources = { { name = 'x', url = 'file:///etc' } } }").is_err());
         let c = eval("{ pages = { 'radio', 'clock' }, screens = 'DP-1' }").unwrap();
-        assert_eq!(c.pages, vec!["clock".to_string()]);
+        assert_eq!(c.pages, vec![crate::panorama::design::Page::single("clock")]);
         assert_eq!(c.screens, vec!["DP-1".to_string()]);
         assert_eq!(
             eval("{ pages = { 'x' } }").unwrap().pages,

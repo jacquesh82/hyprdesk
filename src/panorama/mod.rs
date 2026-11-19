@@ -36,6 +36,12 @@ pub const PAGES: &[(&str, &str)] = &[
 
 /// Libellé d'une page (« Page » si elle est inconnue).
 pub fn page_label(id: &str) -> &'static str {
+    if let Some((m, _)) = design::metric_of(id) {
+        return design::metric_label(m);
+    }
+    if id == "playlist" {
+        return "Playlist";
+    }
     PAGES
         .iter()
         .find(|(p, _)| *p == id)

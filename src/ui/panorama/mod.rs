@@ -119,6 +119,8 @@ pub struct State {
     pub offered: HashSet<String>,
     pub media: Option<Status>,
     pub sys: Vec<crate::widgets::SysLine>,
+    /// Dernier relevé de chaque mesure (tuiles `metric:<id>`).
+    pub sys_ids: HashMap<String, crate::widgets::SysLine>,
     /// Dernier toucher (la veille attend `sleep_minutes` sans toucher ni lecture).
     pub last_press: Option<Instant>,
     pub cover: Option<(String, image::Handle)>,
@@ -161,6 +163,10 @@ pub struct State {
     pub shortcut_draft: (String, String, String),
     /// Réglages → Panorama : disposition dont on règle les zones.
     pub edit_layout: Option<crate::panorama::config::Layout>,
+    /// Composition en cours de réglage : vue par défaut (`None`) ou page.
+    pub edit_board: Option<usize>,
+    /// Noms de page en cours de saisie (Réglages).
+    pub page_names: HashMap<usize, String>,
     /// Écran où le choix de la disposition est ouvert (geste de bas en haut).
     pub picker: Option<String>,
     /// Réglages : `hyprdesk panorama icons` en cours.
@@ -216,7 +222,8 @@ pub enum PMsg {
     Later(Id),
     Tick,
     Media(Option<Status>),
-    Sys(Vec<crate::widgets::SysLine>),
+    /// Mesures relevées : (identifiant, ligne).
+    Sys(Vec<(String, crate::widgets::SysLine)>),
     /// Commande MPRIS (`PlayPause`, `Next`, `Previous`).
     Control(&'static str),
     Pressed,
@@ -914,14 +921,24 @@ impl App {
                         .design
                         .active_tiles(1600.0, 450.0)
                         .iter()
-                        .any(|t| t.widget == "system"))
+                        .any(|t| {
+                            t.widget == "system"
+                                || crate::panorama::design::metric_of(&t.widget).is_some()
+                        }))
                     || self
                         .panorama
                         .surfaces
                         .values()
                         .map(String::as_str)
                         .chain(self.panorama.preview.map(|_| PREVIEW))
-                        .any(|m| self.panorama_page_id(m) == "system")
+                        .any(|m| {
+                            self.panorama_page_at(m).is_some_and(|p| {
+                                p.tiles.iter().any(|t| {
+                                    t.widget == "system"
+                                        || crate::panorama::design::metric_of(&t.widget).is_some()
+                                })
+                            })
+                        })
                     || (self.cfg.general.panorama.layout
                         != crate::panorama::config::Layout::Single
                         && self
@@ -934,11 +951,27 @@ impl App {
                 if !wants_sys {
                     return media;
                 }
-                let metrics = self.cfg.general.panorama.design.metrics.clone();
+                // Mesures du widget Système, et de chaque tuile de mesure
+                // (composition et pages).
+                let c = &self.cfg.general.panorama;
+                let mut ids: Vec<String> = c
+                    .design
+                    .metrics
+                    .split(',')
+                    .map(|m| m.trim().to_string())
+                    .filter(|m| !m.is_empty())
+                    .collect();
+                for t in c.design.tiles.iter().chain(c.pages.iter().flat_map(|p| &p.tiles)) {
+                    if let Some((m, _)) = crate::panorama::design::metric_of(&t.widget)
+                        && !ids.iter().any(|i| i == m)
+                    {
+                        ids.push(m.to_string());
+                    }
+                }
                 let sys = Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            crate::panorama::telemetry::sample(&metrics)
+                            crate::panorama::telemetry::sample_ids(&ids)
                         })
                         .await
                         .unwrap_or_default()
@@ -966,7 +999,7 @@ impl App {
             }
             PMsg::Sys(l) => {
                 let limit = self.cfg.general.panorama.design.history_seconds as usize;
-                for v in &l {
+                for (_, v) in &l {
                     if let Some(r) = v.ratio {
                         let h = self.panorama.history.entry(v.label.clone()).or_default();
                         h.push_back(r);
@@ -975,7 +1008,21 @@ impl App {
                         }
                     }
                 }
-                self.panorama.sys = l;
+                // Widget Système : ses mesures, dans l'ordre réglé.
+                let wanted: Vec<&str> = self
+                    .cfg
+                    .general
+                    .panorama
+                    .design
+                    .metrics
+                    .split(',')
+                    .map(str::trim)
+                    .collect();
+                self.panorama.sys = wanted
+                    .iter()
+                    .filter_map(|w| l.iter().find(|(id, _)| id == w).map(|(_, v)| v.clone()))
+                    .collect();
+                self.panorama.sys_ids = l.into_iter().collect();
                 Task::none()
             }
             PMsg::Control(method) => {
@@ -1123,7 +1170,11 @@ impl App {
                     .parse::<usize>()
                     .ok()
                     .map(|n| n.saturating_sub(1))
-                    .or_else(|| pages.iter().position(|p| p == want));
+                    .or_else(|| {
+                        pages
+                            .iter()
+                            .position(|p| p.name.eq_ignore_ascii_case(want))
+                    });
                 match i {
                     Some(i) if i < pages.len() => {
                         let i = i + self.panorama_offset();
@@ -1233,8 +1284,8 @@ impl App {
         }
     }
 
-    /// Page affichée sur un écran (la veille passe d'elle-même à l'horloge).
-    fn panorama_page_id(&self, monitor: &str) -> &str {
+    /// Page affichée sur un écran, hors vue par défaut.
+    pub(super) fn panorama_page_at(&self, monitor: &str) -> Option<&crate::panorama::design::Page> {
         let pages = &self.cfg.general.panorama.pages;
         let i = self
             .panorama
@@ -1243,10 +1294,7 @@ impl App {
             .copied()
             .unwrap_or(0)
             .saturating_sub(self.panorama_offset());
-        pages
-            .get(i.min(pages.len().saturating_sub(1)))
-            .map(String::as_str)
-            .unwrap_or("media")
+        pages.get(i.min(pages.len().saturating_sub(1)))
     }
 
     /// Veille : rien ne joue et personne n'a touché depuis `sleep_minutes`.
@@ -1258,7 +1306,7 @@ impl App {
         self.panorama
             .last_press
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(mins as u64 * 60))
-            && self.cfg.general.panorama.pages.iter().any(|p| p == "clock")
+
     }
 
     pub(super) fn view_panorama(&self, id: Id) -> Element<'_, Msg> {
