@@ -547,7 +547,7 @@ impl App {
                 Task::batch([self.sync_bars(), self.sync_panorama(), offers])
             }
             PMsg::Swipe(mon, dir) => {
-                let n = self.cfg.general.panorama.pages.len().max(1) as i64;
+                let n = self.panorama_carousel() as i64;
                 let p = self.panorama.page.entry(mon).or_insert(0);
                 *p = (*p as i64 + dir as i64).rem_euclid(n) as usize;
                 Task::none()
@@ -827,6 +827,7 @@ impl App {
                     .or_else(|| pages.iter().position(|p| p == want));
                 match i {
                     Some(i) if i < pages.len() => {
+                        let i = i + self.panorama_offset();
                         self.panorama.hidden.remove(&m);
                         self.panorama.page.insert(m, i);
                         self.sync_panorama()
@@ -907,10 +908,38 @@ impl App {
             || self.panorama.offers.contains_key(&id)
     }
 
+    /// Vue composée en tête du carrousel (découpage, composition libre) :
+    /// 1, sinon 0 (une page à la fois).
+    fn panorama_offset(&self) -> usize {
+        usize::from(self.cfg.general.panorama.layout != crate::panorama::config::Layout::Single)
+    }
+
+    /// Entrées du carrousel d'un écran : la vue composée, puis les pages.
+    pub(super) fn panorama_carousel(&self) -> usize {
+        self.cfg.general.panorama.pages.len().max(1) + self.panorama_offset()
+    }
+
+    /// Disposition affichée sur l'écran `key` : la configurée sur la vue
+    /// composée (entrée 0), une page à la fois sur les pages qui suivent.
+    pub(super) fn panorama_layout_at(&self, key: &str) -> crate::panorama::config::Layout {
+        let i = self.panorama.page.get(key).copied().unwrap_or(0);
+        if i >= self.panorama_offset() {
+            crate::panorama::config::Layout::Single
+        } else {
+            self.cfg.general.panorama.layout
+        }
+    }
+
     /// Page affichée sur un écran (la veille passe d'elle-même à l'horloge).
     fn panorama_page_id(&self, monitor: &str) -> &str {
         let pages = &self.cfg.general.panorama.pages;
-        let i = self.panorama.page.get(monitor).copied().unwrap_or(0);
+        let i = self
+            .panorama
+            .page
+            .get(monitor)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(self.panorama_offset());
         pages
             .get(i.min(pages.len().saturating_sub(1)))
             .map(String::as_str)

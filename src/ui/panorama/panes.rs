@@ -147,7 +147,7 @@ impl App {
     pub(super) fn panorama_geo(&self, s: &Surf) -> Geo {
         let c = &self.cfg.general.panorama;
         let target = layout::target(s.ppm);
-        let panes = match c.layout {
+        let panes = match self.panorama_layout_at(&s.key) {
             Layout::Single => {
                 let widget = if self.panorama_asleep() {
                     "clock"
@@ -327,7 +327,11 @@ impl App {
 
     pub(super) fn panorama_panes_update(&mut self, m: PMsg) -> Task<Msg> {
         match m {
-            PMsg::Layout(l) => self.panorama_save_cfg(|c| c.layout = l),
+            PMsg::Layout(l) => {
+                // Nouvelle disposition : chaque écran revient à sa vue composée.
+                self.panorama.page.clear();
+                self.panorama_save_cfg(|c| c.layout = l)
+            }
             PMsg::Pane(i, d) => {
                 let ids: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
                 self.panorama_save_cfg(|c| {
@@ -542,17 +546,20 @@ impl App {
                 .as_ref()
                 .map(|(_, h, size)| (h.clone(), *size)),
         };
-        if self.cfg.general.panorama.layout == Layout::Dashboard {
-            return fx::stage(self.panorama_dashboard(&s, &geo, video_at), scene);
+        let lay = self.panorama_layout_at(&s.key);
+        let axis = if s.w >= s.h {
+            Axis::Horizontal
+        } else {
+            Axis::Vertical
+        };
+        // La vue composée est l'entrée 0 du carrousel : on glisse vers les pages.
+        let paged = |content| self.panorama_paged(&s.key, axis, content);
+        if lay == Layout::Dashboard {
+            return fx::stage(paged(self.panorama_dashboard(&s, &geo, video_at)), scene);
         }
-        if self.cfg.general.panorama.layout == Layout::Single {
+        if lay == Layout::Single {
             let p = &geo.panes[0];
             let key = s.key.clone();
-            let axis = if s.w >= s.h {
-                Axis::Horizontal
-            } else {
-                Axis::Vertical
-            };
             let page = self.panorama_pane_view(&s, &geo, p, true, video_at);
             let paged = swipe(page, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
                 .motion(self.panorama_motion())
@@ -630,7 +637,21 @@ impl App {
             lines.push(row(items).into());
         }
         let content: Element<'_, Msg> = column(lines).into();
-        fx::stage(content, scene)
+        fx::stage(paged(content), scene)
+    }
+
+    /// Contenu qu'on fait glisser vers l'entrée voisine du carrousel.
+    fn panorama_paged<'a>(
+        &'a self,
+        key: &str,
+        axis: Axis,
+        content: Element<'a, Msg>,
+    ) -> Element<'a, Msg> {
+        let key = key.to_string();
+        swipe(content, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
+            .motion(self.panorama_motion())
+            .on_press(wrap(PMsg::Pressed))
+            .into()
     }
 
     /// Une zone : son bandeau (s'il en a un) et son widget.
@@ -875,8 +896,9 @@ impl App {
             seg.into()
         };
         let mut r = row![seg].spacing(8).align_y(Alignment::Center);
-        if cur == Layout::Single {
-            let n = self.cfg.general.panorama.pages.len();
+        // Points du carrousel : vue composée (s'il y en a une), puis les pages.
+        let n = self.panorama_carousel();
+        if n > 1 {
             let i = self.panorama.page.get(&s.key).copied().unwrap_or(0);
             r = r.push(self.panorama_dots(n, i, &s.key, fg, accent));
         }

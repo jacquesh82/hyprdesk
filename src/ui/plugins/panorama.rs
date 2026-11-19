@@ -504,6 +504,7 @@ impl App {
             | Msg::ShortcutAdd
             | Msg::ShortcutRemove(_)) => self.panorama_design_update(m),
             Msg::Layout(l) => {
+                self.panorama.page.clear();
                 let mut c = self.panorama_cfg();
                 c.layout = l;
                 self.settings.panorama = Some(c);
