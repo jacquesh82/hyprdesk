@@ -3941,3 +3941,7 @@
 "Musique" = "Music"
 "En cours" = "Playing"
 "JSON — services de musique du profil Musique [{name,url,icon}]" = "JSON — music services of the Music profile [{name,url,icon}]"
+"Cadrer" = "Frame"
+"Zoom −" = "Zoom −"
+"Zoom +" = "Zoom +"
+"Réinitialiser" = "Reset"

@@ -741,6 +741,7 @@ impl App {
                     },
                     url,
                     icon: String::new(),
+                    ..Default::default()
                 });
                 self.settings.panorama = Some(c);
                 self.commit()

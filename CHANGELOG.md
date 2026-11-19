@@ -23,6 +23,17 @@ and this project adheres to
   [mods]`); Settings keeps the personal shortcuts and composition.
   `hyprdesk panorama icons music` has SmartUI draw the music services.
 - **Panorama background image: Browse…** opens the file chooser (portal).
+- **Panorama player: one source at a time, framing and memory per source**
+  (MLG-172). Opening a source replaces the previous one, even while it is
+  still opening (its window is closed when it shows up); tapping the playing
+  source again does not relaunch it; a player window left by a previous
+  hyprdesk is taken back or closed. Frame (services column) zooms and moves
+  the window behind the player zone so only the video shows — the strip
+  hides the rest — remembered per source (`zoom`, `dx`, `dy`); the
+  Fullscreen key goes to the player window and is remembered per source
+  (`full`), restored on opening. The Play key turns into Pause while
+  playing; the page dots sit at the bottom centre, translucent without a
+  recent touch.
 - **Screens split into zones** (MLG-172). Wayland cannot cut one output into
   several logical monitors, so hyprdesk does it with a Hyprland Lua layout
   (`lua:hyprdesk-zones-…`): Settings → Screens → Screen → Zones offers 1,

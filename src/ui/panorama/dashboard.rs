@@ -101,30 +101,125 @@ impl App {
                 .width(Length::Fill)
         ]
         .align_y(Alignment::Center);
-        if playing.is_some() {
-            head = head.push(
-                self.panorama_feedback(
-                    button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
-                        .padding([6, 12])
-                        .on_press(wrap(PMsg::VideoClose))
-                        .style(move |_, st| button::Style {
-                            background: Some(
-                                fx::alpha(
-                                    accent,
-                                    if matches!(st, button::Status::Pressed) {
-                                        0.6
-                                    } else {
-                                        0.25
-                                    },
-                                )
-                                .into(),
-                            ),
-                            border: Border::default().rounded(10),
-                            text_color: fg,
-                            ..Default::default()
-                        }),
+        let pill = move |on: bool| {
+            move |_: &iced::Theme, st: button::Status| button::Style {
+                background: Some(
+                    fx::alpha(
+                        accent,
+                        if on || matches!(st, button::Status::Pressed) {
+                            0.6
+                        } else {
+                            0.25
+                        },
+                    )
+                    .into(),
                 ),
-            );
+                border: Border::default().rounded(10),
+                text_color: fg,
+                ..Default::default()
+            }
+        };
+        if playing.is_some() {
+            head = head
+                .push(
+                    self.panorama_feedback(
+                        button(text(crate::i18n::tr("Cadrer")).size(13).color(fg))
+                            .padding([6, 12])
+                            .on_press(wrap(PMsg::Frame("start")))
+                            .style(pill(self.panorama.framing)),
+                    ),
+                )
+                .push(Space::new().width(8))
+                .push(
+                    self.panorama_feedback(
+                        button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
+                            .padding([6, 12])
+                            .on_press(wrap(PMsg::VideoClose))
+                            .style(pill(false)),
+                    ),
+                );
+        }
+        // Cadrage : zoom et décalage de la fenêtre derrière la zone du
+        // lecteur, mémorisés pour la source.
+        if playing.is_some() && self.panorama.framing {
+            let side = ((size.width - 16.0 - 2.0 * gap) / 3.0)
+                .min((size.height - 16.0 - 34.0 - 4.0 * gap) / 4.0)
+                .max(36.0);
+            let key = |label: &'static str, icon: &'static str, op: &'static str| {
+                let glyph: Element<'_, Msg> = if icon.is_empty() {
+                    text(crate::i18n::tr(label)).size(13).color(fg).into()
+                } else {
+                    self.icon_named(icon, side * 0.4, fg)
+                        .unwrap_or_else(|| text(crate::i18n::tr(label)).size(13).color(fg).into())
+                };
+                self.panorama_feedback(
+                    button(
+                        container(glyph)
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill),
+                    )
+                    .width(side)
+                    .height(side)
+                    .on_press(wrap(PMsg::Frame(op)))
+                    .style(move |_, st| button::Style {
+                        background: Some(
+                            fx::alpha(
+                                if matches!(st, button::Status::Pressed) {
+                                    accent
+                                } else {
+                                    bg
+                                },
+                                0.6,
+                            )
+                            .into(),
+                        ),
+                        border: Border {
+                            radius: 12.0.into(),
+                            width: 1.0,
+                            color: fx::alpha(fg, 0.25),
+                        },
+                        text_color: fg,
+                        ..Default::default()
+                    }),
+                )
+            };
+            let zoom = self
+                .panorama_current_source()
+                .map(|s| format!("{} %", (s.zoom * 100.0).round()))
+                .unwrap_or_default();
+            let pad = column![
+                row![
+                    key("Zoom −", "zoom-out-symbolic", "zoom-"),
+                    key("Monter", "go-up-symbolic", "up"),
+                    key("Zoom +", "zoom-in-symbolic", "zoom+"),
+                ]
+                .spacing(gap),
+                row![
+                    key("Gauche", "go-previous-symbolic", "left"),
+                    key("Réinitialiser", "view-refresh-symbolic", "reset"),
+                    key("Droite", "go-next-symbolic", "right"),
+                ]
+                .spacing(gap),
+                row![
+                    container(text(zoom).size(13).color(fg))
+                        .width(side)
+                        .height(side)
+                        .center_x(side)
+                        .center_y(side),
+                    key("Descendre", "go-down-symbolic", "down"),
+                    key("OK", "object-select-symbolic", "done"),
+                ]
+                .spacing(gap),
+            ]
+            .spacing(gap)
+            .align_x(Alignment::Center);
+            return column![
+                container(head).height(34),
+                container(pad).width(Length::Fill).center_x(Length::Fill)
+            ]
+            .spacing(gap)
+            .padding(8)
+            .into();
         }
         let sources = c.active_sources();
         // Lignes tactiles : toute la hauteur partagée, entre 44 et 72 px.
@@ -324,8 +419,19 @@ impl App {
         for (r, chunk) in list.chunks(columns).enumerate() {
             let mut line = row![].spacing(gap);
             for (j, s) in chunk.iter().enumerate() {
+                // Lecture / Pause : la touche suit l'état du lecteur.
+                let pause = s.command.trim() == "hyprdesk media play-pause"
+                    && self.panorama.media.as_ref().is_some_and(|m| m.playing);
+                let (name, icon_name) = if pause {
+                    (
+                        crate::i18n::tr("Pause").to_string(),
+                        "media-playback-pause-symbolic",
+                    )
+                } else {
+                    (s.name.clone(), s.icon.as_str())
+                };
                 let icon = self
-                    .icon_named(&s.icon, (height * 0.37).min(width * 0.35), fg)
+                    .icon_named(icon_name, (height * 0.37).min(width * 0.35), fg)
                     .unwrap_or_else(|| {
                         text(s.name.chars().next().unwrap_or('·').to_string())
                             .size(24)
@@ -336,7 +442,7 @@ impl App {
                 // Touches basses : l'icône seule.
                 if height >= 64.0 {
                     label = label.push(
-                        text(s.name.clone())
+                        text(name)
                             .size((width * 0.14).clamp(10.0, 16.0))
                             .color(fg)
                             .wrapping(text::Wrapping::None),

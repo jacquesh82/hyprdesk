@@ -110,6 +110,50 @@ pub struct Source {
     /// Icône de la tuile : nom d'icône ou chemin (vide : initiale ; SmartUI
     /// la dessine, `hyprdesk panorama icons`).
     pub icon: String,
+    /// Mémorisé par source : la vidéo seule (plein écran du lecteur de la
+    /// page, dans la zone), rétablie à l'ouverture.
+    pub full: bool,
+    /// Cadrage mémorisé par source : la fenêtre est agrandie (`zoom` ≥ 1) et
+    /// décalée (`dx`, `dy`, en part de la zone) derrière la zone du lecteur,
+    /// qui n'en laisse voir que la vidéo.
+    pub zoom: f32,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl Default for Source {
+    fn default() -> Self {
+        Source {
+            name: String::new(),
+            url: String::new(),
+            icon: String::new(),
+            full: false,
+            zoom: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+        }
+    }
+}
+
+impl Source {
+    /// Rectangle de la fenêtre pour la zone `r` (x, y, l, h), cadrage appliqué.
+    pub fn framed(&self, r: (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+        let z = self.zoom.clamp(1.0, 4.0);
+        let (w, h) = (r.2 as f32 * z, r.3 as f32 * z);
+        let x = r.0 as f32 - (w - r.2 as f32) / 2.0 + self.dx * r.2 as f32;
+        let y = r.1 as f32 - (h - r.3 as f32) / 2.0 + self.dy * r.3 as f32;
+        (
+            x.round() as i32,
+            y.round() as i32,
+            w.round() as i32,
+            h.round() as i32,
+        )
+    }
+
+    /// Cadrage par défaut (fenêtre = zone).
+    pub fn unframed(&self) -> bool {
+        self.zoom == 1.0 && self.dx == 0.0 && self.dy == 0.0
+    }
 }
 
 /// Sources par défaut (modifiables dans Réglages → Panorama).
@@ -128,6 +172,7 @@ pub fn default_sources() -> Vec<Source> {
         name: n.to_string(),
         url: u.to_string(),
         icon: String::new(),
+        ..Default::default()
     })
     .collect()
 }
@@ -146,6 +191,7 @@ pub fn default_music_sources() -> Vec<Source> {
         name: n.to_string(),
         url: u.to_string(),
         icon: String::new(),
+        ..Default::default()
     })
     .collect()
 }
@@ -371,6 +417,10 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                 },
                 url: url.trim().to_string(),
                 icon: icon.trim().to_string(),
+                full: v.get::<Option<bool>>("full")?.unwrap_or(false),
+                zoom: v.get::<Option<f32>>("zoom")?.unwrap_or(1.0).clamp(1.0, 4.0),
+                dx: v.get::<Option<f32>>("dx")?.unwrap_or(0.0).clamp(-2.0, 2.0),
+                dy: v.get::<Option<f32>>("dy")?.unwrap_or(0.0).clamp(-2.0, 2.0),
             });
         }
         if key == "sources" {
@@ -467,16 +517,20 @@ impl Config {
             let s: Vec<String> = mine
                 .iter()
                 .map(|s| {
-                    if s.icon.is_empty() {
-                        format!("{{ name = {}, url = {} }}", q(&s.name), q(&s.url))
-                    } else {
-                        format!(
-                            "{{ name = {}, url = {}, icon = {} }}",
-                            q(&s.name),
-                            q(&s.url),
-                            q(&s.icon)
-                        )
+                    let mut e = vec![
+                        format!("name = {}", q(&s.name)),
+                        format!("url = {}", q(&s.url)),
+                    ];
+                    if !s.icon.is_empty() {
+                        e.push(format!("icon = {}", q(&s.icon)));
                     }
+                    if s.full {
+                        e.push("full = true".into());
+                    }
+                    if !s.unframed() {
+                        e.push(format!("zoom = {}, dx = {}, dy = {}", s.zoom, s.dx, s.dy));
+                    }
+                    format!("{{ {} }}", e.join(", "))
                 })
                 .collect();
             f.push(format!("{key} = {{ {} }}", s.join(", ")));
@@ -580,6 +634,18 @@ mod tests {
     }
 
     #[test]
+    fn cadrage_par_source() {
+        let mut s = Source::default();
+        assert!(s.unframed());
+        assert_eq!(s.framed((100, 50, 800, 450)), (100, 50, 800, 450));
+        // Zoom 1,5 centré, puis décalé d'un quart de zone vers le haut.
+        s.zoom = 1.5;
+        assert_eq!(s.framed((100, 50, 800, 450)), (-100, -63, 1200, 675));
+        s.dy = -0.25;
+        assert_eq!(s.framed((100, 50, 800, 450)).1, -175);
+    }
+
+    #[test]
     fn aller_retour() {
         let c = Config {
             screens: vec!["DP-3".into(), "Corsair XENEON EDGE S1".into()],
@@ -605,11 +671,16 @@ mod tests {
                 name: "Free \"TV\"".into(),
                 url: "https://tv.free.fr".into(),
                 icon: "/tmp/free.svg".into(),
+                full: true,
+                zoom: 1.25,
+                dx: 0.0,
+                dy: -0.5,
             }],
             music_sources: vec![Source {
                 name: "Radio".into(),
                 url: "https://www.radiofrance.fr".into(),
                 icon: String::new(),
+                ..Default::default()
             }],
             browser: "chromium".into(),
             declined: vec!["Acme \"M\" 1".into()],

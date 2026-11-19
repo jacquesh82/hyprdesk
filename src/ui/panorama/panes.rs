@@ -17,6 +17,8 @@ use crate::panorama::video;
 /// Recherche de la fenêtre lancée : un essai toutes les 400 ms, 25 s au plus.
 const POLL: Duration = Duration::from_millis(400);
 const POLL_MAX: u32 = 62;
+/// Attente avant de rétablir la vidéo seule (page et lecteur chargés).
+const FULL_DELAY: Duration = Duration::from_secs(7);
 
 /// Vidéo en cours du widget Vidéo.
 #[derive(Debug, Clone)]
@@ -34,6 +36,16 @@ pub struct Video {
     pub placed: Option<(i32, i32, i32, i32)>,
     /// Fenêtre active avant le lancement (le clavier lui est rendu).
     pub focus_back: Option<String>,
+}
+
+/// Lancement abandonné (autre source choisie pendant l'ouverture) : sa
+/// fenêtre est fermée dès qu'elle apparaît.
+#[derive(Debug, Clone)]
+pub struct Stray {
+    pub prefix: String,
+    pub url: String,
+    pub known: Vec<String>,
+    pub since: std::time::Instant,
 }
 
 /// Une surface du Panorama (écran ou fenêtre d'aperçu).
@@ -268,14 +280,67 @@ impl App {
                 let m = self.monitors.iter().find(|m| m.name == s.key)?;
                 (m.x.round() as i32, m.y.round() as i32)
             };
-            return Some((
+            let zone = (
                 origin.0 + r.x.round() as i32,
                 origin.1 + r.y.round() as i32,
                 r.w.round() as i32,
                 r.h.round() as i32,
-            ));
+            );
+            // Cadrage de la source : seule la vidéo reste dans la zone.
+            return Some(match self.panorama_current_source() {
+                Some(src) => src.framed(zone),
+                None => zone,
+            });
         }
         None
+    }
+
+    /// Source ouverte dans le lecteur (vidéo ou musique).
+    pub(super) fn panorama_current_source(&self) -> Option<&crate::panorama::config::Source> {
+        let url = &self.panorama.video.as_ref()?.url;
+        let c = &self.cfg.general.panorama;
+        c.sources.iter().chain(&c.music_sources).find(|s| &s.url == url)
+    }
+
+    /// Cadrage de la source ouverte : zoom et décalage, mémorisés.
+    fn panorama_frame(&mut self, op: &str) -> Task<Msg> {
+        let Some(url) = self.panorama.video.as_ref().map(|v| v.url.clone()) else {
+            return Task::none();
+        };
+        if op == "done" {
+            self.panorama.framing = false;
+            return Task::none();
+        }
+        let mut c = self.panorama_cfg();
+        let Some(src) = c
+            .sources
+            .iter_mut()
+            .chain(c.music_sources.iter_mut())
+            .find(|s| s.url == url)
+        else {
+            return Task::none();
+        };
+        let step = 0.02;
+        match op {
+            "zoom+" => src.zoom = (src.zoom + 0.05).min(4.0),
+            "zoom-" => src.zoom = (src.zoom - 0.05).max(1.0),
+            // La vidéo suit le doigt : « gauche » décale la fenêtre à gauche.
+            "left" => src.dx = (src.dx - step).max(-2.0),
+            "right" => src.dx = (src.dx + step).min(2.0),
+            "up" => src.dy = (src.dy - step).max(-2.0),
+            "down" => src.dy = (src.dy + step).min(2.0),
+            "reset" => {
+                src.zoom = 1.0;
+                src.dx = 0.0;
+                src.dy = 0.0;
+            }
+            _ => return Task::none(),
+        }
+        // Valeurs rondes dans la config.
+        src.zoom = (src.zoom * 100.0).round() / 100.0;
+        src.dx = (src.dx * 100.0).round() / 100.0;
+        src.dy = (src.dy * 100.0).round() / 100.0;
+        self.panorama_save_cfg(|cfg| *cfg = c)
     }
 
     /// Zone de saisie de chaque surface (trous de la vidéo) et place de la
@@ -394,6 +459,16 @@ impl App {
                     });
                     return Task::none();
                 };
+                // Une seule source à la fois : la même, déjà ouverte ou en
+                // cours d'ouverture, n'est pas relancée ; une autre la remplace.
+                if self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .is_some_and(|v| v.url == src.url && v.error.is_none())
+                {
+                    return Task::none();
+                }
                 let close = self.panorama_close_video();
                 let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
                 self.panorama.video = Some(Video {
@@ -472,22 +547,142 @@ impl App {
                 // Posée là où la zone l'attend (ou sur place si la zone n'est
                 // pas visible), puis le clavier rendu à la fenêtre d'avant.
                 let rect = self.pip_target();
+                let url = self.panorama.video.as_ref().map(|v| v.url.clone());
                 if let Some(v) = self.panorama.video.as_mut() {
                     v.placed = rect;
                 }
+                // Vidéo seule mémorisée pour la source : rétablie une fois
+                // la page chargée.
+                let c = &self.cfg.general.panorama;
+                let full = c
+                    .sources
+                    .iter()
+                    .chain(&c.music_sources)
+                    .any(|s| Some(&s.url) == url.as_ref() && s.full);
+                let again = if full {
+                    let a = addr.clone();
+                    Task::perform(tokio::time::sleep(FULL_DELAY), move |_| {
+                        wrap(PMsg::VideoFull(a.clone(), 0))
+                    })
+                } else {
+                    Task::none()
+                };
+                Task::batch([
+                    again,
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                let r = video::adopt(&addr, rect);
+                                if let Some(b) = back {
+                                    let _ = crate::hypr::focus_window(&b);
+                                }
+                                r
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                        },
+                        |r| wrap(PMsg::VideoPlaced(r)),
+                    ),
+                ])
+            }
+            PMsg::Orphans(list) => {
+                // Une seule source : la première reconnue est reprise, les
+                // autres fermées.
+                let mut close = Vec::new();
+                for (addr, class) in list {
+                    let c = &self.cfg.general.panorama;
+                    let src = c
+                        .sources
+                        .iter()
+                        .chain(&c.music_sources)
+                        .find(|s| video::matches(&class, "", &s.url))
+                        .cloned();
+                    match src {
+                        Some(src) if self.panorama.video.is_none() => {
+                            let prefix = video::browser(&c.browser)
+                                .map(|(_, p)| p)
+                                .unwrap_or_default();
+                            self.panorama.video = Some(Video {
+                                name: src.name,
+                                url: src.url,
+                                prefix,
+                                address: Some(addr),
+                                known: Vec::new(),
+                                error: None,
+                                placed: None,
+                                focus_back: None,
+                            });
+                        }
+                        _ if self.panorama.video.as_ref().and_then(|v| v.address.as_ref())
+                            == Some(&addr) => {}
+                        _ => close.push(addr),
+                    }
+                }
+                Task::batch(close.into_iter().map(|a| {
+                    Task::perform(
+                        async move {
+                            let _ = tokio::task::spawn_blocking(move || video::close(&a)).await;
+                        },
+                        |_| Msg::Noop,
+                    )
+                }))
+            }
+            PMsg::RememberFull(url, full) => {
+                let mut c = self.panorama_cfg();
+                let Some(src) = c
+                    .sources
+                    .iter_mut()
+                    .chain(c.music_sources.iter_mut())
+                    // Relevé seulement s'il est vu : le plein écran que le
+                    // lecteur de la page garde pour lui n'est pas visible.
+                    .find(|s| s.url == url && full && !s.full)
+                else {
+                    return Task::none();
+                };
+                src.full = full;
+                self.panorama_save_cfg(|cfg| *cfg = c)
+            }
+            PMsg::Frame(op) => {
+                self.panorama.last_press = Some(std::time::Instant::now());
+                if op == "start" {
+                    self.panorama.framing = !self.panorama.framing;
+                    return Task::none();
+                }
+                self.panorama_frame(op)
+            }
+            PMsg::VideoFull(addr, n) => {
+                if self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .and_then(|v| v.address.as_ref())
+                    != Some(&addr)
+                {
+                    return Task::none();
+                }
+                // Deux essais : la page met parfois du temps à lancer son lecteur.
                 Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || {
-                            let r = video::adopt(&addr, rect);
-                            if let Some(b) = back {
-                                let _ = crate::hypr::focus_window(&b);
+                        let a = addr.clone();
+                        let done = tokio::task::spawn_blocking(move || {
+                            if video::is_full(&a) {
+                                return true;
                             }
-                            r
+                            let _ = video::send_key(&a, "f");
+                            false
                         })
                         .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
+                        .unwrap_or(true);
+                        if !done && n == 0 {
+                            tokio::time::sleep(FULL_DELAY).await;
+                            return Some(addr);
+                        }
+                        None
                     },
-                    |r| wrap(PMsg::VideoPlaced(r)),
+                    |again| match again {
+                        Some(a) => wrap(PMsg::VideoFull(a, 1)),
+                        None => Msg::Noop,
+                    },
                 )
             }
             PMsg::VideoFound(None) => Task::none(),
@@ -501,6 +696,7 @@ impl App {
                 Task::none()
             }
             PMsg::VideoClose => {
+                self.panorama.framing = false;
                 let t = self.panorama_close_video();
                 self.panorama.video = None;
                 t
@@ -511,15 +707,75 @@ impl App {
 
     /// Ferme la fenêtre vidéo, s'il y en a une.
     fn panorama_close_video(&mut self) -> Task<Msg> {
-        match self.panorama.video.take().and_then(|v| v.address) {
-            Some(a) => Task::perform(
+        // Fenêtre pas encore apparue : fermée à son arrivée.
+        if let Some(v) = self
+            .panorama
+            .video
+            .as_ref()
+            .filter(|v| v.address.is_none() && !v.prefix.is_empty())
+        {
+            self.panorama.strays.push(Stray {
+                prefix: v.prefix.clone(),
+                url: v.url.clone(),
+                known: v.known.clone(),
+                since: std::time::Instant::now(),
+            });
+        }
+        // Vidéo seule ou non : relevé avant de fermer, mémorisé pour la source.
+        match self.panorama.video.take().and_then(|v| Some((v.address?, v.url))) {
+            Some((a, url)) => Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        let full = video::is_full(&a);
+                        video::close(&a);
+                        full
+                    })
+                    .await
+                    .ok()
+                },
+                move |full| match full {
+                    Some(f) => wrap(PMsg::RememberFull(url.clone(), f)),
+                    None => Msg::Noop,
+                },
+            ),
+            None => Task::none(),
+        }
+    }
+
+    /// Ferme les fenêtres des lancements abandonnés qui viennent d'apparaître
+    /// (une seule source audio ou vidéo à la fois) ; oubliées après 2 min.
+    pub(super) fn panorama_close_strays(&mut self) -> Task<Msg> {
+        if self.panorama.strays.is_empty() {
+            return Task::none();
+        }
+        let current = self
+            .panorama
+            .video
+            .as_ref()
+            .and_then(|v| v.address.clone());
+        let mut gone = Vec::new();
+        self.panorama.strays.retain(|st| {
+            let found = self.clients.iter().find(|c| {
+                !st.known.contains(&c.address)
+                    && current.as_ref() != Some(&c.address)
+                    && video::matches(&c.class, &st.prefix, &st.url)
+            });
+            match found {
+                Some(c) => {
+                    gone.push(c.address.clone());
+                    false
+                }
+                None => st.since.elapsed() < std::time::Duration::from_secs(120),
+            }
+        });
+        Task::batch(gone.into_iter().map(|a| {
+            Task::perform(
                 async move {
                     let _ = tokio::task::spawn_blocking(move || video::close(&a)).await;
                 },
                 |_| Msg::Noop,
-            ),
-            None => Task::none(),
-        }
+            )
+        }))
     }
 
     /// Fenêtre vidéo fermée hors du Panorama (SUPER+Q…) : on l'oublie.
@@ -545,8 +801,50 @@ impl App {
             Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
                 stack![inner, self.panorama_picker(&s)].into()
             }
-            _ => inner,
+            Some(s) => match self.panorama_dots_overlay(&s) {
+                Some(dots) => stack![inner, dots].into(),
+                None => inner,
+            },
+            None => inner,
         }
+    }
+
+    /// Points du carrousel en bas au centre : la page affichée et leur
+    /// nombre ; translucides sans toucher récent.
+    fn panorama_dots_overlay(&self, s: &Surf) -> Option<Element<'_, Msg>> {
+        let n = self.panorama_carousel();
+        if n < 2 || self.panorama_asleep() {
+            return None;
+        }
+        let (_, fg, accent) = self.panorama_palette();
+        let i = self.panorama.page.get(&s.key).copied().unwrap_or(0);
+        let active = self
+            .panorama
+            .last_press
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
+        let a = if active { 1.0 } else { 0.35 };
+        let dots = self.panorama_dots(
+            n,
+            i,
+            &s.key,
+            Color { a: fg.a * a, ..fg },
+            Color {
+                a: accent.a * a,
+                ..accent
+            },
+        );
+        Some(
+            container(dots)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End)
+                .padding(iced::Padding {
+                    bottom: 2.0,
+                    ..iced::Padding::ZERO
+                })
+                .into(),
+        )
     }
 
     /// Choix de la disposition (geste de bas en haut) : une tuile par
@@ -1051,13 +1349,9 @@ impl App {
         } else {
             seg.into()
         };
-        let mut r = row![seg].spacing(8).align_y(Alignment::Center);
-        // Points du carrousel : vue composée (s'il y en a une), puis les pages.
-        let n = self.panorama_carousel();
-        if n > 1 {
-            let i = self.panorama.page.get(&s.key).copied().unwrap_or(0);
-            r = r.push(self.panorama_dots(n, i, &s.key, fg, accent));
-        }
+        // Les points du carrousel sont en bas au centre (`panorama_dots_overlay`).
+        let _ = accent;
+        let r = row![seg].spacing(8).align_y(Alignment::Center);
         let hide = button(
             // Aperçu : le bouton ferme la fenêtre ; sinon il escamote.
             container(

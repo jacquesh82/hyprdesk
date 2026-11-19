@@ -132,6 +132,54 @@ pub fn adopt(address: &str, rect: Option<(i32, i32, i32, i32)>) -> Result<(), St
     }
 }
 
+/// Envoie une touche à la fenêtre du lecteur (sans lui donner le clavier) :
+/// `f` met la vidéo seule en plein écran, dans sa zone (MLG-172).
+pub fn send_key(address: &str, key: &str) -> Result<(), String> {
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("touche invalide : {key}"));
+    }
+    hyprpanel_core::ipc::eval(&format!(
+        "hl.dispatch(hl.dsp.send_shortcut({{ mods = \"\", key = \"{key}\", window = \"address:{}\" }}))",
+        hyprpanel_core::ipc::lua_escape(address)
+    ))
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// La fenêtre est en plein écran côté application (vidéo seule).
+pub fn is_full(address: &str) -> bool {
+    hyprpanel_core::ipc::query_json("clients")
+        .ok()
+        .and_then(|v| {
+            v.as_array()?.iter().find_map(|c| {
+                (c["address"].as_str() == Some(address))
+                    .then(|| c["fullscreenClient"].as_i64().unwrap_or(0) != 0)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Fenêtres étiquetées du lecteur (adresse, classe), d'un hyprdesk
+/// précédent par exemple.
+pub fn tagged() -> Vec<(String, String)> {
+    let Ok(v) = hyprpanel_core::ipc::query_json("clients") else {
+        return Vec::new();
+    };
+    v.as_array()
+        .map(|l| {
+            l.iter()
+                .filter(|c| c["tags"].to_string().contains(TAG))
+                .filter_map(|c| {
+                    Some((
+                        c["address"].as_str()?.to_string(),
+                        c["class"].as_str().unwrap_or("").to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Ferme la fenêtre.
 pub fn close(address: &str) {
     let _ = hyprpanel_core::ipc::dispatch(&format!(

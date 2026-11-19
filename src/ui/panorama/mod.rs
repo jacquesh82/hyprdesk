@@ -126,6 +126,14 @@ pub struct State {
     pub preview: Option<Preview>,
     /// Vidéo du widget Vidéo (fenêtre de navigateur posée dans sa zone).
     pub video: Option<panes::Video>,
+    /// Lancements abandonnés avant que leur fenêtre n'apparaisse : elle sera
+    /// fermée à son arrivée (une seule source à la fois).
+    pub strays: Vec<panes::Stray>,
+    /// Réglage du cadrage de la source ouverte (colonne des services).
+    pub framing: bool,
+    /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
+    /// une fois (reprises, ou fermées).
+    pub orphans_checked: bool,
     /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
     pub regions: HashMap<Id, Vec<layout::Rect>>,
     /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
@@ -157,6 +165,15 @@ pub enum PMsg {
     Shortcut(usize),
     /// Profil du bloc de raccourcis (vidéo, audio, télécommande, système).
     Profile(String),
+    /// Cadrage de la source ouverte : start (bascule), zoom+, zoom-, left,
+    /// right, up, down, reset, done.
+    Frame(&'static str),
+    /// Fenêtres étiquetées du lecteur trouvées au démarrage : (adresse, classe).
+    Orphans(Vec<(String, String)>),
+    /// Plein écran relevé à la fermeture d'une source : (adresse, vidéo seule).
+    RememberFull(String, bool),
+    /// Vidéo seule mémorisée : la rétablir (fenêtre, essai).
+    VideoFull(String, u8),
     ShortcutResult(Result<(), String>),
     Wallpaper(String, Option<iced::Size>),
     /// Écrans et tactiles relus.
@@ -420,6 +437,17 @@ impl App {
     fn panorama_icon_names(&self) -> Vec<String> {
         let c = &self.cfg.general.panorama;
         let mut out: Vec<String> = ICONS.iter().map(|n| n.to_string()).collect();
+        // Cadrage du lecteur, Lecture/Pause.
+        out.extend(
+            [
+                "zoom-in-symbolic",
+                "zoom-out-symbolic",
+                "view-refresh-symbolic",
+                "object-select-symbolic",
+                "media-playback-pause-symbolic",
+            ]
+            .map(String::from),
+        );
         for id in crate::panorama::design::PROFILES {
             out.extend(
                 crate::panorama::design::profile_shortcuts(id)
@@ -544,6 +572,49 @@ impl App {
                     return Task::none();
                 };
                 let command = s.command.clone();
+                drop(list);
+                // Profils Vidéo et Musique : les touches vont au lecteur ; son
+                // plein écran (vidéo seule) est mémorisé pour la source.
+                let player = matches!(
+                    self.cfg.general.panorama.design.shortcut_profile.as_str(),
+                    "video" | "audio"
+                );
+                if player
+                    && let Some(key) = command.trim().strip_prefix("hyprdesk key ")
+                    && let Some(v) = self.panorama.video.as_ref()
+                    && let Some(addr) = v.address.clone()
+                {
+                    // Plein écran (touche f) : mémorisé pour la source, rétabli
+                    // à l'ouverture.
+                    let key = key.trim().to_string();
+                    let url = v.url.clone();
+                    let mut save = Task::none();
+                    if key == "f" {
+                        let mut c = self.panorama_cfg();
+                        if let Some(src) = c
+                            .sources
+                            .iter_mut()
+                            .chain(c.music_sources.iter_mut())
+                            .find(|s| s.url == url)
+                        {
+                            src.full = !src.full;
+                            save = self.panorama_save(c);
+                        }
+                    }
+                    return Task::batch([
+                        save,
+                        Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    crate::panorama::video::send_key(&addr, &key)
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()))
+                            },
+                            |r| wrap(PMsg::ShortcutResult(r)),
+                        ),
+                    ]);
+                }
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -561,6 +632,10 @@ impl App {
             }
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
+            | PMsg::VideoFull(..)
+            | PMsg::Frame(_)
+            | PMsg::Orphans(_)
+            | PMsg::RememberFull(..)
             | PMsg::Pane(..)
             | PMsg::VideoOpen(_)
             | PMsg::VideoPoll(_)
@@ -675,6 +750,21 @@ impl App {
                     return Task::none();
                 }
                 self.panorama_video_gone();
+                let mut strays = self.panorama_close_strays();
+                if !self.panorama.orphans_checked {
+                    self.panorama.orphans_checked = true;
+                    strays = Task::batch([
+                        strays,
+                        Task::perform(
+                            async {
+                                tokio::task::spawn_blocking(crate::panorama::video::tagged)
+                                    .await
+                                    .unwrap_or_default()
+                            },
+                            |l| wrap(PMsg::Orphans(l)),
+                        ),
+                    ]);
+                }
                 // Vidéo posée dans l'aperçu : la fenêtre suit la sienne.
                 // (dès l'ouverture : la position est connue quand elle apparaît).
                 let follow = if self.panorama.preview.is_some() && self.panorama.video.is_some() {
@@ -702,6 +792,7 @@ impl App {
                 };
                 let media = Task::batch([
                     follow,
+                    strays,
                     Task::perform(crate::widgets::media::status(), |s| wrap(PMsg::Media(s))),
                 ]);
                 let wants_sys = (self.cfg.general.panorama.layout
