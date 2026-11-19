@@ -3,6 +3,9 @@
 //! assez long ou assez vif publie `on_swipe(+1)` (page suivante) ou `-1`.
 //! Tant que le geste n'a pas dépassé le seuil, les boutons de la page
 //! reçoivent l'appui comme d'habitude ; au-delà, ils ne le reçoivent plus.
+//!
+//! Un geste sur l'autre axe (de bas en haut ou de haut en bas pour un
+//! bandeau paysage) publie `on_cross(+1)` (vers le haut) ou `-1`.
 
 use std::time::{Duration, Instant};
 
@@ -32,6 +35,8 @@ pub struct Swipe<'a> {
     content: Element<'a, Msg>,
     axis: Axis,
     on_swipe: Box<dyn Fn(i32) -> Msg + 'a>,
+    /// Geste sur l'autre axe : +1 vers le haut (ou la gauche), -1 vers le bas.
+    on_cross: Option<Box<dyn Fn(i32) -> Msg + 'a>>,
     /// Publié à chaque appui (activité : retarde la veille).
     on_press: Option<Msg>,
     duration: Duration,
@@ -46,6 +51,7 @@ pub fn swipe<'a>(
         content: content.into(),
         axis,
         on_swipe: Box::new(on_swipe),
+        on_cross: None,
         on_press: None,
         duration: Duration::from_millis(240),
     }
@@ -54,6 +60,10 @@ pub fn swipe<'a>(
 impl<'a> Swipe<'a> {
     pub fn motion(mut self, duration: Duration) -> Self {
         self.duration = duration;
+        self
+    }
+    pub fn on_cross(mut self, f: impl Fn(i32) -> Msg + 'a) -> Self {
+        self.on_cross = Some(Box::new(f));
         self
     }
     pub fn on_press(mut self, m: Msg) -> Self {
@@ -68,6 +78,10 @@ struct State {
     /// Doigt suivi (aucun : la souris).
     finger: Option<touch::Finger>,
     dragging: bool,
+    /// Geste reconnu sur l'autre axe (le contenu ne suit pas).
+    crossing: bool,
+    /// Déplacement sur l'autre axe.
+    cross: f32,
     offset: f32,
     last: Option<(f32, Instant)>,
     /// px/ms, sur l'axe.
@@ -208,8 +222,28 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                 Ev::Move(p, f) if s.start.is_some() && s.finger == f => {
                     let start = s.start.unwrap_or(p);
                     let (along, across) = self.along(p - start);
-                    if !s.dragging && along.abs() > SLOP && along.abs() > across.abs() * 1.5 {
-                        s.dragging = true;
+                    if !s.dragging && !s.crossing {
+                        if along.abs() > SLOP && along.abs() > across.abs() * 1.5 {
+                            s.dragging = true;
+                        } else if self.on_cross.is_some()
+                            && across.abs() > SLOP
+                            && across.abs() > along.abs() * 1.5
+                        {
+                            s.crossing = true;
+                        }
+                    }
+                    if s.crossing {
+                        let now = Instant::now();
+                        if let Some((prev, t)) = s.last {
+                            let dt = now.duration_since(t).as_secs_f32() * 1000.0;
+                            if dt > 0.5 {
+                                s.velocity = 0.7 * ((across - prev) / dt) + 0.3 * s.velocity;
+                            }
+                        }
+                        s.last = Some((across, now));
+                        s.cross = across;
+                        shell.capture_event();
+                        forward = false;
                     }
                     if s.dragging {
                         let now = Instant::now();
@@ -227,7 +261,28 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                     }
                 }
                 Ev::Release(f) if s.start.is_some() && s.finger == f => {
-                    if s.dragging {
+                    if s.crossing {
+                        let cancelled =
+                            matches!(event, Event::Touch(touch::Event::FingerLost { .. }));
+                        let cross_extent = match self.axis {
+                            Axis::Horizontal => b.height,
+                            Axis::Vertical => b.width,
+                        };
+                        // Même règle que les pages : assez long ou assez vif.
+                        let dir = if cancelled {
+                            0
+                        } else {
+                            decide(s.cross, s.velocity, cross_extent)
+                        };
+                        if dir != 0
+                            && let Some(f) = &self.on_cross
+                        {
+                            shell.publish(f(dir));
+                        }
+                        shell.capture_event();
+                        child_cursor = mouse::Cursor::Unavailable;
+                        s.reset();
+                    } else if s.dragging {
                         let velocity = if s
                             .last
                             .is_some_and(|(_, t)| t.elapsed() < Duration::from_millis(100))
@@ -267,7 +322,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                 }
                 _ => {}
             }
-            if s.dragging {
+            if s.dragging || s.crossing {
                 child_cursor = mouse::Cursor::Unavailable;
             }
             if let Some(settle) = s.settle {

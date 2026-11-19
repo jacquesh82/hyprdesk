@@ -793,29 +793,41 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.layout = Default::default(); } };
-    "panorama.first", "panorama", "1/2 | 1/3 | auto — part de la zone 1 en 1x2 et 1x3 (auto : 1/2 en 1x2, 1/3 en 1x3)",
-        |c| c.general.panorama.first.map(|f| f.id().to_string()).unwrap_or_else(|| "auto".into()),
+    "panorama.first", "panorama", "1/2 | 1/3 | auto — part de la zone 1 de la disposition active (1x2, 1x3 ; auto : 1/2 en 1x2, 1/3 en 1x3)",
+        |c| c.general.panorama.first_of(c.general.panorama.layout).map(|f| f.id().to_string()).unwrap_or_else(|| "auto".into()),
         |s, v, c| {
             let f = if matches!(v, "auto" | "") { None } else { Some(crate::zones::First::parse(v).ok_or_else(|| crate::i18n::tr("parts : 1/2, 1/3, auto").to_string())?) };
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
-            p.first = f;
+            let l = p.layout;
+            p.set_first(l, f);
             s.panorama = Some(p);
             Ok(())
         },
-        |s| { if let Some(p) = s.panorama.as_mut() { p.first = None; } };
-    "panorama.panes", "panorama", "media,video,system — widget de chaque zone de l'écran découpé (9 au plus)",
-        |c| c.general.panorama.panes.join(","),
+        |s| { if let Some(p) = s.panorama.as_mut() { let l = p.layout; p.set_first(l, None); } };
+    "panorama.panes", "panorama", "media,video,system — widget de chaque zone de la disposition active (9 au plus)",
+        |c| c.general.panorama.panes_of(c.general.panorama.layout).join(","),
         |s, v, c| {
             let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
             if l.is_empty() {
                 return Err(crate::i18n::tr("widgets connus : media, system, clock, video").to_string());
             }
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
-            p.panes = l;
+            let lay = p.layout;
+            p.set_panes(lay, l);
             s.panorama = Some(p);
             Ok(())
         },
-        |s| { if let Some(p) = s.panorama.as_mut() { p.panes = crate::panorama::config::default_panes(); } };
+        |s| { if let Some(p) = s.panorama.as_mut() { let l = p.layout; p.set_panes(l, Vec::new()); } };
+    "panorama.sources", "panorama", "JSON — sources vidéo [{name,url,icon}] (icon : nom ou chemin, vide : initiale)",
+        |c| crate::panorama::icons::sources_json(&c.general.panorama.sources),
+        |s, v, c| {
+            let l = crate::panorama::icons::sources_from_json(v)?;
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.sources = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.sources = crate::panorama::config::default_sources(); } };
     "panorama.browser", "panorama", "<commande> | auto — navigateur Chromium des sources vidéo",
         |c| if c.general.panorama.browser.is_empty() { "auto".into() } else { c.general.panorama.browser.clone() },
         |s, v, c| {
@@ -1156,6 +1168,13 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 .unwrap_or_default(),
         );
     }
+    if let Some((l, what)) = panorama_zone_key(key) {
+        let p = &c.general.panorama;
+        return Some(match what {
+            "panes" => p.panes_of(l).join(","),
+            _ => p.first_of(l).map(|f| f.id().to_string()).unwrap_or_else(|| "auto".into()),
+        });
+    }
     if let Some(k) = key.strip_prefix("screen_zones.") {
         return Some(
             c.general
@@ -1322,6 +1341,30 @@ fn dynamic_set(
             Some(l) => return Some(Err(crate::tr!("« {v} » : layout inconnu", v = l))),
         }
         s.tiling = Some(t);
+        return Some(Ok(()));
+    }
+    if let Some((l, what)) = panorama_zone_key(key) {
+        let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+        match (what, v.map(str::trim)) {
+            ("panes", None | Some("")) => p.set_panes(l, Vec::new()),
+            ("panes", Some(raw)) => {
+                let list: Vec<String> = raw
+                    .split(',')
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x))
+                    .collect();
+                if list.is_empty() {
+                    return Some(Err(crate::i18n::tr("widgets connus : media, system, clock, video").into()));
+                }
+                p.set_panes(l, list);
+            }
+            (_, None | Some("" | "auto")) => p.set_first(l, None),
+            (_, Some(raw)) => match crate::zones::First::parse(raw) {
+                Some(f) if l.grid().is_some_and(crate::zones::Grid::has_first) => p.set_first(l, Some(f)),
+                _ => return Some(Err(crate::i18n::tr("parts : 1/2, 1/3, auto").into())),
+            },
+        }
+        s.panorama = Some(p);
         return Some(Ok(()));
     }
     if let Some(k) = key.strip_prefix("screen_zones.") {
@@ -1591,6 +1634,14 @@ fn plugin_label(id: &str) -> &'static str {
         .map_or("", |p| crate::i18n::tr(p.label))
 }
 
+/// `panorama.zones.<disposition>.panes|first` : (disposition, réglage).
+fn panorama_zone_key(key: &str) -> Option<(crate::panorama::config::Layout, &str)> {
+    let rest = key.strip_prefix("panorama.zones.")?;
+    let (l, what) = rest.rsplit_once('.')?;
+    let l = crate::panorama::config::Layout::parse(l).filter(|l| l.grid().is_some())?;
+    matches!(what, "panes" | "first").then_some((l, what))
+}
+
 fn usage() -> String {
     crate::i18n::tr_lines(USAGE)
 }
@@ -1602,6 +1653,7 @@ bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module
 fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
 forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none
 screen_zones.<écran> 1 | 1x2 | 1x2:1/3 | 1x3 | 1x3:1/2 | 2x2 | 3x3
+panorama.zones.<1x2|1x3|2x2|3x3>.panes <widget>,… ; panorama.zones.<1x2|1x3>.first 1/2 | 1/3 | auto
 Historique (30 jours) : history [--json] | diff <id> | rollback <id|AAAA-MM-JJ[THH:MM]> [--yes]";
 
 /// `fx.anim.<élément>` : `on`, `off`, ou `<vitesse> [courbe] [style]`.
@@ -2049,6 +2101,13 @@ mod tests {
     #[test]
     fn modes_imposes() {
         let p = tmp();
+        run_s(&p, &["set", "panorama.zones.2x2.panes", "clock,video"]).unwrap();
+        run_s(&p, &["set", "panorama.zones.1x3.first", "1/2"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "panorama.zones.2x2.panes"]).unwrap(), "clock,video,system,clock");
+        assert_eq!(run_s(&p, &["get", "panorama.zones.1x3.first"]).unwrap(), "1/2");
+        assert!(run_s(&p, &["set", "panorama.zones.2x2.first", "1/2"]).is_err());
+        run_s(&p, &["set", "panorama.sources", r#"[{"name":"Arte","url":"https://www.arte.tv"}]"#]).unwrap();
+        assert!(run_s(&p, &["get", "panorama.sources"]).unwrap().contains("arte.tv"));
         assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1");
         run_s(&p, &["set", "screen_zones.DP-2", "1x3:1/2"]).unwrap();
         assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1x3:1/2");

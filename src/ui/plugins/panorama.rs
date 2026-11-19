@@ -49,15 +49,27 @@ pub enum Msg {
     /// Fenêtre d'aperçu au format donné.
     Preview((u32, u32)),
     Layout(crate::panorama::config::Layout),
-    /// Part de la zone 1 en 1×2 et 1×3.
-    First(crate::zones::First),
+    /// Part de la zone 1 d'une disposition (1×2, 1×3).
+    First(crate::panorama::config::Layout, crate::zones::First),
+    /// Disposition dont on règle les zones (active ou non).
+    EditLayout(crate::panorama::config::Layout),
+    /// Ouvre l'onglet Composition.
+    OpenComposition,
     /// Zone, widget.
-    PaneWidget(usize, String),
+    PaneWidget(crate::panorama::config::Layout, usize, String),
     SourceName(String),
     SourceUrl(String),
     SourceAdd,
     SourceRemove(usize),
+    /// Source, ±1 dans l'ordre.
+    SourceMove(usize, i32),
     SourcesReset,
+    /// Raccourci, ±1 dans l'ordre.
+    ShortcutMove(usize, i32),
+    /// Icônes dessinées par SmartUI : (sources | shortcuts, toutes).
+    DrawIcons(&'static str, bool),
+    /// Fin de `hyprdesk panorama icons` : compte rendu.
+    IconsDone(Result<String, String>),
     Browser(String),
     BrowserCommit,
     Preset(String),
@@ -260,57 +272,130 @@ impl App {
                 .text_size(13),
             );
         }
-        if c.layout.grid().is_some_and(crate::zones::Grid::has_first) {
-            let cur = c.split().map(|s| s.first());
-            let mut r = row![
-                text(crate::i18n::tr("Part de la zone 1"))
-                    .font(self.font)
-                    .size(13)
-                    .width(80)
-            ]
-            .spacing(14)
-            .align_y(Alignment::Center);
-            for f in [crate::zones::First::Half, crate::zones::First::Third] {
-                r = r.push(
-                    iced::widget::radio(f.id(), f, cur, |v| wrap(Msg::First(v)))
+        // Chaque disposition garde ses réglages : on règle celle qu'on veut,
+        // active ou non.
+        let edit = self.panorama.edit_layout.unwrap_or(c.layout);
+        let mut seg = row![
+            text(crate::i18n::tr("Régler"))
+                .font(self.font)
+                .size(13)
+                .width(80)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        for l in Layout::ALL {
+            let label = if l == c.layout {
+                format!("{} ●", l.short())
+            } else {
+                l.short().to_string()
+            };
+            seg = seg.push(
+                button(text(label).font(self.font).size(12))
+                    .padding([4, 10])
+                    .style(if l == edit {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::EditLayout(l))),
+            );
+        }
+        col = col.push(seg);
+        col = col.push(
+            text(crate::tr!(
+                "Réglages de « {l} »{active}",
+                l = crate::i18n::tr(layout_label(edit)).to_string(),
+                active = if edit == c.layout {
+                    crate::i18n::tr(" (disposition active)").to_string()
+                } else {
+                    String::new()
+                }
+            ))
+            .font(self.font)
+            .size(13),
+        );
+        match edit {
+            Layout::Single => {
+                col = col.push(
+                    text("Une page à la fois : les pages et leur ordre sont réglés plus bas (Pages).")
                         .font(self.font)
-                        .size(16)
-                        .text_size(13),
+                        .size(12)
+                        .color(dim),
                 );
             }
-            col = col.push(r);
-        }
-        if c.layout.grid().is_some() {
-            let options: Vec<String> = crate::panorama::PAGES
-                .iter()
-                .map(|(id, _)| id.to_string())
-                .collect();
-            for i in 0..c.layout.panes() {
-                let cur = c.pane(i).to_string();
+            Layout::Dashboard => {
                 col = col.push(
                     row![
-                        text(crate::tr!("Zone {n}", n = i + 1))
-                            .font(self.font)
-                            .size(13)
-                            .width(80),
-                        iced::widget::pick_list(options.clone(), Some(cur), move |v| {
-                            wrap(Msg::PaneWidget(i, v))
-                        })
-                        .text_size(13),
-                        text(crate::i18n::tr(crate::panorama::page_label(c.pane(i))))
-                            .font(self.font)
-                            .size(12)
-                            .color(dim),
+                        text(crate::tr!(
+                            "Composition libre : {n} zone(s) placée(s) librement.",
+                            n = c.design.tiles.len()
+                        ))
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
+                        button(text("Ouvrir Composition").font(self.font).size(12))
+                            .padding([4, 10])
+                            .on_press(wrap(Msg::OpenComposition)),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
                 );
             }
+            l => {
+                if l.grid().is_some_and(crate::zones::Grid::has_first) {
+                    let cur = c.split_of(l).map(|s| s.first());
+                    let mut r = row![
+                        text(crate::i18n::tr("Part de la zone 1"))
+                            .font(self.font)
+                            .size(13)
+                            .width(140)
+                    ]
+                    .spacing(14)
+                    .align_y(Alignment::Center);
+                    for f in [crate::zones::First::Half, crate::zones::First::Third] {
+                        r = r.push(
+                            iced::widget::radio(f.id(), f, cur, move |v| wrap(Msg::First(l, v)))
+                                .font(self.font)
+                                .size(16)
+                                .text_size(13),
+                        );
+                    }
+                    col = col.push(r);
+                }
+                let options: Vec<String> = crate::panorama::PAGES
+                    .iter()
+                    .map(|(id, _)| id.to_string())
+                    .collect();
+                for i in 0..l.panes() {
+                    let cur = c.pane_of(l, i).to_string();
+                    col = col.push(
+                        row![
+                            text(crate::tr!("Zone {n}", n = i + 1))
+                                .font(self.font)
+                                .size(13)
+                                .width(80),
+                            iced::widget::pick_list(options.clone(), Some(cur), move |v| {
+                                wrap(Msg::PaneWidget(l, i, v))
+                            })
+                            .text_size(13),
+                            text(crate::i18n::tr(crate::panorama::page_label(
+                                c.pane_of(l, i)
+                            )))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim),
+                        ]
+                        .spacing(10)
+                        .align_y(Alignment::Center),
+                    );
+                }
+            }
         }
         col = col.push(
             text(
-                "Sur l'écran, les boutons 1 | 1×2 | 1×3 | 2×2 | 3×3 changent la disposition, \
-                 et ◀ ▶ le widget de chaque zone. En plein écran, la vidéo reste dans sa zone.",
+                "Sur l'écran : glisser de bas en haut ouvre le choix de la disposition, de haut en \
+                 bas masque le Panorama ; glisser de côté passe de la vue composée aux pages. ◀ ▶ \
+                 change le widget d'une zone. En plein écran, la vidéo reste dans sa zone.",
             )
             .font(self.font)
             .size(12)
@@ -390,6 +475,94 @@ impl App {
     }
 
     /// Sources du widget Vidéo et navigateur.
+    /// Vignette d'une icône : chemin (SmartUI) ou nom d'icône déjà chargé.
+    pub(super) fn panorama_icon_thumb(&self, icon: &str, size: f32) -> Element<'_, UiMsg> {
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let p = std::path::Path::new(icon);
+        let e: Option<Element<'_, UiMsg>> = if p.is_absolute() && icon.ends_with(".svg") {
+            Some(
+                iced::widget::svg(iced::widget::svg::Handle::from_path(p))
+                    .width(size)
+                    .height(size)
+                    .into(),
+            )
+        } else if p.is_absolute() {
+            Some(
+                iced::widget::image(iced::widget::image::Handle::from_path(p))
+                    .width(size)
+                    .height(size)
+                    .into(),
+            )
+        } else if icon.is_empty() {
+            None
+        } else {
+            self.icon_named(icon, size, fg)
+        };
+        e.unwrap_or_else(|| iced::widget::Space::new().width(size).height(size).into())
+    }
+
+    /// Boutons ↑ ↓ d'un élément d'une liste ordonnée.
+    pub(super) fn panorama_move_buttons(
+        &self,
+        i: usize,
+        n: usize,
+        msg: impl Fn(usize, i32) -> UiMsg,
+    ) -> Element<'_, UiMsg> {
+        row![
+            button(text("↑").size(12))
+                .padding([2, 7])
+                .on_press_maybe((i > 0).then(|| msg(i, -1))),
+            button(text("↓").size(12))
+                .padding([2, 7])
+                .on_press_maybe((i + 1 < n).then(|| msg(i, 1))),
+        ]
+        .spacing(4)
+        .into()
+    }
+
+    /// « Dessiner les icônes » et « Tout redessiner » (SmartUI, par LYRA).
+    pub(super) fn panorama_icons_buttons(&self, what: &'static str) -> Element<'_, UiMsg> {
+        let idle = self.panorama.icons_job.is_none();
+        row![
+            button(
+                text("Dessiner les icônes (SmartUI)")
+                    .font(self.font)
+                    .size(12)
+            )
+            .padding([4, 10])
+            .on_press_maybe(idle.then(|| wrap(Msg::DrawIcons(what, false)))),
+            button(text("Tout redessiner").font(self.font).size(12))
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press_maybe(idle.then(|| wrap(Msg::DrawIcons(what, true)))),
+        ]
+        .spacing(8)
+        .into()
+    }
+
+    /// Génération en cours, ou son compte rendu.
+    pub(super) fn panorama_icons_status(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        let t: String = if self.panorama.icons_job.is_some() {
+            crate::i18n::tr(
+                "SmartUI dessine les icônes (fournisseur IA de SmartUI, LYRA par défaut) ; elles \
+                 apparaissent une à une.",
+            )
+            .into()
+        } else {
+            match &self.panorama.icons_report {
+                Some(Ok(r)) => r.clone(),
+                Some(Err(e)) => e.clone(),
+                None => crate::i18n::tr(
+                    "Sans icône, la tuile montre l'initiale. SmartUI dessine les icônes \
+                     manquantes dans un même style ; LYRA peut aussi le faire sur demande.",
+                )
+                .into(),
+            }
+        };
+        text(t).font(self.font).size(12).color(dim).into()
+    }
+
     fn panorama_sources_section(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
@@ -406,10 +579,13 @@ impl App {
             .color(dim),
         ]
         .spacing(8);
+        let n = c.sources.len();
         for (i, s) in c.sources.iter().enumerate() {
             col = col.push(
                 row![
-                    text(s.name.clone()).font(self.font).size(13).width(160),
+                    self.panorama_icon_thumb(&s.icon, 24.0),
+                    self.panorama_move_buttons(i, n, |i, d| wrap(Msg::SourceMove(i, d))),
+                    text(s.name.clone()).font(self.font).size(13).width(140),
                     text(s.url.clone())
                         .font(self.font)
                         .size(12)
@@ -443,10 +619,16 @@ impl App {
             .align_y(Alignment::Center),
         );
         col = col.push(
-            button(text("Sources par défaut").font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(Msg::SourcesReset)),
+            row![
+                button(text("Sources par défaut").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::SourcesReset)),
+                self.panorama_icons_buttons("sources"),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         );
+        col = col.push(self.panorama_icons_status());
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         col = col.push(
             self.field(
@@ -502,7 +684,8 @@ impl App {
             | Msg::TileRemove
             | Msg::ShortcutText(..)
             | Msg::ShortcutAdd
-            | Msg::ShortcutRemove(_)) => self.panorama_design_update(m),
+            | Msg::ShortcutRemove(_)
+            | Msg::ShortcutMove(..)) => self.panorama_design_update(m),
             Msg::Layout(l) => {
                 self.panorama.page.clear();
                 let mut c = self.panorama_cfg();
@@ -510,19 +693,23 @@ impl App {
                 self.settings.panorama = Some(c);
                 self.commit()
             }
-            Msg::First(f) => {
+            Msg::First(l, f) => {
                 let mut c = self.panorama_cfg();
-                c.first = Some(f);
+                c.set_first(l, Some(f));
                 self.settings.panorama = Some(c);
                 self.commit()
             }
-            Msg::PaneWidget(i, w) => {
+            Msg::EditLayout(l) => {
+                self.panorama.edit_layout = Some(l);
+                Task::none()
+            }
+            Msg::OpenComposition => {
+                self.subtabs.insert(INFO.id, "composition");
+                Task::none()
+            }
+            Msg::PaneWidget(l, i, w) => {
                 let mut c = self.panorama_cfg();
-                while c.panes.len() <= i {
-                    let d = c.pane(c.panes.len()).to_string();
-                    c.panes.push(d);
-                }
-                c.panes[i] = w;
+                c.set_pane(l, i, &w);
                 self.settings.panorama = Some(c);
                 self.commit()
             }
@@ -548,9 +735,56 @@ impl App {
                         name.trim().to_string()
                     },
                     url,
+                    icon: String::new(),
                 });
                 self.settings.panorama = Some(c);
                 self.commit()
+            }
+            Msg::SourceMove(i, d) => {
+                let mut c = self.panorama_cfg();
+                let j = i as i64 + d as i64;
+                if i < c.sources.len() && j >= 0 && (j as usize) < c.sources.len() {
+                    c.sources.swap(i, j as usize);
+                }
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::DrawIcons(what, force) => {
+                if self.panorama.icons_job.is_some() {
+                    return Task::none();
+                }
+                self.panorama.icons_job = Some(String::new());
+                let config = self.config_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                            let mut cmd = std::process::Command::new(exe);
+                            cmd.arg("--config")
+                                .arg(&config)
+                                .args(["panorama", "icons", what]);
+                            if force {
+                                cmd.arg("--force");
+                            }
+                            let out = cmd.output().map_err(|e| e.to_string())?;
+                            let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+                            let last = text(&out.stdout).lines().last().unwrap_or("").to_string();
+                            if out.status.success() {
+                                Ok(last)
+                            } else {
+                                Err(format!("{last}\n{}", text(&out.stderr)).trim().to_string())
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::IconsDone(r)),
+                )
+            }
+            Msg::IconsDone(r) => {
+                self.panorama.icons_job = None;
+                self.panorama.icons_report = Some(r);
+                Task::none()
             }
             Msg::SourceRemove(i) => {
                 let mut c = self.panorama_cfg();

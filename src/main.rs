@@ -160,12 +160,13 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
-  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]]
+  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|shortcuts|all] [--force]]
                     Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
                     page ; detect : relit les écrans et refait les propositions ;
-                    preview : aperçu en fenêtre flottante (2560x720 par défaut)
+                    preview : aperçu en fenêtre flottante (2560x720 par défaut) ;
+                    icons : icônes des sources vidéo et des raccourcis dessinées par SmartUI (LYRA)
   panorama layout <single|1x2|1x3|2x2|3x3|dashboard> | video <n|nom|close>
-                    une page, ou l'écran partagé en 2 ou 3 zones ; ouvre une source du
+                    une page, l'écran découpé en zones ou la composition ; ouvre une source du
                     widget Vidéo (Free TV, Netflix…) dans sa zone, ou la ferme
   polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
   polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
@@ -1214,6 +1215,44 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("{}", crate::tr!("wallpaper split : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        // Icônes du Panorama dessinées par SmartUI (fournisseur IA de la
+        // fonction smartui, LYRA par défaut) : sources vidéo et raccourcis.
+        "panorama" if args.get(1).map(String::as_str) == Some("icons") => {
+            let force = args.iter().any(|a| a == "--force");
+            let what = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("--"))
+                .map(String::as_str)
+                .unwrap_or("all");
+            let Some(kinds) = crate::panorama::icons::Kind::parse(what) else {
+                eprintln!("{}", crate::i18n::tr("hyprdesk panorama icons [sources|shortcuts|all] [--force]"));
+                return ExitCode::FAILURE;
+            };
+            let mut progress = |i: usize, n: usize, name: &str| {
+                println!("{i}/{n} {name}…");
+            };
+            match crate::panorama::icons::run(&config_path, &kinds, force, &mut progress) {
+                Ok((done, errors)) => {
+                    for e in &errors {
+                        eprintln!("{e}");
+                    }
+                    println!(
+                        "{}",
+                        crate::tr!("{n} icône(s) dessinée(s) par SmartUI", n = done)
+                    );
+                    if errors.is_empty() {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk panorama icons : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }

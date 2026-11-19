@@ -330,18 +330,16 @@ impl App {
             PMsg::Layout(l) => {
                 // Nouvelle disposition : chaque écran revient à sa vue composée.
                 self.panorama.page.clear();
+                self.panorama.picker = None;
                 self.panorama_save_cfg(|c| c.layout = l)
             }
             PMsg::Pane(i, d) => {
                 let ids: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
                 self.panorama_save_cfg(|c| {
-                    while c.panes.len() <= i {
-                        let d = c.pane(c.panes.len()).to_string();
-                        c.panes.push(d);
-                    }
-                    let cur = ids.iter().position(|x| *x == c.panes[i]).unwrap_or(0) as i64;
+                    let cur = ids.iter().position(|x| *x == c.pane(i)).unwrap_or(0) as i64;
                     let n = ids.len() as i64;
-                    c.panes[i] = ids[(cur + d as i64).rem_euclid(n) as usize].to_string();
+                    let l = c.layout;
+                    c.set_pane(l, i, ids[(cur + d as i64).rem_euclid(n) as usize]);
                 })
             }
             PMsg::VideoOpen(i) => {
@@ -513,6 +511,130 @@ impl App {
     // -- Vue -------------------------------------------------------------------
 
     pub(super) fn view_panorama_surface(&self, id: Id) -> Element<'_, Msg> {
+        let inner = self.view_panorama_surface_inner(id);
+        match self.panorama_surf(id) {
+            Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
+                stack![inner, self.panorama_picker(&s)].into()
+            }
+            _ => inner,
+        }
+    }
+
+    /// Choix de la disposition (geste de bas en haut) : une tuile par
+    /// disposition, avec son schéma ; toucher à côté ou glisser vers le bas
+    /// le ferme.
+    fn panorama_picker(&self, s: &Surf) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let c = &self.cfg.general.panorama;
+        let n = Layout::ALL.len() as f32;
+        let side = (s.h * 0.62).min((s.w * 0.9) / n - 16.0).max(60.0);
+        let plan_h = side * 0.5;
+        let plan_w = if s.w >= s.h {
+            (plan_h * s.w / s.h).min(side * 0.86)
+        } else {
+            plan_h * 0.6
+        };
+        let mut tiles = row![].spacing(16).align_y(Alignment::Center);
+        for l in Layout::ALL {
+            let on = l == c.layout;
+            // Schéma : les zones de la disposition, à l'échelle de l'écran.
+            let rects: Vec<[f32; 4]> = match l {
+                Layout::Single => vec![[0.0, 0.0, plan_w, plan_h]],
+                Layout::Dashboard => c
+                    .design
+                    .tiles
+                    .iter()
+                    .map(|t| [t.x * plan_w, t.y * plan_h, t.w * plan_w, t.h * plan_h])
+                    .collect(),
+                l => c
+                    .split_of(l)
+                    .map(|sp| sp.rects(plan_w, plan_h, 3.0))
+                    .unwrap_or_default(),
+            };
+            let mut plan = iced::widget::Stack::new().width(plan_w).height(plan_h);
+            for [x, y, w, h] in rects {
+                plan = plan.push(
+                    iced::widget::pin(
+                        container(Space::new())
+                            .width(w.max(2.0))
+                            .height(h.max(2.0))
+                            .style(move |_| container::Style {
+                                background: Some(Color { a: 0.35, ..accent }.into()),
+                                border: Border::default().rounded(3.0),
+                                ..Default::default()
+                            }),
+                    )
+                    .x(x)
+                    .y(y),
+                );
+            }
+            tiles = tiles.push(
+                button(
+                    column![
+                        plan,
+                        text(l.short())
+                            .size(side * 0.16)
+                            .font(self.panorama_font())
+                            .color(fg),
+                    ]
+                    .spacing(side * 0.08)
+                    .align_x(Alignment::Center),
+                )
+                .width(side)
+                .height(side)
+                .padding(side * 0.1)
+                .on_press(wrap(PMsg::Layout(l)))
+                .style(move |_, st| button::Style {
+                    background: Some(
+                        match st {
+                            button::Status::Pressed => Color { a: 0.5, ..accent },
+                            _ if on => Color { a: 0.22, ..accent },
+                            button::Status::Hovered => Color { a: 0.16, ..fg },
+                            _ => Color { a: 0.08, ..fg },
+                        }
+                        .into(),
+                    ),
+                    border: Border {
+                        color: Color {
+                            a: if on { 0.9 } else { 0.2 },
+                            ..accent
+                        },
+                        width: if on { 2.0 } else { 1.0 },
+                        radius: (side * 0.14).into(),
+                    },
+                    ..Default::default()
+                }),
+            );
+        }
+        let axis = if s.w >= s.h {
+            Axis::Horizontal
+        } else {
+            Axis::Vertical
+        };
+        let panel = iced::widget::mouse_area(
+            container(tiles)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.82, ..bg }.into()),
+                    ..Default::default()
+                }),
+        )
+        .on_press(wrap(PMsg::PickerClose));
+        swipe(panel, axis, |_| wrap(PMsg::PickerClose))
+            .on_cross(|d| {
+                if d < 0 {
+                    wrap(PMsg::PickerClose)
+                } else {
+                    wrap(PMsg::Pressed)
+                }
+            })
+            .into()
+    }
+
+    fn view_panorama_surface_inner(&self, id: Id) -> Element<'_, Msg> {
         let Some(s) = self.panorama_surf(id) else {
             return Space::new().into();
         };
@@ -561,7 +683,9 @@ impl App {
             let p = &geo.panes[0];
             let key = s.key.clone();
             let page = self.panorama_pane_view(&s, &geo, p, true, video_at);
+            let cross = key.clone();
             let paged = swipe(page, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
+                .on_cross(move |d| wrap(PMsg::Cross(cross.clone(), d)))
                 .motion(self.panorama_motion())
                 .on_press(wrap(PMsg::Pressed));
             if p.widget == "video" {
@@ -648,7 +772,9 @@ impl App {
         content: Element<'a, Msg>,
     ) -> Element<'a, Msg> {
         let key = key.to_string();
+        let cross = key.clone();
         swipe(content, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
+            .on_cross(move |d| wrap(PMsg::Cross(cross.clone(), d)))
             .motion(self.panorama_motion())
             .on_press(wrap(PMsg::Pressed))
             .into()
@@ -1012,7 +1138,7 @@ impl App {
             ),
             VideoState::Tiles => {
                 let c = &self.cfg.general.panorama;
-                let mut col = column![].spacing(z.pad / 2.0);
+                let mut col = column![].spacing(z.pad / 2.0).align_x(Alignment::Center);
                 if let Some(e) = self.panorama.video.as_ref().and_then(|v| v.error.as_ref()) {
                     col = col.push(
                         text(e.clone())
@@ -1021,36 +1147,78 @@ impl App {
                             .font(self.panorama_font()),
                     );
                 }
-                let tile_w = (z.target * 3.6).max(160.0);
-                let cols = ((area.w - z.pad) / (tile_w + z.pad / 2.0)).floor().max(1.0) as usize;
-                let th = z.target * 1.3;
-                let mut line = row![].spacing(z.pad / 2.0);
+                // Tuiles carrées, les plus grandes qui tiennent dans la zone ;
+                // au-delà d'un minimum tactile, la zone défile.
+                let gap = z.pad / 2.0;
+                let (aw, ah) = ((area.w - z.pad).max(1.0), (area.h - z.pad).max(1.0));
+                let n = c.sources.len().max(1);
+                let (mut cols, mut side) = (1, 0.0_f32);
+                for k in 1..=n {
+                    let rows = n.div_ceil(k) as f32;
+                    let sd = ((aw - gap * (k as f32 - 1.0)) / k as f32)
+                        .min((ah - gap * (rows - 1.0)) / rows);
+                    if sd > side {
+                        (cols, side) = (k, sd);
+                    }
+                }
+                let side = side.clamp(z.target * 1.5, z.target * 3.4);
+                let cols = cols
+                    .max(1)
+                    .min(((aw + gap) / (side + gap)).floor().max(1.0) as usize);
+                let mut line = row![].spacing(gap);
                 for (i, src) in c.sources.iter().enumerate() {
+                    let icon_side = side * 0.48;
+                    let icon: Element<'_, Msg> = (!src.icon.is_empty())
+                        .then(|| self.icon_named(&src.icon, icon_side, fg))
+                        .flatten()
+                        .unwrap_or_else(|| {
+                            // Initiale, en attendant une icône (SmartUI).
+                            let letter = src
+                                .name
+                                .chars()
+                                .find(|ch| ch.is_alphanumeric())
+                                .map(|ch| ch.to_uppercase().to_string())
+                                .unwrap_or_else(|| "•".into());
+                            container(
+                                text(letter)
+                                    .size(icon_side * 0.55)
+                                    .font(iced::Font {
+                                        weight: iced::font::Weight::Bold,
+                                        ..self.panorama_font()
+                                    })
+                                    .color(fg),
+                            )
+                            .width(icon_side)
+                            .height(icon_side)
+                            .center_x(icon_side)
+                            .center_y(icon_side)
+                            .style(move |_| container::Style {
+                                background: Some(Color { a: 0.3, ..accent }.into()),
+                                border: Border::default().rounded(icon_side * 0.24),
+                                ..Default::default()
+                            })
+                            .into()
+                        });
                     line = line.push(
                         self.panorama_feedback(
                             button(
-                                container(
-                                    column![
-                                        text(src.name.clone())
-                                            .size(th * 0.3)
-                                            .font(iced::Font {
-                                                weight: iced::font::Weight::Semibold,
-                                                ..self.panorama_font()
-                                            })
-                                            .color(fg)
-                                            .wrapping(text::Wrapping::None),
-                                        text(video::host(&src.url))
-                                            .size(th * 0.17)
-                                            .font(self.panorama_font())
-                                            .color(dim)
-                                    ]
-                                    .spacing(6),
-                                )
-                                .center_x(Length::Fill)
-                                .center_y(Length::Fill),
+                                column![
+                                    icon,
+                                    text(src.name.clone())
+                                        .size((side * 0.11).max(11.0))
+                                        .font(iced::Font {
+                                            weight: iced::font::Weight::Semibold,
+                                            ..self.panorama_font()
+                                        })
+                                        .color(fg)
+                                        .wrapping(text::Wrapping::None),
+                                ]
+                                .spacing(side * 0.07)
+                                .align_x(Alignment::Center),
                             )
-                            .width(Length::Fill)
-                            .height(th)
+                            .width(side)
+                            .height(side)
+                            .padding(side * 0.1)
                             .on_press(wrap(PMsg::VideoOpen(i)))
                             .style(move |_, st| button::Style {
                                 background: Some(
@@ -1071,7 +1239,7 @@ impl App {
                                         },
                                     ),
                                     width: 1.0,
-                                    radius: 16.0.into(),
+                                    radius: (side * 0.16).into(),
                                 },
                                 shadow: iced::Shadow {
                                     color: Color::from_rgba(0.0, 0.0, 0.0, 0.15),
@@ -1084,14 +1252,10 @@ impl App {
                     );
                     if (i + 1) % cols == 0 {
                         col = col.push(line);
-                        line = row![].spacing(z.pad / 2.0);
+                        line = row![].spacing(gap);
                     }
                 }
                 if !c.sources.len().is_multiple_of(cols) {
-                    // Dernière ligne : cases vides pour garder la largeur des tuiles.
-                    for _ in 0..(cols - c.sources.len() % cols) {
-                        line = line.push(Space::new().width(Length::Fill));
-                    }
                     col = col.push(line);
                 }
                 if c.sources.is_empty() {
@@ -1103,6 +1267,10 @@ impl App {
                         .color(dim),
                     );
                 }
+                let col = container(col)
+                    .width(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Shrink);
                 container(iced::widget::scrollable(col).height(Length::Fill))
                     .padding(z.pad / 2.0)
                     .width(area.w)

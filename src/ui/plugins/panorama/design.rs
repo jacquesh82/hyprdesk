@@ -280,15 +280,21 @@ impl App {
             self.panorama_design_slider("Nombre de colonnes", "shortcut_columns", 2.0, 8.0, 1.0)
         ]
         .spacing(12);
+        let n = c.design.shortcuts.len();
         for (i, s) in c.design.shortcuts.iter().enumerate() {
             col = col.push(
                 row![
+                    self.panorama_icon_thumb(&s.icon, 24.0),
+                    self.panorama_move_buttons(i, n, |i, d| wrap(Msg::ShortcutMove(i, d))),
                     text(s.name.clone()).size(13).width(Length::Fill),
                     button(text("Retirer").size(12)).on_press(wrap(Msg::ShortcutRemove(i)))
                 ]
-                .spacing(8),
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
             );
         }
+        col = col.push(self.panorama_icons_buttons("shortcuts"));
+        col = col.push(self.panorama_icons_status());
         for (i, label, v) in [
             (0, "Nom du raccourci", &draft.0),
             (1, "Nom de l'icône", &draft.1),
@@ -425,6 +431,13 @@ impl App {
                     command,
                 });
                 self.panorama.shortcut_draft = Default::default();
+            }
+            Msg::ShortcutMove(i, d) => {
+                let j = i as i64 + d as i64;
+                let l = &mut c.design.shortcuts;
+                if i < l.len() && j >= 0 && (j as usize) < l.len() {
+                    l.swap(i, j as usize);
+                }
             }
             Msg::ShortcutRemove(i) => {
                 if i < c.design.shortcuts.len() {

@@ -139,6 +139,14 @@ pub struct State {
     pub design_error: Option<String>,
     pub selected_tile: usize,
     pub shortcut_draft: (String, String, String),
+    /// Réglages → Panorama : disposition dont on règle les zones.
+    pub edit_layout: Option<crate::panorama::config::Layout>,
+    /// Écran où le choix de la disposition est ouvert (geste de bas en haut).
+    pub picker: Option<String>,
+    /// Réglages : `hyprdesk panorama icons` en cours.
+    pub icons_job: Option<String>,
+    /// Compte rendu de la dernière génération d'icônes.
+    pub icons_report: Option<Result<String, String>>,
     pub history: HashMap<String, std::collections::VecDeque<f32>>,
     pub wallpaper: Option<(String, image::Handle, iced::Size)>,
     pub wallpaper_requested: String,
@@ -152,6 +160,11 @@ pub enum PMsg {
     /// Écrans et tactiles relus.
     Detected(Vec<Screen>, Vec<String>),
     Swipe(String, i32),
+    /// Geste sur l'autre axe : +1 de bas en haut (choix de la disposition),
+    /// -1 de haut en bas (ferme le choix, sinon masque le Panorama).
+    Cross(String, i32),
+    /// Ferme le choix de la disposition.
+    PickerClose,
     Goto(String, usize),
     Hide(String),
     Show(String),
@@ -404,6 +417,15 @@ impl App {
                 .shortcuts
                 .iter()
                 .map(|s| s.icon.clone())
+                .chain(
+                    self.cfg
+                        .general
+                        .panorama
+                        .sources
+                        .iter()
+                        .map(|s| s.icon.clone())
+                        .filter(|i| !i.is_empty()),
+                )
                 .collect();
             for icon in icons {
                 tasks.push(self.want_icon(&icon));
@@ -546,6 +568,21 @@ impl App {
                 let offers = self.panorama_offers();
                 Task::batch([self.sync_bars(), self.sync_panorama(), offers])
             }
+            PMsg::Cross(mon, dir) => {
+                self.panorama.last_press = Some(Instant::now());
+                if dir > 0 {
+                    self.panorama.picker = Some(mon);
+                    Task::none()
+                } else if self.panorama.picker.take().is_some() {
+                    Task::none()
+                } else {
+                    self.panorama_update(PMsg::Hide(mon))
+                }
+            }
+            PMsg::PickerClose => {
+                self.panorama.picker = None;
+                Task::none()
+            }
             PMsg::Swipe(mon, dir) => {
                 let n = self.panorama_carousel() as i64;
                 let p = self.panorama.page.entry(mon).or_insert(0);
@@ -681,7 +718,7 @@ impl App {
                             .cfg
                             .general
                             .panorama
-                            .panes
+                            .panes_of(self.cfg.general.panorama.layout)
                             .iter()
                             .any(|p| p == "system"));
                 if !wants_sys {

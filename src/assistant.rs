@@ -362,6 +362,55 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
           - `hyprdesk open <rôle>` : lance l'application par défaut d'un rôle\n\
           - `hyprdesk status`, `hyprdesk check` : état du démon, vérification de la config\n",
     );
+    o += &panorama_context(cfg);
+    o
+}
+
+/// Panorama (écrans bandeau) : état et clés, pour qu'une simple demande à
+/// LYRA suffise (« mets le Panorama en 2x2 avec l'horloge et la vidéo »).
+fn panorama_context(cfg: &Config) -> String {
+    let p = &cfg.general.panorama;
+    let widgets: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
+    let mut o = crate::tr!(
+        "\n## Panorama (écrans bandeau tactiles)\n\n\
+         État : écrans {screens} ; disposition active `{layout}` ; zones de la disposition active : {panes} ; \
+         sources vidéo : {sources}.\n",
+        screens = if p.screens.is_empty() {
+            crate::i18n::tr("aucun").to_string()
+        } else {
+            p.screens.join(", ")
+        },
+        layout = p.layout.id(),
+        panes = if p.layout.grid().is_some() {
+            p.panes_of(p.layout).join(", ")
+        } else {
+            "—".to_string()
+        },
+        sources = p
+            .sources
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    o += &crate::tr!(
+        "\nTout se règle par `hyprdesk config set <clé> <valeur>` (liste : `hyprdesk config list panorama`) :\n\
+         - `panorama.layout` : single (une page à la fois), 1x2, 1x3, 2x2, 3x3 (écran découpé), dashboard (composition libre)\n\
+         - chaque découpage garde ses réglages : `panorama.zones.<1x2|1x3|2x2|3x3>.panes <widget>,…` \
+         (widgets : {widgets}) et `panorama.zones.<1x2|1x3>.first 1/2|1/3` (part de la zone 1) ; \
+         `panorama.panes` et `panorama.first` visent la disposition active\n\
+         - `panorama.pages` (pages d'une page à la fois, dans l'ordre), `panorama.screens`, `panorama.sleep_minutes`, \
+         `panorama.browser`\n\
+         - `panorama.sources` : JSON [{\"name\",\"url\",\"icon\"}] des sources vidéo (icon : nom ou chemin ; vide : initiale)\n\
+         - `panorama.design.*` : préréglage, couleurs, police, opacités, horloge, métriques… ; \
+         `panorama.design.tiles` (JSON [{widget,x,y,w,h}], composition libre, coordonnées 0 à 1) ; \
+         `panorama.design.shortcuts` (JSON [{name,icon,command}], raccourcis tactiles, dans l'ordre)\n\
+         - `hyprdesk panorama icons [sources|shortcuts|all] [--force]` : SmartUI dessine les icônes manquantes \
+         (toutes avec --force) et les écrit dans la config\n\
+         - `hyprdesk panorama preview`, `hyprdesk panorama layout <…>`, `hyprdesk panorama video <n|nom|close>`, \
+         `hyprdesk panorama toggle`\n",
+        widgets = widgets.join(", ")
+    );
     o
 }
 

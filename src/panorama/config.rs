@@ -5,14 +5,18 @@
 //!   screens  = { "DP-3" },            -- connecteur ou identifiant EDID
 //!   pages    = { "media", "system", "clock", "video" },
 //!   layout   = "1x2",                 -- single | 1x2 | 1x3 | 2x2 | 3x3 | dashboard
-//!   first    = "1/3",                 -- part de la zone 1 en 1x2 et 1x3 (1/2 | 1/3)
-//!   panes    = { "media", "video", "system" }, -- widget de chaque zone (9 au plus)
-//!   sources  = { { name = "Free TV", url = "https://tv.free.fr" } },
+//!   zones    = {                      -- réglages de chaque découpage
+//!     ["1x2"] = { panes = { "media", "video" }, first = "1/3" },
+//!     ["2x2"] = { panes = { "clock", "media", "video", "system" } },
+//!   },
+//!   sources  = { { name = "Free TV", url = "https://tv.free.fr", icon = "…" } },
 //!   browser  = "brave",               -- vide : le premier navigateur Chromium trouvé
 //!   declined = { "Acme M 1" },        -- écrans refusés (identifiant EDID)
 //!   sleep_minutes = 5,                -- 0 : jamais d'horloge de veille
 //! } })
 //! ```
+
+use std::collections::BTreeMap;
 
 use mlua::{Table, Value};
 
@@ -103,6 +107,9 @@ impl Layout {
 pub struct Source {
     pub name: String,
     pub url: String,
+    /// Icône de la tuile : nom d'icône ou chemin (vide : initiale ; SmartUI
+    /// la dessine, `hyprdesk panorama icons`).
+    pub icon: String,
 }
 
 /// Sources par défaut (modifiables dans Réglages → Panorama).
@@ -120,6 +127,7 @@ pub fn default_sources() -> Vec<Source> {
     .map(|(n, u)| Source {
         name: n.to_string(),
         url: u.to_string(),
+        icon: String::new(),
     })
     .collect()
 }
@@ -131,10 +139,9 @@ pub struct Config {
     /// Pages affichées une à une (disposition `single`), dans l'ordre.
     pub pages: Vec<String>,
     pub layout: Layout,
-    /// Part de la zone 1 en 1×2 et 1×3 (`None` : 1/2 en 1×2, 1/3 en 1×3).
-    pub first: Option<crate::zones::First>,
-    /// Widget de chaque zone (dispositions découpées, 9 au plus).
-    pub panes: Vec<String>,
+    /// Réglages propres à chaque découpage (1x2, 1x3, 2x2, 3x3) : chacun
+    /// garde les siens quand on passe de l'un à l'autre.
+    pub zones: BTreeMap<String, ZoneSet>,
     /// Sources du widget Vidéo.
     pub sources: Vec<Source>,
     /// Navigateur des sources vidéo (vide : détection automatique).
@@ -144,6 +151,15 @@ pub struct Config {
     /// Minutes sans lecture ni toucher avant l'horloge de veille (0 : jamais).
     pub sleep_minutes: u32,
     pub design: super::design::Design,
+}
+
+/// Réglages d'un découpage : widget de chaque zone, part de la zone 1.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ZoneSet {
+    /// Widget de chaque zone (9 au plus) ; zones absentes : leur défaut.
+    pub panes: Vec<String>,
+    /// Part de la zone 1 en 1×2 et 1×3 (`None` : 1/2 en 1×2, 1/3 en 1×3).
+    pub first: Option<crate::zones::First>,
 }
 
 /// Zones au plus (3×3).
@@ -162,10 +178,6 @@ const DEFAULT_PANES: [&str; MAX_PANES] = [
     "clock",
 ];
 
-/// Widgets des zones par défaut (les trois premières ; au-delà, `Config::pane`).
-pub fn default_panes() -> Vec<String> {
-    DEFAULT_PANES[..3].iter().map(|s| s.to_string()).collect()
-}
 
 impl Default for Config {
     fn default() -> Self {
@@ -173,8 +185,7 @@ impl Default for Config {
             screens: Vec::new(),
             pages: super::PAGES.iter().map(|(id, _)| id.to_string()).collect(),
             layout: Layout::Single,
-            first: None,
-            panes: default_panes(),
+            zones: BTreeMap::new(),
             sources: default_sources(),
             browser: String::new(),
             declined: Vec::new(),
@@ -191,6 +202,7 @@ const KEYS: &[&str] = &[
     "layout",
     "first",
     "panes",
+    "zones",
     "sources",
     "browser",
     "declined",
@@ -223,6 +235,27 @@ fn list(t: &Table, key: &str) -> mlua::Result<Option<Vec<String>>> {
 
 fn known_widget(id: &str) -> bool {
     super::PAGES.iter().any(|(p, _)| *p == id)
+}
+
+/// Widgets des zones : inconnu remplacé par celui de la zone par défaut, neuf au plus.
+fn known_panes(l: Vec<String>) -> Vec<String> {
+    l.into_iter()
+        .take(MAX_PANES)
+        .enumerate()
+        .map(|(i, p)| {
+            if known_widget(&p) {
+                p
+            } else {
+                DEFAULT_PANES[i].to_string()
+            }
+        })
+        .collect()
+}
+
+fn parse_first(s: &str) -> mlua::Result<crate::zones::First> {
+    crate::zones::First::parse(s).ok_or_else(|| {
+        mlua::Error::RuntimeError(crate::tr!("{CTX} : « first » attend 1/2 ou 1/3", CTX = CTX))
+    })
 }
 
 /// Lit la table `panorama` ; les clés absentes gardent leur défaut.
@@ -258,26 +291,39 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
             ))
         })?;
     }
+    // Anciennes clés : la même part et les mêmes widgets pour chaque découpage.
     if let Some(s) = t.get::<Option<String>>("first")? {
-        c.first = Some(crate::zones::First::parse(&s).ok_or_else(|| {
-            mlua::Error::RuntimeError(crate::tr!("{CTX} : « first » attend 1/2 ou 1/3", CTX = CTX))
-        })?);
+        let f = parse_first(&s)?;
+        for l in [Layout::Split2, Layout::Split3] {
+            c.zones.entry(l.id().into()).or_default().first = Some(f);
+        }
     }
     if let Some(l) = list(t, "panes")? {
-        // Widget inconnu : celui de la zone par défaut ; zones non données :
-        // leur défaut à l'affichage (`pane`).
-        c.panes = l
-            .into_iter()
-            .take(MAX_PANES)
-            .enumerate()
-            .map(|(i, p)| {
-                if known_widget(&p) {
-                    p
-                } else {
-                    DEFAULT_PANES[i].to_string()
-                }
-            })
-            .collect();
+        let panes = known_panes(l);
+        for l in Layout::ALL.into_iter().filter(|l| l.grid().is_some()) {
+            c.zones.entry(l.id().into()).or_default().panes = panes.clone();
+        }
+    }
+    if let Some(map) = t.get::<Option<Table>>("zones")? {
+        for pair in map.pairs::<String, Table>() {
+            let (k, v) = pair?;
+            let l = Layout::parse(&k)
+                .filter(|l| l.grid().is_some())
+                .ok_or_else(|| {
+                    mlua::Error::RuntimeError(crate::tr!(
+                        "{CTX} : « zones » : découpage inconnu « {k} » (1x2, 1x3, 2x2, 3x3)",
+                        CTX = CTX,
+                        k = k
+                    ))
+                })?;
+            let z = c.zones.entry(l.id().into()).or_default();
+            if let Some(p) = list(&v, "panes")? {
+                z.panes = known_panes(p);
+            }
+            if let Some(f) = v.get::<Option<String>>("first")? {
+                z.first = Some(parse_first(&f)?);
+            }
+        }
     }
     if let Some(l) = t.get::<Option<Table>>("sources")? {
         let mut out = Vec::new();
@@ -285,6 +331,7 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
             let v = v?;
             let name: String = v.get::<Option<String>>("name")?.unwrap_or_default();
             let url: String = v.get::<Option<String>>("url")?.unwrap_or_default();
+            let icon: String = v.get::<Option<String>>("icon")?.unwrap_or_default();
             if !url.starts_with("http://") && !url.starts_with("https://") {
                 return Err(mlua::Error::RuntimeError(crate::tr!(
                     "{CTX} : source « {name} » : l'adresse doit commencer par https://",
@@ -299,6 +346,7 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                     name.trim().to_string()
                 },
                 url: url.trim().to_string(),
+                icon: icon.trim().to_string(),
             });
         }
         c.sources = out;
@@ -353,17 +401,40 @@ impl Config {
         if self.layout != d.layout || self.design.preset != "cinematic" {
             f.push(format!("layout = {}", q(self.layout.id())));
         }
-        if let Some(first) = self.first {
-            f.push(format!("first = {}", q(first.id())));
-        }
-        if self.panes != d.panes {
-            f.push(format!("panes = {}", lua_list(&self.panes)));
+        let zones: Vec<String> = self
+            .zones
+            .iter()
+            .filter(|(_, z)| **z != ZoneSet::default())
+            .map(|(k, z)| {
+                let mut e = Vec::new();
+                if !z.panes.is_empty() {
+                    e.push(format!("panes = {}", lua_list(&z.panes)));
+                }
+                if let Some(first) = z.first {
+                    e.push(format!("first = {}", q(first.id())));
+                }
+                format!("[{}] = {{ {} }}", q(k), e.join(", "))
+            })
+            .collect();
+        if !zones.is_empty() {
+            f.push(format!("zones = {{ {} }}", zones.join(", ")));
         }
         if self.sources != d.sources {
             let s: Vec<String> = self
                 .sources
                 .iter()
-                .map(|s| format!("{{ name = {}, url = {} }}", q(&s.name), q(&s.url)))
+                .map(|s| {
+                    if s.icon.is_empty() {
+                        format!("{{ name = {}, url = {} }}", q(&s.name), q(&s.url))
+                    } else {
+                        format!(
+                            "{{ name = {}, url = {}, icon = {} }}",
+                            q(&s.name),
+                            q(&s.url),
+                            q(&s.icon)
+                        )
+                    }
+                })
                 .collect();
             f.push(format!("sources = {{ {} }}", s.join(", ")));
         }
@@ -385,21 +456,73 @@ impl Config {
         self.screens.iter().any(|e| s.matches(e))
     }
 
-    /// Découpage de l'écran (`None` : une page à la fois, composition libre).
+    /// Découpage de la disposition active (`None` : une page à la fois,
+    /// composition libre).
     pub fn split(&self) -> Option<crate::zones::Split> {
-        self.layout.grid().map(|grid| crate::zones::Split {
+        self.split_of(self.layout)
+    }
+
+    /// Découpage d'une disposition, avec sa part de zone 1.
+    pub fn split_of(&self, l: Layout) -> Option<crate::zones::Split> {
+        l.grid().map(|grid| crate::zones::Split {
             grid,
-            first: self.first,
+            first: self.first_of(l),
         })
     }
 
-    /// Widget de la zone `i` (celui de la zone par défaut s'il n'est pas donné).
+    /// Part de la zone 1 réglée pour une disposition.
+    pub fn first_of(&self, l: Layout) -> Option<crate::zones::First> {
+        self.zones.get(l.id()).and_then(|z| z.first)
+    }
+
+    pub fn set_first(&mut self, l: Layout, f: Option<crate::zones::First>) {
+        self.zones.entry(l.id().into()).or_default().first = f;
+    }
+
+    /// Widget de la zone `i` de la disposition active.
     pub fn pane(&self, i: usize) -> &str {
-        self.panes
-            .get(i)
+        self.pane_of(self.layout, i)
+    }
+
+    /// Widget de la zone `i` d'une disposition (celui de la zone par défaut
+    /// s'il n'est pas donné).
+    pub fn pane_of(&self, l: Layout, i: usize) -> &str {
+        self.zones
+            .get(l.id())
+            .and_then(|z| z.panes.get(i))
             .map(String::as_str)
             .or_else(|| DEFAULT_PANES.get(i).copied())
             .unwrap_or(super::PAGES[0].0)
+    }
+
+    /// Widgets de toutes les zones d'une disposition.
+    pub fn panes_of(&self, l: Layout) -> Vec<String> {
+        (0..l.panes())
+            .map(|i| self.pane_of(l, i).to_string())
+            .collect()
+    }
+
+    /// Change le widget de la zone `i` (les zones d'avant prennent leur défaut).
+    pub fn set_pane(&mut self, l: Layout, i: usize, w: &str) {
+        if i >= MAX_PANES {
+            return;
+        }
+        let mut panes = self
+            .zones
+            .get(l.id())
+            .map(|z| z.panes.clone())
+            .unwrap_or_default();
+        while panes.len() <= i {
+            let n = panes.len();
+            panes.push(self.pane_of(l, n).to_string());
+        }
+        panes[i] = w.to_string();
+        self.zones.entry(l.id().into()).or_default().panes = panes;
+    }
+
+    /// Widgets des zones d'une disposition, en entier.
+    pub fn set_panes(&mut self, l: Layout, panes: Vec<String>) {
+        self.zones.entry(l.id().into()).or_default().panes = known_panes(panes);
     }
 }
 
@@ -419,11 +542,26 @@ mod tests {
             screens: vec!["DP-3".into(), "Corsair XENEON EDGE S1".into()],
             pages: vec!["clock".into(), "media".into()],
             layout: Layout::Split3,
-            first: Some(crate::zones::First::Half),
-            panes: vec!["video".into(), "clock".into(), "media".into()],
+            zones: BTreeMap::from([
+                (
+                    "1x3".to_string(),
+                    ZoneSet {
+                        panes: vec!["video".into(), "clock".into(), "media".into()],
+                        first: Some(crate::zones::First::Half),
+                    },
+                ),
+                (
+                    "2x2".to_string(),
+                    ZoneSet {
+                        panes: vec!["clock".into()],
+                        first: None,
+                    },
+                ),
+            ]),
             sources: vec![Source {
                 name: "Free \"TV\"".into(),
                 url: "https://tv.free.fr".into(),
+                icon: "/tmp/free.svg".into(),
             }],
             browser: "chromium".into(),
             declined: vec!["Acme \"M\" 1".into()],
@@ -454,12 +592,13 @@ mod tests {
             Config::default().pages
         );
         // Zones : inconnues remplacées par le défaut, neuf au plus.
-        let c = eval("{ panes = { 'clock', 'radio' } }").unwrap();
-        assert_eq!(c.panes, vec!["clock", "video"]);
+        let c = eval("{ layout = '1x2', panes = { 'clock', 'radio' } }").unwrap();
+        assert_eq!(c.zones["1x2"].panes, vec!["clock", "video"]);
         assert_eq!(
             (c.pane(0), c.pane(2), c.pane(8)),
             ("clock", "system", "clock")
         );
+        assert!(eval("{ zones = { ['4x4'] = {} } }").is_err());
         assert!(eval("{ first = '1/4' }").is_err());
     }
 
@@ -476,5 +615,17 @@ mod tests {
         assert_eq!(c.layout.panes(), 3);
         assert!(Config::default().split().is_none());
         assert_eq!(Layout::Dashboard.next(), Layout::Single);
+        // Chaque découpage garde ses réglages.
+        let mut c = eval("{ layout = '2x2', zones = { ['1x2'] = { panes = { 'video', 'clock' }, first = '1/3' } } }").unwrap();
+        assert_eq!(c.pane_of(Layout::Split2, 0), "video");
+        assert_eq!(c.split_of(Layout::Split2).unwrap().id(), "1x2:1/3");
+        assert_eq!(c.pane(0), "media", "2x2 : défaut");
+        c.set_pane(Layout::Grid4, 3, "calendar");
+        assert_eq!(
+            c.panes_of(Layout::Grid4),
+            vec!["media", "video", "system", "calendar"]
+        );
+        assert_eq!(c.pane_of(Layout::Split2, 0), "video");
+        assert_eq!(eval(&c.to_lua()).unwrap(), c);
     }
 }

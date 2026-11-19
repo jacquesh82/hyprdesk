@@ -24,6 +24,20 @@ and this project adheres to
   (`layout = "1x2" | "1x3" | "2x2" | "3x3"`, `first = "1/2" | "1/3"`, up to
   nine zones), and its Video zone keeps the browser window in its frame when
   it goes fullscreen.
+- **Panorama: every layout keeps its own settings, gestures, SmartUI icons**
+  (MLG-172). Each split (1×2, 1×3, 2×2, 3×3) keeps its zone widgets and
+  zone-1 share (`zones = { ["2x2"] = { panes = {…} } }`, CLI
+  `panorama.zones.<layout>.panes|first`); Settings → Panorama → Pages
+  configures any layout without activating it. The composed view (split or
+  free composition) is the first entry of a carousel followed by the pages:
+  swipe sideways between them; swipe up opens a layout picker (one tile per
+  layout with its diagram), swipe down hides the Panorama. Video sources are
+  square tiles with an icon (initial until one exists); `hyprdesk panorama
+  icons [sources|shortcuts|all] [--force]` — or the Settings button — has
+  SmartUI (LYRA by default) draw the source and shortcut icons and writes
+  them to the config. Sources and touch shortcuts can be reordered;
+  `panorama.sources` is a CLI key; LYRA's context lists every Panorama key
+  and command, so a plain request is enough.
 - **Render card for Hyprland and hyprdesk** (MLG-171, Settings → Performance →
   Graphics card). Hyprland draws every frame on one card; when the screens
   are plugged into another one, every frame is copied across (an iGPU at

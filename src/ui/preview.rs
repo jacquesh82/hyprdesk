@@ -2273,7 +2273,10 @@ impl Preview {
             } else {
                 Layout::Single
             };
-            cfg.general.panorama.panes = vec!["media".into(), "clock".into(), "system".into()];
+            cfg.general.panorama.set_panes(
+                Layout::Split3,
+                vec!["media".into(), "clock".into(), "system".into()],
+            );
             cfg.general.transition = if SCENES[self.scene] == "panorama-still" {
                 config::Transition::None
             } else {
@@ -2551,13 +2554,11 @@ impl Preview {
                     }
                     PMsg::Pane(i, d) => {
                         let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
-                        if let Some(p) = c.panes.get_mut(i) {
-                            let ids = crate::panorama::PAGES;
-                            let cur = ids.iter().position(|(id, _)| *id == p).unwrap_or(0) as i32;
-                            *p = ids[(cur + d).rem_euclid(ids.len() as i32) as usize]
-                                .0
-                                .into();
-                        }
+                        let ids = crate::panorama::PAGES;
+                        let cur = ids.iter().position(|(id, _)| *id == c.pane(i)).unwrap_or(0) as i32;
+                        let next = ids[(cur + d).rem_euclid(ids.len() as i32) as usize].0;
+                        let l = c.layout;
+                        c.set_pane(l, i, next);
                     }
                     PMsg::Control("PlayPause") => {
                         if let Some(m) = self.app.panorama.media.as_mut() {
