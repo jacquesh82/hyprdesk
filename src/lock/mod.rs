@@ -97,6 +97,9 @@ struct Lock {
     /// seul écran. Le protocole de verrouillage ne donne pas le nom de la sortie.
     seen: std::cell::RefCell<Vec<iced::window::Id>>,
     by_size: std::collections::HashMap<iced::window::Id, String>,
+    /// Taille de chaque surface : un écran bandeau (Panorama) reçoit une
+    /// mise en page en ligne.
+    sizes: std::collections::HashMap<iced::window::Id, iced::Size>,
     avatar: Option<image::Handle>,
     battery: Option<(u8, bool)>,
     media: Option<crate::widgets::MediaInfo>,
@@ -240,6 +243,7 @@ impl Lock {
             video_parts: Default::default(),
             seen: Default::default(),
             by_size: Default::default(),
+            sizes: Default::default(),
             avatar: None,
             battery: battery(),
             media: None,
@@ -461,6 +465,7 @@ impl Lock {
                 Task::none()
             }
             Msg::Resized(id, size) => {
+                self.sizes.insert(id, size);
                 let (w, h) = (size.width.round() as u32, size.height.round() as u32);
                 let mut same = self
                     .st
@@ -541,15 +546,19 @@ impl Lock {
         let fg = rgba(st.fg, a);
         let dim = rgba(st.fg, 0.65 * a);
         let accent = rgba(st.accent, a);
+        // Écran bandeau (Panorama : 2560×720, 1920×480…) : tout tient en
+        // ligne, la hauteur ne suffit pas à la colonne.
+        let strip = self.sizes.get(&id).is_some_and(|s| is_strip(s.width, s.height));
         let t = self.started.elapsed().as_secs_f32();
         let tau = std::f32::consts::TAU;
         let (dx, dy) = (
             48.0 * (t / 97.0 * tau).sin(),
-            32.0 * (t / 131.0 * tau).sin(),
+            if strip { 10.0 } else { 32.0 } * (t / 131.0 * tau).sin(),
         );
 
         let now = chrono::Local::now();
-        let mut col = column![
+        let side = if strip { Alignment::Start } else { Alignment::Center };
+        let clock = column![
             text(now.format("%H:%M").to_string())
                 .font(self.title_font)
                 .size(120)
@@ -558,28 +567,43 @@ impl Lock {
                 .font(self.font)
                 .size(22)
                 .color(dim),
-            Space::new().height(28),
         ]
-        .align_x(Alignment::Center)
+        .align_x(side)
         .spacing(4);
+        let mut col = column![].align_x(side).spacing(4);
+        // En bandeau, l'heure va à côté de la colonne (voir `body`).
+        let mut clock = Some(clock);
+        if !strip && let Some(c) = clock.take() {
+            col = col.push(c).push(Space::new().height(28));
+        }
         if st.show_user {
-            let mut who = column![].align_x(Alignment::Center).spacing(8);
-            if let Some(h) = &self.avatar {
-                who = who.push(
-                    image(h.clone())
-                        .width(88)
-                        .height(88)
-                        .border_radius(44.0)
-                        .opacity(a),
-                );
-            }
-            who = who.push(
-                text(self.real_name.clone())
-                    .font(self.title_font)
-                    .size(18)
-                    .color(fg),
-            );
-            col = col.push(who);
+            // En bandeau : avatar plus petit, à côté du nom.
+            let size = if strip { 48.0 } else { 88.0 };
+            let avatar = self.avatar.as_ref().map(|h| {
+                image(h.clone())
+                    .width(size)
+                    .height(size)
+                    .border_radius(size / 2.0)
+                    .opacity(a)
+            });
+            let name = text(self.real_name.clone())
+                .font(self.title_font)
+                .size(18)
+                .color(fg);
+            let who: Element<'_, Msg> = if strip {
+                let mut r = row![].spacing(12).align_y(Alignment::Center);
+                if let Some(i) = avatar {
+                    r = r.push(i);
+                }
+                r.push(name).into()
+            } else {
+                let mut c = column![].align_x(Alignment::Center).spacing(8);
+                if let Some(i) = avatar {
+                    c = c.push(i);
+                }
+                c.push(name).into()
+            };
+            col = col.push(who).push(Space::new().height(if strip { 6 } else { 0 }));
         }
         let field_border = if self.error.is_some() {
             Color::from_rgb8(0xff, 0x95, 0x80)
@@ -625,7 +649,7 @@ impl Lock {
         });
         col = col.push(input);
         // Indicateurs : majuscules, disposition, échecs et messages de PAM.
-        let mut notes = column![].align_x(Alignment::Center).spacing(4);
+        let mut notes = column![].align_x(side).spacing(4);
         if let Some((layout, caps)) = &self.keyboard {
             let mut l = layout.clone();
             if *caps {
@@ -669,6 +693,15 @@ impl Lock {
             );
         }
         col = col.push(notes);
+        // Bandeau : l'heure à gauche, le compte et la saisie à droite.
+        let body: Element<'_, Msg> = if let Some(clock) = clock {
+            row![clock, col]
+                .spacing(64)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            col.into()
+        };
 
         // Bas d'écran : batterie et morceau en cours.
         let mut foot = row![].spacing(24).align_y(Alignment::Center);
@@ -708,7 +741,7 @@ impl Lock {
             );
         }
 
-        let content = container(col).center(Length::Fill).padding(Padding {
+        let content = container(body).center(Length::Fill).padding(Padding {
             left: (dx.max(0.0)) * 2.0,
             right: (-dx).max(0.0) * 2.0,
             top: (dy.max(0.0)) * 2.0,
@@ -720,7 +753,7 @@ impl Lock {
             .align_x(Alignment::Center)
             .align_y(Alignment::End)
             .padding(Padding {
-                bottom: 36.0 + dy.abs(),
+                bottom: if strip { 14.0 } else { 36.0 } + dy.abs(),
                 ..Padding::ZERO
             });
 
@@ -858,6 +891,12 @@ fn video_part(
     crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))
 }
 
+/// Surface d'écran bandeau (Panorama) : trop basse ou trop allongée pour
+/// la colonne habituelle (heure, compte, saisie), qui y déborderait.
+fn is_strip(w: f32, h: f32) -> bool {
+    h > 0.0 && w > h && (h < 560.0 || w / h >= crate::panorama::detect::MIN_RATIO)
+}
+
 /// Issue de la prise du verrou d'instance.
 #[derive(Debug)]
 enum Instance {
@@ -982,6 +1021,19 @@ mod tests {
         assert!(!holds_flock(locks, 0, 0x20, 71843340), "POSIX, pas FLOCK");
         assert!(!holds_flock(locks, 0, 0x20, 777), "attente, pas détention");
         assert!(!holds_flock(locks, 0, 0x21, 149598));
+    }
+
+    #[test]
+    fn bandeau_en_ligne() {
+        // 2560×720 à 1,6 ; 1920×480 ; 1280×400 : en ligne.
+        assert!(is_strip(1600.0, 450.0));
+        assert!(is_strip(1920.0, 480.0));
+        assert!(is_strip(1280.0, 400.0));
+        // Écrans ordinaires, et bandeau en portrait : la colonne tient.
+        assert!(!is_strip(2560.0, 1440.0));
+        assert!(!is_strip(1440.0, 2560.0));
+        assert!(!is_strip(450.0, 1600.0));
+        assert!(!is_strip(0.0, 0.0));
     }
 
     #[test]
