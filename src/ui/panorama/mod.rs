@@ -137,6 +137,9 @@ pub struct State {
     /// Sources (adresses) dont l'icône a déjà été demandée à SmartUI cette
     /// session : une source sans icône est dessinée une fois, d'elle-même.
     pub icons_tried: Vec<String>,
+    /// Fenêtres du lecteur déjà passées (ou essayées) en vidéo seule : une
+    /// fois par fenêtre, la personne peut en sortir.
+    pub autofull_done: Vec<String>,
     /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
     pub regions: HashMap<Id, Vec<layout::Rect>>,
     /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
@@ -173,12 +176,11 @@ pub enum PMsg {
     Frame(&'static str),
     /// Fenêtres étiquetées du lecteur trouvées au démarrage : (adresse, classe).
     Orphans(Vec<(String, String)>),
-    /// Plein écran relevé à la fermeture d'une source : (adresse, vidéo seule).
-    RememberFull(String, bool),
     /// Fin du dessin automatique des icônes manquantes (SmartUI).
     IconsAuto(Result<String, String>),
-    /// Vidéo seule mémorisée : la rétablir (fenêtre, essai).
-    VideoFull(String, u8),
+    /// Fin de la mise en vidéo seule automatique : (adresse de la source,
+    /// méthode qui a marché, à mémoriser).
+    AutoFull(String, Result<Option<String>, String>),
     ShortcutResult(Result<(), String>),
     Wallpaper(String, Option<iced::Size>),
     /// Écrans et tactiles relus.
@@ -437,6 +439,49 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Lecture commencée dans le lecteur (profils Vidéo et Musique) : la
+    /// vidéo passe seule en plein écran, dans sa zone (`autofull`), une fois
+    /// par fenêtre ; la méthode trouvée est mémorisée pour la source.
+    fn panorama_auto_full(&mut self) -> Task<Msg> {
+        if !matches!(
+            self.cfg.general.panorama.design.shortcut_profile.as_str(),
+            "video" | "audio"
+        ) {
+            return Task::none();
+        }
+        let Some(v) = self.panorama.video.as_ref() else {
+            return Task::none();
+        };
+        let Some(addr) = v.address.clone() else {
+            return Task::none();
+        };
+        if self.panorama.autofull_done.contains(&addr) {
+            return Task::none();
+        }
+        // Le lecteur (MPRIS) qui joue est celui du navigateur.
+        let playing = self.panorama.media.as_ref().is_some_and(|m| {
+            m.playing && (v.prefix.is_empty() || m.player.to_lowercase().contains(&v.prefix))
+        });
+        if !playing {
+            return Task::none();
+        }
+        self.panorama.autofull_done.push(addr.clone());
+        let url = v.url.clone();
+        let known = self
+            .panorama_current_source()
+            .and_then(|s| crate::panorama::autofull::Method::parse(&s.fs));
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    crate::panorama::autofull::run(&addr, known).map(|m| m.map(|m| m.id()))
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            move |r| wrap(PMsg::AutoFull(url.clone(), r)),
+        )
+    }
+
     /// Sources vidéo ou musique sans icône : SmartUI les dessine d'elle-même,
     /// en arrière-plan (`hyprdesk panorama icons sources`), une fois par
     /// session et par source ; chaque icône s'affiche dès qu'elle est prête.
@@ -635,25 +680,8 @@ impl App {
                     && let Some(v) = self.panorama.video.as_ref()
                     && let Some(addr) = v.address.clone()
                 {
-                    // Plein écran (touche f) : mémorisé pour la source, rétabli
-                    // à l'ouverture.
                     let key = key.trim().to_string();
-                    let url = v.url.clone();
-                    let mut save = Task::none();
-                    if key == "f" {
-                        let mut c = self.panorama_cfg();
-                        if let Some(src) = c
-                            .sources
-                            .iter_mut()
-                            .chain(c.music_sources.iter_mut())
-                            .find(|s| s.url == url)
-                        {
-                            src.full = !src.full;
-                            save = self.panorama_save(c);
-                        }
-                    }
                     return Task::batch([
-                        save,
                         Task::perform(
                             async move {
                                 tokio::task::spawn_blocking(move || {
@@ -691,10 +719,9 @@ impl App {
             }
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
-            | PMsg::VideoFull(..)
+            | PMsg::AutoFull(..)
             | PMsg::Frame(_)
             | PMsg::Orphans(_)
-            | PMsg::RememberFull(..)
             | PMsg::Pane(..)
             | PMsg::VideoOpen(_)
             | PMsg::VideoPoll(_)
@@ -809,7 +836,11 @@ impl App {
                     return Task::none();
                 }
                 self.panorama_video_gone();
-                let mut strays = Task::batch([self.panorama_close_strays(), self.panorama_auto_icons()]);
+                let mut strays = Task::batch([
+                    self.panorama_close_strays(),
+                    self.panorama_auto_icons(),
+                    self.panorama_auto_full(),
+                ]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;
                     strays = Task::batch([

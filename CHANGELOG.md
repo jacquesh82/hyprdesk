@@ -32,9 +32,14 @@ and this project adheres to
   source again does not relaunch it; a player window left by a previous
   hyprdesk is taken back or closed. Frame (services column) zooms and moves
   the window behind the player zone so only the video shows — the strip
-  hides the rest — remembered per source (`zoom`, `dx`, `dy`); the
-  Fullscreen key goes to the player window and is remembered per source
-  (`full`), restored on opening. The Play key turns into Pause while
+  hides the rest — remembered per source (`zoom`, `dx`, `dy`). When a
+  source starts playing, its video goes fullscreen inside the player zone
+  on its own: hyprdesk finds the video (the region that moves between
+  three captures of the window), then tries a double-click on it, the F
+  key, and the usual places of the fullscreen button, checks each try, and
+  remembers what worked for the source (`fs`); pages without a video
+  (music) are left alone. `hyprdesk panorama fullscreen` does it on
+  demand. The Fullscreen key goes to the player window. The Play key turns into Pause while
   playing; the page dots sit at the bottom centre, translucent without a
   recent touch.
 - **Screens split into zones** (MLG-172). Wayland cannot cut one output into

@@ -110,9 +110,10 @@ pub struct Source {
     /// Icône de la tuile : nom d'icône ou chemin (vide : initiale ; SmartUI
     /// la dessine, `hyprdesk panorama icons`).
     pub icon: String,
-    /// Mémorisé par source : la vidéo seule (plein écran du lecteur de la
-    /// page, dans la zone), rétablie à l'ouverture.
-    pub full: bool,
+    /// Mémorisé par source : comment passer sa vidéo en plein écran
+    /// (`autofull::Method` : dblclick, key, click:x,y), trouvé à la
+    /// première lecture ; vide : à chercher.
+    pub fs: String,
     /// Cadrage mémorisé par source : la fenêtre est agrandie (`zoom` ≥ 1) et
     /// décalée (`dx`, `dy`, en part de la zone) derrière la zone du lecteur,
     /// qui n'en laisse voir que la vidéo.
@@ -127,7 +128,7 @@ impl Default for Source {
             name: String::new(),
             url: String::new(),
             icon: String::new(),
-            full: false,
+            fs: String::new(),
             zoom: 1.0,
             dx: 0.0,
             dy: 0.0,
@@ -417,7 +418,10 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                 },
                 url: url.trim().to_string(),
                 icon: icon.trim().to_string(),
-                full: v.get::<Option<bool>>("full")?.unwrap_or(false),
+                fs: v
+                    .get::<Option<String>>("fs")?
+                    .filter(|m| super::autofull::Method::parse(m).is_some())
+                    .unwrap_or_default(),
                 zoom: v.get::<Option<f32>>("zoom")?.unwrap_or(1.0).clamp(1.0, 4.0),
                 dx: v.get::<Option<f32>>("dx")?.unwrap_or(0.0).clamp(-2.0, 2.0),
                 dy: v.get::<Option<f32>>("dy")?.unwrap_or(0.0).clamp(-2.0, 2.0),
@@ -524,8 +528,8 @@ impl Config {
                     if !s.icon.is_empty() {
                         e.push(format!("icon = {}", q(&s.icon)));
                     }
-                    if s.full {
-                        e.push("full = true".into());
+                    if !s.fs.is_empty() {
+                        e.push(format!("fs = {}", q(&s.fs)));
                     }
                     if !s.unframed() {
                         e.push(format!("zoom = {}, dx = {}, dy = {}", s.zoom, s.dx, s.dy));
@@ -671,7 +675,7 @@ mod tests {
                 name: "Free \"TV\"".into(),
                 url: "https://tv.free.fr".into(),
                 icon: "/tmp/free.svg".into(),
-                full: true,
+                fs: "click:0.965,0.935".into(),
                 zoom: 1.25,
                 dx: 0.0,
                 dy: -0.5,

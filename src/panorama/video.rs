@@ -146,19 +146,6 @@ pub fn send_key(address: &str, key: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// La fenêtre est en plein écran côté application (vidéo seule).
-pub fn is_full(address: &str) -> bool {
-    hyprpanel_core::ipc::query_json("clients")
-        .ok()
-        .and_then(|v| {
-            v.as_array()?.iter().find_map(|c| {
-                (c["address"].as_str() == Some(address))
-                    .then(|| c["fullscreenClient"].as_i64().unwrap_or(0) != 0)
-            })
-        })
-        .unwrap_or(false)
-}
-
 /// Fenêtres étiquetées du lecteur (adresse, classe), d'un hyprdesk
 /// précédent par exemple.
 pub fn tagged() -> Vec<(String, String)> {

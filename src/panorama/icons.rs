@@ -218,8 +218,8 @@ pub fn sources_json(l: &[Source]) -> String {
                 if !s.icon.is_empty() {
                     o["icon"] = s.icon.clone().into();
                 }
-                if s.full {
-                    o["full"] = true.into();
+                if !s.fs.is_empty() {
+                    o["fs"] = s.fs.clone().into();
                 }
                 if !s.unframed() {
                     o["zoom"] = s.zoom.into();
@@ -254,7 +254,11 @@ pub fn sources_from_json(v: &str) -> Result<Vec<Source>, String> {
                 },
                 url,
                 icon: o["icon"].as_str().unwrap_or("").trim().to_string(),
-                full: o["full"].as_bool().unwrap_or(false),
+                fs: o["fs"]
+                    .as_str()
+                    .filter(|m| super::autofull::Method::parse(m).is_some())
+                    .unwrap_or("")
+                    .to_string(),
                 zoom: o["zoom"].as_f64().unwrap_or(1.0).clamp(1.0, 4.0) as f32,
                 dx: o["dx"].as_f64().unwrap_or(0.0).clamp(-2.0, 2.0) as f32,
                 dy: o["dy"].as_f64().unwrap_or(0.0).clamp(-2.0, 2.0) as f32,
@@ -283,7 +287,7 @@ mod tests {
                 name: "Netflix".into(),
                 url: "https://www.netflix.com".into(),
                 icon: String::new(),
-                full: true,
+                fs: "dblclick".into(),
                 zoom: 1.5,
                 dx: 0.25,
                 dy: -0.5,

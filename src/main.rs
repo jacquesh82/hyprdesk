@@ -163,7 +163,7 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
-  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|music|shortcuts|all] [--force]]
+  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|music|shortcuts|all] [--force]|fullscreen]
                     Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
                     page ; detect : relit les écrans et refait les propositions ;
                     preview : aperçu en fenêtre flottante (2560x720 par défaut) ;
@@ -1224,6 +1224,27 @@ fn main() -> ExitCode {
         }
         // Icônes du Panorama dessinées par SmartUI (fournisseur IA de la
         // fonction smartui, LYRA par défaut) : sources vidéo et raccourcis.
+        // Vidéo seule dans le lecteur du Panorama : détection et plein écran.
+        "panorama" if args.get(1).map(String::as_str) == Some("fullscreen") => {
+            let Some((addr, _)) = crate::panorama::video::tagged().into_iter().next() else {
+                eprintln!("{}", crate::i18n::tr("aucun lecteur du Panorama ouvert"));
+                return ExitCode::FAILURE;
+            };
+            match crate::panorama::autofull::run(&addr, None) {
+                Ok(Some(m)) => {
+                    println!("{}", m.id());
+                    ExitCode::SUCCESS
+                }
+                Ok(None) => {
+                    println!("{}", crate::i18n::tr("déjà en vidéo seule"));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "panorama" if args.get(1).map(String::as_str) == Some("icons") => {
             let force = args.iter().any(|a| a == "--force");
             let what = args
