@@ -56,6 +56,34 @@ pub fn play(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Radio en cours, gardée le temps de la session : un redémarrage de
+/// hyprdesk (mise à jour) la reprend.
+fn resume_file() -> PathBuf {
+    socket().with_file_name("hyprdesk-radio.json")
+}
+
+/// Retient la radio en cours (nom, flux), ou l'oublie (`None`).
+pub fn remember(radio: Option<(&str, &str)>) {
+    match radio {
+        Some((name, url)) => {
+            let _ = std::fs::write(
+                resume_file(),
+                serde_json::json!({ "name": name, "url": url }).to_string(),
+            );
+        }
+        None => {
+            let _ = std::fs::remove_file(resume_file());
+        }
+    }
+}
+
+/// Radio à reprendre au démarrage : (nom, flux).
+pub fn to_resume() -> Option<(String, String)> {
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(resume_file()).ok()?).ok()?;
+    Some((v["name"].as_str()?.to_string(), v["url"].as_str()?.to_string()))
+}
+
 /// Arrête la radio en cours.
 pub fn stop() {
     if let Ok(mut p) = PLAYER.lock()

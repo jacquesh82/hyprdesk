@@ -676,6 +676,7 @@ impl App {
                 self.panorama.framing = false;
                 if self.panorama.radio.take().is_some() {
                     crate::panorama::radio_play::stop();
+                    crate::panorama::radio_play::remember(None);
                 }
                 let t = self.panorama_close_video();
                 self.panorama.video = None;
@@ -704,6 +705,7 @@ impl App {
                 }
                 let close = self.panorama_close_video();
                 self.panorama.video = None;
+                crate::panorama::radio_play::remember(Some((&src.name, &src.url)));
                 self.panorama.radio = Some((src.name.clone(), src.url.clone()));
                 self.panorama.radio_paused = false;
                 self.panorama.level_hist.clear();
@@ -730,6 +732,7 @@ impl App {
             // Autre source : la radio s'arrête.
             if self.panorama.radio.take().is_some() {
                 crate::panorama::radio_play::stop();
+                crate::panorama::radio_play::remember(None);
             }
             let c = &self.cfg.general.panorama;
             let Some((cmd, prefix)) = video::browser(&c.browser) else {
@@ -875,6 +878,27 @@ impl App {
 
     pub(super) fn view_panorama_surface(&self, id: Id) -> Element<'_, Msg> {
         let inner = self.view_panorama_surface_inner(id);
+        // Vue par défaut sans bloc de raccourcis (composition du profil
+        // Réglages) : petite barre des profils, pour ne jamais rester coincé.
+        let inner = match self.panorama_surf(id).filter(|s| {
+            self.panorama
+                .page
+                .get(&s.key)
+                .copied()
+                .unwrap_or(0)
+                < self.panorama_offset()
+                && !self.panorama_geo(s).panes.iter().any(|p| p.widget == "shortcuts")
+        }) {
+            Some(_) => stack![
+                inner,
+                container(self.panorama_profile_bar())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .padding(10)
+            ]
+            .into(),
+            None => inner,
+        };
         // Quelque chose joue hors de vue (autre page, profil sans lecteur) :
         // pastille « en cours » pour le reprendre ou l'arrêter.
         let inner = match self

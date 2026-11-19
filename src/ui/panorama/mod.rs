@@ -1511,6 +1511,16 @@ impl App {
                 ]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;
+                    // Radio en cours avant un redémarrage de hyprdesk : reprise.
+                    if self.panorama.radio.is_none()
+                        && self.panorama.video.is_none()
+                        && let Some((name, url)) = crate::panorama::radio_play::to_resume()
+                    {
+                        strays = Task::batch([
+                            strays,
+                            Task::done(wrap(PMsg::PlayUrl(name, url))),
+                        ]);
+                    }
                     strays = Task::batch([
                         strays,
                         Task::perform(

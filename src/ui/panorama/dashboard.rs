@@ -76,6 +76,37 @@ impl App {
         .into()
     }
 
+    /// Barre compacte des profils (icônes), pour les compositions sans bloc
+    /// de raccourcis : on change de profil d'un appui, où qu'on soit.
+    pub(super) fn panorama_profile_bar(&self) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let mut r = row![].spacing(6);
+        for id in crate::panorama::design::PROFILES {
+            let on = self.cfg.general.panorama.design.shortcut_profile == *id;
+            r = r.push(self.panorama_feedback(
+                button(iced::widget::svg(profile_icon(id)).width(26).height(26))
+                    .padding(6)
+                    .on_press(wrap(PMsg::Profile(id.to_string())))
+                    .style(move |_, st| button::Style {
+                        background: Some(
+                            fx::alpha(
+                                if on || matches!(st, button::Status::Pressed) { accent } else { bg },
+                                if on { 0.55 } else { 0.7 },
+                            )
+                            .into(),
+                        ),
+                        border: Border {
+                            radius: 10.0.into(),
+                            width: 1.0,
+                            color: fx::alpha(fg, 0.2),
+                        },
+                        ..Default::default()
+                    }),
+            ));
+        }
+        r.into()
+    }
+
     /// Gestionnaire des tâches : programmes en cours, triés sur la mesure
     /// de la tuile touchée ; « Terminer » demande un second appui.
     pub(super) fn panorama_tasks_view(&self, s: &Surf) -> Element<'_, Msg> {

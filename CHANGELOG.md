@@ -79,7 +79,10 @@ and this project adheres to
   the bottom; the Remote profile keeps the player zone and its keys go to
   the player; the task manager shows the metric on a third and the list on
   two thirds, and tapping the metric (or ✕) goes back
-  (`hyprdesk panorama tasks <metric>|close`).
+  (`hyprdesk panorama tasks <metric>|close`). A composition without a
+  shortcuts block (Settings profile) shows a compact profile bar, so the
+  other profiles stay one tap away; a radio playing when hyprdesk restarts
+  (update) resumes on its own.
 - **Panorama sources configured in Settings, only usable platforms
   shown** (MLG-172). Settings → Panorama → Sources edits the three lists
   (Video, Music, Webradio): add, order, remove, icons, default list. The
