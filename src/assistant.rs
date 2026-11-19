@@ -411,7 +411,14 @@ fn panorama_context(cfg: &Config) -> String {
          - `hyprdesk panorama icons [sources|music|shortcuts|all] [--force]` : SmartUI dessine les icônes manquantes \
          (toutes avec --force) et les écrit dans la config\n\
          - `hyprdesk panorama preview`, `hyprdesk panorama layout <…>`, `hyprdesk panorama video <n|nom|close>`, \
-         `hyprdesk panorama toggle`\n",
+         `hyprdesk panorama toggle`\n\
+         - Musique à la demande (« mets du jazz calme », « lance FIP ») : choisis toi-même la recherche \
+         (artiste, titre, genre, ambiance) puis `hyprdesk panorama music <recherche>` ouvre la page de résultats \
+         de la plateforme active (celle du lecteur, sinon le premier service de `panorama.music_sources`) ; \
+         `hyprdesk panorama radio <nom ou genre>` cherche dans l'annuaire Radio Browser et lance la première \
+         station ; `hyprdesk panorama open <adresse> [nom]` ouvre une adresse précise dans le lecteur. \
+         `panorama.webradio` (radio-browser | radio-garden | radio-net | tunein) et `panorama.radios` \
+         (JSON des radios favorites) règlent l'onglet Webradio.\n",
         widgets = widgets.join(", ")
     );
     o

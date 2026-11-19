@@ -140,6 +140,12 @@ pub struct State {
     /// Fenêtres du lecteur déjà passées (ou essayées) en vidéo seule : une
     /// fois par fenêtre, la personne peut en sortir.
     pub autofull_done: Vec<String>,
+    /// Onglet de la colonne du profil Musique : playlist ou radio.
+    pub music_tab: &'static str,
+    /// Dernière recherche de radios : (demande, stations) ; en cours.
+    pub radio_results: Option<(String, Vec<crate::panorama::config::Source>)>,
+    pub radio_busy: bool,
+    pub radio_error: Option<String>,
     /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
     pub regions: HashMap<Id, Vec<layout::Rect>>,
     /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
@@ -178,6 +184,15 @@ pub enum PMsg {
     Orphans(Vec<(String, String)>),
     /// Fin du dessin automatique des icônes manquantes (SmartUI).
     IconsAuto(Result<String, String>),
+    /// Ouvre une adresse dans le lecteur : (nom, adresse).
+    PlayUrl(String, String),
+    /// Onglet de la colonne Musique : playlist, radio.
+    MusicTab(&'static str),
+    /// Recherche de radios (Radio Browser) ; `play` : lancer la première.
+    RadioSearch(String, bool),
+    RadioFound(String, bool, Result<Vec<crate::panorama::config::Source>, String>),
+    /// Ajoute (ou retire) une radio des favoris : (nom, flux).
+    RadioFav(String, String),
     /// Fin de la mise en vidéo seule automatique : (adresse de la source,
     /// méthode qui a marché, à mémoriser).
     AutoFull(String, Result<Option<String>, String>),
@@ -720,6 +735,11 @@ impl App {
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
             | PMsg::AutoFull(..)
+            | PMsg::PlayUrl(..)
+            | PMsg::MusicTab(_)
+            | PMsg::RadioSearch(..)
+            | PMsg::RadioFound(..)
+            | PMsg::RadioFav(..)
             | PMsg::Frame(_)
             | PMsg::Orphans(_)
             | PMsg::Pane(..)
@@ -1034,6 +1054,58 @@ impl App {
                     });
                 match i {
                     Some(i) if i < sources.len() => self.panorama_update(PMsg::VideoOpen(i)),
+                    _ => Task::none(),
+                }
+            }
+            // LYRA : ouvrir une adresse, chercher une radio, chercher de la
+            // musique sur la plateforme active.
+            ("open", _) => {
+                let url = it.next().unwrap_or("").to_string();
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    return Task::none();
+                }
+                let name = it.collect::<Vec<_>>().join(" ");
+                let name = if name.is_empty() {
+                    crate::panorama::video::host(&url)
+                } else {
+                    name
+                };
+                self.panorama_update(PMsg::PlayUrl(name, url))
+            }
+            ("radio", _) => {
+                let q = it.collect::<Vec<_>>().join(" ");
+                if q.is_empty() {
+                    return Task::none();
+                }
+                self.panorama_update(PMsg::RadioSearch(q, true))
+            }
+            ("music", _) => {
+                let q = it.collect::<Vec<_>>().join(" ");
+                // Plateforme active : celle du lecteur, sinon la première
+                // des services de musique.
+                let c = &self.cfg.general.panorama;
+                let base = self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .map(|v| v.url.clone())
+                    .filter(|u| crate::panorama::radio::search_url(u, "x").is_some())
+                    .or_else(|| c.music_sources.first().map(|s| s.url.clone()));
+                let Some(base) = base else {
+                    return Task::none();
+                };
+                let name = c
+                    .music_sources
+                    .iter()
+                    .chain(&c.sources)
+                    .find(|s| crate::panorama::video::host(&s.url) == crate::panorama::video::host(&base))
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| crate::panorama::video::host(&base));
+                match crate::panorama::radio::search_url(&base, &q) {
+                    Some(url) if !q.is_empty() => {
+                        self.panorama.music_tab = "playlist";
+                        self.panorama_update(PMsg::PlayUrl(name, url))
+                    }
                     _ => Task::none(),
                 }
             }

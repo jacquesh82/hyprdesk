@@ -64,6 +64,8 @@ pub enum Msg {
     /// Source, ±1 dans l'ordre.
     SourceMove(usize, i32),
     SourcesReset,
+    /// Service de l'onglet Webradio (profil Musique).
+    Webradio(String),
     /// Raccourci, ±1 dans l'ordre.
     ShortcutMove(usize, i32),
     /// Icônes dessinées par SmartUI : (sources | shortcuts, toutes).
@@ -632,6 +634,29 @@ impl App {
             .align_y(Alignment::Center),
         );
         col = col.push(self.panorama_icons_status());
+        // Webradio du profil Musique : annuaire Radio Browser dans l'onglet,
+        // ou un service web ouvert dans le lecteur.
+        col = col.push(self.section("Webradio (profil Musique)"));
+        let mut services = row![].spacing(14);
+        let current = crate::panorama::radio::service(&c.webradio).map(|s| s.0);
+        for (id, label, _) in crate::panorama::radio::SERVICES.iter().copied() {
+            services = services.push(
+                iced::widget::radio(
+                    label,
+                    id,
+                    current,
+                    |v: &'static str| wrap(Msg::Webradio(v.into())),
+                )
+                .text_size(13),
+            );
+        }
+        col = col.push(services).push(
+            text(crate::tr!(
+                "{n} radios favorites. Radio Browser est un annuaire libre, sans compte : l'onglet Webradio liste vos favoris et la dernière recherche (★ pour garder une station). Demandez à LYRA « mets FIP » ou « une radio jazz » ; elle peut aussi chercher de la musique sur la plateforme active.",
+                n = c.radios.len().to_string()
+            ))
+            .size(12),
+        );
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         col = col.push(
             self.field(
@@ -797,6 +822,12 @@ impl App {
                 if i < c.sources.len() {
                     c.sources.remove(i);
                 }
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::Webradio(id) => {
+                let mut c = self.panorama_cfg();
+                c.webradio = id;
                 self.settings.panorama = Some(c);
                 self.commit()
             }

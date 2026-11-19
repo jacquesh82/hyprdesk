@@ -435,67 +435,16 @@ impl App {
                 })
             }
             PMsg::VideoOpen(i) => {
-                let c = &self.cfg.general.panorama;
-                let Some(src) = c.active_sources().get(i).cloned() else {
+                let Some(src) = self.cfg.general.panorama.active_sources().get(i).cloned() else {
                     return Task::none();
                 };
-                let Some((cmd, prefix)) = video::browser(&c.browser) else {
-                    self.panorama.video = Some(Video {
-                        name: src.name,
-                        url: src.url,
-                        prefix: String::new(),
-                        address: None,
-                        known: Vec::new(),
-                        error: Some(
-                            crate::i18n::tr(
-                                "Aucun navigateur Chromium trouvé (brave, chromium, google-chrome…) : Réglages → Panorama.",
-                            )
-                            .to_string(),
-                        ),
-                        placed: None,
-                        focus_back: None,
-                    });
-                    return Task::none();
-                };
-                // Une seule source à la fois : la même, déjà ouverte ou en
-                // cours d'ouverture, n'est pas relancée ; une autre la remplace.
-                if self
-                    .panorama
-                    .video
-                    .as_ref()
-                    .is_some_and(|v| v.url == src.url && v.error.is_none())
-                {
-                    return Task::none();
-                }
-                let close = self.panorama_close_video();
-                let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
-                self.panorama.video = Some(Video {
-                    name: src.name.clone(),
-                    url: src.url.clone(),
-                    prefix,
-                    address: None,
-                    known,
-                    error: None,
-                    placed: None,
-                    focus_back: self.active_window.as_ref().map(|(a, _)| a.clone()),
-                });
-                self.panorama.last_press = Some(std::time::Instant::now());
-                let url = src.url;
-                Task::batch([
-                    close,
-                    Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || video::launch(&cmd, &url))
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        |r| match r {
-                            Ok(()) => wrap(PMsg::VideoPoll(0)),
-                            Err(e) => wrap(PMsg::VideoPlaced(Err(e))),
-                        },
-                    ),
-                ])
+                self.panorama_open(src)
             }
+            PMsg::PlayUrl(name, url) => self.panorama_open(crate::panorama::config::Source {
+                name,
+                url,
+                ..Default::default()
+            }),
             PMsg::VideoPoll(n) => {
                 let Some(v) = self.panorama.video.as_ref().filter(|v| v.address.is_none()) else {
                     return Task::none();
@@ -607,6 +556,60 @@ impl App {
                     )
                 }))
             }
+            PMsg::MusicTab(t) => {
+                self.panorama.last_press = Some(std::time::Instant::now());
+                self.panorama.music_tab = t;
+                Task::none()
+            }
+            PMsg::RadioSearch(q, play) => {
+                self.panorama.music_tab = "radio";
+                self.panorama.radio_busy = true;
+                self.panorama.radio_error = None;
+                let query = q.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::panorama::radio::search(&query))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |r| wrap(PMsg::RadioFound(q.clone(), play, r)),
+                )
+            }
+            PMsg::RadioFound(q, play, r) => {
+                self.panorama.radio_busy = false;
+                match r {
+                    Ok(l) => {
+                        let first = l.first().cloned();
+                        if l.is_empty() {
+                            self.panorama.radio_error =
+                                Some(crate::tr!("Aucune radio pour « {q} ».", q = q.clone()));
+                        }
+                        self.panorama.radio_results = Some((q, l));
+                        match first {
+                            Some(s) if play => self.panorama_open(s),
+                            _ => Task::none(),
+                        }
+                    }
+                    Err(e) => {
+                        self.panorama.radio_error = Some(e);
+                        Task::none()
+                    }
+                }
+            }
+            PMsg::RadioFav(name, url) => {
+                self.panorama.last_press = Some(std::time::Instant::now());
+                self.panorama_save_cfg(|c| {
+                    if let Some(i) = c.radios.iter().position(|r| r.url == url) {
+                        c.radios.remove(i);
+                    } else {
+                        c.radios.push(crate::panorama::config::Source {
+                            name,
+                            url,
+                            ..Default::default()
+                        });
+                    }
+                })
+            }
             PMsg::AutoFull(url, r) => {
                 match r {
                     // Méthode qui a marché : mémorisée pour la source.
@@ -653,6 +656,68 @@ impl App {
             }
             _ => Task::none(),
         }
+    }
+
+    /// Ouvre une source (service, page de résultats, flux de radio) dans
+    /// le lecteur : une seule à la fois.
+    fn panorama_open(&mut self, src: crate::panorama::config::Source) -> Task<Msg> {
+            let c = &self.cfg.general.panorama;
+            let Some((cmd, prefix)) = video::browser(&c.browser) else {
+                self.panorama.video = Some(Video {
+                    name: src.name,
+                    url: src.url,
+                    prefix: String::new(),
+                    address: None,
+                    known: Vec::new(),
+                    error: Some(
+                        crate::i18n::tr(
+                            "Aucun navigateur Chromium trouvé (brave, chromium, google-chrome…) : Réglages → Panorama.",
+                        )
+                        .to_string(),
+                    ),
+                    placed: None,
+                    focus_back: None,
+                });
+                return Task::none();
+            };
+            // Une seule source à la fois : la même, déjà ouverte ou en
+            // cours d'ouverture, n'est pas relancée ; une autre la remplace.
+            if self
+                .panorama
+                .video
+                .as_ref()
+                .is_some_and(|v| v.url == src.url && v.error.is_none())
+            {
+                return Task::none();
+            }
+            let close = self.panorama_close_video();
+            let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
+            self.panorama.video = Some(Video {
+                name: src.name.clone(),
+                url: src.url.clone(),
+                prefix,
+                address: None,
+                known,
+                error: None,
+                placed: None,
+                focus_back: self.active_window.as_ref().map(|(a, _)| a.clone()),
+            });
+            self.panorama.last_press = Some(std::time::Instant::now());
+            let url = src.url;
+            Task::batch([
+                close,
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || video::launch(&cmd, &url))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| match r {
+                        Ok(()) => wrap(PMsg::VideoPoll(0)),
+                        Err(e) => wrap(PMsg::VideoPlaced(Err(e))),
+                    },
+                ),
+            ])
     }
 
     /// Ferme la fenêtre vidéo, s'il y en a une.

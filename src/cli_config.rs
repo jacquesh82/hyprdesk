@@ -838,6 +838,28 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.music_sources = crate::panorama::config::default_music_sources(); } };
+    "panorama.webradio", "panorama", "radio-browser | radio-garden | radio-net | tunein — service de l'onglet Webradio",
+        |c| c.general.panorama.webradio.clone(),
+        |s, v, c| {
+            if crate::panorama::radio::service(v).is_none() {
+                return Err("radio-browser | radio-garden | radio-net | tunein".into());
+            }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.webradio = v.into();
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.webradio = crate::panorama::radio::DEFAULT_SERVICE.into(); } };
+    "panorama.radios", "panorama", "JSON — radios favorites de l'onglet Webradio [{name,url}] (url : flux)",
+        |c| crate::panorama::icons::sources_json(&c.general.panorama.radios),
+        |s, v, c| {
+            let l = crate::panorama::icons::sources_from_json(v)?;
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.radios = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.radios = crate::panorama::radio::default_radios(); } };
     "panorama.browser", "panorama", "<commande> | auto — navigateur Chromium des sources vidéo",
         |c| if c.general.panorama.browser.is_empty() { "auto".into() } else { c.general.panorama.browser.clone() },
         |s, v, c| {

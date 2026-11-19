@@ -23,6 +23,17 @@ and this project adheres to
   [mods]`); Settings keeps the personal shortcuts and composition.
   `hyprdesk panorama icons music` has SmartUI draw the music services.
 - **Panorama background image: Browse…** opens the file chooser (portal).
+- **Panorama Music: Playlist and Webradio tabs, music on request through
+  LYRA** (MLG-172). The Music column has two tabs: the music services, and
+  Webradio — favourite radios (FIP, France Inter, franceinfo, France
+  Culture, France Musique, Nova, TSF Jazz by default, ★ to keep a station)
+  and the latest search in the free Radio Browser directory, or a web
+  service opened in the player (Radio Garden, radio.net, TuneIn; Settings →
+  Panorama, `panorama.webradio`, `panorama.radios`). LYRA plays on request:
+  `hyprdesk panorama music <search>` opens the results page of the active
+  platform, `hyprdesk panorama radio <name or genre>` plays the first
+  matching station, `hyprdesk panorama open <url> [name]` opens an
+  address. The profile buttons show their name below on hover.
 - **Panorama: missing source icons are drawn automatically** (MLG-172).
   A video or music source without an icon gets one from SmartUI in the
   background (once per session and source), shown as soon as it is ready.

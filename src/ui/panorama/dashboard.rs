@@ -85,22 +85,6 @@ impl App {
         let (bg, fg, accent) = self.panorama_palette();
         let gap = d.gap.min(14.0);
         let playing = self.panorama.video.as_ref().map(|v| v.name.as_str());
-        let title = if d.shortcut_profile == "audio" {
-            "Musique"
-        } else {
-            "Vidéo"
-        };
-        let mut head = row![
-            text(crate::i18n::tr(title))
-                .size(16.0 * d.text_scale)
-                .font(iced::Font {
-                    weight: iced::font::Weight::Semibold,
-                    ..self.panorama_font()
-                })
-                .color(fg)
-                .width(Length::Fill)
-        ]
-        .align_y(Alignment::Center);
         let pill = move |on: bool| {
             move |_: &iced::Theme, st: button::Status| button::Style {
                 background: Some(
@@ -118,6 +102,38 @@ impl App {
                 text_color: fg,
                 ..Default::default()
             }
+        };
+        let audio = d.shortcut_profile == "audio";
+        let radio_tab = audio && self.panorama.music_tab == "radio";
+        // Musique : onglets Playlist et Webradio ; Vidéo : un titre.
+        let mut head = if audio {
+            let tab = |label: &'static str, id: &'static str, on: bool| {
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr(label)).size(13).color(fg))
+                        .padding([6, 12])
+                        .on_press(wrap(PMsg::MusicTab(id)))
+                        .style(pill(on)),
+                )
+            };
+            row![
+                tab("Playlist", "playlist", !radio_tab),
+                Space::new().width(6),
+                tab("Webradio", "radio", radio_tab),
+                Space::new().width(Length::Fill),
+            ]
+            .align_y(Alignment::Center)
+        } else {
+            row![
+                text(crate::i18n::tr("Vidéo"))
+                    .size(16.0 * d.text_scale)
+                    .font(iced::Font {
+                        weight: iced::font::Weight::Semibold,
+                        ..self.panorama_font()
+                    })
+                    .color(fg)
+                    .width(Length::Fill)
+            ]
+            .align_y(Alignment::Center)
         };
         if playing.is_some() {
             head = head
@@ -221,90 +237,34 @@ impl App {
             .padding(8)
             .into();
         }
-        let sources = c.active_sources();
-        // Lignes tactiles : toute la hauteur partagée, entre 44 et 72 px.
-        let room = size.height - 16.0 - 34.0 - gap;
-        let n = sources.len().max(1) as f32;
-        let line_h = ((room - gap / 2.0 * (n - 1.0)) / n).clamp(40.0, 72.0);
-        let icon_side = line_h * 0.62;
         let mut list = column![].spacing(gap / 2.0);
-        for (i, src) in sources.iter().enumerate() {
-            let on = playing == Some(src.name.as_str());
-            let icon: Element<'_, Msg> = (!src.icon.is_empty())
-                .then(|| self.icon_named(&src.icon, icon_side, fg))
-                .flatten()
-                .unwrap_or_else(|| {
-                    let letter = src
-                        .name
-                        .chars()
-                        .find(|ch| ch.is_alphanumeric())
-                        .map(|ch| ch.to_uppercase().to_string())
-                        .unwrap_or_else(|| "•".into());
-                    container(text(letter).size(icon_side * 0.55).color(fg))
-                        .width(icon_side)
-                        .height(icon_side)
-                        .center_x(icon_side)
-                        .center_y(icon_side)
-                        .style(move |_| container::Style {
-                            background: Some(fx::alpha(accent, 0.3).into()),
-                            border: Border::default().rounded(icon_side * 0.24),
-                            ..Default::default()
-                        })
-                        .into()
-                });
-            let mut label = column![
-                text(src.name.clone())
-                    .size((line_h * 0.26).clamp(12.0, 17.0) * d.text_scale)
-                    .color(fg)
-                    .wrapping(text::Wrapping::None)
-            ];
-            if on {
-                label = label.push(
-                    text(crate::i18n::tr("En cours"))
-                        .size(11.0 * d.text_scale)
-                        .color(fx::alpha(fg, 0.7)),
+        if radio_tab {
+            list = self.panorama_radio_list(list, playing);
+        } else {
+            let sources = c.active_sources();
+            // Lignes tactiles : toute la hauteur partagée, entre 40 et 72 px.
+            let room = size.height - 16.0 - 34.0 - gap;
+            let n = sources.len().max(1) as f32;
+            let line_h = ((room - gap / 2.0 * (n - 1.0)) / n).clamp(40.0, 72.0);
+            for (i, src) in sources.iter().enumerate() {
+                let on = playing == Some(src.name.as_str());
+                list = list.push(self.panorama_source_row(
+                    src,
+                    on,
+                    line_h,
+                    wrap(PMsg::VideoOpen(i)),
+                    None,
+                ));
+            }
+            if sources.is_empty() {
+                list = list.push(
+                    text(crate::i18n::tr(
+                        "Aucune source : ajoutez-en dans Réglages → Panorama.",
+                    ))
+                    .size(13)
+                    .color(fg),
                 );
             }
-            list = list.push(
-                self.panorama_feedback(
-                    button(row![icon, label].spacing(12).align_y(Alignment::Center))
-                        .width(Length::Fill)
-                        .height(line_h)
-                        .padding([4, 10])
-                        .on_press(wrap(PMsg::VideoOpen(i)))
-                        .style(move |_, st| {
-                            let hot = on || matches!(st, button::Status::Pressed);
-                            button::Style {
-                                background: Some(
-                                    fx::alpha(
-                                        if hot { accent } else { bg },
-                                        if hot { 0.45 } else { 0.5 },
-                                    )
-                                    .into(),
-                                ),
-                                border: Border {
-                                    radius: d.radius.min(14.0).into(),
-                                    width: 1.0,
-                                    color: fx::alpha(
-                                        if on { accent } else { fg },
-                                        if on { 0.8 } else { 0.2 },
-                                    ),
-                                },
-                                text_color: fg,
-                                ..Default::default()
-                            }
-                        }),
-                ),
-            );
-        }
-        if sources.is_empty() {
-            list = list.push(
-                text(crate::i18n::tr(
-                    "Aucune source : ajoutez-en dans Réglages → Panorama.",
-                ))
-                .size(13)
-                .color(fg),
-            );
         }
         column![
             container(head).height(34),
@@ -320,6 +280,155 @@ impl App {
         .spacing(gap)
         .padding(8)
         .into()
+    }
+
+    /// Onglet Webradio : le service web choisi (s'il y en a un), les
+    /// radios favorites, puis la dernière recherche (LYRA : « mets FIP »).
+    fn panorama_radio_list<'a>(
+        &'a self,
+        mut list: iced::widget::Column<'a, Msg>,
+        playing: Option<&str>,
+    ) -> iced::widget::Column<'a, Msg> {
+        let c = &self.cfg.general.panorama;
+        let (_, fg, _) = self.panorama_palette();
+        let line_h = 46.0;
+        let small = |t: String| text(t).size(12).color(fx::alpha(fg, 0.7));
+        if let Some((_, label, Some(url))) = crate::panorama::radio::service(&c.webradio) {
+            let src = crate::panorama::config::Source {
+                name: label.to_string(),
+                url: url.to_string(),
+                ..Default::default()
+            };
+            list = list.push(self.panorama_source_row(
+                &src,
+                playing == Some(label),
+                line_h,
+                wrap(PMsg::PlayUrl(label.to_string(), url.to_string())),
+                None,
+            ));
+        }
+        list = list.push(small(crate::i18n::tr("Favoris").to_string()));
+        for r in &c.radios {
+            list = list.push(self.panorama_source_row(
+                r,
+                playing == Some(r.name.as_str()),
+                line_h,
+                wrap(PMsg::PlayUrl(r.name.clone(), r.url.clone())),
+                Some((true, wrap(PMsg::RadioFav(r.name.clone(), r.url.clone())))),
+            ));
+        }
+        if self.panorama.radio_busy {
+            list = list.push(small(crate::i18n::tr("Recherche…").to_string()));
+        }
+        if let Some(e) = &self.panorama.radio_error {
+            list = list.push(small(e.clone()));
+        }
+        if let Some((q, found)) = &self.panorama.radio_results {
+            list = list.push(small(crate::tr!("Résultats : {q}", q = q.clone())));
+            for r in found {
+                let fav = c.radios.iter().any(|f| f.url == r.url);
+                list = list.push(self.panorama_source_row(
+                    r,
+                    playing == Some(r.name.as_str()),
+                    line_h,
+                    wrap(PMsg::PlayUrl(r.name.clone(), r.url.clone())),
+                    Some((fav, wrap(PMsg::RadioFav(r.name.clone(), r.url.clone())))),
+                ));
+            }
+        }
+        list.push(small(
+            crate::i18n::tr("Demandez à LYRA : « mets FIP », « une radio jazz ».").to_string(),
+        ))
+    }
+
+    /// Ligne d'une source (service, radio) : icône ou initiale, nom, « En
+    /// cours » ; `fav` : étoile (favori ou non) et son message.
+    fn panorama_source_row<'a>(
+        &'a self,
+        src: &crate::panorama::config::Source,
+        on: bool,
+        line_h: f32,
+        press: Msg,
+        fav: Option<(bool, Msg)>,
+    ) -> Element<'a, Msg> {
+        let d = &self.cfg.general.panorama.design;
+        let (bg, fg, accent) = self.panorama_palette();
+        let radius = d.radius.min(14.0);
+        let icon_side = line_h * 0.62;
+        let icon: Element<'a, Msg> = (!src.icon.is_empty())
+            .then(|| self.icon_named(&src.icon, icon_side, fg))
+            .flatten()
+            .unwrap_or_else(|| {
+                let letter = src
+                    .name
+                    .chars()
+                    .find(|ch| ch.is_alphanumeric())
+                    .map(|ch| ch.to_uppercase().to_string())
+                    .unwrap_or_else(|| "•".into());
+                container(text(letter).size(icon_side * 0.55).color(fg))
+                    .width(icon_side)
+                    .height(icon_side)
+                    .center_x(icon_side)
+                    .center_y(icon_side)
+                    .style(move |_| container::Style {
+                        background: Some(fx::alpha(accent, 0.3).into()),
+                        border: Border::default().rounded(icon_side * 0.24),
+                        ..Default::default()
+                    })
+                    .into()
+            });
+        let mut label = column![
+            text(src.name.clone())
+                .size((line_h * 0.26).clamp(12.0, 17.0) * d.text_scale)
+                .color(fg)
+                .wrapping(text::Wrapping::None)
+        ];
+        if on {
+            label = label.push(
+                text(crate::i18n::tr("En cours"))
+                    .size(11.0 * d.text_scale)
+                    .color(fx::alpha(fg, 0.7)),
+            );
+        }
+        let style = move |hot: bool, on: bool| button::Style {
+            background: Some(
+                fx::alpha(if hot { accent } else { bg }, if hot { 0.45 } else { 0.5 }).into(),
+            ),
+            border: Border {
+                radius: radius.into(),
+                width: 1.0,
+                color: fx::alpha(if on { accent } else { fg }, if on { 0.8 } else { 0.2 }),
+            },
+            text_color: fg,
+            ..Default::default()
+        };
+        let main = self.panorama_feedback(
+            button(row![icon, label].spacing(12).align_y(Alignment::Center))
+                .width(Length::Fill)
+                .height(line_h)
+                .padding([4, 10])
+                .on_press(press)
+                .style(move |_, st| style(on || matches!(st, button::Status::Pressed), on)),
+        );
+        match fav {
+            None => main,
+            Some((is_fav, msg)) => row![
+                main,
+                self.panorama_feedback(
+                    button(
+                        container(text(if is_fav { "★" } else { "☆" }).size(18).color(fg))
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill),
+                    )
+                    .width(line_h)
+                    .height(line_h)
+                    .on_press(msg)
+                    .style(move |_, st| style(matches!(st, button::Status::Pressed), false)),
+                )
+            ]
+            .spacing(6)
+            .into(),
+        }
     }
 
     /// Bloc de raccourcis : sélecteur de profil (vidéo, audio,
@@ -371,19 +480,41 @@ impl App {
                         .wrapping(text::Wrapping::None),
                 );
             }
+            // Au survol : ce que fait le bouton, en dessous.
+            let tip = container(
+                text(crate::i18n::tr(label))
+                    .size(13)
+                    .color(fg)
+                    .wrapping(text::Wrapping::None),
+            )
+            .padding([4, 10])
+            .style(move |_| container::Style {
+                background: Some(fx::alpha(bg, 0.92).into()),
+                border: Border {
+                    radius: 8.0.into(),
+                    width: 1.0,
+                    color: fx::alpha(accent, 0.5),
+                },
+                ..Default::default()
+            });
             tabs = tabs.push(
-                self.panorama_feedback(
-                    button(
-                        container(inner)
-                            .center_x(Length::Fill)
-                            .center_y(Length::Fill),
-                    )
-                    .width(seg_w)
-                    .height(seg_h)
-                    .padding(4)
-                    .on_press(wrap(PMsg::Profile(id.to_string())))
-                    .style(tile_style(on)),
-                ),
+                iced::widget::tooltip(
+                    self.panorama_feedback(
+                        button(
+                            container(inner)
+                                .center_x(Length::Fill)
+                                .center_y(Length::Fill),
+                        )
+                        .width(seg_w)
+                        .height(seg_h)
+                        .padding(4)
+                        .on_press(wrap(PMsg::Profile(id.to_string())))
+                        .style(tile_style(on)),
+                    ),
+                    tip,
+                    iced::widget::tooltip::Position::Bottom,
+                )
+                .gap(4),
             );
         }
 

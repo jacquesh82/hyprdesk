@@ -213,6 +213,10 @@ pub struct Config {
     pub music_sources: Vec<Source>,
     /// Navigateur des sources vidéo (vide : détection automatique).
     pub browser: String,
+    /// Service de webradio de l'onglet Webradio (`radio::SERVICES`).
+    pub webradio: String,
+    /// Radios favorites de l'onglet Webradio (adresse du flux).
+    pub radios: Vec<Source>,
     /// Écrans dont la proposition a été refusée (identifiant EDID).
     pub declined: Vec<String>,
     /// Minutes sans lecture ni toucher avant l'horloge de veille (0 : jamais).
@@ -255,6 +259,8 @@ impl Default for Config {
             sources: default_sources(),
             music_sources: default_music_sources(),
             browser: String::new(),
+            webradio: super::radio::DEFAULT_SERVICE.into(),
+            radios: super::radio::default_radios(),
             declined: Vec::new(),
             sleep_minutes: 5,
             design: Default::default(),
@@ -273,6 +279,8 @@ const KEYS: &[&str] = &[
     "sources",
     "music_sources",
     "browser",
+    "webradio",
+    "radios",
     "declined",
     "sleep_minutes",
     "design",
@@ -393,7 +401,7 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
             }
         }
     }
-    for key in ["sources", "music_sources"] {
+    for key in ["sources", "music_sources", "radios"] {
         let Some(l) = t.get::<Option<Table>>(key)? else {
             continue;
         };
@@ -427,14 +435,27 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                 dy: v.get::<Option<f32>>("dy")?.unwrap_or(0.0).clamp(-2.0, 2.0),
             });
         }
-        if key == "sources" {
-            c.sources = out;
-        } else {
-            c.music_sources = out;
+        match key {
+            "sources" => c.sources = out,
+            "music_sources" => c.music_sources = out,
+            _ => c.radios = out,
         }
     }
     if let Some(b) = t.get::<Option<String>>("browser")? {
         c.browser = b.trim().to_string();
+    }
+    if let Some(w) = t.get::<Option<String>>("webradio")? {
+        if super::radio::service(&w).is_none() {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{CTX} : webradio = {}",
+                super::radio::SERVICES
+                    .iter()
+                    .map(|s| s.0)
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            )));
+        }
+        c.webradio = w;
     }
     if let Some(l) = list(t, "declined")? {
         c.declined = l;
@@ -514,6 +535,7 @@ impl Config {
         for (key, mine, def) in [
             ("sources", &self.sources, &d.sources),
             ("music_sources", &self.music_sources, &d.music_sources),
+            ("radios", &self.radios, &d.radios),
         ] {
             if mine == def {
                 continue;
@@ -538,6 +560,9 @@ impl Config {
                 })
                 .collect();
             f.push(format!("{key} = {{ {} }}", s.join(", ")));
+        }
+        if self.webradio != d.webradio {
+            f.push(format!("webradio = {}", q(&self.webradio)));
         }
         if !self.browser.is_empty() {
             f.push(format!("browser = {}", q(&self.browser)));
@@ -687,6 +712,12 @@ mod tests {
                 ..Default::default()
             }],
             browser: "chromium".into(),
+            webradio: "radio-garden".into(),
+            radios: vec![Source {
+                name: "FIP".into(),
+                url: "https://icecast.radiofrance.fr/fip-hifi.aac".into(),
+                ..Default::default()
+            }],
             declined: vec!["Acme \"M\" 1".into()],
             sleep_minutes: 0,
             design: Default::default(),
