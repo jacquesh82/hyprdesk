@@ -371,54 +371,53 @@ pub fn context(cfg: &Config, config_path: &std::path::Path) -> String {
 fn panorama_context(cfg: &Config) -> String {
     let p = &cfg.general.panorama;
     let widgets: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
+    let names = |l: &[crate::panorama::config::Source]| {
+        l.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")
+    };
     let mut o = crate::tr!(
         "\n## Panorama (écrans bandeau tactiles)\n\n\
-         État : écrans {screens} ; disposition active `{layout}` ; zones de la disposition active : {panes} ; \
-         sources vidéo : {sources}.\n",
+         État : écrans {screens} ; disposition `{layout}` ; profil du bloc `{profile}` ; pages après la vue par \
+         défaut : {pages} ; vidéo : {sources} ; musique : {music} ; LYRA vocale : {voice}.\n",
         screens = if p.screens.is_empty() {
             crate::i18n::tr("aucun").to_string()
         } else {
             p.screens.join(", ")
         },
         layout = p.layout.id(),
-        panes = if p.layout.grid().is_some() {
-            p.panes_of(p.layout).join(", ")
-        } else {
-            "—".to_string()
-        },
-        sources = p
-            .sources
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
+        profile = p.design.shortcut_profile.clone(),
+        pages = p.pages.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", "),
+        sources = names(&p.sources),
+        music = names(&p.music_sources),
+        voice = if p.voice { "on" } else { "off" }.to_string()
     );
     o += &crate::tr!(
-        "\nTout se règle par `hyprdesk config set <clé> <valeur>` (liste : `hyprdesk config list panorama`) :\n\
-         - `panorama.layout` : single (une page à la fois), 1x2, 1x3, 2x2, 3x3 (écran découpé), dashboard (composition libre)\n\
-         - chaque découpage garde ses réglages : `panorama.zones.<1x2|1x3|2x2|3x3>.panes <widget>,…` \
-         (widgets : {widgets}) et `panorama.zones.<1x2|1x3>.first 1/2|1/3` (part de la zone 1) ; \
-         `panorama.panes` et `panorama.first` visent la disposition active\n\
-         - `panorama.pages` (pages d'une page à la fois, dans l'ordre), `panorama.screens`, `panorama.sleep_minutes`, \
-         `panorama.browser`\n\
-         - `panorama.sources` : JSON [{\"name\",\"url\",\"icon\"}] des sources vidéo (icon : nom ou chemin ; vide : initiale)\n\
-         - `panorama.design.*` : préréglage, couleurs, police, opacités, horloge, métriques… ; \
-         `panorama.design.tiles` (JSON [{widget,x,y,w,h}], composition libre, coordonnées 0 à 1) ; \
-         `panorama.design.shortcuts` (JSON [{name,icon,command}], raccourcis tactiles du profil Système, dans l'ordre) ; \
-         `panorama.design.shortcut_profile` (video | audio | remote | system : profil du bloc de raccourcis ; \
-         remote = télécommande, touches envoyées à la fenêtre active par `hyprdesk key <touche>` ; video et audio prennent une composition fixe : menu, lecteur 16:9, colonne des services) ; \
-         `panorama.music_sources` (JSON [{name,url,icon}] : services du profil Musique)\n\
-         - `hyprdesk panorama icons [sources|music|shortcuts|all] [--force]` : SmartUI dessine les icônes manquantes \
-         (toutes avec --force) et les écrit dans la config\n\
-         - `hyprdesk panorama preview`, `hyprdesk panorama layout <…>`, `hyprdesk panorama video <n|nom|close>`, \
-         `hyprdesk panorama toggle`\n\
-         - Musique à la demande (« mets du jazz calme », « lance FIP ») : choisis toi-même la recherche \
-         (artiste, titre, genre, ambiance) puis `hyprdesk panorama music <recherche>` ouvre la page de résultats \
-         de la plateforme active (celle du lecteur, sinon le premier service de `panorama.music_sources`) ; \
-         `hyprdesk panorama radio <nom ou genre>` cherche dans l'annuaire Radio Browser et lance la première \
-         station ; `hyprdesk panorama open <adresse> [nom]` ouvre une adresse précise dans le lecteur. \
-         `panorama.webradio` (radio-browser | radio-garden | radio-net | tunein) et `panorama.radios` \
-         (JSON des radios favorites) règlent l'onglet Webradio.\n",
+        "\nTu peux tout piloter du Panorama. Réglages : `hyprdesk config set <clé> <valeur>` \
+(liste : `hyprdesk config list panorama`) ; actions : `hyprdesk panorama …`.\n\
+- Disposition : `panorama.layout` single | 1x2 | 1x3 | 2x2 | 3x3 | dashboard (composition, par défaut) ; \
+`panorama.zones.<1x2|1x3|2x2|3x3>.panes <widget>,…` et `panorama.zones.<1x2|1x3>.first 1/2|1/3` ; \
+`hyprdesk panorama layout <…>`, `hyprdesk panorama toggle|show|hide`.\n\
+- Widgets : {widgets}, `playlist`, et `metric:<cpu|ram|gpu|vram|disk|load|uptime|cpu_temp|gpu_temp>[:gauges|cards]` \
+(une mesure par tuile, en graphique par défaut).\n\
+- Composition de la vue par défaut : `panorama.design.tiles` (JSON [{widget,x,y,w,h}], coordonnées 0 à 1) ; \
+apparence : `panorama.design.*` (préréglage, couleurs, police, opacités, horloge, mesures…).\n\
+- Pages du carrousel : `panorama.pages` (JSON [{name,tiles:[{widget,x,y,w,h}]}]) ; \
+`hyprdesk panorama page <n|nom>` y va.\n\
+- Bloc de raccourcis : `panorama.design.shortcut_profile` video | audio | remote | system. Vidéo et Musique : \
+composition fixe (menu, lecteur 16:9, colonne des services) ; remote : télécommande (`hyprdesk key <touche> [mods]` \
+envoie une touche à la fenêtre active) ; system : `panorama.design.shortcuts` (JSON [{name,icon,command}]).\n\
+- Sources : `panorama.sources` (vidéo), `panorama.music_sources`, `panorama.radios` (flux), en JSON \
+[{name,url,icon,show}] ; show : auto (visible sans compte ou si l'on est connecté), on, off. \
+`panorama.webradio` : radio-browser | radio-garden | radio-net | tunein. \
+`hyprdesk panorama icons [sources|music|shortcuts|all] [--force]` : SmartUI dessine les icônes.\n\
+- Lecteur (une seule source à la fois) : `hyprdesk panorama video <n|nom|close>` ; musique à la demande \
+(« mets du jazz calme ») : choisis la recherche puis `hyprdesk panorama music <recherche>` (page de résultats de \
+la plateforme active) ; `hyprdesk panorama radio <nom ou genre>` (première station de Radio Browser) ; \
+`hyprdesk panorama open <adresse> [nom]` ; `hyprdesk panorama fullscreen` (vidéo seule) ; \
+`hyprdesk media play-pause|next|previous|seek ±N`, `hyprdesk osd volume +5|-5|toggle`.\n\
+- LYRA vocale : `panorama.voice` on | off (`hyprdesk panorama voice on|off`), `panorama.voice_mic` (nœud \
+PipeWire ou default), `panorama.voice_halo` screens | panorama | off, `panorama.voice_halo_color` lyra | accent. \
+En demande vocale, réponds en une ou deux phrases courtes.\n\
+- Une tuile de mesure touchée ouvre le gestionnaire des tâches (tri CPU, mémoire, GPU, VRAM, disque).\n",
         widgets = widgets.join(", ")
     );
     o

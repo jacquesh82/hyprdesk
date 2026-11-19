@@ -35,7 +35,7 @@ and this project adheres to
   metric has its own colour (CPU cyan, RAM violet, GPU green…) in graphs
   and gauges; curves are smoothed (Catmull-Rom), with a soft glow and a dot
   on the latest value; they scroll continuously (30 fps while graphs are on
-  screen) instead of jumping every second. NVIDIA cards (proprietary driver, absent from hwmon)
+  screen) instead of jumping every second, and slide out on the left. NVIDIA cards (proprietary driver, absent from hwmon)
   are read through `nvidia-smi`: new `gpu` (load) and `vram` metrics, and
   `gpu_temp` falls back to it. The System page shows eight graphs.
 - **LYRA voice** (MLG-172). A microphone button in the Panorama (next to
@@ -50,6 +50,21 @@ and this project adheres to
   `~/.local/share/hyprdesk/voice` (~350 MB, no root): `hyprdesk voice setup
   | say [--en] <text> | status`; `panorama.voice` (on/off), `hyprdesk
   panorama voice on|off|toggle|ask <fr|en> <text>`.
+- **Webradio “voice stream” bar, task manager, LYRA halo** (MLG-172).
+  Radios (favourites, Radio Browser results, stream addresses) now play in
+  mpv without a window; the player zone shows a “voice stream” bar — the
+  sound scrolls in mirrored bars over a background that breathes with the
+  bass, mids and highs (read from the PipeWire output monitor); three moods,
+  Aurora, Sunset, Ocean (`panorama.flux_ambiance`). Play/Pause and Close
+  drive mpv. Tapping a metric tile opens a task manager over the page:
+  running programs sorted by CPU, memory, GPU, VRAM (`nvidia-smi pmon`) or
+  disk, with “End” (second tap confirms, own programs only). LYRA voice:
+  a dedicated wake detector for “Lyra”, automatic gain for distant
+  microphones, the last heard sentence shown on the microphone button, and
+  a conversation halo around the screens while LYRA listens, thinks or
+  speaks (`panorama.voice_halo` screens | panorama | off,
+  `panorama.voice_halo_color` lyra | accent). LYRA's context now covers
+  every Panorama setting and command.
 - **Panorama sources configured in Settings, only usable platforms
   shown** (MLG-172). Settings → Panorama → Sources edits the three lists
   (Video, Music, Webradio): add, order, remove, icons, default list. The

@@ -235,6 +235,8 @@ pub enum Event {
     Wake,
     /// Demande, et sa langue.
     Heard(String, String),
+    /// Phrase entendue (diagnostic, affichée au survol du micro).
+    Partial(String),
     Error(String),
 }
 
@@ -248,6 +250,7 @@ pub fn parse(line: &str) -> Option<Event> {
             v["lang"].as_str().unwrap_or("fr").to_string(),
             v["text"].as_str()?.to_string(),
         ),
+        "heard" => Event::Partial(v["text"].as_str().unwrap_or("").to_string()),
         "error" => Event::Error(v["message"].as_str().unwrap_or("").to_string()),
         _ => return None,
     })

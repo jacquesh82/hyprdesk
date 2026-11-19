@@ -658,6 +658,9 @@ impl App {
             }
             PMsg::VideoClose => {
                 self.panorama.framing = false;
+                if self.panorama.radio.take().is_some() {
+                    crate::panorama::radio_play::stop();
+                }
                 let t = self.panorama_close_video();
                 self.panorama.video = None;
                 t
@@ -669,6 +672,49 @@ impl App {
     /// Ouvre une source (service, page de résultats, flux de radio) dans
     /// le lecteur : une seule à la fois.
     fn panorama_open(&mut self, src: crate::panorama::config::Source) -> Task<Msg> {
+            // Webradio : flux joué par mpv, sans fenêtre ; le lecteur montre la
+            // barre « flux vocal ».
+            let c = &self.cfg.general.panorama;
+            let radio = c.radios.iter().any(|r| r.url == src.url)
+                || self
+                    .panorama
+                    .radio_results
+                    .as_ref()
+                    .is_some_and(|(_, l)| l.iter().any(|r| r.url == src.url))
+                || crate::panorama::radio_play::is_stream(&src.url);
+            if radio {
+                if self.panorama.radio.as_ref().is_some_and(|r| r.1 == src.url) {
+                    return Task::none();
+                }
+                let close = self.panorama_close_video();
+                self.panorama.video = None;
+                self.panorama.radio = Some((src.name.clone(), src.url.clone()));
+                self.panorama.radio_paused = false;
+                self.panorama.level_hist.clear();
+                self.panorama.last_press = Some(std::time::Instant::now());
+                let url = src.url;
+                return Task::batch([
+                    close,
+                    Task::perform(
+                        async move {
+                            crate::widgets::media::pause_all().await;
+                            tokio::task::spawn_blocking(move || {
+                                crate::panorama::radio_play::play(&url)
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                        },
+                        |r| match r {
+                            Ok(()) => Msg::Noop,
+                            Err(e) => wrap(PMsg::RadioFound(String::new(), false, Err(e))),
+                        },
+                    ),
+                ]);
+            }
+            // Autre source : la radio s'arrête.
+            if self.panorama.radio.take().is_some() {
+                crate::panorama::radio_play::stop();
+            }
             let c = &self.cfg.general.panorama;
             let Some((cmd, prefix)) = video::browser(&c.browser) else {
                 self.panorama.video = Some(Video {
@@ -813,6 +859,11 @@ impl App {
 
     pub(super) fn view_panorama_surface(&self, id: Id) -> Element<'_, Msg> {
         let inner = self.view_panorama_surface_inner(id);
+        if let Some(s) = self.panorama_surf(id)
+            && self.panorama.tasks.as_ref().is_some_and(|t| t.key == s.key)
+        {
+            return stack![inner, self.panorama_tasks_view(&s)].into();
+        }
         match self.panorama_surf(id) {
             Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
                 stack![inner, self.panorama_picker(&s)].into()
@@ -1148,7 +1199,8 @@ impl App {
                 let (m, style) = crate::panorama::design::metric_of(w).unwrap_or_default();
                 let lines: Vec<crate::widgets::SysLine> =
                     self.panorama.sys_ids.get(m).cloned().into_iter().collect();
-                super::instruments::metrics(
+                // Un appui ouvre le gestionnaire des tâches, trié sur la mesure.
+                button(super::instruments::metrics(
                     style,
                     &lines,
                     &self.panorama.history,
@@ -1157,7 +1209,13 @@ impl App {
                     self.panorama_font(),
                     self.cfg.general.panorama.design.text_scale,
                     self.panorama_graph_phase(),
-                )
+                ))
+                .padding(0)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .on_press(wrap(PMsg::TasksOpen(s.key.clone(), m.to_string())))
+                .style(|_, _| button::Style::default())
+                .into()
             }
             "system" if self.cfg.general.panorama.design.system_style != "cards" => {
                 super::instruments::metrics(
@@ -1179,6 +1237,27 @@ impl App {
             ),
             "clock" => self.panorama_clock(&z, fg),
             "playlist" => self.panorama_playlist(iced::Size::new(content.w, content.h)),
+            // Webradio en cours : barre « flux vocal ».
+            "video" if self.panorama.radio.is_some() => {
+                let (name, _) = self.panorama.radio.clone().unwrap_or_default();
+                super::flux::view(
+                    &self.cfg.general.panorama.flux_ambiance,
+                    self.panorama.levels,
+                    &self.panorama.level_hist,
+                    name,
+                    if self.panorama.radio_paused {
+                        crate::i18n::tr("En pause").into()
+                    } else {
+                        crate::i18n::tr("En direct").into()
+                    },
+                    self.panorama_font(),
+                    self.panorama
+                        .flux_t0
+                        .elapsed()
+                        .as_secs_f32(),
+                    self.panorama.radio_paused,
+                )
+            }
             "video" => {
                 let state = match &self.panorama.video {
                     _ if video_at != Some(p.rect) => VideoState::Elsewhere,

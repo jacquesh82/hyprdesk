@@ -17,6 +17,8 @@ pub mod detect;
 pub mod icons;
 pub mod layout;
 pub mod radio;
+pub mod radio_play;
+pub mod tasks;
 pub mod telemetry;
 pub mod video;
 

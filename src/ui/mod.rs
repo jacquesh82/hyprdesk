@@ -5186,6 +5186,13 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        // Webradio : niveaux du son pour la barre « flux vocal ».
+        if self.panorama.radio.is_some() {
+            subs.push(
+                Subscription::run(crate::panorama::radio_play::levels)
+                    .map(|l| Msg::Panorama(panorama::PMsg::Levels(l))),
+            );
+        }
         // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
         if self.cfg.general.panorama.voice && crate::voice::ready() {
             // Micro choisi : changer de micro relance l'écoute.
@@ -5233,8 +5240,11 @@ impl App {
             subs.push(
                 iced::time::every(panorama::TICK).map(|_| Msg::Panorama(panorama::PMsg::Tick)),
             );
-            // Courbes à l'écran : défilement continu (30 images/s).
-            if self.panorama_graphs_shown() {
+            // Courbes à l'écran, halo de LYRA : animation (30 images/s).
+            if self.panorama_graphs_shown()
+                || !self.panorama.halo.is_empty()
+                || self.panorama.radio.is_some()
+            {
                 subs.push(
                     iced::time::every(Duration::from_millis(33))
                         .map(|_| Msg::Panorama(panorama::PMsg::GraphFrame)),

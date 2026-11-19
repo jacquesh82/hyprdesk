@@ -896,6 +896,36 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice_mic.clear(); } };
+    "panorama.voice_halo", "panorama", "screens | panorama | off — halo de LYRA vocale pendant la conversation",
+        |c| c.general.panorama.voice_halo.clone(),
+        |s, v, c| {
+            if !matches!(v, "screens" | "panorama" | "off") { return Err("screens | panorama | off".into()); }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.voice_halo = v.into();
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.voice_halo = "screens".into(); } };
+    "panorama.voice_halo_color", "panorama", "lyra | accent — couleur du halo (violet-bleu de LYRA, ou accent du thème)",
+        |c| c.general.panorama.voice_halo_color.clone(),
+        |s, v, c| {
+            if !matches!(v, "lyra" | "accent") { return Err("lyra | accent".into()); }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.voice_halo_color = v.into();
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.voice_halo_color = "lyra".into(); } };
+    "panorama.flux_ambiance", "panorama", "aurora | sunset | ocean — ambiance de la barre « flux vocal » (webradio)",
+        |c| c.general.panorama.flux_ambiance.clone(),
+        |s, v, c| {
+            if !matches!(v, "aurora" | "sunset" | "ocean") { return Err("aurora | sunset | ocean".into()); }
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.flux_ambiance = v.into();
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.flux_ambiance = "aurora".into(); } };
     "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
         |c| c.general.panorama.sleep_minutes.to_string(),
         |s, v, c| {

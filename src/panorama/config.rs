@@ -229,6 +229,12 @@ pub struct Config {
     pub voice: bool,
     /// Micro de LYRA vocale : nœud PipeWire (vide : celui par défaut).
     pub voice_mic: String,
+    /// Halo de conversation : screens (tous les écrans), panorama, off.
+    pub voice_halo: String,
+    /// Couleur du halo : lyra (violet-bleu) ou accent (thème).
+    pub voice_halo_color: String,
+    /// Ambiance de la barre « flux vocal » (webradio) : aurora, sunset, ocean.
+    pub flux_ambiance: String,
     pub design: super::design::Design,
 }
 
@@ -273,6 +279,9 @@ impl Default for Config {
             sleep_minutes: 5,
             voice: false,
             voice_mic: String::new(),
+            voice_halo: "screens".into(),
+            voice_halo_color: "lyra".into(),
+            flux_ambiance: "aurora".into(),
             design: Default::default(),
         }
     }
@@ -295,6 +304,9 @@ const KEYS: &[&str] = &[
     "sleep_minutes",
     "voice",
     "voice_mic",
+    "voice_halo",
+    "voice_halo_color",
+    "flux_ambiance",
     "design",
 ];
 
@@ -483,6 +495,21 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(m) = t.get::<Option<String>>("voice_mic")? {
         c.voice_mic = m.trim().to_string();
     }
+    if let Some(h) = t.get::<Option<String>>("voice_halo")?
+        && matches!(h.as_str(), "screens" | "panorama" | "off")
+    {
+        c.voice_halo = h;
+    }
+    if let Some(a) = t.get::<Option<String>>("flux_ambiance")?
+        && matches!(a.as_str(), "aurora" | "sunset" | "ocean")
+    {
+        c.flux_ambiance = a;
+    }
+    if let Some(h) = t.get::<Option<String>>("voice_halo_color")?
+        && matches!(h.as_str(), "lyra" | "accent")
+    {
+        c.voice_halo_color = h;
+    }
     match t.get::<Value>("sleep_minutes")? {
         Value::Nil => {}
         Value::Integer(n) if n >= 0 => c.sleep_minutes = n as u32,
@@ -602,6 +629,15 @@ impl Config {
         }
         if !self.voice_mic.is_empty() {
             f.push(format!("voice_mic = {}", q(&self.voice_mic)));
+        }
+        if self.voice_halo != d.voice_halo {
+            f.push(format!("voice_halo = {}", q(&self.voice_halo)));
+        }
+        if self.flux_ambiance != d.flux_ambiance {
+            f.push(format!("flux_ambiance = {}", q(&self.flux_ambiance)));
+        }
+        if self.voice_halo_color != d.voice_halo_color {
+            f.push(format!("voice_halo_color = {}", q(&self.voice_halo_color)));
         }
         if self.design != d.design {
             f.push(format!("design = {}", self.design.to_lua()));
@@ -758,6 +794,9 @@ mod tests {
             sleep_minutes: 0,
             voice: true,
             voice_mic: "alsa_input.usb-x".into(),
+            voice_halo: "panorama".into(),
+            voice_halo_color: "accent".into(),
+            flux_ambiance: "ocean".into(),
             design: Default::default(),
         };
         assert_eq!(eval(&c.to_lua()).unwrap(), c);

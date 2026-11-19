@@ -78,6 +78,11 @@ pub enum Msg {
     SourceLogin(usize),
     /// Micro de LYRA vocale (nœud PipeWire ; vide : par défaut).
     VoiceMic(String),
+    /// Halo de conversation : écrans, couleur.
+    VoiceHalo(&'static str),
+    VoiceHaloColor(&'static str),
+    /// Ambiance de la barre « flux vocal » (webradio).
+    FluxAmbiance(&'static str),
     /// Service de l'onglet Webradio (profil Musique).
     Webradio(String),
     /// Raccourci, ±1 dans l'ordre.
@@ -649,6 +654,43 @@ impl App {
             ]
             .spacing(8)
             .align_y(Alignment::Center),
+            text(crate::i18n::tr("Halo de conversation (« Lyra » entendu, réflexion, réponse)"))
+                .font(self.font)
+                .size(13),
+            {
+                let cur = Some(match c.voice_halo.as_str() {
+                    "panorama" => "panorama",
+                    "off" => "off",
+                    _ => "screens",
+                });
+                let mut r = row![].spacing(14);
+                for (id, label) in [
+                    ("screens", "Tous les écrans"),
+                    ("panorama", "Panorama"),
+                    ("off", "Aucun"),
+                ] {
+                    r = r.push(
+                        iced::widget::radio(crate::i18n::tr(label), id, cur, |v: &'static str| {
+                            wrap(Msg::VoiceHalo(v))
+                        })
+                        .text_size(13),
+                    );
+                }
+                r
+            },
+            {
+                let cur = Some(if c.voice_halo_color == "accent" { "accent" } else { "lyra" });
+                let mut r = row![].spacing(14);
+                for (id, label) in [("lyra", "Violet-bleu de LYRA"), ("accent", "Accent du thème")] {
+                    r = r.push(
+                        iced::widget::radio(crate::i18n::tr(label), id, cur, |v: &'static str| {
+                            wrap(Msg::VoiceHaloColor(v))
+                        })
+                        .text_size(13),
+                    );
+                }
+                r
+            },
         ]
         .spacing(8)
         .into()
@@ -786,6 +828,26 @@ impl App {
                 .text_size(13),
             );
         }
+        // Ambiance de la barre « flux vocal » (radio en cours).
+        let amb = Some(match c.flux_ambiance.as_str() {
+            "sunset" => "sunset",
+            "ocean" => "ocean",
+            _ => "aurora",
+        });
+        let mut ambiances = row![
+            text(crate::i18n::tr("Ambiance du flux")).font(self.font).size(13).width(140)
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center);
+        for (id, label) in [("aurora", "Aurore"), ("sunset", "Coucher de soleil"), ("ocean", "Océan")] {
+            ambiances = ambiances.push(
+                iced::widget::radio(crate::i18n::tr(label), id, amb, |v: &'static str| {
+                    wrap(Msg::FluxAmbiance(v))
+                })
+                .text_size(13),
+            );
+        }
+        col = col.push(ambiances);
         col = col.push(services).push(
             text(crate::tr!(
                 "{n} radios favorites. Radio Browser est un annuaire libre, sans compte : l'onglet Webradio liste vos favoris et la dernière recherche (★ pour garder une station). Demandez à LYRA « mets FIP » ou « une radio jazz » ; elle peut aussi chercher de la musique sur la plateforme active.",
@@ -961,6 +1023,24 @@ impl App {
                 if i < list_mut(&mut c, kind).len() {
                     list_mut(&mut c, kind).remove(i);
                 }
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::VoiceHalo(v) => {
+                let mut c = self.panorama_cfg();
+                c.voice_halo = v.into();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::FluxAmbiance(v) => {
+                let mut c = self.panorama_cfg();
+                c.flux_ambiance = v.into();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::VoiceHaloColor(v) => {
+                let mut c = self.panorama_cfg();
+                c.voice_halo_color = v.into();
                 self.settings.panorama = Some(c);
                 self.commit()
             }

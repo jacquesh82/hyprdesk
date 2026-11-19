@@ -76,6 +76,162 @@ impl App {
         .into()
     }
 
+    /// Gestionnaire des tâches : programmes en cours, triés sur la mesure
+    /// de la tuile touchée ; « Terminer » demande un second appui.
+    pub(super) fn panorama_tasks_view(&self, s: &Surf) -> Element<'_, Msg> {
+        let Some(t) = self.panorama.tasks.as_ref() else {
+            return Space::new().into();
+        };
+        let (bg, fg, accent) = self.panorama_palette();
+        let dim = fx::alpha(fg, 0.65);
+        let size = (s.h / 30.0).clamp(12.0, 16.0);
+        let pill = move |on: bool| {
+            move |_: &iced::Theme, st: button::Status| button::Style {
+                background: Some(
+                    fx::alpha(
+                        accent,
+                        if on || matches!(st, button::Status::Pressed) { 0.6 } else { 0.18 },
+                    )
+                    .into(),
+                ),
+                border: Border::default().rounded(10),
+                text_color: fg,
+                ..Default::default()
+            }
+        };
+        let mut head = row![
+            text(crate::i18n::tr("Programmes en cours"))
+                .size(size * 1.2)
+                .color(fg)
+                .width(Length::Fill)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        for (id, label) in [
+            ("cpu", "CPU"),
+            ("mem", "Mémoire"),
+            ("gpu", "GPU"),
+            ("vram", "VRAM"),
+            ("io", "Disque"),
+        ] {
+            head = head.push(self.panorama_feedback(
+                button(text(crate::i18n::tr(label)).size(size).color(fg))
+                    .padding([5, 12])
+                    .on_press(wrap(PMsg::TasksSort(id)))
+                    .style(pill(t.sort == id)),
+            ));
+        }
+        head = head.push(self.panorama_feedback(
+            button(text("✕").size(size).color(fg))
+                .padding([5, 12])
+                .on_press(wrap(PMsg::TasksClose))
+                .style(pill(false)),
+        ));
+        let gib = |b: u64| {
+            let g = b as f64 / (1u64 << 30) as f64;
+            if g >= 1.0 {
+                format!("{g:.1} Gio")
+            } else {
+                format!("{:.0} Mio", b as f64 / (1u64 << 20) as f64)
+            }
+        };
+        let col_w = [Length::FillPortion(5), Length::FillPortion(2), Length::FillPortion(2),
+            Length::FillPortion(2), Length::FillPortion(2), Length::FillPortion(2)];
+        let cell = |v: String, on: bool, w: Length| {
+            text(v)
+                .size(size)
+                .color(if on { accent } else { fg })
+                .width(w)
+                .wrapping(text::Wrapping::None)
+        };
+        let mut rows = column![
+            row![
+                cell(crate::i18n::tr("Programme").into(), false, col_w[0]),
+                cell("CPU".into(), t.sort == "cpu", col_w[1]),
+                cell(crate::i18n::tr("Mémoire").into(), t.sort == "mem", col_w[2]),
+                cell("GPU".into(), t.sort == "gpu", col_w[3]),
+                cell("VRAM".into(), t.sort == "vram", col_w[4]),
+                cell(crate::i18n::tr("Disque").into(), t.sort == "io", col_w[5]),
+                Space::new().width(110),
+            ]
+            .spacing(8)
+        ]
+        .spacing(4);
+        if t.list.is_empty() {
+            rows = rows.push(text(crate::i18n::tr("Relevé…")).size(size).color(dim));
+        }
+        for p in t.list.iter().take(40) {
+            let armed = t.kill == Some(p.pid);
+            let kill: Element<'_, Msg> = if p.own {
+                self.panorama_feedback(
+                    button(
+                        text(if armed {
+                            crate::i18n::tr("Confirmer ?")
+                        } else {
+                            crate::i18n::tr("Terminer")
+                        })
+                        .size(size * 0.85)
+                        .color(fg),
+                    )
+                    .width(110)
+                    .padding([3, 8])
+                    .on_press(wrap(PMsg::TaskKill(p.pid)))
+                    .style(move |_, st| button::Style {
+                        background: Some(
+                            if armed {
+                                Color::from_rgba8(0xe0, 0x4f, 0x5f, 0.85)
+                            } else {
+                                fx::alpha(fg, if matches!(st, button::Status::Pressed) { 0.3 } else { 0.1 })
+                            }
+                            .into(),
+                        ),
+                        border: Border::default().rounded(8),
+                        text_color: fg,
+                        ..Default::default()
+                    }),
+                )
+            } else {
+                Space::new().width(110).into()
+            };
+            rows = rows.push(
+                row![
+                    cell(format!("{} · {}", p.name, p.pid), false, col_w[0]),
+                    cell(format!("{:.1} %", p.cpu), t.sort == "cpu", col_w[1]),
+                    cell(gib(p.mem), t.sort == "mem", col_w[2]),
+                    cell(p.gpu.map_or("—".into(), |g| format!("{g:.0} %")), t.sort == "gpu", col_w[3]),
+                    cell(p.vram.map_or("—".into(), |v| format!("{v} Mio")), t.sort == "vram", col_w[4]),
+                    cell(
+                        if p.io > 0.0 { format!("{}/s", gib(p.io as u64)) } else { "—".into() },
+                        t.sort == "io",
+                        col_w[5]
+                    ),
+                    kill,
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        container(
+            column![
+                head,
+                iced::widget::scrollable(rows)
+                    .height(Length::Fill)
+                    .direction(iced::widget::scrollable::Direction::Vertical(
+                        iced::widget::scrollable::Scrollbar::new().width(4).scroller_width(4).spacing(6),
+                    ))
+            ]
+            .spacing(12),
+        )
+        .padding(18)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(fx::alpha(bg, 0.96).into()),
+            ..Default::default()
+        })
+        .into()
+    }
+
     /// Colonne « playlist » des profils Vidéo et Musique : les services du
     /// lecteur, celui qui joue en évidence ; un appui l'ouvre dans la zone
     /// du lecteur.
@@ -84,7 +240,13 @@ impl App {
         let d = &c.design;
         let (bg, fg, accent) = self.panorama_palette();
         let gap = d.gap.min(14.0);
-        let playing = self.panorama.video.as_ref().map(|v| v.name.as_str());
+        // Source en cours : service (navigateur) ou webradio (mpv).
+        let playing = self
+            .panorama
+            .video
+            .as_ref()
+            .map(|v| v.name.as_str())
+            .or(self.panorama.radio.as_ref().map(|r| r.0.as_str()));
         let pill = move |on: bool| {
             move |_: &iced::Theme, st: button::Status| button::Style {
                 background: Some(
@@ -135,7 +297,7 @@ impl App {
             ]
             .align_y(Alignment::Center)
         };
-        if playing.is_some() {
+        if self.panorama.video.is_some() {
             head = head
                 .push(
                     self.panorama_feedback(
@@ -145,8 +307,10 @@ impl App {
                             .style(pill(self.panorama.framing)),
                     ),
                 )
-                .push(Space::new().width(8))
-                .push(
+                .push(Space::new().width(8));
+        }
+        if playing.is_some() {
+            head = head.push(
                     self.panorama_feedback(
                         button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
                             .padding([6, 12])
@@ -157,7 +321,7 @@ impl App {
         }
         // Cadrage : zoom et décalage de la fenêtre derrière la zone du
         // lecteur, mémorisés pour la source.
-        if playing.is_some() && self.panorama.framing {
+        if self.panorama.video.is_some() && self.panorama.framing {
             let side = ((size.width - 16.0 - 2.0 * gap) / 3.0)
                 .min((size.height - 16.0 - 34.0 - 4.0 * gap) / 4.0)
                 .max(36.0);
@@ -533,6 +697,13 @@ impl App {
                 _ if on => crate::i18n::tr("LYRA vocale : dites « Lyra »"),
                 _ => crate::i18n::tr("LYRA vocale (coupée)"),
             };
+            // Dernière phrase entendue : de quoi comprendre un mot manqué.
+            let label: String = match &self.panorama.voice_heard {
+                Some(h) if on && !h.is_empty() => {
+                    crate::tr!("{l} — entendu : « {h} »", l = label.to_string(), h = h.clone())
+                }
+                _ => label.to_string(),
+            };
             let side = (seg_h * 0.62).min(34.0);
             let icon = iced::widget::svg(mic_icon(on))
                 .width(side)
@@ -600,7 +771,8 @@ impl App {
             for (j, s) in chunk.iter().enumerate() {
                 // Lecture / Pause : la touche suit l'état du lecteur.
                 let pause = s.command.trim() == "hyprdesk media play-pause"
-                    && self.panorama.media.as_ref().is_some_and(|m| m.playing);
+                    && (self.panorama.media.as_ref().is_some_and(|m| m.playing)
+                        || (self.panorama.radio.is_some() && !self.panorama.radio_paused));
                 let (name, icon_name) = if pause {
                     (
                         crate::i18n::tr("Pause").to_string(),

@@ -410,64 +410,95 @@ impl canvas::Program<Msg> for Instrument {
                                 {
                                     // Défilement continu, un relevé de
                                     // retard : la tête glisse de l'avant-
-                                    // dernier relevé vers le dernier.
+                                    // dernier relevé vers le dernier. Toute la
+                                    // courbe est tracée puis découpée au bord
+                                    // du graphique : les plus anciens relevés
+                                    // en sortent en glissant, sans saut.
+                                    let pad = 8.0;
+                                    let clip = iced::Rectangle {
+                                        x: left,
+                                        y: top - pad,
+                                        width: right - left + pad,
+                                        height: bottom - top + 2.0 * pad,
+                                    };
+                                    // Le découpage garde les coordonnées du cadre.
+                                    let (t, b, r) = (top, bottom, right);
                                     let step = (right - left) / (*limit).max(2) as f32;
-                                    let y = |v: f32| bottom - v.clamp(0.0, 1.0) * (bottom - top);
+                                    let y = |v: f32| b - v.clamp(0.0, 1.0) * (b - t);
                                     let n = samples.len();
                                     let mut pts: Vec<Point> = Vec::with_capacity(n);
                                     if n >= 2 {
                                         for (j, v) in samples.iter().take(n - 1).enumerate() {
-                                            let x = right - ((n - 2 - j) as f32 + phase) * step;
-                                            if x >= left - step {
-                                                pts.push(Point::new(x.max(left), y(*v)));
-                                            }
+                                            let x = r - ((n - 2 - j) as f32 + phase) * step;
+                                            pts.push(Point::new(x, y(*v)));
                                         }
                                         let head = samples[n - 2]
                                             + (samples[n - 1] - samples[n - 2]) * phase;
-                                        pts.push(Point::new(right, y(head)));
+                                        pts.push(Point::new(r, y(head)));
                                     } else {
-                                        pts.push(Point::new(right, y(samples[0])));
+                                        pts.push(Point::new(r, y(samples[0])));
                                     }
-                                    // Courbe lissée (Catmull-Rom en Bézier),
-                                    // bornée à la zone du graphique.
-                                    let trace = Path::new(|p| {
-                                        p.move_to(pts[0]);
-                                        smooth(p, &pts, top, bottom);
-                                    });
-                                    let fill = Path::new(|p| {
-                                        p.move_to(Point::new(pts[0].x, bottom));
-                                        p.line_to(pts[0]);
-                                        smooth(p, &pts, top, bottom);
-                                        p.line_to(Point::new(right, bottom));
-                                        p.close();
-                                    });
-                                    f.fill(
-                                        &fill,
-                                        canvas::gradient::Linear::new(
-                                            Point::new(0.0, top),
-                                            Point::new(0.0, bottom),
+                                    // Le trait s'estompe sur le bord gauche.
+                                    let fade_w = ((right - left) * 0.12).max(12.0);
+                                    let faded = |a: f32| -> canvas::Style {
+                                        canvas::Style::Gradient(
+                                            canvas::gradient::Linear::new(
+                                                Point::new(left, 0.0),
+                                                Point::new(left + fade_w, 0.0),
+                                            )
+                                            .add_stop(0.0, fx::alpha(tint, 0.0))
+                                            .add_stop(1.0, fx::alpha(tint, a))
+                                            .into(),
                                         )
-                                        .add_stop(0.0, fx::alpha(tint, 0.45))
-                                        .add_stop(1.0, fx::alpha(tint, 0.02)),
-                                    );
-                                    f.stroke(
-                                        &trace,
-                                        Stroke::default()
-                                            .with_width(7.0)
-                                            .with_color(fx::alpha(tint, 0.15))
-                                            .with_line_join(canvas::LineJoin::Round),
-                                    );
-                                    f.stroke(
-                                        &trace,
-                                        Stroke::default()
-                                            .with_width(2.4)
-                                            .with_color(tint)
-                                            .with_line_join(canvas::LineJoin::Round),
-                                    );
-                                    if let Some(last) = pts.last() {
-                                        f.fill(&Path::circle(*last, 6.0), fx::alpha(tint, 0.25));
-                                        f.fill(&Path::circle(*last, 3.2), tint);
-                                    }
+                                    };
+                                    f.with_clip(clip, |f| {
+                                        // Courbe lissée (Catmull-Rom en Bézier).
+                                        let trace = Path::new(|p| {
+                                            p.move_to(pts[0]);
+                                            smooth(p, &pts, t, b);
+                                        });
+                                        let fill = Path::new(|p| {
+                                            p.move_to(Point::new(pts[0].x, b));
+                                            p.line_to(pts[0]);
+                                            smooth(p, &pts, t, b);
+                                            p.line_to(Point::new(r, b));
+                                            p.close();
+                                        });
+                                        f.fill(
+                                            &fill,
+                                            canvas::gradient::Linear::new(
+                                                Point::new(0.0, t),
+                                                Point::new(0.0, b),
+                                            )
+                                            .add_stop(0.0, fx::alpha(tint, 0.45))
+                                            .add_stop(1.0, fx::alpha(tint, 0.02)),
+                                        );
+                                        f.stroke(
+                                            &trace,
+                                            Stroke {
+                                                style: faded(0.15),
+                                                width: 7.0,
+                                                line_join: canvas::LineJoin::Round,
+                                                ..Stroke::default()
+                                            },
+                                        );
+                                        f.stroke(
+                                            &trace,
+                                            Stroke {
+                                                style: faded(1.0),
+                                                width: 2.4,
+                                                line_join: canvas::LineJoin::Round,
+                                                ..Stroke::default()
+                                            },
+                                        );
+                                        if let Some(last) = pts.last() {
+                                            f.fill(
+                                                &Path::circle(*last, 6.0),
+                                                fx::alpha(tint, 0.25),
+                                            );
+                                            f.fill(&Path::circle(*last, 3.2), tint);
+                                        }
+                                    });
                                 }
                             }
                         }

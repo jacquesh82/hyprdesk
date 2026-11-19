@@ -10,6 +10,8 @@
 
 mod dashboard;
 mod fx;
+mod flux;
+mod halo;
 mod instruments;
 mod panes;
 mod swipe;
@@ -145,8 +147,22 @@ pub struct State {
     pub voice_confirm: Option<(String, String)>,
     /// Micros de PipeWire : (nœud, libellé, par défaut).
     pub voice_mics: Vec<(String, String, bool)>,
+    /// Dernière phrase entendue par le micro (diagnostic).
+    pub voice_heard: Option<String>,
+    /// Surfaces du halo de LYRA vocale (écran de chacune).
+    pub halo: HashMap<Id, String>,
+    pub halo_since: Option<Instant>,
+    /// Webradio jouée par mpv : (station, flux) ; en pause.
+    pub radio: Option<(String, String)>,
+    pub radio_paused: bool,
+    /// Niveaux du son (global, graves, médiums, aigus) et leur historique.
+    pub levels: [f32; 4],
+    pub level_hist: std::collections::VecDeque<f32>,
+    pub flux_t0: FluxClock,
     /// Dernier relevé des mesures (défilement continu des courbes).
     pub sys_at: Option<Instant>,
+    /// Gestionnaire des tâches ouvert (tuile de mesure touchée).
+    pub tasks: Option<TasksView>,
     /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
     /// une fois (reprises, ou fermées).
     pub orphans_checked: bool,
@@ -192,6 +208,34 @@ pub struct State {
     pub wallpaper_requested: String,
 }
 
+/// Gestionnaire des tâches du Panorama : sur quel écran, trié sur quoi.
+#[derive(Debug)]
+pub struct TasksView {
+    pub key: String,
+    pub sort: &'static str,
+    pub list: Vec<crate::panorama::tasks::Proc>,
+    pub sampler: std::sync::Arc<std::sync::Mutex<crate::panorama::tasks::Sampler>>,
+    /// Programme dont l'arrêt attend un second appui.
+    pub kill: Option<i32>,
+    pub busy: bool,
+}
+
+/// Horloge de l'animation « flux vocal » (départ au lancement).
+#[derive(Debug)]
+pub struct FluxClock(Instant);
+
+impl Default for FluxClock {
+    fn default() -> Self {
+        FluxClock(Instant::now())
+    }
+}
+
+impl FluxClock {
+    pub fn elapsed(&self) -> Duration {
+        self.0.elapsed()
+    }
+}
+
 /// État de LYRA vocale (bouton micro du Panorama).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum VoiceUi {
@@ -229,6 +273,17 @@ pub enum PMsg {
     VoiceDone,
     /// Image suivante des courbes (défilement continu).
     GraphFrame,
+    /// Niveaux du son (barre « flux vocal »).
+    Levels(crate::panorama::radio_play::Levels),
+    /// Radio : pause (true) ou lecture.
+    RadioPaused(Option<bool>),
+    /// Tuile de mesure touchée : gestionnaire des tâches (écran, mesure).
+    TasksOpen(String, String),
+    TasksSort(&'static str),
+    TasksClose,
+    TasksData(Vec<crate::panorama::tasks::Proc>),
+    /// Terminer : premier appui arme, second envoie SIGTERM.
+    TaskKill(i32),
     /// Relit la liste des micros ; liste relue.
     MicsRefresh,
     Mics(Vec<(String, String, bool)>),
@@ -604,6 +659,28 @@ impl App {
         )
     }
 
+    /// Relevé des programmes (gestionnaire des tâches ouvert), en arrière-
+    /// plan ; la carte NVIDIA n'est interrogée que pour trier sur GPU/VRAM.
+    fn panorama_tasks_refresh(&mut self) -> Task<Msg> {
+        let Some(t) = self.panorama.tasks.as_mut().filter(|t| !t.busy) else {
+            return Task::none();
+        };
+        t.busy = true;
+        let sampler = t.sampler.clone();
+        let gpu = matches!(t.sort, "gpu" | "vram");
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let mut s = sampler.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::panorama::tasks::sample(&mut s, gpu)
+                })
+                .await
+                .unwrap_or_default()
+            },
+            |l| wrap(PMsg::TasksData(l)),
+        )
+    }
+
     /// Avancée vers le relevé suivant (0 à 1), pour faire défiler les
     /// courbes en continu.
     pub(super) fn panorama_graph_phase(&self) -> f32 {
@@ -868,7 +945,69 @@ impl App {
     /// place (sans rien envoyer si rien n'a bougé).
     pub(super) fn panorama_update(&mut self, m: PMsg) -> Task<Msg> {
         let t = self.panorama_update_inner(m);
-        Task::batch([t, self.sync_pip()])
+        Task::batch([t, self.sync_pip(), self.sync_halo()])
+    }
+
+    /// Halo de LYRA vocale : affiché pendant la conversation (« Lyra »
+    /// entendu, réflexion, réponse) sur les écrans choisis (Réglages).
+    pub(in crate::ui) fn sync_halo(&mut self) -> Task<Msg> {
+        let c = &self.cfg.general.panorama;
+        let talking = c.voice
+            && matches!(
+                self.panorama.voice,
+                VoiceUi::Awake | VoiceUi::Thinking | VoiceUi::Speaking
+            );
+        let want: Vec<String> = if !talking {
+            Vec::new()
+        } else {
+            match c.voice_halo.as_str() {
+                "off" => Vec::new(),
+                "panorama" => self.panorama_monitors(),
+                _ => self.monitors.iter().map(|m| m.name.clone()).collect(),
+            }
+        };
+        let mut tasks = Vec::new();
+        let gone: Vec<Id> = self
+            .panorama
+            .halo
+            .iter()
+            .filter(|(_, m)| !want.contains(m))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in gone {
+            self.panorama.halo.remove(&id);
+            tasks.push(iced::window::close(id));
+        }
+        for m in want {
+            if self.panorama.halo.values().any(|x| *x == m) {
+                continue;
+            }
+            let id = Id::unique();
+            self.panorama.halo.insert(id, m.clone());
+            self.panorama.halo_since.get_or_insert_with(Instant::now);
+            tasks.push(Task::done(Msg::NewLayerShell {
+                settings: NewLayerShellSettings {
+                    size: None,
+                    layer: Layer::Overlay,
+                    anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                    exclusive_zone: Some(-1),
+                    keyboard_interactivity: KeyboardInteractivity::None,
+                    output_option: OutputOption::OutputName(m),
+                    namespace: Some("hyprdesk-lyra-halo".into()),
+                    ..Default::default()
+                },
+                id,
+            }));
+            // Aucune zone de saisie : clics et toucher passent au travers.
+            tasks.push(Task::done(Msg::SetInputRegion {
+                id,
+                callback: iced_layershell::actions::ActionCallback::new(|_region| {}),
+            }));
+        }
+        if self.panorama.halo.is_empty() {
+            self.panorama.halo_since = None;
+        }
+        Task::batch(tasks)
     }
 
     fn panorama_update_inner(&mut self, m: PMsg) -> Task<Msg> {
@@ -901,6 +1040,18 @@ impl App {
                 };
                 let command = s.command.clone();
                 drop(list);
+                // Webradio (mpv) : Lecture/Pause la pilote directement.
+                if self.panorama.radio.is_some() && command.trim() == "hyprdesk media play-pause" {
+                    return Task::perform(
+                        async {
+                            tokio::task::spawn_blocking(crate::panorama::radio_play::toggle_pause)
+                                .await
+                                .ok()
+                                .flatten()
+                        },
+                        |p| wrap(PMsg::RadioPaused(p)),
+                    );
+                }
                 // Profils Vidéo et Musique : les touches vont au lecteur ; son
                 // plein écran (vidéo seule) est mémorisé pour la source.
                 let player = matches!(
@@ -995,8 +1146,74 @@ impl App {
                     Task::none()
                 }
                 crate::voice::Event::Heard(lang, text) => self.voice_ask(lang, text),
+                crate::voice::Event::Partial(t) => {
+                    self.panorama.voice_heard = Some(t);
+                    Task::none()
+                }
             },
             PMsg::GraphFrame => Task::none(),
+            PMsg::Levels(l) => {
+                self.panorama.levels = l;
+                self.panorama.level_hist.push_back(l[0]);
+                while self.panorama.level_hist.len() > 160 {
+                    self.panorama.level_hist.pop_front();
+                }
+                Task::none()
+            }
+            PMsg::RadioPaused(p) => {
+                if let Some(p) = p {
+                    self.panorama.radio_paused = p;
+                }
+                Task::none()
+            }
+            PMsg::TasksOpen(key, metric) => {
+                self.panorama.last_press = Some(Instant::now());
+                self.panorama.tasks = Some(TasksView {
+                    key,
+                    sort: crate::panorama::tasks::sort_key(&metric),
+                    list: Vec::new(),
+                    sampler: Default::default(),
+                    kill: None,
+                    busy: false,
+                });
+                self.panorama_tasks_refresh()
+            }
+            PMsg::TasksSort(k) => {
+                self.panorama.last_press = Some(Instant::now());
+                if let Some(t) = self.panorama.tasks.as_mut() {
+                    t.sort = k;
+                    t.kill = None;
+                    crate::panorama::tasks::sort(&mut t.list, k);
+                }
+                self.panorama_tasks_refresh()
+            }
+            PMsg::TasksClose => {
+                self.panorama.tasks = None;
+                Task::none()
+            }
+            PMsg::TasksData(mut l) => {
+                if let Some(t) = self.panorama.tasks.as_mut() {
+                    crate::panorama::tasks::sort(&mut l, t.sort);
+                    t.list = l;
+                    t.busy = false;
+                }
+                Task::none()
+            }
+            PMsg::TaskKill(pid) => {
+                self.panorama.last_press = Some(Instant::now());
+                let Some(t) = self.panorama.tasks.as_mut() else {
+                    return Task::none();
+                };
+                if t.kill != Some(pid) {
+                    t.kill = Some(pid);
+                    return Task::none();
+                }
+                t.kill = None;
+                if let Err(e) = crate::panorama::tasks::terminate(pid) {
+                    tracing::warn!("Panorama : terminer {pid} : {e}");
+                }
+                self.panorama_tasks_refresh()
+            }
             PMsg::MicsRefresh => Task::perform(
                 async {
                     tokio::task::spawn_blocking(crate::voice::microphones)
@@ -1183,6 +1400,7 @@ impl App {
                 }
                 self.panorama_video_gone();
                 let mut strays = Task::batch([
+                    self.panorama_tasks_refresh(),
                     self.panorama_close_strays(),
                     self.panorama_check_signed(),
                     self.panorama_auto_icons(),
@@ -1323,7 +1541,9 @@ impl App {
                     if let Some(r) = v.ratio {
                         let h = self.panorama.history.entry(v.label.clone()).or_default();
                         h.push_back(r);
-                        while h.len() > limit {
+                        // Deux relevés de plus que la largeur : le plus
+                        // ancien sort du graphique avant d'être oublié.
+                        while h.len() > limit + 2 {
                             h.pop_front();
                         }
                     }
@@ -1596,6 +1816,7 @@ impl App {
             || self.panorama.surfaces.contains_key(&id)
             || self.panorama.handles.contains_key(&id)
             || self.panorama.offers.contains_key(&id)
+            || self.panorama.halo.contains_key(&id)
     }
 
     /// Vue composée en tête du carrousel (découpage, composition libre) :
@@ -1651,6 +1872,20 @@ impl App {
         }
         if let Some(o) = self.panorama.offers.get(&id) {
             return self.view_panorama_offer(id, o);
+        }
+        if self.panorama.halo.contains_key(&id) {
+            let c = &self.cfg.general.panorama;
+            let (from, to) = halo::colors(&c.voice_halo_color, self.panorama_palette().2);
+            let t = self
+                .panorama
+                .halo_since
+                .map_or(0.0, |s| s.elapsed().as_secs_f32());
+            let strength = match self.panorama.voice {
+                VoiceUi::Speaking => 1.0,
+                VoiceUi::Thinking => 0.75,
+                _ => 0.9,
+            };
+            return halo::view(from, to, t, strength);
         }
         self.view_panorama_surface(id)
     }
