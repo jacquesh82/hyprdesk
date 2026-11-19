@@ -6,13 +6,17 @@ pub const CLOCKS: &[&str] = &["digital", "flip", "analog"];
 pub const SYSTEMS: &[&str] = &["cards", "gauges", "graphs"];
 pub const MEDIA: &[&str] = &["standard", "vinyl", "compact"];
 /// Mesures système, une par tuile `metric:<id>[:<style>]`.
-pub const METRICS: &[&str] = &["cpu", "ram", "disk", "load", "uptime", "cpu_temp", "gpu_temp"];
+pub const METRICS: &[&str] = &[
+    "cpu", "ram", "gpu", "vram", "disk", "load", "uptime", "cpu_temp", "gpu_temp",
+];
 
 /// Libellé d'une mesure.
 pub fn metric_label(id: &str) -> &'static str {
     match id {
         "cpu" => "Processeur",
         "ram" => "Mémoire",
+        "gpu" => "Carte graphique",
+        "vram" => "Mémoire vidéo",
         "disk" => "Disque",
         "load" => "Charge",
         "uptime" => "Allumé depuis",
@@ -49,13 +53,13 @@ impl Page {
 
     /// Page Système : le plus de mesures possible, en graphiques.
     pub fn system() -> Page {
-        let ids = ["cpu", "ram", "disk", "cpu_temp", "gpu_temp", "load"];
+        let ids = ["cpu", "ram", "gpu", "vram", "cpu_temp", "gpu_temp", "disk", "load"];
         let tiles = ids
             .iter()
             .enumerate()
             .map(|(i, id)| {
-                let (c, r) = ((i % 3) as f32, (i / 3) as f32);
-                Tile::new(&format!("metric:{id}"), c * 0.34, r * 0.5, 0.32, 0.5)
+                let (c, r) = ((i % 4) as f32, (i / 4) as f32);
+                Tile::new(&format!("metric:{id}"), c * 0.25, r * 0.5, 0.25, 0.5)
             })
             .collect();
         Page {
@@ -517,15 +521,10 @@ impl Design {
                     .collect();
                 if ids.is_empty()
                     || ids.len() > 8
-                    || ids.iter().any(|id| {
-                        ![
-                            "cpu", "ram", "disk", "load", "uptime", "cpu_temp", "gpu_temp",
-                        ]
-                        .contains(id)
-                    })
+                    || ids.iter().any(|id| !METRICS.contains(id))
                 {
                     return Err(
-                        "Mesures : cpu, ram, disk, load, uptime, cpu_temp, gpu_temp (1 à 8)."
+                        "Mesures : cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp (1 à 8)."
                             .into(),
                     );
                 }

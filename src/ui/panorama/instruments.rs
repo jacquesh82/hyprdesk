@@ -308,6 +308,8 @@ impl canvas::Program<Msg> for Instrument {
                         let cw = w / cols as f32;
                         let ch = h / rows as f32;
                         for (i, m) in lines.iter().enumerate() {
+                            // Une couleur par mesure (CPU cyan, RAM violet…).
+                            let tint = metric_color(&m.label, self.accent);
                             let (x, y) = ((i % cols) as f32 * cw, (i / cols) as f32 * ch);
                             let center = Point::new(x + cw / 2.0, y + ch * 0.45);
                             let small = (cw * 0.065).min(ch * 0.12).clamp(10.0, 20.0) * self.scale;
@@ -330,9 +332,20 @@ impl canvas::Program<Msg> for Instrument {
                                         .with_color(fx::alpha(self.fg, 0.12)),
                                 );
                                 if let Some(ratio) = m.ratio {
+                                    // Halo, puis l'arc : dégradé de la couleur.
                                     f.stroke(
                                         &arc(ratio.clamp(0.001, 1.0)),
-                                        Stroke::default().with_width(6.0).with_color(self.accent),
+                                        Stroke::default()
+                                            .with_width(14.0)
+                                            .with_color(fx::alpha(tint, 0.18))
+                                            .with_line_cap(canvas::LineCap::Round),
+                                    );
+                                    f.stroke(
+                                        &arc(ratio.clamp(0.001, 1.0)),
+                                        Stroke::default()
+                                            .with_width(6.0)
+                                            .with_color(tint)
+                                            .with_line_cap(canvas::LineCap::Round),
                                     );
                                 }
                                 label(
@@ -364,7 +377,7 @@ impl canvas::Program<Msg> for Instrument {
                                     &m.label,
                                     Point::new(center.x, y + small),
                                     small,
-                                    fx::alpha(self.fg, 0.75),
+                                    tint,
                                     self.font,
                                 );
                                 label(
@@ -400,17 +413,16 @@ impl canvas::Program<Msg> for Instrument {
                                             )
                                         })
                                         .collect();
+                                    // Courbe lissée (Catmull-Rom en Bézier),
+                                    // bornée à la zone du graphique.
                                     let trace = Path::new(|p| {
                                         p.move_to(pts[0]);
-                                        for pt in &pts[1..] {
-                                            p.line_to(*pt);
-                                        }
+                                        smooth(p, &pts, top, bottom);
                                     });
                                     let fill = Path::new(|p| {
                                         p.move_to(Point::new(pts[0].x, bottom));
-                                        for pt in &pts {
-                                            p.line_to(*pt);
-                                        }
+                                        p.line_to(pts[0]);
+                                        smooth(p, &pts, top, bottom);
                                         p.line_to(Point::new(right, bottom));
                                         p.close();
                                     });
@@ -420,13 +432,27 @@ impl canvas::Program<Msg> for Instrument {
                                             Point::new(0.0, top),
                                             Point::new(0.0, bottom),
                                         )
-                                        .add_stop(0.0, fx::alpha(self.accent, 0.25))
-                                        .add_stop(1.0, fx::alpha(self.accent, 0.01)),
+                                        .add_stop(0.0, fx::alpha(tint, 0.45))
+                                        .add_stop(1.0, fx::alpha(tint, 0.02)),
                                     );
                                     f.stroke(
                                         &trace,
-                                        Stroke::default().with_width(1.8).with_color(self.accent),
+                                        Stroke::default()
+                                            .with_width(7.0)
+                                            .with_color(fx::alpha(tint, 0.15))
+                                            .with_line_join(canvas::LineJoin::Round),
                                     );
+                                    f.stroke(
+                                        &trace,
+                                        Stroke::default()
+                                            .with_width(2.4)
+                                            .with_color(tint)
+                                            .with_line_join(canvas::LineJoin::Round),
+                                    );
+                                    if let Some(last) = pts.last() {
+                                        f.fill(&Path::circle(*last, 6.0), fx::alpha(tint, 0.25));
+                                        f.fill(&Path::circle(*last, 3.2), tint);
+                                    }
                                 }
                             }
                         }
@@ -455,5 +481,36 @@ impl canvas::Program<Msg> for Instrument {
                     }
                 }),
         ]
+    }
+}
+
+/// Couleur d'une mesure, d'après son libellé ; l'accent sinon.
+fn metric_color(label: &str, accent: Color) -> Color {
+    let rgb = |r: u8, g: u8, b: u8| Color::from_rgb8(r, g, b);
+    match label {
+        "CPU" => rgb(0x4c, 0xc9, 0xf0),
+        "RAM" => rgb(0xb3, 0x88, 0xff),
+        "GPU" => rgb(0x2e, 0xe5, 0x9d),
+        "VRAM" => rgb(0x2e, 0xc4, 0xb6),
+        "CPU °C" => rgb(0xff, 0x9f, 0x43),
+        "GPU °C" => rgb(0xff, 0x5c, 0x8a),
+        l if l.starts_with('/') => rgb(0xff, 0xd1, 0x66),
+        l if l.to_lowercase().contains("load") || l.contains("Charge") => rgb(0xa0, 0xc4, 0xff),
+        _ => accent,
+    }
+}
+
+/// Prolonge le chemin le long de `pts` par une courbe lissée (Catmull-Rom
+/// convertie en Bézier cubiques), sans dépasser `top`..`bottom`.
+fn smooth(p: &mut canvas::path::Builder, pts: &[Point], top: f32, bottom: f32) {
+    let n = pts.len();
+    for i in 0..n.saturating_sub(1) {
+        let p0 = pts[i.saturating_sub(1)];
+        let (p1, p2) = (pts[i], pts[i + 1]);
+        let p3 = pts[(i + 2).min(n - 1)];
+        let clamp = |y: f32| y.clamp(top, bottom);
+        let c1 = Point::new(p1.x + (p2.x - p0.x) / 6.0, clamp(p1.y + (p2.y - p0.y) / 6.0));
+        let c2 = Point::new(p2.x - (p3.x - p1.x) / 6.0, clamp(p2.y - (p3.y - p1.y) / 6.0));
+        p.bezier_curve_to(c1, c2, p2);
     }
 }

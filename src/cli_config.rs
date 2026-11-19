@@ -1023,7 +1023,7 @@ pub static KEYS: &[Key] = keys![
             s.panorama = Some(p); Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("system_style", &d.get("system_style").unwrap_or_default()); } };
-    "panorama.design.metrics", "panorama", "cpu,ram,disk,load,uptime,cpu_temp,gpu_temp — mesures affichées",
+    "panorama.design.metrics", "panorama", "cpu,ram,gpu,vram,disk,load,uptime,cpu_temp,gpu_temp — mesures affichées",
         |c| c.general.panorama.design.get("metrics").unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());

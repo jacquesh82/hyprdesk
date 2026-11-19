@@ -31,6 +31,12 @@ and this project adheres to
   `metric:<cpu|ram|disk|load|uptime|cpu_temp|gpu_temp>[:gauges|cards]`
   (one metric per tile) and `playlist`. Old widget-name pages still load.
   The default layout is now the composition.
+- **Panorama metrics: colours, smooth curves, NVIDIA** (MLG-172). Each
+  metric has its own colour (CPU cyan, RAM violet, GPU green…) in graphs
+  and gauges; curves are smoothed (Catmull-Rom), with a soft glow and a dot
+  on the latest value. NVIDIA cards (proprietary driver, absent from hwmon)
+  are read through `nvidia-smi`: new `gpu` (load) and `vram` metrics, and
+  `gpu_temp` falls back to it. The System page shows eight graphs.
 - **Playing a new media stops the previous one**: every MPRIS player still
   playing is paused before a Panorama source starts.
 - **Panorama Music: Playlist and Webradio tabs, music on request through
