@@ -70,6 +70,12 @@ pub enum Msg {
     /// Source, ±1 dans l'ordre.
     SourceMove(usize, i32),
     SourcesReset,
+    /// Liste réglée : vidéo, musique, radio.
+    SourcesKind(&'static str),
+    /// Affichage d'une source dans le Panorama : auto, on, off.
+    SourceShow(usize, &'static str),
+    /// Ouvre la source dans le navigateur, pour s'y connecter.
+    SourceLogin(usize),
     /// Service de l'onglet Webradio (profil Musique).
     Webradio(String),
     /// Raccourci, ±1 dans l'ordre.
@@ -592,36 +598,86 @@ impl App {
     fn panorama_sources_section(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
+        let kind = match self.panorama.sources_kind {
+            "music" | "radio" => self.panorama.sources_kind,
+            _ => "video",
+        };
+        let mut kinds = row![].spacing(6);
+        for (id, label) in [("video", "Vidéo"), ("music", "Musique"), ("radio", "Webradio")] {
+            let on = kind == id;
+            kinds = kinds.push(
+                button(text(crate::i18n::tr(label)).font(self.font).size(12))
+                    .padding([4, 12])
+                    .style(move |th, st| {
+                        if on {
+                            button::primary(th, st)
+                        } else {
+                            button::secondary(th, st)
+                        }
+                    })
+                    .on_press(wrap(Msg::SourcesKind(id))),
+            );
+        }
         let mut col = column![
-            self.section("Sources vidéo"),
+            self.section("Sources du lecteur"),
+            kinds,
             text(
-                "Le widget Vidéo ouvre ces services dans votre navigateur (fenêtre d'application, \
-                 votre profil habituel : déjà connecté), posée exactement dans sa zone. Les \
-                 services protégés (Netflix, Disney+…) demandent un navigateur Chromium avec \
-                 Widevine ; sous Linux, ils sont limités à 720p.",
+                "Vidéo et Musique s'ouvrent dans votre navigateur (fenêtre d'application, votre \
+                 profil habituel), posées dans la zone du lecteur ; Webradio : les flux des radios \
+                 favorites. Le Panorama ne montre que les plateformes sans compte et celles où vous \
+                 êtes connecté (lu dans le navigateur) ; « Se connecter » ouvre le service pour le \
+                 faire. Les services protégés (Netflix, Disney+…) demandent un navigateur Chromium \
+                 avec Widevine ; sous Linux, ils sont limités à 720p.",
             )
             .font(self.font)
             .size(12)
             .color(dim),
         ]
         .spacing(8);
-        let n = c.sources.len();
-        for (i, s) in c.sources.iter().enumerate() {
-            col = col.push(
-                row![
-                    self.panorama_icon_thumb(&s.icon, 24.0),
-                    self.panorama_move_buttons(i, n, |i, d| wrap(Msg::SourceMove(i, d))),
-                    text(s.name.clone()).font(self.font).size(13).width(140),
-                    text(s.url.clone())
-                        .font(self.font)
-                        .size(12)
-                        .color(dim)
-                        .width(Length::Fill),
-                    self.delete_button(false, wrap(Msg::SourceRemove(i))),
+        let list = match kind {
+            "music" => &c.music_sources,
+            "radio" => &c.radios,
+            _ => &c.sources,
+        };
+        let n = list.len();
+        for (i, s) in list.iter().enumerate() {
+            let signed = self.panorama.signed.get(&s.url).copied().flatten();
+            let state = if !crate::panorama::auth::needs_account(&s.url) {
+                crate::i18n::tr("sans compte")
+            } else {
+                match signed {
+                    Some(true) => crate::i18n::tr("connecté"),
+                    Some(false) => crate::i18n::tr("non connecté"),
+                    None => crate::i18n::tr("compte"),
+                }
+            };
+            let current = Some(Show(match s.show.as_str() {
+                "on" => "on",
+                "off" => "off",
+                _ => "auto",
+            }));
+            let shows = vec![Show("auto"), Show("on"), Show("off")];
+            let mut line = row![
+                self.panorama_icon_thumb(&s.icon, 24.0),
+                self.panorama_move_buttons(i, n, |i, d| wrap(Msg::SourceMove(i, d))),
+                column![
+                    text(s.name.clone()).font(self.font).size(13),
+                    text(format!("{} · {state}", s.url)).font(self.font).size(11).color(dim),
                 ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
+                .width(Length::Fill),
+                iced::widget::pick_list(shows, current, move |v: Show| wrap(Msg::SourceShow(i, v.0)))
+                    .text_size(12),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            if crate::panorama::auth::needs_account(&s.url) && signed != Some(true) {
+                line = line.push(
+                    button(text("Se connecter").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::SourceLogin(i))),
+                );
+            }
+            col = col.push(line.push(self.delete_button(false, wrap(Msg::SourceRemove(i)))));
         }
         let (name, url) = &self.panorama.draft;
         col = col.push(
@@ -646,7 +702,7 @@ impl App {
         );
         col = col.push(
             row![
-                button(text("Sources par défaut").font(self.font).size(12))
+                button(text("Liste par défaut").font(self.font).size(12))
                     .padding([4, 10])
                     .on_press(wrap(Msg::SourcesReset)),
                 self.panorama_icons_buttons("sources"),
@@ -779,7 +835,8 @@ impl App {
                     return Task::none();
                 }
                 let mut c = self.panorama_cfg();
-                c.sources.push(crate::panorama::config::Source {
+                let kind = self.panorama.sources_kind;
+                list_mut(&mut c, kind).push(crate::panorama::config::Source {
                     name: if name.trim().is_empty() {
                         crate::panorama::video::host(&url)
                     } else {
@@ -794,9 +851,10 @@ impl App {
             }
             Msg::SourceMove(i, d) => {
                 let mut c = self.panorama_cfg();
+                let kind = self.panorama.sources_kind;
                 let j = i as i64 + d as i64;
-                if i < c.sources.len() && j >= 0 && (j as usize) < c.sources.len() {
-                    c.sources.swap(i, j as usize);
+                if i < list_mut(&mut c, kind).len() && j >= 0 && (j as usize) < list_mut(&mut c, kind).len() {
+                    list_mut(&mut c, kind).swap(i, j as usize);
                 }
                 self.settings.panorama = Some(c);
                 self.commit()
@@ -840,11 +898,55 @@ impl App {
             }
             Msg::SourceRemove(i) => {
                 let mut c = self.panorama_cfg();
-                if i < c.sources.len() {
-                    c.sources.remove(i);
+                let kind = self.panorama.sources_kind;
+                if i < list_mut(&mut c, kind).len() {
+                    list_mut(&mut c, kind).remove(i);
                 }
                 self.settings.panorama = Some(c);
                 self.commit()
+            }
+            Msg::SourcesKind(k) => {
+                self.panorama.sources_kind = k;
+                Task::none()
+            }
+            Msg::SourceShow(i, v) => {
+                let mut c = self.panorama_cfg();
+                let kind = self.panorama.sources_kind;
+                if let Some(s) = list_mut(&mut c, kind).get_mut(i) {
+                    s.show = v.into();
+                }
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::SourceLogin(i) => {
+                let mut c = self.panorama_cfg();
+                let kind = self.panorama.sources_kind;
+                let Some(url) = list_mut(&mut c, kind).get(i).map(|s| s.url.clone()) else {
+                    return Task::none();
+                };
+                // Fenêtre ordinaire du navigateur des sources : même profil,
+                // la connexion vaut ensuite pour le Panorama.
+                let browser = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
+                self.panorama.signed_at = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || match browser {
+                            Some(b) => {
+                                let _ = std::process::Command::new(b)
+                                    .arg(&url)
+                                    .stdin(std::process::Stdio::null())
+                                    .stdout(std::process::Stdio::null())
+                                    .stderr(std::process::Stdio::null())
+                                    .spawn();
+                            }
+                            None => {
+                                let _ = crate::hypr::exec(&format!("xdg-open '{}'", url.replace('\'', "")));
+                            }
+                        })
+                        .await
+                    },
+                    |_| UiMsg::Noop,
+                )
             }
             Msg::Webradio(id) => {
                 let mut c = self.panorama_cfg();
@@ -854,7 +956,12 @@ impl App {
             }
             Msg::SourcesReset => {
                 let mut c = self.panorama_cfg();
-                c.sources = crate::panorama::config::default_sources();
+                let kind = self.panorama.sources_kind;
+                *list_mut(&mut c, kind) = match kind {
+                    "music" => crate::panorama::config::default_music_sources(),
+                    "radio" => crate::panorama::radio::default_radios(),
+                    _ => crate::panorama::config::default_sources(),
+                };
                 self.settings.panorama = Some(c);
                 self.commit()
             }
@@ -998,5 +1105,31 @@ impl App {
                 self.panorama_update(super::super::panorama::PMsg::Toggle(Some(name)))
             }
         }
+    }
+}
+
+/// Liste de sources réglée : vidéo, musique ou radio.
+fn list_mut<'a>(
+    c: &'a mut crate::panorama::Config,
+    kind: &str,
+) -> &'a mut Vec<crate::panorama::config::Source> {
+    match kind {
+        "music" => &mut c.music_sources,
+        "radio" => &mut c.radios,
+        _ => &mut c.sources,
+    }
+}
+
+/// Affichage d'une source dans le Panorama (liste des Réglages).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Show(&'static str);
+
+impl std::fmt::Display for Show {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&crate::i18n::tr(match self.0 {
+            "on" => "Toujours",
+            "off" => "Masquée",
+            _ => "Auto",
+        }))
     }
 }

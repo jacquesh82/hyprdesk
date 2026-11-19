@@ -120,6 +120,8 @@ pub struct Source {
     pub zoom: f32,
     pub dx: f32,
     pub dy: f32,
+    /// Affichage dans le Panorama : auto (sans compte, ou connecté), on, off.
+    pub show: String,
 }
 
 impl Default for Source {
@@ -132,6 +134,7 @@ impl Default for Source {
             zoom: 1.0,
             dx: 0.0,
             dy: 0.0,
+            show: "auto".into(),
         }
     }
 }
@@ -435,6 +438,10 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                 zoom: v.get::<Option<f32>>("zoom")?.unwrap_or(1.0).clamp(1.0, 4.0),
                 dx: v.get::<Option<f32>>("dx")?.unwrap_or(0.0).clamp(-2.0, 2.0),
                 dy: v.get::<Option<f32>>("dy")?.unwrap_or(0.0).clamp(-2.0, 2.0),
+                show: v
+                    .get::<Option<String>>("show")?
+                    .filter(|s| matches!(s.as_str(), "on" | "off"))
+                    .unwrap_or_else(|| "auto".into()),
             });
         }
         match key {
@@ -557,6 +564,9 @@ impl Config {
                     }
                     if !s.unframed() {
                         e.push(format!("zoom = {}, dx = {}, dy = {}", s.zoom, s.dx, s.dy));
+                    }
+                    if s.show != "auto" {
+                        e.push(format!("show = {}", q(&s.show)));
                     }
                     format!("{{ {} }}", e.join(", "))
                 })
@@ -709,6 +719,7 @@ mod tests {
                 zoom: 1.25,
                 dx: 0.0,
                 dy: -0.5,
+                show: "off".into(),
             }],
             music_sources: vec![Source {
                 name: "Radio".into(),

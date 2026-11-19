@@ -443,7 +443,7 @@ impl App {
                 })
             }
             PMsg::VideoOpen(i) => {
-                let Some(src) = self.cfg.general.panorama.active_sources().get(i).cloned() else {
+                let Some(src) = self.panorama_sources().get(i).cloned() else {
                     return Task::none();
                 };
                 self.panorama_open(src)
@@ -1496,7 +1496,6 @@ impl App {
                     .into(),
             ),
             VideoState::Tiles => {
-                let c = &self.cfg.general.panorama;
                 let mut col = column![].spacing(z.pad / 2.0).align_x(Alignment::Center);
                 if let Some(e) = self.panorama.video.as_ref().and_then(|v| v.error.as_ref()) {
                     col = col.push(
@@ -1510,7 +1509,8 @@ impl App {
                 // au-delà d'un minimum tactile, la zone défile.
                 let gap = z.pad / 2.0;
                 let (aw, ah) = ((area.w - z.pad).max(1.0), (area.h - z.pad).max(1.0));
-                let n = c.active_sources().len().max(1);
+                let shown = self.panorama_sources();
+                let n = shown.len().max(1);
                 let (mut cols, mut side) = (1, 0.0_f32);
                 for k in 1..=n {
                     let rows = n.div_ceil(k) as f32;
@@ -1525,7 +1525,7 @@ impl App {
                     .max(1)
                     .min(((aw + gap) / (side + gap)).floor().max(1.0) as usize);
                 let mut line = row![].spacing(gap);
-                for (i, src) in c.active_sources().iter().enumerate() {
+                for (i, src) in shown.iter().enumerate() {
                     let icon_side = side * 0.48;
                     let icon: Element<'_, Msg> = (!src.icon.is_empty())
                         .then(|| self.icon_named(&src.icon, icon_side, fg))
@@ -1614,10 +1614,10 @@ impl App {
                         line = row![].spacing(gap);
                     }
                 }
-                if !c.active_sources().len().is_multiple_of(cols) {
+                if !shown.len().is_multiple_of(cols) {
                     col = col.push(line);
                 }
-                if c.active_sources().is_empty() {
+                if shown.is_empty() {
                     col = col.push(
                         text(crate::i18n::tr(
                             "Aucune source : ajoutez-en dans Réglages → Panorama.",

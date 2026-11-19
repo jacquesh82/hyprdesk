@@ -133,6 +133,12 @@ pub struct State {
     pub strays: Vec<panes::Stray>,
     /// Réglage du cadrage de la source ouverte (colonne des services).
     pub framing: bool,
+    /// Connexion lue dans le navigateur, par adresse de source (`auth`) ;
+    /// dernier relevé.
+    pub signed: HashMap<String, Option<bool>>,
+    pub signed_at: Option<Instant>,
+    /// Liste de sources réglée dans les Réglages : video, music, radio.
+    pub sources_kind: &'static str,
     /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
     /// une fois (reprises, ou fermées).
     pub orphans_checked: bool,
@@ -188,6 +194,8 @@ pub enum PMsg {
     Frame(&'static str),
     /// Fenêtres étiquetées du lecteur trouvées au démarrage : (adresse, classe).
     Orphans(Vec<(String, String)>),
+    /// Cookies du navigateur relus (connexions aux plateformes).
+    Signed(Option<std::collections::HashSet<(String, String)>>),
     /// Fin du dessin automatique des icônes manquantes (SmartUI).
     IconsAuto(Result<String, String>),
     /// Ouvre une adresse dans le lecteur : (nom, adresse).
@@ -461,6 +469,45 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Sources du lecteur visibles (profil Musique : services de musique ;
+    /// sinon vidéo) : sans compte, connectées, ou forcées dans les Réglages.
+    pub(super) fn panorama_sources(&self) -> Vec<crate::panorama::config::Source> {
+        self.cfg
+            .general
+            .panorama
+            .active_sources()
+            .iter()
+            .filter(|s| {
+                crate::panorama::auth::visible(s, self.panorama.signed.get(&s.url).copied().flatten())
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Relit les connexions (cookies du navigateur) toutes les 60 s.
+    fn panorama_check_signed(&mut self) -> Task<Msg> {
+        if self
+            .panorama
+            .signed_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(60))
+        {
+            return Task::none();
+        }
+        self.panorama.signed_at = Some(Instant::now());
+        let browser = crate::panorama::video::browser(&self.cfg.general.panorama.browser)
+            .map(|(cmd, _)| cmd)
+            .unwrap_or_default();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || crate::panorama::auth::cookies(&browser))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            |k| wrap(PMsg::Signed(k)),
+        )
+    }
+
     /// Lecture commencée dans le lecteur (profils Vidéo et Musique) : la
     /// vidéo passe seule en plein écran, dans sa zone (`autofull`), une fois
     /// par fenêtre ; la méthode trouvée est mémorisée pour la source.
@@ -727,6 +774,20 @@ impl App {
                     |r| wrap(PMsg::ShortcutResult(r)),
                 )
             }
+            PMsg::Signed(cookies) => {
+                let c = &self.cfg.general.panorama;
+                self.panorama.signed = match cookies {
+                    Some(k) => c
+                        .sources
+                        .iter()
+                        .chain(&c.music_sources)
+                        .chain(&c.radios)
+                        .map(|s| (s.url.clone(), crate::panorama::auth::signed_in(&k, &s.url)))
+                        .collect(),
+                    None => HashMap::new(),
+                };
+                Task::none()
+            }
             PMsg::IconsAuto(r) => {
                 self.panorama.icons_job = None;
                 if let Err(e) = &r {
@@ -865,6 +926,7 @@ impl App {
                 self.panorama_video_gone();
                 let mut strays = Task::batch([
                     self.panorama_close_strays(),
+                    self.panorama_check_signed(),
                     self.panorama_auto_icons(),
                     self.panorama_auto_full(),
                 ]);
@@ -1087,7 +1149,7 @@ impl App {
                 if want == "close" || want == "stop" {
                     return self.panorama_update(PMsg::VideoClose);
                 }
-                let sources = self.cfg.general.panorama.active_sources();
+                let sources = self.panorama_sources();
                 let i = want
                     .parse::<usize>()
                     .ok()

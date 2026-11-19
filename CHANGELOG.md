@@ -37,6 +37,14 @@ and this project adheres to
   on the latest value. NVIDIA cards (proprietary driver, absent from hwmon)
   are read through `nvidia-smi`: new `gpu` (load) and `vram` metrics, and
   `gpu_temp` falls back to it. The System page shows eight graphs.
+- **Panorama sources configured in Settings, only usable platforms
+  shown** (MLG-172). Settings → Panorama → Sources edits the three lists
+  (Video, Music, Webradio): add, order, remove, icons, default list. The
+  Panorama only shows platforms that need no account and those you are
+  signed in to — read from the browser profile (session cookie names,
+  never values; Netflix, Spotify, Deezer, Prime Video, Max, Canal+…);
+  platforms whose sign-in cannot be read stay visible. Each source can be
+  forced (`show = "on" | "off"`), and “Sign in” opens it in the browser.
 - **Playing a new media stops the previous one**: every MPRIS player still
   playing is paused before a Panorama source starts.
 - **Panorama Music: Playlist and Webradio tabs, music on request through

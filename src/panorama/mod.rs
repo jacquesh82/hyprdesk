@@ -9,6 +9,7 @@
 //! Ce module est la logique pure (détection, mise en page, configuration) ;
 //! le rendu vit dans `ui::panorama`, les réglages dans `ui::plugins::panorama`.
 
+pub mod auth;
 pub mod autofull;
 pub mod config;
 pub mod design;

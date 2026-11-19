@@ -221,6 +221,9 @@ pub fn sources_json(l: &[Source]) -> String {
                 if !s.fs.is_empty() {
                     o["fs"] = s.fs.clone().into();
                 }
+                if s.show != "auto" {
+                    o["show"] = s.show.clone().into();
+                }
                 if !s.unframed() {
                     o["zoom"] = s.zoom.into();
                     o["dx"] = s.dx.into();
@@ -262,6 +265,11 @@ pub fn sources_from_json(v: &str) -> Result<Vec<Source>, String> {
                 zoom: o["zoom"].as_f64().unwrap_or(1.0).clamp(1.0, 4.0) as f32,
                 dx: o["dx"].as_f64().unwrap_or(0.0).clamp(-2.0, 2.0) as f32,
                 dy: o["dy"].as_f64().unwrap_or(0.0).clamp(-2.0, 2.0) as f32,
+                show: o["show"]
+                    .as_str()
+                    .filter(|s| matches!(*s, "on" | "off"))
+                    .unwrap_or("auto")
+                    .to_string(),
             })
         })
         .collect()
@@ -291,6 +299,7 @@ mod tests {
                 zoom: 1.5,
                 dx: 0.25,
                 dy: -0.5,
+                show: "on".into(),
             },
             Source {
                 name: "Free \"TV\"".into(),

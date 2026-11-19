@@ -241,7 +241,7 @@ impl App {
         if radio_tab {
             list = self.panorama_radio_list(list, playing);
         } else {
-            let sources = c.active_sources();
+            let sources = self.panorama_sources();
             // Lignes tactiles : toute la hauteur partagée, entre 40 et 72 px.
             let room = size.height - 16.0 - 34.0 - gap;
             let n = sources.len().max(1) as f32;
@@ -308,7 +308,7 @@ impl App {
             ));
         }
         list = list.push(small(crate::i18n::tr("Favoris").to_string()));
-        for r in &c.radios {
+        for r in c.radios.iter().filter(|r| r.show != "off") {
             list = list.push(self.panorama_source_row(
                 r,
                 playing == Some(r.name.as_str()),
