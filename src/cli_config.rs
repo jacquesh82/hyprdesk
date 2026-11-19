@@ -878,7 +878,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.browser.clear(); } };
-    "panorama.voice", "panorama", "on | off — LYRA vocale : écoute du mot « Lyra » et réponses parlées (hyprdesk voice setup)",
+    "panorama.voice", "assistant", "on | off — LYRA vocale : écoute du mot « Lyra » et réponses parlées (hyprdesk voice setup)",
         |c| if c.general.panorama.voice { "on".into() } else { "off".into() },
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
@@ -887,7 +887,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice = false; } };
-    "panorama.voice_mic", "panorama", "<nœud PipeWire> | default — micro de LYRA vocale (wpctl status, node.name)",
+    "panorama.voice_mic", "assistant", "<nœud PipeWire> | default — micro de LYRA vocale (wpctl status, node.name)",
         |c| if c.general.panorama.voice_mic.is_empty() { "default".into() } else { c.general.panorama.voice_mic.clone() },
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
@@ -896,7 +896,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice_mic.clear(); } };
-    "panorama.voice_halo", "panorama", "screens | panorama | off — halo de LYRA vocale pendant la conversation",
+    "panorama.voice_halo", "assistant", "screens | panorama | off — halo de LYRA vocale pendant la conversation",
         |c| c.general.panorama.voice_halo.clone(),
         |s, v, c| {
             if !matches!(v, "screens" | "panorama" | "off") { return Err("screens | panorama | off".into()); }
@@ -906,7 +906,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice_halo = "screens".into(); } };
-    "panorama.voice_halo_color", "panorama", "lyra | accent — couleur du halo (violet-bleu de LYRA, ou accent du thème)",
+    "panorama.voice_halo_color", "assistant", "lyra | accent — couleur du halo (violet-bleu de LYRA, ou accent du thème)",
         |c| c.general.panorama.voice_halo_color.clone(),
         |s, v, c| {
             if !matches!(v, "lyra" | "accent") { return Err("lyra | accent".into()); }

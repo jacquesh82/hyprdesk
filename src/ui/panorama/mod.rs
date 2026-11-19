@@ -2006,7 +2006,7 @@ impl App {
     /// État de LYRA vocale pour le module de barre `voix`, écrit dans
     /// `$XDG_RUNTIME_DIR/hyprdesk/voix` quand il change : `state=` absent
     /// (LYRA coupée), off, installing, listening, awake, thinking, speaking,
-    /// error ; `detail=` phrase entendue ou erreur ; `settings=` paquet de
+    /// error ; `detail=` phrase entendue ou erreur ; `settings=` page de
     /// ses réglages.
     pub(super) fn voice_publish(&mut self) {
         let on = self.voice_allowed();
@@ -2029,11 +2029,8 @@ impl App {
                 VoiceUi::Speaking => ("speaking", String::new()),
             }
         };
-        let settings = if self.cfg.plugin_on("panorama") {
-            "panorama"
-        } else {
-            "assistant"
-        };
+        // Réglages de LYRA vocale : IA → Voix.
+        let settings = "assistant/voix";
         let detail = detail.replace('\n', " ");
         let text = format!("state={state}\ndetail={detail}\nsettings={settings}\n");
         if text == self.panorama.voice_written {

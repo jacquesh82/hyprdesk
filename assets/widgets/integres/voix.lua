@@ -8,7 +8,7 @@
 -- écouter même si le paquet Panorama est coupé.
 
 local function read()
-    local out = { state = "absent", detail = "", settings = "panorama" }
+    local out = { state = "absent", detail = "", settings = "assistant/voix" }
     local dir = os.getenv("XDG_RUNTIME_DIR")
     if not dir then return out end
     local f = io.open(dir .. "/hyprdesk/voix", "r")
@@ -83,7 +83,7 @@ return {
                           action = function() hyprdesk("panorama voice off") end }
         end
         m[#m + 1] = { label = hd.t("Réglages de LYRA vocale…"), icon = "preferences-system-symbolic",
-                      action = function() hyprdesk("settings " .. (v.settings or "panorama")) end }
+                      action = function() hyprdesk("settings " .. (v.settings or "assistant/voix")) end }
         return m
     end,
 }

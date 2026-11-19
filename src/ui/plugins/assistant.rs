@@ -10,7 +10,7 @@ pub(in crate::ui) mod providers;
 pub(in crate::ui) mod services;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, radio, row, scrollable};
+use iced::widget::{button, column, container, pick_list, radio, row, scrollable, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -30,6 +30,7 @@ pub const TABS: &[super::SubTab] = &[
     ("assistant", "Assistant"),
     ("services", "Autres services IA"),
     ("smartui", "SmartUI design"),
+    ("voix", "Voix"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -94,12 +95,25 @@ pub enum Msg {
     SmartAutoToggle(bool),
     /// Réglages → IA → SmartUI design (depuis le Lanceur).
     OpenServices,
+    // LYRA vocale (onglet Voix).
+    /// Micro (nœud PipeWire ; vide : celui par défaut).
+    VoiceMic(String),
+    /// Halo pendant la conversation : screens, panorama, off.
+    VoiceHalo(&'static str),
+    /// Couleur du halo : lyra, accent.
+    VoiceHaloColor(&'static str),
 }
 
 /// Arrivée sur le paquet : LYRA, la clé du service, les icônes SmartUI.
 pub(in crate::ui) fn on_show(app: &mut App) -> Task<UiMsg> {
     app.services_init();
-    Task::batch([load_status(), providers::load_keys(app), app.smartui_load()])
+    Task::batch([
+        load_status(),
+        providers::load_keys(app),
+        app.smartui_load(),
+        // Micros de PipeWire, pour l'onglet Voix.
+        Task::done(UiMsg::Panorama(crate::ui::panorama::PMsg::MicsRefresh)),
+    ])
 }
 
 pub fn load_status() -> Task<UiMsg> {
@@ -248,6 +262,9 @@ impl App {
         if self.on_subtab(INFO.id, "smartui") {
             return self.smartui_section(&p.assistant.services);
         }
+        if self.on_subtab(INFO.id, "voix") {
+            return self.voice_tab();
+        }
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
@@ -394,6 +411,122 @@ impl App {
         col.into()
     }
 
+    /// Onglet Voix : LYRA vocale — marche, micro, essai de la voix, halo.
+    /// Les réglages restent rangés dans `panorama.voice*` (settings.lua).
+    fn voice_tab(&self) -> Element<'_, UiMsg> {
+        use crate::ui::panorama::PMsg;
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        // « Par défaut », puis chaque micro de PipeWire.
+        let mut options = vec![Mic(
+            String::new(),
+            crate::i18n::tr("Micro par défaut").to_string(),
+        )];
+        options.extend(self.panorama.voice_mics.iter().map(|(n, l, d)| {
+            Mic(
+                n.clone(),
+                if *d {
+                    crate::tr!("{l} (par défaut)", l = l.clone())
+                } else {
+                    l.clone()
+                },
+            )
+        }));
+        let current = options
+            .iter()
+            .find(|m| m.0 == c.voice_mic)
+            .cloned()
+            .or_else(|| {
+                (!c.voice_mic.is_empty()).then(|| Mic(c.voice_mic.clone(), c.voice_mic.clone()))
+            });
+        let panorama = self.cfg.plugin_on("panorama");
+        let mut halos = vec![("screens", "Tous les écrans")];
+        if panorama {
+            halos.push(("panorama", "Panorama"));
+        }
+        halos.push(("off", "Aucun"));
+        let halo_cur = Some(match c.voice_halo.as_str() {
+            "panorama" if panorama => "panorama",
+            "off" => "off",
+            _ => "screens",
+        });
+        let mut halo = row![].spacing(14);
+        for (id, label) in halos {
+            halo = halo.push(
+                radio(crate::i18n::tr(label), id, halo_cur, |v: &'static str| {
+                    wrap(Msg::VoiceHalo(v))
+                })
+                .text_size(13),
+            );
+        }
+        let color_cur = Some(if c.voice_halo_color == "accent" {
+            "accent"
+        } else {
+            "lyra"
+        });
+        let mut halo_color = row![].spacing(14);
+        for (id, label) in [
+            ("lyra", "Violet-bleu de LYRA"),
+            ("accent", "Accent du thème"),
+        ] {
+            halo_color = halo_color.push(
+                radio(crate::i18n::tr(label), id, color_cur, |v: &'static str| {
+                    wrap(Msg::VoiceHaloColor(v))
+                })
+                .text_size(13),
+            );
+        }
+        column![
+            self.section("LYRA vocale"),
+            text(
+                "Dites « Lyra » puis votre demande : LYRA répond à voix haute (Piper), en français \
+                 ou en anglais. Écoute et voix restent sur cette machine (Vosk, hors ligne).",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+            text(
+                "Le micro n'écoute que si l'écoute se voit : module « LYRA vocale » (voix) dans la \
+                 barre, ou bouton micro du Panorama. L'un comme l'autre l'active ou la coupe.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+            toggler(c.voice)
+                .label(crate::i18n::tr("Écouter le mot « Lyra »"))
+                .text_size(13)
+                .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle)),
+            row![
+                text(crate::i18n::tr("Micro"))
+                    .font(self.font)
+                    .size(13)
+                    .width(80),
+                pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
+                    .text_size(13)
+                    .width(Length::Fill),
+                button(text("Actualiser").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press(UiMsg::Panorama(PMsg::MicsRefresh)),
+                button(text("Tester la voix").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press_maybe(
+                        crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))
+                    ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text(crate::i18n::tr(
+                "Halo de conversation (« Lyra » entendu, réflexion, réponse)"
+            ))
+            .font(self.font)
+            .size(13),
+            halo,
+            halo_color,
+        ]
+        .spacing(8)
+        .into()
+    }
+
     pub(in crate::ui) fn assistant_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
             Msg::Status(s) => {
@@ -417,6 +550,24 @@ impl App {
                 self.update_inner(super::apps::wrap(super::apps::Msg::Pick("ai".into(), v)))
             }
             Msg::Open => self.open_assistant(),
+            Msg::VoiceMic(m) => {
+                let mut c = self.panorama_cfg();
+                c.voice_mic = m;
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::VoiceHalo(v) => {
+                let mut c = self.panorama_cfg();
+                c.voice_halo = v.into();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
+            Msg::VoiceHaloColor(v) => {
+                let mut c = self.panorama_cfg();
+                c.voice_halo_color = v.into();
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
             m @ (Msg::AiAdd(_)
             | Msg::AiEdit(_)
             | Msg::AiDraft(..)
@@ -430,5 +581,15 @@ impl App {
             | Msg::AiUse(..)) => self.providers_update(m),
             other => self.services_update(other),
         }
+    }
+}
+
+/// Micro proposé : (nœud PipeWire, libellé).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Mic(String, String);
+
+impl std::fmt::Display for Mic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.1)
     }
 }
