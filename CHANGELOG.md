@@ -65,6 +65,10 @@ and this project adheres to
   speaks (`panorama.voice_halo` screens | panorama | off,
   `panorama.voice_halo_color` lyra | accent). LYRA's context now covers
   every Panorama setting and command.
+- **Panorama: Remote profile removed** (MLG-172). The shortcuts block keeps
+  Video, Music and Settings; a configuration still on `remote` opens the
+  Video profile. In a vertical strip the player is 16:9 across the width
+  and the playlist takes the remaining height.
 - **Panorama zone on an ordinary screen** (MLG-172). Settings → Screens →
   a screen → “Set a Panorama zone”: horizontal (top, bottom) or vertical
   (left, right) strip, 10 to 50 % of the screen. The Panorama sits in that

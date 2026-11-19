@@ -860,11 +860,7 @@ impl App {
             .into();
         }
         // La télécommande garde son pavé de trois colonnes.
-        let columns = if d.shortcut_profile == "remote" {
-            3
-        } else {
-            (d.shortcut_columns as usize).max(1)
-        };
+        let columns = (d.shortcut_columns as usize).max(1);
         let width = ((size.width - 16.0 - gap * (columns - 1) as f32) / columns as f32).max(28.0);
         let rows = list.len().div_ceil(columns);
         let room = size.height - 16.0 - seg_h - gap;
@@ -1123,7 +1119,6 @@ fn profile_icon(id: &str) -> iced::widget::svg::Handle {
     ICONS[match id {
         "video" => 0,
         "audio" => 1,
-        "remote" => 2,
         _ => 3,
     }]
     .clone()

@@ -1129,7 +1129,7 @@ impl App {
                 // plein écran (vidéo seule) est mémorisé pour la source.
                 let player = matches!(
                     self.cfg.general.panorama.design.shortcut_profile.as_str(),
-                    "video" | "audio" | "remote"
+                    "video" | "audio"
                 );
                 if player
                     && let Some(key) = command.trim().strip_prefix("hyprdesk key ")

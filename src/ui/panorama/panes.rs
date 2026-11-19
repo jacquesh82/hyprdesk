@@ -231,7 +231,7 @@ impl App {
             },
             Layout::Dashboard => {
                 let player =
-                    matches!(c.design.shortcut_profile.as_str(), "video" | "audio" | "remote");
+                    matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
                 map(&c.design.active_tiles(s.w, s.h), player)
             }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)

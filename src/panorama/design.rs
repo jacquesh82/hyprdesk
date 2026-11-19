@@ -85,14 +85,13 @@ pub fn default_pages() -> Vec<Page> {
 }
 /// Profils du bloc de raccourcis : média vidéo, média audio, télécommande,
 /// système (la liste personnalisable `shortcuts`).
-pub const PROFILES: &[&str] = &["video", "audio", "remote", "system"];
+pub const PROFILES: &[&str] = &["video", "audio", "system"];
 
 /// Libellé et icône d'un profil, pour le sélecteur du bloc.
 pub fn profile_label(id: &str) -> (&'static str, &'static str) {
     match id {
         "video" => ("Vidéo", "video-x-generic-symbolic"),
         "audio" => ("Musique", "audio-x-generic-symbolic"),
-        "remote" => ("Télécommande", "input-gaming-symbolic"),
         _ => ("Système", "preferences-system-symbolic"),
     }
 }
@@ -200,30 +199,6 @@ pub fn profile_shortcuts(id: &str) -> Option<Vec<Shortcut>> {
                 "Micro",
                 "microphone-sensitivity-muted-symbolic",
                 "hyprdesk osd mic toggle",
-            ),
-        ],
-        // Pavé directionnel, trois colonnes.
-        "remote" => &[
-            ("Retour", "edit-undo-symbolic", "hyprdesk key Escape"),
-            ("Monter", "go-up-symbolic", "hyprdesk key Up"),
-            (
-                "Lecture",
-                "media-playback-start-symbolic",
-                "hyprdesk media play-pause",
-            ),
-            ("Gauche", "go-previous-symbolic", "hyprdesk key Left"),
-            ("OK", "object-select-symbolic", "hyprdesk key Return"),
-            ("Droite", "go-next-symbolic", "hyprdesk key Right"),
-            (
-                "Volume −",
-                "audio-volume-low-symbolic",
-                "hyprdesk osd volume -5",
-            ),
-            ("Descendre", "go-down-symbolic", "hyprdesk key Down"),
-            (
-                "Volume +",
-                "audio-volume-high-symbolic",
-                "hyprdesk osd volume +5",
             ),
         ],
         _ => return None,
@@ -427,7 +402,7 @@ impl Design {
     pub fn active_tiles(&self, w: f32, h: f32) -> std::borrow::Cow<'_, [Tile]> {
         match self.shortcut_profile.as_str() {
             // La télécommande pilote le lecteur : elle garde sa zone.
-            "video" | "audio" | "remote" => player_tiles(w, h, self.padding, self.gap).into(),
+            "video" | "audio" => player_tiles(w, h, self.padding, self.gap).into(),
             _ => self.tiles.as_slice().into(),
         }
     }
@@ -519,6 +494,8 @@ impl Design {
             "clock_style" => self.clock_style = choice(CLOCKS)?,
             "system_style" => self.system_style = choice(SYSTEMS)?,
             "media_style" => self.media_style = choice(MEDIA)?,
+            // Ancien profil Télécommande (retiré) : le profil Vidéo.
+            "shortcut_profile" if value == "remote" => self.shortcut_profile = "video".into(),
             "shortcut_profile" => self.shortcut_profile = choice(PROFILES)?,
             "metrics" => {
                 let ids: Vec<_> = value
@@ -896,7 +873,7 @@ mod tests {
             assert!(!d.active_shortcuts().is_empty(), "{id}");
             assert_eq!(read(&d.to_lua()).unwrap(), d);
         }
-        assert_eq!(profile_shortcuts("remote").unwrap().len(), 9);
+        assert!(profile_shortcuts("remote").is_none());
         // Bandeau 1600×450 : lecteur 16:9 sur toute la hauteur utile.
         let t = player_tiles(1600.0, 450.0, 20.0, 12.0);
         let (pw, ph) = (t[1].w * 1560.0 - 12.0, 410.0 - 12.0);
@@ -911,16 +888,16 @@ mod tests {
         d.set("shortcut_profile", "video").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
         d.set("shortcut_profile", "remote").unwrap();
-        assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
+        assert_eq!(d.shortcut_profile, "video", "Télécommande retirée : Vidéo");
         d.set("shortcut_profile", "system").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0), d.tiles.as_slice());
         d.set("shortcut_profile", "system").unwrap();
         // Un préréglage garde le profil choisi.
         d.apply_preset("forest").unwrap();
         assert_eq!(d.shortcut_profile, "system");
-        d.set("shortcut_profile", "remote").unwrap();
+        d.set("shortcut_profile", "audio").unwrap();
         d.apply_preset("studio").unwrap();
-        assert_eq!(d.shortcut_profile, "remote");
+        assert_eq!(d.shortcut_profile, "audio");
     }
 
     #[test]

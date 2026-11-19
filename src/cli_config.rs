@@ -1114,7 +1114,7 @@ pub static KEYS: &[Key] = keys![
             s.panorama = Some(p); Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("media_style", &d.get("media_style").unwrap_or_default()); } };
-    "panorama.design.shortcut_profile", "panorama", "video | audio | remote | system — profil du bloc de raccourcis (system : la liste shortcuts)",
+    "panorama.design.shortcut_profile", "panorama", "video | audio | system — profil du bloc de raccourcis (system : la liste shortcuts)",
         |c| c.general.panorama.design.get("shortcut_profile").unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
