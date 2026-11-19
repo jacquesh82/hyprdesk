@@ -372,7 +372,10 @@ fn panorama_context(cfg: &Config) -> String {
     let p = &cfg.general.panorama;
     let widgets: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
     let names = |l: &[crate::panorama::config::Source]| {
-        l.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")
+        l.iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     let mut o = crate::tr!(
         "\n## Panorama (écrans bandeau tactiles)\n\n\
@@ -385,7 +388,12 @@ fn panorama_context(cfg: &Config) -> String {
         },
         layout = p.layout.id(),
         profile = p.design.shortcut_profile.clone(),
-        pages = p.pages.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", "),
+        pages = p
+            .pages
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
         sources = names(&p.sources),
         music = names(&p.music_sources),
         voice = if p.voice { "on" } else { "off" }.to_string()

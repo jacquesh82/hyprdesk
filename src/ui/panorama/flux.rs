@@ -9,19 +9,24 @@ use iced::{Color, Element, Font, Length, Point, Rectangle, Renderer, Size, Theme
 
 use super::super::Msg;
 
-/// Ambiances proposées (Réglages) : (identifiant, libellé).
-pub const AMBIANCES: &[(&str, &str)] = &[
-    ("aurora", "Aurore"),
-    ("sunset", "Coucher de soleil"),
-    ("ocean", "Océan"),
-];
-
 fn palette(id: &str) -> [Color; 3] {
     let rgb = |r: u8, g: u8, b: u8| Color::from_rgb8(r, g, b);
     match id {
-        "sunset" => [rgb(0xff, 0x7e, 0x5f), rgb(0xfe, 0x4a, 0x8b), rgb(0x6a, 0x2c, 0x91)],
-        "ocean" => [rgb(0x00, 0xc6, 0xff), rgb(0x00, 0x72, 0xff), rgb(0x0b, 0x1f, 0x4d)],
-        _ => [rgb(0x2a, 0xf5, 0x98), rgb(0x00, 0x9e, 0xfd), rgb(0x7f, 0x5a, 0xf0)],
+        "sunset" => [
+            rgb(0xff, 0x7e, 0x5f),
+            rgb(0xfe, 0x4a, 0x8b),
+            rgb(0x6a, 0x2c, 0x91),
+        ],
+        "ocean" => [
+            rgb(0x00, 0xc6, 0xff),
+            rgb(0x00, 0x72, 0xff),
+            rgb(0x0b, 0x1f, 0x4d),
+        ],
+        _ => [
+            rgb(0x2a, 0xf5, 0x98),
+            rgb(0x00, 0x9e, 0xfd),
+            rgb(0x7f, 0x5a, 0xf0),
+        ],
     }
 }
 
@@ -59,7 +64,10 @@ impl canvas::Program<Msg> for Flux {
         _: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut f = Frame::new(renderer, bounds.size());
-        let Size { width: w, height: h } = bounds.size();
+        let Size {
+            width: w,
+            height: h,
+        } = bounds.size();
         let [all, low, mid, high] = if self.paused { [0.0; 4] } else { self.levels };
         let [c0, c1, c2] = self.colors;
         let dark = Color::from_rgb(0.02, 0.025, 0.04);
@@ -82,7 +90,13 @@ impl canvas::Program<Msg> for Flux {
         let ang2 = -self.t * std::f32::consts::TAU / 23.0;
         let veil = canvas::gradient::Linear::new(dir(ang2 + std::f32::consts::PI), dir(ang2))
             .add_stop(0.0, Color { a: 0.0, ..c0 })
-            .add_stop(0.5, Color { a: 0.10 + 0.18 * all, ..c1 })
+            .add_stop(
+                0.5,
+                Color {
+                    a: 0.10 + 0.18 * all,
+                    ..c1
+                },
+            )
             .add_stop(1.0, Color { a: 0.0, ..c2 });
         f.fill_rectangle(Point::ORIGIN, bounds.size(), veil);
         // Barre « flux vocal » : capsule centrale, le son défile en continu
@@ -117,7 +131,11 @@ impl canvas::Program<Msg> for Flux {
             if x < start {
                 continue;
             }
-            let v = if self.paused { 0.04 } else { smooth(k as isize).max(0.04) };
+            let v = if self.paused {
+                0.04
+            } else {
+                smooth(k as isize).max(0.04)
+            };
             let half = v * (bar_h * 0.42);
             let pos = ((x - start) / inner).clamp(0.0, 1.0);
             // Les barres naissent doucement à droite et s'éteignent à gauche.

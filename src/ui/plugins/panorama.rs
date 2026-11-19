@@ -438,7 +438,9 @@ impl App {
         // Vue par défaut, puis chaque page : nom, ordre, composition.
         col = col.push(
             row![
-                text(crate::i18n::tr("Vue par défaut")).size(13).width(Length::Fill),
+                text(crate::i18n::tr("Vue par défaut"))
+                    .size(13)
+                    .width(Length::Fill),
                 button(text("Composer").size(12))
                     .padding([2, 10])
                     .on_press(wrap(Msg::ComposePage(None))),
@@ -610,7 +612,10 @@ impl App {
         let c = self.panorama_cfg();
         let mics = &self.panorama.voice_mics;
         // « Par défaut », puis chaque micro de PipeWire.
-        let mut options = vec![Mic(String::new(), crate::i18n::tr("Micro par défaut").to_string())];
+        let mut options = vec![Mic(
+            String::new(),
+            crate::i18n::tr("Micro par défaut").to_string(),
+        )];
         options.extend(mics.iter().map(|(n, l, d)| {
             Mic(
                 n.clone(),
@@ -621,9 +626,13 @@ impl App {
                 },
             )
         }));
-        let current = options.iter().find(|m| m.0 == c.voice_mic).cloned().or_else(|| {
-            (!c.voice_mic.is_empty()).then(|| Mic(c.voice_mic.clone(), c.voice_mic.clone()))
-        });
+        let current = options
+            .iter()
+            .find(|m| m.0 == c.voice_mic)
+            .cloned()
+            .or_else(|| {
+                (!c.voice_mic.is_empty()).then(|| Mic(c.voice_mic.clone(), c.voice_mic.clone()))
+            });
         column![
             self.section("LYRA vocale"),
             text(
@@ -639,7 +648,10 @@ impl App {
                 .text_size(13)
                 .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle)),
             row![
-                text(crate::i18n::tr("Micro")).font(self.font).size(13).width(80),
+                text(crate::i18n::tr("Micro"))
+                    .font(self.font)
+                    .size(13)
+                    .width(80),
                 iced::widget::pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
                     .text_size(13)
                     .width(Length::Fill),
@@ -654,9 +666,11 @@ impl App {
             ]
             .spacing(8)
             .align_y(Alignment::Center),
-            text(crate::i18n::tr("Halo de conversation (« Lyra » entendu, réflexion, réponse)"))
-                .font(self.font)
-                .size(13),
+            text(crate::i18n::tr(
+                "Halo de conversation (« Lyra » entendu, réflexion, réponse)"
+            ))
+            .font(self.font)
+            .size(13),
             {
                 let cur = Some(match c.voice_halo.as_str() {
                     "panorama" => "panorama",
@@ -679,9 +693,16 @@ impl App {
                 r
             },
             {
-                let cur = Some(if c.voice_halo_color == "accent" { "accent" } else { "lyra" });
+                let cur = Some(if c.voice_halo_color == "accent" {
+                    "accent"
+                } else {
+                    "lyra"
+                });
                 let mut r = row![].spacing(14);
-                for (id, label) in [("lyra", "Violet-bleu de LYRA"), ("accent", "Accent du thème")] {
+                for (id, label) in [
+                    ("lyra", "Violet-bleu de LYRA"),
+                    ("accent", "Accent du thème"),
+                ] {
                     r = r.push(
                         iced::widget::radio(crate::i18n::tr(label), id, cur, |v: &'static str| {
                             wrap(Msg::VoiceHaloColor(v))
@@ -704,7 +725,11 @@ impl App {
             _ => "video",
         };
         let mut kinds = row![].spacing(6);
-        for (id, label) in [("video", "Vidéo"), ("music", "Musique"), ("radio", "Webradio")] {
+        for (id, label) in [
+            ("video", "Vidéo"),
+            ("music", "Musique"),
+            ("radio", "Webradio"),
+        ] {
             let on = kind == id;
             kinds = kinds.push(
                 button(text(crate::i18n::tr(label)).font(self.font).size(12))
@@ -763,11 +788,16 @@ impl App {
                 self.panorama_move_buttons(i, n, |i, d| wrap(Msg::SourceMove(i, d))),
                 column![
                     text(s.name.clone()).font(self.font).size(13),
-                    text(format!("{} · {state}", s.url)).font(self.font).size(11).color(dim),
+                    text(format!("{} · {state}", s.url))
+                        .font(self.font)
+                        .size(11)
+                        .color(dim),
                 ]
                 .width(Length::Fill),
-                iced::widget::pick_list(shows, current, move |v: Show| wrap(Msg::SourceShow(i, v.0)))
-                    .text_size(12),
+                iced::widget::pick_list(shows, current, move |v: Show| wrap(Msg::SourceShow(
+                    i, v.0
+                )))
+                .text_size(12),
             ]
             .spacing(10)
             .align_y(Alignment::Center);
@@ -819,12 +849,9 @@ impl App {
         let current = crate::panorama::radio::service(&c.webradio).map(|s| s.0);
         for (id, label, _) in crate::panorama::radio::SERVICES.iter().copied() {
             services = services.push(
-                iced::widget::radio(
-                    label,
-                    id,
-                    current,
-                    |v: &'static str| wrap(Msg::Webradio(v.into())),
-                )
+                iced::widget::radio(label, id, current, |v: &'static str| {
+                    wrap(Msg::Webradio(v.into()))
+                })
                 .text_size(13),
             );
         }
@@ -835,11 +862,18 @@ impl App {
             _ => "aurora",
         });
         let mut ambiances = row![
-            text(crate::i18n::tr("Ambiance du flux")).font(self.font).size(13).width(140)
+            text(crate::i18n::tr("Ambiance du flux"))
+                .font(self.font)
+                .size(13)
+                .width(140)
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        for (id, label) in [("aurora", "Aurore"), ("sunset", "Coucher de soleil"), ("ocean", "Océan")] {
+        for (id, label) in [
+            ("aurora", "Aurore"),
+            ("sunset", "Coucher de soleil"),
+            ("ocean", "Océan"),
+        ] {
             ambiances = ambiances.push(
                 iced::widget::radio(crate::i18n::tr(label), id, amb, |v: &'static str| {
                     wrap(Msg::FluxAmbiance(v))
@@ -974,7 +1008,10 @@ impl App {
                 let mut c = self.panorama_cfg();
                 let kind = self.panorama.sources_kind;
                 let j = i as i64 + d as i64;
-                if i < list_mut(&mut c, kind).len() && j >= 0 && (j as usize) < list_mut(&mut c, kind).len() {
+                if i < list_mut(&mut c, kind).len()
+                    && j >= 0
+                    && (j as usize) < list_mut(&mut c, kind).len()
+                {
                     list_mut(&mut c, kind).swap(i, j as usize);
                 }
                 self.settings.panorama = Some(c);
@@ -1085,7 +1122,10 @@ impl App {
                                     .spawn();
                             }
                             None => {
-                                let _ = crate::hypr::exec(&format!("xdg-open '{}'", url.replace('\'', "")));
+                                let _ = crate::hypr::exec(&format!(
+                                    "xdg-open '{}'",
+                                    url.replace('\'', "")
+                                ));
                             }
                         })
                         .await
@@ -1271,7 +1311,7 @@ struct Show(&'static str);
 
 impl std::fmt::Display for Show {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&crate::i18n::tr(match self.0 {
+        f.write_str(crate::i18n::tr(match self.0 {
             "on" => "Toujours",
             "off" => "Masquée",
             _ => "Auto",

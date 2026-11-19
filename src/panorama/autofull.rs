@@ -310,10 +310,9 @@ fn click(n: u32) -> Result<(), String> {
     conn.display().get_registry(&qh, ());
     let mut st = St(None);
     q.roundtrip(&mut st).map_err(|e| e.to_string())?;
-    let mgr = st
-        .0
-        .take()
-        .ok_or_else(|| "pointeur virtuel indisponible".to_string())?;
+    let mgr =
+        st.0.take()
+            .ok_or_else(|| "pointeur virtuel indisponible".to_string())?;
     let p = mgr.create_virtual_pointer(None, &qh, ());
     let t0 = std::time::Instant::now();
     let ms = || t0.elapsed().as_millis() as u32;
@@ -407,7 +406,11 @@ mod tests {
 
     #[test]
     fn methode_lue_et_ecrite() {
-        for m in [Method::DoubleClick, Method::Key, Method::Click(0.965, 0.935)] {
+        for m in [
+            Method::DoubleClick,
+            Method::Key,
+            Method::Click(0.965, 0.935),
+        ] {
             assert_eq!(Method::parse(&m.id()), Some(m));
         }
         assert_eq!(Method::parse("click:2,0"), None);
@@ -416,8 +419,18 @@ mod tests {
 
     #[test]
     fn forme_de_video() {
-        let win = Rect { x: 0.0, y: 0.0, w: 708.0, h: 398.0 };
-        let r = |w, h| Rect { x: 0.0, y: 0.0, w, h };
+        let win = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 708.0,
+            h: 398.0,
+        };
+        let r = |w, h| Rect {
+            x: 0.0,
+            y: 0.0,
+            w,
+            h,
+        };
         assert!(video_like(r(480.0, 270.0), win));
         // Barre de progression, pochette carrée, petite animation : non.
         assert!(!video_like(r(700.0, 40.0), win));

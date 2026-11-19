@@ -548,7 +548,10 @@ impl Lock {
         let accent = rgba(st.accent, a);
         // Écran bandeau (Panorama : 2560×720, 1920×480…) : tout tient en
         // ligne, la hauteur ne suffit pas à la colonne.
-        let strip = self.sizes.get(&id).is_some_and(|s| is_strip(s.width, s.height));
+        let strip = self
+            .sizes
+            .get(&id)
+            .is_some_and(|s| is_strip(s.width, s.height));
         let t = self.started.elapsed().as_secs_f32();
         let tau = std::f32::consts::TAU;
         let (dx, dy) = (
@@ -557,7 +560,11 @@ impl Lock {
         );
 
         let now = chrono::Local::now();
-        let side = if strip { Alignment::Start } else { Alignment::Center };
+        let side = if strip {
+            Alignment::Start
+        } else {
+            Alignment::Center
+        };
         let clock = column![
             text(now.format("%H:%M").to_string())
                 .font(self.title_font)
@@ -603,7 +610,9 @@ impl Lock {
                 }
                 c.push(name).into()
             };
-            col = col.push(who).push(Space::new().height(if strip { 6 } else { 0 }));
+            col = col
+                .push(who)
+                .push(Space::new().height(if strip { 6 } else { 0 }));
         }
         let field_border = if self.error.is_some() {
             Color::from_rgb8(0xff, 0x95, 0x80)

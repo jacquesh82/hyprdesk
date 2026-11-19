@@ -53,7 +53,9 @@ impl Page {
 
     /// Page Système : le plus de mesures possible, en graphiques.
     pub fn system() -> Page {
-        let ids = ["cpu", "ram", "gpu", "vram", "cpu_temp", "gpu_temp", "disk", "load"];
+        let ids = [
+            "cpu", "ram", "gpu", "vram", "cpu_temp", "gpu_temp", "disk", "load",
+        ];
         let tiles = ids
             .iter()
             .enumerate()
@@ -506,10 +508,7 @@ impl Design {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .collect();
-                if ids.is_empty()
-                    || ids.len() > 8
-                    || ids.iter().any(|id| !METRICS.contains(id))
-                {
+                if ids.is_empty() || ids.len() > 8 || ids.iter().any(|id| !METRICS.contains(id)) {
                     return Err(
                         "Mesures : cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp (1 à 8)."
                             .into(),
@@ -772,7 +771,11 @@ pub fn pages_lua(pages: &[Page]) -> String {
         "{{ {} }}",
         pages
             .iter()
-            .map(|p| format!("{{ name = {}, tiles = {} }}", q(&p.name), tiles_lua(&p.tiles)))
+            .map(|p| format!(
+                "{{ name = {}, tiles = {} }}",
+                q(&p.name),
+                tiles_lua(&p.tiles)
+            ))
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -792,7 +795,11 @@ pub fn pages_from_lua(l: &Table) -> mlua::Result<Vec<Page>> {
             }
             Value::Table(p) => {
                 let page = Page {
-                    name: p.get::<Option<String>>("name")?.unwrap_or_default().trim().to_string(),
+                    name: p
+                        .get::<Option<String>>("name")?
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string(),
                     tiles: match p.get::<Option<Table>>("tiles")? {
                         Some(t) => tiles_from_lua(&t)?,
                         None => Vec::new(),
@@ -849,8 +856,10 @@ mod tests {
     #[test]
     fn presets_round_trip_and_keep_personal_content() {
         for id in PRESETS {
-            let mut d = Design::default();
-            d.wallpaper = "/tmp/a \"b\".jpg".into();
+            let mut d = Design {
+                wallpaper: "/tmp/a \"b\".jpg".into(),
+                ..Default::default()
+            };
             d.shortcuts.clear();
             d.shortcuts.push(Shortcut {
                 name: "Éditeur".into(),
@@ -887,7 +896,11 @@ mod tests {
         let t = player_tiles(640.0, 1392.0, 20.0, 12.0);
         let (pw, ph) = (600.0 - 12.0, t[1].w * 1352.0 - 12.0);
         assert!((pw / ph - 16.0 / 9.0).abs() < 0.02, "{pw}×{ph}");
-        assert!((0.2..=0.3).contains(&t[2].w), "playlist mesurée : {}", t[2].w);
+        assert!(
+            (0.2..=0.3).contains(&t[2].w),
+            "playlist mesurée : {}",
+            t[2].w
+        );
         assert!(t[0].w > t[2].w, "les touches prennent le reste");
         d.set("shortcut_profile", "video").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);

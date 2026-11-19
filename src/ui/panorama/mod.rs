@@ -9,8 +9,8 @@
 //!   (`crate::panorama::detect`), une fois par écran.
 
 mod dashboard;
-mod fx;
 mod flux;
+mod fx;
 mod halo;
 mod instruments;
 mod panes;
@@ -313,7 +313,11 @@ pub enum PMsg {
     MusicTab(&'static str),
     /// Recherche de radios (Radio Browser) ; `play` : lancer la première.
     RadioSearch(String, bool),
-    RadioFound(String, bool, Result<Vec<crate::panorama::config::Source>, String>),
+    RadioFound(
+        String,
+        bool,
+        Result<Vec<crate::panorama::config::Source>, String>,
+    ),
     /// Ajoute (ou retire) une radio des favoris : (nom, flux).
     RadioFav(String, String),
     /// Fin de la mise en vidéo seule automatique : (adresse de la source,
@@ -541,7 +545,11 @@ impl App {
         let zone = self.cfg.general.panorama.zone.clone();
         if self.panorama.zone_applied != zone {
             for (id, m) in self.panorama.surfaces.clone() {
-                let was = self.panorama.zone_applied.as_ref().is_some_and(|z| z.screen == m);
+                let was = self
+                    .panorama
+                    .zone_applied
+                    .as_ref()
+                    .is_some_and(|z| z.screen == m);
                 let now = zone.as_ref().is_some_and(|z| z.screen == m);
                 if was || now {
                     self.panorama.surfaces.remove(&id);
@@ -563,13 +571,22 @@ impl App {
             let (anchor, size, exclusive) = match zone.as_ref().filter(|z| z.screen == m) {
                 Some(z) => {
                     let mon = self.monitors.iter().find(|x| x.name == m);
-                    let (w, h) = mon.map_or((1920.0, 1080.0), |x| (x.width as f32, x.height as f32));
+                    let (w, h) =
+                        mon.map_or((1920.0, 1080.0), |x| (x.width as f32, x.height as f32));
                     let t = z.thickness(w, h) as u32;
                     match z.side.as_str() {
                         "top" => (LsAnchor::Top | LsAnchor::Left | LsAnchor::Right, (0, t), t),
                         "left" => (LsAnchor::Left | LsAnchor::Top | LsAnchor::Bottom, (t, 0), t),
-                        "right" => (LsAnchor::Right | LsAnchor::Top | LsAnchor::Bottom, (t, 0), t),
-                        _ => (LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right, (0, t), t),
+                        "right" => (
+                            LsAnchor::Right | LsAnchor::Top | LsAnchor::Bottom,
+                            (t, 0),
+                            t,
+                        ),
+                        _ => (
+                            LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                            (0, t),
+                            t,
+                        ),
                     }
                 }
                 None => (
@@ -627,7 +644,10 @@ impl App {
         if let Some((id, asked)) = self.panorama.voice_confirm.clone() {
             let t = text.to_lowercase();
             let has = |words: &[&str]| words.iter().any(|w| t.split_whitespace().any(|x| x == *w));
-            let yes = has(&["oui", "ouais", "ok", "okay", "d'accord", "vas-y", "accepte", "confirme", "yes", "yeah", "sure", "go"]);
+            let yes = has(&[
+                "oui", "ouais", "ok", "okay", "d'accord", "vas-y", "accepte", "confirme", "yes",
+                "yeah", "sure", "go",
+            ]);
             let no = has(&["non", "annule", "refuse", "no", "nope", "cancel"]);
             if yes != no {
                 self.panorama.voice_confirm = None;
@@ -660,8 +680,10 @@ impl App {
                 t
             }
             None => self.voice_say(
-                crate::i18n::tr("LYRA n'est pas disponible : activez l'assistant dans les Réglages.")
-                    .into(),
+                crate::i18n::tr(
+                    "LYRA n'est pas disponible : activez l'assistant dans les Réglages.",
+                )
+                .into(),
                 lang,
             ),
         }
@@ -677,7 +699,11 @@ impl App {
         lang: String,
     ) -> Task<Msg> {
         self.panorama.voice_confirm = Some((id, lang.clone()));
-        let what = if reason.trim().is_empty() { command } else { reason };
+        let what = if reason.trim().is_empty() {
+            command
+        } else {
+            reason
+        };
         let text = if lang == "en" {
             format!("I need your approval: {what}. Yes or no?")
         } else {
@@ -692,7 +718,8 @@ impl App {
         self.panorama.voice = VoiceUi::Speaking;
         Task::perform(
             async move {
-                let _ = tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
+                let _ =
+                    tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
                 tokio::time::sleep(Duration::from_millis(300)).await;
             },
             |_| wrap(PMsg::VoiceArm),
@@ -705,7 +732,8 @@ impl App {
         self.panorama.voice = VoiceUi::Speaking;
         Task::perform(
             async move {
-                let _ = tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
+                let _ =
+                    tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
                 // L'écho de la pièce se tait avant de réécouter.
                 tokio::time::sleep(Duration::from_millis(300)).await;
             },
@@ -745,7 +773,7 @@ impl App {
         }
         p.wave += (p.levels[0] - p.wave) * 0.18;
         p.flux_frames = p.flux_frames.wrapping_add(1);
-        if p.flux_frames % 2 == 0 {
+        if p.flux_frames.is_multiple_of(2) {
             p.level_hist.push_back(p.wave);
             while p.level_hist.len() > 160 {
                 p.level_hist.pop_front();
@@ -757,9 +785,9 @@ impl App {
     /// Avancée vers le relevé suivant (0 à 1), pour faire défiler les
     /// courbes en continu.
     pub(super) fn panorama_graph_phase(&self) -> f32 {
-        self.panorama
-            .sys_at
-            .map_or(1.0, |t| (t.elapsed().as_secs_f32() / TICK.as_secs_f32()).min(1.0))
+        self.panorama.sys_at.map_or(1.0, |t| {
+            (t.elapsed().as_secs_f32() / TICK.as_secs_f32()).min(1.0)
+        })
     }
 
     /// Des courbes sont à l'écran (mesures en graphique) : le Panorama est
@@ -787,7 +815,10 @@ impl App {
             .active_sources()
             .iter()
             .filter(|s| {
-                crate::panorama::auth::visible(s, self.panorama.signed.get(&s.url).copied().flatten())
+                crate::panorama::auth::visible(
+                    s,
+                    self.panorama.signed.get(&s.url).copied().flatten(),
+                )
             })
             .cloned()
             .collect()
@@ -1137,18 +1168,16 @@ impl App {
                     && let Some(addr) = v.address.clone()
                 {
                     let key = key.trim().to_string();
-                    return Task::batch([
-                        Task::perform(
-                            async move {
-                                tokio::task::spawn_blocking(move || {
-                                    crate::panorama::video::send_key(&addr, &key)
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()))
-                            },
-                            |r| wrap(PMsg::ShortcutResult(r)),
-                        ),
-                    ]);
+                    return Task::batch([Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                crate::panorama::video::send_key(&addr, &key)
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                        },
+                        |r| wrap(PMsg::ShortcutResult(r)),
+                    )]);
                 }
                 Task::perform(
                     async move {
@@ -1516,10 +1545,7 @@ impl App {
                         && self.panorama.video.is_none()
                         && let Some((name, url)) = crate::panorama::radio_play::to_resume()
                     {
-                        strays = Task::batch([
-                            strays,
-                            Task::done(wrap(PMsg::PlayUrl(name, url))),
-                        ]);
+                        strays = Task::batch([strays, Task::done(wrap(PMsg::PlayUrl(name, url)))]);
                     }
                     strays = Task::batch([
                         strays,
@@ -1612,7 +1638,12 @@ impl App {
                     .map(|m| m.trim().to_string())
                     .filter(|m| !m.is_empty())
                     .collect();
-                for t in c.design.tiles.iter().chain(c.pages.iter().flat_map(|p| &p.tiles)) {
+                for t in c
+                    .design
+                    .tiles
+                    .iter()
+                    .chain(c.pages.iter().flat_map(|p| &p.tiles))
+                {
                     if let Some((m, _)) = crate::panorama::design::metric_of(&t.widget)
                         && !ids.iter().any(|i| i == m)
                     {
@@ -1807,7 +1838,9 @@ impl App {
                     .music_sources
                     .iter()
                     .chain(&c.sources)
-                    .find(|s| crate::panorama::video::host(&s.url) == crate::panorama::video::host(&base))
+                    .find(|s| {
+                        crate::panorama::video::host(&s.url) == crate::panorama::video::host(&base)
+                    })
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| crate::panorama::video::host(&base));
                 match crate::panorama::radio::search_url(&base, &q) {
@@ -1847,11 +1880,7 @@ impl App {
                     .parse::<usize>()
                     .ok()
                     .map(|n| n.saturating_sub(1))
-                    .or_else(|| {
-                        pages
-                            .iter()
-                            .position(|p| p.name.eq_ignore_ascii_case(want))
-                    });
+                    .or_else(|| pages.iter().position(|p| p.name.eq_ignore_ascii_case(want)));
                 match i {
                     Some(i) if i < pages.len() => {
                         let i = i + self.panorama_offset();
@@ -1984,7 +2013,6 @@ impl App {
         self.panorama
             .last_press
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(mins as u64 * 60))
-
     }
 
     pub(super) fn view_panorama(&self, id: Id) -> Element<'_, Msg> {

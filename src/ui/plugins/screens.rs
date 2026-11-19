@@ -703,10 +703,13 @@ impl App {
             None => {
                 if let Some(z) = &zone {
                     col = col.push(
-                        text(crate::tr!("La zone Panorama est sur {s}.", s = z.screen.clone()))
-                            .font(self.font)
-                            .size(12)
-                            .color(dim),
+                        text(crate::tr!(
+                            "La zone Panorama est sur {s}.",
+                            s = z.screen.clone()
+                        ))
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
                     );
                 }
                 col = col.push(
@@ -725,19 +728,29 @@ impl App {
                     let z1 = z.clone();
                     let z2 = z.clone();
                     row![
-                        radio(crate::i18n::tr("Horizontale"), false, Some(vertical), move |_| {
-                            wrap(Msg::PanoramaZone(Some(Zone {
-                                side: "bottom".into(),
-                                ..z1.clone()
-                            })))
-                        })
+                        radio(
+                            crate::i18n::tr("Horizontale"),
+                            false,
+                            Some(vertical),
+                            move |_| {
+                                wrap(Msg::PanoramaZone(Some(Zone {
+                                    side: "bottom".into(),
+                                    ..z1.clone()
+                                })))
+                            }
+                        )
                         .text_size(13),
-                        radio(crate::i18n::tr("Verticale"), true, Some(vertical), move |_| {
-                            wrap(Msg::PanoramaZone(Some(Zone {
-                                side: "right".into(),
-                                ..z2.clone()
-                            })))
-                        })
+                        radio(
+                            crate::i18n::tr("Verticale"),
+                            true,
+                            Some(vertical),
+                            move |_| {
+                                wrap(Msg::PanoramaZone(Some(Zone {
+                                    side: "right".into(),
+                                    ..z2.clone()
+                                })))
+                            }
+                        )
                         .text_size(13),
                     ]
                     .spacing(16)
@@ -767,7 +780,10 @@ impl App {
                     .push(side_row)
                     .push(
                         row![
-                            text(crate::i18n::tr("Taille")).font(self.font).size(13).width(80),
+                            text(crate::i18n::tr("Taille"))
+                                .font(self.font)
+                                .size(13)
+                                .width(80),
                             iced::widget::slider(10.0..=50.0, z.size * 100.0, move |v| {
                                 wrap(Msg::PanoramaZone(Some(Zone {
                                     size: (v / 100.0 * 20.0).round() / 20.0,
@@ -775,7 +791,10 @@ impl App {
                                 })))
                             })
                             .step(5.0_f32),
-                            text(format!("{:.0} %", z.size * 100.0)).font(self.font).size(12).width(48),
+                            text(format!("{:.0} %", z.size * 100.0))
+                                .font(self.font)
+                                .size(12)
+                                .width(48),
                         ]
                         .spacing(10)
                         .align_y(Alignment::Center),

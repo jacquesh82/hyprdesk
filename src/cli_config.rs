@@ -1288,7 +1288,10 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
         let p = &c.general.panorama;
         return Some(match what {
             "panes" => p.panes_of(l).join(","),
-            _ => p.first_of(l).map(|f| f.id().to_string()).unwrap_or_else(|| "auto".into()),
+            _ => p
+                .first_of(l)
+                .map(|f| f.id().to_string())
+                .unwrap_or_else(|| "auto".into()),
         });
     }
     if let Some(k) = key.strip_prefix("screen_zones.") {
@@ -1460,7 +1463,10 @@ fn dynamic_set(
         return Some(Ok(()));
     }
     if let Some((l, what)) = panorama_zone_key(key) {
-        let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+        let mut p = s
+            .panorama
+            .clone()
+            .unwrap_or_else(|| c.general.panorama.clone());
         match (what, v.map(str::trim)) {
             ("panes", None | Some("")) => p.set_panes(l, Vec::new()),
             ("panes", Some(raw)) => {
@@ -1470,13 +1476,18 @@ fn dynamic_set(
                     .filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x))
                     .collect();
                 if list.is_empty() {
-                    return Some(Err(crate::i18n::tr("widgets connus : media, system, clock, video").into()));
+                    return Some(Err(crate::i18n::tr(
+                        "widgets connus : media, system, clock, video",
+                    )
+                    .into()));
                 }
                 p.set_panes(l, list);
             }
             (_, None | Some("" | "auto")) => p.set_first(l, None),
             (_, Some(raw)) => match crate::zones::First::parse(raw) {
-                Some(f) if l.grid().is_some_and(crate::zones::Grid::has_first) => p.set_first(l, Some(f)),
+                Some(f) if l.grid().is_some_and(crate::zones::Grid::has_first) => {
+                    p.set_first(l, Some(f))
+                }
                 _ => return Some(Err(crate::i18n::tr("parts : 1/2, 1/3, auto").into())),
             },
         }
@@ -2219,11 +2230,29 @@ mod tests {
         let p = tmp();
         run_s(&p, &["set", "panorama.zones.2x2.panes", "clock,video"]).unwrap();
         run_s(&p, &["set", "panorama.zones.1x3.first", "1/2"]).unwrap();
-        assert_eq!(run_s(&p, &["get", "panorama.zones.2x2.panes"]).unwrap(), "clock,video,system,clock");
-        assert_eq!(run_s(&p, &["get", "panorama.zones.1x3.first"]).unwrap(), "1/2");
+        assert_eq!(
+            run_s(&p, &["get", "panorama.zones.2x2.panes"]).unwrap(),
+            "clock,video,system,clock"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "panorama.zones.1x3.first"]).unwrap(),
+            "1/2"
+        );
         assert!(run_s(&p, &["set", "panorama.zones.2x2.first", "1/2"]).is_err());
-        run_s(&p, &["set", "panorama.sources", r#"[{"name":"Arte","url":"https://www.arte.tv"}]"#]).unwrap();
-        assert!(run_s(&p, &["get", "panorama.sources"]).unwrap().contains("arte.tv"));
+        run_s(
+            &p,
+            &[
+                "set",
+                "panorama.sources",
+                r#"[{"name":"Arte","url":"https://www.arte.tv"}]"#,
+            ],
+        )
+        .unwrap();
+        assert!(
+            run_s(&p, &["get", "panorama.sources"])
+                .unwrap()
+                .contains("arte.tv")
+        );
         assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1");
         run_s(&p, &["set", "screen_zones.DP-2", "1x3:1/2"]).unwrap();
         assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1x3:1/2");

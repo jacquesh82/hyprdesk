@@ -83,26 +83,32 @@ impl App {
         let mut r = row![].spacing(6);
         for id in crate::panorama::design::PROFILES {
             let on = self.cfg.general.panorama.design.shortcut_profile == *id;
-            r = r.push(self.panorama_feedback(
-                button(iced::widget::svg(profile_icon(id)).width(26).height(26))
-                    .padding(6)
-                    .on_press(wrap(PMsg::Profile(id.to_string())))
-                    .style(move |_, st| button::Style {
-                        background: Some(
-                            fx::alpha(
-                                if on || matches!(st, button::Status::Pressed) { accent } else { bg },
-                                if on { 0.55 } else { 0.7 },
-                            )
-                            .into(),
-                        ),
-                        border: Border {
-                            radius: 10.0.into(),
-                            width: 1.0,
-                            color: fx::alpha(fg, 0.2),
-                        },
-                        ..Default::default()
-                    }),
-            ));
+            r = r.push(
+                self.panorama_feedback(
+                    button(iced::widget::svg(profile_icon(id)).width(26).height(26))
+                        .padding(6)
+                        .on_press(wrap(PMsg::Profile(id.to_string())))
+                        .style(move |_, st| button::Style {
+                            background: Some(
+                                fx::alpha(
+                                    if on || matches!(st, button::Status::Pressed) {
+                                        accent
+                                    } else {
+                                        bg
+                                    },
+                                    if on { 0.55 } else { 0.7 },
+                                )
+                                .into(),
+                            ),
+                            border: Border {
+                                radius: 10.0.into(),
+                                width: 1.0,
+                                color: fx::alpha(fg, 0.2),
+                            },
+                            ..Default::default()
+                        }),
+                ),
+            );
         }
         r.into()
     }
@@ -121,7 +127,11 @@ impl App {
                 background: Some(
                     fx::alpha(
                         accent,
-                        if on || matches!(st, button::Status::Pressed) { 0.6 } else { 0.18 },
+                        if on || matches!(st, button::Status::Pressed) {
+                            0.6
+                        } else {
+                            0.18
+                        },
                     )
                     .into(),
                 ),
@@ -145,19 +155,23 @@ impl App {
             ("vram", "VRAM"),
             ("io", "Disque"),
         ] {
-            head = head.push(self.panorama_feedback(
-                button(text(crate::i18n::tr(label)).size(size).color(fg))
-                    .padding([5, 12])
-                    .on_press(wrap(PMsg::TasksSort(id)))
-                    .style(pill(t.sort == id)),
-            ));
+            head = head.push(
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr(label)).size(size).color(fg))
+                        .padding([5, 12])
+                        .on_press(wrap(PMsg::TasksSort(id)))
+                        .style(pill(t.sort == id)),
+                ),
+            );
         }
-        head = head.push(self.panorama_feedback(
-            button(text("✕").size(size).color(fg))
-                .padding([5, 12])
-                .on_press(wrap(PMsg::TasksClose))
-                .style(pill(false)),
-        ));
+        head = head.push(
+            self.panorama_feedback(
+                button(text("✕").size(size).color(fg))
+                    .padding([5, 12])
+                    .on_press(wrap(PMsg::TasksClose))
+                    .style(pill(false)),
+            ),
+        );
         let gib = |b: u64| {
             let g = b as f64 / (1u64 << 30) as f64;
             if g >= 1.0 {
@@ -166,8 +180,14 @@ impl App {
                 format!("{:.0} Mio", b as f64 / (1u64 << 20) as f64)
             }
         };
-        let col_w = [Length::FillPortion(5), Length::FillPortion(2), Length::FillPortion(2),
-            Length::FillPortion(2), Length::FillPortion(2), Length::FillPortion(2)];
+        let col_w = [
+            Length::FillPortion(5),
+            Length::FillPortion(2),
+            Length::FillPortion(2),
+            Length::FillPortion(2),
+            Length::FillPortion(2),
+            Length::FillPortion(2),
+        ];
         let cell = |v: String, on: bool, w: Length| {
             text(v)
                 .size(size)
@@ -236,7 +256,14 @@ impl App {
                             if armed {
                                 Color::from_rgba8(0xe0, 0x4f, 0x5f, 0.85)
                             } else {
-                                fx::alpha(fg, if matches!(st, button::Status::Pressed) { 0.3 } else { 0.1 })
+                                fx::alpha(
+                                    fg,
+                                    if matches!(st, button::Status::Pressed) {
+                                        0.3
+                                    } else {
+                                        0.1
+                                    },
+                                )
                             }
                             .into(),
                         ),
@@ -250,33 +277,52 @@ impl App {
             };
             // Lignes alternées : l'œil suit la ligne jusqu'à « Terminer ».
             let odd = row_i % 2 == 1;
-            rows = rows.push(container(
-                row![
-                    cell(format!("{} · {}", p.name, p.pid), false, col_w[0]),
-                    cell(format!("{:.1} %", p.cpu), t.sort == "cpu", col_w[1]),
-                    cell(gib(p.mem), t.sort == "mem", col_w[2]),
-                    cell(p.gpu.map_or("—".into(), |g| format!("{g:.0} %")), t.sort == "gpu", col_w[3]),
-                    cell(p.vram.map_or("—".into(), |v| format!("{v} Mio")), t.sort == "vram", col_w[4]),
-                    cell(
-                        if p.io > 0.0 { format!("{}/s", gib(p.io as u64)) } else { "—".into() },
-                        t.sort == "io",
-                        col_w[5]
-                    ),
-                    kill,
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            )
-            .padding([4, 10])
-            .style(move |_| container::Style {
-                background: odd.then(|| fx::alpha(fg, 0.05).into()),
-                border: Border::default().rounded(8),
-                ..Default::default()
-            }));
+            rows = rows.push(
+                container(
+                    row![
+                        cell(format!("{} · {}", p.name, p.pid), false, col_w[0]),
+                        cell(format!("{:.1} %", p.cpu), t.sort == "cpu", col_w[1]),
+                        cell(gib(p.mem), t.sort == "mem", col_w[2]),
+                        cell(
+                            p.gpu.map_or("—".into(), |g| format!("{g:.0} %")),
+                            t.sort == "gpu",
+                            col_w[3]
+                        ),
+                        cell(
+                            p.vram.map_or("—".into(), |v| format!("{v} Mio")),
+                            t.sort == "vram",
+                            col_w[4]
+                        ),
+                        cell(
+                            if p.io > 0.0 {
+                                format!("{}/s", gib(p.io as u64))
+                            } else {
+                                "—".into()
+                            },
+                            t.sort == "io",
+                            col_w[5]
+                        ),
+                        kill,
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                )
+                .padding([4, 10])
+                .style(move |_| container::Style {
+                    background: odd.then(|| fx::alpha(fg, 0.05).into()),
+                    border: Border::default().rounded(8),
+                    ..Default::default()
+                }),
+            );
         }
         // Un tiers : la mesure (graphique) ; deux tiers : la liste.
-        let lines: Vec<crate::widgets::SysLine> =
-            self.panorama.sys_ids.get(&t.metric).cloned().into_iter().collect();
+        let lines: Vec<crate::widgets::SysLine> = self
+            .panorama
+            .sys_ids
+            .get(&t.metric)
+            .cloned()
+            .into_iter()
+            .collect();
         // Toucher la mesure ramène à la page (comme ✕).
         let indicator = button(super::instruments::metrics(
             "graphs",
@@ -415,13 +461,13 @@ impl App {
         }
         if playing.is_some() {
             head = head.push(
-                    self.panorama_feedback(
-                        button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
-                            .padding([6, 12])
-                            .on_press(wrap(PMsg::VideoClose))
-                            .style(pill(false)),
-                    ),
-                );
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
+                        .padding([6, 12])
+                        .on_press(wrap(PMsg::VideoClose))
+                        .style(pill(false)),
+                ),
+            );
         }
         // Cadrage : zoom et décalage de la fenêtre derrière la zone du
         // lecteur, mémorisés pour la source.
@@ -791,7 +837,10 @@ impl App {
             use super::VoiceUi;
             let on = self.cfg.general.panorama.voice;
             let state = &self.panorama.voice;
-            let hot = matches!(state, VoiceUi::Awake | VoiceUi::Thinking | VoiceUi::Speaking);
+            let hot = matches!(
+                state,
+                VoiceUi::Awake | VoiceUi::Thinking | VoiceUi::Speaking
+            );
             let label = match state {
                 VoiceUi::Installing(_) => crate::i18n::tr("Installation de la voix…"),
                 VoiceUi::Awake => crate::i18n::tr("Je vous écoute…"),
@@ -804,7 +853,11 @@ impl App {
             // Dernière phrase entendue : de quoi comprendre un mot manqué.
             let label: String = match &self.panorama.voice_heard {
                 Some(h) if on && !h.is_empty() => {
-                    crate::tr!("{l} — entendu : « {h} »", l = label.to_string(), h = h.clone())
+                    crate::tr!(
+                        "{l} — entendu : « {h} »",
+                        l = label.to_string(),
+                        h = h.clone()
+                    )
                 }
                 _ => label.to_string(),
             };
@@ -812,27 +865,40 @@ impl App {
             let icon = iced::widget::svg(mic_icon(on))
                 .width(side)
                 .height(side)
-                .opacity(if on || matches!(state, VoiceUi::Installing(_)) { 1.0_f32 } else { 0.45 });
-            let tip = container(text(label).size(13).color(fg).wrapping(text::Wrapping::None))
-                .padding([4, 10])
-                .style(move |_| container::Style {
-                    background: Some(fx::alpha(bg, 0.92).into()),
-                    border: Border {
-                        radius: 8.0.into(),
-                        width: 1.0,
-                        color: fx::alpha(accent, 0.5),
-                    },
-                    ..Default::default()
+                .opacity(if on || matches!(state, VoiceUi::Installing(_)) {
+                    1.0_f32
+                } else {
+                    0.45
                 });
+            let tip = container(
+                text(label)
+                    .size(13)
+                    .color(fg)
+                    .wrapping(text::Wrapping::None),
+            )
+            .padding([4, 10])
+            .style(move |_| container::Style {
+                background: Some(fx::alpha(bg, 0.92).into()),
+                border: Border {
+                    radius: 8.0.into(),
+                    width: 1.0,
+                    color: fx::alpha(accent, 0.5),
+                },
+                ..Default::default()
+            });
             tabs = tabs.push(
                 iced::widget::tooltip(
                     self.panorama_feedback(
-                        button(container(icon).center_x(Length::Fill).center_y(Length::Fill))
-                            .width(seg_w)
-                            .height(seg_h)
-                            .padding(4)
-                            .on_press(wrap(PMsg::VoiceToggle))
-                            .style(tile_style(hot)),
+                        button(
+                            container(icon)
+                                .center_x(Length::Fill)
+                                .center_y(Length::Fill),
+                        )
+                        .width(seg_w)
+                        .height(seg_h)
+                        .padding(4)
+                        .on_press(wrap(PMsg::VoiceToggle))
+                        .style(tile_style(hot)),
                     ),
                     tip,
                     iced::widget::tooltip::Position::Bottom,

@@ -96,7 +96,9 @@ fn parse_pmon(s: &str) -> HashMap<i32, (Option<f32>, Option<u64>)> {
 /// environ une seconde). Bloquant.
 pub fn sample(s: &mut Sampler, gpu: bool) -> Vec<Proc> {
     let now = Instant::now();
-    let dt = s.at.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+    let dt =
+        s.at.map(|t| now.duration_since(t).as_secs_f64())
+            .unwrap_or(0.0);
     let (tck, page) = (clk_tck(), page_size());
     // SAFETY : getuid ne peut pas échouer.
     let me = unsafe { libc::getuid() };
@@ -207,8 +209,18 @@ mod tests {
         assert_eq!(m[&904541], (Some(32.0), Some(289)));
         assert_eq!(m[&909427], (None, Some(123)));
         let mut l = vec![
-            Proc { pid: 1, cpu: 5.0, mem: 10, ..Default::default() },
-            Proc { pid: 2, cpu: 50.0, mem: 1, ..Default::default() },
+            Proc {
+                pid: 1,
+                cpu: 5.0,
+                mem: 10,
+                ..Default::default()
+            },
+            Proc {
+                pid: 2,
+                cpu: 50.0,
+                mem: 1,
+                ..Default::default()
+            },
         ];
         sort(&mut l, "cpu");
         assert_eq!(l[0].pid, 2);

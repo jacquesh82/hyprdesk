@@ -6405,7 +6405,10 @@ mod regression_tests {
         let _ = app.update_inner(Msg::Panel(panel::PanelMsg::Close));
         let _ = app.update_inner(Msg::Frame);
         assert!(app.panel.is_none() && app.panel_fade.is_none());
-        assert!(app.identify.is_empty(), "les repères partent avec les réglages");
+        assert!(
+            app.identify.is_empty(),
+            "les repères partent avec les réglages"
+        );
         assert!(app.window_gaps.is_empty());
         assert!(!app.animating(), "plus aucune animation en attente");
     }

@@ -534,7 +534,9 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     }
     if let Some(z) = t.get::<Option<Table>>("zone")? {
         let screen: String = z.get::<Option<String>>("screen")?.unwrap_or_default();
-        let side: String = z.get::<Option<String>>("side")?.unwrap_or_else(|| "bottom".into());
+        let side: String = z
+            .get::<Option<String>>("side")?
+            .unwrap_or_else(|| "bottom".into());
         let size: f32 = z.get::<Option<f32>>("size")?.unwrap_or(0.25);
         if screen.trim().is_empty() || !Zone::SIDES.contains(&side.as_str()) {
             return Err(mlua::Error::RuntimeError(format!(
@@ -901,7 +903,10 @@ mod tests {
         assert!(eval("{ layout = 'split9' }").is_err());
         assert!(eval("{ sources = { { name = 'x', url = 'file:///etc' } } }").is_err());
         let c = eval("{ pages = { 'radio', 'clock' }, screens = 'DP-1' }").unwrap();
-        assert_eq!(c.pages, vec![crate::panorama::design::Page::single("clock")]);
+        assert_eq!(
+            c.pages,
+            vec![crate::panorama::design::Page::single("clock")]
+        );
         assert_eq!(c.screens, vec!["DP-1".to_string()]);
         assert_eq!(
             eval("{ pages = { 'x' } }").unwrap().pages,

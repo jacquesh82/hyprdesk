@@ -22,12 +22,21 @@ fn socket() -> PathBuf {
 pub fn is_stream(url: &str) -> bool {
     let u = url.to_lowercase();
     let path = u.split(['?', '#']).next().unwrap_or(&u);
-    [".mp3", ".aac", ".ogg", ".opus", ".m3u", ".m3u8", ".pls", ".flac"]
+    [
+        ".mp3", ".aac", ".ogg", ".opus", ".m3u", ".m3u8", ".pls", ".flac",
+    ]
+    .iter()
+    .any(|e| path.ends_with(e))
+        || [
+            "icecast",
+            "shoutcast",
+            "/stream",
+            "/live",
+            "radioho.st",
+            "infomaniak.ch",
+        ]
         .iter()
-        .any(|e| path.ends_with(e))
-        || ["icecast", "shoutcast", "/stream", "/live", "radioho.st", "infomaniak.ch"]
-            .iter()
-            .any(|k| u.contains(k))
+        .any(|k| u.contains(k))
 }
 
 /// Joue le flux (arrête le précédent). Bloquant le temps du lancement.
@@ -81,7 +90,10 @@ pub fn remember(radio: Option<(&str, &str)>) {
 pub fn to_resume() -> Option<(String, String)> {
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(resume_file()).ok()?).ok()?;
-    Some((v["name"].as_str()?.to_string(), v["url"].as_str()?.to_string()))
+    Some((
+        v["name"].as_str()?.to_string(),
+        v["url"].as_str()?.to_string(),
+    ))
 }
 
 /// Arrête la radio en cours.
@@ -92,15 +104,6 @@ pub fn stop() {
         let _ = c.kill();
         let _ = c.wait();
     }
-}
-
-/// Une radio joue (le lecteur est vivant).
-pub fn playing() -> bool {
-    PLAYER
-        .lock()
-        .ok()
-        .and_then(|mut p| p.as_mut().map(|c| matches!(c.try_wait(), Ok(None))))
-        .unwrap_or(false)
 }
 
 fn send(cmd: &str) -> Option<String> {
@@ -194,8 +197,8 @@ impl Bands {
     fn feed(&mut self, raw: &[u8]) -> Levels {
         let (mut all, mut low, mut mid, mut high) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
         let n = (raw.len() / 2).max(1) as f32;
-        for c in raw.chunks_exact(2) {
-            let x = i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0;
+        for c in raw.as_chunks::<2>().0 {
+            let x = i16::from_le_bytes(*c) as f32 / 32768.0;
             // Passe-bas ~200 Hz et ~2 kHz à 16 kHz.
             self.lp += 0.075 * (x - self.lp);
             self.lp2 += 0.55 * (x - self.lp2);
@@ -212,7 +215,11 @@ impl Bands {
         self.peak = (self.peak * 0.995).max(top).max(0.02);
         for (o, v) in self.out.iter_mut().zip(raw_levels) {
             let v = (v / self.peak).clamp(0.0, 1.0);
-            *o = if v > *o { *o + (v - *o) * 0.6 } else { *o + (v - *o) * 0.12 };
+            *o = if v > *o {
+                *o + (v - *o) * 0.6
+            } else {
+                *o + (v - *o) * 0.12
+            };
         }
         self.out
     }

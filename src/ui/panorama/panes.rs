@@ -230,8 +230,7 @@ impl App {
                 None => full("clock"),
             },
             Layout::Dashboard => {
-                let player =
-                    matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
+                let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
                 map(&c.design.active_tiles(s.w, s.h), player)
             }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
@@ -340,7 +339,10 @@ impl App {
     pub(super) fn panorama_current_source(&self) -> Option<&crate::panorama::config::Source> {
         let url = &self.panorama.video.as_ref()?.url;
         let c = &self.cfg.general.panorama;
-        c.sources.iter().chain(&c.music_sources).find(|s| &s.url == url)
+        c.sources
+            .iter()
+            .chain(&c.music_sources)
+            .find(|s| &s.url == url)
     }
 
     /// Cadrage de la source ouverte : zoom et décalage, mémorisés.
@@ -540,22 +542,20 @@ impl App {
                 if let Some(v) = self.panorama.video.as_mut() {
                     v.placed = rect;
                 }
-                Task::batch([
-                    Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                let r = video::adopt(&addr, rect);
-                                if let Some(b) = back {
-                                    let _ = crate::hypr::focus_window(&b);
-                                }
-                                r
-                            })
-                            .await
-                            .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        |r| wrap(PMsg::VideoPlaced(r)),
-                    ),
-                ])
+                Task::batch([Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let r = video::adopt(&addr, rect);
+                            if let Some(b) = back {
+                                let _ = crate::hypr::focus_window(&b);
+                            }
+                            r
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(PMsg::VideoPlaced(r)),
+                )])
             }
             PMsg::Orphans(list) => {
                 // Une seule source : la première reconnue est reprise, les
@@ -585,7 +585,11 @@ impl App {
                                 focus_back: None,
                             });
                         }
-                        _ if self.panorama.video.as_ref().and_then(|v| v.address.as_ref())
+                        _ if self
+                            .panorama
+                            .video
+                            .as_ref()
+                            .and_then(|v| v.address.as_ref())
                             == Some(&addr) => {}
                         _ => close.push(addr),
                     }
@@ -708,54 +712,52 @@ impl App {
     /// Ouvre une source (service, page de résultats, flux de radio) dans
     /// le lecteur : une seule à la fois.
     fn panorama_open(&mut self, src: crate::panorama::config::Source) -> Task<Msg> {
-            // Webradio : flux joué par mpv, sans fenêtre ; le lecteur montre la
-            // barre « flux vocal ».
-            let c = &self.cfg.general.panorama;
-            let radio = c.radios.iter().any(|r| r.url == src.url)
-                || self
-                    .panorama
-                    .radio_results
-                    .as_ref()
-                    .is_some_and(|(_, l)| l.iter().any(|r| r.url == src.url))
-                || crate::panorama::radio_play::is_stream(&src.url);
-            if radio {
-                if self.panorama.radio.as_ref().is_some_and(|r| r.1 == src.url) {
-                    return Task::none();
-                }
-                let close = self.panorama_close_video();
-                self.panorama.video = None;
-                crate::panorama::radio_play::remember(Some((&src.name, &src.url)));
-                self.panorama.radio = Some((src.name.clone(), src.url.clone()));
-                self.panorama.radio_paused = false;
-                self.panorama.level_hist.clear();
-                self.panorama.last_press = Some(std::time::Instant::now());
-                let url = src.url;
-                return Task::batch([
-                    close,
-                    Task::perform(
-                        async move {
-                            crate::widgets::media::pause_all().await;
-                            tokio::task::spawn_blocking(move || {
-                                crate::panorama::radio_play::play(&url)
-                            })
+        // Webradio : flux joué par mpv, sans fenêtre ; le lecteur montre la
+        // barre « flux vocal ».
+        let c = &self.cfg.general.panorama;
+        let radio = c.radios.iter().any(|r| r.url == src.url)
+            || self
+                .panorama
+                .radio_results
+                .as_ref()
+                .is_some_and(|(_, l)| l.iter().any(|r| r.url == src.url))
+            || crate::panorama::radio_play::is_stream(&src.url);
+        if radio {
+            if self.panorama.radio.as_ref().is_some_and(|r| r.1 == src.url) {
+                return Task::none();
+            }
+            let close = self.panorama_close_video();
+            self.panorama.video = None;
+            crate::panorama::radio_play::remember(Some((&src.name, &src.url)));
+            self.panorama.radio = Some((src.name.clone(), src.url.clone()));
+            self.panorama.radio_paused = false;
+            self.panorama.level_hist.clear();
+            self.panorama.last_press = Some(std::time::Instant::now());
+            let url = src.url;
+            return Task::batch([
+                close,
+                Task::perform(
+                    async move {
+                        crate::widgets::media::pause_all().await;
+                        tokio::task::spawn_blocking(move || crate::panorama::radio_play::play(&url))
                             .await
                             .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        |r| match r {
-                            Ok(()) => Msg::Noop,
-                            Err(e) => wrap(PMsg::RadioFound(String::new(), false, Err(e))),
-                        },
-                    ),
-                ]);
-            }
-            // Autre source : la radio s'arrête.
-            if self.panorama.radio.take().is_some() {
-                crate::panorama::radio_play::stop();
-                crate::panorama::radio_play::remember(None);
-            }
-            let c = &self.cfg.general.panorama;
-            let Some((cmd, prefix)) = video::browser(&c.browser) else {
-                self.panorama.video = Some(Video {
+                    },
+                    |r| match r {
+                        Ok(()) => Msg::Noop,
+                        Err(e) => wrap(PMsg::RadioFound(String::new(), false, Err(e))),
+                    },
+                ),
+            ]);
+        }
+        // Autre source : la radio s'arrête.
+        if self.panorama.radio.take().is_some() {
+            crate::panorama::radio_play::stop();
+            crate::panorama::radio_play::remember(None);
+        }
+        let c = &self.cfg.general.panorama;
+        let Some((cmd, prefix)) = video::browser(&c.browser) else {
+            self.panorama.video = Some(Video {
                     name: src.name,
                     url: src.url,
                     prefix: String::new(),
@@ -770,49 +772,49 @@ impl App {
                     placed: None,
                     focus_back: None,
                 });
-                return Task::none();
-            };
-            // Une seule source à la fois : la même, déjà ouverte ou en
-            // cours d'ouverture, n'est pas relancée ; une autre la remplace.
-            if self
-                .panorama
-                .video
-                .as_ref()
-                .is_some_and(|v| v.url == src.url && v.error.is_none())
-            {
-                return Task::none();
-            }
-            let close = self.panorama_close_video();
-            let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
-            self.panorama.video = Some(Video {
-                name: src.name.clone(),
-                url: src.url.clone(),
-                prefix,
-                address: None,
-                known,
-                error: None,
-                placed: None,
-                focus_back: self.active_window.as_ref().map(|(a, _)| a.clone()),
-            });
-            self.panorama.last_press = Some(std::time::Instant::now());
-            let url = src.url;
-            Task::batch([
-                close,
-                Task::perform(
-                    async move {
-                        // Ce qui joue encore (autre lecteur, ancienne fenêtre
-                        // pas encore fermée) s'arrête avant le nouveau média.
-                        crate::widgets::media::pause_all().await;
-                        tokio::task::spawn_blocking(move || video::launch(&cmd, &url))
-                            .await
-                            .unwrap_or_else(|e| Err(e.to_string()))
-                    },
-                    |r| match r {
-                        Ok(()) => wrap(PMsg::VideoPoll(0)),
-                        Err(e) => wrap(PMsg::VideoPlaced(Err(e))),
-                    },
-                ),
-            ])
+            return Task::none();
+        };
+        // Une seule source à la fois : la même, déjà ouverte ou en
+        // cours d'ouverture, n'est pas relancée ; une autre la remplace.
+        if self
+            .panorama
+            .video
+            .as_ref()
+            .is_some_and(|v| v.url == src.url && v.error.is_none())
+        {
+            return Task::none();
+        }
+        let close = self.panorama_close_video();
+        let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
+        self.panorama.video = Some(Video {
+            name: src.name.clone(),
+            url: src.url.clone(),
+            prefix,
+            address: None,
+            known,
+            error: None,
+            placed: None,
+            focus_back: self.active_window.as_ref().map(|(a, _)| a.clone()),
+        });
+        self.panorama.last_press = Some(std::time::Instant::now());
+        let url = src.url;
+        Task::batch([
+            close,
+            Task::perform(
+                async move {
+                    // Ce qui joue encore (autre lecteur, ancienne fenêtre
+                    // pas encore fermée) s'arrête avant le nouveau média.
+                    crate::widgets::media::pause_all().await;
+                    tokio::task::spawn_blocking(move || video::launch(&cmd, &url))
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                },
+                |r| match r {
+                    Ok(()) => wrap(PMsg::VideoPoll(0)),
+                    Err(e) => wrap(PMsg::VideoPlaced(Err(e))),
+                },
+            ),
+        ])
     }
 
     /// Ferme la fenêtre vidéo, s'il y en a une.
@@ -848,11 +850,7 @@ impl App {
         if self.panorama.strays.is_empty() {
             return Task::none();
         }
-        let current = self
-            .panorama
-            .video
-            .as_ref()
-            .and_then(|v| v.address.clone());
+        let current = self.panorama.video.as_ref().and_then(|v| v.address.clone());
         let mut gone = Vec::new();
         self.panorama.strays.retain(|st| {
             let found = self.clients.iter().find(|c| {
@@ -900,13 +898,12 @@ impl App {
         // Vue par défaut sans bloc de raccourcis (composition du profil
         // Réglages) : petite barre des profils, pour ne jamais rester coincé.
         let inner = match self.panorama_surf(id).filter(|s| {
-            self.panorama
-                .page
-                .get(&s.key)
-                .copied()
-                .unwrap_or(0)
-                < self.panorama_offset()
-                && !self.panorama_geo(s).panes.iter().any(|p| p.widget == "shortcuts")
+            self.panorama.page.get(&s.key).copied().unwrap_or(0) < self.panorama_offset()
+                && !self
+                    .panorama_geo(s)
+                    .panes
+                    .iter()
+                    .any(|p| p.widget == "shortcuts")
         }) {
             Some(_) => stack![
                 inner,
@@ -971,7 +968,11 @@ impl App {
                         background: Some(
                             fx::alpha(
                                 accent,
-                                if matches!(st, button::Status::Pressed) { 0.6 } else { 0.25 },
+                                if matches!(st, button::Status::Pressed) {
+                                    0.6
+                                } else {
+                                    0.25
+                                },
                             )
                             .into(),
                         ),
@@ -1386,13 +1387,12 @@ impl App {
                         crate::i18n::tr("En direct").into()
                     },
                     self.panorama_font(),
-                    self.panorama
-                        .flux_t0
-                        .elapsed()
-                        .as_secs_f32(),
+                    self.panorama.flux_t0.elapsed().as_secs_f32(),
                     self.panorama.radio_paused,
                     // Un cran toutes les deux images (15 par seconde).
-                    self.panorama.levels_at.map_or(0.0, |t| t.elapsed().as_secs_f32() * 15.0),
+                    self.panorama
+                        .levels_at
+                        .map_or(0.0, |t| t.elapsed().as_secs_f32() * 15.0),
                 )
             }
             "video" => {

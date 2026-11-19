@@ -2555,7 +2555,8 @@ impl Preview {
                     PMsg::Pane(i, d) => {
                         let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
                         let ids = crate::panorama::PAGES;
-                        let cur = ids.iter().position(|(id, _)| *id == c.pane(i)).unwrap_or(0) as i32;
+                        let cur =
+                            ids.iter().position(|(id, _)| *id == c.pane(i)).unwrap_or(0) as i32;
                         let next = ids[(cur + d).rem_euclid(ids.len() as i32) as usize].0;
                         let l = c.layout;
                         c.set_pane(l, i, next);

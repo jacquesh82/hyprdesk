@@ -12,7 +12,10 @@ pub(in crate::ui) fn colors(mode: &str, accent: Color) -> (Color, Color) {
     if mode == "accent" {
         (accent, Color { a: 1.0, ..accent })
     } else {
-        (Color::from_rgb8(0x7f, 0x5a, 0xf0), Color::from_rgb8(0x2c, 0xb1, 0xff))
+        (
+            Color::from_rgb8(0x7f, 0x5a, 0xf0),
+            Color::from_rgb8(0x2c, 0xb1, 0xff),
+        )
     }
 }
 
@@ -37,7 +40,10 @@ impl canvas::Program<Msg> for Halo {
         _: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut f = Frame::new(renderer, bounds.size());
-        let Size { width: w, height: h } = bounds.size();
+        let Size {
+            width: w,
+            height: h,
+        } = bounds.size();
         // Couches concentriques, de plus en plus pâles vers l'intérieur.
         let layers = 14;
         let a = self.strength * (0.55 + 0.45 * self.pulse);
@@ -51,9 +57,27 @@ impl canvas::Program<Msg> for Halo {
                 (18.0_f32).into(),
             );
             let g = canvas::gradient::Linear::new(Point::new(0.0, 0.0), Point::new(w, h))
-                .add_stop(0.0, Color { a: alpha, ..self.from })
-                .add_stop(0.5, Color { a: alpha, ..self.to })
-                .add_stop(1.0, Color { a: alpha, ..self.from });
+                .add_stop(
+                    0.0,
+                    Color {
+                        a: alpha,
+                        ..self.from
+                    },
+                )
+                .add_stop(
+                    0.5,
+                    Color {
+                        a: alpha,
+                        ..self.to
+                    },
+                )
+                .add_stop(
+                    1.0,
+                    Color {
+                        a: alpha,
+                        ..self.from
+                    },
+                );
             f.stroke(
                 &rect,
                 Stroke {

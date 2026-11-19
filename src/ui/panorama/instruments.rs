@@ -74,6 +74,7 @@ pub(super) fn clock(
     .height(Length::Fill)
     .into()
 }
+#[allow(clippy::too_many_arguments)]
 pub(super) fn metrics(
     style: &str,
     lines: &[crate::widgets::SysLine],
@@ -86,8 +87,7 @@ pub(super) fn metrics(
 ) -> Element<'static, Msg> {
     let (fg, accent) = palette;
     let phase = (phase.clamp(0.0, 1.0) * 100.0).round() / 100.0;
-    let key =
-        format!("{style}:{lines:?}:{history:?}:{fg:?}:{accent:?}:{scale}:{font:?}:{phase}");
+    let key = format!("{style}:{lines:?}:{history:?}:{fg:?}:{accent:?}:{scale}:{font:?}:{phase}");
     canvas::Canvas::new(Instrument {
         kind: Kind::Metrics {
             style: style.into(),
@@ -555,8 +555,14 @@ fn smooth(p: &mut canvas::path::Builder, pts: &[Point], top: f32, bottom: f32) {
         let (p1, p2) = (pts[i], pts[i + 1]);
         let p3 = pts[(i + 2).min(n - 1)];
         let clamp = |y: f32| y.clamp(top, bottom);
-        let c1 = Point::new(p1.x + (p2.x - p0.x) / 6.0, clamp(p1.y + (p2.y - p0.y) / 6.0));
-        let c2 = Point::new(p2.x - (p3.x - p1.x) / 6.0, clamp(p2.y - (p3.y - p1.y) / 6.0));
+        let c1 = Point::new(
+            p1.x + (p2.x - p0.x) / 6.0,
+            clamp(p1.y + (p2.y - p0.y) / 6.0),
+        );
+        let c2 = Point::new(
+            p2.x - (p3.x - p1.x) / 6.0,
+            clamp(p2.y - (p3.y - p1.y) / 6.0),
+        );
         p.bezier_curve_to(c1, c2, p2);
     }
 }

@@ -114,13 +114,18 @@ pub fn setup(progress: &mut dyn FnMut(&str)) -> Result<(), String> {
         let model = voice_model(lang);
         if !model.is_file() {
             progress(&format!("Voix {lang}…"));
-            download(&format!("{VOICE_BASE}/{path}.onnx.json"), &model.with_extension("onnx.json"))?;
+            download(
+                &format!("{VOICE_BASE}/{path}.onnx.json"),
+                &model.with_extension("onnx.json"),
+            )?;
             download(&format!("{VOICE_BASE}/{path}.onnx"), &model)?;
         }
     }
     if !python().is_file() {
         progress("Environnement Python…");
-        run(Command::new("python3").args(["-m", "venv"]).arg(d.join("venv")))?;
+        run(Command::new("python3")
+            .args(["-m", "venv"])
+            .arg(d.join("venv")))?;
     }
     let has_vosk = Command::new(python())
         .args(["-c", "import vosk"])
@@ -362,7 +367,9 @@ pub fn stream(mic: String) -> impl iced::futures::Stream<Item = Event> {
         }
         drop(guard);
         let _ = tx
-            .send(Event::Error(crate::i18n::tr("l'écoute s'est arrêtée").into()))
+            .send(Event::Error(
+                crate::i18n::tr("l'écoute s'est arrêtée").into(),
+            ))
             .await;
         std::future::pending().await
     })

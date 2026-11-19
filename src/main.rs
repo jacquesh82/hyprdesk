@@ -77,9 +77,9 @@ mod ui;
 mod update_progress;
 mod updates;
 mod video;
+mod voice;
 mod widgets;
 mod windows;
-mod voice;
 mod zones;
 
 use std::path::PathBuf;
@@ -1258,7 +1258,12 @@ fn main() -> ExitCode {
                 .map(String::as_str)
                 .unwrap_or("all");
             let Some(kinds) = crate::panorama::icons::Kind::parse(what) else {
-                eprintln!("{}", crate::i18n::tr("hyprdesk panorama icons [sources|music|shortcuts|all] [--force]"));
+                eprintln!(
+                    "{}",
+                    crate::i18n::tr(
+                        "hyprdesk panorama icons [sources|music|shortcuts|all] [--force]"
+                    )
+                );
                 return ExitCode::FAILURE;
             };
             let mut progress = |i: usize, n: usize, name: &str| {
@@ -1437,7 +1442,10 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             };
             let mods = args.get(2).map(String::as_str).unwrap_or("");
-            if !mods.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_') {
+            if !mods
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_')
+            {
                 eprintln!("hyprdesk key <touche> [mods]");
                 return ExitCode::from(2);
             }
