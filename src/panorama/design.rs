@@ -105,9 +105,15 @@ pub fn player_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
     let (long, short) = (w.max(h), w.min(h));
     let inner_l = (long - 2.0 * pad).max(1.0);
     let inner_s = (short - 2.0 * pad).max(1.0);
-    // Largeur du lecteur : 16:9 de la hauteur utile, plus son espacement.
-    let player = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
-    let menu = 0.26_f32.min((1.0 - player) * 0.55);
+    // Paysage : le lecteur prend 16:9 de la hauteur utile. Portrait (bande
+    // verticale) : 16:9 de la largeur, la playlist profite de la hauteur.
+    let (player, menu) = if h > w {
+        let p = (((inner_s - gap) * 9.0 / 16.0 + gap) / inner_l).clamp(0.15, 0.5);
+        (p, 0.28_f32.min((1.0 - p) * 0.45))
+    } else {
+        let p = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
+        (p, 0.26_f32.min((1.0 - p) * 0.55))
+    };
     let list = 1.0 - menu - player;
     vec![
         Tile::new("shortcuts", 0.0, 0.0, menu, 1.0),
@@ -897,6 +903,11 @@ mod tests {
         assert!((pw / ph - 16.0 / 9.0).abs() < 0.01, "{pw}×{ph}");
         assert!((t.iter().map(|t| t.w).sum::<f32>() - 1.0).abs() < 1e-4);
         assert!(t.iter().all(|t| t.validate().is_ok()));
+        // Bande verticale 640×1392 : lecteur 16:9 sur la largeur.
+        let t = player_tiles(640.0, 1392.0, 20.0, 12.0);
+        let (pw, ph) = (600.0 - 12.0, t[1].w * 1352.0 - 12.0);
+        assert!((pw / ph - 16.0 / 9.0).abs() < 0.02, "{pw}×{ph}");
+        assert!(t[2].w > 0.3, "la playlist garde de la place");
         d.set("shortcut_profile", "video").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
         d.set("shortcut_profile", "remote").unwrap();

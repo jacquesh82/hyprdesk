@@ -146,7 +146,26 @@ impl App {
             .iter()
             .find(|s| &s.name == mon)
             .and_then(crate::panorama::detect::Screen::px_per_mm);
-        let (w, h) = real.unwrap_or((m.width as f32, m.height as f32));
+        // Zone Panorama : la bande, pas l'écran entier (la taille réelle de
+        // la surface peut manquer, ou rester celle d'avant la zone).
+        let zone = self
+            .cfg
+            .general
+            .panorama
+            .zone
+            .as_ref()
+            .filter(|z| &z.screen == mon)
+            .map(|z| {
+                let (_, _, w, h) = z.rect(m.width as f32, m.height as f32);
+                (w, h)
+            });
+        let (w, h) = match (real, zone) {
+            // Taille réelle cohérente avec la bande (même orientation).
+            (Some(r), Some(z)) if (r.0 >= r.1) == (z.0 >= z.1) => r,
+            (_, Some(z)) => z,
+            (Some(r), None) => r,
+            (None, None) => (m.width as f32, m.height as f32),
+        };
         Some(Surf {
             id,
             key: mon.clone(),
