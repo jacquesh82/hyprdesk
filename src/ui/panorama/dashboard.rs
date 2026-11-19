@@ -459,9 +459,9 @@ impl App {
 
         // Sélecteur : icône et nom ; icône seule quand la place manque.
         let profiles = crate::panorama::design::PROFILES;
-        let seg_w = ((size.width - 16.0 - gap * (profiles.len() - 1) as f32)
-            / profiles.len() as f32)
-            .max(28.0);
+        // Les profils, puis le micro de LYRA vocale.
+        let slots = profiles.len() + 1;
+        let seg_w = ((size.width - 16.0 - gap * (slots - 1) as f32) / slots as f32).max(28.0);
         let seg_h = (size.height * 0.16).clamp(34.0, 52.0);
         let named = seg_w >= 110.0;
         let mut tabs = row![].spacing(gap);
@@ -510,6 +510,54 @@ impl App {
                         .padding(4)
                         .on_press(wrap(PMsg::Profile(id.to_string())))
                         .style(tile_style(on)),
+                    ),
+                    tip,
+                    iced::widget::tooltip::Position::Bottom,
+                )
+                .gap(4),
+            );
+        }
+        // Micro de LYRA vocale : coupé (gris), à l'écoute, réveillé (« Lyra »
+        // entendu, accent), installation.
+        {
+            use super::VoiceUi;
+            let on = self.cfg.general.panorama.voice;
+            let state = &self.panorama.voice;
+            let hot = matches!(state, VoiceUi::Awake | VoiceUi::Thinking | VoiceUi::Speaking);
+            let label = match state {
+                VoiceUi::Installing(_) => crate::i18n::tr("Installation de la voix…"),
+                VoiceUi::Awake => crate::i18n::tr("Je vous écoute…"),
+                VoiceUi::Thinking => crate::i18n::tr("LYRA réfléchit…"),
+                VoiceUi::Speaking => crate::i18n::tr("LYRA parle…"),
+                VoiceUi::Error(_) if on => crate::i18n::tr("LYRA vocale : erreur"),
+                _ if on => crate::i18n::tr("LYRA vocale : dites « Lyra »"),
+                _ => crate::i18n::tr("LYRA vocale (coupée)"),
+            };
+            let side = (seg_h * 0.62).min(34.0);
+            let icon = iced::widget::svg(mic_icon(on))
+                .width(side)
+                .height(side)
+                .opacity(if on || matches!(state, VoiceUi::Installing(_)) { 1.0 } else { 0.45 });
+            let tip = container(text(label).size(13).color(fg).wrapping(text::Wrapping::None))
+                .padding([4, 10])
+                .style(move |_| container::Style {
+                    background: Some(fx::alpha(bg, 0.92).into()),
+                    border: Border {
+                        radius: 8.0.into(),
+                        width: 1.0,
+                        color: fx::alpha(accent, 0.5),
+                    },
+                    ..Default::default()
+                });
+            tabs = tabs.push(
+                iced::widget::tooltip(
+                    self.panorama_feedback(
+                        button(container(icon).center_x(Length::Fill).center_y(Length::Fill))
+                            .width(seg_w)
+                            .height(seg_h)
+                            .padding(4)
+                            .on_press(wrap(PMsg::VoiceToggle))
+                            .style(tile_style(hot)),
                     ),
                     tip,
                     iced::widget::tooltip::Position::Bottom,
@@ -803,4 +851,19 @@ fn profile_icon(id: &str) -> iced::widget::svg::Handle {
         _ => 3,
     }]
     .clone()
+}
+
+/// Icône du micro de LYRA vocale : dégradé violet-bleu (active) ou gris.
+fn mic_icon(on: bool) -> iced::widget::svg::Handle {
+    let (a, b) = if on {
+        ("#7f5af0", "#2cb1ff")
+    } else {
+        ("#5b6470", "#3a4048")
+    };
+    iced::widget::svg::Handle::from_memory(
+        format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{a}"/><stop offset="1" stop-color="{b}"/></linearGradient></defs><rect x="2" y="2" width="44" height="44" rx="12" fill="url(#g)"/><rect x="19" y="10" width="10" height="18" rx="5" fill="#fff"/><path d="M14 23a10 10 0 0 0 20 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M24 33v5M19 38h10" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>"##
+        )
+        .into_bytes(),
+    )
 }

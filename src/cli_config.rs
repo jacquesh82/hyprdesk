@@ -878,6 +878,15 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.browser.clear(); } };
+    "panorama.voice", "panorama", "on | off — LYRA vocale : écoute du mot « Lyra » et réponses parlées (hyprdesk voice setup)",
+        |c| if c.general.panorama.voice { "on".into() } else { "off".into() },
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.voice = match v { "on" | "true" | "1" => true, "off" | "false" | "0" => false, _ => return Err("on | off".into()) };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.voice = false; } };
     "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
         |c| c.general.panorama.sleep_minutes.to_string(),
         |s, v, c| {

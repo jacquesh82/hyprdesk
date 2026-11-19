@@ -91,6 +91,8 @@ pub struct Conversation {
     /// Du nouveau pendant qu'on regardait une autre conversation.
     pub unread: bool,
     next_id: u64,
+    /// Demande vocale : la réponse est dite, dans cette langue.
+    pub speak: Option<String>,
 }
 
 impl Conversation {
@@ -115,7 +117,26 @@ impl Conversation {
             expanded: Default::default(),
             unread: false,
             next_id: 0,
+            speak: None,
         }
+    }
+
+    /// Réponse du dernier tour : le texte de LYRA après le dernier message
+    /// de la personne.
+    pub fn last_reply(&self) -> String {
+        let start = self
+            .entries
+            .iter()
+            .rposition(|e| matches!(e, Entry::User { .. }))
+            .map_or(0, |i| i + 1);
+        self.entries[start..]
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Assistant { raw, .. } => Some(raw.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -632,8 +653,31 @@ impl App {
                 return Task::none();
             }
             ChatMsg::Engine(session, m) => {
+                let turn_end = matches!(m, ServerMsg::TurnEnd { .. });
+                let confirm = match &m {
+                    ServerMsg::ConfirmRequest {
+                        id, command, reason, ..
+                    } => Some((id.clone(), command.clone(), reason.clone())),
+                    _ => None,
+                };
                 self.chat_engine(session, m);
                 self.flush_pending(session);
+                // Demande vocale qui attend un accord : posée à voix haute,
+                // « oui » ou « non » y répond (LYRA vocale).
+                if let Some((id, command, reason)) = confirm
+                    && let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session))
+                    && let Some(lang) = c.speak.clone()
+                {
+                    return self.voice_confirm(id, command, reason, lang);
+                }
+                // Demande vocale : la réponse est dite (LYRA vocale).
+                if turn_end
+                    && let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session))
+                    && let Some(lang) = c.speak.clone()
+                {
+                    let text = c.last_reply();
+                    return self.voice_say(text, lang);
+                }
                 return Task::none();
             }
             ChatMsg::Ended(session, why) => {

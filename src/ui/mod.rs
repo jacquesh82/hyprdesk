@@ -5186,6 +5186,13 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
+        if self.cfg.general.panorama.voice && crate::voice::ready() {
+            subs.push(
+                Subscription::run(crate::voice::stream)
+                    .map(|e| Msg::Panorama(panorama::PMsg::Voice(e))),
+            );
+        }
         // Fonds vidéo affichés : une boucle ffmpeg par clé de lecture (une
         // pour tous les écrans qui montrent la même vidéo ; une par écran
         // pour une scène étalée).

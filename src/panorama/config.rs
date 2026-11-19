@@ -225,6 +225,8 @@ pub struct Config {
     pub declined: Vec<String>,
     /// Minutes sans lecture ni toucher avant l'horloge de veille (0 : jamais).
     pub sleep_minutes: u32,
+    /// LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
+    pub voice: bool,
     pub design: super::design::Design,
 }
 
@@ -267,6 +269,7 @@ impl Default for Config {
             radios: super::radio::default_radios(),
             declined: Vec::new(),
             sleep_minutes: 5,
+            voice: false,
             design: Default::default(),
         }
     }
@@ -287,6 +290,7 @@ const KEYS: &[&str] = &[
     "radios",
     "declined",
     "sleep_minutes",
+    "voice",
     "design",
 ];
 
@@ -469,6 +473,9 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(l) = list(t, "declined")? {
         c.declined = l;
     }
+    if let Some(v) = t.get::<Option<bool>>("voice")? {
+        c.voice = v;
+    }
     match t.get::<Value>("sleep_minutes")? {
         Value::Nil => {}
         Value::Integer(n) if n >= 0 => c.sleep_minutes = n as u32,
@@ -583,6 +590,9 @@ impl Config {
             f.push(format!("declined = {}", lua_list(&self.declined)));
         }
         f.push(format!("sleep_minutes = {}", self.sleep_minutes));
+        if self.voice {
+            f.push("voice = true".into());
+        }
         if self.design != d.design {
             f.push(format!("design = {}", self.design.to_lua()));
         }
@@ -736,6 +746,7 @@ mod tests {
             }],
             declined: vec!["Acme \"M\" 1".into()],
             sleep_minutes: 0,
+            voice: true,
             design: Default::default(),
         };
         assert_eq!(eval(&c.to_lua()).unwrap(), c);

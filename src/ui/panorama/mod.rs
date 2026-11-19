@@ -139,6 +139,10 @@ pub struct State {
     pub signed_at: Option<Instant>,
     /// Liste de sources réglée dans les Réglages : video, music, radio.
     pub sources_kind: &'static str,
+    /// LYRA vocale : état affiché par le bouton micro.
+    pub voice: VoiceUi,
+    /// Accord demandé par LYRA pendant une demande vocale : (demande, langue).
+    pub voice_confirm: Option<(String, String)>,
     /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
     /// une fois (reprises, ou fermées).
     pub orphans_checked: bool,
@@ -184,6 +188,24 @@ pub struct State {
     pub wallpaper_requested: String,
 }
 
+/// État de LYRA vocale (bouton micro du Panorama).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum VoiceUi {
+    #[default]
+    Idle,
+    /// Installation de Piper et Vosk (étape en cours).
+    Installing(String),
+    /// À l'écoute du mot « Lyra ».
+    Listening,
+    /// « Lyra » entendu : la demande suit.
+    Awake,
+    /// Demande envoyée à LYRA.
+    Thinking,
+    /// LYRA répond à voix haute.
+    Speaking,
+    Error(String),
+}
+
 #[derive(Debug, Clone)]
 pub enum PMsg {
     Shortcut(usize),
@@ -194,6 +216,15 @@ pub enum PMsg {
     Frame(&'static str),
     /// Fenêtres étiquetées du lecteur trouvées au démarrage : (adresse, classe).
     Orphans(Vec<(String, String)>),
+    /// LYRA vocale : événement de l'écoute.
+    Voice(crate::voice::Event),
+    /// Bouton micro : active (installe au besoin) ou coupe LYRA vocale.
+    VoiceToggle,
+    VoiceSetup(Result<(), String>),
+    /// Réponse dite : l'écoute reprend.
+    VoiceDone,
+    /// Question dite : l'écoute reprend, la phrase suivante est la réponse.
+    VoiceArm,
     /// Cookies du navigateur relus (connexions aux plateformes).
     Signed(Option<std::collections::HashSet<(String, String)>>),
     /// Fin du dessin automatique des icônes manquantes (SmartUI).
@@ -467,6 +498,99 @@ impl App {
             }
         }
         Task::batch(tasks)
+    }
+
+    /// Demande entendue : envoyée à LYRA (son tiroir s'ouvre), la réponse
+    /// sera dite dans la langue de la demande.
+    fn voice_ask(&mut self, lang: String, text: String) -> Task<Msg> {
+        // LYRA attend un accord : « oui » ou « non ».
+        if let Some((id, asked)) = self.panorama.voice_confirm.clone() {
+            let t = text.to_lowercase();
+            let has = |words: &[&str]| words.iter().any(|w| t.split_whitespace().any(|x| x == *w));
+            let yes = has(&["oui", "ouais", "ok", "okay", "d'accord", "vas-y", "accepte", "confirme", "yes", "yeah", "sure", "go"]);
+            let no = has(&["non", "annule", "refuse", "no", "nope", "cancel"]);
+            if yes != no {
+                self.panorama.voice_confirm = None;
+                self.panorama.voice = VoiceUi::Thinking;
+                return self.chat_update(super::chat::ChatMsg::Confirm(id, yes));
+            }
+            let again = if asked == "en" {
+                "Sorry, yes or no?"
+            } else {
+                "Je n'ai pas compris : oui ou non ?"
+            };
+            return self.voice_say_then_arm(again.into(), asked);
+        }
+        self.panorama.voice = VoiceUi::Thinking;
+        let prompt = if lang == "en" {
+            format!(
+                "🎙 {text}\n\n(Voice request, possibly misheard: act if needed with hyprdesk commands, then answer in one or two short spoken sentences, in English, without formatting.)"
+            )
+        } else {
+            format!(
+                "🎙 {text}\n\n(Demande vocale, peut-être mal entendue : agis au besoin avec les commandes hyprdesk, puis réponds en une ou deux phrases courtes à dire à voix haute, en français, sans mise en forme.)"
+            )
+        };
+        match self.ask_assistant(prompt, "LYRA vocale", true) {
+            Some(t) => {
+                let session = self.chat_session;
+                if let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session)) {
+                    c.speak = Some(lang);
+                }
+                t
+            }
+            None => self.voice_say(
+                crate::i18n::tr("LYRA n'est pas disponible : activez l'assistant dans les Réglages.")
+                    .into(),
+                lang,
+            ),
+        }
+    }
+
+    /// LYRA demande un accord pendant une demande vocale : la question est
+    /// dite, puis la réponse (« oui », « non ») est écoutée sans « Lyra ».
+    pub(in crate::ui) fn voice_confirm(
+        &mut self,
+        id: String,
+        command: String,
+        reason: String,
+        lang: String,
+    ) -> Task<Msg> {
+        self.panorama.voice_confirm = Some((id, lang.clone()));
+        let what = if reason.trim().is_empty() { command } else { reason };
+        let text = if lang == "en" {
+            format!("I need your approval: {what}. Yes or no?")
+        } else {
+            format!("J'ai besoin de votre accord : {what}. Oui ou non ?")
+        };
+        self.voice_say_then_arm(text, lang)
+    }
+
+    /// Dit `text`, puis écoute la phrase suivante sans attendre « Lyra ».
+    fn voice_say_then_arm(&mut self, text: String, lang: String) -> Task<Msg> {
+        crate::voice::control("pause");
+        self.panorama.voice = VoiceUi::Speaking;
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            },
+            |_| wrap(PMsg::VoiceArm),
+        )
+    }
+
+    /// Dit `text` (Piper) ; l'écoute est suspendue le temps de parler.
+    pub(in crate::ui) fn voice_say(&mut self, text: String, lang: String) -> Task<Msg> {
+        crate::voice::control("pause");
+        self.panorama.voice = VoiceUi::Speaking;
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::voice::speak(&text, &lang)).await;
+                // L'écho de la pièce se tait avant de réécouter.
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            },
+            |_| wrap(PMsg::VoiceDone),
+        )
     }
 
     /// Sources du lecteur visibles (profil Musique : services de musique ;
@@ -773,6 +897,78 @@ impl App {
                     },
                     |r| wrap(PMsg::ShortcutResult(r)),
                 )
+            }
+            PMsg::VoiceToggle => {
+                self.panorama.last_press = Some(Instant::now());
+                if self.cfg.general.panorama.voice {
+                    self.panorama.voice = VoiceUi::Idle;
+                    let mut c = self.panorama_cfg();
+                    c.voice = false;
+                    return self.panorama_save(c);
+                }
+                if crate::voice::ready() {
+                    self.panorama.voice = VoiceUi::Listening;
+                    let mut c = self.panorama_cfg();
+                    c.voice = true;
+                    return self.panorama_save(c);
+                }
+                if matches!(self.panorama.voice, VoiceUi::Installing(_)) {
+                    return Task::none();
+                }
+                // Première fois : Piper et Vosk s'installent (~350 Mo).
+                self.panorama.voice =
+                    VoiceUi::Installing(crate::i18n::tr("Installation de la voix…").into());
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(|| crate::voice::setup(&mut |_| {}))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(PMsg::VoiceSetup(r)),
+                )
+            }
+            PMsg::VoiceSetup(r) => match r {
+                Ok(()) => {
+                    self.panorama.voice = VoiceUi::Listening;
+                    let mut c = self.panorama_cfg();
+                    c.voice = true;
+                    self.panorama_save(c)
+                }
+                Err(e) => {
+                    self.panorama.voice = VoiceUi::Error(e);
+                    Task::none()
+                }
+            },
+            PMsg::Voice(e) => match e {
+                crate::voice::Event::Ready => {
+                    if !matches!(self.panorama.voice, VoiceUi::Speaking | VoiceUi::Thinking) {
+                        self.panorama.voice = VoiceUi::Listening;
+                    }
+                    Task::none()
+                }
+                crate::voice::Event::Wake => {
+                    self.panorama.voice = VoiceUi::Awake;
+                    self.panorama.last_press = Some(Instant::now());
+                    Task::none()
+                }
+                crate::voice::Event::Error(m) => {
+                    self.panorama.voice = VoiceUi::Error(m);
+                    Task::none()
+                }
+                crate::voice::Event::Heard(lang, text) => self.voice_ask(lang, text),
+            },
+            PMsg::VoiceArm => {
+                crate::voice::control("resume");
+                crate::voice::control("arm");
+                self.panorama.voice = VoiceUi::Awake;
+                Task::none()
+            }
+            PMsg::VoiceDone => {
+                crate::voice::control("resume");
+                if self.cfg.general.panorama.voice {
+                    self.panorama.voice = VoiceUi::Listening;
+                }
+                Task::none()
             }
             PMsg::Signed(cookies) => {
                 let c = &self.cfg.general.panorama;
@@ -1218,6 +1414,21 @@ impl App {
                     _ => Task::none(),
                 }
             }
+            // LYRA vocale : on, off, toggle ; ask <fr|en> <texte> simule une
+            // demande entendue (réponse dite).
+            ("voice", _) => match it.next().unwrap_or("toggle") {
+                "ask" => {
+                    let lang = it.next().unwrap_or("fr").to_string();
+                    let text = it.collect::<Vec<_>>().join(" ");
+                    if text.is_empty() {
+                        return Task::none();
+                    }
+                    self.panorama_update(PMsg::Voice(crate::voice::Event::Heard(lang, text)))
+                }
+                "on" if self.cfg.general.panorama.voice => Task::none(),
+                "off" if !self.cfg.general.panorama.voice => Task::none(),
+                _ => self.panorama_update(PMsg::VoiceToggle),
+            },
             ("preview", _) => {
                 let size = it.next().and_then(parse_size).unwrap_or(PREVIEW_SIZE);
                 self.panorama_update(PMsg::Preview(size))

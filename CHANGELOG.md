@@ -37,6 +37,16 @@ and this project adheres to
   on the latest value. NVIDIA cards (proprietary driver, absent from hwmon)
   are read through `nvidia-smi`: new `gpu` (load) and `vram` metrics, and
   `gpu_temp` falls back to it. The System page shows eight graphs.
+- **LYRA voice** (MLG-172). A microphone button in the Panorama (next to
+  the profiles) turns it on: hyprdesk listens for the word “Lyra” (Vosk,
+  small French and English models, offline), sends the request to LYRA —
+  its drawer opens — and reads the answer aloud with Piper (local neural
+  voices, French siwis and English lessac), in the language of the request;
+  listening pauses while LYRA speaks. When LYRA needs approval, the question
+  is spoken and “yes”/“no” answers it. Everything installs on first use in
+  `~/.local/share/hyprdesk/voice` (~350 MB, no root): `hyprdesk voice setup
+  | say [--en] <text> | status`; `panorama.voice` (on/off), `hyprdesk
+  panorama voice on|off|toggle|ask <fr|en> <text>`.
 - **Panorama sources configured in Settings, only usable platforms
   shown** (MLG-172). Settings → Panorama → Sources edits the three lists
   (Video, Music, Webradio): add, order, remove, icons, default list. The

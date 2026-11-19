@@ -79,6 +79,7 @@ mod updates;
 mod video;
 mod widgets;
 mod windows;
+mod voice;
 mod zones;
 
 use std::path::PathBuf;
@@ -145,6 +146,9 @@ Commandes :
   media <play-pause|next|previous|status|seek ±N>
                     commande le lecteur en cours (MPRIS) ; status : son état
                     (clé=valeur) ; seek : avance ou recule de N secondes
+  voice [setup|say [--en] <texte>|status]
+                    LYRA vocale : installe Piper et Vosk (hors ligne), fait
+                    parler la voix, ou dit si tout est prêt
   key <touche> [mods]
                     envoie une touche à la fenêtre active (télécommande du
                     Panorama) : key Up, key Return, key f, key Tab SHIFT
@@ -1424,6 +1428,8 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // LYRA vocale : installation, essai de la voix, état.
+        "voice" => voice::cli(&args[1..]),
         // Télécommande : une touche pour la fenêtre active (Hyprland).
         "key" => {
             let Some(key) = args.get(1).filter(|k| valid_key(k)) else {
