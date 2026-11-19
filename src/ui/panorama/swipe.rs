@@ -313,6 +313,13 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                             );
                             s.reset();
                             s.settle = Some(spring);
+                        } else if dir != 0 && !self.duration.is_zero() {
+                            // Page suivante : elle arrive du côté du geste et
+                            // glisse jusqu'en place (pas d'apparition sèche).
+                            let spring = Spring::rest(s.offset * 0.85 + dir as f32 * extent)
+                                .retarget(0.0, self.duration, Instant::now());
+                            s.reset();
+                            s.settle = Some(spring);
                         } else {
                             s.reset();
                         }

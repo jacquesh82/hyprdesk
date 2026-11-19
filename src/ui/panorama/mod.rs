@@ -219,6 +219,8 @@ pub struct State {
 pub struct TasksView {
     pub key: String,
     pub sort: &'static str,
+    /// Mesure affichée à gauche (celle de la tuile, puis celle du tri).
+    pub metric: String,
     pub list: Vec<crate::panorama::tasks::Proc>,
     pub sampler: std::sync::Arc<std::sync::Mutex<crate::panorama::tasks::Sampler>>,
     /// Programme dont l'arrêt attend un second appui.
@@ -283,6 +285,8 @@ pub enum PMsg {
     Levels(crate::panorama::radio_play::Levels),
     /// Radio : pause (true) ou lecture.
     RadioPaused(Option<bool>),
+    /// Pastille « en cours » : lecture / pause de ce qui joue.
+    NowPlayingToggle,
     /// Tuile de mesure touchée : gestionnaire des tâches (écran, mesure).
     TasksOpen(String, String),
     TasksSort(&'static str),
@@ -1081,7 +1085,7 @@ impl App {
                 // plein écran (vidéo seule) est mémorisé pour la source.
                 let player = matches!(
                     self.cfg.general.panorama.design.shortcut_profile.as_str(),
-                    "video" | "audio"
+                    "video" | "audio" | "remote"
                 );
                 if player
                     && let Some(key) = command.trim().strip_prefix("hyprdesk key ")
@@ -1191,6 +1195,21 @@ impl App {
                 }
                 Task::none()
             }
+            PMsg::NowPlayingToggle => {
+                self.panorama.last_press = Some(Instant::now());
+                if self.panorama.radio.is_some() {
+                    return Task::perform(
+                        async {
+                            tokio::task::spawn_blocking(crate::panorama::radio_play::toggle_pause)
+                                .await
+                                .ok()
+                                .flatten()
+                        },
+                        |p| wrap(PMsg::RadioPaused(p)),
+                    );
+                }
+                self.panorama_update(PMsg::Control("PlayPause"))
+            }
             PMsg::RadioPaused(p) => {
                 if let Some(p) = p {
                     self.panorama.radio_paused = p;
@@ -1202,6 +1221,7 @@ impl App {
                 self.panorama.tasks = Some(TasksView {
                     key,
                     sort: crate::panorama::tasks::sort_key(&metric),
+                    metric: metric.clone(),
                     list: Vec::new(),
                     sampler: Default::default(),
                     kill: None,
@@ -1214,6 +1234,14 @@ impl App {
                 if let Some(t) = self.panorama.tasks.as_mut() {
                     t.sort = k;
                     t.kill = None;
+                    t.metric = match k {
+                        "mem" => "ram",
+                        "gpu" => "gpu",
+                        "vram" => "vram",
+                        "io" => "disk",
+                        _ => "cpu",
+                    }
+                    .into();
                     crate::panorama::tasks::sort(&mut t.list, k);
                 }
                 self.panorama_tasks_refresh()
@@ -1691,6 +1719,14 @@ impl App {
                 };
                 self.panorama_update(PMsg::PlayUrl(name, url))
             }
+            // Gestionnaire des tâches : tasks <cpu|ram|gpu|vram|disk> | close.
+            ("tasks", first) => match it.next().unwrap_or("cpu") {
+                "close" => self.panorama_update(PMsg::TasksClose),
+                m => match first {
+                    Some(key) => self.panorama_update(PMsg::TasksOpen(key, m.to_string())),
+                    None => Task::none(),
+                },
+            },
             ("radio", _) => {
                 let q = it.collect::<Vec<_>>().join(" ");
                 if q.is_empty() {

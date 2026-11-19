@@ -211,22 +211,62 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
+        // Un tiers : la mesure (graphique) ; deux tiers : la liste.
+        let lines: Vec<crate::widgets::SysLine> =
+            self.panorama.sys_ids.get(&t.metric).cloned().into_iter().collect();
+        // Toucher la mesure ramène à la page (comme ✕).
+        let indicator = button(super::instruments::metrics(
+            "graphs",
+            &lines,
+            &self.panorama.history,
+            self.cfg.general.panorama.design.history_seconds as usize,
+            (fg, accent),
+            self.panorama_font(),
+            self.cfg.general.panorama.design.text_scale,
+            self.panorama_graph_phase(),
+        ))
+        .padding(0)
+        .width(Length::FillPortion(1))
+        .height(Length::Fill)
+        .on_press(wrap(PMsg::TasksClose))
+        .style(move |_, _| button::Style {
+            background: Some(fx::alpha(fg, 0.04).into()),
+            border: Border::default().rounded(14),
+            ..Default::default()
+        });
         container(
-            column![
-                head,
-                iced::widget::scrollable(rows)
-                    .height(Length::Fill)
-                    .direction(iced::widget::scrollable::Direction::Vertical(
-                        iced::widget::scrollable::Scrollbar::new().width(4).scroller_width(4).spacing(6),
-                    ))
+            row![
+                indicator,
+                column![
+                    head,
+                    iced::widget::scrollable(rows)
+                        .height(Length::Fill)
+                        .direction(iced::widget::scrollable::Direction::Vertical(
+                            iced::widget::scrollable::Scrollbar::new()
+                                .width(4)
+                                .scroller_width(4)
+                                .spacing(6),
+                        ))
+                ]
+                .spacing(12)
+                .width(Length::FillPortion(2)),
             ]
-            .spacing(12),
+            .spacing(18),
         )
         .padding(18)
         .width(Length::Fill)
         .height(Length::Fill)
+        // Fond plein : la page derrière ne transparaît pas.
         .style(move |_| container::Style {
-            background: Some(fx::alpha(bg, 0.96).into()),
+            background: Some(
+                Color {
+                    r: bg.r * 0.6,
+                    g: bg.g * 0.6,
+                    b: bg.b * 0.6,
+                    a: 1.0,
+                }
+                .into(),
+            ),
             ..Default::default()
         })
         .into()

@@ -65,6 +65,13 @@ and this project adheres to
   speaks (`panorama.voice_halo` screens | panorama | off,
   `panorama.voice_halo_color` lyra | accent). LYRA's context now covers
   every Panorama setting and command.
+- **Panorama: no dead ends** (MLG-172). Page changes slide in from the
+  side of the gesture; when a video or a radio plays out of sight (another
+  page, the Settings profile), a “now playing” pill (title, ⏯, ✕) stays at
+  the bottom; the Remote profile keeps the player zone and its keys go to
+  the player; the task manager shows the metric on a third and the list on
+  two thirds, and tapping the metric (or ✕) goes back
+  (`hyprdesk panorama tasks <metric>|close`).
 - **Panorama sources configured in Settings, only usable platforms
   shown** (MLG-172). Settings → Panorama → Sources edits the three lists
   (Video, Music, Webradio): add, order, remove, icons, default list. The

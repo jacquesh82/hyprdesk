@@ -420,7 +420,8 @@ impl Design {
     /// `w`, `h` : taille de la surface, pour un lecteur au format 16:9.
     pub fn active_tiles(&self, w: f32, h: f32) -> std::borrow::Cow<'_, [Tile]> {
         match self.shortcut_profile.as_str() {
-            "video" | "audio" => player_tiles(w, h, self.padding, self.gap).into(),
+            // La télécommande pilote le lecteur : elle garde sa zone.
+            "video" | "audio" | "remote" => player_tiles(w, h, self.padding, self.gap).into(),
             _ => self.tiles.as_slice().into(),
         }
     }
@@ -899,6 +900,8 @@ mod tests {
         d.set("shortcut_profile", "video").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
         d.set("shortcut_profile", "remote").unwrap();
+        assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
+        d.set("shortcut_profile", "system").unwrap();
         assert_eq!(d.active_tiles(1600.0, 450.0), d.tiles.as_slice());
         d.set("shortcut_profile", "system").unwrap();
         // Un préréglage garde le profil choisi.

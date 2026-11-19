@@ -211,7 +211,8 @@ impl App {
                 None => full("clock"),
             },
             Layout::Dashboard => {
-                let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
+                let player =
+                    matches!(c.design.shortcut_profile.as_str(), "video" | "audio" | "remote");
                 map(&c.design.active_tiles(s.w, s.h), player)
             }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
@@ -859,6 +860,15 @@ impl App {
 
     pub(super) fn view_panorama_surface(&self, id: Id) -> Element<'_, Msg> {
         let inner = self.view_panorama_surface_inner(id);
+        // Quelque chose joue hors de vue (autre page, profil sans lecteur) :
+        // pastille « en cours » pour le reprendre ou l'arrêter.
+        let inner = match self
+            .panorama_surf(id)
+            .and_then(|s| self.panorama_now_playing(&s))
+        {
+            Some(pill) => stack![inner, pill].into(),
+            None => inner,
+        };
         if let Some(s) = self.panorama_surf(id)
             && self.panorama.tasks.as_ref().is_some_and(|t| t.key == s.key)
         {
@@ -874,6 +884,73 @@ impl App {
             },
             None => inner,
         }
+    }
+
+    /// Pastille « en cours » : titre, lecture/pause, arrêt — quand la vidéo
+    /// ou la radio ne se voit pas sur l'écran (pas de voie sans retour).
+    fn panorama_now_playing(&self, s: &Surf) -> Option<Element<'_, Msg>> {
+        let name = self
+            .panorama
+            .radio
+            .as_ref()
+            .map(|r| r.0.clone())
+            .or_else(|| self.panorama.video.as_ref().map(|v| v.name.clone()))?;
+        if self.panorama_geo(s).video_pane().is_some() || self.panorama.tasks.is_some() {
+            return None;
+        }
+        let (bg, fg, accent) = self.panorama_palette();
+        let paused = if self.panorama.radio.is_some() {
+            self.panorama.radio_paused
+        } else {
+            !self.panorama.media.as_ref().is_some_and(|m| m.playing)
+        };
+        let btn = |label: &'static str, msg: Msg| {
+            self.panorama_feedback(
+                button(text(label).size(16).color(fg))
+                    .padding([4, 12])
+                    .on_press(msg)
+                    .style(move |_, st| button::Style {
+                        background: Some(
+                            fx::alpha(
+                                accent,
+                                if matches!(st, button::Status::Pressed) { 0.6 } else { 0.25 },
+                            )
+                            .into(),
+                        ),
+                        border: Border::default().rounded(12),
+                        text_color: fg,
+                        ..Default::default()
+                    }),
+            )
+        };
+        let pill = container(
+            row![
+                text(format!("♪ {name}")).size(14).color(fg),
+                btn(if paused { "▶" } else { "⏸" }, wrap(PMsg::NowPlayingToggle)),
+                btn("✕", wrap(PMsg::VideoClose)),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 12])
+        .style(move |_| container::Style {
+            background: Some(fx::alpha(bg, 0.85).into()),
+            border: Border {
+                radius: 18.0.into(),
+                width: 1.0,
+                color: fx::alpha(accent, 0.6),
+            },
+            ..Default::default()
+        });
+        Some(
+            container(pill)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Start)
+                .align_y(Alignment::End)
+                .padding(14)
+                .into(),
+        )
     }
 
     /// Points du carrousel en bas au centre : la page affichée et leur
