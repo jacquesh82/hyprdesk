@@ -24,6 +24,17 @@ and this project adheres to
   (`HYPRDESK_WGPU_PCI`, adapter picked by PCI id in the vendored
   iced_wgpu), so its surfaces are never copied either. Also `hyprdesk
   config set hyprland_gpu <0000:01:00.0|auto>` and `gpu hyprland`.
+- **Composable Panorama.** Configurable forest, telemetry, studio and applications
+  compositions: freely positioned panes, background images, colors, fonts,
+  transparent cards, analog/flip clocks, real gauges and history graphs,
+  calendar, vinyl player and editable touch shortcuts. Settings, Lua and
+  `panorama.design.*` CLI keys share validation and persistence; see
+  [Panorama configuration](docs/PANORAMA.md).
+- **Cinematic Panorama.** A theme-colored surface with a perspective floor,
+  projected 3D crystal and orbiting lights, glass artwork and cards, magnetic
+  controls, spring page transitions and swipe snap-back. Local animation stops
+  when idle; `transition = "none"` disables motion. Isolated preview scenes
+  cover media, system, clock, split layout, video sources and reduced motion.
 - **Panorama for strip screens** (MLG-164). A very wide screen (aspect
   ratio of 2.5:1 or more, landscape or portrait: 2560×720, 1920×480,
   1280×400…), touch or not, gets a full-screen Panorama: pages you swipe

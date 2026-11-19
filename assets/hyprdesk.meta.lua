@@ -6,6 +6,33 @@
 ---@alias HD.Anchor "top-left"|"top"|"top-right"|"left"|"center"|"right"|"bottom-left"|"bottom"|"bottom-right"
 ---@alias HD.Color string # "#rrggbb", "#rrggbbaa", "rgb(rrggbb)", "rgba(rrggbbaa)"
 
+---@class HD.PanoramaDesign
+---@field preset? string
+---@field wallpaper? string
+---@field background? HD.Color
+---@field foreground? HD.Color
+---@field accent? HD.Color
+---@field font_family? string
+---@field dimming? number
+---@field card_opacity? number
+---@field border_opacity? number
+---@field radius? number
+---@field gap? number
+---@field padding? number
+---@field text_scale? number
+---@field effects? boolean
+---@field controls? boolean
+---@field clock_style? "digital"|"flip"|"analog"
+---@field seconds? boolean
+---@field date? boolean
+---@field system_style? "cards"|"gauges"|"graphs"
+---@field metrics? string
+---@field history_seconds? integer
+---@field media_style? "standard"|"vinyl"|"compact"
+---@field shortcut_columns? integer
+---@field tiles? { widget: string, x: number, y: number, w: number, h: number }[]
+---@field shortcuts? { name: string, icon: string, command: string }[]
+
 ---@class HD.ConfigSpec
 ---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, take?: string[]|false, media?: boolean }
 ---@field suspend_binds? boolean # bureau affiché : suspendre les raccourcis de Hyprland
@@ -13,7 +40,7 @@
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # options des plugins (Réglages → Plugins → Configurer), pour chaque instance sauf les options écrites sur l'instance
 ---@field update_commands? table<string, { check?: string, upgrade?: string }> # commandes des mises à jour par source (pacman, aur, apt, dnf, zypper, flatpak), en shell ; vide : celle de hyprdesk
 ---@field forced_modes? table<string, "no-desktop"|"launcher-only"|"full-desktop"> # mode imposé : écran ("DP-1") ou workspace ("ws:5") ; no-desktop : jamais de bureau là ; les autres : le bureau y passe en arrivant
----@field panorama? { screens?: string[], pages?: ("media"|"system"|"clock"|"video")[], layout?: "single"|"split2"|"split3", panes?: ("media"|"system"|"clock"|"video")[], sources?: { name: string, url: string }[], browser?: string, declined?: string[], sleep_minutes?: integer } # Panorama (écrans bandeau tactiles) : écrans au rôle (connecteur "DP-3" ou identifiant EDID), pages dans l'ordre, propositions refusées, minutes avant l'horloge de veille (0 : jamais)
+---@field panorama? { screens?: string[], pages?: ("media"|"system"|"clock"|"video"|"calendar"|"shortcuts")[], layout?: "single"|"split2"|"split3"|"dashboard", panes?: ("media"|"system"|"clock"|"video"|"calendar"|"shortcuts")[], sources?: { name: string, url: string }[], browser?: string, declined?: string[], sleep_minutes?: integer, design?: HD.PanoramaDesign } # Panorama (écrans bandeau tactiles) : écrans au rôle (connecteur "DP-3" ou identifiant EDID), pages dans l'ordre, propositions refusées, minutes avant l'horloge de veille (0 : jamais)
 ---@field autostart? boolean # lancer les applications du démarrage automatique XDG (~/.config/autostart, /etc/xdg/autostart), une fois par session
 ---@field desktop_files? boolean # fichiers du dossier Bureau (xdg-user-dir DESKTOP) et Corbeille en icônes du bureau
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
@@ -72,6 +99,7 @@
 ---@field fg? HD.Color # texte
 ---@field bg? HD.Color # surfaces
 ---@field accent? HD.Color
+---@field font_family? string
 ---@field effects? { bar?: HD.Effect, menus?: HD.Effect, launcher?: HD.Effect, settings?: HD.Effect, widgets?: HD.Effect }
 
 ---@class HD.RuleSpec

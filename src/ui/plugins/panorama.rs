@@ -3,6 +3,8 @@
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
+mod design;
+
 use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
@@ -19,7 +21,13 @@ pub const INFO: PluginInfo = PluginInfo {
     builtin: true,
 };
 
-pub const TABS: &[SubTab] = &[("ecrans", "Écrans"), ("pages", "Pages")];
+pub const TABS: &[SubTab] = &[
+    ("ecrans", "Écrans"),
+    ("pages", "Pages"),
+    ("composition", "Composition"),
+    ("style", "Style"),
+    ("raccourcis", "Raccourcis"),
+];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Panorama(m)))
@@ -50,6 +58,21 @@ pub enum Msg {
     SourcesReset,
     Browser(String),
     BrowserCommit,
+    Preset(String),
+    DesignText(String, String),
+    DesignApply(String),
+    DesignChoice(String, String),
+    DesignNumber(String, f32),
+    DesignFlag(String, bool),
+    DesignCommit,
+    TileSelect(usize),
+    TileWidget(String),
+    TileNumber(String, f32),
+    TileAdd,
+    TileRemove,
+    ShortcutText(usize, String),
+    ShortcutAdd,
+    ShortcutRemove(usize),
 }
 
 /// Libellé d'une disposition.
@@ -59,6 +82,7 @@ fn layout_label(l: crate::panorama::config::Layout) -> &'static str {
         Layout::Single => "Une page à la fois",
         Layout::Split2 => "Écran partagé en 2",
         Layout::Split3 => "Écran partagé en 3",
+        Layout::Dashboard => "Composition libre",
     }
 }
 
@@ -76,6 +100,15 @@ pub fn load() -> Task<UiMsg> {
 
 impl App {
     pub(in crate::ui) fn panorama_page(&self) -> Element<'_, UiMsg> {
+        if self.on_subtab(INFO.id, "style") {
+            return self.panorama_style_tab();
+        }
+        if self.on_subtab(INFO.id, "composition") {
+            return self.panorama_composition_tab();
+        }
+        if self.on_subtab(INFO.id, "raccourcis") {
+            return self.panorama_shortcuts_tab();
+        }
         if self.on_subtab(INFO.id, "pages") {
             return self.panorama_pages_tab();
         }
@@ -223,7 +256,7 @@ impl App {
                 .text_size(13),
             );
         }
-        if c.layout != Layout::Single {
+        if matches!(c.layout, Layout::Split2 | Layout::Split3) {
             let options: Vec<String> = crate::panorama::PAGES
                 .iter()
                 .map(|(id, _)| id.to_string())
@@ -431,6 +464,21 @@ impl App {
 
     pub(in crate::ui) fn panorama_settings_update(&mut self, m: Msg) -> Task<UiMsg> {
         match m {
+            m @ (Msg::Preset(_)
+            | Msg::DesignText(..)
+            | Msg::DesignApply(_)
+            | Msg::DesignChoice(..)
+            | Msg::DesignNumber(..)
+            | Msg::DesignFlag(..)
+            | Msg::DesignCommit
+            | Msg::TileSelect(_)
+            | Msg::TileWidget(_)
+            | Msg::TileNumber(..)
+            | Msg::TileAdd
+            | Msg::TileRemove
+            | Msg::ShortcutText(..)
+            | Msg::ShortcutAdd
+            | Msg::ShortcutRemove(_)) => self.panorama_design_update(m),
             Msg::Layout(l) => {
                 let mut c = self.panorama_cfg();
                 c.layout = l;

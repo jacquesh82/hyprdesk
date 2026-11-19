@@ -102,7 +102,7 @@ pub fn zones(w: f32, h: f32, px_per_mm: Option<f32>) -> Zones {
         // elle ne laisse pas la place des commandes (zone basse).
         let t = target(px_per_mm);
         let mut art_side = (w - 2.0 * pad).min(h * 0.45).max(1.0);
-        if art_side < t * 2.2 || h - art_side - 3.0 * pad < t * 3.2 {
+        if art_side < t * 2.2 || h - art_side - 3.0 * pad < t * 4.5 {
             art_side = 0.0;
         }
         return Zones {
@@ -256,6 +256,10 @@ mod tests {
         // Zone basse (aperçu réduit) : pas de pochette, les commandes d'abord.
         let z = zones(400.0, 300.0, None);
         assert!(z.compact && z.art.w == 0.0 && z.main.h > 250.0);
+        // Une zone du portrait partagé garde ses vraies cibles tactiles :
+        // la pochette cède la place au titre, à la progression et au lecteur.
+        let z = zones(720.0, 566.0, Some(7.4));
+        assert!(z.compact && z.art.w == 0.0 && z.main.h > 500.0);
         // En 2 sur 2560×720 : 1280×720, encore compact (1,78).
         assert!(zones(1280.0, 720.0, None).compact);
         assert!(!zones(2560.0, 720.0, None).compact);

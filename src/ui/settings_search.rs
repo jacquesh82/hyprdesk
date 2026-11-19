@@ -37,6 +37,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("login", include_str!("plugins/login.rs")),
     ("network", include_str!("plugins/network.rs")),
     ("panorama", include_str!("plugins/panorama.rs")),
+    ("panorama", include_str!("plugins/panorama/design.rs")),
     ("passwords", include_str!("plugins/passwords.rs")),
     ("performance", include_str!("plugins/performance.rs")),
     ("plugins", include_str!("plugins/plugins.rs")),

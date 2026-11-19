@@ -1,0 +1,129 @@
+# Composer un bandeau Panorama
+
+Les réglages sont dans **Réglages → Panorama** :
+
+- **Style** : quatre compositions de départ, image de fond, couleurs, police,
+  opacité des cartes et contours, arrondis, espacement, marges et taille du texte.
+- **Composition** : activer la composition libre, ajouter ou retirer des zones,
+  choisir leur widget et régler position et dimensions en pourcentage.
+- **Raccourcis** : grille tactile, nombre de colonnes, nom, icône et commande de
+  chaque touche. Les commandes ne sont exécutées qu'au clic ou au toucher.
+- **Pages** : pages classiques et dispositions partagées ; sources vidéo et veille.
+- **Écrans** : attribution du rôle, tactile et fenêtre Panorama interactive.
+
+## Compositions de départ
+
+| Préréglage | Composition | Style |
+| --- | --- | --- |
+| `forest` | Raccourcis, courbes système, horloge à aiguilles | Vert sombre, accent menthe ; choisir votre photo dans Image de fond |
+| `telemetry` | Horloge à volets, cadrans système, calendrier, lecteur compact | Fond lumineux bleu/violet, accent jaune |
+| `studio` | Grande horloge, pochette et vinyle, grille de raccourcis | Bleu/violet, zones sans contour |
+| `applications` | Source web/vidéo et lecteur compact | Surface sombre, zones larges |
+
+Appliquer un préréglage remplace sa composition et ses réglages de style, en
+conservant l'image choisie et les raccourcis personnels. Les douze raccourcis de
+départ ouvrent les fonctions existantes de hyprdesk ; ils sont modifiables.
+
+La zone Vidéo héberge une fenêtre Chromium, avec les services et le profil du
+navigateur configurés dans Pages. Les applications natives comme OBS restent
+des fenêtres gérées par Hyprland.
+
+## Styles des widgets
+
+- Horloge : `digital`, `flip`, `analog`, avec secondes et date indépendantes.
+- Système : `cards`, `gauges`, `graphs`. Mesures : `cpu`, `ram`, `disk`, `load`,
+  `uptime`, `cpu_temp`, `gpu_temp`. Les températures viennent de hwmon ; un
+  capteur absent affiche **—**. Aucun chiffre n'est inventé. Les courbes
+  conservent 15 à 600 relevés d'une seconde lorsque Panorama est affiché.
+- Média : `standard`, `vinyl`, `compact`. Le lecteur et la pochette viennent de
+  MPRIS ; les boutons pilotent le lecteur en cours.
+- Calendrier : mois courant, date du jour mise en évidence.
+- Raccourcis : 2 à 8 colonnes, jusqu'à 64 touches.
+- `widget:<identifiant>` : instance déjà configurée dans le catalogue de widgets,
+  y compris un widget Lua personnel. Sa source et son intervalle restent ceux
+  de cette instance ; Panorama partage ses données et ses actions.
+
+## Configuration Lua
+
+```lua
+hd.config({ panorama = {
+  screens = { "DP-3" },
+  layout = "dashboard",
+  design = {
+    preset = "studio",
+    wallpaper = "~/.wallpapers/bandeau.jpg",
+    dimming = 0.35,
+    background = "#111032",
+    foreground = "#f1f5ff",
+    accent = "#a4aeff",
+    font_family = "DejaVu Sans",
+    card_opacity = 0.05,
+    border_opacity = 0,
+    radius = 18,
+    gap = 12,
+    padding = 20,
+    text_scale = 1,
+    effects = false,
+    controls = false,
+    clock_style = "digital",
+    seconds = true,
+    date = true,
+    system_style = "graphs",
+    metrics = "cpu,ram,cpu_temp,gpu_temp",
+    history_seconds = 120,
+    media_style = "vinyl",
+    shortcut_columns = 4,
+    tiles = {
+      { widget = "clock", x = 0,    y = 0, w = 0.25, h = 1 },
+      { widget = "media", x = 0.27, y = 0, w = 0.46, h = 1 },
+      { widget = "shortcuts", x = 0.75, y = 0, w = 0.25, h = 1 },
+    },
+    shortcuts = {
+      { name = "Fichiers", icon = "system-file-manager-symbolic", command = "hyprdesk files" },
+      { name = "Lecture", icon = "media-playback-start-symbolic", command = "hyprdesk media play-pause" },
+    },
+  },
+} })
+```
+
+Les coordonnées des zones vont de 0 à 1 et restent dans le bandeau. Une zone
+mesure au moins 5 % sur chaque axe ; la composition contient 1 à 16 zones.
+Le portrait inverse les axes de composition en gardant les widgets droits.
+Les zones peuvent se superposer : la dernière apparaît au-dessus. Les marges
+et espacements sont exprimés en pixels logiques. Une couleur ou police vide
+hérite du thème. L'image est cadrée en conservant ses proportions.
+
+`controls = false` masque les commandes superposées du bandeau ; les réglages
+restent accessibles depuis le lanceur et `hyprdesk settings panorama`.
+`effects = false` enlève le décor géométrique ; `transition = "none"` dans la
+configuration générale désactive également les mouvements d'interaction.
+
+## Ligne de commande
+
+```sh
+hyprdesk config set panorama.design.preset studio
+hyprdesk config set panorama.design.clock_style analog
+hyprdesk config set panorama.design.wallpaper ~/.wallpapers/foret.jpg
+hyprdesk config set panorama.design.card_opacity 0.15
+hyprdesk config set panorama.design.metrics cpu,ram,cpu_temp,gpu_temp
+hyprdesk config set panorama.design.system_style graphs
+hyprdesk config set panorama.design.tiles '[{"widget":"clock","x":0,"y":0,"w":0.4,"h":1},{"widget":"system","x":0.42,"y":0,"w":0.58,"h":1}]'
+hyprdesk panorama preview 1920x540
+```
+
+Toutes les propriétés de `design` sont exposées par `hyprdesk config list
+panorama`. Les tableaux `tiles` et `shortcuts` utilisent du JSON en CLI.
+Une entrée incorrecte est refusée avant l'écriture de la configuration.
+
+## Vérification visuelle isolée
+
+Les scènes `panorama-forest`, `panorama-telemetry`, `panorama-studio`,
+`panorama-applications`, `panorama-config-style`, `panorama-config-composition`
+et `panorama-config-shortcuts` utilisent les vrais rendus avec des données de
+démonstration, sans lancer les raccourcis ni les applications.
+
+```sh
+HYPRDESK_PREVIEW_SCENES=panorama-studio,panorama-telemetry \
+HYPRDESK_PREVIEW_WIDTH=1920 HYPRDESK_PREVIEW_HEIGHT=540 \
+hyprdesk preview /tmp/panorama-design
+```

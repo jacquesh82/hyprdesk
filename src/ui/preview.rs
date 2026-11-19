@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 139] = [
+const SCENES: [&str; 152] = [
     "desktop",
     "typography",
     "icons",
@@ -164,9 +164,27 @@ const SCENES: [&str; 139] = [
     "fenetres-regles",
     "curseur",
     "environnement",
+    "panorama-media",
+    "panorama-system",
+    "panorama-clock",
+    "panorama-split",
+    "panorama-video",
+    "panorama-still",
+    "panorama-forest",
+    "panorama-telemetry",
+    "panorama-studio",
+    "panorama-applications",
+    "panorama-config-style",
+    "panorama-config-composition",
+    "panorama-config-shortcuts",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
+    let panorama_only = std::env::var("HYPRDESK_PREVIEW_SCENES").is_ok_and(|s| {
+        !s.is_empty()
+            && s.split(',')
+                .all(|name| name.trim().starts_with("panorama-"))
+    });
     let scale = std::env::var("HYPRDESK_PREVIEW_SCALE")
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
@@ -182,7 +200,7 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
         .ok()
         .and_then(|v| v.parse::<f32>().ok())
         .unwrap_or(900.0)
-        .clamp(480.0, 2560.0);
+        .clamp(if panorama_only { 240.0 } else { 480.0 }, 2560.0);
     iced::application(
         move || Preview::boot(output.clone(), Size::new(width, height)),
         Preview::update,
@@ -532,7 +550,15 @@ impl Preview {
                 | "bar-convex-switch"
         );
         let capture = Task::perform(
-            tokio::time::sleep(Duration::from_millis(if gesture { 150 } else { 500 })),
+            tokio::time::sleep(Duration::from_millis(
+                if SCENES[self.scene].starts_with("panorama-") {
+                    1100
+                } else if gesture {
+                    150
+                } else {
+                    500
+                },
+            )),
             |_| PreviewMsg::Capture,
         );
         if gesture {
@@ -548,6 +574,7 @@ impl Preview {
     }
 
     fn set_scene(&mut self) {
+        self.app.panorama = Default::default();
         self.app.panel = None;
         self.app.chat = None;
         self.app.bar_preview = None;
@@ -749,6 +776,7 @@ impl Preview {
         };
         // Scènes repérées par leur nom (et non leur rang).
         let tab = tab.or(match SCENES[self.scene] {
+            name if name.starts_with("panorama-config-") => Some("panorama"),
             "animations" | "animations-effets" => Some("animations"),
             "son" => Some("sound"),
             "energie" => Some("energy"),
@@ -2223,6 +2251,105 @@ impl Preview {
             }
         }
 
+        // Panorama isolé : les vraies vues, sans surface Wayland ni navigateur.
+        if SCENES[self.scene].starts_with("panorama-") {
+            use crate::panorama::config::Layout;
+            for name in [
+                "media-skip-backward-symbolic",
+                "media-skip-forward-symbolic",
+                "media-playback-start-symbolic",
+                "media-playback-pause-symbolic",
+                "go-down-symbolic",
+                "window-close-symbolic",
+            ] {
+                let icon = self.app.builtin_icon(name);
+                self.app.named_icons.insert(name.into(), icon);
+            }
+            let cfg = Arc::make_mut(&mut self.app.cfg);
+            cfg.general.panorama = Default::default();
+            cfg.general.panorama.sleep_minutes = 0;
+            cfg.general.panorama.layout = if SCENES[self.scene] == "panorama-split" {
+                Layout::Split3
+            } else {
+                Layout::Single
+            };
+            cfg.general.panorama.panes = vec!["media".into(), "clock".into(), "system".into()];
+            cfg.general.transition = if SCENES[self.scene] == "panorama-still" {
+                config::Transition::None
+            } else {
+                config::Transition::Fade
+            };
+            self.app.panorama.preview = Some(panorama::Preview {
+                win: self.desktop,
+                virtual_size: (self.size.width as u32, self.size.height as u32),
+                scale: 1.0,
+            });
+            self.app.sizes.insert(self.desktop, self.size);
+            let page = match SCENES[self.scene] {
+                "panorama-system" => 1,
+                "panorama-clock" => 2,
+                "panorama-video" => 3,
+                _ => 0,
+            };
+            self.app
+                .panorama
+                .page
+                .insert(panorama::PREVIEW.into(), page);
+            self.app.panorama.media = Some(crate::widgets::media::Status {
+                player: "Spotify".into(),
+                playing: true,
+                title: "Midnight City".into(),
+                artist: "M83".into(),
+                album: "Hurry Up, We're Dreaming".into(),
+                position: Some(127),
+                length: Some(244),
+                ..Default::default()
+            });
+            self.app.panorama.sys = [
+                ("CPU", "12 %", Some(0.12)),
+                ("RAM", "6,4 / 32 Go", Some(0.2)),
+                ("Disque", "128 / 512 Go", Some(0.25)),
+                ("Charge", "0,42", None),
+                ("Uptime", "3 h 24 min", None),
+            ]
+            .into_iter()
+            .map(|(l, v, r)| crate::widgets::SysLine {
+                label: l.into(),
+                value: v.into(),
+                ratio: r,
+            })
+            .collect();
+            let preset = SCENES[self.scene].trim_start_matches("panorama-");
+            if crate::panorama::design::PRESETS.contains(&preset) {
+                let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
+                c.design.apply_preset(preset).unwrap();
+                c.layout = Layout::Dashboard;
+                for line in &self.app.panorama.sys {
+                    if let Some(v) = line.ratio {
+                        self.app.panorama.history.insert(
+                            line.label.clone(),
+                            (0..60)
+                                .map(|n| (v + ((n as f32 * 0.31).sin() * 0.08)).clamp(0.0, 1.0))
+                                .collect(),
+                        );
+                    }
+                }
+            }
+            for shortcut in &self.app.cfg.general.panorama.design.shortcuts.clone() {
+                let icon = self.app.builtin_icon(&shortcut.icon);
+                self.app.named_icons.insert(shortcut.icon.clone(), icon);
+            }
+            if let Some(tab) = SCENES[self.scene].strip_prefix("panorama-config-") {
+                self.app.subtabs.insert(
+                    "panorama",
+                    if tab == "shortcuts" {
+                        "raccourcis"
+                    } else {
+                        tab
+                    },
+                );
+            }
+        }
         // Touche de volume : la carte d'affichage à l'écran.
         if SCENES[self.scene] == "osd" {
             let _ = self.app.show_osd(crate::osd::Kind::Volume, 0.62, false);
@@ -2410,6 +2537,37 @@ impl Preview {
 
     fn update_ui(&mut self, message: Msg) -> Task<PreviewMsg> {
         match message {
+            Msg::Panorama(m) => {
+                use panorama::PMsg;
+                match m {
+                    m @ (PMsg::Swipe(..) | PMsg::Goto(..) | PMsg::Pressed) => {
+                        return self
+                            .app
+                            .panorama_update(m)
+                            .map(|m| PreviewMsg::Ui(Box::new(m)));
+                    }
+                    PMsg::Layout(layout) => {
+                        Arc::make_mut(&mut self.app.cfg).general.panorama.layout = layout
+                    }
+                    PMsg::Pane(i, d) => {
+                        let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
+                        if let Some(p) = c.panes.get_mut(i) {
+                            let ids = crate::panorama::PAGES;
+                            let cur = ids.iter().position(|(id, _)| *id == p).unwrap_or(0) as i32;
+                            *p = ids[(cur + d).rem_euclid(ids.len() as i32) as usize]
+                                .0
+                                .into();
+                        }
+                    }
+                    PMsg::Control("PlayPause") => {
+                        if let Some(m) = self.app.panorama.media.as_mut() {
+                            m.playing = !m.playing;
+                        }
+                    }
+                    _ => {}
+                }
+                Task::none()
+            }
             Msg::BarDragEnd | Msg::Released if self.app.bar_drag.is_some() => {
                 let drag = self.app.bar_drag;
                 if self.app.finish_bar_drag()
@@ -2655,6 +2813,14 @@ impl Preview {
     }
 
     fn view(&self) -> Element<'_, PreviewMsg> {
+        if SCENES[self.scene].starts_with("panorama-")
+            && !SCENES[self.scene].starts_with("panorama-config-")
+        {
+            return self
+                .app
+                .view_panorama(self.desktop)
+                .map(|m| PreviewMsg::Ui(Box::new(m)));
+        }
         // La barre prend sa hauteur et sa marge réelles : une lame flottante
         // (Graphite) montre son jour au-dessus du bord.
         let bar_def = self.app.cfg.bar.as_ref();

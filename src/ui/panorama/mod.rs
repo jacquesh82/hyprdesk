@@ -8,6 +8,9 @@
 //! - proposée d'elle-même à la détection d'un écran candidat
 //!   (`crate::panorama::detect`), une fois par écran.
 
+mod dashboard;
+mod fx;
+mod instruments;
 mod panes;
 mod swipe;
 
@@ -132,10 +135,20 @@ pub struct State {
     pub draft: (String, String),
     /// Réglages : navigateur en cours de saisie.
     pub browser_draft: Option<String>,
+    pub design_drafts: HashMap<String, String>,
+    pub design_error: Option<String>,
+    pub selected_tile: usize,
+    pub shortcut_draft: (String, String, String),
+    pub history: HashMap<String, std::collections::VecDeque<f32>>,
+    pub wallpaper: Option<(String, image::Handle, iced::Size)>,
+    pub wallpaper_requested: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum PMsg {
+    Shortcut(usize),
+    ShortcutResult(Result<(), String>),
+    Wallpaper(String, Option<iced::Size>),
     /// Écrans et tactiles relus.
     Detected(Vec<Screen>, Vec<String>),
     Swipe(String, i32),
@@ -209,6 +222,41 @@ fn fmt_time(secs: i64) -> String {
 }
 
 impl App {
+    fn panorama_font(&self) -> iced::Font {
+        let family = &self.cfg.general.panorama.design.font_family;
+        if family.is_empty() {
+            self.font
+        } else {
+            iced::Font::with_name(super::intern_font(family))
+        }
+    }
+    fn panorama_palette(&self) -> (Color, Color, Color) {
+        let th = &self.cfg.general.theme;
+        let d = &self.cfg.general.panorama.design;
+        let c = |s: &str, fallback| color(crate::config::Rgba::parse(s).unwrap_or(fallback), 1.0);
+        (
+            c(&d.background, th.bg),
+            c(&d.foreground, th.fg),
+            c(&d.accent, th.accent),
+        )
+    }
+    fn panorama_motion(&self) -> Duration {
+        if self.cfg.general.transition == crate::config::Transition::None {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(160)
+        }
+    }
+
+    fn panorama_feedback<'a>(&self, content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
+        super::kinetic::magnet(
+            content,
+            super::bar_style::convexe::Edge::Bottom,
+            self.panorama_palette().2,
+            self.panorama_motion(),
+        )
+    }
+
     /// Configuration du Panorama en vigueur (réglages en cours, sinon chargée).
     pub(super) fn panorama_cfg(&self) -> crate::panorama::Config {
         self.settings
@@ -246,6 +294,32 @@ impl App {
     pub(super) fn sync_panorama(&mut self) -> Task<Msg> {
         let want = self.panorama_monitors();
         let mut tasks: Vec<Task<Msg>> = Vec::new();
+        let wallpaper = self.cfg.general.panorama.design.wallpaper.clone();
+        if wallpaper != self.panorama.wallpaper_requested {
+            self.panorama.wallpaper_requested = wallpaper.clone();
+            self.panorama.wallpaper = None;
+            if !wallpaper.is_empty() {
+                let path = crate::config::lua::expand_path(
+                    &wallpaper,
+                    self.config_path
+                        .parent()
+                        .unwrap_or(std::path::Path::new(".")),
+                );
+                tasks.push(Task::perform(
+                    async move {
+                        let size = tokio::task::spawn_blocking(move || {
+                            ::image::image_dimensions(path).ok()
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|(w, h)| iced::Size::new(w as f32, h as f32));
+                        (wallpaper, size)
+                    },
+                    |(p, s)| wrap(PMsg::Wallpaper(p, s)),
+                ));
+            }
+        }
         let shown: Vec<String> = want
             .iter()
             .filter(|m| !self.panorama.hidden.contains(*m))
@@ -282,6 +356,7 @@ impl App {
             }
             let id = Id::unique();
             self.panorama.surfaces.insert(id, m.clone());
+            self.panorama.last_press.get_or_insert_with(Instant::now);
             tracing::info!("{}", crate::tr!("Panorama sur {p0}", p0 = m.clone()));
             tasks.push(Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
@@ -317,9 +392,21 @@ impl App {
                 id,
             }));
         }
-        if !self.panorama.surfaces.is_empty() {
+        if !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some() {
             for n in ICONS {
                 tasks.push(self.want_icon(n));
+            }
+            let icons: Vec<String> = self
+                .cfg
+                .general
+                .panorama
+                .design
+                .shortcuts
+                .iter()
+                .map(|s| s.icon.clone())
+                .collect();
+            for icon in icons {
+                tasks.push(self.want_icon(&icon));
             }
         }
         Task::batch(tasks)
@@ -401,6 +488,47 @@ impl App {
 
     fn panorama_update_inner(&mut self, m: PMsg) -> Task<Msg> {
         match m {
+            PMsg::Wallpaper(path, size) => {
+                if path == self.panorama.wallpaper_requested {
+                    if let Some(size) = size {
+                        let full = crate::config::lua::expand_path(
+                            &path,
+                            self.config_path
+                                .parent()
+                                .unwrap_or(std::path::Path::new(".")),
+                        );
+                        self.panorama.wallpaper =
+                            Some((path, image::Handle::from_path(full), size));
+                    } else {
+                        self.panorama.design_error = Some(crate::tr!(
+                            "Image introuvable ou illisible : {path}",
+                            path = path
+                        ));
+                    }
+                }
+                Task::none()
+            }
+            PMsg::Shortcut(i) => {
+                self.panorama.last_press = Some(Instant::now());
+                let Some(s) = self.cfg.general.panorama.design.shortcuts.get(i) else {
+                    return Task::none();
+                };
+                let command = s.command.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::hypr::exec(&command).map_err(|e| e.to_string())
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(PMsg::ShortcutResult(r)),
+                )
+            }
+            PMsg::ShortcutResult(r) => {
+                self.panorama.design_error = r.err();
+                Task::none()
+            }
             m @ (PMsg::Layout(_)
             | PMsg::Pane(..)
             | PMsg::VideoOpen(_)
@@ -530,13 +658,23 @@ impl App {
                     follow,
                     Task::perform(crate::widgets::media::status(), |s| wrap(PMsg::Media(s))),
                 ]);
-                let wants_sys = self
-                    .panorama
-                    .surfaces
-                    .values()
-                    .map(String::as_str)
-                    .chain(self.panorama.preview.map(|_| PREVIEW))
-                    .any(|m| self.panorama_page_id(m) == "system")
+                let wants_sys = (self.cfg.general.panorama.layout
+                    == crate::panorama::config::Layout::Dashboard
+                    && self
+                        .cfg
+                        .general
+                        .panorama
+                        .design
+                        .tiles
+                        .iter()
+                        .any(|t| t.widget == "system"))
+                    || self
+                        .panorama
+                        .surfaces
+                        .values()
+                        .map(String::as_str)
+                        .chain(self.panorama.preview.map(|_| PREVIEW))
+                        .any(|m| self.panorama_page_id(m) == "system")
                     || (self.cfg.general.panorama.layout
                         != crate::panorama::config::Layout::Single
                         && self
@@ -549,17 +687,11 @@ impl App {
                 if !wants_sys {
                     return media;
                 }
+                let metrics = self.cfg.general.panorama.design.metrics.clone();
                 let sys = Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(|| {
-                            use crate::config::SysItem;
-                            crate::widgets::sample_system(&[
-                                SysItem::Cpu,
-                                SysItem::Ram,
-                                SysItem::Disk("/".into()),
-                                SysItem::Load,
-                                SysItem::Uptime,
-                            ])
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::panorama::telemetry::sample(&metrics)
                         })
                         .await
                         .unwrap_or_default()
@@ -586,6 +718,16 @@ impl App {
                 Task::none()
             }
             PMsg::Sys(l) => {
+                let limit = self.cfg.general.panorama.design.history_seconds as usize;
+                for v in &l {
+                    if let Some(r) = v.ratio {
+                        let h = self.panorama.history.entry(v.label.clone()).or_default();
+                        h.push_back(r);
+                        while h.len() > limit {
+                            h.pop_front();
+                        }
+                    }
+                }
                 self.panorama.sys = l;
                 Task::none()
             }
@@ -829,64 +971,81 @@ impl App {
     }
 
     fn panorama_button<'a>(&self, icon: &str, size: f32, fg: Color, msg: Msg) -> Element<'a, Msg> {
+        let accent = self.panorama_palette().2;
+        let primary = icon.starts_with("media-playback-");
+        let ink = if primary {
+            super::design::on_accent(accent, fg, color(self.cfg.general.theme.bg, 1.0))
+        } else {
+            fg
+        };
         let glyph = self
-            .icon_named(icon, size * 0.45, fg)
+            .icon_named(icon, size * 0.45, ink)
             .unwrap_or_else(|| text("•").size(size * 0.4).color(fg).into());
-        button(
-            container(glyph)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill),
+        self.panorama_feedback(
+            button(
+                container(glyph)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill),
+            )
+            .width(size)
+            .height(size)
+            .on_press(msg)
+            .style(move |_, st| button::Style {
+                background: Some(
+                    Color {
+                        a: if primary {
+                            1.0
+                        } else {
+                            match st {
+                                button::Status::Pressed => 0.28,
+                                button::Status::Hovered => 0.16,
+                                _ => 0.08,
+                            }
+                        },
+                        ..if primary { accent } else { fg }
+                    }
+                    .into(),
+                ),
+                border: Border {
+                    color: fx::alpha(if primary { accent } else { fg }, 0.22),
+                    width: 1.0,
+                    radius: (size / 2.0).into(),
+                },
+                shadow: iced::Shadow {
+                    color: fx::alpha(accent, if primary { 0.24 } else { 0.0 }),
+                    offset: iced::Vector::new(0.0, 4.0),
+                    blur_radius: 18.0,
+                },
+                ..Default::default()
+            }),
         )
-        .width(size)
-        .height(size)
-        .on_press(msg)
-        .style(move |_, st| button::Style {
-            background: Some(
-                Color {
-                    a: match st {
-                        button::Status::Pressed => 0.28,
-                        button::Status::Hovered => 0.16,
-                        _ => 0.08,
-                    },
-                    ..fg
-                }
-                .into(),
-            ),
-            border: Border::default().rounded(size / 2.0),
-            ..Default::default()
-        })
-        .into()
     }
 
     fn panorama_media(&self, z: &Zones, fg: Color) -> Element<'_, Msg> {
-        let th = &self.cfg.general.theme;
-        let accent = color(th.accent, 1.0);
+        let accent = self.panorama_palette().2;
         let dim = Color { a: 0.6, ..fg };
         let art_side = z.art.w;
+        let bg = self.panorama_palette().0;
+        let face = (art_side - 16.0).max(1.0);
         let art: Element<'_, Msg> = match &self.panorama.cover {
             Some((_, h)) => image(h.clone())
-                .width(art_side)
-                .height(art_side)
+                .width(face)
+                .height(face)
                 .content_fit(iced::ContentFit::Cover)
                 .border_radius(18.0)
                 .into(),
-            None => container(
-                self.icon_named("audio-x-generic-symbolic", art_side * 0.35, dim)
-                    .unwrap_or_else(|| Space::new().into()),
-            )
-            .width(art_side)
-            .height(art_side)
-            .center_x(art_side)
-            .center_y(art_side)
-            .style(move |_| container::Style {
-                background: Some(Color { a: 0.08, ..fg }.into()),
-                border: Border::default().rounded(18),
-                ..Default::default()
-            })
-            .into(),
+            None => fx::album(face, bg, accent),
         };
+        let art = self.panorama_feedback(
+            container(art)
+                .padding(8)
+                .width(art_side)
+                .height(art_side)
+                .style(move |_| fx::glass(bg, fg, accent, 24.0))
+                .clip(true),
+        );
         let tgt = z.target;
         let short = z.unit;
         let (title, sub, playing, pos, len) = match &self.panorama.media {
@@ -973,15 +1132,42 @@ impl App {
         .spacing(tgt * 0.4)
         .align_y(Alignment::Center);
         let info = column![
+            container(
+                row![
+                    container(Space::new())
+                        .width(6)
+                        .height(6)
+                        .style(move |_| container::Style {
+                            background: Some(if playing { accent } else { dim }.into()),
+                            border: Border::default().rounded(3),
+                            ..Default::default()
+                        }),
+                    text(crate::i18n::tr(if playing {
+                        "En lecture"
+                    } else {
+                        "Média"
+                    }))
+                    .size((short * 0.032).clamp(11.0, 20.0))
+                    .color(dim)
+                    .font(self.panorama_font())
+                ]
+                .spacing(9)
+                .align_y(Alignment::Center)
+            )
+            .padding([6, 10])
+            .style(move |_| fx::glass(bg, fg, accent, 20.0)),
             text(title)
-                .size(short * 0.1)
+                .size((short * 0.095).clamp(20.0, 64.0))
                 .color(fg)
-                .font(self.font)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Semibold,
+                    ..self.panorama_font()
+                })
                 .wrapping(text::Wrapping::None),
             text(sub)
-                .size(short * 0.055)
+                .size((short * 0.045).clamp(13.0, 30.0))
                 .color(dim)
-                .font(self.font)
+                .font(self.panorama_font())
                 .wrapping(text::Wrapping::None),
             Space::new().height(Length::Fill),
             progress,
@@ -997,11 +1183,11 @@ impl App {
                 text(crate::i18n::tr("Lecteur"))
                     .size(short * 0.04)
                     .color(dim)
-                    .font(self.font),
+                    .font(self.panorama_font()),
                 text(s.player.split('.').next().unwrap_or(&s.player).to_string())
                     .size(short * 0.06)
                     .color(fg)
-                    .font(self.font),
+                    .font(self.panorama_font()),
             ]
             .spacing(6)
             .width(r.w)
@@ -1031,23 +1217,47 @@ impl App {
         }
     }
 
-    fn panorama_system(&self, z: &Zones, fg: Color) -> Element<'_, Msg> {
-        let th = &self.cfg.general.theme;
-        let accent = color(th.accent, 1.0);
+    fn panorama_system(
+        &self,
+        z: &Zones,
+        fg: Color,
+        size: iced::Size,
+        reserve_controls: bool,
+    ) -> Element<'_, Msg> {
+        let accent = self.panorama_palette().2;
         let dim = Color { a: 0.6, ..fg };
         let short = z.unit;
+        let columns = if z.compact {
+            2
+        } else if z.orientation == Orientation::Landscape {
+            self.panorama.sys.len().max(1)
+        } else {
+            1
+        };
+        let rows = if z.compact {
+            self.panorama.sys.len().div_ceil(2).max(1)
+        } else if z.orientation == Orientation::Portrait {
+            self.panorama.sys.len().max(1)
+        } else {
+            1
+        };
+        let footer = if reserve_controls { z.target } else { 0.0 };
+        let card_width = (size.width - z.pad * (columns as f32 + 1.0)) / columns as f32;
+        let card_height = (size.height - z.pad * (rows as f32 + 1.0) - footer) / rows as f32;
+        let gauge_height = if card_height < 110.0 { 5.0 } else { 10.0 };
         let cards: Vec<Element<'_, Msg>> = self
             .panorama
             .sys
             .iter()
             .map(|l| {
+                let bg = self.panorama_palette().0;
                 let gauge: Element<'_, Msg> = match l.ratio {
                     Some(r) => {
                         let f = (r.clamp(0.0, 1.0) * 1000.0) as u16;
                         row![
                             container(Space::new())
                                 .width(Length::FillPortion(f.max(1)))
-                                .height(10)
+                                .height(gauge_height)
                                 .style(move |_| container::Style {
                                     background: Some(accent.into()),
                                     border: Border::default().rounded(5),
@@ -1055,7 +1265,7 @@ impl App {
                                 }),
                             container(Space::new())
                                 .width(Length::FillPortion((1000 - f).max(1)))
-                                .height(10)
+                                .height(gauge_height)
                                 .style(move |_| container::Style {
                                     background: Some(Color { a: 0.15, ..fg }.into()),
                                     border: Border::default().rounded(5),
@@ -1066,30 +1276,36 @@ impl App {
                     }
                     None => Space::new().into(),
                 };
-                container(
-                    column![
-                        text(l.label.clone())
-                            .size(short * 0.05)
-                            .color(dim)
-                            .font(self.font),
-                        text(l.value.clone())
-                            .size(short * 0.09)
-                            .color(fg)
-                            .font(self.font),
-                        Space::new().height(Length::Fill),
-                        gauge,
-                    ]
-                    .spacing(6),
+                self.panorama_feedback(
+                    container(
+                        column![
+                            text(l.label.clone())
+                                .size((short * 0.05).min(card_height * 0.18).clamp(11.0, 24.0))
+                                .color(dim)
+                                .font(iced::Font {
+                                    weight: iced::font::Weight::Semibold,
+                                    ..self.panorama_font()
+                                }),
+                            text(l.value.clone())
+                                .size(
+                                    (short * 0.09)
+                                        .min(card_width * 0.11)
+                                        .min(card_height * 0.28)
+                                        .clamp(14.0, 42.0)
+                                )
+                                .color(fg)
+                                .wrapping(text::Wrapping::None)
+                                .font(self.panorama_font()),
+                            Space::new().height(Length::Fill),
+                            gauge,
+                        ]
+                        .spacing((card_height * 0.05).clamp(2.0, 6.0)),
+                    )
+                    .padding(z.pad.min((card_height * 0.14).max(4.0)))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| fx::glass(bg, fg, accent, 20.0)),
                 )
-                .padding(z.pad)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| container::Style {
-                    background: Some(Color { a: 0.06, ..fg }.into()),
-                    border: Border::default().rounded(18),
-                    ..Default::default()
-                })
-                .into()
             })
             .collect();
         let pad = z.pad;
@@ -1119,7 +1335,7 @@ impl App {
                 top: pad,
                 left: pad,
                 right: pad,
-                bottom: pad + z.target,
+                bottom: pad + footer,
             })
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1127,6 +1343,23 @@ impl App {
     }
 
     fn panorama_clock(&self, z: &Zones, fg: Color) -> Element<'_, Msg> {
+        let d = &self.cfg.general.panorama.design;
+        if d.clock_style != "digital"
+            || self.cfg.general.panorama.layout == crate::panorama::config::Layout::Dashboard
+            || d.seconds
+            || !d.date
+            || d.text_scale != 1.0
+        {
+            return instruments::clock(
+                &d.clock_style,
+                d.seconds,
+                d.date,
+                fg,
+                self.panorama_palette().2,
+                self.panorama_font(),
+                d.text_scale,
+            );
+        }
         let dim = Color { a: 0.6, ..fg };
         let short = z.unit;
         let now = chrono::Local::now();
@@ -1137,8 +1370,11 @@ impl App {
             text(now.format("%H:%M").to_string())
                 .size(short * 0.42)
                 .color(fg)
-                .font(self.font),
-            text(date).size(short * 0.08).color(dim).font(self.font),
+                .font(self.panorama_font()),
+            text(date)
+                .size(short * 0.08)
+                .color(dim)
+                .font(self.panorama_font()),
         ]
         .align_x(Alignment::Center)
         .spacing(4);
@@ -1151,7 +1387,7 @@ impl App {
                 })
                 .size(short * 0.05)
                 .color(dim)
-                .font(self.font),
+                .font(self.panorama_font()),
             );
         }
         container(col)
@@ -1171,7 +1407,10 @@ impl App {
                 row![
                     self.icon_named("go-up-symbolic", 14.0, fg)
                         .unwrap_or_else(|| text("▴").size(14).color(fg).into()),
-                    text("Panorama").size(13).color(fg).font(self.font)
+                    text("Panorama")
+                        .size(13)
+                        .color(fg)
+                        .font(self.panorama_font())
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -1201,7 +1440,7 @@ impl App {
     fn view_panorama_offer(&self, id: Id, o: &Offer) -> Element<'_, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
-        let accent = color(th.accent, 1.0);
+        let accent = self.panorama_palette().2;
         let bg = color(th.bg, 0.97);
         let dim = Color { a: 0.7, ..fg };
         let what = if o.touch.is_some() {
@@ -1221,7 +1460,7 @@ impl App {
             button(
                 text(crate::i18n::tr(label))
                     .size(18)
-                    .font(self.font)
+                    .font(self.panorama_font())
                     .color(if primary { Color::BLACK } else { fg }),
             )
             .padding([14, 26])
@@ -1251,9 +1490,9 @@ impl App {
             column![
                 text(crate::i18n::tr("Panorama"))
                     .size(26)
-                    .font(self.font)
+                    .font(self.panorama_font())
                     .color(fg),
-                text(what).size(16).font(self.font).color(dim),
+                text(what).size(16).font(self.panorama_font()).color(dim),
                 Space::new().height(Length::Fill),
                 row![
                     btn("Oui, en faire un Panorama", true, wrap(PMsg::Accept(id))),

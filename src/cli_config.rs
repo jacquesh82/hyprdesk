@@ -824,6 +824,198 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.sleep_minutes = crate::panorama::Config::default().sleep_minutes; } };
+    "panorama.design.preset", "panorama", "cinematic | forest | telemetry | studio | applications — composition et style de départ",
+        |c| c.general.panorama.design.get("preset").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.apply_preset(v)?; p.layout = if v == "cinematic" { crate::panorama::config::Layout::Single } else { crate::panorama::config::Layout::Dashboard };
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let _=p.design.apply_preset("cinematic");p.layout=crate::panorama::config::Layout::Single; } };
+    "panorama.design.wallpaper", "panorama", "<chemin> | vide — image de fond du bandeau",
+        |c| c.general.panorama.design.get("wallpaper").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("wallpaper", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("wallpaper", &d.get("wallpaper").unwrap_or_default()); } };
+    "panorama.design.background", "panorama", "#rrggbb | vide — couleur de fond (vide : thème)",
+        |c| c.general.panorama.design.get("background").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("background", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("background", &d.get("background").unwrap_or_default()); } };
+    "panorama.design.foreground", "panorama", "#rrggbb | vide — couleur du texte (vide : thème)",
+        |c| c.general.panorama.design.get("foreground").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("foreground", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("foreground", &d.get("foreground").unwrap_or_default()); } };
+    "panorama.design.accent", "panorama", "#rrggbb | vide — couleur des jauges et commandes",
+        |c| c.general.panorama.design.get("accent").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("accent", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("accent", &d.get("accent").unwrap_or_default()); } };
+    "panorama.design.dimming", "panorama", "0..1 — assombrissement de l’image de fond",
+        |c| c.general.panorama.design.get("dimming").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("dimming", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("dimming", &d.get("dimming").unwrap_or_default()); } };
+    "panorama.design.card_opacity", "panorama", "0..1 — opacité des zones",
+        |c| c.general.panorama.design.get("card_opacity").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("card_opacity", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("card_opacity", &d.get("card_opacity").unwrap_or_default()); } };
+    "panorama.design.radius", "panorama", "0..64 — arrondi des zones",
+        |c| c.general.panorama.design.get("radius").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("radius", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("radius", &d.get("radius").unwrap_or_default()); } };
+    "panorama.design.gap", "panorama", "0..64 — espace entre les zones",
+        |c| c.general.panorama.design.get("gap").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("gap", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("gap", &d.get("gap").unwrap_or_default()); } };
+    "panorama.design.padding", "panorama", "0..64 — marge autour de la composition",
+        |c| c.general.panorama.design.get("padding").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("padding", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("padding", &d.get("padding").unwrap_or_default()); } };
+    "panorama.design.text_scale", "panorama", "0.5..2 — échelle du texte",
+        |c| c.general.panorama.design.get("text_scale").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("text_scale", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("text_scale", &d.get("text_scale").unwrap_or_default()); } };
+    "panorama.design.effects", "panorama", "on | off — décor 3D et lumières",
+        |c| c.general.panorama.design.get("effects").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("effects", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("effects", &d.get("effects").unwrap_or_default()); } };
+    "panorama.design.controls", "panorama", "on | off — commandes du bandeau",
+        |c| c.general.panorama.design.get("controls").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("controls", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("controls", &d.get("controls").unwrap_or_default()); } };
+    "panorama.design.clock_style", "panorama", "digital | flip | analog — style de l’horloge",
+        |c| c.general.panorama.design.get("clock_style").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("clock_style", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("clock_style", &d.get("clock_style").unwrap_or_default()); } };
+    "panorama.design.seconds", "panorama", "on | off — secondes de l’horloge",
+        |c| c.general.panorama.design.get("seconds").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("seconds", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("seconds", &d.get("seconds").unwrap_or_default()); } };
+    "panorama.design.date", "panorama", "on | off — date sous l’horloge",
+        |c| c.general.panorama.design.get("date").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("date", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("date", &d.get("date").unwrap_or_default()); } };
+    "panorama.design.system_style", "panorama", "cards | gauges | graphs — présentation des mesures",
+        |c| c.general.panorama.design.get("system_style").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("system_style", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("system_style", &d.get("system_style").unwrap_or_default()); } };
+    "panorama.design.metrics", "panorama", "cpu,ram,disk,load,uptime,cpu_temp,gpu_temp — mesures affichées",
+        |c| c.general.panorama.design.get("metrics").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("metrics", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("metrics", &d.get("metrics").unwrap_or_default()); } };
+    "panorama.design.history_seconds", "panorama", "15..600 — durée de l’historique des courbes",
+        |c| c.general.panorama.design.get("history_seconds").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("history_seconds", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("history_seconds", &d.get("history_seconds").unwrap_or_default()); } };
+    "panorama.design.media_style", "panorama", "standard | vinyl | compact — présentation du lecteur",
+        |c| c.general.panorama.design.get("media_style").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("media_style", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("media_style", &d.get("media_style").unwrap_or_default()); } };
+    "panorama.design.shortcut_columns", "panorama", "2..8 — colonnes de raccourcis",
+        |c| c.general.panorama.design.get("shortcut_columns").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("shortcut_columns", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("shortcut_columns", &d.get("shortcut_columns").unwrap_or_default()); } };
+    "panorama.design.tiles", "panorama", "JSON — zones {widget,x,y,w,h}, coordonnées de 0 à 1",
+        |c| c.general.panorama.design.get("tiles").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("tiles", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("tiles", &d.get("tiles").unwrap_or_default()); } };
+    "panorama.design.shortcuts", "panorama", "JSON — raccourcis {name,icon,command}",
+        |c| c.general.panorama.design.get("shortcuts").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("shortcuts", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("shortcuts", &d.get("shortcuts").unwrap_or_default()); } };
+    "panorama.design.font_family", "panorama", "<nom> | vide — police du bandeau (vide : thème)",
+        |c| c.general.panorama.design.get("font_family").unwrap_or_default(),
+        |s, v, c| { let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone()); p.design.set("font_family", v)?; s.panorama=Some(p); Ok(()) },
+        |s| { if let Some(p)=s.panorama.as_mut() {let _=p.design.set("font_family", &crate::panorama::design::Design::default().get("font_family").unwrap_or_default());} };
+    "panorama.design.border_opacity", "panorama", "0..1 — opacité des contours des zones",
+        |c| c.general.panorama.design.get("border_opacity").unwrap_or_default(),
+        |s, v, c| { let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone()); p.design.set("border_opacity", v)?; s.panorama=Some(p); Ok(()) },
+        |s| { if let Some(p)=s.panorama.as_mut() {let _=p.design.set("border_opacity", &crate::panorama::design::Design::default().get("border_opacity").unwrap_or_default());} };
     "primary", "screens", "<écran> | none — écran principal (ancre 0×0, bureau, barre, réglages)",
         |c| c.general.primary.clone().unwrap_or_default(),
         |s, v, c| { s.primary = (!matches!(v, "none" | "")).then(|| v.to_string()); Ok(()) },
@@ -1720,6 +1912,53 @@ mod tests {
 
     fn run_s(p: &Path, a: &[&str]) -> Result<String, String> {
         run(p, &a.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn panorama_design_persists_and_rejects_invalid_geometry() {
+        let p = tmp();
+        run_s(&p, &["set", "panorama.design.preset", "studio"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "panorama.layout"]).unwrap(), "dashboard");
+        assert_eq!(
+            run_s(&p, &["get", "panorama.design.media_style"]).unwrap(),
+            "vinyl"
+        );
+        run_s(&p, &["set", "panorama.design.clock_style", "analog"]).unwrap();
+        run_s(
+            &p,
+            &["set", "panorama.design.wallpaper", "/tmp/my forest.jpg"],
+        )
+        .unwrap();
+        run_s(&p,&["set","panorama.design.tiles",r#"[{"widget":"clock","x":0,"y":0,"w":0.4,"h":1},{"widget":"calendar","x":0.5,"y":0,"w":0.5,"h":1}]"#]).unwrap();
+        let before = run_s(&p, &["get", "panorama.design.tiles"]).unwrap();
+        assert!(
+            run_s(
+                &p,
+                &[
+                    "set",
+                    "panorama.design.tiles",
+                    r#"[{"widget":"clock","x":0.9,"y":0,"w":0.4,"h":1}]"#
+                ]
+            )
+            .is_err()
+        );
+        assert_eq!(
+            run_s(&p, &["get", "panorama.design.tiles"]).unwrap(),
+            before
+        );
+        assert_eq!(
+            run_s(&p, &["get", "panorama.design.wallpaper"]).unwrap(),
+            "/tmp/my forest.jpg"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "panorama.design.clock_style"]).unwrap(),
+            "analog"
+        );
+        run_s(&p, &["unset", "panorama.design.clock_style"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "panorama.design.clock_style"]).unwrap(),
+            "digital"
+        );
     }
 
     #[test]

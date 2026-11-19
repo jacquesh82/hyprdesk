@@ -9,13 +9,11 @@ use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::swipe::{Axis, swipe};
-use super::{App, Msg, PMsg, PREVIEW, PREVIEW_PX_PER_MM, color, wrap};
+use super::{App, Msg, PMsg, PREVIEW, PREVIEW_PX_PER_MM, fx, wrap};
 use crate::panorama::config::Layout;
 use crate::panorama::layout::{self, Rect};
 use crate::panorama::video;
 
-/// Écart entre les zones d'un écran partagé.
-pub const GAP: f32 = 10.0;
 /// Recherche de la fenêtre lancée : un essai toutes les 400 ms, 25 s au plus.
 const POLL: Duration = Duration::from_millis(400);
 const POLL_MAX: u32 = 62;
@@ -167,7 +165,31 @@ impl App {
                     index: None,
                 }]
             }
-            l => layout::panes(s.w, s.h, l.panes(), GAP)
+            Layout::Dashboard => c
+                .design
+                .tiles
+                .iter()
+                .map(|t| {
+                    let pad = c.design.padding;
+                    let gap = c.design.gap;
+                    let (x, y, w, h) = if s.w >= s.h {
+                        (t.x, t.y, t.w, t.h)
+                    } else {
+                        (t.y, t.x, t.h, t.w)
+                    };
+                    Pane {
+                        rect: Rect {
+                            x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
+                            y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
+                            w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
+                            h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
+                        },
+                        widget: t.widget.clone(),
+                        index: None,
+                    }
+                })
+                .collect(),
+            l => layout::panes(s.w, s.h, l.panes(), c.design.gap)
                 .into_iter()
                 .enumerate()
                 .map(|(i, rect)| Pane {
@@ -197,6 +219,22 @@ impl App {
         geo.video_pane()
             .map(|p| vec![geo.content(p)])
             .unwrap_or_default()
+    }
+
+    /// Une seule surface accueille la vidéo : les autres gardent leur matière.
+    fn panorama_video_host(&self) -> Option<Id> {
+        self.panorama_surfs()
+            .into_iter()
+            .find(|s| self.panorama_geo(s).video_pane().is_some())
+            .map(|s| s.id)
+    }
+
+    fn panorama_surface_holes(&self, s: &Surf, geo: &Geo) -> Vec<Rect> {
+        if self.panorama_video_host() == Some(s.id) {
+            self.panorama_holes(geo)
+        } else {
+            Vec::new()
+        }
     }
 
     /// Surfaces du Panorama : écrans d'abord, puis l'aperçu.
@@ -241,7 +279,7 @@ impl App {
             .regions
             .retain(|id, _| surfs.iter().any(|s| s.id == *id));
         for s in &surfs {
-            let holes = self.panorama_holes(&self.panorama_geo(s));
+            let holes = self.panorama_surface_holes(s, &self.panorama_geo(s));
             if self.panorama.regions.get(&s.id) == Some(&holes) {
                 continue;
             }
@@ -474,10 +512,38 @@ impl App {
             return Space::new().into();
         };
         let geo = self.panorama_geo(&s);
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
-        let bg = color(th.bg, 1.0);
-        let video_at = geo.video_pane().map(|p| p.rect);
+        let (bg, fg, accent) = self.panorama_palette();
+        let video_at = (self.panorama_video_host() == Some(s.id))
+            .then(|| geo.video_pane().map(|p| p.rect))
+            .flatten();
+        let scene = fx::Scene {
+            key: format!(
+                "{}:{}",
+                self.cfg.general.panorama.layout.id(),
+                geo.panes
+                    .iter()
+                    .map(|p| p.widget.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            bg,
+            fg,
+            accent,
+            animate: !self.panorama_motion().is_zero(),
+            playing: self.cfg.general.panorama.design.effects
+                && !self.panorama_asleep()
+                && self.panorama.media.as_ref().is_some_and(|m| m.playing),
+            holes: self.panorama_surface_holes(&s, &geo),
+            design: self.cfg.general.panorama.design.clone(),
+            wallpaper: self
+                .panorama
+                .wallpaper
+                .as_ref()
+                .map(|(_, h, size)| (h.clone(), *size)),
+        };
+        if self.cfg.general.panorama.layout == Layout::Dashboard {
+            return fx::stage(self.panorama_dashboard(&s, &geo, video_at), scene);
+        }
         if self.cfg.general.panorama.layout == Layout::Single {
             let p = &geo.panes[0];
             let key = s.key.clone();
@@ -488,19 +554,13 @@ impl App {
             };
             let page = self.panorama_pane_view(&s, &geo, p, true, video_at);
             let paged = swipe(page, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
+                .motion(self.panorama_motion())
                 .on_press(wrap(PMsg::Pressed));
             if p.widget == "video" {
                 // Bandeau et contenu portent leur fond : le trou reste transparent.
-                return paged.into();
+                return fx::stage(paged, scene);
             }
-            let backdrop = container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| container::Style {
-                    background: Some(bg.into()),
-                    ..Default::default()
-                });
-            let mut layers: Vec<Element<'_, Msg>> = vec![backdrop.into()];
+            let mut layers: Vec<Element<'_, Msg>> = Vec::new();
             if let Some((_, h)) = &self.panorama.cover
                 && p.widget == "media"
             {
@@ -510,25 +570,27 @@ impl App {
                         .width(Length::Fill)
                         .height(Length::Fill)
                         .content_fit(iced::ContentFit::Cover)
-                        .opacity(0.18_f32)
+                        .opacity(0.065_f32)
                         .into(),
                 );
             }
             layers.push(paged.into());
             // Commandes en bas à droite : rien du lecteur n'y est posé.
-            layers.push(
-                container(self.panorama_controls(&s, &geo, fg))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .padding(geo.target * 0.15)
-                    .align_x(iced::alignment::Horizontal::Right)
-                    .align_y(iced::alignment::Vertical::Bottom)
-                    .into(),
+            if self.cfg.general.panorama.design.controls {
+                layers.push(
+                    container(self.panorama_controls(&s, &geo, fg, s.w < geo.target * 8.0))
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .padding(geo.target * 0.15)
+                        .align_x(iced::alignment::Horizontal::Right)
+                        .align_y(iced::alignment::Vertical::Bottom)
+                        .into(),
+                );
+            }
+            return fx::stage(
+                stack(layers).width(Length::Fill).height(Length::Fill),
+                scene,
             );
-            return stack(layers)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into();
         }
         // Écran partagé : zones séparées par des bandes du fond (les
         // écarts ne laissent rien voir dessous).
@@ -547,19 +609,20 @@ impl App {
         let mut items: Vec<Element<'_, Msg>> = Vec::new();
         for (i, p) in geo.panes.iter().enumerate() {
             if i > 0 {
-                items.push(gap(GAP));
+                items.push(gap(self.cfg.general.panorama.design.gap));
             }
             items.push(self.panorama_pane_view(&s, &geo, p, i + 1 == geo.panes.len(), video_at));
         }
-        if landscape {
+        let content: Element<'_, Msg> = if landscape {
             row(items).into()
         } else {
             column(items).into()
-        }
+        };
+        fx::stage(content, scene)
     }
 
     /// Une zone : son bandeau (s'il en a un) et son widget.
-    fn panorama_pane_view(
+    pub(super) fn panorama_pane_view(
         &self,
         s: &Surf,
         geo: &Geo,
@@ -567,13 +630,30 @@ impl App {
         last: bool,
         video_at: Option<Rect>,
     ) -> Element<'_, Msg> {
-        let th = &self.cfg.general.theme;
-        let fg = color(th.fg, 1.0);
-        let bg = color(th.bg, 1.0);
+        let (bg, fg, accent) = self.panorama_palette();
         let content = geo.content(p);
-        let z = layout::zones(content.w, content.h, s.ppm);
+        let mut z = layout::zones(content.w, content.h, s.ppm);
+        z.unit *= self.cfg.general.panorama.design.text_scale;
         let body: Element<'_, Msg> = match p.widget.as_str() {
-            "system" => self.panorama_system(&z, fg),
+            "calendar" => self.panorama_calendar(iced::Size::new(content.w, content.h)),
+            "shortcuts" => self.panorama_shortcuts(iced::Size::new(content.w, content.h)),
+            "system" if self.cfg.general.panorama.design.system_style != "cards" => {
+                super::instruments::metrics(
+                    &self.cfg.general.panorama.design.system_style,
+                    &self.panorama.sys,
+                    &self.panorama.history,
+                    self.cfg.general.panorama.design.history_seconds as usize,
+                    (fg, accent),
+                    self.panorama_font(),
+                    self.cfg.general.panorama.design.text_scale,
+                )
+            }
+            "system" => self.panorama_system(
+                &z,
+                fg,
+                iced::Size::new(content.w, content.h),
+                p.index.is_none(),
+            ),
             "clock" => self.panorama_clock(&z, fg),
             "video" => {
                 let state = match &self.panorama.video {
@@ -584,6 +664,23 @@ impl App {
                 };
                 self.panorama_video(&z, content, state, fg)
             }
+            "media" if self.cfg.general.panorama.design.media_style == "vinyl" => {
+                self.panorama_vinyl(iced::Size::new(content.w, content.h))
+            }
+            "media" if self.cfg.general.panorama.design.media_style == "compact" => {
+                self.panorama_compact_media(iced::Size::new(content.w, content.h))
+            }
+            id if id.starts_with("widget:") => self
+                .cfg
+                .widgets
+                .iter()
+                .find(|w| w.id == id.trim_start_matches("widget:"))
+                .map(|w| self.view_widget(s.id, w, 1.0).1)
+                .unwrap_or_else(|| {
+                    text(crate::i18n::tr("Widget indisponible"))
+                        .color(fg)
+                        .into()
+                }),
             _ => self.panorama_media(&z, fg),
         };
         let hole = p.widget == "video"
@@ -599,10 +696,7 @@ impl App {
             container(body)
                 .width(content.w)
                 .height(content.h)
-                .style(move |_| container::Style {
-                    background: Some(bg.into()),
-                    ..Default::default()
-                })
+                .style(move |_| fx::glass(bg, fg, self.panorama_palette().2, 18.0))
                 .into()
         };
         if !Geo::has_header(p) {
@@ -639,7 +733,7 @@ impl App {
                     text(label)
                         .size(t * 0.36)
                         .color(fg)
-                        .font(self.font)
+                        .font(self.panorama_font())
                         .wrapping(text::Wrapping::None),
                 )
                 .push(self.panorama_text_button("▶", small, fg, wrap(PMsg::Pane(i, 1))));
@@ -648,7 +742,7 @@ impl App {
                 text(label)
                     .size(t * 0.36)
                     .color(fg)
-                    .font(self.font)
+                    .font(self.panorama_font())
                     .wrapping(text::Wrapping::None),
             );
         }
@@ -659,7 +753,7 @@ impl App {
                 text(format!("· {}", v.name))
                     .size(t * 0.32)
                     .color(Color { a: 0.7, ..fg })
-                    .font(self.font)
+                    .font(self.panorama_font())
                     .wrapping(text::Wrapping::None),
             );
             r = r.push(Space::new().width(Length::Fill));
@@ -673,7 +767,7 @@ impl App {
             r = r.push(Space::new().width(Length::Fill));
         }
         if last || p.index.is_none() {
-            r = r.push(self.panorama_controls(s, geo, fg));
+            r = r.push(self.panorama_controls(s, geo, fg, p.rect.w < geo.target * 8.0));
         }
         container(r)
             .padding([0.0, t * 0.15])
@@ -690,28 +784,45 @@ impl App {
 
     /// Commandes du Panorama : disposition 1 | 2 | 3, points des pages (une
     /// page à la fois), escamotage (ou fermeture de l'aperçu).
-    fn panorama_controls(&self, s: &Surf, geo: &Geo, fg: Color) -> Element<'_, Msg> {
-        let th = &self.cfg.general.theme;
-        let accent = color(th.accent, 1.0);
+    pub(super) fn panorama_controls(
+        &self,
+        s: &Surf,
+        geo: &Geo,
+        fg: Color,
+        compact: bool,
+    ) -> Element<'_, Msg> {
+        let accent = self.panorama_palette().2;
         let t = geo.target;
         let cur = self.cfg.general.panorama.layout;
         let mut seg = row![].spacing(2);
-        for l in Layout::ALL {
+        for l in Layout::ALL.into_iter().filter(|l| !compact || *l == cur) {
             let on = l == cur;
             seg = seg.push(
                 button(
                     container(
                         text(l.panes().to_string())
                             .size(t * 0.32)
-                            .font(self.font)
-                            .color(if on { Color::BLACK } else { fg }),
+                            .font(self.panorama_font())
+                            .color(if on {
+                                super::super::design::on_accent(
+                                    accent,
+                                    fg,
+                                    self.panorama_palette().0,
+                                )
+                            } else {
+                                fg
+                            }),
                     )
                     .center_x(Length::Fill)
                     .center_y(Length::Fill),
                 )
                 .width(t * 0.7)
                 .height(t * 0.7)
-                .on_press(wrap(PMsg::Layout(l)))
+                .on_press(wrap(PMsg::Layout(if compact {
+                    Layout::ALL[cur.panes() % Layout::ALL.len()]
+                } else {
+                    l
+                })))
                 .style(move |_, st| button::Style {
                     background: Some(
                         if on {
@@ -733,6 +844,16 @@ impl App {
                 }),
             );
         }
+        let seg: Element<'_, Msg> = if compact {
+            iced::widget::tooltip(
+                seg,
+                text(crate::i18n::tr("Disposition suivante")),
+                iced::widget::tooltip::Position::Top,
+            )
+            .into()
+        } else {
+            seg.into()
+        };
         let mut r = row![seg].spacing(8).align_y(Alignment::Center);
         if cur == Layout::Single {
             let n = self.cfg.general.panorama.pages.len();
@@ -774,7 +895,7 @@ impl App {
             border: Border::default().rounded(t),
             ..Default::default()
         });
-        r.push(hide).into()
+        r.push(self.panorama_feedback(hide)).into()
     }
 
     fn panorama_text_button<'a>(
@@ -784,29 +905,35 @@ impl App {
         fg: Color,
         msg: Msg,
     ) -> Element<'a, Msg> {
-        button(
-            container(text(label).size(h * 0.42).font(self.font).color(fg))
+        self.panorama_feedback(
+            button(
+                container(
+                    text(label)
+                        .size(h * 0.42)
+                        .font(self.panorama_font())
+                        .color(fg),
+                )
                 .center_y(Length::Fill)
                 .padding([0.0, h * 0.25]),
+            )
+            .height(h)
+            .on_press(msg)
+            .style(move |_, st| button::Style {
+                background: Some(
+                    Color {
+                        a: match st {
+                            button::Status::Pressed => 0.28,
+                            button::Status::Hovered => 0.16,
+                            _ => 0.08,
+                        },
+                        ..fg
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(h / 2.0),
+                ..Default::default()
+            }),
         )
-        .height(h)
-        .on_press(msg)
-        .style(move |_, st| button::Style {
-            background: Some(
-                Color {
-                    a: match st {
-                        button::Status::Pressed => 0.28,
-                        button::Status::Hovered => 0.16,
-                        _ => 0.08,
-                    },
-                    ..fg
-                }
-                .into(),
-            ),
-            border: Border::default().rounded(h / 2.0),
-            ..Default::default()
-        })
-        .into()
     }
 
     /// Widget Vidéo : tuiles des sources, ouverture, ou trou de la fenêtre.
@@ -818,7 +945,7 @@ impl App {
         fg: Color,
     ) -> Element<'_, Msg> {
         let dim = Color { a: 0.65, ..fg };
-        let accent = color(self.cfg.general.theme.accent, 1.0);
+        let accent = self.panorama_palette().2;
         let centered = |e: Element<'static, Msg>| -> Element<'_, Msg> {
             container(e)
                 .width(Length::Fill)
@@ -849,7 +976,7 @@ impl App {
                         text(e.clone())
                             .size(z.unit * 0.045)
                             .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
-                            .font(self.font),
+                            .font(self.panorama_font()),
                     );
                 }
                 let tile_w = (z.target * 3.6).max(160.0);
@@ -858,32 +985,60 @@ impl App {
                 let mut line = row![].spacing(z.pad / 2.0);
                 for (i, src) in c.sources.iter().enumerate() {
                     line = line.push(
-                        button(
-                            container(
-                                text(src.name.clone())
-                                    .size(th * 0.3)
-                                    .font(self.font)
-                                    .color(fg)
-                                    .wrapping(text::Wrapping::None),
+                        self.panorama_feedback(
+                            button(
+                                container(
+                                    column![
+                                        text(src.name.clone())
+                                            .size(th * 0.3)
+                                            .font(iced::Font {
+                                                weight: iced::font::Weight::Semibold,
+                                                ..self.panorama_font()
+                                            })
+                                            .color(fg)
+                                            .wrapping(text::Wrapping::None),
+                                        text(video::host(&src.url))
+                                            .size(th * 0.17)
+                                            .font(self.panorama_font())
+                                            .color(dim)
+                                    ]
+                                    .spacing(6),
+                                )
+                                .center_x(Length::Fill)
+                                .center_y(Length::Fill),
                             )
-                            .center_x(Length::Fill)
-                            .center_y(Length::Fill),
-                        )
-                        .width(Length::Fill)
-                        .height(th)
-                        .on_press(wrap(PMsg::VideoOpen(i)))
-                        .style(move |_, st| button::Style {
-                            background: Some(
-                                match st {
-                                    button::Status::Pressed => Color { a: 0.5, ..accent },
-                                    button::Status::Hovered => Color { a: 0.16, ..fg },
-                                    _ => Color { a: 0.08, ..fg },
-                                }
-                                .into(),
-                            ),
-                            border: Border::default().rounded(16),
-                            ..Default::default()
-                        }),
+                            .width(Length::Fill)
+                            .height(th)
+                            .on_press(wrap(PMsg::VideoOpen(i)))
+                            .style(move |_, st| button::Style {
+                                background: Some(
+                                    match st {
+                                        button::Status::Pressed => Color { a: 0.5, ..accent },
+                                        button::Status::Hovered => Color { a: 0.16, ..fg },
+                                        _ => Color { a: 0.08, ..fg },
+                                    }
+                                    .into(),
+                                ),
+                                border: Border {
+                                    color: fx::alpha(
+                                        accent,
+                                        if matches!(st, button::Status::Hovered) {
+                                            0.65
+                                        } else {
+                                            0.18
+                                        },
+                                    ),
+                                    width: 1.0,
+                                    radius: 16.0.into(),
+                                },
+                                shadow: iced::Shadow {
+                                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.15),
+                                    offset: iced::Vector::new(0.0, 5.0),
+                                    blur_radius: 12.0,
+                                },
+                                ..Default::default()
+                            }),
+                        ),
                     );
                     if (i + 1) % cols == 0 {
                         col = col.push(line);

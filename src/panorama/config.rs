@@ -22,16 +22,23 @@ pub enum Layout {
     Single,
     Split2,
     Split3,
+    Dashboard,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 3] = [Layout::Single, Layout::Split2, Layout::Split3];
+    pub const ALL: [Layout; 4] = [
+        Layout::Single,
+        Layout::Split2,
+        Layout::Split3,
+        Layout::Dashboard,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Layout::Single => "single",
             Layout::Split2 => "split2",
             Layout::Split3 => "split3",
+            Layout::Dashboard => "dashboard",
         }
     }
 
@@ -40,6 +47,7 @@ impl Layout {
             "single" | "1" => Layout::Single,
             "split2" | "2" => Layout::Split2,
             "split3" | "3" => Layout::Split3,
+            "dashboard" | "4" => Layout::Dashboard,
             _ => return None,
         })
     }
@@ -50,6 +58,7 @@ impl Layout {
             Layout::Single => 1,
             Layout::Split2 => 2,
             Layout::Split3 => 3,
+            Layout::Dashboard => 4,
         }
     }
 }
@@ -97,6 +106,7 @@ pub struct Config {
     pub declined: Vec<String>,
     /// Minutes sans lecture ni toucher avant l'horloge de veille (0 : jamais).
     pub sleep_minutes: u32,
+    pub design: super::design::Design,
 }
 
 /// Widgets des zones par défaut.
@@ -118,6 +128,7 @@ impl Default for Config {
             browser: String::new(),
             declined: Vec::new(),
             sleep_minutes: 5,
+            design: Default::default(),
         }
     }
 }
@@ -132,6 +143,7 @@ const KEYS: &[&str] = &[
     "browser",
     "declined",
     "sleep_minutes",
+    "design",
 ];
 
 fn list(t: &Table, key: &str) -> mlua::Result<Option<Vec<String>>> {
@@ -244,6 +256,12 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
             )));
         }
     }
+    if let Some(t) = t.get::<Option<Table>>("design")? {
+        c.design = super::design::from_lua(&t)?;
+    }
+    if t.get::<Value>("layout")?.is_nil() && c.design.preset != "cinematic" {
+        c.layout = Layout::Dashboard;
+    }
     Ok(c)
 }
 
@@ -287,6 +305,9 @@ impl Config {
             f.push(format!("declined = {}", lua_list(&self.declined)));
         }
         f.push(format!("sleep_minutes = {}", self.sleep_minutes));
+        if self.design != d.design {
+            f.push(format!("design = {}", self.design.to_lua()));
+        }
         format!("{{ {} }}", f.join(", "))
     }
 
@@ -328,6 +349,7 @@ mod tests {
             browser: "chromium".into(),
             declined: vec!["Acme \"M\" 1".into()],
             sleep_minutes: 0,
+            design: Default::default(),
         };
         assert_eq!(eval(&c.to_lua()).unwrap(), c);
         assert_eq!(

@@ -4,7 +4,7 @@
 //! Tant que le geste n'a pas dépassé le seuil, les boutons de la page
 //! reçoivent l'appui comme d'habitude ; au-delà, ils ne le reçoivent plus.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use iced::advanced::{
     Clipboard, Layout, Renderer as _, Shell, Widget, layout, mouse, renderer,
@@ -13,6 +13,7 @@ use iced::advanced::{
 use iced::{Element, Event, Length, Point, Rectangle, Size, Vector, touch};
 
 use super::super::Msg;
+use super::super::kinetic::Spring;
 
 /// Distance avant de reconnaître un glisser (et non un appui).
 const SLOP: f32 = 28.0;
@@ -33,6 +34,7 @@ pub struct Swipe<'a> {
     on_swipe: Box<dyn Fn(i32) -> Msg + 'a>,
     /// Publié à chaque appui (activité : retarde la veille).
     on_press: Option<Msg>,
+    duration: Duration,
 }
 
 pub fn swipe<'a>(
@@ -45,10 +47,15 @@ pub fn swipe<'a>(
         axis,
         on_swipe: Box::new(on_swipe),
         on_press: None,
+        duration: Duration::from_millis(240),
     }
 }
 
 impl<'a> Swipe<'a> {
+    pub fn motion(mut self, duration: Duration) -> Self {
+        self.duration = duration;
+        self
+    }
     pub fn on_press(mut self, m: Msg) -> Self {
         self.on_press = Some(m);
         self
@@ -65,6 +72,7 @@ struct State {
     last: Option<(f32, Instant)>,
     /// px/ms, sur l'axe.
     velocity: f32,
+    settle: Option<Spring>,
 }
 
 impl State {
@@ -220,7 +228,21 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                 }
                 Ev::Release(f) if s.start.is_some() && s.finger == f => {
                     if s.dragging {
-                        let dir = decide(s.offset, s.velocity, extent);
+                        let velocity = if s
+                            .last
+                            .is_some_and(|(_, t)| t.elapsed() < Duration::from_millis(100))
+                        {
+                            s.velocity
+                        } else {
+                            0.0
+                        };
+                        let cancelled =
+                            matches!(event, Event::Touch(touch::Event::FingerLost { .. }));
+                        let dir = if cancelled {
+                            0
+                        } else {
+                            decide(s.offset, velocity, extent)
+                        };
                         if dir != 0 {
                             shell.publish((self.on_swipe)(dir));
                         }
@@ -228,13 +250,32 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                         shell.capture_event();
                         // Les boutons relâchent sans déclencher.
                         child_cursor = mouse::Cursor::Unavailable;
+                        if dir == 0 && !self.duration.is_zero() {
+                            let spring = Spring::rest(s.offset * 0.85).retarget(
+                                0.0,
+                                self.duration,
+                                Instant::now(),
+                            );
+                            s.reset();
+                            s.settle = Some(spring);
+                        } else {
+                            s.reset();
+                        }
+                    } else {
+                        s.reset();
                     }
-                    s.reset();
                 }
                 _ => {}
             }
             if s.dragging {
                 child_cursor = mouse::Cursor::Unavailable;
+            }
+            if let Some(settle) = s.settle {
+                if settle.done(Instant::now()) || self.duration.is_zero() {
+                    s.settle = None;
+                } else {
+                    shell.request_redraw();
+                }
             }
         }
         if !forward {
@@ -305,7 +346,13 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
         };
         let b = layout.bounds();
         // Résistance : le contenu suit le doigt à 85 %.
-        let d = if s.dragging { s.offset * 0.85 } else { 0.0 };
+        let d = if self.duration.is_zero() {
+            0.0
+        } else if s.dragging {
+            s.offset * 0.85
+        } else {
+            s.settle.map_or(0.0, |s| s.value(Instant::now()))
+        };
         let shift = match self.axis {
             Axis::Horizontal => Vector::new(d, 0.0),
             Axis::Vertical => Vector::new(0.0, d),

@@ -10,8 +10,10 @@
 //! le rendu vit dans `ui::panorama`, les réglages dans `ui::plugins::panorama`.
 
 pub mod config;
+pub mod design;
 pub mod detect;
 pub mod layout;
+pub mod telemetry;
 pub mod video;
 
 pub use config::Config;
@@ -25,6 +27,8 @@ pub const PAGES: &[(&str, &str)] = &[
     ("system", "Système"),
     ("clock", "Horloge"),
     ("video", "Vidéo"),
+    ("calendar", "Calendrier"),
+    ("shortcuts", "Raccourcis"),
 ];
 
 /// Libellé d'une page (« Page » si elle est inconnue).
