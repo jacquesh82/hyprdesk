@@ -160,6 +160,10 @@ pub struct State {
     pub level_hist: std::collections::VecDeque<f32>,
     /// Dernier relevé des niveaux (défilement continu du flux).
     pub levels_at: Option<Instant>,
+    /// Niveaux très lissés du fond, hauteur courante de l'onde, images.
+    pub bg_levels: [f32; 4],
+    pub wave: f32,
+    pub flux_frames: u32,
     pub flux_t0: FluxClock,
     /// Dernier relevé des mesures (défilement continu des courbes).
     pub sys_at: Option<Instant>,
@@ -683,6 +687,25 @@ impl App {
         )
     }
 
+    /// Une image du flux vocal : le fond suit des niveaux très lissés
+    /// (environ 1 s), l'onde avance d'un cran toutes les deux images avec
+    /// une hauteur qui glisse vers sa cible.
+    fn panorama_flux_frame(&mut self) {
+        let p = &mut self.panorama;
+        for (s, v) in p.bg_levels.iter_mut().zip(p.levels) {
+            *s += (v - *s) * 0.035;
+        }
+        p.wave += (p.levels[0] - p.wave) * 0.18;
+        p.flux_frames = p.flux_frames.wrapping_add(1);
+        if p.flux_frames % 2 == 0 {
+            p.level_hist.push_back(p.wave);
+            while p.level_hist.len() > 160 {
+                p.level_hist.pop_front();
+            }
+            p.levels_at = Some(Instant::now());
+        }
+    }
+
     /// Avancée vers le relevé suivant (0 à 1), pour faire défiler les
     /// courbes en continu.
     pub(super) fn panorama_graph_phase(&self) -> f32 {
@@ -1153,13 +1176,16 @@ impl App {
                     Task::none()
                 }
             },
-            PMsg::GraphFrame => Task::none(),
+            PMsg::GraphFrame => {
+                if self.panorama.radio.is_some() {
+                    self.panorama_flux_frame();
+                }
+                Task::none()
+            }
             PMsg::Levels(l) => {
+                // Cible seulement : l'onde avance à cadence régulière (images),
+                // les mesures arrivant par paquets.
                 self.panorama.levels = l;
-                // Hauteur lissée dans le temps (les barres ne sautent pas).
-                let last = self.panorama.level_hist.back().copied().unwrap_or(0.0);
-                self.panorama.level_hist.push_back(last + (l[0] - last) * 0.45);
-                self.panorama.levels_at = Some(Instant::now());
                 while self.panorama.level_hist.len() > 160 {
                     self.panorama.level_hist.pop_front();
                 }

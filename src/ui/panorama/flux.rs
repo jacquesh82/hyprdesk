@@ -65,22 +65,25 @@ impl canvas::Program<Msg> for Flux {
         let dark = Color::from_rgb(0.02, 0.025, 0.04);
         // Fond : deux dégradés qui se croisent et dérivent lentement, sans
         // bord net ; leur éclat suit les graves, médiums et aigus.
-        let drift = (self.t * 0.07).sin() * 0.5 + 0.5;
-        let sway = (self.t * 0.05).cos() * 0.5 + 0.5;
-        let bg = canvas::gradient::Linear::new(Point::new(0.0, 0.0), Point::new(w, h))
-            .add_stop(0.0, mix(dark, c2, 0.40 + 0.35 * low))
-            .add_stop(0.25 + 0.25 * drift, mix(dark, c1, 0.35 + 0.40 * mid))
-            .add_stop(0.75 + 0.15 * sway, mix(dark, c0, 0.30 + 0.40 * high))
-            .add_stop(1.0, mix(dark, c2, 0.30 + 0.30 * low));
+        // Le fond tourne lentement (un tour en ~40 s) : il bouge vraiment,
+        // sans à-coup ; ses couleurs suivent des niveaux lissés sur ~1 s.
+        let ang = self.t * std::f32::consts::TAU / 40.0;
+        let (cx, cy) = (w / 2.0, h / 2.0);
+        let reach = (w * w + h * h).sqrt() / 2.0;
+        let dir = |a: f32| Point::new(cx + reach * a.cos(), cy + reach * a.sin());
+        let breathe = (self.t * 0.35).sin() * 0.5 + 0.5;
+        let bg = canvas::gradient::Linear::new(dir(ang + std::f32::consts::PI), dir(ang))
+            .add_stop(0.0, mix(dark, c2, 0.40 + 0.30 * low))
+            .add_stop(0.35 + 0.15 * breathe, mix(dark, c1, 0.35 + 0.35 * mid))
+            .add_stop(0.70 + 0.10 * breathe, mix(dark, c0, 0.30 + 0.35 * high))
+            .add_stop(1.0, mix(dark, c2, 0.30 + 0.25 * low));
         f.fill_rectangle(Point::ORIGIN, bounds.size(), bg);
-        // Voile croisé : lumière douce qui balaie le fond au rythme du son.
-        let veil = canvas::gradient::Linear::new(
-            Point::new(w * (0.15 + 0.7 * sway), 0.0),
-            Point::new(w * (0.85 - 0.7 * drift), h),
-        )
-        .add_stop(0.0, Color { a: 0.0, ..c0 })
-        .add_stop(0.5, Color { a: 0.10 + 0.20 * all, ..c1 })
-        .add_stop(1.0, Color { a: 0.0, ..c2 });
+        // Voile qui tourne en sens inverse, plus vite : la lumière balaie.
+        let ang2 = -self.t * std::f32::consts::TAU / 23.0;
+        let veil = canvas::gradient::Linear::new(dir(ang2 + std::f32::consts::PI), dir(ang2))
+            .add_stop(0.0, Color { a: 0.0, ..c0 })
+            .add_stop(0.5, Color { a: 0.10 + 0.18 * all, ..c1 })
+            .add_stop(1.0, Color { a: 0.0, ..c2 });
         f.fill_rectangle(Point::ORIGIN, bounds.size(), veil);
         // Barre « flux vocal » : capsule centrale, le son défile en continu
         // de droite à gauche en barres symétriques, lissées.
@@ -117,8 +120,8 @@ impl canvas::Program<Msg> for Flux {
             let v = if self.paused { 0.04 } else { smooth(k as isize).max(0.04) };
             let half = v * (bar_h * 0.42);
             let pos = ((x - start) / inner).clamp(0.0, 1.0);
-            // Les barres naissent à droite et s'éteignent vers la gauche.
-            let fade = (pos * 5.0).min(1.0);
+            // Les barres naissent doucement à droite et s'éteignent à gauche.
+            let fade = (pos * 5.0).min((1.0 - pos) * 6.0).clamp(0.0, 1.0);
             let tint = mix(c1, c0, pos);
             f.stroke(
                 &Path::line(Point::new(x, mid_y - half), Point::new(x, mid_y + half)),
