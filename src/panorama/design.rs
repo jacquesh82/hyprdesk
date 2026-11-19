@@ -85,16 +85,46 @@ impl Page {
 pub fn default_pages() -> Vec<Page> {
     vec![Page::system()]
 }
-/// Profils du bloc de raccourcis : média vidéo, média audio, télécommande,
-/// système (la liste personnalisable `shortcuts`).
-pub const PROFILES: &[&str] = &["video", "audio", "system"];
+/// Profils du bloc de raccourcis : média vidéo, média audio, raccourcis de
+/// la personne (la liste personnalisable `shortcuts`, identifiant `system`
+/// gardé pour les configurations écrites), puis Système (`power` :
+/// alimentation, veille des écrans, mises à jour), en dernier.
+pub const PROFILES: &[&str] = &["video", "audio", "system", "power"];
 
 /// Libellé et icône d'un profil, pour le sélecteur du bloc.
 pub fn profile_label(id: &str) -> (&'static str, &'static str) {
     match id {
         "video" => ("Vidéo", "video-x-generic-symbolic"),
         "audio" => ("Musique", "audio-x-generic-symbolic"),
-        _ => ("Système", "preferences-system-symbolic"),
+        "power" => ("Système", "system-shutdown-symbolic"),
+        _ => ("Raccourcis", "preferences-system-symbolic"),
+    }
+}
+
+/// Commandes lourdes du profil Système : un premier appui arme, le second
+/// lance (le Panorama est tactile, un frôlement ne doit pas éteindre).
+pub fn needs_confirm(command: &str) -> bool {
+    matches!(command.trim(), "systemctl poweroff" | "systemctl reboot")
+}
+
+/// Colonne des touches, commune à tous les profils (même place, même taille
+/// des boutons du sélecteur d'un profil à l'autre) : (touches, lecteur), en
+/// part de la longueur de la surface.
+fn menu_split(w: f32, h: f32, pad: f32, gap: f32) -> (f32, f32) {
+    let (long, short) = (w.max(h), w.min(h));
+    let inner_l = (long - 2.0 * pad).max(1.0);
+    let inner_s = (short - 2.0 * pad).max(1.0);
+    // Paysage : le lecteur prend 16:9 de la hauteur utile. Portrait (bande
+    // verticale) : 16:9 de la largeur, la playlist profite de la hauteur.
+    if h > w {
+        // Playlist : ce qu'il faut pour ses lignes (~28 %) ; les touches
+        // prennent le reste.
+        let p = (((inner_s - gap) * 9.0 / 16.0 + gap) / inner_l).clamp(0.15, 0.5);
+        let list = 0.28_f32.min(1.0 - p - 0.2);
+        (1.0 - p - list, p)
+    } else {
+        let p = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
+        (0.26_f32.min((1.0 - p) * 0.55), p)
     }
 }
 
@@ -103,27 +133,55 @@ pub fn profile_label(id: &str) -> (&'static str, &'static str) {
 /// colonne « playlist » des services. Fractions de la surface (paysage ;
 /// un écran portrait les échange, comme toute composition).
 pub fn player_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
-    let (long, short) = (w.max(h), w.min(h));
-    let inner_l = (long - 2.0 * pad).max(1.0);
-    let inner_s = (short - 2.0 * pad).max(1.0);
-    // Paysage : le lecteur prend 16:9 de la hauteur utile. Portrait (bande
-    // verticale) : 16:9 de la largeur, la playlist profite de la hauteur.
-    let (player, menu) = if h > w {
-        // Playlist : ce qu'il faut pour ses lignes (~28 %) ; les touches
-        // prennent le reste.
-        let p = (((inner_s - gap) * 9.0 / 16.0 + gap) / inner_l).clamp(0.15, 0.5);
-        let list = 0.28_f32.min(1.0 - p - 0.2);
-        (p, 1.0 - p - list)
-    } else {
-        let p = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
-        (p, 0.26_f32.min((1.0 - p) * 0.55))
-    };
+    let (menu, player) = menu_split(w, h, pad, gap);
     let list = 1.0 - menu - player;
     vec![
         Tile::new("shortcuts", 0.0, 0.0, menu, 1.0),
         Tile::new("video", menu, 0.0, player, 1.0),
         Tile::new("playlist", menu + player, 0.0, list, 1.0),
     ]
+}
+
+/// Composition du profil Système : la colonne des touches, puis l'état des
+/// mises à jour (paquets par source, avancement) sur le reste.
+pub fn power_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
+    let (menu, _) = menu_split(w, h, pad, gap);
+    vec![
+        Tile::new("shortcuts", 0.0, 0.0, menu, 1.0),
+        Tile::new("updates", menu, 0.0, 1.0 - menu, 1.0),
+    ]
+}
+
+/// Composition du profil Raccourcis : la colonne des touches à la même
+/// place que dans les autres profils, la composition de la personne (sans
+/// son bloc de raccourcis) ramenée sur le reste.
+pub fn framed_tiles(tiles: &[Tile], w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
+    let (menu, _) = menu_split(w, h, pad, gap);
+    let rest: Vec<&Tile> = tiles.iter().filter(|t| t.widget != "shortcuts").collect();
+    let mut out = vec![Tile::new("shortcuts", 0.0, 0.0, menu, 1.0)];
+    if rest.is_empty() {
+        out[0].w = 1.0;
+        return out;
+    }
+    // Boîte englobante des autres zones, étirée sur la place restante.
+    let x0 = rest.iter().map(|t| t.x).fold(f32::MAX, f32::min);
+    let x1 = rest.iter().map(|t| t.x + t.w).fold(0.0, f32::max);
+    let y0 = rest.iter().map(|t| t.y).fold(f32::MAX, f32::min);
+    let y1 = rest.iter().map(|t| t.y + t.h).fold(0.0, f32::max);
+    let (sx, sy) = (
+        (1.0 - menu) / (x1 - x0).max(0.05),
+        1.0 / (y1 - y0).max(0.05),
+    );
+    out.extend(rest.into_iter().map(|t| {
+        Tile::new(
+            &t.widget,
+            menu + (t.x - x0) * sx,
+            (t.y - y0) * sy,
+            t.w * sx,
+            t.h * sy,
+        )
+    }));
+    out
 }
 
 /// Touches intégrées d'un profil (`system` : la liste de la personne). Les
@@ -206,6 +264,30 @@ pub fn profile_shortcuts(id: &str) -> Option<Vec<Shortcut>> {
                 "hyprdesk osd mic toggle",
             ),
         ],
+        "power" => &[
+            (
+                "Verrouiller",
+                "system-lock-screen-symbolic",
+                "hyprdesk lock",
+            ),
+            (
+                "Veille des écrans",
+                "video-display-symbolic",
+                "hyprdesk screens-off",
+            ),
+            (
+                "Mettre en veille",
+                "weather-clear-night-symbolic",
+                "systemctl suspend",
+            ),
+            (
+                "Mettre à jour",
+                "software-update-available-symbolic",
+                "hyprdesk updates --upgrade",
+            ),
+            ("Redémarrer", "system-reboot-symbolic", "systemctl reboot"),
+            ("Éteindre", "system-shutdown-symbolic", "systemctl poweroff"),
+        ],
         _ => return None,
     };
     Some(
@@ -240,9 +322,11 @@ impl Tile {
         }
     }
     pub fn validate(&self) -> Result<(), String> {
-        // `playlist` : colonne des services du lecteur (profils Vidéo, Musique).
+        // `playlist` : colonne des services du lecteur (profils Vidéo,
+        // Musique) ; `updates` : mises à jour du profil Système.
         if !super::PAGES.iter().any(|(id, _)| *id == self.widget)
             && self.widget != "playlist"
+            && self.widget != "updates"
             && metric_of(&self.widget).is_none()
             && !self
                 .widget
@@ -406,9 +490,9 @@ impl Design {
     /// `w`, `h` : taille de la surface, pour un lecteur au format 16:9.
     pub fn active_tiles(&self, w: f32, h: f32) -> std::borrow::Cow<'_, [Tile]> {
         match self.shortcut_profile.as_str() {
-            // La télécommande pilote le lecteur : elle garde sa zone.
             "video" | "audio" => player_tiles(w, h, self.padding, self.gap).into(),
-            _ => self.tiles.as_slice().into(),
+            "power" => power_tiles(w, h, self.padding, self.gap).into(),
+            _ => framed_tiles(&self.tiles, w, h, self.padding, self.gap).into(),
         }
     }
 
@@ -906,8 +990,26 @@ mod tests {
         assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
         d.set("shortcut_profile", "remote").unwrap();
         assert_eq!(d.shortcut_profile, "video", "Télécommande retirée : Vidéo");
+        // Même colonne de touches dans tous les profils : le sélecteur ne
+        // bouge pas d'un profil à l'autre.
+        let menu = d.active_tiles(1600.0, 450.0)[0].clone();
+        for id in PROFILES {
+            d.set("shortcut_profile", id).unwrap();
+            let t = d.active_tiles(1600.0, 450.0);
+            assert_eq!(t[0], menu, "{id}");
+            assert!(t.iter().all(|t| t.validate().is_ok()), "{id}");
+            assert!(
+                t.iter()
+                    .all(|t| t.x + t.w <= 1.0 + 1e-4 && t.y + t.h <= 1.0 + 1e-4),
+                "{id}"
+            );
+        }
         d.set("shortcut_profile", "system").unwrap();
-        assert_eq!(d.active_tiles(1600.0, 450.0), d.tiles.as_slice());
+        let t = d.active_tiles(1600.0, 450.0);
+        assert_eq!(t.len(), d.tiles.len(), "le bloc de la personne remplacé");
+        assert!(t[1..].iter().all(|t| t.widget != "shortcuts"));
+        assert!(t.iter().any(|t| (t.x + t.w - 1.0).abs() < 1e-4));
+        assert!(needs_confirm("systemctl poweroff") && !needs_confirm("hyprdesk lock"));
         d.set("shortcut_profile", "system").unwrap();
         // Un préréglage garde le profil choisi.
         d.apply_preset("forest").unwrap();

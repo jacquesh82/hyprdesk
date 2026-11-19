@@ -644,6 +644,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "idle_lock",
             "idle_dpms",
             "idle_suspend",
+            "idle_wake_volume",
             "idle_lid_battery",
             "idle_lid_ac",
             "idle_lid_docked",
@@ -992,6 +993,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "idle_manage", CTX)? {
         g.idle.manage = v;
+    }
+    if let Some(v) = opt_bool(t, "idle_wake_volume", CTX)? {
+        g.idle.wake_volume = v;
     }
     for (key, slot) in [
         ("idle_dim", &mut g.idle.dim),

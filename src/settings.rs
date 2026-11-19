@@ -163,6 +163,7 @@ pub struct Settings {
     pub idle_lock: Option<u32>,
     pub idle_dpms: Option<u32>,
     pub idle_suspend: Option<u32>,
+    pub idle_wake_volume: Option<bool>,
     pub idle_lid_battery: Option<crate::config::LidAction>,
     pub idle_lid_ac: Option<crate::config::LidAction>,
     pub idle_lid_docked: Option<crate::config::LidAction>,
@@ -413,6 +414,7 @@ impl Settings {
             idle_lock: has("idle_lock").then_some(g.idle.lock),
             idle_dpms: has("idle_dpms").then_some(g.idle.dpms),
             idle_suspend: has("idle_suspend").then_some(g.idle.suspend),
+            idle_wake_volume: has("idle_wake_volume").then_some(g.idle.wake_volume),
             idle_lid_battery: has("idle_lid_battery").then_some(g.idle.lid_battery),
             idle_lid_ac: has("idle_lid_ac").then_some(g.idle.lid_ac),
             idle_lid_docked: has("idle_lid_docked").then_some(g.idle.lid_docked),
@@ -785,6 +787,7 @@ impl Settings {
         set!(idle_lock, "idle_lock", g.idle.lock);
         set!(idle_dpms, "idle_dpms", g.idle.dpms);
         set!(idle_suspend, "idle_suspend", g.idle.suspend);
+        set!(idle_wake_volume, "idle_wake_volume", g.idle.wake_volume);
         set!(idle_lid_battery, "idle_lid_battery", g.idle.lid_battery);
         set!(idle_lid_ac, "idle_lid_ac", g.idle.lid_ac);
         set!(idle_lid_docked, "idle_lid_docked", g.idle.lid_docked);
@@ -1361,6 +1364,7 @@ impl Settings {
             ("lock_show_media", self.lock_show_media),
             ("lock_fingerprint", self.lock_fingerprint),
             ("idle_manage", self.idle_manage),
+            ("idle_wake_volume", self.idle_wake_volume),
         ] {
             if let Some(v) = v {
                 cfg.push(format!("{k} = {v}"));

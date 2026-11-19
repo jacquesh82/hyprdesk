@@ -40,6 +40,7 @@ pub mod polkit;
 mod popover;
 pub mod preview;
 mod problem;
+mod screens_off;
 mod search;
 mod settings_search;
 mod switcher;
@@ -511,6 +512,9 @@ pub struct App {
     urgent: HashSet<String>,
     active_window: Option<(String, String)>,
     volume: Option<(f32, bool)>,
+    /// Écrans éteints à la main (`hyprdesk screens-off`) : volume de départ
+    /// (encore inconnu : `None`) ; un volume différent les rallume.
+    screens_off: Option<Option<(f32, bool)>>,
     /// Touches de modification tenues (Maj + Tab : champ précédent).
     mods: keyboard::Modifiers,
     /// Module de barre en cours de déplacement : (zone, rang) d'origine, et
@@ -1009,6 +1013,7 @@ impl App {
             workspaces: Vec::new(),
             active_window: None,
             volume: None,
+            screens_off: None,
             light: bar::Light::default(),
 
             bar_drag: None,
@@ -3694,6 +3699,7 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                control::Command::ScreensOff => self.screens_off(),
                 control::Command::ColorTest => {
                     self.colors_update(if self.color_test.wins.is_empty() {
                         plugins::colors::Msg::TestOpen
@@ -3831,7 +3837,7 @@ impl App {
             Msg::VolumeValue(v) => {
                 self.pending_widgets.remove("bar:volume");
                 self.volume = v;
-                Task::none()
+                self.screens_wake(v)
             }
             Msg::MicMute => self.mic_action(vec![
                 "set-mute".into(),
@@ -5291,7 +5297,7 @@ impl App {
         }
         // Volume : suivi des événements de PipeWire plutôt qu'un wpctl toutes
         // les 2 s (MLG-134).
-        if !self.raised.is_empty() || self.cfg.bar.is_some() {
+        if !self.raised.is_empty() || self.cfg.bar.is_some() || self.screens_off.is_some() {
             subs.push(Subscription::run(bar::volume_stream).map(Msg::VolumeValue));
         }
         if !self.raised.is_empty() {

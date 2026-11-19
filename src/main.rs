@@ -206,6 +206,8 @@ Commandes :
   app-theme [status | apply]
                     thème de hyprdesk appliqué aux applications (kitty, Thunar)
   color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
+  screens-off       éteint tous les écrans sans mettre la machine en veille ;
+                    un changement de volume les rallume (idle_wake_volume)
   colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag | free [--disable]]
                     couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
   lid [status | close | open]

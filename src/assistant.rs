@@ -410,9 +410,11 @@ fn panorama_context(cfg: &Config) -> String {
 apparence : `panorama.design.*` (préréglage, couleurs, police, opacités, horloge, mesures…).\n\
 - Pages du carrousel : `panorama.pages` (JSON [{name,tiles:[{widget,x,y,w,h}]}]) ; \
 `hyprdesk panorama page <n|nom>` y va.\n\
-- Bloc de raccourcis : `panorama.design.shortcut_profile` video | audio | system. Vidéo et Musique : \
+- Bloc de raccourcis : `panorama.design.shortcut_profile` video | audio | system | power. Vidéo et Musique : \
 composition fixe (menu, lecteur 16:9, colonne des services) ; `hyprdesk key <touche> [mods]` \
-envoie une touche à la fenêtre active ; system : `panorama.design.shortcuts` (JSON [{name,icon,command}]).\n\
+envoie une touche à la fenêtre active ; system (Raccourcis) : `panorama.design.shortcuts` (JSON [{name,icon,command}]) ; \
+power (Système) : verrouiller, veille des écrans (`hyprdesk screens-off`, le volume les rallume : `idle_wake_volume`), \
+veille, mise à jour (paquets et avancement), redémarrer, éteindre.\n\
 - Sources : `panorama.sources` (vidéo), `panorama.music_sources`, `panorama.radios` (flux), en JSON \
 [{name,url,icon,show}] ; show : auto (visible sans compte ou si l'on est connecté), on, off. \
 `panorama.webradio` : radio-browser | radio-garden | radio-net | tunein. \

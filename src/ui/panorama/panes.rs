@@ -1373,6 +1373,7 @@ impl App {
             ),
             "clock" => self.panorama_clock(&z, fg),
             "playlist" => self.panorama_playlist(iced::Size::new(content.w, content.h)),
+            "updates" => self.panorama_updates(iced::Size::new(content.w, content.h)),
             // Webradio en cours : barre « flux vocal ».
             "video" if self.panorama.radio.is_some() => {
                 let (name, _) = self.panorama.radio.clone().unwrap_or_default();

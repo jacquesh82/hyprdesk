@@ -544,6 +544,76 @@ pub fn effective_state(s: &str, alive: impl Fn(u32) -> bool) -> Option<String> {
     }
 }
 
+/// État partagé relu (`state_path`), pour l'afficher ailleurs que dans la
+/// barre (profil Système du Panorama).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Snapshot {
+    /// idle, checking, running, failed.
+    pub state: String,
+    /// Dernier relevé (secondes Unix ; 0 : jamais).
+    pub checked: u64,
+    pub total: usize,
+    /// (source, paquets « nom ancienne -> nouvelle »).
+    pub sources: Vec<(String, Vec<String>)>,
+    /// Pendant une mise à jour : pourcentage, source, phase, paquet.
+    pub progress: Option<u8>,
+    pub step: String,
+    pub phase: String,
+    pub current: Option<String>,
+}
+
+/// Lit l'état écrit par `render_state` et `write_progress`.
+pub fn parse_snapshot(s: &str) -> Snapshot {
+    let mut out = Snapshot::default();
+    for l in s.lines() {
+        let Some((k, v)) = l.split_once('=') else {
+            continue;
+        };
+        match k {
+            "state" => out.state = v.to_string(),
+            "checked" => out.checked = v.trim().parse().unwrap_or(0),
+            "total" => out.total = v.trim().parse().unwrap_or(0),
+            "progress" => out.progress = v.trim().parse().ok(),
+            "step" => out.step = v.to_string(),
+            "phase" => out.phase = v.to_string(),
+            "current" if !v.trim().is_empty() => out.current = Some(v.to_string()),
+            "source" => {
+                let mut parts = v.splitn(3, '|');
+                let label = parts.next().unwrap_or_default().to_string();
+                let _count = parts.next();
+                // Les paquets pacman tiennent en `nom ancienne -> nouvelle` :
+                // regroupés par quatre mots, sinon un par mot.
+                let words: Vec<&str> = parts
+                    .next()
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .collect();
+                let packages =
+                    if words.len().is_multiple_of(4) && words.chunks(4).all(|c| c[2] == "->") {
+                        words.chunks(4).map(|c| c.join(" ")).collect()
+                    } else {
+                        words.iter().map(|w| w.to_string()).collect()
+                    };
+                out.sources.push((label, packages));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// État courant relu (une tâche interrompue compte pour « idle »).
+pub fn snapshot() -> Option<Snapshot> {
+    let raw = std::fs::read_to_string(state_path()).ok()?;
+    let mut s = parse_snapshot(&raw);
+    if let Some(st) = effective_state(&raw, |pid| {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }) {
+        s.state = st;
+    }
+    Some(s)
+}
+
 /// Remplace la ligne `state=` en gardant le reste (comptes affichés).
 pub fn set_state(state: &str) {
     let path = state_path();
@@ -664,6 +734,35 @@ pub fn send_problem(text: &str, show: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn etat_relu() {
+        let pending = vec![
+            Pending {
+                source: "pacman",
+                label: "Dépôts Arch",
+                packages: vec!["linux 6.1-1 -> 6.2-1".into(), "mesa 1-1 -> 2-1".into()],
+            },
+            Pending {
+                source: "flatpak",
+                label: "Flatpak",
+                packages: vec!["org.a.B".into()],
+            },
+        ];
+        let raw = render_state("running", 42, &pending)
+            + "progress=37\nstep=Dépôts Arch\nphase=install\ncurrent=mesa\n";
+        let s = parse_snapshot(&raw);
+        assert_eq!(s.state, "running");
+        assert_eq!((s.checked, s.total), (42, 3));
+        assert_eq!(s.sources[0].1, pending[0].packages);
+        assert_eq!(s.sources[1].1, vec!["org.a.B".to_string()]);
+        assert_eq!(s.progress, Some(37));
+        assert_eq!(
+            (s.phase.as_str(), s.current.as_deref()),
+            ("install", Some("mesa"))
+        );
+        assert_eq!(parse_snapshot("state=idle\n").progress, None);
+    }
 
     #[test]
     fn sources_selon_la_machine() {

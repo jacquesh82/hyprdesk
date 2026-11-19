@@ -219,6 +219,11 @@ pub struct State {
     pub history: HashMap<String, std::collections::VecDeque<f32>>,
     pub wallpaper: Option<(String, image::Handle, iced::Size)>,
     pub wallpaper_requested: String,
+    /// Profil Système : état des mises à jour relu, relevé déjà demandé.
+    pub updates: Option<crate::updates::Snapshot>,
+    pub updates_asked: bool,
+    /// Touche lourde armée (éteindre, redémarrer) : (rang, depuis).
+    pub confirm: Option<(usize, Instant)>,
 }
 
 /// Gestionnaire des tâches du Panorama : sur quel écran, trié sur quoi.
@@ -352,6 +357,11 @@ pub enum PMsg {
     Sys(Vec<(String, crate::widgets::SysLine)>),
     /// Commande MPRIS (`PlayPause`, `Next`, `Previous`).
     Control(&'static str),
+    /// État des mises à jour relu (profil Système).
+    Updates(Option<crate::updates::Snapshot>),
+    /// `hyprdesk updates --refresh | --upgrade`, lancé par Hyprland (survit
+    /// à un redémarrage de hyprdesk).
+    UpdatesRun(&'static str),
     Pressed,
     Touch(Result<(), String>),
     /// Ouvre l'aperçu au format donné (taille simulée), ou le ferme s'il
@@ -758,6 +768,65 @@ impl App {
 
     /// Relevé des programmes (gestionnaire des tâches ouvert), en arrière-
     /// plan ; la carte NVIDIA n'est interrogée que pour trier sur GPU/VRAM.
+    /// Touche lourde armée il y a moins de 4 s.
+    pub(super) fn panorama_armed(&self, i: usize) -> bool {
+        self.panorama
+            .confirm
+            .is_some_and(|(j, at)| j == i && at.elapsed() < Duration::from_secs(4))
+    }
+
+    /// Relit l'état des mises à jour (profil Système affiché).
+    fn panorama_updates_read(&self) -> Task<Msg> {
+        if self.cfg.general.panorama.design.shortcut_profile != "power" {
+            return Task::none();
+        }
+        Task::perform(
+            async {
+                tokio::task::spawn_blocking(crate::updates::snapshot)
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            |s| wrap(PMsg::Updates(s)),
+        )
+    }
+
+    /// Recherche (`--refresh`), mise à jour (`--upgrade`) ou détail du
+    /// dernier échec (`--report`), sauf si une tâche tourne déjà ; l'état
+    /// s'affiche au relevé suivant.
+    fn panorama_updates_run(&mut self, arg: &'static str) -> Task<Msg> {
+        self.panorama.updates_asked = true;
+        if self
+            .panorama
+            .updates
+            .as_ref()
+            .is_some_and(|u| matches!(u.state.as_str(), "checking" | "running"))
+        {
+            return Task::none();
+        }
+        if let Some(u) = self.panorama.updates.as_mut()
+            && arg != "--report"
+        {
+            u.state = if arg == "--upgrade" {
+                "running"
+            } else {
+                "checking"
+            }
+            .into();
+        }
+        let command = format!("hyprdesk updates {arg}");
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    crate::hypr::exec(&command).map_err(|e| e.to_string())
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            |r| wrap(PMsg::ShortcutResult(r)),
+        )
+    }
+
     fn panorama_tasks_refresh(&mut self) -> Task<Msg> {
         let Some(t) = self.panorama.tasks.as_mut().filter(|t| !t.busy) else {
             return Task::none();
@@ -1159,6 +1228,16 @@ impl App {
                 };
                 let command = s.command.clone();
                 drop(list);
+                // Éteindre, redémarrer : le premier appui arme, le second lance.
+                if crate::panorama::design::needs_confirm(&command) && !self.panorama_armed(i) {
+                    self.panorama.confirm = Some((i, Instant::now()));
+                    return Task::none();
+                }
+                self.panorama.confirm = None;
+                // Mise à jour : son avancement s'affiche aussitôt.
+                if command.trim() == "hyprdesk updates --upgrade" {
+                    return self.panorama_updates_run("--upgrade");
+                }
                 // Webradio (mpv) : Lecture/Pause la pilote directement.
                 if self.panorama.radio.is_some() && command.trim() == "hyprdesk media play-pause" {
                     return Task::perform(
@@ -1418,6 +1497,21 @@ impl App {
                 self.panorama.icons_report = Some(r);
                 Task::none()
             }
+            PMsg::Updates(s) => {
+                self.panorama.updates = s;
+                // Jamais relevé : une recherche, une fois par session.
+                if !self.panorama.updates_asked
+                    && self
+                        .panorama
+                        .updates
+                        .as_ref()
+                        .is_none_or(|u| u.checked == 0 && u.state == "idle")
+                {
+                    return self.panorama_updates_run("--refresh");
+                }
+                Task::none()
+            }
+            PMsg::UpdatesRun(arg) => self.panorama_updates_run(arg),
             PMsg::ShortcutResult(r) => {
                 self.panorama.design_error = r.err();
                 Task::none()
@@ -1552,6 +1646,7 @@ impl App {
                     self.panorama_check_signed(),
                     self.panorama_auto_icons(),
                     self.panorama_auto_full(),
+                    self.panorama_updates_read(),
                 ]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;

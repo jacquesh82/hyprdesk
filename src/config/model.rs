@@ -290,6 +290,9 @@ pub struct IdleCfg {
     pub dpms: u32,
     /// Mettre en veille.
     pub suspend: u32,
+    /// Écrans éteints à la main (`hyprdesk screens-off`) : un changement de
+    /// volume les rallume.
+    pub wake_volume: bool,
     /// Capot d'un portable refermé : sur batterie, sur secteur, et avec un
     /// écran externe allumé (`crate::lid`).
     pub lid_battery: LidAction,
@@ -307,6 +310,7 @@ impl Default for IdleCfg {
             lock: 300,
             dpms: 360,
             suspend: 0,
+            wake_volume: true,
             lid_battery: LidAction::System,
             lid_ac: LidAction::System,
             lid_docked: LidAction::System,

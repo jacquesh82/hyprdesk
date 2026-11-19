@@ -29,6 +29,9 @@ pub enum Command {
     ForgetWindowPlaces,
     /// Mire plein écran des couleurs sur tous les écrans (ouvre ou ferme).
     ColorTest,
+    /// Éteint tous les écrans, la machine reste allumée ; un changement de
+    /// volume les rallume (`idle_wake_volume`).
+    ScreensOff,
     Quit,
     /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
     /// sans changer le mode du bureau.
@@ -90,6 +93,7 @@ impl Command {
             "status" => Command::Status,
             "forget-window-places" => Command::ForgetWindowPlaces,
             "color-test" => Command::ColorTest,
+            "screens-off" => Command::ScreensOff,
             "quit" => Command::Quit,
             "assistant" => Command::Assistant,
             "tour" => Command::Tour,
@@ -161,6 +165,7 @@ impl Command {
             Command::Status => "status",
             Command::ForgetWindowPlaces => "forget-window-places",
             Command::ColorTest => "color-test",
+            Command::ScreensOff => "screens-off",
             Command::Quit => "quit",
             Command::Settings(_) => "settings",
             Command::ToggleSettings => "toggle-settings",

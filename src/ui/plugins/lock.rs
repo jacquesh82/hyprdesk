@@ -49,6 +49,8 @@ pub enum Msg {
     LockNow,
     /// hyprdesk gère la veille (hypridle).
     IdleManage(bool),
+    /// Écrans éteints à la main : le volume les rallume.
+    WakeVolume(bool),
     /// Délai d'une étape en minutes pendant le glissé (0 = jamais), puis enregistrement.
     IdleDelay(IdleStep, u32),
     IdleCommit,
@@ -217,6 +219,17 @@ impl App {
                 "idle_manage",
                 toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v))),
             ),
+            // Veille des écrans (Panorama → Système, `hyprdesk screens-off`) :
+            // indépendante de hypridle.
+            self.field(
+                "Veille des écrans : un changement de volume rallume les écrans",
+                "idle_wake_volume",
+                toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v))),
+            ),
+            text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
+                .font(self.font)
+                .size(12)
+                .color(dim),
         ]
         .spacing(14);
         if let Some(max) = crate::policy::get().idle_lock_max {
@@ -371,6 +384,10 @@ impl App {
         match msg {
             Msg::IdleManage(v) => {
                 self.settings.idle_manage = Some(v);
+                self.commit()
+            }
+            Msg::WakeVolume(v) => {
+                self.settings.idle_wake_volume = Some(v);
                 self.commit()
             }
             Msg::IdleDelay(step, minutes) => {

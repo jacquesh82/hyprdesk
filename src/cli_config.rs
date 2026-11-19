@@ -584,6 +584,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.idle.suspend.to_string(),
         |s, v, c| { s.idle_suspend = Some(number(v, 0u32, 86_400)?); Ok(()) },
         |s| s.idle_suspend = None;
+    "idle_wake_volume", "lock", "on | off — écrans éteints à la main (Panorama → Système → Veille des écrans) : un changement de volume les rallume",
+        |c| on_off(c.general.idle.wake_volume),
+        |s, v, c| { s.idle_wake_volume = Some(parse_bool(v)?); Ok(()) },
+        |s| s.idle_wake_volume = None;
     "idle_lid_battery", "lock", "system | suspend | hibernate | lock | screen-off | nothing — capot refermé, sur batterie",
         |c| c.general.idle.lid_battery.as_str().into(),
         |s, v, c| { s.idle_lid_battery = Some(choice(v, LidAction::parse, LID_CHOICES)?); Ok(()) },
@@ -1114,7 +1118,7 @@ pub static KEYS: &[Key] = keys![
             s.panorama = Some(p); Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("media_style", &d.get("media_style").unwrap_or_default()); } };
-    "panorama.design.shortcut_profile", "panorama", "video | audio | system — profil du bloc de raccourcis (system : la liste shortcuts)",
+    "panorama.design.shortcut_profile", "panorama", "video | audio | system | power — profil du bloc de raccourcis (system : la liste shortcuts ; power : Système, alimentation et mises à jour)",
         |c| c.general.panorama.design.get("shortcut_profile").unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());

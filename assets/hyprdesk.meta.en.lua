@@ -52,6 +52,7 @@
 ---@field idle_lock? integer # seconds before locking (0: never)
 ---@field idle_dpms? integer # seconds before turning screens off (0: never)
 ---@field idle_suspend? integer # seconds before suspending (0: never)
+---@field idle_wake_volume? boolean # screens turned off by hand (hyprdesk screens-off): a volume change turns them back on (default: true)
 ---@field mode? "opaque"|"glass"
 ---@field fade_ms? integer
 ---@field transition? "fade"|"slide"|"none"

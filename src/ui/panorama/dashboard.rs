@@ -778,10 +778,10 @@ impl App {
         let seg_w = ((size.width - 16.0 - gap * (slots - 1) as f32) / slots as f32).max(28.0);
         let seg_h = (size.height * 0.16).clamp(34.0, 52.0);
         let named = seg_w >= 110.0;
-        let mut tabs = row![].spacing(gap);
-        for id in profiles {
+        // Onglet d'un profil (le profil Système vient après le micro).
+        let profile_tab = |id: &'static str| -> Element<'_, Msg> {
             let (label, _) = crate::panorama::design::profile_label(id);
-            let on = d.shortcut_profile == *id;
+            let on = d.shortcut_profile == id;
             let mut inner = row![].spacing(6).align_y(Alignment::Center);
             // Icône colorée du profil (pas teintée par le thème).
             let side = (seg_h * 0.62).min(34.0);
@@ -811,7 +811,7 @@ impl App {
                 },
                 ..Default::default()
             });
-            tabs = tabs.push(
+            Element::from(
                 iced::widget::tooltip(
                     self.panorama_feedback(
                         button(
@@ -829,7 +829,11 @@ impl App {
                     iced::widget::tooltip::Position::Bottom,
                 )
                 .gap(4),
-            );
+            )
+        };
+        let mut tabs = row![].spacing(gap);
+        for id in profiles.iter().filter(|p| **p != "power") {
+            tabs = tabs.push(profile_tab(id));
         }
         // Micro de LYRA vocale : coupé (gris), à l'écoute, réveillé (« Lyra »
         // entendu, accent), installation.
@@ -906,6 +910,9 @@ impl App {
                 .gap(4),
             );
         }
+        if profiles.contains(&"power") {
+            tabs = tabs.push(profile_tab("power"));
+        }
 
         let list = d.active_shortcuts();
         if list.is_empty() {
@@ -939,11 +946,15 @@ impl App {
                 let pause = s.command.trim() == "hyprdesk media play-pause"
                     && (self.panorama.media.as_ref().is_some_and(|m| m.playing)
                         || (self.panorama.radio.is_some() && !self.panorama.radio_paused));
+                // Éteindre, redémarrer : armé par un premier appui.
+                let armed = self.panorama_armed(r * columns + j);
                 let (name, icon_name) = if pause {
                     (
                         crate::i18n::tr("Pause").to_string(),
                         "media-playback-pause-symbolic",
                     )
+                } else if armed {
+                    (crate::i18n::tr("Confirmer ?").to_string(), s.icon.as_str())
                 } else {
                     (s.name.clone(), s.icon.as_str())
                 };
@@ -975,7 +986,7 @@ impl App {
                         .width(width)
                         .height(height)
                         .on_press(wrap(PMsg::Shortcut(r * columns + j)))
-                        .style(tile_style(false)),
+                        .style(tile_style(armed)),
                     ),
                 );
             }
@@ -1149,7 +1160,183 @@ impl App {
     }
 }
 
-/// Icônes colorées des profils (vidéo, musique, télécommande, réglages),
+impl App {
+    /// Mises à jour du profil Système : état, avancement pendant la mise à
+    /// jour, paquets en attente par source ; Rechercher, Mettre à jour.
+    pub(super) fn panorama_updates(&self, size: Size) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let dim = fx::alpha(fg, 0.6);
+        let u = self.panorama.updates.as_ref();
+        let state = u.map_or("checking", |u| u.state.as_str());
+        let total = u.map_or(0, |u| u.sources.iter().map(|s| s.1.len()).sum::<usize>());
+        let big = (size.height / 16.0).clamp(15.0, 24.0);
+        let small = (big * 0.62).clamp(11.0, 15.0);
+        let pill = move |hot: bool| {
+            move |_: &iced::Theme, st: button::Status| button::Style {
+                background: Some(
+                    fx::alpha(
+                        if hot { accent } else { bg },
+                        if hot || matches!(st, button::Status::Pressed) {
+                            0.6
+                        } else {
+                            0.45
+                        },
+                    )
+                    .into(),
+                ),
+                border: Border {
+                    radius: 10.0.into(),
+                    width: 1.0,
+                    color: fx::alpha(fg, 0.2),
+                },
+                text_color: fg,
+                ..Default::default()
+            }
+        };
+        let busy = matches!(state, "checking" | "running");
+        let action = |label: &str, arg: &'static str, hot: bool, on: bool| {
+            let b = button(text(crate::i18n::tr(label).to_string()).size(small + 1.0))
+                .padding([8, 16])
+                .style(pill(hot));
+            self.panorama_feedback(if on {
+                b.on_press(wrap(PMsg::UpdatesRun(arg)))
+            } else {
+                b
+            })
+        };
+        let title: String = match state {
+            "checking" => crate::i18n::tr("Recherche des mises à jour…").into(),
+            "running" => match u.and_then(|u| u.progress) {
+                Some(p) => crate::tr!("Mise à jour en cours : {p} %", p = p),
+                None => crate::i18n::tr("Mise à jour en cours…").into(),
+            },
+            "failed" => crate::i18n::tr("La dernière mise à jour a échoué").into(),
+            _ if total == 0 => crate::i18n::tr("Le système est à jour").into(),
+            _ => crate::tr!("{n} paquet(s) à mettre à jour", n = total),
+        };
+        let mut head = column![
+            text(title)
+                .size(big)
+                .color(if state == "failed" { accent } else { fg })
+                .wrapping(text::Wrapping::None)
+        ]
+        .spacing(4);
+        // Dernière recherche, ou ce qui se passe pendant la mise à jour.
+        let detail = match u {
+            Some(u) if state == "running" => {
+                let phase = match u.phase.as_str() {
+                    "download" => "téléchargement",
+                    "check" => "vérifications",
+                    "install" => "installation",
+                    "hooks" => "finalisation",
+                    _ => "préparation",
+                };
+                let mut d = format!("{} · {}", u.step, crate::i18n::tr(phase));
+                if let Some(c) = &u.current {
+                    d.push_str(&format!(" : {c}"));
+                }
+                Some(d)
+            }
+            Some(u) if u.checked > 0 => {
+                chrono::DateTime::from_timestamp(u.checked as i64, 0).map(|t| {
+                    crate::tr!(
+                        "Dernière recherche : {t}",
+                        t = t
+                            .with_timezone(&chrono::Local)
+                            .format("%d/%m %H:%M")
+                            .to_string()
+                    )
+                })
+            }
+            _ => None,
+        };
+        if let Some(d) = detail {
+            head = head.push(
+                text(d)
+                    .size(small)
+                    .color(dim)
+                    .wrapping(text::Wrapping::None),
+            );
+        }
+        let mut buttons = row![
+            action("Rechercher", "--refresh", false, !busy),
+            action("Mettre à jour", "--upgrade", true, !busy && total > 0),
+        ]
+        .spacing(8);
+        if state == "failed" {
+            buttons = buttons.push(
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr("Voir le détail").to_string()).size(small + 1.0))
+                        .padding([8, 16])
+                        .style(pill(false))
+                        .on_press(wrap(PMsg::UpdatesRun("--report"))),
+                ),
+            );
+        }
+        let top = row![
+            container(head).width(Length::Fill),
+            buttons.align_y(Alignment::Center)
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        let mut col = column![top].spacing(10);
+        if state == "running" {
+            let f = u.and_then(|u| u.progress).unwrap_or(0) as f32 / 100.0;
+            col = col.push(
+                iced::widget::progress_bar(0.0..=1.0, f)
+                    .girth(6)
+                    .style(move |_| iced::widget::progress_bar::Style {
+                        background: fx::alpha(fg, 0.15).into(),
+                        bar: accent.into(),
+                        border: Border::default().rounded(3),
+                    }),
+            );
+        }
+        // Paquets par source : nom, puis versions (pacman : « a -> b »).
+        let mut list = column![].spacing(3);
+        for (source, packages) in u.map(|u| u.sources.as_slice()).unwrap_or_default() {
+            if packages.is_empty() {
+                continue;
+            }
+            list = list.push(
+                text(format!("{source} — {}", packages.len()))
+                    .size(small + 1.0)
+                    .color(accent),
+            );
+            for pkg in packages {
+                let (name, versions) = match pkg.split_once(' ') {
+                    Some((n, v)) => (n.to_string(), v.replace(" -> ", " → ")),
+                    None => (pkg.clone(), String::new()),
+                };
+                list = list.push(
+                    row![
+                        text(name)
+                            .size(small)
+                            .color(fg)
+                            .wrapping(text::Wrapping::None)
+                            .width(Length::Fill),
+                        text(versions)
+                            .size(small)
+                            .color(dim)
+                            .wrapping(text::Wrapping::None),
+                    ]
+                    .spacing(12),
+                );
+            }
+        }
+        col = col.push(
+            iced::widget::scrollable(list.padding(iced::Padding::ZERO.right(10)))
+                .height(Length::Fill),
+        );
+        container(col)
+            .padding(14)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+}
+
+/// Icônes colorées des profils (vidéo, musique, système, raccourcis),
 /// dessinées ici : un carré arrondi en dégradé et un glyphe blanc.
 fn profile_icon(id: &str) -> iced::widget::svg::Handle {
     use std::sync::LazyLock;
@@ -1171,9 +1358,9 @@ fn profile_icon(id: &str) -> iced::widget::svg::Handle {
                 r##"<path d="M19.5 33V15.5l14-3.5v18" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><circle cx="16" cy="33" r="4.5" fill="#fff"/><circle cx="30" cy="30" r="4.5" fill="#fff"/>"##,
             ),
             tile(
-                "#2193b0",
-                "#6dd5ed",
-                r##"<circle cx="24" cy="24" r="13" fill="none" stroke="#fff" stroke-width="3"/><circle cx="24" cy="24" r="4" fill="#fff"/><path d="M24 13.5l3 3.5h-6zM24 34.5l3-3.5h-6zM13.5 24l3.5-3v6zM34.5 24l-3.5-3v6z" fill="#fff"/>"##,
+                "#ee0979",
+                "#ff6a00",
+                r##"<path d="M24 11v12" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M16.5 16.2a11 11 0 1 0 15 0" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>"##,
             ),
             tile(
                 "#11998e",
@@ -1185,6 +1372,7 @@ fn profile_icon(id: &str) -> iced::widget::svg::Handle {
     ICONS[match id {
         "video" => 0,
         "audio" => 1,
+        "power" => 2,
         _ => 3,
     }]
     .clone()
