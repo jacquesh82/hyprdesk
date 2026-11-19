@@ -158,6 +158,8 @@ pub struct State {
     /// Niveaux du son (global, graves, médiums, aigus) et leur historique.
     pub levels: [f32; 4],
     pub level_hist: std::collections::VecDeque<f32>,
+    /// Dernier relevé des niveaux (défilement continu du flux).
+    pub levels_at: Option<Instant>,
     pub flux_t0: FluxClock,
     /// Dernier relevé des mesures (défilement continu des courbes).
     pub sys_at: Option<Instant>,
@@ -1154,7 +1156,10 @@ impl App {
             PMsg::GraphFrame => Task::none(),
             PMsg::Levels(l) => {
                 self.panorama.levels = l;
-                self.panorama.level_hist.push_back(l[0]);
+                // Hauteur lissée dans le temps (les barres ne sautent pas).
+                let last = self.panorama.level_hist.back().copied().unwrap_or(0.0);
+                self.panorama.level_hist.push_back(last + (l[0] - last) * 0.45);
+                self.panorama.levels_at = Some(Instant::now());
                 while self.panorama.level_hist.len() > 160 {
                     self.panorama.level_hist.pop_front();
                 }

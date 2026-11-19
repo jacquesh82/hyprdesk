@@ -43,6 +43,8 @@ struct Flux {
     font: Font,
     t: f32,
     paused: bool,
+    /// Avancée vers le relevé suivant (0 à 1) : défilement continu.
+    phase: f32,
 }
 
 impl canvas::Program<Msg> for Flux {
@@ -61,59 +63,69 @@ impl canvas::Program<Msg> for Flux {
         let [all, low, mid, high] = if self.paused { [0.0; 4] } else { self.levels };
         let [c0, c1, c2] = self.colors;
         let dark = Color::from_rgb(0.02, 0.025, 0.04);
-        // Fond : dégradé dont l'éclat suit l'énergie, et qui dérive lentement.
+        // Fond : deux dégradés qui se croisent et dérivent lentement, sans
+        // bord net ; leur éclat suit les graves, médiums et aigus.
         let drift = (self.t * 0.07).sin() * 0.5 + 0.5;
+        let sway = (self.t * 0.05).cos() * 0.5 + 0.5;
         let bg = canvas::gradient::Linear::new(Point::new(0.0, 0.0), Point::new(w, h))
-            .add_stop(0.0, mix(dark, c2, 0.35 + 0.45 * low))
-            .add_stop(0.35 + 0.3 * drift, mix(dark, c1, 0.25 + 0.55 * mid))
-            .add_stop(1.0, mix(dark, c0, 0.2 + 0.5 * high));
+            .add_stop(0.0, mix(dark, c2, 0.40 + 0.35 * low))
+            .add_stop(0.25 + 0.25 * drift, mix(dark, c1, 0.35 + 0.40 * mid))
+            .add_stop(0.75 + 0.15 * sway, mix(dark, c0, 0.30 + 0.40 * high))
+            .add_stop(1.0, mix(dark, c2, 0.30 + 0.30 * low));
         f.fill_rectangle(Point::ORIGIN, bounds.size(), bg);
-        // Halos qui battent sur les graves.
-        for (i, c) in self.colors.iter().enumerate() {
-            let phase = self.t * (0.11 + i as f32 * 0.05) + i as f32 * 2.1;
-            let center = Point::new(
-                w * (0.5 + 0.35 * phase.cos()),
-                h * (0.5 + 0.3 * (phase * 1.3).sin()),
-            );
-            let r = h * (0.35 + 0.35 * low + 0.1 * i as f32);
-            for k in 0..6 {
-                let rr = r * (1.0 - k as f32 * 0.15);
-                f.fill(
-                    &Path::circle(center, rr.max(1.0)),
-                    Color {
-                        a: 0.05 + 0.05 * all,
-                        ..*c
-                    },
-                );
-            }
-        }
-        // Barre « flux vocal » : capsule centrale, le son défile de droite à
-        // gauche en barres symétriques.
+        // Voile croisé : lumière douce qui balaie le fond au rythme du son.
+        let veil = canvas::gradient::Linear::new(
+            Point::new(w * (0.15 + 0.7 * sway), 0.0),
+            Point::new(w * (0.85 - 0.7 * drift), h),
+        )
+        .add_stop(0.0, Color { a: 0.0, ..c0 })
+        .add_stop(0.5, Color { a: 0.10 + 0.20 * all, ..c1 })
+        .add_stop(1.0, Color { a: 0.0, ..c2 });
+        f.fill_rectangle(Point::ORIGIN, bounds.size(), veil);
+        // Barre « flux vocal » : capsule centrale, le son défile en continu
+        // de droite à gauche en barres symétriques, lissées.
         let bar_h = (h * 0.34).max(30.0);
         let (bx, by, bw) = (w * 0.06, h * 0.5 - bar_h / 2.0, w * 0.88);
-        f.fill(
-            &Path::rounded_rectangle(Point::new(bx, by), Size::new(bw, bar_h), (bar_h / 2.0).into()),
-            Color::from_rgba(0.0, 0.0, 0.0, 0.28),
+        let capsule = Path::rounded_rectangle(
+            Point::new(bx, by),
+            Size::new(bw, bar_h),
+            (bar_h / 2.0).into(),
         );
+        f.fill(&capsule, Color::from_rgba(0.0, 0.0, 0.0, 0.22));
         let n = 72usize;
-        let step = (bw - bar_h) / n as f32;
+        let inner = bw - bar_h;
+        let step = inner / n as f32;
         let mid_y = h * 0.5;
-        for i in 0..n {
-            let v = self
-                .history
-                .get(self.history.len().saturating_sub(n) + i)
-                .copied()
-                .unwrap_or(0.0);
-            let v = if self.paused { 0.04 } else { v.max(0.04) };
+        // Lissage entre voisines (noyau 1-4-6-4-1).
+        let hist = &self.history;
+        let at = |k: isize| -> f32 {
+            let len = hist.len() as isize;
+            let i = (len - 1 - k).clamp(0, (len - 1).max(0));
+            hist.get(i as usize).copied().unwrap_or(0.0)
+        };
+        let smooth = |k: isize| -> f32 {
+            (at(k - 2) + 4.0 * at(k - 1) + 6.0 * at(k) + 4.0 * at(k + 1) + at(k + 2)) / 16.0
+        };
+        let start = bx + bar_h / 2.0;
+        for k in 0..=n {
+            // k = 0 : barre la plus récente, à droite ; le décalage `phase`
+            // fait glisser l'ensemble entre deux relevés.
+            let x = start + inner - (k as f32 + self.phase) * step - step / 2.0;
+            if x < start {
+                continue;
+            }
+            let v = if self.paused { 0.04 } else { smooth(k as isize).max(0.04) };
             let half = v * (bar_h * 0.42);
-            let x = bx + bar_h / 2.0 + i as f32 * step + step / 2.0;
-            let tint = mix(c1, c0, i as f32 / n as f32);
+            let pos = ((x - start) / inner).clamp(0.0, 1.0);
+            // Les barres naissent à droite et s'éteignent vers la gauche.
+            let fade = (pos * 5.0).min(1.0);
+            let tint = mix(c1, c0, pos);
             f.stroke(
                 &Path::line(Point::new(x, mid_y - half), Point::new(x, mid_y + half)),
                 Stroke::default()
                     .with_width((step * 0.55).max(1.5))
                     .with_color(Color {
-                        a: 0.55 + 0.45 * (i as f32 / n as f32),
+                        a: (0.45 + 0.55 * pos) * fade,
                         ..tint
                     })
                     .with_line_cap(canvas::LineCap::Round),
@@ -159,6 +171,7 @@ pub(in crate::ui) fn view<'a>(
     font: Font,
     t: f32,
     paused: bool,
+    phase: f32,
 ) -> Element<'a, Msg> {
     canvas::Canvas::new(Flux {
         colors: palette(ambiance),
@@ -169,6 +182,7 @@ pub(in crate::ui) fn view<'a>(
         font,
         t,
         paused,
+        phase: phase.clamp(0.0, 1.0),
     })
     .width(Length::Fill)
     .height(Length::Fill)

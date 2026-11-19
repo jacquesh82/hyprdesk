@@ -1256,6 +1256,7 @@ impl App {
                         .elapsed()
                         .as_secs_f32(),
                     self.panorama.radio_paused,
+                    self.panorama.levels_at.map_or(0.0, |t| t.elapsed().as_secs_f32() * 30.0),
                 )
             }
             "video" => {
