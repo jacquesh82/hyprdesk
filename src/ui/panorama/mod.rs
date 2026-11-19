@@ -134,6 +134,9 @@ pub struct State {
     /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
     /// une fois (reprises, ou fermées).
     pub orphans_checked: bool,
+    /// Sources (adresses) dont l'icône a déjà été demandée à SmartUI cette
+    /// session : une source sans icône est dessinée une fois, d'elle-même.
+    pub icons_tried: Vec<String>,
     /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
     pub regions: HashMap<Id, Vec<layout::Rect>>,
     /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
@@ -172,6 +175,8 @@ pub enum PMsg {
     Orphans(Vec<(String, String)>),
     /// Plein écran relevé à la fermeture d'une source : (adresse, vidéo seule).
     RememberFull(String, bool),
+    /// Fin du dessin automatique des icônes manquantes (SmartUI).
+    IconsAuto(Result<String, String>),
     /// Vidéo seule mémorisée : la rétablir (fenêtre, essai).
     VideoFull(String, u8),
     ShortcutResult(Result<(), String>),
@@ -432,6 +437,52 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Sources vidéo ou musique sans icône : SmartUI les dessine d'elle-même,
+    /// en arrière-plan (`hyprdesk panorama icons sources`), une fois par
+    /// session et par source ; chaque icône s'affiche dès qu'elle est prête.
+    fn panorama_auto_icons(&mut self) -> Task<Msg> {
+        if self.panorama.icons_job.is_some() {
+            return Task::none();
+        }
+        let c = &self.cfg.general.panorama;
+        let missing: Vec<String> = c
+            .sources
+            .iter()
+            .chain(&c.music_sources)
+            .filter(|s| s.icon.is_empty() && !self.panorama.icons_tried.contains(&s.url))
+            .map(|s| s.url.clone())
+            .collect();
+        if missing.is_empty() {
+            return Task::none();
+        }
+        self.panorama.icons_tried.extend(missing);
+        self.panorama.icons_job = Some(String::new());
+        let config = self.config_path.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                    let out = std::process::Command::new(exe)
+                        .arg("--config")
+                        .arg(&config)
+                        .args(["panorama", "icons", "sources"])
+                        .output()
+                        .map_err(|e| e.to_string())?;
+                    let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+                    let last = text(&out.stdout).lines().last().unwrap_or("").to_string();
+                    if out.status.success() {
+                        Ok(last)
+                    } else {
+                        Err(format!("{last}\n{}", text(&out.stderr)).trim().to_string())
+                    }
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            |r| wrap(PMsg::IconsAuto(r)),
+        )
+    }
+
     /// Icônes à résoudre pour le bandeau : commandes, touches de chaque
     /// profil, raccourcis de la personne, sources vidéo et musique.
     fn panorama_icon_names(&self) -> Vec<String> {
@@ -626,6 +677,14 @@ impl App {
                     |r| wrap(PMsg::ShortcutResult(r)),
                 )
             }
+            PMsg::IconsAuto(r) => {
+                self.panorama.icons_job = None;
+                if let Err(e) = &r {
+                    tracing::warn!("Panorama : icônes SmartUI : {e}");
+                }
+                self.panorama.icons_report = Some(r);
+                Task::none()
+            }
             PMsg::ShortcutResult(r) => {
                 self.panorama.design_error = r.err();
                 Task::none()
@@ -750,7 +809,7 @@ impl App {
                     return Task::none();
                 }
                 self.panorama_video_gone();
-                let mut strays = self.panorama_close_strays();
+                let mut strays = Task::batch([self.panorama_close_strays(), self.panorama_auto_icons()]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;
                     strays = Task::batch([

@@ -23,6 +23,9 @@ and this project adheres to
   [mods]`); Settings keeps the personal shortcuts and composition.
   `hyprdesk panorama icons music` has SmartUI draw the music services.
 - **Panorama background image: Browse…** opens the file chooser (portal).
+- **Panorama: missing source icons are drawn automatically** (MLG-172).
+  A video or music source without an icon gets one from SmartUI in the
+  background (once per session and source), shown as soon as it is ready.
 - **Panorama player: one source at a time, framing and memory per source**
   (MLG-172). Opening a source replaces the previous one, even while it is
   still opening (its window is closed when it shows up); tapping the playing
