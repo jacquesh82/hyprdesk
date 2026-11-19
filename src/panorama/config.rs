@@ -200,6 +200,42 @@ pub fn default_music_sources() -> Vec<Source> {
     .collect()
 }
 
+/// Zone Panorama sur un écran ordinaire : une bande collée à un bord, que
+/// les fenêtres laissent libre (zone exclusive), comme un second écran.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Zone {
+    pub screen: String,
+    /// Bord : bottom, top (bande horizontale), left, right (verticale).
+    pub side: String,
+    /// Part de l'écran (0,1 à 0,5).
+    pub size: f32,
+}
+
+impl Zone {
+    pub const SIDES: &'static [&'static str] = &["bottom", "top", "left", "right"];
+
+    pub fn vertical(&self) -> bool {
+        matches!(self.side.as_str(), "left" | "right")
+    }
+
+    /// Épaisseur de la bande (px logiques) sur un écran `w`×`h`.
+    pub fn thickness(&self, w: f32, h: f32) -> f32 {
+        let base = if self.vertical() { w } else { h };
+        (base * self.size.clamp(0.1, 0.5)).round()
+    }
+
+    /// Position de la bande dans l'écran (px logiques) : (x, y, l, h).
+    pub fn rect(&self, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        let t = self.thickness(w, h);
+        match self.side.as_str() {
+            "top" => (0.0, 0.0, w, t),
+            "left" => (0.0, 0.0, t, h),
+            "right" => (w - t, 0.0, t, h),
+            _ => (0.0, h - t, w, t),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     /// Écrans au rôle Panorama : connecteur (`DP-3`) ou identifiant EDID.
@@ -227,6 +263,8 @@ pub struct Config {
     pub sleep_minutes: u32,
     /// LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
     pub voice: bool,
+    /// Zone Panorama sur un écran ordinaire (aucune : écrans entiers).
+    pub zone: Option<Zone>,
     /// Micro de LYRA vocale : nœud PipeWire (vide : celui par défaut).
     pub voice_mic: String,
     /// Halo de conversation : screens (tous les écrans), panorama, off.
@@ -278,6 +316,7 @@ impl Default for Config {
             declined: Vec::new(),
             sleep_minutes: 5,
             voice: false,
+            zone: None,
             voice_mic: String::new(),
             voice_halo: "screens".into(),
             voice_halo_color: "lyra".into(),
@@ -303,6 +342,7 @@ const KEYS: &[&str] = &[
     "declined",
     "sleep_minutes",
     "voice",
+    "zone",
     "voice_mic",
     "voice_halo",
     "voice_halo_color",
@@ -492,6 +532,21 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(v) = t.get::<Option<bool>>("voice")? {
         c.voice = v;
     }
+    if let Some(z) = t.get::<Option<Table>>("zone")? {
+        let screen: String = z.get::<Option<String>>("screen")?.unwrap_or_default();
+        let side: String = z.get::<Option<String>>("side")?.unwrap_or_else(|| "bottom".into());
+        let size: f32 = z.get::<Option<f32>>("size")?.unwrap_or(0.25);
+        if screen.trim().is_empty() || !Zone::SIDES.contains(&side.as_str()) {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{CTX} : zone = {{ screen = \"DP-2\", side = bottom | top | left | right, size = 0.1..0.5 }}"
+            )));
+        }
+        c.zone = Some(Zone {
+            screen: screen.trim().to_string(),
+            side,
+            size: size.clamp(0.1, 0.5),
+        });
+    }
     if let Some(m) = t.get::<Option<String>>("voice_mic")? {
         c.voice_mic = m.trim().to_string();
     }
@@ -627,6 +682,14 @@ impl Config {
         if self.voice {
             f.push("voice = true".into());
         }
+        if let Some(z) = &self.zone {
+            f.push(format!(
+                "zone = {{ screen = {}, side = {}, size = {} }}",
+                q(&z.screen),
+                q(&z.side),
+                z.size
+            ));
+        }
         if !self.voice_mic.is_empty() {
             f.push(format!("voice_mic = {}", q(&self.voice_mic)));
         }
@@ -743,6 +806,23 @@ mod tests {
     }
 
     #[test]
+    fn zone_panorama() {
+        let z = Zone {
+            screen: "DP-2".into(),
+            side: "bottom".into(),
+            size: 0.25,
+        };
+        assert_eq!(z.rect(2560.0, 1440.0), (0.0, 1080.0, 2560.0, 360.0));
+        let z = Zone {
+            side: "right".into(),
+            ..z
+        };
+        assert!(z.vertical());
+        assert_eq!(z.rect(2560.0, 1440.0), (1920.0, 0.0, 640.0, 1440.0));
+        assert!(eval("{ zone = { screen = 'DP-2', side = 'middle' } }").is_err());
+    }
+
+    #[test]
     fn aller_retour() {
         let c = Config {
             screens: vec!["DP-3".into(), "Corsair XENEON EDGE S1".into()],
@@ -793,6 +873,11 @@ mod tests {
             declined: vec!["Acme \"M\" 1".into()],
             sleep_minutes: 0,
             voice: true,
+            zone: Some(Zone {
+                screen: "DP-2".into(),
+                side: "left".into(),
+                size: 0.3,
+            }),
             voice_mic: "alsa_input.usb-x".into(),
             voice_halo: "panorama".into(),
             voice_halo_color: "accent".into(),

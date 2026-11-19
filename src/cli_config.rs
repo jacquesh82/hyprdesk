@@ -926,6 +926,25 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.flux_ambiance = "aurora".into(); } };
+    "panorama.zone", "panorama", "<écran>:<bottom|top|left|right>:<0.1..0.5> | none — zone Panorama : une bande d'écran réservée, que les fenêtres laissent libre",
+        |c| c.general.panorama.zone.as_ref().map_or("none".into(), |z| format!("{}:{}:{}", z.screen, z.side, z.size)),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.zone = if matches!(v, "none" | "") {
+                None
+            } else {
+                let f: Vec<&str> = v.split(':').collect();
+                let side = f.get(1).copied().unwrap_or("bottom");
+                if f[0].trim().is_empty() || !crate::panorama::config::Zone::SIDES.contains(&side) {
+                    return Err("<écran>:<bottom|top|left|right>:<0.1..0.5> | none".into());
+                }
+                let size = f.get(2).and_then(|x| x.parse::<f32>().ok()).unwrap_or(0.25).clamp(0.1, 0.5);
+                Some(crate::panorama::config::Zone { screen: f[0].trim().into(), side: side.into(), size })
+            };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.zone = None; } };
     "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
         |c| c.general.panorama.sleep_minutes.to_string(),
         |s, v, c| {

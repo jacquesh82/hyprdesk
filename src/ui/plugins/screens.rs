@@ -120,6 +120,8 @@ pub enum Msg {
     ScreenScale(f32),
     /// Découpage de l'écran (connecteur) en zones (MLG-172).
     ScreenZones(String, crate::zones::Split),
+    /// Zone Panorama : posée sur un écran (côté, taille), ou retirée.
+    PanoramaZone(Option<crate::panorama::config::Zone>),
     ScreensAuto,
     ScreensDetect,
     /// Affiche le numéro et le nom de chaque écran, sur l'écran lui-même.
@@ -675,7 +677,116 @@ impl App {
                  d'avant revient de lui-même. La disposition est écrite dans monitors.lua."
                     .into(),
             ))
-            .push(self.screen_zones_view(s));
+            .push(self.screen_zones_view(s))
+            .push(self.screen_panorama_zone_view(s));
+        col.into()
+    }
+
+    /// Zone Panorama : une bande de l'écran réservée au Panorama, que les
+    /// fenêtres laissent libre (même maximisées), comme un second écran.
+    fn screen_panorama_zone_view(&self, s: &Screen) -> Element<'_, UiMsg> {
+        use crate::panorama::config::Zone;
+        let dim = self.ink().dim;
+        let zone = self.panorama_cfg().zone;
+        let mut col = column![
+            self.section("Zone Panorama"),
+            text(
+                "Réserve une bande de cet écran au Panorama : les fenêtres, même maximisées, \
+                 s'arrêtent avant, comme sur un second écran.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(10);
+        match zone.clone().filter(|z| z.screen == s.name) {
+            None => {
+                if let Some(z) = &zone {
+                    col = col.push(
+                        text(crate::tr!("La zone Panorama est sur {s}.", s = z.screen.clone()))
+                            .font(self.font)
+                            .size(12)
+                            .color(dim),
+                    );
+                }
+                col = col.push(
+                    button(text("Définir une zone Panorama").font(self.font).size(13))
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::PanoramaZone(Some(Zone {
+                            screen: s.name.clone(),
+                            side: "bottom".into(),
+                            size: 0.25,
+                        })))),
+                );
+            }
+            Some(z) => {
+                let vertical = z.vertical();
+                let orient = {
+                    let z1 = z.clone();
+                    let z2 = z.clone();
+                    row![
+                        radio(crate::i18n::tr("Horizontale"), false, Some(vertical), move |_| {
+                            wrap(Msg::PanoramaZone(Some(Zone {
+                                side: "bottom".into(),
+                                ..z1.clone()
+                            })))
+                        })
+                        .text_size(13),
+                        radio(crate::i18n::tr("Verticale"), true, Some(vertical), move |_| {
+                            wrap(Msg::PanoramaZone(Some(Zone {
+                                side: "right".into(),
+                                ..z2.clone()
+                            })))
+                        })
+                        .text_size(13),
+                    ]
+                    .spacing(16)
+                };
+                let sides: &[(&'static str, &'static str)] = if vertical {
+                    &[("left", "Gauche"), ("right", "Droite")]
+                } else {
+                    &[("top", "Haut"), ("bottom", "Bas")]
+                };
+                let cur = Zone::SIDES.iter().copied().find(|x| *x == z.side);
+                let mut side_row = row![].spacing(16);
+                for (id, label) in sides {
+                    let zz = z.clone();
+                    side_row = side_row.push(
+                        radio(crate::i18n::tr(label), *id, cur, move |v: &'static str| {
+                            wrap(Msg::PanoramaZone(Some(Zone {
+                                side: v.into(),
+                                ..zz.clone()
+                            })))
+                        })
+                        .text_size(13),
+                    );
+                }
+                let zs = z.clone();
+                col = col
+                    .push(orient)
+                    .push(side_row)
+                    .push(
+                        row![
+                            text(crate::i18n::tr("Taille")).font(self.font).size(13).width(80),
+                            iced::widget::slider(10.0..=50.0, z.size * 100.0, move |v| {
+                                wrap(Msg::PanoramaZone(Some(Zone {
+                                    size: (v / 100.0 * 20.0).round() / 20.0,
+                                    ..zs.clone()
+                                })))
+                            })
+                            .step(5.0_f32),
+                            text(format!("{:.0} %", z.size * 100.0)).font(self.font).size(12).width(48),
+                        ]
+                        .spacing(10)
+                        .align_y(Alignment::Center),
+                    )
+                    .push(
+                        button(text("Retirer la zone Panorama").font(self.font).size(13))
+                            .padding([6, 14])
+                            .on_press(wrap(Msg::PanoramaZone(None))),
+                    );
+            }
+        }
         col.into()
     }
 
@@ -1053,6 +1164,12 @@ impl App {
                 s.set_mode(&m);
             }),
             Msg::ScreenScale(v) => self.edit_selected(|s| s.scale = v),
+            Msg::PanoramaZone(z) => {
+                let mut p = self.panorama_cfg();
+                p.zone = z;
+                self.settings.panorama = Some(p);
+                self.commit()
+            }
             Msg::ScreenZones(name, split) => {
                 let mut m = self
                     .settings

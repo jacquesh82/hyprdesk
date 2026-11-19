@@ -285,7 +285,22 @@ impl App {
                 self.panorama.preview_at?
             } else {
                 let m = self.monitors.iter().find(|m| m.name == s.key)?;
-                (m.x.round() as i32, m.y.round() as i32)
+                // Zone Panorama : la bande n'est pas au coin de l'écran.
+                let (zx, zy) = match self
+                    .cfg
+                    .general
+                    .panorama
+                    .zone
+                    .as_ref()
+                    .filter(|z| z.screen == m.name)
+                {
+                    Some(z) => {
+                        let (x, y, _, _) = z.rect(m.width as f32, m.height as f32);
+                        (x, y)
+                    }
+                    None => (0.0, 0.0),
+                };
+                ((m.x + zx).round() as i32, (m.y + zy).round() as i32)
             };
             let zone = (
                 origin.0 + r.x.round() as i32,

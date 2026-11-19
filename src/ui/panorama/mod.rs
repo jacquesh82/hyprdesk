@@ -152,6 +152,8 @@ pub struct State {
     /// Surfaces du halo de LYRA vocale (écran de chacune).
     pub halo: HashMap<Id, String>,
     pub halo_since: Option<Instant>,
+    /// Zone Panorama dont la surface est posée (pour la refaire si elle change).
+    pub zone_applied: Option<crate::panorama::config::Zone>,
     /// Webradio jouée par mpv : (station, flux) ; en pause.
     pub radio: Option<(String, String)>,
     pub radio_paused: bool,
@@ -450,7 +452,8 @@ impl App {
         self.monitors
             .iter()
             .filter(|m| {
-                c.screens.iter().any(|e| e == &m.name)
+                c.zone.as_ref().is_some_and(|z| z.screen == m.name)
+                    || c.screens.iter().any(|e| e == &m.name)
                     || self
                         .panorama
                         .screens
@@ -463,7 +466,15 @@ impl App {
     }
 
     pub(super) fn is_panorama(&self, monitor: &str) -> bool {
-        self.panorama_monitors().iter().any(|m| m == monitor)
+        // Écran entier seulement : un écran qui porte une zone Panorama garde
+        // sa barre et son bureau.
+        self.cfg
+            .general
+            .panorama
+            .zone
+            .as_ref()
+            .is_none_or(|z| z.screen != monitor)
+            && self.panorama_monitors().iter().any(|m| m == monitor)
     }
 
     /// Crée ou ferme les surfaces et poignées selon la config et les écrans.
@@ -526,6 +537,19 @@ impl App {
                 tasks.push(iced::window::close(id));
             }
         }
+        // Zone Panorama changée (côté, taille, écran) : sa surface est refaite.
+        let zone = self.cfg.general.panorama.zone.clone();
+        if self.panorama.zone_applied != zone {
+            for (id, m) in self.panorama.surfaces.clone() {
+                let was = self.panorama.zone_applied.as_ref().is_some_and(|z| z.screen == m);
+                let now = zone.as_ref().is_some_and(|z| z.screen == m);
+                if was || now {
+                    self.panorama.surfaces.remove(&id);
+                    tasks.push(iced::window::close(id));
+                }
+            }
+            self.panorama.zone_applied = zone.clone();
+        }
         for m in shown {
             if self.panorama.surfaces.values().any(|s| s == &m) {
                 continue;
@@ -534,12 +558,32 @@ impl App {
             self.panorama.surfaces.insert(id, m.clone());
             self.panorama.last_press.get_or_insert_with(Instant::now);
             tracing::info!("{}", crate::tr!("Panorama sur {p0}", p0 = m.clone()));
+            // Écran entier, ou bande collée à un bord : sa zone exclusive
+            // tient les fenêtres (même maximisées) hors du Panorama.
+            let (anchor, size, exclusive) = match zone.as_ref().filter(|z| z.screen == m) {
+                Some(z) => {
+                    let mon = self.monitors.iter().find(|x| x.name == m);
+                    let (w, h) = mon.map_or((1920.0, 1080.0), |x| (x.width as f32, x.height as f32));
+                    let t = z.thickness(w, h) as u32;
+                    match z.side.as_str() {
+                        "top" => (LsAnchor::Top | LsAnchor::Left | LsAnchor::Right, (0, t), t),
+                        "left" => (LsAnchor::Left | LsAnchor::Top | LsAnchor::Bottom, (t, 0), t),
+                        "right" => (LsAnchor::Right | LsAnchor::Top | LsAnchor::Bottom, (t, 0), t),
+                        _ => (LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right, (0, t), t),
+                    }
+                }
+                None => (
+                    LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
+                    (0, 0),
+                    0,
+                ),
+            };
             tasks.push(Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
-                    size: Some((0, 0)),
+                    size: Some(size),
                     layer: Layer::Top,
-                    anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
-                    exclusive_zone: Some(-1),
+                    anchor,
+                    exclusive_zone: Some(if exclusive > 0 { exclusive as i32 } else { -1 }),
                     keyboard_interactivity: KeyboardInteractivity::None,
                     output_option: OutputOption::OutputName(m),
                     namespace: Some(crate::panorama::NAMESPACE.into()),

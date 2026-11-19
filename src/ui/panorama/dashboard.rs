@@ -144,23 +144,47 @@ impl App {
                 .width(w)
                 .wrapping(text::Wrapping::None)
         };
-        let mut rows = column![
+        // En-tête fixe (hors défilement), sur une bande : colonnes en
+        // semi-gras, celle du tri à l'accent et soulignée d'une flèche.
+        let bold = iced::Font {
+            weight: iced::font::Weight::Semibold,
+            ..self.panorama_font()
+        };
+        let hcell = |label: String, on: bool, w: Length| {
+            text(if on { format!("{label} ▾") } else { label })
+                .size(size * 0.9)
+                .font(bold)
+                .color(if on { accent } else { fg })
+                .width(w)
+                .wrapping(text::Wrapping::None)
+        };
+        let header = container(
             row![
-                cell(crate::i18n::tr("Programme").into(), false, col_w[0]),
-                cell("CPU".into(), t.sort == "cpu", col_w[1]),
-                cell(crate::i18n::tr("Mémoire").into(), t.sort == "mem", col_w[2]),
-                cell("GPU".into(), t.sort == "gpu", col_w[3]),
-                cell("VRAM".into(), t.sort == "vram", col_w[4]),
-                cell(crate::i18n::tr("Disque").into(), t.sort == "io", col_w[5]),
+                hcell(crate::i18n::tr("Programme").into(), false, col_w[0]),
+                hcell("CPU".into(), t.sort == "cpu", col_w[1]),
+                hcell(crate::i18n::tr("Mémoire").into(), t.sort == "mem", col_w[2]),
+                hcell("GPU".into(), t.sort == "gpu", col_w[3]),
+                hcell("VRAM".into(), t.sort == "vram", col_w[4]),
+                hcell(crate::i18n::tr("Disque").into(), t.sort == "io", col_w[5]),
                 Space::new().width(110),
             ]
-            .spacing(8)
-        ]
-        .spacing(4);
+            .spacing(8),
+        )
+        .padding([8, 10])
+        .style(move |_| container::Style {
+            background: Some(fx::alpha(accent, 0.18).into()),
+            border: Border {
+                radius: 10.0.into(),
+                width: 1.0,
+                color: fx::alpha(accent, 0.45),
+            },
+            ..Default::default()
+        });
+        let mut rows = column![].spacing(2);
         if t.list.is_empty() {
             rows = rows.push(text(crate::i18n::tr("Relevé…")).size(size).color(dim));
         }
-        for p in t.list.iter().take(40) {
+        for (row_i, p) in t.list.iter().take(40).enumerate() {
             let armed = t.kill == Some(p.pid);
             let kill: Element<'_, Msg> = if p.own {
                 self.panorama_feedback(
@@ -193,7 +217,9 @@ impl App {
             } else {
                 Space::new().width(110).into()
             };
-            rows = rows.push(
+            // Lignes alternées : l'œil suit la ligne jusqu'à « Terminer ».
+            let odd = row_i % 2 == 1;
+            rows = rows.push(container(
                 row![
                     cell(format!("{} · {}", p.name, p.pid), false, col_w[0]),
                     cell(format!("{:.1} %", p.cpu), t.sort == "cpu", col_w[1]),
@@ -209,7 +235,13 @@ impl App {
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
-            );
+            )
+            .padding([4, 10])
+            .style(move |_| container::Style {
+                background: odd.then(|| fx::alpha(fg, 0.05).into()),
+                border: Border::default().rounded(8),
+                ..Default::default()
+            }));
         }
         // Un tiers : la mesure (graphique) ; deux tiers : la liste.
         let lines: Vec<crate::widgets::SysLine> =
@@ -239,6 +271,7 @@ impl App {
                 indicator,
                 column![
                     head,
+                    header,
                     iced::widget::scrollable(rows)
                         .height(Length::Fill)
                         .direction(iced::widget::scrollable::Direction::Vertical(

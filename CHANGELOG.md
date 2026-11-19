@@ -65,6 +65,14 @@ and this project adheres to
   speaks (`panorama.voice_halo` screens | panorama | off,
   `panorama.voice_halo_color` lyra | accent). LYRA's context now covers
   every Panorama setting and command.
+- **Panorama zone on an ordinary screen** (MLG-172). Settings → Screens →
+  a screen → “Set a Panorama zone”: horizontal (top, bottom) or vertical
+  (left, right) strip, 10 to 50 % of the screen. The Panorama sits in that
+  strip with an exclusive zone, so windows — maximised ones too — stop
+  before it, as on a second screen; the screen keeps its bar and desktop
+  (`panorama.zone = { screen, side, size }`, CLI `panorama.zone
+  DP-2:bottom:0.25 | none`). The task manager header is fixed, on a band,
+  with the sorted column marked; rows alternate.
 - **Panorama: no dead ends** (MLG-172). Page changes slide in from the
   side of the gesture; when a video or a radio plays out of sight (another
   page, the Settings profile), a “now playing” pill (title, ⏯, ✕) stays at
