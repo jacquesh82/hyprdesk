@@ -4396,6 +4396,7 @@ impl App {
                         // Le tiroir fermé : sa surface disparaît, sa place revient aux fenêtres.
                         closed = Task::batch([
                             iced::window::close(p.surface),
+                            self.close_identify(),
                             self.sync_raised(),
                             self.sync_window_gaps(),
                         ]);
@@ -4862,7 +4863,7 @@ impl App {
                 if self.panel.as_ref().is_some_and(|p| p.surface == id) {
                     self.panel = None;
                     self.panel_fade = None;
-                    return self.sync_window_gaps();
+                    return Task::batch([self.close_identify(), self.sync_window_gaps()]);
                 }
                 // Tiroir de l'assistant fermé : caché seulement, la session continue.
                 if let Some(c) = self.chat.as_mut().filter(|c| c.surface == Some(id)) {
@@ -6370,10 +6371,13 @@ mod regression_tests {
         let _ = app.update_inner(Msg::Control(control::Command::Hide));
         assert!(app.panel.is_some());
         assert_eq!(app.mode(), DesktopMode::NoDesktop);
+        // Repères d'« Identifier » posés depuis Écrans : retirés avec le tiroir.
+        app.identify.push((Id::unique(), "1\nA\n".into()));
         // Fermeture : soldée au tick suivant, même si le fondu est déjà fini.
         let _ = app.update_inner(Msg::Panel(panel::PanelMsg::Close));
         let _ = app.update_inner(Msg::Frame);
         assert!(app.panel.is_none() && app.panel_fade.is_none());
+        assert!(app.identify.is_empty(), "les repères partent avec les réglages");
         assert!(app.window_gaps.is_empty());
         assert!(!app.animating(), "plus aucune animation en attente");
     }

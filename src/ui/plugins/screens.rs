@@ -1089,11 +1089,7 @@ impl App {
                 if generation != self.identify_gen {
                     return Task::none();
                 }
-                Task::batch(
-                    std::mem::take(&mut self.identify)
-                        .into_iter()
-                        .map(|(id, _)| iced::window::close(id)),
-                )
+                self.close_identify()
             }
             Msg::MapMove(p) => {
                 panel.screens.cursor = p;
@@ -1211,6 +1207,17 @@ impl App {
             move |_| wrap(Msg::IdentifyEnd(generation)),
         ));
         Task::batch(tasks)
+    }
+
+    /// Retire les repères d'« Identifier » (fin du délai, ou Réglages
+    /// refermés : ils ne leur survivent pas).
+    pub(in crate::ui) fn close_identify(&mut self) -> Task<UiMsg> {
+        self.identify_gen = self.identify_gen.wrapping_add(1);
+        Task::batch(
+            std::mem::take(&mut self.identify)
+                .into_iter()
+                .map(|(id, _)| iced::window::close(id)),
+        )
     }
 
     /// Repères d'un écran : lignes graduées et bords partagés (canvas), et

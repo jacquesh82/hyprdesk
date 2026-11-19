@@ -131,6 +131,13 @@ Lock screen fix release (MLG-159).
 
 ### Fixed
 
+- **The lock screen fits a Panorama strip** (MLG-164). On a short or very
+  wide screen (2560×720, 1920×480…), the lock screen's column (clock, user,
+  password) overflowed; it now lays out in a row — clock on the left, user
+  and password on the right — with a smaller avatar and drift.
+- **Identify markers leave with Settings** (MLG-147). Closing Settings left
+  the Screens → Identify markers on every screen until their two-minute
+  timeout; they are now removed with it.
 - **The lock screen accepts the right password again** (MLG-159). Waking
   from sleep, the lock screen refused the correct password. Without
   `/etc/pam.d/hyprdesk-lock` (build from source: only the package installs
