@@ -2,7 +2,7 @@
 //! vidéo et raccourcis tactiles, dans le style SmartUI, par le fournisseur IA
 //! de la fonction « smartui » (LYRA par défaut, `crate::ai_services`).
 //!
-//! `hyprdesk panorama icons [sources|shortcuts|all] [--force]` dessine les
+//! `hyprdesk panorama icons [sources|music|shortcuts|all] [--force]` dessine les
 //! icônes manquantes (toutes avec `--force`), les valide dans le thème
 //! SmartUI et écrit leur chemin dans la config (`icon` de chaque source ou
 //! raccourci), une à une : l'écran les montre au fur et à mesure. Le bouton
@@ -17,15 +17,20 @@ use super::design::Shortcut;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Sources,
+    /// Services de musique (profil Musique).
+    Music,
     Shortcuts,
 }
 
 impl Kind {
     pub fn parse(s: &str) -> Option<Vec<Kind>> {
         Some(match s {
-            "sources" | "video" => vec![Kind::Sources],
+            // Sources du lecteur : vidéo et musique (bouton des Réglages).
+            "sources" => vec![Kind::Sources, Kind::Music],
+            "video" => vec![Kind::Sources],
+            "music" | "musique" => vec![Kind::Music],
             "shortcuts" | "raccourcis" => vec![Kind::Shortcuts],
-            "all" | "" => vec![Kind::Sources, Kind::Shortcuts],
+            "all" | "" => vec![Kind::Sources, Kind::Music, Kind::Shortcuts],
             _ => return None,
         })
     }
@@ -106,6 +111,24 @@ pub fn run(
             }
         }
     }
+    if kinds.contains(&Kind::Music) {
+        for (i, s) in p.music_sources.iter().enumerate() {
+            if force || !is_smartui(&s.icon) {
+                todo.push((
+                    Kind::Music,
+                    i,
+                    source_key(s),
+                    s.name.clone(),
+                    format!(
+                        "music streaming service {} ({})",
+                        s.name,
+                        super::video::host(&s.url)
+                    ),
+                    None,
+                ));
+            }
+        }
+    }
     if kinds.contains(&Kind::Shortcuts) {
         for (i, s) in p.design.shortcuts.iter().enumerate() {
             if force || !is_smartui(&s.icon) {
@@ -157,6 +180,14 @@ fn set_icon(
             };
             s.icon = icon.to_string();
             ("panorama.sources", sources_json(&l))
+        }
+        Kind::Music => {
+            let mut l = p.music_sources.clone();
+            let Some(s) = pick(&mut l, i, |s| s.name == name) else {
+                return Ok(());
+            };
+            s.icon = icon.to_string();
+            ("panorama.music_sources", sources_json(&l))
         }
         Kind::Shortcuts => {
             let mut l = p.design.shortcuts.clone();
@@ -252,7 +283,7 @@ mod tests {
         let l = sources_from_json(r#"[{"url":"https://www.youtube.com"}]"#).unwrap();
         assert_eq!(l[0].name, "www.youtube.com");
         assert_eq!(source_key(&l[0]), "panorama-video-www.youtube.com");
-        assert_eq!(Kind::parse("all").unwrap().len(), 2);
+        assert_eq!(Kind::parse("all").unwrap().len(), 3);
         assert!(Kind::parse("x").is_none());
     }
 }

@@ -404,8 +404,11 @@ fn panorama_context(cfg: &Config) -> String {
          - `panorama.sources` : JSON [{\"name\",\"url\",\"icon\"}] des sources vidéo (icon : nom ou chemin ; vide : initiale)\n\
          - `panorama.design.*` : préréglage, couleurs, police, opacités, horloge, métriques… ; \
          `panorama.design.tiles` (JSON [{widget,x,y,w,h}], composition libre, coordonnées 0 à 1) ; \
-         `panorama.design.shortcuts` (JSON [{name,icon,command}], raccourcis tactiles, dans l'ordre)\n\
-         - `hyprdesk panorama icons [sources|shortcuts|all] [--force]` : SmartUI dessine les icônes manquantes \
+         `panorama.design.shortcuts` (JSON [{name,icon,command}], raccourcis tactiles du profil Système, dans l'ordre) ; \
+         `panorama.design.shortcut_profile` (video | audio | remote | system : profil du bloc de raccourcis ; \
+         remote = télécommande, touches envoyées à la fenêtre active par `hyprdesk key <touche>` ; video et audio prennent une composition fixe : menu, lecteur 16:9, colonne des services) ; \
+         `panorama.music_sources` (JSON [{name,url,icon}] : services du profil Musique)\n\
+         - `hyprdesk panorama icons [sources|music|shortcuts|all] [--force]` : SmartUI dessine les icônes manquantes \
          (toutes avec --force) et les écrit dans la config\n\
          - `hyprdesk panorama preview`, `hyprdesk panorama layout <…>`, `hyprdesk panorama video <n|nom|close>`, \
          `hyprdesk panorama toggle`\n",

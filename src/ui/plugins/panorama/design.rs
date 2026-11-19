@@ -40,19 +40,23 @@ impl App {
             .get(key)
             .cloned()
             .unwrap_or_else(|| c.design.text(key).unwrap_or("").into());
-        column![
-            text(label).font(self.font).size(12),
-            row![
-                text_input("", &value)
-                    .on_input(move |s| wrap(Msg::DesignText(key.into(), s)))
-                    .on_submit(wrap(Msg::DesignApply(key.into())))
-                    .size(13),
-                button(text("Appliquer").size(12)).on_press(wrap(Msg::DesignApply(key.into())))
-            ]
-            .spacing(8)
+        let mut line = row![
+            text_input("", &value)
+                .on_input(move |s| wrap(Msg::DesignText(key.into(), s)))
+                .on_submit(wrap(Msg::DesignApply(key.into())))
+                .size(13),
+            button(text("Appliquer").size(12)).on_press(wrap(Msg::DesignApply(key.into())))
         ]
-        .spacing(5)
-        .into()
+        .spacing(8);
+        // Image de fond : choisie aussi dans un explorateur (portail).
+        if key == "wallpaper" {
+            line = line.push(
+                button(text("Parcourir…").size(12)).on_press(wrap(Msg::DesignBrowse(key.into()))),
+            );
+        }
+        column![text(label).font(self.font).size(12), line]
+            .spacing(5)
+            .into()
     }
     fn panorama_design_slider(
         &self,
@@ -102,6 +106,25 @@ impl App {
         ]
         .spacing(5)
         .into()
+    }
+    /// Profil du bloc de raccourcis : vidéo, audio, télécommande, système.
+    fn panorama_profile_choice(&self) -> Element<'_, UiMsg> {
+        let c = self.panorama_cfg();
+        let cur = crate::panorama::design::PROFILES
+            .iter()
+            .copied()
+            .find(|p| *p == c.design.shortcut_profile);
+        let mut r = row![].spacing(16);
+        for id in crate::panorama::design::PROFILES.iter().copied() {
+            let (label, _) = crate::panorama::design::profile_label(id);
+            r = r.push(
+                iced::widget::radio(crate::i18n::tr(label), id, cur, |v: &'static str| {
+                    wrap(Msg::DesignChoice("shortcut_profile".into(), v.into()))
+                })
+                .text_size(13),
+            );
+        }
+        r.into()
     }
     pub(super) fn panorama_style_tab(&self) -> Element<'_, UiMsg> {
         let c = self.panorama_cfg();
@@ -273,7 +296,11 @@ impl App {
         let c = self.panorama_cfg();
         let draft = &self.panorama.shortcut_draft;
         let mut col = column![
-            self.section("Raccourcis tactiles"),
+            self.section("Profil du bloc"),
+            self.panorama_profile_choice(),
+            text("Le bloc de raccourcis du Panorama s'ouvre sur ce profil ; son sélecteur en change au doigt. Vidéo, Audio et Télécommande ont leurs touches intégrées (la télécommande envoie flèches, OK et Retour à la fenêtre active) ; Système affiche la liste ci-dessous.")
+                .size(12),
+            self.section("Raccourcis tactiles (Système)"),
             text("Chaque touche lance la commande que vous choisissez, uniquement à l'appui.")
                 .size(12),
             self.panorama_design_error(),
@@ -346,6 +373,30 @@ impl App {
                     .cloned()
                     .unwrap_or_else(|| c.design.text(&key).unwrap_or("").into());
                 if let Err(e) = c.design.set(&key, &value) {
+                    self.panorama.design_error = Some(e);
+                    return Task::none();
+                }
+                self.panorama.design_drafts.remove(&key);
+            }
+            Msg::DesignBrowse(key) => {
+                // Départ : le dossier de l'image actuelle, sinon Images.
+                let cur = c.design.text(&key).unwrap_or("").to_string();
+                let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+                let start = crate::ui::plugins::wallpaper::expand(&cur)
+                    .parent()
+                    .filter(|d| !cur.is_empty() && d.is_dir())
+                    .map(std::path::Path::to_path_buf)
+                    .or_else(|| Some(home.join("Images")).filter(|d| d.is_dir()))
+                    .or(Some(home));
+                let title = crate::i18n::tr("Image de fond du Panorama").to_string();
+                return Task::perform(crate::portal::pick_image(title, start), move |p| {
+                    wrap(Msg::DesignBrowsed(key.clone(), p))
+                });
+            }
+            Msg::DesignBrowsed(_, None) => return Task::none(),
+            Msg::DesignBrowsed(key, Some(path)) => {
+                let v = path.to_string_lossy().to_string();
+                if let Err(e) = c.design.set(&key, &v) {
                     self.panorama.design_error = Some(e);
                     return Task::none();
                 }

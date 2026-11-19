@@ -828,6 +828,16 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.sources = crate::panorama::config::default_sources(); } };
+    "panorama.music_sources", "panorama", "JSON — services de musique du profil Musique [{name,url,icon}]",
+        |c| crate::panorama::icons::sources_json(&c.general.panorama.music_sources),
+        |s, v, c| {
+            let l = crate::panorama::icons::sources_from_json(v)?;
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.music_sources = l;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.music_sources = crate::panorama::config::default_music_sources(); } };
     "panorama.browser", "panorama", "<commande> | auto — navigateur Chromium des sources vidéo",
         |c| if c.general.panorama.browser.is_empty() { "auto".into() } else { c.general.panorama.browser.clone() },
         |s, v, c| {
@@ -1006,6 +1016,14 @@ pub static KEYS: &[Key] = keys![
             s.panorama = Some(p); Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("media_style", &d.get("media_style").unwrap_or_default()); } };
+    "panorama.design.shortcut_profile", "panorama", "video | audio | remote | system — profil du bloc de raccourcis (system : la liste shortcuts)",
+        |c| c.general.panorama.design.get("shortcut_profile").unwrap_or_default(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.design.set("shortcut_profile", v)?;
+            s.panorama = Some(p); Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("shortcut_profile", &d.get("shortcut_profile").unwrap_or_default()); } };
     "panorama.design.shortcut_columns", "panorama", "2..8 — colonnes de raccourcis",
         |c| c.general.panorama.design.get("shortcut_columns").unwrap_or_default(),
         |s, v, c| {

@@ -53,6 +53,9 @@ pub(super) struct Pane {
     pub widget: String,
     /// Rang de la zone (écran partagé) ; `None` : page unique.
     pub index: Option<usize>,
+    /// Sans bandeau : le lecteur des profils Vidéo et Musique garde toute
+    /// sa hauteur (16:9), la colonne des services porte les commandes.
+    pub bare: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +69,7 @@ pub(super) struct Geo {
 impl Geo {
     /// La zone a un bandeau (écran partagé, ou page Vidéo).
     pub fn has_header(p: &Pane) -> bool {
-        p.index.is_some() || p.widget == "video"
+        !p.bare && (p.index.is_some() || p.widget == "video")
     }
 
     /// Contenu d'une zone, sous son bandeau.
@@ -163,32 +166,36 @@ impl App {
                     },
                     widget: widget.to_string(),
                     index: None,
+                    bare: false,
                 }]
             }
-            Layout::Dashboard => c
-                .design
-                .tiles
-                .iter()
-                .map(|t| {
-                    let pad = c.design.padding;
-                    let gap = c.design.gap;
-                    let (x, y, w, h) = if s.w >= s.h {
-                        (t.x, t.y, t.w, t.h)
-                    } else {
-                        (t.y, t.x, t.h, t.w)
-                    };
-                    Pane {
-                        rect: Rect {
-                            x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
-                            y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
-                            w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
-                            h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
-                        },
-                        widget: t.widget.clone(),
-                        index: None,
-                    }
-                })
-                .collect(),
+            Layout::Dashboard => {
+                let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
+                c.design
+                    .active_tiles(s.w, s.h)
+                    .iter()
+                    .map(|t| {
+                        let pad = c.design.padding;
+                        let gap = c.design.gap;
+                        let (x, y, w, h) = if s.w >= s.h {
+                            (t.x, t.y, t.w, t.h)
+                        } else {
+                            (t.y, t.x, t.h, t.w)
+                        };
+                        Pane {
+                            rect: Rect {
+                                x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
+                                y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
+                                w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
+                                h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
+                            },
+                            widget: t.widget.clone(),
+                            index: None,
+                            bare: player,
+                        }
+                    })
+                    .collect()
+            }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
                 .into_iter()
                 .enumerate()
@@ -196,6 +203,7 @@ impl App {
                     rect,
                     widget: c.pane(i).to_string(),
                     index: Some(i),
+                    bare: false,
                 })
                 .collect(),
         };
@@ -327,6 +335,27 @@ impl App {
 
     pub(super) fn panorama_panes_update(&mut self, m: PMsg) -> Task<Msg> {
         match m {
+            PMsg::Profile(id) => {
+                self.panorama.last_press = Some(std::time::Instant::now());
+                // Vidéo ↔ Musique : le lecteur change de services, celui en
+                // cours se ferme (Télécommande et Système le laissent jouer).
+                let old = self.cfg.general.panorama.design.shortcut_profile.clone();
+                let swap = matches!(
+                    (old.as_str(), id.as_str()),
+                    ("video", "audio") | ("audio", "video")
+                );
+                let close = if swap && self.panorama.video.is_some() {
+                    let t = self.panorama_close_video();
+                    self.panorama.video = None;
+                    t
+                } else {
+                    Task::none()
+                };
+                let save = self.panorama_save_cfg(|c| {
+                    let _ = c.design.set("shortcut_profile", &id);
+                });
+                Task::batch([close, save, self.sync_pip()])
+            }
             PMsg::Layout(l) => {
                 // Nouvelle disposition : chaque écran revient à sa vue composée.
                 self.panorama.page.clear();
@@ -344,7 +373,7 @@ impl App {
             }
             PMsg::VideoOpen(i) => {
                 let c = &self.cfg.general.panorama;
-                let Some(src) = c.sources.get(i).cloned() else {
+                let Some(src) = c.active_sources().get(i).cloned() else {
                     return Task::none();
                 };
                 let Some((cmd, prefix)) = video::browser(&c.browser) else {
@@ -542,7 +571,7 @@ impl App {
                 Layout::Single => vec![[0.0, 0.0, plan_w, plan_h]],
                 Layout::Dashboard => c
                     .design
-                    .tiles
+                    .active_tiles(plan_w, plan_h)
                     .iter()
                     .map(|t| [t.x * plan_w, t.y * plan_h, t.w * plan_w, t.h * plan_h])
                     .collect(),
@@ -814,6 +843,7 @@ impl App {
                 p.index.is_none(),
             ),
             "clock" => self.panorama_clock(&z, fg),
+            "playlist" => self.panorama_playlist(iced::Size::new(content.w, content.h)),
             "video" => {
                 let state = match &self.panorama.video {
                     _ if video_at != Some(p.rect) => VideoState::Elsewhere,
@@ -1151,7 +1181,7 @@ impl App {
                 // au-delà d'un minimum tactile, la zone défile.
                 let gap = z.pad / 2.0;
                 let (aw, ah) = ((area.w - z.pad).max(1.0), (area.h - z.pad).max(1.0));
-                let n = c.sources.len().max(1);
+                let n = c.active_sources().len().max(1);
                 let (mut cols, mut side) = (1, 0.0_f32);
                 for k in 1..=n {
                     let rows = n.div_ceil(k) as f32;
@@ -1166,7 +1196,7 @@ impl App {
                     .max(1)
                     .min(((aw + gap) / (side + gap)).floor().max(1.0) as usize);
                 let mut line = row![].spacing(gap);
-                for (i, src) in c.sources.iter().enumerate() {
+                for (i, src) in c.active_sources().iter().enumerate() {
                     let icon_side = side * 0.48;
                     let icon: Element<'_, Msg> = (!src.icon.is_empty())
                         .then(|| self.icon_named(&src.icon, icon_side, fg))
@@ -1255,10 +1285,10 @@ impl App {
                         line = row![].spacing(gap);
                     }
                 }
-                if !c.sources.len().is_multiple_of(cols) {
+                if !c.active_sources().len().is_multiple_of(cols) {
                     col = col.push(line);
                 }
-                if c.sources.is_empty() {
+                if c.active_sources().is_empty() {
                     col = col.push(
                         text(crate::i18n::tr(
                             "Aucune source : ajoutez-en dans Réglages → Panorama.",

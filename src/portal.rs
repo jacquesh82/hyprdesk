@@ -1,4 +1,4 @@
-//! Sélecteur de dossier graphique : `org.freedesktop.portal.FileChooser`
+//! Sélecteur de dossier ou d'image graphique : `org.freedesktop.portal.FileChooser`
 //! (xdg-desktop-portal, vérifié par `hyprdesk doctor`). Le portail ouvre la
 //! boîte de dialogue de l'implémentation active (gtk, gnome, kde…).
 
@@ -18,6 +18,18 @@ pub async fn pick_folder(title: String, start: Option<PathBuf>) -> Option<PathBu
         Ok(p) => p,
         Err(e) => {
             tracing::warn!("sélecteur de dossier (portail) : {e}");
+            None
+        }
+    }
+}
+
+/// Demande une image (filtre image/*) ; `start` : dossier de départ.
+/// `None` : annulé, ou portail absent (l'erreur est journalisée).
+pub async fn pick_image(title: String, start: Option<PathBuf>) -> Option<PathBuf> {
+    match open(&title, start.as_deref(), false).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("sélecteur d'image (portail) : {e}");
             None
         }
     }
@@ -46,6 +58,12 @@ async fn open(title: &str, start: Option<&Path>, directory: bool) -> zbus::Resul
     options.insert("handle_token", Value::from(token.as_str()));
     options.insert("directory", Value::from(directory));
     options.insert("modal", Value::from(true));
+    if !directory {
+        // Filtre `a(sa(us))` : (nom, [(0 = motif glob | 1 = type MIME, valeur)]).
+        let images = crate::i18n::tr("Images").to_string();
+        let filters = vec![(images, vec![(1u32, "image/*".to_string())])];
+        options.insert("filters", Value::from(filters));
+    }
     if let Some(dir) = start.filter(|d| d.is_dir()) {
         // `ay` terminé par un octet nul.
         let mut bytes = dir.as_os_str().as_encoded_bytes().to_vec();

@@ -145,6 +145,9 @@ Commandes :
   media <play-pause|next|previous|status|seek ±N>
                     commande le lecteur en cours (MPRIS) ; status : son état
                     (clé=valeur) ; seek : avance ou recule de N secondes
+  key <touche> [mods]
+                    envoie une touche à la fenêtre active (télécommande du
+                    Panorama) : key Up, key Return, key f, key Tab SHIFT
   capture <zone|fenetre|ecran>
                     capture d'écran (Images/Captures, copiée ; touches Impr)
   capture enregistrer [zone] | capture arreter
@@ -160,7 +163,7 @@ Commandes :
   mymfa <open|unlock|setup|lock|codes|logins>
                     trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
                     les codes 2FA (:2fa) ou les mots de passe (:mdp)
-  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|shortcuts|all] [--force]]
+  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|music|shortcuts|all] [--force]]
                     Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
                     page ; detect : relit les écrans et refait les propositions ;
                     preview : aperçu en fenêtre flottante (2560x720 par défaut) ;
@@ -1230,7 +1233,7 @@ fn main() -> ExitCode {
                 .map(String::as_str)
                 .unwrap_or("all");
             let Some(kinds) = crate::panorama::icons::Kind::parse(what) else {
-                eprintln!("{}", crate::i18n::tr("hyprdesk panorama icons [sources|shortcuts|all] [--force]"));
+                eprintln!("{}", crate::i18n::tr("hyprdesk panorama icons [sources|music|shortcuts|all] [--force]"));
                 return ExitCode::FAILURE;
             };
             let mut progress = |i: usize, n: usize, name: &str| {
@@ -1397,6 +1400,30 @@ fn main() -> ExitCode {
                 _ => {
                     eprintln!("usage : hyprdesk notifications [list | dnd [on|off] | clear]");
                     ExitCode::from(2)
+                }
+            }
+        }
+        // Télécommande : une touche pour la fenêtre active (Hyprland).
+        "key" => {
+            let Some(key) = args.get(1).filter(|k| valid_key(k)) else {
+                eprintln!("hyprdesk key <touche> [mods]");
+                return ExitCode::from(2);
+            };
+            let mods = args.get(2).map(String::as_str).unwrap_or("");
+            if !mods.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_') {
+                eprintln!("hyprdesk key <touche> [mods]");
+                return ExitCode::from(2);
+            }
+            let lua = format!(
+                "hl.dispatch(hl.dsp.send_shortcut({{ mods = \"{}\", key = \"{}\" }}))",
+                hyprpanel_core::ipc::lua_escape(mods),
+                hyprpanel_core::ipc::lua_escape(key)
+            );
+            match hyprpanel_core::ipc::eval(&lua) {
+                Ok(_) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", crate::tr!("hyprdesk key : {e}", e = e));
+                    ExitCode::FAILURE
                 }
             }
         }
@@ -1751,4 +1778,9 @@ fn main() -> ExitCode {
             }
         },
     }
+}
+
+/// Nom de touche xkb plausible (`Up`, `Return`, `f`, `XF86AudioPlay`).
+fn valid_key(k: &str) -> bool {
+    !k.is_empty() && k.len() <= 32 && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }

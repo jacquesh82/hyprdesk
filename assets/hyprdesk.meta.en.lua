@@ -29,6 +29,7 @@
 ---@field metrics? string
 ---@field history_seconds? integer
 ---@field media_style? "standard"|"vinyl"|"compact"
+---@field shortcut_profile? "video"|"audio"|"remote"|"system"
 ---@field shortcut_columns? integer
 ---@field tiles? { widget: string, x: number, y: number, w: number, h: number }[]
 ---@field shortcuts? { name: string, icon: string, command: string }[]

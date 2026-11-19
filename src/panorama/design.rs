@@ -5,6 +5,155 @@ pub const PRESETS: &[&str] = &["cinematic", "forest", "telemetry", "studio", "ap
 pub const CLOCKS: &[&str] = &["digital", "flip", "analog"];
 pub const SYSTEMS: &[&str] = &["cards", "gauges", "graphs"];
 pub const MEDIA: &[&str] = &["standard", "vinyl", "compact"];
+/// Profils du bloc de raccourcis : média vidéo, média audio, télécommande,
+/// système (la liste personnalisable `shortcuts`).
+pub const PROFILES: &[&str] = &["video", "audio", "remote", "system"];
+
+/// Libellé et icône d'un profil, pour le sélecteur du bloc.
+pub fn profile_label(id: &str) -> (&'static str, &'static str) {
+    match id {
+        "video" => ("Vidéo", "video-x-generic-symbolic"),
+        "audio" => ("Musique", "audio-x-generic-symbolic"),
+        "remote" => ("Télécommande", "input-gaming-symbolic"),
+        _ => ("Système", "preferences-system-symbolic"),
+    }
+}
+
+/// Composition des profils Vidéo et Musique : le menu à gauche, le lecteur
+/// en 16:9 sur toute la hauteur (720p sur un bandeau 2560×720), puis la
+/// colonne « playlist » des services. Fractions de la surface (paysage ;
+/// un écran portrait les échange, comme toute composition).
+pub fn player_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
+    let (long, short) = (w.max(h), w.min(h));
+    let inner_l = (long - 2.0 * pad).max(1.0);
+    let inner_s = (short - 2.0 * pad).max(1.0);
+    // Largeur du lecteur : 16:9 de la hauteur utile, plus son espacement.
+    let player = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
+    let menu = 0.26_f32.min((1.0 - player) * 0.55);
+    let list = 1.0 - menu - player;
+    vec![
+        Tile::new("shortcuts", 0.0, 0.0, menu, 1.0),
+        Tile::new("video", menu, 0.0, player, 1.0),
+        Tile::new("playlist", menu + player, 0.0, list, 1.0),
+    ]
+}
+
+/// Touches intégrées d'un profil (`system` : la liste de la personne). Les
+/// touches de la télécommande vont à la fenêtre active (`hyprdesk key`).
+pub fn profile_shortcuts(id: &str) -> Option<Vec<Shortcut>> {
+    let list: &[(&str, &str, &str)] = match id {
+        "video" => &[
+            (
+                "−10 s",
+                "media-seek-backward-symbolic",
+                "hyprdesk media seek -10",
+            ),
+            (
+                "Lecture",
+                "media-playback-start-symbolic",
+                "hyprdesk media play-pause",
+            ),
+            (
+                "+10 s",
+                "media-seek-forward-symbolic",
+                "hyprdesk media seek +10",
+            ),
+            ("Plein écran", "view-fullscreen-symbolic", "hyprdesk key f"),
+            (
+                "Volume −",
+                "audio-volume-low-symbolic",
+                "hyprdesk osd volume -5",
+            ),
+            (
+                "Muet",
+                "audio-volume-muted-symbolic",
+                "hyprdesk osd volume toggle",
+            ),
+            (
+                "Volume +",
+                "audio-volume-high-symbolic",
+                "hyprdesk osd volume +5",
+            ),
+            (
+                "Suivant",
+                "media-skip-forward-symbolic",
+                "hyprdesk media next",
+            ),
+        ],
+        "audio" => &[
+            (
+                "Précédent",
+                "media-skip-backward-symbolic",
+                "hyprdesk media previous",
+            ),
+            (
+                "Lecture",
+                "media-playback-start-symbolic",
+                "hyprdesk media play-pause",
+            ),
+            (
+                "Suivant",
+                "media-skip-forward-symbolic",
+                "hyprdesk media next",
+            ),
+            ("Sortie", "audio-speakers-symbolic", "hyprdesk menu volume"),
+            (
+                "Volume −",
+                "audio-volume-low-symbolic",
+                "hyprdesk osd volume -5",
+            ),
+            (
+                "Muet",
+                "audio-volume-muted-symbolic",
+                "hyprdesk osd volume toggle",
+            ),
+            (
+                "Volume +",
+                "audio-volume-high-symbolic",
+                "hyprdesk osd volume +5",
+            ),
+            (
+                "Micro",
+                "microphone-sensitivity-muted-symbolic",
+                "hyprdesk osd mic toggle",
+            ),
+        ],
+        // Pavé directionnel, trois colonnes.
+        "remote" => &[
+            ("Retour", "edit-undo-symbolic", "hyprdesk key Escape"),
+            ("Monter", "go-up-symbolic", "hyprdesk key Up"),
+            (
+                "Lecture",
+                "media-playback-start-symbolic",
+                "hyprdesk media play-pause",
+            ),
+            ("Gauche", "go-previous-symbolic", "hyprdesk key Left"),
+            ("OK", "object-select-symbolic", "hyprdesk key Return"),
+            ("Droite", "go-next-symbolic", "hyprdesk key Right"),
+            (
+                "Volume −",
+                "audio-volume-low-symbolic",
+                "hyprdesk osd volume -5",
+            ),
+            ("Descendre", "go-down-symbolic", "hyprdesk key Down"),
+            (
+                "Volume +",
+                "audio-volume-high-symbolic",
+                "hyprdesk osd volume +5",
+            ),
+        ],
+        _ => return None,
+    };
+    Some(
+        list.iter()
+            .map(|(n, i, c)| Shortcut {
+                name: crate::i18n::tr(n).into(),
+                icon: (*i).into(),
+                command: (*c).into(),
+            })
+            .collect(),
+    )
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,7 +176,9 @@ impl Tile {
         }
     }
     pub fn validate(&self) -> Result<(), String> {
+        // `playlist` : colonne des services du lecteur (profils Vidéo, Musique).
         if !super::PAGES.iter().any(|(id, _)| *id == self.widget)
+            && self.widget != "playlist"
             && !self
                 .widget
                 .strip_prefix("widget:")
@@ -84,6 +235,8 @@ pub struct Design {
     pub history_seconds: f32,
     pub media_style: String,
     pub shortcut_columns: f32,
+    /// Profil du bloc de raccourcis (`PROFILES`).
+    pub shortcut_profile: String,
     pub tiles: Vec<Tile>,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -113,6 +266,7 @@ impl Default for Design {
             history_seconds: 60.0,
             media_style: "standard".into(),
             shortcut_columns: 4.0,
+            shortcut_profile: "system".into(),
             metrics: "cpu,ram,disk,load,uptime".into(),
             tiles: vec![
                 Tile::new("clock", 0.0, 0.0, 0.25, 1.0),
@@ -173,6 +327,25 @@ impl Default for Design {
 }
 
 impl Design {
+    /// Touches du profil choisi : intégrées, ou la liste de la personne
+    /// (Système).
+    pub fn active_shortcuts(&self) -> std::borrow::Cow<'_, [Shortcut]> {
+        match profile_shortcuts(&self.shortcut_profile) {
+            Some(l) => l.into(),
+            None => self.shortcuts.as_slice().into(),
+        }
+    }
+
+    /// Composition affichée : celle du profil Vidéo ou Musique (menu, lecteur
+    /// 16:9 sur toute la hauteur, colonne des services), sinon la sienne.
+    /// `w`, `h` : taille de la surface, pour un lecteur au format 16:9.
+    pub fn active_tiles(&self, w: f32, h: f32) -> std::borrow::Cow<'_, [Tile]> {
+        match self.shortcut_profile.as_str() {
+            "video" | "audio" => player_tiles(w, h, self.padding, self.gap).into(),
+            _ => self.tiles.as_slice().into(),
+        }
+    }
+
     pub fn get(&self, key: &str) -> Option<String> {
         self.text(key)
             .map(str::to_string)
@@ -196,6 +369,7 @@ impl Design {
             "system_style" => &self.system_style,
             "media_style" => &self.media_style,
             "metrics" => &self.metrics,
+            "shortcut_profile" => &self.shortcut_profile,
             _ => return None,
         })
     }
@@ -259,6 +433,7 @@ impl Design {
             "clock_style" => self.clock_style = choice(CLOCKS)?,
             "system_style" => self.system_style = choice(SYSTEMS)?,
             "media_style" => self.media_style = choice(MEDIA)?,
+            "shortcut_profile" => self.shortcut_profile = choice(PROFILES)?,
             "metrics" => {
                 let ids: Vec<_> = value
                     .split(',')
@@ -343,9 +518,11 @@ impl Design {
         // Les images et les raccourcis de la personne sont conservés.
         let wallpaper = self.wallpaper.clone();
         let shortcuts = self.shortcuts.clone();
+        let profile = self.shortcut_profile.clone();
         *self = Self::default();
         self.wallpaper = wallpaper;
         self.shortcuts = shortcuts;
+        self.shortcut_profile = profile;
         self.preset = id.into();
         if id == "cinematic" {
             return Ok(());
@@ -415,6 +592,7 @@ const TEXTS: &[&str] = &[
     "system_style",
     "media_style",
     "metrics",
+    "shortcut_profile",
 ];
 const NUMBERS: &[&str] = &[
     "dimming",
@@ -576,6 +754,36 @@ mod tests {
         }
     }
     #[test]
+    fn profils_de_raccourcis() {
+        let mut d = Design::default();
+        assert_eq!(d.shortcut_profile, "system");
+        assert_eq!(d.active_shortcuts().len(), d.shortcuts.len());
+        for id in PROFILES {
+            d.set("shortcut_profile", id).unwrap();
+            assert!(!d.active_shortcuts().is_empty(), "{id}");
+            assert_eq!(read(&d.to_lua()).unwrap(), d);
+        }
+        assert_eq!(profile_shortcuts("remote").unwrap().len(), 9);
+        // Bandeau 1600×450 : lecteur 16:9 sur toute la hauteur utile.
+        let t = player_tiles(1600.0, 450.0, 20.0, 12.0);
+        let (pw, ph) = (t[1].w * 1560.0 - 12.0, 410.0 - 12.0);
+        assert!((pw / ph - 16.0 / 9.0).abs() < 0.01, "{pw}×{ph}");
+        assert!((t.iter().map(|t| t.w).sum::<f32>() - 1.0).abs() < 1e-4);
+        assert!(t.iter().all(|t| t.validate().is_ok()));
+        d.set("shortcut_profile", "video").unwrap();
+        assert_eq!(d.active_tiles(1600.0, 450.0).len(), 3);
+        d.set("shortcut_profile", "remote").unwrap();
+        assert_eq!(d.active_tiles(1600.0, 450.0), d.tiles.as_slice());
+        d.set("shortcut_profile", "system").unwrap();
+        // Un préréglage garde le profil choisi.
+        d.apply_preset("forest").unwrap();
+        assert_eq!(d.shortcut_profile, "system");
+        d.set("shortcut_profile", "remote").unwrap();
+        d.apply_preset("studio").unwrap();
+        assert_eq!(d.shortcut_profile, "remote");
+    }
+
+    #[test]
     fn bad_values_are_rejected() {
         for src in [
             "{ padding = -1 }",
@@ -585,6 +793,7 @@ mod tests {
             "{ effects = 'yes' }",
             "{ tiles = {} }",
             "{ typo = 1 }",
+            "{ shortcut_profile = 'tv' }",
             "{ shortcuts = {{name='x',command=''}} }",
         ] {
             assert!(read(src).is_err(), "{src}");

@@ -155,6 +155,8 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub enum PMsg {
     Shortcut(usize),
+    /// Profil du bloc de raccourcis (vidéo, audio, télécommande, système).
+    Profile(String),
     ShortcutResult(Result<(), String>),
     Wallpaper(String, Option<iced::Size>),
     /// Écrans et tactiles relus.
@@ -406,32 +408,37 @@ impl App {
             }));
         }
         if !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some() {
-            for n in ICONS {
-                tasks.push(self.want_icon(n));
-            }
-            let icons: Vec<String> = self
-                .cfg
-                .general
-                .panorama
-                .design
-                .shortcuts
-                .iter()
-                .map(|s| s.icon.clone())
-                .chain(
-                    self.cfg
-                        .general
-                        .panorama
-                        .sources
-                        .iter()
-                        .map(|s| s.icon.clone())
-                        .filter(|i| !i.is_empty()),
-                )
-                .collect();
-            for icon in icons {
+            for icon in self.panorama_icon_names() {
                 tasks.push(self.want_icon(&icon));
             }
         }
         Task::batch(tasks)
+    }
+
+    /// Icônes à résoudre pour le bandeau : commandes, touches de chaque
+    /// profil, raccourcis de la personne, sources vidéo et musique.
+    fn panorama_icon_names(&self) -> Vec<String> {
+        let c = &self.cfg.general.panorama;
+        let mut out: Vec<String> = ICONS.iter().map(|n| n.to_string()).collect();
+        for id in crate::panorama::design::PROFILES {
+            out.extend(
+                crate::panorama::design::profile_shortcuts(id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| s.icon),
+            );
+        }
+        out.extend(c.design.shortcuts.iter().map(|s| s.icon.clone()));
+        out.extend(
+            c.sources
+                .iter()
+                .chain(&c.music_sources)
+                .map(|s| s.icon.clone())
+                .filter(|i| !i.is_empty()),
+        );
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Propositions à afficher (écrans candidats nouveaux).
@@ -532,7 +539,8 @@ impl App {
             }
             PMsg::Shortcut(i) => {
                 self.panorama.last_press = Some(Instant::now());
-                let Some(s) = self.cfg.general.panorama.design.shortcuts.get(i) else {
+                let list = self.cfg.general.panorama.design.active_shortcuts();
+                let Some(s) = list.get(i) else {
                     return Task::none();
                 };
                 let command = s.command.clone();
@@ -552,6 +560,7 @@ impl App {
                 Task::none()
             }
             m @ (PMsg::Layout(_)
+            | PMsg::Profile(_)
             | PMsg::Pane(..)
             | PMsg::VideoOpen(_)
             | PMsg::VideoPoll(_)
@@ -702,7 +711,7 @@ impl App {
                         .general
                         .panorama
                         .design
-                        .tiles
+                        .active_tiles(1600.0, 450.0)
                         .iter()
                         .any(|t| t.widget == "system"))
                     || self
@@ -830,7 +839,7 @@ impl App {
                 if want == "close" || want == "stop" {
                     return self.panorama_update(PMsg::VideoClose);
                 }
-                let sources = &self.cfg.general.panorama.sources;
+                let sources = self.cfg.general.panorama.active_sources();
                 let i = want
                     .parse::<usize>()
                     .ok()
@@ -894,7 +903,11 @@ impl App {
         });
         self.panorama.last_press = Some(Instant::now());
         let lua = preview_rule_lua(w, h);
-        let mut tasks: Vec<Task<Msg>> = ICONS.iter().map(|n| self.want_icon(n)).collect();
+        let mut tasks: Vec<Task<Msg>> = self
+            .panorama_icon_names()
+            .iter()
+            .map(|n| self.want_icon(n))
+            .collect();
         tasks.push(Task::perform(
             async move {
                 let _ = tokio::task::spawn_blocking(move || hyprpanel_core::ipc::eval(&lua)).await;

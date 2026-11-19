@@ -10,6 +10,19 @@ and this project adheres to
 
 ### Added
 
+- **Panorama: profiles for the shortcuts block** (MLG-172). The shortcuts
+  block opens with a selector of four coloured icons — Video, Music, Remote,
+  Settings (`panorama.design.shortcut_profile = video | audio | remote |
+  system`). Video and Music bring their own composition: the menu on the
+  left, the player at 16:9 over the full height (720p on a 2560×720 strip),
+  then a playlist column of the services (video sources, or the new
+  `music_sources`: Spotify, Deezer, YouTube Music, Qobuz, Radio France).
+  Their keys are built in (±10 s, play, fullscreen, volume, mute, next;
+  previous/next, output, microphone); Remote is a directional pad whose
+  arrows, OK and Back go to the active window (`hyprdesk key <key>
+  [mods]`); Settings keeps the personal shortcuts and composition.
+  `hyprdesk panorama icons music` has SmartUI draw the music services.
+- **Panorama background image: Browse…** opens the file chooser (portal).
 - **Screens split into zones** (MLG-172). Wayland cannot cut one output into
   several logical monitors, so hyprdesk does it with a Hyprland Lua layout
   (`lua:hyprdesk-zones-…`): Settings → Screens → Screen → Zones offers 1,

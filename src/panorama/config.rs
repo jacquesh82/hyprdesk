@@ -132,6 +132,24 @@ pub fn default_sources() -> Vec<Source> {
     .collect()
 }
 
+/// Services de musique par défaut (profil Musique du Panorama).
+pub fn default_music_sources() -> Vec<Source> {
+    [
+        ("Spotify", "https://open.spotify.com"),
+        ("Deezer", "https://www.deezer.com"),
+        ("YouTube Music", "https://music.youtube.com"),
+        ("Qobuz", "https://play.qobuz.com"),
+        ("Radio France", "https://www.radiofrance.fr"),
+    ]
+    .iter()
+    .map(|(n, u)| Source {
+        name: n.to_string(),
+        url: u.to_string(),
+        icon: String::new(),
+    })
+    .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     /// Écrans au rôle Panorama : connecteur (`DP-3`) ou identifiant EDID.
@@ -144,6 +162,8 @@ pub struct Config {
     pub zones: BTreeMap<String, ZoneSet>,
     /// Sources du widget Vidéo.
     pub sources: Vec<Source>,
+    /// Services de musique (profil Musique : même lecteur que la vidéo).
+    pub music_sources: Vec<Source>,
     /// Navigateur des sources vidéo (vide : détection automatique).
     pub browser: String,
     /// Écrans dont la proposition a été refusée (identifiant EDID).
@@ -178,7 +198,6 @@ const DEFAULT_PANES: [&str; MAX_PANES] = [
     "clock",
 ];
 
-
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -187,6 +206,7 @@ impl Default for Config {
             layout: Layout::Single,
             zones: BTreeMap::new(),
             sources: default_sources(),
+            music_sources: default_music_sources(),
             browser: String::new(),
             declined: Vec::new(),
             sleep_minutes: 5,
@@ -204,6 +224,7 @@ const KEYS: &[&str] = &[
     "panes",
     "zones",
     "sources",
+    "music_sources",
     "browser",
     "declined",
     "sleep_minutes",
@@ -325,7 +346,10 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
             }
         }
     }
-    if let Some(l) = t.get::<Option<Table>>("sources")? {
+    for key in ["sources", "music_sources"] {
+        let Some(l) = t.get::<Option<Table>>(key)? else {
+            continue;
+        };
         let mut out = Vec::new();
         for v in l.sequence_values::<Table>() {
             let v = v?;
@@ -349,7 +373,11 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
                 icon: icon.trim().to_string(),
             });
         }
-        c.sources = out;
+        if key == "sources" {
+            c.sources = out;
+        } else {
+            c.music_sources = out;
+        }
     }
     if let Some(b) = t.get::<Option<String>>("browser")? {
         c.browser = b.trim().to_string();
@@ -389,6 +417,16 @@ fn lua_list(l: &[String]) -> String {
 }
 
 impl Config {
+    /// Sources du lecteur selon le profil du bloc de raccourcis : services
+    /// de musique en profil Musique, sources vidéo sinon.
+    pub fn active_sources(&self) -> &[Source] {
+        if self.design.shortcut_profile == "audio" {
+            &self.music_sources
+        } else {
+            &self.sources
+        }
+    }
+
     /// Table Lua (relue par [`from_lua`]) ; les valeurs par défaut sont omises.
     pub fn to_lua(&self) -> String {
         let d = Config::default();
@@ -419,9 +457,14 @@ impl Config {
         if !zones.is_empty() {
             f.push(format!("zones = {{ {} }}", zones.join(", ")));
         }
-        if self.sources != d.sources {
-            let s: Vec<String> = self
-                .sources
+        for (key, mine, def) in [
+            ("sources", &self.sources, &d.sources),
+            ("music_sources", &self.music_sources, &d.music_sources),
+        ] {
+            if mine == def {
+                continue;
+            }
+            let s: Vec<String> = mine
                 .iter()
                 .map(|s| {
                     if s.icon.is_empty() {
@@ -436,7 +479,7 @@ impl Config {
                     }
                 })
                 .collect();
-            f.push(format!("sources = {{ {} }}", s.join(", ")));
+            f.push(format!("{key} = {{ {} }}", s.join(", ")));
         }
         if !self.browser.is_empty() {
             f.push(format!("browser = {}", q(&self.browser)));
@@ -562,6 +605,11 @@ mod tests {
                 name: "Free \"TV\"".into(),
                 url: "https://tv.free.fr".into(),
                 icon: "/tmp/free.svg".into(),
+            }],
+            music_sources: vec![Source {
+                name: "Radio".into(),
+                url: "https://www.radiofrance.fr".into(),
+                icon: String::new(),
             }],
             browser: "chromium".into(),
             declined: vec!["Acme \"M\" 1".into()],

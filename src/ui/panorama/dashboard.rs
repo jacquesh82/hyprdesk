@@ -76,31 +76,252 @@ impl App {
         .into()
     }
 
+    /// Colonne « playlist » des profils Vidéo et Musique : les services du
+    /// lecteur, celui qui joue en évidence ; un appui l'ouvre dans la zone
+    /// du lecteur.
+    pub(super) fn panorama_playlist(&self, size: Size) -> Element<'_, Msg> {
+        let c = &self.cfg.general.panorama;
+        let d = &c.design;
+        let (bg, fg, accent) = self.panorama_palette();
+        let gap = d.gap.min(14.0);
+        let playing = self.panorama.video.as_ref().map(|v| v.name.as_str());
+        let title = if d.shortcut_profile == "audio" {
+            "Musique"
+        } else {
+            "Vidéo"
+        };
+        let mut head = row![
+            text(crate::i18n::tr(title))
+                .size(16.0 * d.text_scale)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Semibold,
+                    ..self.panorama_font()
+                })
+                .color(fg)
+                .width(Length::Fill)
+        ]
+        .align_y(Alignment::Center);
+        if playing.is_some() {
+            head = head.push(
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
+                        .padding([6, 12])
+                        .on_press(wrap(PMsg::VideoClose))
+                        .style(move |_, st| button::Style {
+                            background: Some(
+                                fx::alpha(
+                                    accent,
+                                    if matches!(st, button::Status::Pressed) {
+                                        0.6
+                                    } else {
+                                        0.25
+                                    },
+                                )
+                                .into(),
+                            ),
+                            border: Border::default().rounded(10),
+                            text_color: fg,
+                            ..Default::default()
+                        }),
+                ),
+            );
+        }
+        let sources = c.active_sources();
+        // Lignes tactiles : toute la hauteur partagée, entre 44 et 72 px.
+        let room = size.height - 16.0 - 34.0 - gap;
+        let n = sources.len().max(1) as f32;
+        let line_h = ((room - gap / 2.0 * (n - 1.0)) / n).clamp(40.0, 72.0);
+        let icon_side = line_h * 0.62;
+        let mut list = column![].spacing(gap / 2.0);
+        for (i, src) in sources.iter().enumerate() {
+            let on = playing == Some(src.name.as_str());
+            let icon: Element<'_, Msg> = (!src.icon.is_empty())
+                .then(|| self.icon_named(&src.icon, icon_side, fg))
+                .flatten()
+                .unwrap_or_else(|| {
+                    let letter = src
+                        .name
+                        .chars()
+                        .find(|ch| ch.is_alphanumeric())
+                        .map(|ch| ch.to_uppercase().to_string())
+                        .unwrap_or_else(|| "•".into());
+                    container(text(letter).size(icon_side * 0.55).color(fg))
+                        .width(icon_side)
+                        .height(icon_side)
+                        .center_x(icon_side)
+                        .center_y(icon_side)
+                        .style(move |_| container::Style {
+                            background: Some(fx::alpha(accent, 0.3).into()),
+                            border: Border::default().rounded(icon_side * 0.24),
+                            ..Default::default()
+                        })
+                        .into()
+                });
+            let mut label = column![
+                text(src.name.clone())
+                    .size((line_h * 0.26).clamp(12.0, 17.0) * d.text_scale)
+                    .color(fg)
+                    .wrapping(text::Wrapping::None)
+            ];
+            if on {
+                label = label.push(
+                    text(crate::i18n::tr("En cours"))
+                        .size(11.0 * d.text_scale)
+                        .color(fx::alpha(fg, 0.7)),
+                );
+            }
+            list = list.push(
+                self.panorama_feedback(
+                    button(row![icon, label].spacing(12).align_y(Alignment::Center))
+                        .width(Length::Fill)
+                        .height(line_h)
+                        .padding([4, 10])
+                        .on_press(wrap(PMsg::VideoOpen(i)))
+                        .style(move |_, st| {
+                            let hot = on || matches!(st, button::Status::Pressed);
+                            button::Style {
+                                background: Some(
+                                    fx::alpha(
+                                        if hot { accent } else { bg },
+                                        if hot { 0.45 } else { 0.5 },
+                                    )
+                                    .into(),
+                                ),
+                                border: Border {
+                                    radius: d.radius.min(14.0).into(),
+                                    width: 1.0,
+                                    color: fx::alpha(
+                                        if on { accent } else { fg },
+                                        if on { 0.8 } else { 0.2 },
+                                    ),
+                                },
+                                text_color: fg,
+                                ..Default::default()
+                            }
+                        }),
+                ),
+            );
+        }
+        if sources.is_empty() {
+            list = list.push(
+                text(crate::i18n::tr(
+                    "Aucune source : ajoutez-en dans Réglages → Panorama.",
+                ))
+                .size(13)
+                .color(fg),
+            );
+        }
+        column![
+            container(head).height(34),
+            iced::widget::scrollable(list)
+                .height(Length::Fill)
+                .direction(iced::widget::scrollable::Direction::Vertical(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4)
+                        .spacing(6),
+                ))
+        ]
+        .spacing(gap)
+        .padding(8)
+        .into()
+    }
+
+    /// Bloc de raccourcis : sélecteur de profil (vidéo, audio,
+    /// télécommande, système) au-dessus des touches du profil choisi.
     pub(super) fn panorama_shortcuts(&self, size: Size) -> Element<'_, Msg> {
         let d = &self.cfg.general.panorama.design;
         let (bg, fg, accent) = self.panorama_palette();
-        if d.shortcuts.is_empty() {
-            return container(
-                text(crate::i18n::tr(
-                    "Ajoutez vos raccourcis dans Réglages → Panorama → Raccourcis.",
-                ))
-                .size(14)
-                .color(fg),
-            )
-            .padding(16)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_y(Length::Fill)
+        let gap = d.gap.min(20.0);
+        let radius = d.radius.min(16.0);
+        let tile_style = move |on: bool| {
+            move |_: &iced::Theme, st: button::Status| {
+                let hot = on || matches!(st, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: Some(
+                        fx::alpha(if hot { accent } else { bg }, if hot { 0.55 } else { 0.6 })
+                            .into(),
+                    ),
+                    border: Border {
+                        radius: radius.into(),
+                        width: 1.0,
+                        color: fx::alpha(if on { accent } else { fg }, if on { 0.8 } else { 0.25 }),
+                    },
+                    text_color: fg,
+                    ..Default::default()
+                }
+            }
+        };
+
+        // Sélecteur : icône et nom ; icône seule quand la place manque.
+        let profiles = crate::panorama::design::PROFILES;
+        let seg_w = ((size.width - 16.0 - gap * (profiles.len() - 1) as f32)
+            / profiles.len() as f32)
+            .max(28.0);
+        let seg_h = (size.height * 0.16).clamp(34.0, 52.0);
+        let named = seg_w >= 110.0;
+        let mut tabs = row![].spacing(gap);
+        for id in profiles {
+            let (label, _) = crate::panorama::design::profile_label(id);
+            let on = d.shortcut_profile == *id;
+            let mut inner = row![].spacing(6).align_y(Alignment::Center);
+            // Icône colorée du profil (pas teintée par le thème).
+            let side = (seg_h * 0.62).min(34.0);
+            inner = inner.push(iced::widget::svg(profile_icon(id)).width(side).height(side));
+            if named {
+                inner = inner.push(
+                    text(crate::i18n::tr(label))
+                        .size((seg_h * 0.3).clamp(11.0, 15.0))
+                        .color(fg)
+                        .wrapping(text::Wrapping::None),
+                );
+            }
+            tabs = tabs.push(
+                self.panorama_feedback(
+                    button(
+                        container(inner)
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill),
+                    )
+                    .width(seg_w)
+                    .height(seg_h)
+                    .padding(4)
+                    .on_press(wrap(PMsg::Profile(id.to_string())))
+                    .style(tile_style(on)),
+                ),
+            );
+        }
+
+        let list = d.active_shortcuts();
+        if list.is_empty() {
+            return column![
+                tabs,
+                container(
+                    text(crate::i18n::tr(
+                        "Ajoutez vos raccourcis dans Réglages → Panorama → Raccourcis.",
+                    ))
+                    .size(14)
+                    .color(fg),
+                )
+                .height(Length::Fill)
+                .center_y(Length::Fill)
+            ]
+            .spacing(gap)
+            .padding(8)
             .into();
         }
-        let columns = d.shortcut_columns as usize;
-        let gap = d.gap.min(20.0);
+        // La télécommande garde son pavé de trois colonnes.
+        let columns = if d.shortcut_profile == "remote" {
+            3
+        } else {
+            (d.shortcut_columns as usize).max(1)
+        };
         let width = ((size.width - 16.0 - gap * (columns - 1) as f32) / columns as f32).max(28.0);
-        let rows = d.shortcuts.len().div_ceil(columns);
-        let height =
-            ((size.height - 16.0 - gap * (rows - 1) as f32) / rows as f32).clamp(44.0, 120.0);
+        let rows = list.len().div_ceil(columns);
+        let room = size.height - 16.0 - seg_h - gap;
+        let height = ((room - gap * (rows - 1) as f32) / rows as f32).clamp(40.0, 120.0);
         let mut grid = column![].spacing(gap);
-        for (r, chunk) in d.shortcuts.chunks(columns).enumerate() {
+        for (r, chunk) in list.chunks(columns).enumerate() {
             let mut line = row![].spacing(gap);
             for (j, s) in chunk.iter().enumerate() {
                 let icon = self
@@ -111,15 +332,16 @@ impl App {
                             .color(fg)
                             .into()
                     });
-                let label = column![
-                    icon,
-                    text(s.name.clone())
-                        .size((width * 0.14).clamp(10.0, 16.0))
-                        .color(fg)
-                        .wrapping(text::Wrapping::None)
-                ]
-                .spacing(5)
-                .align_x(Alignment::Center);
+                let mut label = column![icon].spacing(5).align_x(Alignment::Center);
+                // Touches basses : l'icône seule.
+                if height >= 64.0 {
+                    label = label.push(
+                        text(s.name.clone())
+                            .size((width * 0.14).clamp(10.0, 16.0))
+                            .color(fg)
+                            .wrapping(text::Wrapping::None),
+                    );
+                }
                 line = line.push(
                     self.panorama_feedback(
                         button(
@@ -130,46 +352,22 @@ impl App {
                         .width(width)
                         .height(height)
                         .on_press(wrap(PMsg::Shortcut(r * columns + j)))
-                        .style(move |_, st| button::Style {
-                            background: Some(
-                                fx::alpha(
-                                    if matches!(
-                                        st,
-                                        button::Status::Hovered | button::Status::Pressed
-                                    ) {
-                                        accent
-                                    } else {
-                                        bg
-                                    },
-                                    if matches!(
-                                        st,
-                                        button::Status::Hovered | button::Status::Pressed
-                                    ) {
-                                        0.55
-                                    } else {
-                                        0.6
-                                    },
-                                )
-                                .into(),
-                            ),
-                            border: Border {
-                                radius: d.radius.min(16.0).into(),
-                                width: 1.0,
-                                color: fx::alpha(fg, 0.25),
-                            },
-                            ..Default::default()
-                        }),
+                        .style(tile_style(false)),
                     ),
                 );
             }
             grid = grid.push(line);
         }
-        container(iced::widget::scrollable(grid))
-            .padding(8)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_y(Length::Fill)
-            .into()
+        column![
+            tabs,
+            container(iced::widget::scrollable(grid))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_y(Length::Fill)
+        ]
+        .spacing(gap)
+        .padding(8)
+        .into()
     }
 
     pub(super) fn panorama_vinyl(&self, size: Size) -> Element<'_, Msg> {
@@ -326,4 +524,46 @@ impl App {
             .clip(true)
             .into()
     }
+}
+
+/// Icônes colorées des profils (vidéo, musique, télécommande, réglages),
+/// dessinées ici : un carré arrondi en dégradé et un glyphe blanc.
+fn profile_icon(id: &str) -> iced::widget::svg::Handle {
+    use std::sync::LazyLock;
+    fn tile(from: &str, to: &str, glyph: &str) -> iced::widget::svg::Handle {
+        iced::widget::svg::Handle::from_memory(format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{from}"/><stop offset="1" stop-color="{to}"/></linearGradient></defs><rect x="2" y="2" width="44" height="44" rx="12" fill="url(#g)"/>{glyph}</svg>"##
+        ).into_bytes())
+    }
+    static ICONS: LazyLock<[iced::widget::svg::Handle; 4]> = LazyLock::new(|| {
+        [
+            tile(
+                "#ff5f6d",
+                "#ffc371",
+                r##"<rect x="10" y="12" width="28" height="20" rx="4" fill="none" stroke="#fff" stroke-width="3"/><path d="M21 17.5v9l7.5-4.5z" fill="#fff"/><path d="M18 37h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>"##,
+            ),
+            tile(
+                "#c471f5",
+                "#fa71cd",
+                r##"<path d="M19.5 33V15.5l14-3.5v18" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><circle cx="16" cy="33" r="4.5" fill="#fff"/><circle cx="30" cy="30" r="4.5" fill="#fff"/>"##,
+            ),
+            tile(
+                "#2193b0",
+                "#6dd5ed",
+                r##"<circle cx="24" cy="24" r="13" fill="none" stroke="#fff" stroke-width="3"/><circle cx="24" cy="24" r="4" fill="#fff"/><path d="M24 13.5l3 3.5h-6zM24 34.5l3-3.5h-6zM13.5 24l3.5-3v6zM34.5 24l-3.5-3v6z" fill="#fff"/>"##,
+            ),
+            tile(
+                "#11998e",
+                "#38ef7d",
+                r##"<circle cx="24" cy="24" r="12.5" fill="none" stroke="#fff" stroke-width="5" stroke-dasharray="4.91 4.91"/><circle cx="24" cy="24" r="9.5" fill="#fff"/><circle cx="24" cy="24" r="4" fill="#25c17f"/>"##,
+            ),
+        ]
+    });
+    ICONS[match id {
+        "video" => 0,
+        "audio" => 1,
+        "remote" => 2,
+        _ => 3,
+    }]
+    .clone()
 }

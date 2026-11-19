@@ -75,6 +75,9 @@ pub enum Msg {
     Preset(String),
     DesignText(String, String),
     DesignApply(String),
+    /// Choisir le fichier du réglage (image de fond) dans un explorateur.
+    DesignBrowse(String),
+    DesignBrowsed(String, Option<std::path::PathBuf>),
     DesignChoice(String, String),
     DesignNumber(String, f32),
     DesignFlag(String, bool),
@@ -673,6 +676,8 @@ impl App {
             m @ (Msg::Preset(_)
             | Msg::DesignText(..)
             | Msg::DesignApply(_)
+            | Msg::DesignBrowse(_)
+            | Msg::DesignBrowsed(..)
             | Msg::DesignChoice(..)
             | Msg::DesignNumber(..)
             | Msg::DesignFlag(..)
