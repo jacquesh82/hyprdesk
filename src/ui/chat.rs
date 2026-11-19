@@ -656,18 +656,41 @@ impl App {
                 let turn_end = matches!(m, ServerMsg::TurnEnd { .. });
                 let confirm = match &m {
                     ServerMsg::ConfirmRequest {
-                        id, command, reason, ..
-                    } => Some((id.clone(), command.clone(), reason.clone())),
+                        id,
+                        command,
+                        reason,
+                        risk,
+                    } => Some((id.clone(), command.clone(), reason.clone(), risk.clone())),
                     _ => None,
                 };
                 self.chat_engine(session, m);
                 self.flush_pending(session);
                 // Demande vocale qui attend un accord : posée à voix haute,
                 // « oui » ou « non » y répond (LYRA vocale).
-                if let Some((id, command, reason)) = confirm
+                if let Some((id, command, reason, risk)) = confirm
                     && let Some(c) = self.chat.as_mut().and_then(|c| c.by_session(session))
                     && let Some(lang) = c.speak.clone()
                 {
+                    // Mode vocal : accepté d'office, sauf commande dangereuse
+                    // (risque « high ») — celle-là est demandée à voix haute.
+                    if risk != "high" {
+                        for e in c.entries.iter_mut() {
+                            if let Entry::Confirm { id: i, answer, .. } = e
+                                && *i == id
+                            {
+                                *answer = Some(true);
+                            }
+                        }
+                        c.busy = true;
+                        self.chat_send(
+                            session,
+                            ClientMsg::Confirm {
+                                request: id,
+                                accept: true,
+                            },
+                        );
+                        return Task::none();
+                    }
                     return self.voice_confirm(id, command, reason, lang);
                 }
                 // Demande vocale : la réponse est dite (LYRA vocale).

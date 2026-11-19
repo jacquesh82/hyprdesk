@@ -537,7 +537,7 @@ impl App {
             let icon = iced::widget::svg(mic_icon(on))
                 .width(side)
                 .height(side)
-                .opacity(if on || matches!(state, VoiceUi::Installing(_)) { 1.0 } else { 0.45 });
+                .opacity(if on || matches!(state, VoiceUi::Installing(_)) { 1.0_f32 } else { 0.45 });
             let tip = container(text(label).size(13).color(fg).wrapping(text::Wrapping::None))
                 .padding([4, 10])
                 .style(move |_| container::Style {

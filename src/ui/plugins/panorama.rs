@@ -76,6 +76,8 @@ pub enum Msg {
     SourceShow(usize, &'static str),
     /// Ouvre la source dans le navigateur, pour s'y connecter.
     SourceLogin(usize),
+    /// Micro de LYRA vocale (nœud PipeWire ; vide : par défaut).
+    VoiceMic(String),
     /// Service de l'onglet Webradio (profil Musique).
     Webradio(String),
     /// Raccourci, ±1 dans l'ordre.
@@ -419,6 +421,7 @@ impl App {
             .color(dim),
         );
         col = col.push(self.panorama_sources_section());
+        col = col.push(self.panorama_voice_section());
         col = col.extend([
             self.section("Pages"),
             text("Glisser d'une page à l'autre ; les points en bas de l'écran y mènent aussi.")
@@ -593,6 +596,62 @@ impl App {
             }
         };
         text(t).font(self.font).size(12).color(dim).into()
+    }
+
+    /// LYRA vocale : marche, micro, essai de la voix.
+    fn panorama_voice_section(&self) -> Element<'_, UiMsg> {
+        use crate::ui::panorama::PMsg;
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        let mics = &self.panorama.voice_mics;
+        // « Par défaut », puis chaque micro de PipeWire.
+        let mut options = vec![Mic(String::new(), crate::i18n::tr("Micro par défaut").to_string())];
+        options.extend(mics.iter().map(|(n, l, d)| {
+            Mic(
+                n.clone(),
+                if *d {
+                    crate::tr!("{l} (par défaut)", l = l.clone())
+                } else {
+                    l.clone()
+                },
+            )
+        }));
+        let current = options.iter().find(|m| m.0 == c.voice_mic).cloned().or_else(|| {
+            (!c.voice_mic.is_empty()).then(|| Mic(c.voice_mic.clone(), c.voice_mic.clone()))
+        });
+        column![
+            self.section("LYRA vocale"),
+            text(
+                "Dites « Lyra » puis votre demande : LYRA répond à voix haute (Piper), en français \
+                 ou en anglais. Écoute et voix restent sur cette machine (Vosk, hors ligne). Le \
+                 bouton micro du Panorama l'active aussi.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+            toggler(c.voice)
+                .label(crate::i18n::tr("Écouter le mot « Lyra »"))
+                .text_size(13)
+                .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle)),
+            row![
+                text(crate::i18n::tr("Micro")).font(self.font).size(13).width(80),
+                iced::widget::pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
+                    .text_size(13)
+                    .width(Length::Fill),
+                button(text("Actualiser").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press(UiMsg::Panorama(PMsg::MicsRefresh)),
+                button(text("Tester la voix").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press_maybe(
+                        crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))
+                    ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(8)
+        .into()
     }
 
     fn panorama_sources_section(&self) -> Element<'_, UiMsg> {
@@ -905,6 +964,12 @@ impl App {
                 self.settings.panorama = Some(c);
                 self.commit()
             }
+            Msg::VoiceMic(m) => {
+                let mut c = self.panorama_cfg();
+                c.voice_mic = m;
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
             Msg::SourcesKind(k) => {
                 self.panorama.sources_kind = k;
                 Task::none()
@@ -1131,5 +1196,15 @@ impl std::fmt::Display for Show {
             "off" => "Masquée",
             _ => "Auto",
         }))
+    }
+}
+
+/// Micro proposé : (nœud PipeWire, libellé).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Mic(String, String);
+
+impl std::fmt::Display for Mic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.1)
     }
 }

@@ -1,6 +1,6 @@
 # hyprdesk : écoute de LYRA (mot d'activation « Lyra »), par Vosk, hors ligne.
 #
-# Lancé par hyprdesk : python lyra_voice.py <modèle-fr> <modèle-en>
+# Lancé par hyprdesk : python lyra_voice.py <modèle-fr> <modèle-en> [micro]
 # Micro : pw-record (PipeWire), 16 kHz mono. Écrit une ligne JSON par
 # événement sur la sortie standard :
 #   {"event": "ready"}
@@ -48,13 +48,18 @@ def conf(words):
 def main():
     vosk.SetLogLevel(-1)
     paths = {"fr": sys.argv[1], "en": sys.argv[2]}
+    # Micro choisi (nœud PipeWire) ; sans : celui par défaut.
+    target = sys.argv[3] if len(sys.argv) > 3 else None
     recs = {}
     for lang, path in paths.items():
         r = vosk.KaldiRecognizer(vosk.Model(path), RATE)
         r.SetWords(True)
         recs[lang] = r
+    rec = ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16"]
+    if target:
+        rec += ["--target", target]
     mic = subprocess.Popen(
-        ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16", "-"],
+        rec + ["-"],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )

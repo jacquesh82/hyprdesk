@@ -253,12 +253,39 @@ pub fn parse(line: &str) -> Option<Event> {
     })
 }
 
-/// Commande d'écoute (programme, arguments).
-pub fn listen_command() -> (PathBuf, Vec<PathBuf>) {
-    (
-        python(),
-        vec![script(), vosk_model("fr"), vosk_model("en")],
-    )
+/// Commande d'écoute (programme, arguments) ; `mic` : nœud PipeWire du
+/// micro (vide : celui par défaut).
+pub fn listen_command(mic: &str) -> (PathBuf, Vec<PathBuf>) {
+    let mut args = vec![script(), vosk_model("fr"), vosk_model("en")];
+    if !mic.is_empty() {
+        args.push(PathBuf::from(mic));
+    }
+    (python(), args)
+}
+
+/// Micros de PipeWire : (nom du nœud, libellé, par défaut). Bloquant.
+pub fn microphones() -> Vec<(String, String, bool)> {
+    let wpctl = |args: &[&str]| {
+        Command::new("wpctl")
+            .args(args)
+            .stderr(Stdio::null())
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    };
+    let (_, inputs) = crate::ui::bar::parse_wpctl_status(&wpctl(&["status"]));
+    inputs
+        .into_iter()
+        .filter_map(|d| {
+            let info = wpctl(&["inspect", &d.id.to_string()]);
+            let name = info.lines().find_map(|l| {
+                let v = l.trim().trim_start_matches('*').trim();
+                v.strip_prefix("node.name = ")
+                    .map(|n| n.trim_matches('"').to_string())
+            })?;
+            Some((name, d.name, d.default))
+        })
+        .collect()
 }
 
 /// Entrée du script d'écoute en cours (pause, reprise).
@@ -290,11 +317,11 @@ impl Drop for Guard {
 }
 
 /// Écoute en continu : événements du script (souscription de l'interface).
-pub fn stream() -> impl iced::futures::Stream<Item = Event> {
+pub fn stream(mic: String) -> impl iced::futures::Stream<Item = Event> {
     use iced::futures::SinkExt;
     iced::stream::channel(8, async move |mut tx| {
         install_script();
-        let (prog, args) = listen_command();
+        let (prog, args) = listen_command(&mic);
         let child = Command::new(prog)
             .args(args)
             .stdin(Stdio::piped())

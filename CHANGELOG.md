@@ -34,7 +34,8 @@ and this project adheres to
 - **Panorama metrics: colours, smooth curves, NVIDIA** (MLG-172). Each
   metric has its own colour (CPU cyan, RAM violet, GPU green…) in graphs
   and gauges; curves are smoothed (Catmull-Rom), with a soft glow and a dot
-  on the latest value. NVIDIA cards (proprietary driver, absent from hwmon)
+  on the latest value; they scroll continuously (30 fps while graphs are on
+  screen) instead of jumping every second. NVIDIA cards (proprietary driver, absent from hwmon)
   are read through `nvidia-smi`: new `gpu` (load) and `vram` metrics, and
   `gpu_temp` falls back to it. The System page shows eight graphs.
 - **LYRA voice** (MLG-172). A microphone button in the Panorama (next to
@@ -42,8 +43,10 @@ and this project adheres to
   small French and English models, offline), sends the request to LYRA —
   its drawer opens — and reads the answer aloud with Piper (local neural
   voices, French siwis and English lessac), in the language of the request;
-  listening pauses while LYRA speaks. When LYRA needs approval, the question
-  is spoken and “yes”/“no” answers it. Everything installs on first use in
+  listening pauses while LYRA speaks. Commands are approved on their own in
+  voice mode; only dangerous ones (high risk) are asked aloud, and
+  “yes”/“no” answers. Settings → Panorama → LYRA voice: on/off, the
+  microphone (PipeWire, `panorama.voice_mic`), a voice test. Everything installs on first use in
   `~/.local/share/hyprdesk/voice` (~350 MB, no root): `hyprdesk voice setup
   | say [--en] <text> | status`; `panorama.voice` (on/off), `hyprdesk
   panorama voice on|off|toggle|ask <fr|en> <text>`.

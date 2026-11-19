@@ -19,6 +19,9 @@ enum Kind {
         lines: Vec<crate::widgets::SysLine>,
         history: HashMap<String, VecDeque<f32>>,
         limit: usize,
+        /// Avancée vers le relevé suivant (0 à 1) : les courbes défilent en
+        /// continu au lieu de sauter d'un cran chaque seconde.
+        phase: f32,
     },
     Record,
 }
@@ -79,15 +82,19 @@ pub(super) fn metrics(
     palette: (Color, Color),
     font: Font,
     scale: f32,
+    phase: f32,
 ) -> Element<'static, Msg> {
     let (fg, accent) = palette;
-    let key = format!("{style}:{lines:?}:{history:?}:{fg:?}:{accent:?}:{scale}:{font:?}");
+    let phase = (phase.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+    let key =
+        format!("{style}:{lines:?}:{history:?}:{fg:?}:{accent:?}:{scale}:{font:?}:{phase}");
     canvas::Canvas::new(Instrument {
         kind: Kind::Metrics {
             style: style.into(),
             lines: lines.to_vec(),
             history: history.clone(),
             limit,
+            phase,
         },
         fg,
         accent,
@@ -294,6 +301,7 @@ impl canvas::Program<Msg> for Instrument {
                         lines,
                         history,
                         limit,
+                        phase,
                     } => {
                         let n = lines.len().max(1);
                         let (w, h) = (f.width(), f.height());
@@ -400,19 +408,26 @@ impl canvas::Program<Msg> for Instrument {
                                 if let Some(samples) =
                                     history.get(&m.label).filter(|s| !s.is_empty())
                                 {
-                                    let pts: Vec<_> = samples
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(j, v)| {
-                                            Point::new(
-                                                right
-                                                    - (samples.len() - 1 - j) as f32
-                                                        / (*limit).max(2) as f32
-                                                        * (right - left),
-                                                bottom - v.clamp(0.0, 1.0) * (bottom - top),
-                                            )
-                                        })
-                                        .collect();
+                                    // Défilement continu, un relevé de
+                                    // retard : la tête glisse de l'avant-
+                                    // dernier relevé vers le dernier.
+                                    let step = (right - left) / (*limit).max(2) as f32;
+                                    let y = |v: f32| bottom - v.clamp(0.0, 1.0) * (bottom - top);
+                                    let n = samples.len();
+                                    let mut pts: Vec<Point> = Vec::with_capacity(n);
+                                    if n >= 2 {
+                                        for (j, v) in samples.iter().take(n - 1).enumerate() {
+                                            let x = right - ((n - 2 - j) as f32 + phase) * step;
+                                            if x >= left - step {
+                                                pts.push(Point::new(x.max(left), y(*v)));
+                                            }
+                                        }
+                                        let head = samples[n - 2]
+                                            + (samples[n - 1] - samples[n - 2]) * phase;
+                                        pts.push(Point::new(right, y(head)));
+                                    } else {
+                                        pts.push(Point::new(right, y(samples[0])));
+                                    }
                                     // Courbe lissée (Catmull-Rom en Bézier),
                                     // bornée à la zone du graphique.
                                     let trace = Path::new(|p| {

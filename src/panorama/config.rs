@@ -227,6 +227,8 @@ pub struct Config {
     pub sleep_minutes: u32,
     /// LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
     pub voice: bool,
+    /// Micro de LYRA vocale : nœud PipeWire (vide : celui par défaut).
+    pub voice_mic: String,
     pub design: super::design::Design,
 }
 
@@ -270,6 +272,7 @@ impl Default for Config {
             declined: Vec::new(),
             sleep_minutes: 5,
             voice: false,
+            voice_mic: String::new(),
             design: Default::default(),
         }
     }
@@ -291,6 +294,7 @@ const KEYS: &[&str] = &[
     "declined",
     "sleep_minutes",
     "voice",
+    "voice_mic",
     "design",
 ];
 
@@ -476,6 +480,9 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(v) = t.get::<Option<bool>>("voice")? {
         c.voice = v;
     }
+    if let Some(m) = t.get::<Option<String>>("voice_mic")? {
+        c.voice_mic = m.trim().to_string();
+    }
     match t.get::<Value>("sleep_minutes")? {
         Value::Nil => {}
         Value::Integer(n) if n >= 0 => c.sleep_minutes = n as u32,
@@ -592,6 +599,9 @@ impl Config {
         f.push(format!("sleep_minutes = {}", self.sleep_minutes));
         if self.voice {
             f.push("voice = true".into());
+        }
+        if !self.voice_mic.is_empty() {
+            f.push(format!("voice_mic = {}", q(&self.voice_mic)));
         }
         if self.design != d.design {
             f.push(format!("design = {}", self.design.to_lua()));
@@ -747,6 +757,7 @@ mod tests {
             declined: vec!["Acme \"M\" 1".into()],
             sleep_minutes: 0,
             voice: true,
+            voice_mic: "alsa_input.usb-x".into(),
             design: Default::default(),
         };
         assert_eq!(eval(&c.to_lua()).unwrap(), c);

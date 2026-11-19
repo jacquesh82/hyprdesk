@@ -5188,9 +5188,13 @@ impl App {
         ];
         // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
         if self.cfg.general.panorama.voice && crate::voice::ready() {
+            // Micro choisi : changer de micro relance l'écoute.
             subs.push(
-                Subscription::run(crate::voice::stream)
-                    .map(|e| Msg::Panorama(panorama::PMsg::Voice(e))),
+                Subscription::run_with(
+                    self.cfg.general.panorama.voice_mic.clone(),
+                    |mic: &String| crate::voice::stream(mic.clone()),
+                )
+                .map(|e| Msg::Panorama(panorama::PMsg::Voice(e))),
             );
         }
         // Fonds vidéo affichés : une boucle ffmpeg par clé de lecture (une
@@ -5229,6 +5233,13 @@ impl App {
             subs.push(
                 iced::time::every(panorama::TICK).map(|_| Msg::Panorama(panorama::PMsg::Tick)),
             );
+            // Courbes à l'écran : défilement continu (30 images/s).
+            if self.panorama_graphs_shown() {
+                subs.push(
+                    iced::time::every(Duration::from_millis(33))
+                        .map(|_| Msg::Panorama(panorama::PMsg::GraphFrame)),
+                );
+            }
         }
         if self.listens_to_events() {
             let tracking = self.drag.is_some()

@@ -887,6 +887,15 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice = false; } };
+    "panorama.voice_mic", "panorama", "<nœud PipeWire> | default — micro de LYRA vocale (wpctl status, node.name)",
+        |c| if c.general.panorama.voice_mic.is_empty() { "default".into() } else { c.general.panorama.voice_mic.clone() },
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.voice_mic = if matches!(v, "default" | "") { String::new() } else { v.trim().to_string() };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.voice_mic.clear(); } };
     "panorama.sleep_minutes", "panorama", "0..120 — minutes sans lecture ni toucher avant l'horloge du Panorama (0 : jamais)",
         |c| c.general.panorama.sleep_minutes.to_string(),
         |s, v, c| {

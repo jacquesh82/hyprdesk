@@ -143,6 +143,10 @@ pub struct State {
     pub voice: VoiceUi,
     /// Accord demandé par LYRA pendant une demande vocale : (demande, langue).
     pub voice_confirm: Option<(String, String)>,
+    /// Micros de PipeWire : (nœud, libellé, par défaut).
+    pub voice_mics: Vec<(String, String, bool)>,
+    /// Dernier relevé des mesures (défilement continu des courbes).
+    pub sys_at: Option<Instant>,
     /// Fenêtres du lecteur laissées par un hyprdesk précédent : vérifiées
     /// une fois (reprises, ou fermées).
     pub orphans_checked: bool,
@@ -223,6 +227,13 @@ pub enum PMsg {
     VoiceSetup(Result<(), String>),
     /// Réponse dite : l'écoute reprend.
     VoiceDone,
+    /// Image suivante des courbes (défilement continu).
+    GraphFrame,
+    /// Relit la liste des micros ; liste relue.
+    MicsRefresh,
+    Mics(Vec<(String, String, bool)>),
+    /// Fait parler LYRA (essai de la voix, Réglages).
+    VoiceTest,
     /// Question dite : l'écoute reprend, la phrase suivante est la réponse.
     VoiceArm,
     /// Cookies du navigateur relus (connexions aux plateformes).
@@ -593,6 +604,30 @@ impl App {
         )
     }
 
+    /// Avancée vers le relevé suivant (0 à 1), pour faire défiler les
+    /// courbes en continu.
+    pub(super) fn panorama_graph_phase(&self) -> f32 {
+        self.panorama
+            .sys_at
+            .map_or(1.0, |t| (t.elapsed().as_secs_f32() / TICK.as_secs_f32()).min(1.0))
+    }
+
+    /// Des courbes sont à l'écran (mesures en graphique) : le Panorama est
+    /// redessiné en continu pour les faire défiler.
+    pub(in crate::ui) fn panorama_graphs_shown(&self) -> bool {
+        if self.panorama_asleep() {
+            return false;
+        }
+        let graphs = |w: &str| {
+            crate::panorama::design::metric_of(w).is_some_and(|(_, s)| s == "graphs")
+                || (w == "system" && self.cfg.general.panorama.design.system_style == "graphs")
+        };
+        self.panorama_surfs().iter().any(|s| {
+            !self.panorama.hidden.contains(&s.key)
+                && self.panorama_geo(s).panes.iter().any(|p| graphs(&p.widget))
+        })
+    }
+
     /// Sources du lecteur visibles (profil Musique : services de musique ;
     /// sinon vidéo) : sans compte, connectées, ou forcées dans les Réglages.
     pub(super) fn panorama_sources(&self) -> Vec<crate::panorama::config::Source> {
@@ -618,18 +653,22 @@ impl App {
             return Task::none();
         }
         self.panorama.signed_at = Some(Instant::now());
+        let mics = Task::done(wrap(PMsg::MicsRefresh));
         let browser = crate::panorama::video::browser(&self.cfg.general.panorama.browser)
             .map(|(cmd, _)| cmd)
             .unwrap_or_default();
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || crate::panorama::auth::cookies(&browser))
-                    .await
-                    .ok()
-                    .flatten()
-            },
-            |k| wrap(PMsg::Signed(k)),
-        )
+        Task::batch([
+            mics,
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || crate::panorama::auth::cookies(&browser))
+                        .await
+                        .ok()
+                        .flatten()
+                },
+                |k| wrap(PMsg::Signed(k)),
+            ),
+        ])
     }
 
     /// Lecture commencée dans le lecteur (profils Vidéo et Musique) : la
@@ -957,6 +996,29 @@ impl App {
                 }
                 crate::voice::Event::Heard(lang, text) => self.voice_ask(lang, text),
             },
+            PMsg::GraphFrame => Task::none(),
+            PMsg::MicsRefresh => Task::perform(
+                async {
+                    tokio::task::spawn_blocking(crate::voice::microphones)
+                        .await
+                        .unwrap_or_default()
+                },
+                |l| wrap(PMsg::Mics(l)),
+            ),
+            PMsg::Mics(l) => {
+                self.panorama.voice_mics = l;
+                Task::none()
+            }
+            PMsg::VoiceTest => {
+                if !crate::voice::ready() {
+                    return Task::none();
+                }
+                self.voice_say(
+                    crate::i18n::tr("Bonjour, je suis Lyra. Dites mon nom, puis votre demande.")
+                        .into(),
+                    "fr".into(),
+                )
+            }
             PMsg::VoiceArm => {
                 crate::voice::control("resume");
                 crate::voice::control("arm");
@@ -1281,6 +1343,7 @@ impl App {
                     .filter_map(|w| l.iter().find(|(id, _)| id == w).map(|(_, v)| v.clone()))
                     .collect();
                 self.panorama.sys_ids = l.into_iter().collect();
+                self.panorama.sys_at = Some(Instant::now());
                 Task::none()
             }
             PMsg::Control(method) => {

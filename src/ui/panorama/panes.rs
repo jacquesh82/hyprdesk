@@ -264,7 +264,7 @@ impl App {
     }
 
     /// Surfaces du Panorama : écrans d'abord, puis l'aperçu.
-    fn panorama_surfs(&self) -> Vec<Surf> {
+    pub(super) fn panorama_surfs(&self) -> Vec<Surf> {
         let mut ids: Vec<Id> = self.panorama.surfaces.keys().copied().collect();
         ids.sort_by_key(|id| self.panorama.surfaces.get(id).cloned());
         ids.extend(self.panorama.preview.map(|p| p.win));
@@ -1156,6 +1156,7 @@ impl App {
                     (fg, accent),
                     self.panorama_font(),
                     self.cfg.general.panorama.design.text_scale,
+                    self.panorama_graph_phase(),
                 )
             }
             "system" if self.cfg.general.panorama.design.system_style != "cards" => {
@@ -1167,6 +1168,7 @@ impl App {
                     (fg, accent),
                     self.panorama_font(),
                     self.cfg.general.panorama.design.text_scale,
+                    self.panorama_graph_phase(),
                 )
             }
             "system" => self.panorama_system(
