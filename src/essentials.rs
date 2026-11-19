@@ -140,6 +140,12 @@ pub const CATALOGUE: &[Essential] = &[
         true,
     ),
     e(
+        "zone-move",
+        Group::Screens,
+        "Envoyer la fenêtre dans la zone voisine (écran découpé)",
+        false,
+    ),
+    e(
         "mon-window",
         Group::Screens,
         "Envoyer la fenêtre à l'écran suivant",
@@ -511,6 +517,13 @@ impl Ctx {
                 }
                 v
             }
+            // Écran découpé en zones (MLG-172) : message du layout des zones,
+            // sans effet ailleurs.
+            "zone-move" => dir_wants(
+                &|_, d| format!("SUPER + CTRL + SHIFT + {d}"),
+                "hl.dsp.layout(\"zone {d}\")",
+                "layout(\"zone {d}\"",
+            ),
             // Virgule : une vraie touche en QWERTY comme en AZERTY ; ALT et
             // CTRL plutôt que SHIFT, qui change la touche sur certains claviers.
             "mon-focus" => vec![want(

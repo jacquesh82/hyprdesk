@@ -667,6 +667,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "workspace_monitors",
             "workspace_dedicated",
             "forced_modes",
+            "screen_zones",
             "screen_colors",
             "panorama",
             "overview_command",
@@ -1312,6 +1313,30 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 )));
             }
             g.forced_modes.insert(k.to_str()?.to_string(), v);
+        }
+    }
+    if let Some(map) = t.get::<Option<Table>>("screen_zones")? {
+        const C: &str = "hd.config.screen_zones";
+        g.screen_zones.clear();
+        for pair in map.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            let (Value::String(k), Value::String(v)) = (k, v) else {
+                return Err(err(crate::tr!(
+                    "{C} : [\"DP-1\"] = \"1x2\" | \"1x2:1/3\" | \"1x3\" | \"1x3:1/2\" | \"2x2\" | \"3x3\"",
+                    C = C
+                )));
+            };
+            let v = v.to_str()?.to_string();
+            let Some(split) = crate::zones::Split::parse(&v) else {
+                return Err(err(crate::tr!(
+                    "{C} : « {v} » n'est pas un découpage (1, 1x2, 1x2:1/3, 1x3, 1x3:1/2, 2x2, 3x3)",
+                    C = C,
+                    v = v
+                )));
+            };
+            if split.grid != crate::zones::Grid::One {
+                g.screen_zones.insert(k.to_str()?.to_string(), split);
+            }
         }
     }
     if let Some(p) = t.get::<Option<Table>>("panorama")? {
@@ -3461,9 +3486,17 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(labels.iter().any(|l| l == "Cette session seulement"), "{labels:?}");
-        assert!(labels.iter().any(|l| l == "Aussi aux prochains démarrages"), "{labels:?}");
-        lua.load("hd.gpus = function() return {} end").exec().unwrap();
+        assert!(
+            labels.iter().any(|l| l == "Cette session seulement"),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l == "Aussi aux prochains démarrages"),
+            "{labels:?}"
+        );
+        lua.load("hd.gpus = function() return {} end")
+            .exec()
+            .unwrap();
         let r = render(&lua, "gpu").unwrap();
         assert_eq!(r.get::<String>("state").unwrap(), "hidden");
 

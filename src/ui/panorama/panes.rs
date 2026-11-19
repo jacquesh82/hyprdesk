@@ -189,7 +189,7 @@ impl App {
                     }
                 })
                 .collect(),
-            l => layout::panes(s.w, s.h, l.panes(), c.design.gap)
+            _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
                 .into_iter()
                 .enumerate()
                 .map(|(i, rect)| Pane {
@@ -332,7 +332,8 @@ impl App {
                 let ids: Vec<&str> = crate::panorama::PAGES.iter().map(|(id, _)| *id).collect();
                 self.panorama_save_cfg(|c| {
                     while c.panes.len() <= i {
-                        c.panes.push(ids[0].to_string());
+                        let d = c.pane(c.panes.len()).to_string();
+                        c.panes.push(d);
                     }
                     let cur = ids.iter().position(|x| *x == c.panes[i]).unwrap_or(0) as i64;
                     let n = ids.len() as i64;
@@ -592,11 +593,9 @@ impl App {
                 scene,
             );
         }
-        // Écran partagé : zones séparées par des bandes du fond (les
-        // écarts ne laissent rien voir dessous).
-        let landscape = s.w >= s.h;
-        let gap = |n: f32| -> Element<'_, Msg> {
-            let (w, h) = if landscape { (n, s.h) } else { (s.w, n) };
+        // Écran découpé : zones rangée par rangée (même `y`), séparées par
+        // des bandes du fond (les écarts ne laissent rien voir dessous).
+        let band = |w: f32, h: f32| -> Element<'_, Msg> {
             container(Space::new())
                 .width(w)
                 .height(h)
@@ -606,18 +605,31 @@ impl App {
                 })
                 .into()
         };
-        let mut items: Vec<Element<'_, Msg>> = Vec::new();
+        let gap = self.cfg.general.panorama.design.gap;
+        let mut rows: Vec<Vec<(usize, &Pane)>> = Vec::new();
         for (i, p) in geo.panes.iter().enumerate() {
-            if i > 0 {
-                items.push(gap(self.cfg.general.panorama.design.gap));
+            match rows.last_mut() {
+                Some(r) if (r[0].1.rect.y - p.rect.y).abs() < 0.5 => r.push((i, p)),
+                _ => rows.push(vec![(i, p)]),
             }
-            items.push(self.panorama_pane_view(&s, &geo, p, i + 1 == geo.panes.len(), video_at));
         }
-        let content: Element<'_, Msg> = if landscape {
-            row(items).into()
-        } else {
-            column(items).into()
-        };
+        let n = geo.panes.len();
+        let mut lines: Vec<Element<'_, Msg>> = Vec::new();
+        for (ri, r) in rows.iter().enumerate() {
+            if ri > 0 {
+                lines.push(band(s.w, gap));
+            }
+            let h = r[0].1.rect.h;
+            let mut items: Vec<Element<'_, Msg>> = Vec::new();
+            for (k, (i, p)) in r.iter().enumerate() {
+                if k > 0 {
+                    items.push(band(gap, h));
+                }
+                items.push(self.panorama_pane_view(&s, &geo, p, i + 1 == n, video_at));
+            }
+            lines.push(row(items).into());
+        }
+        let content: Element<'_, Msg> = column(lines).into();
         fx::stage(content, scene)
     }
 
@@ -782,7 +794,7 @@ impl App {
             .into()
     }
 
-    /// Commandes du Panorama : disposition 1 | 2 | 3, points des pages (une
+    /// Commandes du Panorama : disposition 1 | 1×2 | 1×3 | 2×2 | 3×3 | ✦, points des pages (une
     /// page à la fois), escamotage (ou fermeture de l'aperçu).
     pub(super) fn panorama_controls(
         &self,
@@ -800,8 +812,14 @@ impl App {
             seg = seg.push(
                 button(
                     container(
-                        text(l.panes().to_string())
-                            .size(t * 0.32)
+                        text(l.short())
+                            .size(
+                                t * if l.short().chars().count() > 1 {
+                                    0.26
+                                } else {
+                                    0.32
+                                },
+                            )
                             .font(self.panorama_font())
                             .color(if on {
                                 super::super::design::on_accent(
@@ -816,13 +834,15 @@ impl App {
                     .center_x(Length::Fill)
                     .center_y(Length::Fill),
                 )
-                .width(t * 0.7)
+                .width(
+                    t * if l.short().chars().count() > 1 {
+                        0.95
+                    } else {
+                        0.7
+                    },
+                )
                 .height(t * 0.7)
-                .on_press(wrap(PMsg::Layout(if compact {
-                    Layout::ALL[cur.panes() % Layout::ALL.len()]
-                } else {
-                    l
-                })))
+                .on_press(wrap(PMsg::Layout(if compact { cur.next() } else { l })))
                 .style(move |_, st| button::Style {
                     background: Some(
                         if on {

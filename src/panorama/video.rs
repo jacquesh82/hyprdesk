@@ -4,7 +4,8 @@
 //! l'utilisateur, donc déjà connecté. hyprdesk retrouve la fenêtre (son
 //! app_id `<navigateur>-<hôte>…`), la rend flottante, l'épingle, lui retire
 //! bordure et ombre, et la pose exactement dans la zone du widget ; la
-//! surface du Panorama y laisse un trou (image et saisie).
+//! surface du Panorama y laisse un trou (image et saisie). Son plein écran
+//! reste dans la zone (runtime des zones, MLG-172).
 
 use serde_json::Value;
 
@@ -115,6 +116,9 @@ pub fn rule_lua() -> String {
 pub fn adopt(address: &str, rect: Option<(i32, i32, i32, i32)>) -> Result<(), String> {
     let a = hyprpanel_core::ipc::lua_escape(address);
     let _ = hyprpanel_core::ipc::eval(&rule_lua());
+    // Plein écran (bouton du lecteur, F11) : l'application se croit en plein
+    // écran mais reste dans son cadre (MLG-172, `assets/zones.lua`).
+    let _ = hyprpanel_core::ipc::eval(crate::zones::runtime_lua());
     crate::hypr::set_floating(address, true)?;
     for cmd in [
         format!("hl.dsp.window.pin({{ action = \"enable\", window = \"address:{a}\" }})"),

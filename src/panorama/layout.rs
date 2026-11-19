@@ -40,32 +40,13 @@ pub struct Zones {
 /// En dessous de ce rapport (grand côté / petit côté), mise en page compacte.
 const COMPACT_RATIO: f32 = 1.9;
 
-/// Découpe une surface `w`×`h` en `n` zones égales le long du grand côté,
-/// séparées de `gap`.
-pub fn panes(w: f32, h: f32, n: usize, gap: f32) -> Vec<Rect> {
-    let n = n.max(1);
-    let along = w >= h;
-    let len = if along { w } else { h };
-    let each = ((len - gap * (n - 1) as f32) / n as f32).max(1.0);
-    (0..n)
-        .map(|i| {
-            let o = i as f32 * (each + gap);
-            if along {
-                Rect {
-                    x: o,
-                    y: 0.0,
-                    w: each,
-                    h,
-                }
-            } else {
-                Rect {
-                    x: 0.0,
-                    y: o,
-                    w,
-                    h: each,
-                }
-            }
-        })
+/// Zones d'un découpage (1×2, 1×3, 2×2, 3×3) d'une surface `w`×`h`,
+/// séparées de `gap` (voir `crate::zones`).
+pub fn split_panes(split: &crate::zones::Split, w: f32, h: f32, gap: f32) -> Vec<Rect> {
+    split
+        .rects(w, h, gap)
+        .into_iter()
+        .map(|[x, y, w, h]| Rect { x, y, w, h })
         .collect()
 }
 
@@ -197,6 +178,7 @@ pub fn zones(w: f32, h: f32, px_per_mm: Option<f32>) -> Zones {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::zones::{Grid, Split};
 
     fn inside(r: Rect, w: f32, h: f32) -> bool {
         r.x >= 0.0
@@ -242,7 +224,7 @@ mod tests {
     #[test]
     fn zones_d_un_ecran_partage() {
         // 2560×720 en 3 : trois zones de ~840×720, compactes.
-        let p = panes(2560.0, 720.0, 3, 12.0);
+        let p = split_panes(&Split::new(Grid::Cols3), 2560.0, 720.0, 12.0);
         assert_eq!(p.len(), 3);
         assert!((p[2].x + p[2].w - 2560.0).abs() < 0.5);
         for r in &p {
@@ -251,7 +233,7 @@ mod tests {
             assert!(inside(z.art, r.w, r.h) && inside(z.main, r.w, r.h), "{z:?}");
         }
         // Portrait : empilées.
-        let p = panes(720.0, 2560.0, 2, 0.0);
+        let p = split_panes(&Split::new(Grid::Cols2), 720.0, 2560.0, 0.0);
         assert_eq!((p[1].x, p[1].y, p[1].w), (0.0, 1280.0, 720.0));
         // Zone basse (aperçu réduit) : pas de pochette, les commandes d'abord.
         let z = zones(400.0, 300.0, None);

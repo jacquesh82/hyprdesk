@@ -49,6 +49,8 @@ pub enum Msg {
     /// Fenêtre d'aperçu au format donné.
     Preview((u32, u32)),
     Layout(crate::panorama::config::Layout),
+    /// Part de la zone 1 en 1×2 et 1×3.
+    First(crate::zones::First),
     /// Zone, widget.
     PaneWidget(usize, String),
     SourceName(String),
@@ -80,8 +82,10 @@ fn layout_label(l: crate::panorama::config::Layout) -> &'static str {
     use crate::panorama::config::Layout;
     match l {
         Layout::Single => "Une page à la fois",
-        Layout::Split2 => "Écran partagé en 2",
-        Layout::Split3 => "Écran partagé en 3",
+        Layout::Split2 => "1×2 : deux zones côte à côte",
+        Layout::Split3 => "1×3 : trois zones côte à côte",
+        Layout::Grid4 => "2×2 : quatre zones",
+        Layout::Grid9 => "3×3 : neuf zones",
         Layout::Dashboard => "Composition libre",
     }
 }
@@ -256,7 +260,27 @@ impl App {
                 .text_size(13),
             );
         }
-        if matches!(c.layout, Layout::Split2 | Layout::Split3) {
+        if c.layout.grid().is_some_and(crate::zones::Grid::has_first) {
+            let cur = c.split().map(|s| s.first());
+            let mut r = row![
+                text(crate::i18n::tr("Part de la zone 1"))
+                    .font(self.font)
+                    .size(13)
+                    .width(80)
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center);
+            for f in [crate::zones::First::Half, crate::zones::First::Third] {
+                r = r.push(
+                    iced::widget::radio(f.id(), f, cur, |v| wrap(Msg::First(v)))
+                        .font(self.font)
+                        .size(16)
+                        .text_size(13),
+                );
+            }
+            col = col.push(r);
+        }
+        if c.layout.grid().is_some() {
             let options: Vec<String> = crate::panorama::PAGES
                 .iter()
                 .map(|(id, _)| id.to_string())
@@ -285,8 +309,8 @@ impl App {
         }
         col = col.push(
             text(
-                "Sur l'écran, les boutons 1 | 2 | 3 changent la disposition, et ◀ ▶ le widget \
-                 de chaque zone.",
+                "Sur l'écran, les boutons 1 | 1×2 | 1×3 | 2×2 | 3×3 changent la disposition, \
+                 et ◀ ▶ le widget de chaque zone. En plein écran, la vidéo reste dans sa zone.",
             )
             .font(self.font)
             .size(12)
@@ -485,10 +509,17 @@ impl App {
                 self.settings.panorama = Some(c);
                 self.commit()
             }
+            Msg::First(f) => {
+                let mut c = self.panorama_cfg();
+                c.first = Some(f);
+                self.settings.panorama = Some(c);
+                self.commit()
+            }
             Msg::PaneWidget(i, w) => {
                 let mut c = self.panorama_cfg();
                 while c.panes.len() <= i {
-                    c.panes.push("media".into());
+                    let d = c.pane(c.panes.len()).to_string();
+                    c.panes.push(d);
                 }
                 c.panes[i] = w;
                 self.settings.panorama = Some(c);

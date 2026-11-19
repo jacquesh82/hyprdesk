@@ -783,17 +783,27 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.pages = crate::panorama::Config::default().pages; } };
-    "panorama.layout", "panorama", "single | split2 | split3 — une page à la fois, ou l'écran partagé en 2 ou 3 zones",
+    "panorama.layout", "panorama", "single | 1x2 | 1x3 | 2x2 | 3x3 | dashboard — une page à la fois, l'écran découpé en zones, ou la composition libre",
         |c| c.general.panorama.layout.id().to_string(),
         |s, v, c| {
-            let l = crate::panorama::config::Layout::parse(v).ok_or_else(|| crate::i18n::tr("dispositions : single, split2, split3").to_string())?;
+            let l = crate::panorama::config::Layout::parse(v).ok_or_else(|| crate::i18n::tr("dispositions : single, 1x2, 1x3, 2x2, 3x3, dashboard").to_string())?;
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.layout = l;
             s.panorama = Some(p);
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.layout = Default::default(); } };
-    "panorama.panes", "panorama", "media,video,system — widget de chaque zone de l'écran partagé",
+    "panorama.first", "panorama", "1/2 | 1/3 | auto — part de la zone 1 en 1x2 et 1x3 (auto : 1/2 en 1x2, 1/3 en 1x3)",
+        |c| c.general.panorama.first.map(|f| f.id().to_string()).unwrap_or_else(|| "auto".into()),
+        |s, v, c| {
+            let f = if matches!(v, "auto" | "") { None } else { Some(crate::zones::First::parse(v).ok_or_else(|| crate::i18n::tr("parts : 1/2, 1/3, auto").to_string())?) };
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.first = f;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.first = None; } };
+    "panorama.panes", "panorama", "media,video,system — widget de chaque zone de l'écran découpé (9 au plus)",
         |c| c.general.panorama.panes.join(","),
         |s, v, c| {
             let l: Vec<String> = v.split(',').map(|x| x.trim().to_string()).filter(|x| crate::panorama::PAGES.iter().any(|(id, _)| id == x)).collect();
@@ -1146,6 +1156,15 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 .unwrap_or_default(),
         );
     }
+    if let Some(k) = key.strip_prefix("screen_zones.") {
+        return Some(
+            c.general
+                .screen_zones
+                .get(k)
+                .map(crate::zones::Split::id)
+                .unwrap_or_else(|| "1".into()),
+        );
+    }
     if let Some(k) = key.strip_prefix("forced.") {
         return Some(
             c.general
@@ -1303,6 +1322,33 @@ fn dynamic_set(
             Some(l) => return Some(Err(crate::tr!("« {v} » : layout inconnu", v = l))),
         }
         s.tiling = Some(t);
+        return Some(Ok(()));
+    }
+    if let Some(k) = key.strip_prefix("screen_zones.") {
+        if k.is_empty() {
+            return Some(Err(crate::i18n::tr("screen_zones.<écran> attendu").into()));
+        }
+        let mut m = s
+            .screen_zones
+            .clone()
+            .unwrap_or_else(|| c.general.screen_zones.clone());
+        match v.map(str::trim) {
+            None | Some("" | "none" | "1") => {
+                m.remove(k);
+            }
+            Some(raw) => match crate::zones::Split::parse(raw) {
+                Some(split) => {
+                    m.insert(k.to_string(), split);
+                }
+                None => {
+                    return Some(Err(crate::tr!(
+                        "« {v} » n'est pas un découpage (1, 1x2, 1x2:1/3, 1x3, 1x3:1/2, 2x2, 3x3)",
+                        v = raw
+                    )));
+                }
+            },
+        }
+        s.screen_zones = Some(m);
         return Some(Ok(()));
     }
     if let Some(k) = key.strip_prefix("forced.") {
@@ -1555,6 +1601,7 @@ Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on |
 bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
 fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
 forced.<écran> | forced.ws:<workspace> no-desktop | launcher-only | full-desktop | none
+screen_zones.<écran> 1 | 1x2 | 1x2:1/3 | 1x3 | 1x3:1/2 | 2x2 | 3x3
 Historique (30 jours) : history [--json] | diff <id> | rollback <id|AAAA-MM-JJ[THH:MM]> [--yes]";
 
 /// `fx.anim.<élément>` : `on`, `off`, ou `<vitesse> [courbe] [style]`.
@@ -2002,6 +2049,12 @@ mod tests {
     #[test]
     fn modes_imposes() {
         let p = tmp();
+        assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1");
+        run_s(&p, &["set", "screen_zones.DP-2", "1x3:1/2"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1x3:1/2");
+        assert!(run_s(&p, &["set", "screen_zones.DP-2", "4x4"]).is_err());
+        run_s(&p, &["unset", "screen_zones.DP-2"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "screen_zones.DP-2"]).unwrap(), "1");
         assert_eq!(run_s(&p, &["get", "forced.DP-1"]).unwrap(), "none");
         run_s(&p, &["set", "forced.DP-1", "full-desktop"]).unwrap();
         run_s(&p, &["set", "forced.ws:5", "no-desktop"]).unwrap();

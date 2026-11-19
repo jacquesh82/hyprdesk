@@ -644,7 +644,11 @@ impl Place {
         match self {
             Place::Bar => &["hyprdesk-bar", "hyprdesk-convex-frame"],
             Place::Menus => &["hyprdesk-popover"],
-            Place::Launcher => &["hyprdesk-launcher", "hyprdesk-launcher-popup"],
+            Place::Launcher => &[
+                "hyprdesk-launcher",
+                "hyprdesk-launcher-popup",
+                "hyprdesk-search",
+            ],
             Place::Settings => &["hyprdesk-settings", "hyprdesk-wizard"],
             Place::Widgets => &[],
         }
@@ -1248,6 +1252,8 @@ pub struct General {
     /// Modes imposés : écran (`DP-1`) ou workspace (`ws:5`) → `no-desktop`,
     /// `launcher-only` ou `full-desktop`.
     pub forced_modes: std::collections::BTreeMap<String, String>,
+    /// Écrans découpés en zones (MLG-172) : connecteur → découpage (`crate::zones`).
+    pub screen_zones: std::collections::BTreeMap<String, crate::zones::Split>,
     /// Couleurs de chaque écran (Réglages → Couleurs des écrans).
     pub screen_colors: std::collections::BTreeMap<String, crate::colors::Adjust>,
     /// Panorama : écrans bandeau tactiles et leurs pages (MLG-164).
@@ -1339,6 +1345,7 @@ impl Default for General {
             workspace_monitors: Default::default(),
             workspace_monitors_declared: Default::default(),
             forced_modes: Default::default(),
+            screen_zones: Default::default(),
             screen_colors: Default::default(),
             panorama: Default::default(),
             overview_command: String::new(),

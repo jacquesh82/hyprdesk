@@ -184,6 +184,8 @@ pub struct Settings {
     /// Workspaces de chaque écran.
     pub workspace_monitors: Option<BTreeMap<String, Vec<String>>>,
     pub forced_modes: Option<BTreeMap<String, String>>,
+    /// Écrans découpés en zones.
+    pub screen_zones: Option<BTreeMap<String, crate::zones::Split>>,
     /// Couleurs de chaque écran.
     pub screen_colors: Option<BTreeMap<String, crate::colors::Adjust>>,
     /// Panorama (écrans bandeau tactiles).
@@ -442,6 +444,7 @@ impl Settings {
             workspace_monitors: has("workspace_monitors")
                 .then(|| g.workspace_monitors_declared.clone()),
             forced_modes: has("forced_modes").then(|| g.forced_modes.clone()),
+            screen_zones: has("screen_zones").then(|| g.screen_zones.clone()),
             screen_colors: has("screen_colors").then(|| g.screen_colors.clone()),
             panorama: has("panorama").then(|| g.panorama.clone()),
             plugin_options: has("plugin_options").then(|| g.plugin_options.clone()),
@@ -820,6 +823,9 @@ impl Settings {
         }
         if free("forced_modes") {
             g.forced_modes = self.forced_modes.clone().unwrap_or_default();
+        }
+        if free("screen_zones") {
+            g.screen_zones = self.screen_zones.clone().unwrap_or_default();
         }
         if free("screen_colors") {
             g.screen_colors = self.screen_colors.clone().unwrap_or_default();
@@ -1490,6 +1496,13 @@ impl Settings {
                 .map(|(k, v)| format!("[{}] = {}", q(k), q(v)))
                 .collect();
             cfg.push(format!("forced_modes = {{ {} }}", f.join(", ")));
+        }
+        if let Some(m) = self.screen_zones.as_ref().filter(|m| !m.is_empty()) {
+            let f: Vec<String> = m
+                .iter()
+                .map(|(k, v)| format!("[{}] = {}", q(k), q(&v.id())))
+                .collect();
+            cfg.push(format!("screen_zones = {{ {} }}", f.join(", ")));
         }
         if let Some(m) = self.workspace_monitors.as_ref().filter(|m| !m.is_empty()) {
             let f: Vec<String> = m

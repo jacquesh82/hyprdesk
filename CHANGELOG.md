@@ -10,6 +10,20 @@ and this project adheres to
 
 ### Added
 
+- **Screens split into zones** (MLG-172). Wayland cannot cut one output into
+  several logical monitors, so hyprdesk does it with a Hyprland Lua layout
+  (`lua:hyprdesk-zones-…`): Settings → Screens → Screen → Zones offers 1,
+  1×2, 1×3, 2×2 and 3×3, with zone 1 at 1/2 or 1/3 of the long side in 1×2
+  and 1×3, and draws the split screen. Each window keeps its zone (the one
+  under the mouse when it opens) and is tiled there; maximizing or going
+  fullscreen (shortcut or the app itself) only covers its zone — the app
+  believes it is fullscreen (client-only fullscreen state). SUPER + CTRL +
+  SHIFT + arrow sends the window to the neighbouring zone. Saved as
+  `hd.config({ screen_zones = { ["DP-2"] = "1x2:1/3" } })`, written to
+  `layouts.lua` and applied live. The Panorama gets the same splits
+  (`layout = "1x2" | "1x3" | "2x2" | "3x3"`, `first = "1/2" | "1/3"`, up to
+  nine zones), and its Video zone keeps the browser window in its frame when
+  it goes fullscreen.
 - **Render card for Hyprland and hyprdesk** (MLG-171, Settings → Performance →
   Graphics card). Hyprland draws every frame on one card; when the screens
   are plugged into another one, every frame is copied across (an iGPU at

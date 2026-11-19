@@ -118,6 +118,8 @@ pub enum Msg {
     ScreenFlip(bool),
     ScreenMode(String),
     ScreenScale(f32),
+    /// Découpage de l'écran (connecteur) en zones (MLG-172).
+    ScreenZones(String, crate::zones::Split),
     ScreensAuto,
     ScreensDetect,
     /// Affiche le numéro et le nom de chaque écran, sur l'écran lui-même.
@@ -672,7 +674,139 @@ impl App {
                 "Chaque changement s'applique tout de suite ; gardez-le, sinon l'affichage \
                  d'avant revient de lui-même. La disposition est écrite dans monitors.lua."
                     .into(),
-            ));
+            ))
+            .push(self.screen_zones_view(s));
+        col.into()
+    }
+
+    /// Découpage de l'écran en zones : boutons 1 | 1×2 | 1×3 | 2×2 | 3×3, part
+    /// de la zone 1, schéma de l'écran découpé.
+    fn screen_zones_view(&self, s: &Screen) -> Element<'_, UiMsg> {
+        use crate::zones::{First, Grid, Split};
+        let th = &self.cfg.general.theme;
+        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        let dim = self.ink().dim;
+        let small = |t: &'static str| text(t).font(self.font).size(12).color(dim);
+        let mut col = column![self.section("Zones")].spacing(10);
+        let panorama = self.cfg.general.panorama.screens.iter().any(|e| {
+            e == &s.name || (!s.description.is_empty() && s.description.contains(e.as_str()))
+        });
+        if panorama {
+            return col
+                .push(small(
+                    "Écran Panorama : son découpage se règle dans Réglages → Panorama → Pages.",
+                ))
+                .into();
+        }
+        let cur = self
+            .cfg
+            .general
+            .screen_zones
+            .get(&s.name)
+            .copied()
+            .unwrap_or_default();
+        let name = s.name.clone();
+        let mut seg = row![].spacing(6);
+        for g in Grid::ALL {
+            let on = cur.grid == g;
+            let n = name.clone();
+            seg = seg.push(
+                button(text(g.short()).font(self.font).size(13))
+                    .padding([5, 14])
+                    .style(if on {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::ScreenZones(
+                        n,
+                        Split {
+                            grid: g,
+                            first: cur.first,
+                        },
+                    ))),
+            );
+        }
+        col = col.push(seg);
+        if cur.grid.has_first() {
+            let mut r = row![text("Part de la zone 1").font(self.font).size(13)]
+                .spacing(14)
+                .align_y(Alignment::Center);
+            for f in [First::Half, First::Third] {
+                let n = name.clone();
+                r = r.push(
+                    radio(f.id(), f, Some(cur.first()), move |v| {
+                        wrap(Msg::ScreenZones(
+                            n.clone(),
+                            Split {
+                                grid: cur.grid,
+                                first: Some(v),
+                            },
+                        ))
+                    })
+                    .font(self.font)
+                    .size(16)
+                    .text_size(13),
+                );
+            }
+            col = col.push(r);
+        }
+        // Schéma : l'écran à l'échelle, ses zones numérotées.
+        let (lw, lh) = s.logical();
+        let (bw, bh) = if lw >= lh {
+            (240.0, 240.0 * lh.max(1) as f32 / lw.max(1) as f32)
+        } else {
+            (240.0 * lw.max(1) as f32 / lh.max(1) as f32, 240.0)
+        };
+        let mut plan = iced::widget::Stack::new().width(bw).height(bh).push(
+            container(Space::new())
+                .width(bw)
+                .height(bh)
+                .style(move |_| container::Style {
+                    border: Border {
+                        color: Color { a: 0.5, ..fg },
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                }),
+        );
+        for (i, [x, y, w, h]) in cur.rects(bw, bh, 4.0).into_iter().enumerate() {
+            plan = plan.push(
+                container(
+                    container(text((i + 1).to_string()).font(self.font).size(12).color(fg))
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill)
+                        .width(w)
+                        .height(h)
+                        .style(move |_| container::Style {
+                            background: Some(Color { a: 0.18, ..accent }.into()),
+                            border: Border {
+                                color: Color { a: 0.7, ..accent },
+                                width: 1.0,
+                                radius: 3.0.into(),
+                            },
+                            ..Default::default()
+                        }),
+                )
+                .padding(iced::Padding {
+                    top: y,
+                    left: x,
+                    right: 0.0,
+                    bottom: 0.0,
+                }),
+            );
+        }
+        col = col.push(plan);
+        col = col.push(small(if cur.grid == Grid::One {
+            "Découper un écran large en zones : chaque fenêtre garde sa zone, et \
+             maximiser ou mettre en plein écran ne couvre que sa zone."
+        } else {
+            "Chaque fenêtre garde sa zone (celle sous la souris à l'ouverture) ; maximiser \
+             ou mettre en plein écran ne couvre que sa zone. Changer de zone : SUPER + CTRL + \
+             SHIFT + flèche (Réglages → Raccourcis). Les zones changent ensemble avec le \
+             workspace."
+        }));
         col.into()
     }
     /// Relit les écrans auprès de Hyprland.
@@ -919,6 +1053,32 @@ impl App {
                 s.set_mode(&m);
             }),
             Msg::ScreenScale(v) => self.edit_selected(|s| s.scale = v),
+            Msg::ScreenZones(name, split) => {
+                let mut m = self
+                    .settings
+                    .screen_zones
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.general.screen_zones.clone());
+                if split.grid == crate::zones::Grid::One {
+                    m.remove(&name);
+                } else {
+                    m.insert(name, split);
+                }
+                let lua = crate::zones::screens_lua(&m);
+                self.settings.screen_zones = (!m.is_empty()).then_some(m);
+                let saved = self.commit();
+                // À chaud : layouts et règles par écran (le fichier suit).
+                let live = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || hyprpanel_core::ipc::eval(&lua))
+                            .await
+                            .ok()
+                            .and_then(Result::ok)
+                    },
+                    |_| UiMsg::Noop,
+                );
+                Task::batch([saved, live])
+            }
             Msg::ScreensAuto => {
                 let primary = self.cfg.general.primary.clone();
                 self.edit_screens(move |l, _| crate::screens::auto_arrange(l, primary.as_deref()))

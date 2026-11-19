@@ -4,8 +4,9 @@
 //! hd.config({ panorama = {
 //!   screens  = { "DP-3" },            -- connecteur ou identifiant EDID
 //!   pages    = { "media", "system", "clock", "video" },
-//!   layout   = "split2",              -- single | split2 | split3
-//!   panes    = { "media", "video", "system" }, -- widget de chaque zone
+//!   layout   = "1x2",                 -- single | 1x2 | 1x3 | 2x2 | 3x3 | dashboard
+//!   first    = "1/3",                 -- part de la zone 1 en 1x2 et 1x3 (1/2 | 1/3)
+//!   panes    = { "media", "video", "system" }, -- widget de chaque zone (9 au plus)
 //!   sources  = { { name = "Free TV", url = "https://tv.free.fr" } },
 //!   browser  = "brave",               -- vide : le premier navigateur Chromium trouvé
 //!   declined = { "Acme M 1" },        -- écrans refusés (identifiant EDID)
@@ -15,51 +16,85 @@
 
 use mlua::{Table, Value};
 
-/// Disposition de l'écran : une page à la fois, ou 2 ou 3 zones côte à côte.
+/// Disposition de l'écran : une page à la fois, l'écran découpé en zones
+/// (1×2, 1×3, 2×2, 3×3, voir `crate::zones`), ou la composition libre.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Layout {
     #[default]
     Single,
     Split2,
     Split3,
+    Grid4,
+    Grid9,
     Dashboard,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 4] = [
+    pub const ALL: [Layout; 6] = [
         Layout::Single,
         Layout::Split2,
         Layout::Split3,
+        Layout::Grid4,
+        Layout::Grid9,
         Layout::Dashboard,
     ];
 
     pub fn id(self) -> &'static str {
         match self {
             Layout::Single => "single",
-            Layout::Split2 => "split2",
-            Layout::Split3 => "split3",
+            Layout::Split2 => "1x2",
+            Layout::Split3 => "1x3",
+            Layout::Grid4 => "2x2",
+            Layout::Grid9 => "3x3",
             Layout::Dashboard => "dashboard",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        Some(match s.trim() {
-            "single" | "1" => Layout::Single,
-            "split2" | "2" => Layout::Split2,
-            "split3" | "3" => Layout::Split3,
-            "dashboard" | "4" => Layout::Dashboard,
-            _ => return None,
+        match s.trim() {
+            "single" | "1" => return Some(Layout::Single),
+            "dashboard" => return Some(Layout::Dashboard),
+            _ => {}
+        }
+        Some(match crate::zones::Grid::parse(s)? {
+            crate::zones::Grid::One => Layout::Single,
+            crate::zones::Grid::Cols2 => Layout::Split2,
+            crate::zones::Grid::Cols3 => Layout::Split3,
+            crate::zones::Grid::Grid2 => Layout::Grid4,
+            crate::zones::Grid::Grid3 => Layout::Grid9,
         })
     }
 
-    /// Nombre de zones.
-    pub fn panes(self) -> usize {
+    /// Découpage en zones (`None` : une page à la fois, composition libre).
+    pub fn grid(self) -> Option<crate::zones::Grid> {
+        use crate::zones::Grid;
         match self {
-            Layout::Single => 1,
-            Layout::Split2 => 2,
-            Layout::Split3 => 3,
-            Layout::Dashboard => 4,
+            Layout::Split2 => Some(Grid::Cols2),
+            Layout::Split3 => Some(Grid::Cols3),
+            Layout::Grid4 => Some(Grid::Grid2),
+            Layout::Grid9 => Some(Grid::Grid3),
+            Layout::Single | Layout::Dashboard => None,
         }
+    }
+
+    /// Libellé court des boutons de l'écran : 1, 1×2… ; ✦ pour la composition.
+    pub fn short(self) -> &'static str {
+        match self {
+            Layout::Single => "1",
+            Layout::Dashboard => "✦",
+            l => l.grid().map(crate::zones::Grid::short).unwrap_or("?"),
+        }
+    }
+
+    /// Disposition suivante (bouton unique de l'écran compact).
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|l| *l == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+
+    /// Nombre de zones à widget choisi (découpages seulement).
+    pub fn panes(self) -> usize {
+        self.grid().map(crate::zones::Grid::count).unwrap_or(1)
     }
 }
 
@@ -96,7 +131,9 @@ pub struct Config {
     /// Pages affichées une à une (disposition `single`), dans l'ordre.
     pub pages: Vec<String>,
     pub layout: Layout,
-    /// Widget de chaque zone (dispositions `split2` et `split3`).
+    /// Part de la zone 1 en 1×2 et 1×3 (`None` : 1/2 en 1×2, 1/3 en 1×3).
+    pub first: Option<crate::zones::First>,
+    /// Widget de chaque zone (dispositions découpées, 9 au plus).
     pub panes: Vec<String>,
     /// Sources du widget Vidéo.
     pub sources: Vec<Source>,
@@ -109,12 +146,25 @@ pub struct Config {
     pub design: super::design::Design,
 }
 
-/// Widgets des zones par défaut.
+/// Zones au plus (3×3).
+pub const MAX_PANES: usize = 9;
+
+/// Widget par défaut de chaque zone.
+const DEFAULT_PANES: [&str; MAX_PANES] = [
+    "media",
+    "video",
+    "system",
+    "clock",
+    "calendar",
+    "shortcuts",
+    "media",
+    "system",
+    "clock",
+];
+
+/// Widgets des zones par défaut (les trois premières ; au-delà, `Config::pane`).
 pub fn default_panes() -> Vec<String> {
-    ["media", "video", "system"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    DEFAULT_PANES[..3].iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for Config {
@@ -123,6 +173,7 @@ impl Default for Config {
             screens: Vec::new(),
             pages: super::PAGES.iter().map(|(id, _)| id.to_string()).collect(),
             layout: Layout::Single,
+            first: None,
             panes: default_panes(),
             sources: default_sources(),
             browser: String::new(),
@@ -138,6 +189,7 @@ const KEYS: &[&str] = &[
     "screens",
     "pages",
     "layout",
+    "first",
     "panes",
     "sources",
     "browser",
@@ -201,19 +253,31 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(s) = t.get::<Option<String>>("layout")? {
         c.layout = Layout::parse(&s).ok_or_else(|| {
             mlua::Error::RuntimeError(crate::tr!(
-                "{CTX} : « layout » attend single, split2 ou split3",
+                "{CTX} : « layout » attend single, 1x2, 1x3, 2x2, 3x3 ou dashboard",
                 CTX = CTX
             ))
         })?;
     }
+    if let Some(s) = t.get::<Option<String>>("first")? {
+        c.first = Some(crate::zones::First::parse(&s).ok_or_else(|| {
+            mlua::Error::RuntimeError(crate::tr!("{CTX} : « first » attend 1/2 ou 1/3", CTX = CTX))
+        })?);
+    }
     if let Some(l) = list(t, "panes")? {
-        let mut panes = default_panes();
-        for (i, p) in l.into_iter().take(3).enumerate() {
-            if known_widget(&p) {
-                panes[i] = p;
-            }
-        }
-        c.panes = panes;
+        // Widget inconnu : celui de la zone par défaut ; zones non données :
+        // leur défaut à l'affichage (`pane`).
+        c.panes = l
+            .into_iter()
+            .take(MAX_PANES)
+            .enumerate()
+            .map(|(i, p)| {
+                if known_widget(&p) {
+                    p
+                } else {
+                    DEFAULT_PANES[i].to_string()
+                }
+            })
+            .collect();
     }
     if let Some(l) = t.get::<Option<Table>>("sources")? {
         let mut out = Vec::new();
@@ -284,8 +348,13 @@ impl Config {
         if self.pages != d.pages {
             f.push(format!("pages = {}", lua_list(&self.pages)));
         }
-        if self.layout != d.layout {
+        // Toujours écrite hors défaut, et avec un préréglage autre que
+        // « cinematic » (sans elle, la relecture choisit la composition libre).
+        if self.layout != d.layout || self.design.preset != "cinematic" {
             f.push(format!("layout = {}", q(self.layout.id())));
+        }
+        if let Some(first) = self.first {
+            f.push(format!("first = {}", q(first.id())));
         }
         if self.panes != d.panes {
             f.push(format!("panes = {}", lua_list(&self.panes)));
@@ -316,11 +385,20 @@ impl Config {
         self.screens.iter().any(|e| s.matches(e))
     }
 
-    /// Widget de la zone `i` (le premier connu par défaut).
+    /// Découpage de l'écran (`None` : une page à la fois, composition libre).
+    pub fn split(&self) -> Option<crate::zones::Split> {
+        self.layout.grid().map(|grid| crate::zones::Split {
+            grid,
+            first: self.first,
+        })
+    }
+
+    /// Widget de la zone `i` (celui de la zone par défaut s'il n'est pas donné).
     pub fn pane(&self, i: usize) -> &str {
         self.panes
             .get(i)
             .map(String::as_str)
+            .or_else(|| DEFAULT_PANES.get(i).copied())
             .unwrap_or(super::PAGES[0].0)
     }
 }
@@ -341,6 +419,7 @@ mod tests {
             screens: vec!["DP-3".into(), "Corsair XENEON EDGE S1".into()],
             pages: vec!["clock".into(), "media".into()],
             layout: Layout::Split3,
+            first: Some(crate::zones::First::Half),
             panes: vec!["video".into(), "clock".into(), "media".into()],
             sources: vec![Source {
                 name: "Free \"TV\"".into(),
@@ -374,9 +453,28 @@ mod tests {
             eval("{ pages = { 'x' } }").unwrap().pages,
             Config::default().pages
         );
-        // Zones : inconnues remplacées par le défaut, trois au plus.
+        // Zones : inconnues remplacées par le défaut, neuf au plus.
         let c = eval("{ panes = { 'clock', 'radio' } }").unwrap();
-        assert_eq!(c.panes, vec!["clock", "video", "system"]);
-        assert_eq!(c.pane(0), "clock");
+        assert_eq!(c.panes, vec!["clock", "video"]);
+        assert_eq!(
+            (c.pane(0), c.pane(2), c.pane(8)),
+            ("clock", "system", "clock")
+        );
+        assert!(eval("{ first = '1/4' }").is_err());
+    }
+
+    #[test]
+    fn dispositions() {
+        // Anciennes valeurs relues.
+        assert_eq!(
+            eval("{ layout = 'split2' }").unwrap().layout,
+            Layout::Split2
+        );
+        assert_eq!(eval("{ layout = '3x3' }").unwrap().layout, Layout::Grid9);
+        let c = eval("{ layout = '1x3', first = '1/2' }").unwrap();
+        assert_eq!(c.split().unwrap().id(), "1x3:1/2");
+        assert_eq!(c.layout.panes(), 3);
+        assert!(Config::default().split().is_none());
+        assert_eq!(Layout::Dashboard.next(), Layout::Single);
     }
 }

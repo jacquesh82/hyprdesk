@@ -28,7 +28,7 @@ pub const MODULES: &[(&str, &str)] = &[
     ("env", "Réglages → Configuration → Environnement"),
     ("appearance", "Réglages → Fenêtres, Animations → Effets"),
     ("animations", "Réglages → Animations"),
-    ("layouts", "Réglages → Layouts"),
+    ("layouts", "Réglages → Layouts, Écrans"),
     ("rules", "Réglages → Fenêtres → Règles"),
     (
         "system",
@@ -152,7 +152,17 @@ pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
                 body += &config_block("Fenêtres, bordures, décoration, groupes", &opts);
             }
             "animations" => body += &animations_lua(&fx),
-            "layouts" => body += &layouts_lua(&tiling),
+            "layouts" => {
+                body += &layouts_lua(&tiling);
+                // Écrans découpés (Réglages → Écrans) : indépendants du paquet Layouts.
+                if !cfg.general.screen_zones.is_empty() {
+                    body += &format!(
+                        "\n-- {}\n{}",
+                        crate::i18n::tr("Écrans découpés en zones (Réglages → Écrans)"),
+                        crate::zones::screens_lua(&cfg.general.screen_zones)
+                    );
+                }
+            }
             "rules" => {
                 if !hypr.rules.is_empty() {
                     body += &format!("\n-- {}\n", crate::i18n::tr("Règles, dans l'ordre"));
