@@ -677,8 +677,11 @@ impl App {
                  d'avant revient de lui-même. La disposition est écrite dans monitors.lua."
                     .into(),
             ))
-            .push(self.screen_zones_view(s))
-            .push(self.screen_panorama_zone_view(s));
+            .push(self.screen_zones_view(s));
+        // Zone Panorama : seulement quand le paquet Panorama est actif.
+        if self.cfg.plugin_on("panorama") {
+            col = col.push(self.screen_panorama_zone_view(s));
+        }
         col.into()
     }
 

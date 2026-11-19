@@ -4027,3 +4027,16 @@
 "Zone Panorama" = "Panorama zone"
 "Horizontale" = "Horizontal"
 "Verticale" = "Vertical"
+
+# Module de barre LYRA vocale (voix.lua) et Panorama coupé.
+"Écoute du mot « Lyra » et réponses à voix haute : clic pour activer ou couper le micro." = "Listens for the word “Lyra” and answers out loud: click to turn the microphone on or off."
+"LYRA vocale coupée — clic : l'activer (la voix s'installe au premier usage, ~350 Mo)" = "LYRA voice off — click to turn it on (the voice is installed on first use, ~350 MB)"
+"LYRA vocale : installation de la voix…" = "LYRA voice: installing the voice…"
+"LYRA vous écoute" = "LYRA is listening to you"
+"LYRA réfléchit" = "LYRA is thinking"
+"LYRA répond à voix haute" = "LYRA is answering out loud"
+"LYRA vocale à l'écoute : dites « Lyra » — clic pour couper le micro" = "LYRA voice listening: say “Lyra” — click to turn the microphone off"
+"Activer l'écoute" = "Start listening"
+"Couper le micro" = "Turn the microphone off"
+"Réglages de LYRA vocale…" = "LYRA voice settings…"
+"hyprdesk panorama {v} : paquet Panorama coupé (Réglages → Plugins)" = "hyprdesk panorama {v}: Panorama package turned off (Settings → Plugins)"

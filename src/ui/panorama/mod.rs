@@ -90,6 +90,9 @@ fn preview_rule_lua(w: u32, h: u32) -> String {
 /// Relevés (lecteur, système) tant qu'un Panorama est affiché.
 pub const TICK: Duration = Duration::from_secs(1);
 
+/// Module de barre de LYRA vocale (`assets/widgets/integres/voix.lua`).
+pub const VOICE_WIDGET: &str = "voix";
+
 const ICONS: &[&str] = &[
     "media-playback-start-symbolic",
     "media-playback-pause-symbolic",
@@ -143,6 +146,8 @@ pub struct State {
     pub sources_kind: &'static str,
     /// LYRA vocale : état affiché par le bouton micro.
     pub voice: VoiceUi,
+    /// Dernier état écrit pour le module de barre `voix` (`voice_publish`).
+    pub voice_written: String,
     /// Accord demandé par LYRA pendant une demande vocale : (demande, langue).
     pub voice_confirm: Option<(String, String)>,
     /// Micros de PipeWire : (nœud, libellé, par défaut).
@@ -485,6 +490,16 @@ impl App {
     pub(super) fn sync_panorama(&mut self) -> Task<Msg> {
         let want = self.panorama_monitors();
         let mut tasks: Vec<Task<Msg>> = Vec::new();
+        // Paquet coupé : plus de lecture (vidéo, radio) ni d'aperçu ; les
+        // surfaces se ferment plus bas (`want` est vide).
+        if !self.cfg.plugin_on("panorama") {
+            if self.panorama.video.is_some() || self.panorama.radio.is_some() {
+                tasks.push(self.panorama_update(PMsg::VideoClose));
+            }
+            if let Some(p) = self.panorama.preview.take() {
+                tasks.push(iced::window::close(p.win));
+            }
+        }
         let wallpaper = self.cfg.general.panorama.design.wallpaper.clone();
         if wallpaper != self.panorama.wallpaper_requested {
             self.panorama.wallpaper_requested = wallpaper.clone();
@@ -1756,8 +1771,21 @@ impl App {
     /// `hyprdesk panorama <toggle|show|hide|page <n|id>|detect>`.
     pub(super) fn panorama_command(&mut self, a: &str) -> Task<Msg> {
         let mut it = a.split_whitespace();
+        let verb = it.next().unwrap_or("toggle");
+        // Paquet coupé : ses commandes ne font rien, sauf LYRA vocale, que le
+        // module de barre `voix` sert aussi.
+        if verb != "voice" && !self.cfg.plugin_on("panorama") {
+            tracing::warn!(
+                "{}",
+                crate::tr!(
+                    "hyprdesk panorama {v} : paquet Panorama coupé (Réglages → Plugins)",
+                    v = verb
+                )
+            );
+            return Task::none();
+        }
         let first = self.panorama_monitors().into_iter().next();
-        match (it.next().unwrap_or("toggle"), first) {
+        match (verb, first) {
             ("detect", _) => {
                 // Nouvelle passe : les écrans déjà proposés peuvent l'être encore.
                 self.panorama.offered.clear();
@@ -1853,6 +1881,7 @@ impl App {
             }
             // LYRA vocale : on, off, toggle ; ask <fr|en> <texte> simule une
             // demande entendue (réponse dite).
+            ("voice", _) if !self.cfg.plugin_on("assistant") => Task::none(),
             ("voice", _) => match it.next().unwrap_or("toggle") {
                 "ask" => {
                     let lang = it.next().unwrap_or("fr").to_string();
@@ -1947,6 +1976,77 @@ impl App {
     /// Relevés utiles : un Panorama ou son aperçu est affiché.
     pub(super) fn panorama_ticking(&self) -> bool {
         !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some()
+    }
+
+    /// LYRA vocale peut écouter : réglée (`panorama.voice`), LYRA active
+    /// (paquet Assistant), et visible quelque part — le Panorama, ou le
+    /// module de barre `voix`. Sans endroit où voir l'écoute, le micro reste
+    /// fermé.
+    pub(super) fn voice_allowed(&self) -> bool {
+        self.cfg.general.panorama.voice
+            && self.cfg.plugin_on("assistant")
+            && (self.cfg.plugin_on("panorama") || self.voice_in_bar())
+    }
+
+    /// Le module de barre `voix` est posé dans la barre.
+    fn voice_in_bar(&self) -> bool {
+        let ids: Vec<&str> = self
+            .cfg
+            .widgets
+            .iter()
+            .filter(|w| w.type_id == VOICE_WIDGET)
+            .map(|w| w.id.as_str())
+            .collect();
+        !ids.is_empty()
+            && ids
+                .iter()
+                .any(|id| self.bar_has(&crate::config::BarItem::Widget((*id).to_string())))
+    }
+
+    /// État de LYRA vocale pour le module de barre `voix`, écrit dans
+    /// `$XDG_RUNTIME_DIR/hyprdesk/voix` quand il change : `state=` absent
+    /// (LYRA coupée), off, installing, listening, awake, thinking, speaking,
+    /// error ; `detail=` phrase entendue ou erreur ; `settings=` paquet de
+    /// ses réglages.
+    pub(super) fn voice_publish(&mut self) {
+        let on = self.voice_allowed();
+        let (state, detail) = if !self.cfg.plugin_on("assistant") {
+            ("absent", String::new())
+        } else {
+            match &self.panorama.voice {
+                VoiceUi::Installing(step) => ("installing", step.clone()),
+                VoiceUi::Error(e) => ("error", e.clone()),
+                _ if !on => ("off", String::new()),
+                VoiceUi::Idle | VoiceUi::Listening => ("listening", String::new()),
+                VoiceUi::Awake => (
+                    "awake",
+                    self.panorama.voice_heard.clone().unwrap_or_default(),
+                ),
+                VoiceUi::Thinking => (
+                    "thinking",
+                    self.panorama.voice_heard.clone().unwrap_or_default(),
+                ),
+                VoiceUi::Speaking => ("speaking", String::new()),
+            }
+        };
+        let settings = if self.cfg.plugin_on("panorama") {
+            "panorama"
+        } else {
+            "assistant"
+        };
+        let detail = detail.replace('\n', " ");
+        let text = format!("state={state}\ndetail={detail}\nsettings={settings}\n");
+        if text == self.panorama.voice_written {
+            return;
+        }
+        let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir).join("hyprdesk");
+        let _ = std::fs::create_dir_all(&dir);
+        if std::fs::write(dir.join("voix"), &text).is_ok() {
+            self.panorama.voice_written = text;
+        }
     }
 
     /// Surface fermée par le compositeur (écran débranché…) ou fenêtre

@@ -254,8 +254,8 @@ folders, the first match wins:
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `notifications`,
-`session`) are built into the binary, and a file with the same name replaces them.
+The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `mymfa`, `notifications`,
+`session`, `index`, `voix`) are built into the binary, and a file with the same name replaces them.
 
 ```lua
 return {
@@ -380,7 +380,10 @@ The **Plugins** package shows everything that is installed:
   (`disabled_plugins`, or `hyprdesk config set plugin.bar off`) removes it from
   the navigation **and** disables its feature: no bar, no launcher, no
   workspace rules, no icons or widgets on the desktop, plain background,
-  no new-screen notice. `Config::plugin_on(id)` is the only check, placed
+  no new-screen notice; Panorama off: no surface nor strip-screen offer,
+  playback (video, radio) stopped, `hyprdesk panorama …` commands ignored,
+  and LYRA voice stops listening — unless the `voix` bar module is placed,
+  which shows and drives it without the Panorama. `Config::plugin_on(id)` is the only check, placed
   at the point where each feature acts. Desktop, Effects, Theme and Plugins form
   the core and always stay enabled (`CORE_PLUGINS`).
 - **Lua plugins.** Each one shows whether it is active and where it comes from:

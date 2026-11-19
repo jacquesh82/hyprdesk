@@ -254,8 +254,8 @@ de recherche, le premier trouvé l'emporte :
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `notifications`,
-`session`) sont intégrés au binaire, et un fichier du même nom les remplace.
+Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `mymfa`, `notifications`,
+`session`, `index`, `voix`) sont intégrés au binaire, et un fichier du même nom les remplace.
 
 ```lua
 return {
@@ -383,7 +383,10 @@ Le paquet **Plugins** montre tout ce qui est installé :
   (`disabled_plugins`, ou `hyprdesk config set plugin.bar off`) le retire de
   la navigation **et** coupe sa fonction : pas de barre, pas de lanceur, pas
   de règles de workspaces, pas d'icônes ni de widgets sur le bureau, fond uni,
-  pas d'avis de nouvel écran. `Config::plugin_on(id)` est le seul test, posé
+  pas d'avis de nouvel écran ; Panorama coupé : ni surface ni proposition
+  d'écran bandeau, lecture (vidéo, radio) arrêtée, commandes `hyprdesk
+  panorama …` sans effet, et LYRA vocale n'écoute plus — sauf si le module de
+  barre `voix` est posé, qui la montre et la commande sans le Panorama. `Config::plugin_on(id)` est le seul test, posé
   au point où chaque fonction agit. Bureau, Effets, Thème et Plugins forment
   le cœur et restent toujours actifs (`CORE_PLUGINS`).
 - **Plugins Lua.** Chacun indique s'il est actif et d'où il vient : intégré,

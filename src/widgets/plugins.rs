@@ -53,10 +53,7 @@ pub const BUNDLED: &[(&str, &str)] = &[
         "nuit",
         include_str!("../../assets/widgets/integres/nuit.lua"),
     ),
-    (
-        "gpu",
-        include_str!("../../assets/widgets/integres/gpu.lua"),
-    ),
+    ("gpu", include_str!("../../assets/widgets/integres/gpu.lua")),
     (
         "vkbd",
         include_str!("../../assets/widgets/integres/vkbd.lua"),
@@ -76,6 +73,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
     (
         "index",
         include_str!("../../assets/widgets/integres/index.lua"),
+    ),
+    (
+        "voix",
+        include_str!("../../assets/widgets/integres/voix.lua"),
     ),
 ];
 

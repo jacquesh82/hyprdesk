@@ -3536,6 +3536,7 @@ impl App {
         }
         let t = self.update_inner(msg);
         self.publish_status();
+        self.voice_publish();
         let t = Task::batch([t, self.sync_hyprbars()]);
         tracing::trace!(
             message = name,
@@ -5193,8 +5194,11 @@ impl App {
                     .map(|l| Msg::Panorama(panorama::PMsg::Levels(l))),
             );
         }
-        // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama).
-        if self.cfg.general.panorama.voice && crate::voice::ready() {
+        // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama, ou
+        // module de barre `voix`).
+        // Sans endroit où la voir (Panorama coupé, module `voix` absent de la
+        // barre) ou sans LYRA, le micro reste fermé.
+        if self.voice_allowed() && crate::voice::ready() {
             // Micro choisi : changer de micro relance l'écoute.
             subs.push(
                 Subscription::run_with(
