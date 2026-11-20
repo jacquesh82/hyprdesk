@@ -48,7 +48,7 @@ impl App {
             .icon_named("accessories-text-editor", side, fg)
             .unwrap_or_else(|| text("✎").size(side * 0.7).color(fg).into());
         let hint = if command.is_empty() {
-            crate::i18n::tr("Réglez l'éditeur dans Réglages → Panorama → Modules.").to_string()
+            crate::i18n::tr("Réglez l'éditeur dans Réglages → Plugins → Modules.").to_string()
         } else if monitor.is_empty() {
             crate::i18n::tr("S'ouvre sur l'écran actif.").to_string()
         } else {

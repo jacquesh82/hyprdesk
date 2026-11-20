@@ -1764,7 +1764,7 @@ impl HookEvent {
 
 /// Configuration complète, sans référence à l'état Lua (sauf indices de fonctions).
 /// Paquets du cœur : toujours actifs.
-pub const CORE_PLUGINS: &[&str] = &["desktop", "plugins", "effects", "theme"];
+pub const CORE_PLUGINS: &[&str] = &["desktop", "plugins", "modules", "effects", "theme"];
 
 impl General {
     /// Placement effectif : celui déclaré ; si des écrans sont dédiés, tous les

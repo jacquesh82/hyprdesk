@@ -36,7 +36,6 @@ pub const TABS: &[SubTab] = &[
     ("lecteur", "Lecteur"),
     ("style", "Style"),
     ("raccourcis", "Raccourcis"),
-    ("modules", "Modules"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -178,9 +177,6 @@ impl App {
         }
         if self.on_subtab(INFO.id, "pages") {
             return self.panorama_pages_tab();
-        }
-        if self.on_subtab(INFO.id, "modules") {
-            return self.panorama_modules_tab();
         }
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;

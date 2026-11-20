@@ -1,4 +1,4 @@
-//! Réglages → Panorama → Modules : les modules de la bande du profil
+//! Réglages → Plugins → Modules : les modules de la bande du profil
 //! Raccourcis (ajouter, retirer), puis les réglages de ceux qui en ont :
 //! Hue (pont, appairage, pièces montrées) et Notes (commande, écran).
 //!

@@ -16,7 +16,7 @@ pub fn options(cfg: &Config) -> (String, String) {
 pub fn open(command: &str, monitor: &str) -> Result<(), String> {
     if command.trim().is_empty() {
         return Err(crate::i18n::tr(
-            "Aucune commande : réglez-la dans Réglages → Panorama → Modules.",
+            "Aucune commande : réglez-la dans Réglages → Plugins → Modules.",
         )
         .to_string());
     }

@@ -2088,7 +2088,7 @@ impl App {
             tracing::warn!(
                 "{}",
                 crate::tr!(
-                    "hyprdesk panorama {v} : paquet Panorama coupé (Réglages → Plugins)",
+                    "hyprdesk panorama {v} : paquet Panorama coupé (Réglages → Plugins → Installés)",
                     v = verb
                 )
             );

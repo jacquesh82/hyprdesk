@@ -1,4 +1,4 @@
-//! Tuile Hue : les pièces montrées (Réglages → Panorama → Modules), leurs
+//! Tuile Hue : les pièces montrées (Réglages → Plugins → Modules), leurs
 //! lampes en mini tuiles, curseurs de luminosité, « Tout éteindre ».
 use std::time::{Duration, Instant};
 
@@ -196,7 +196,7 @@ impl App {
         if !self.panorama.hue_paired {
             col = col.push(
                 text(crate::i18n::tr(
-                    "Pont Hue non appairé : Réglages → Panorama → Modules, puis le bouton du pont.",
+                    "Pont Hue non appairé : Réglages → Plugins → Modules, puis le bouton du pont.",
                 ))
                 .size(13.0 * t)
                 .color(dim),

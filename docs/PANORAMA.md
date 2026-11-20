@@ -30,7 +30,7 @@ ajoute ou retire un module) :
 
 Un média en cours (vidéo, radio, musique) se loge sous le sélecteur de
 profils, à la place des touches. Le pont Hue s'appaire dans Réglages →
-Panorama → Modules (bouton du pont, puis « Appairer ») ; sa clé reste dans
+Plugins → Modules (bouton du pont, puis « Appairer ») ; sa clé reste dans
 `$XDG_STATE_HOME/hyprdesk/hue.json` (0600). Options des modules :
 `plugin_options.panorama`, clés `hue.hidden` (pièces masquées),
 `notes.command`, `notes.monitor`.

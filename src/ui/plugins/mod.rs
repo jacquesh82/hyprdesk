@@ -36,6 +36,7 @@ pub mod launcher;
 pub mod layouts;
 pub mod lock;
 pub mod login;
+pub mod modules;
 pub mod network;
 pub mod panorama;
 pub mod passwords;
@@ -80,6 +81,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     apptheme::INFO,
     wallpaper::INFO,
     widgets::INFO,
+    modules::INFO,
     bar::INFO,
     panorama::INFO,
     screens::INFO,
@@ -119,11 +121,16 @@ pub struct Group {
 pub const GROUPS: &[Group] = &[
     Group {
         label: "Bureau",
-        ids: &["desktop", "wallpaper", "icons", "widgets"],
+        ids: &["desktop", "wallpaper", "icons"],
     },
     Group {
         label: "Barre et lanceur",
         ids: &["bar", "launcher", "panorama"],
+    },
+    // Ce qui s'ajoute au bureau : modules du Panorama, widgets, plugins installés.
+    Group {
+        label: "Plugins",
+        ids: &["modules", "widgets", "plugins"],
     },
     Group {
         label: "Apparence",
@@ -162,12 +169,12 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Configuration",
-        ids: &["history", "hyprconfig", "plugins", "share", "about"],
+        ids: &["history", "hyprconfig", "share", "about"],
     },
 ];
 
 /// Paquets affichés seulement en configuration avancée.
-pub const ADVANCED_ONLY: &[&str] = &["effects", "share", "plugins"];
+pub const ADVANCED_ONLY: &[&str] = &["effects", "share"];
 
 /// Onglets affichés seulement en configuration avancée : (paquet, onglet).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
@@ -425,9 +432,10 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "reseau" | "réseau" | "wifi" | "wi-fi" | "vpn" => "network",
         "bluetooth" => "bt",
         "energie" | "énergie" | "power" | "batterie" => "energy",
-        "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "modules" => {
-            "panorama"
+        "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "module" => {
+            "modules"
         }
+        "installes" | "installés" | "installed" | "extensions" => "plugins",
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
         "clavier" | "souris" | "keyboard" | "mouse" | "touchpad" | "pave" | "pavé" | "entrees"
         | "entrées" => "input",
@@ -558,6 +566,7 @@ fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
         "lock" => app.lock_page(),
         "wallpaper" => app.tab_wallpaper(p),
         "widgets" => app.tab_widgets(p),
+        "modules" => app.modules_page(),
         "bar" => app.tab_bar(),
         "panorama" => app.panorama_page(),
         "screens" => app.tab_screens(),
@@ -597,6 +606,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         ]),
         "screens" => App::detect_screens(),
         "panorama" => Task::batch([panorama::load(), panorama::modules::load()]),
+        "modules" => panorama::modules::load(),
         "keys" => app.keys_load(),
         "index" => {
             index::init_fields(app);
@@ -748,7 +758,12 @@ mod tests {
         for (p, t) in ADVANCED_TABS {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
-        assert!(!visible("plugins", false) && visible("plugins", true));
+        assert!(!visible("share", false) && visible("share", true));
+        // Groupe Plugins : modules, widgets et plugins installés, toujours visibles.
+        let g = GROUPS.iter().find(|g| g.label == "Plugins").unwrap();
+        assert_eq!(g.ids, &["modules", "widgets", "plugins"]);
+        assert!(g.ids.iter().all(|id| visible(id, false)));
+        assert_eq!(find("hue").map(|p| p.id), Some("modules"));
         assert_eq!(visible_tabs("desktop", false).len(), 3);
         assert_eq!(visible_tabs("desktop", true).len(), 4);
     }

@@ -20,7 +20,7 @@ use crate::config::{CORE_PLUGINS, WidgetSource};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "plugins",
-    label: "Plugins",
+    label: "Installés",
     icon: "application-x-addon",
     summary: "Paquets intégrés et plugins Lua : état, activation, ajout d'un plugin tiers.",
     builtin: true,

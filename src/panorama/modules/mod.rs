@@ -1,7 +1,7 @@
 //! Modules du plugin Panorama : ce que la bande du profil Raccourcis (et
 //! les compositions) peuvent montrer. Ici la logique, sans interface ; les
 //! tuiles sont dans `ui::plugins::panorama::surface::modules`, leurs réglages
-//! dans Réglages → Panorama → Modules (`ui::plugins::panorama::modules`).
+//! dans Réglages → Plugins → Modules (`ui::plugins::panorama::modules`).
 //!
 //! Options des modules : `plugin_options.panorama`, clés `<module>.<option>`
 //! (`hue.hidden`, `notes.command`, `notes.monitor`).
