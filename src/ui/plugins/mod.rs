@@ -434,7 +434,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "module" => {
             "modules"
         }
-        "installes" | "installés" | "installed" | "extensions" => "plugins",
+        "installes" | "installés" | "installed" => "plugins",
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
         "clavier" | "souris" | "keyboard" | "mouse" | "touchpad" | "pave" | "pavé" | "entrees"
         | "entrées" => "input",

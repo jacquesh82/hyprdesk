@@ -215,9 +215,12 @@ At startup, hyprdesk moves the `hl.bind` lines of `hyprland.lua` (with the
 comments above them and the locals they use, such as `mainMod`) into
 `binds.lua`, next to it, which `hyprland.lua` loads with `require("binds")`.
 A copy is kept (`hyprland.lua.avant-hyprdesk-binds.bak`), and everything is
-put back if Hyprland reports a new error. `binds.lua` stays yours; hyprdesk
-only appends shortcuts that later appear in `hyprland.lua`. Preview with
-`hyprdesk binds`.
+put back if Hyprland reports a new error. `binds.lua` is managed by hyprdesk:
+it is regenerated on every change made in Settings → Shortcuts, from what it
+really defines (variables replaced by their value, loops unrolled, one binding
+per line, your section comments and disabled bindings kept). A hand-written
+file is copied (`binds.lua.avant-hyprdesk-binds.bak`) the first time. Preview
+with `hyprdesk binds generate`, apply with `hyprdesk binds generate --write`.
 
 <details>
 <summary>Keyboard navigation in the dock</summary>

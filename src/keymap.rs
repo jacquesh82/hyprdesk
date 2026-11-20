@@ -252,9 +252,15 @@ fn eval(expr: &str, vars: &BTreeMap<String, String>) -> Option<String> {
             .strip_prefix('"')
             .and_then(|p| p.strip_suffix('"'))
             .or_else(|| p.strip_prefix('\'').and_then(|p| p.strip_suffix('\'')));
-        match quoted {
-            Some(s) => out += s,
-            None => out += vars.get(p)?,
+        // `os.getenv("HOME")` (binds.lua généré : `local HOME = os.getenv("HOME")`).
+        let env = p
+            .strip_prefix("os.getenv(")
+            .and_then(|r| r.strip_suffix(')'))
+            .map(|r| r.trim().trim_matches(|c| c == '"' || c == '\''));
+        match (quoted, env) {
+            (Some(s), _) => out += s,
+            (None, Some(name)) => out += &std::env::var(name).ok()?,
+            (None, None) => out += vars.get(p)?,
         }
     }
     Some(out)

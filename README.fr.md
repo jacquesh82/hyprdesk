@@ -221,9 +221,13 @@ commentaires qui les annoncent et les locales dont elles se servent, comme
 `mainMod`) dans `binds.lua`, à côté, que `hyprland.lua` charge par
 `require("binds")`. Une copie est gardée
 (`hyprland.lua.avant-hyprdesk-binds.bak`), et tout est remis en place si
-Hyprland signale une nouvelle erreur. `binds.lua` reste à vous : hyprdesk n'y
-fait qu'ajouter les raccourcis apparus ensuite dans `hyprland.lua`. Aperçu :
-`hyprdesk binds`.
+Hyprland signale une nouvelle erreur. `binds.lua` est tenu par hyprdesk : il
+est régénéré à chaque changement fait dans Réglages → Raccourcis, d'après ce
+qu'il définit vraiment (variables remplacées par leur valeur, boucles
+dépliées, un raccourci par ligne, vos commentaires de section et les
+raccourcis désactivés gardés). Un fichier écrit à la main est d'abord copié
+(`binds.lua.avant-hyprdesk-binds.bak`). Aperçu : `hyprdesk binds generate` ;
+application : `hyprdesk binds generate --write`.
 
 <details>
 <summary>Navigation au clavier dans le dock</summary>

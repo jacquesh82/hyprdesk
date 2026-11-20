@@ -475,6 +475,20 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
         }
     }
+    // binds.lua tenu par hyprdesk (MLG-198) : un fichier écrit à la main est
+    // copié puis régénéré ; Hyprland vérifie, tout est rendu s'il proteste.
+    match binds_file::adopt(&path) {
+        Ok(Some(bak)) => {
+            let msg = crate::tr!(
+                "hyprdesk : binds.lua est maintenant tenu par hyprdesk (Réglages → Raccourcis) ; copie : {b}",
+                b = bak.display()
+            );
+            tracing::info!("{msg}");
+            hypr::notify(1, 10000, &msg);
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!("{e}"),
+    }
     // Réglages de Hyprland tenus par hyprdesk : repris de hyprland.lua (lignes
     // commentées), écrits dans les fichiers générés (MLG-139). Vérifié par
     // Hyprland : tout est rendu tel quel s'il signale une erreur nouvelle.
@@ -1645,6 +1659,39 @@ fn main() -> ExitCode {
         // Raccourcis de hyprland.lua rangés dans binds.lua (MLG-111) : aperçu,
         // ou `split` pour le faire tout de suite.
         "binds" => {
+            // binds.lua tel que hyprdesk l'écrit (MLG-198) : `generate` l'affiche,
+            // `generate --write` le régénère (copie si écrit à la main).
+            if args.get(1).map(String::as_str) == Some("generate") {
+                if args.iter().any(|a| a == "--write") {
+                    return match binds_file::adopt(&config_path) {
+                        Ok(Some(b)) => {
+                            println!(
+                                "{}",
+                                crate::tr!("binds.lua régénéré ; copie : {b}", b = b.display())
+                            );
+                            ExitCode::SUCCESS
+                        }
+                        Ok(None) => {
+                            println!("{}", crate::i18n::tr("binds.lua déjà à jour"));
+                            ExitCode::SUCCESS
+                        }
+                        Err(e) => {
+                            eprintln!("{e}");
+                            ExitCode::FAILURE
+                        }
+                    };
+                }
+                return match std::fs::read_to_string(binds_file::path(&config_path)) {
+                    Ok(src) => {
+                        print!("{}", binds_file::generate(&src));
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("binds.lua : {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
             // Accord de binds.lua avec ce que hyprdesk tient (MLG-140).
             if args.get(1).map(String::as_str) == Some("sync") {
                 let dry = args.iter().any(|a| a == "--dry-run" || a == "-n");

@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Changed
 
+- **`binds.lua` managed by hyprdesk** (MLG-198). It is regenerated from what
+  it really defines (variables replaced by their value, loops unrolled, one
+  binding per line; section comments, commented-out code and disabled
+  bindings kept; a binding whose action is a Lua function is kept as
+  written). A hand-written file is copied once, then taken over at startup;
+  Hyprland checks every write and everything is put back on a new error.
+  `hyprdesk binds generate [--write]` previews or applies it.
 - **Settings: English identifiers, consistent listing** (MLG-193). The
   bundled widgets are renamed `network`, `battery`, `keyboard`, `player`,
   `updates`, `nightlight`, `removable` and `voice` (were `reseau`,
