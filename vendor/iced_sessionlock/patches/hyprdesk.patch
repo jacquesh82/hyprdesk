@@ -1,0 +1,15 @@
+--- a/src/multi_window.rs
++++ b/src/multi_window.rs
+@@ -497,7 +497,12 @@
+                     panic!("{error:?}");
+                 }
+                 _ => {
++                    // hyprdesk : surface perdue ou périmée (réveil de veille,
++                    // pilote NVIDIA) : la reconfigurer au prochain dessin,
++                    // sinon l'écran de verrouillage reste noir pour de bon.
+                     tracing::error!("Error {error:?} when presenting surface.");
++                    self.cached_layer_dimensions.remove(&iced_id);
++                    ev.request_refresh(session_lock_id, RefreshRequest::NextFrame);
+                 }
+             },
+         }

@@ -1887,8 +1887,6 @@ dependencies = [
 [[package]]
 name = "iced_sessionlock"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "519d0ba8279b4a2d9ce19bbc1824078135cc72c0dadf0dbb385c1507e0036f2f"
 dependencies = [
  "futures",
  "iced_core",

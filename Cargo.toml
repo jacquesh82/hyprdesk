@@ -58,3 +58,6 @@ iced_layershell = { path = "vendor/iced_layershell" }
 # de rendu). Base de polices commune au processus (MLG-156).
 iced_wgpu = { path = "vendor/iced_wgpu" }
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
+# Écran de verrouillage noir au réveil : la surface n'était jamais
+# reconfigurée après un échec de présentation (MLG-175).
+iced_sessionlock = { path = "vendor/iced_sessionlock" }

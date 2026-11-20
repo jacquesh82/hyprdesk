@@ -57,6 +57,7 @@ pub fn conf(c: &IdleCfg, exe: &str) -> String {
          lock_cmd = {exe} lock\n    \
          before_sleep_cmd = loginctl lock-session\n    \
          after_sleep_cmd = {on}\n    \
+         inhibit_sleep = 3\n    \
          ignore_dbus_inhibit = false\n    \
          ignore_systemd_inhibit = false\n\
          }}\n",
@@ -180,6 +181,8 @@ mod tests {
         let s = conf(&c, "/opt/hyprdesk bin/hyprdesk");
         assert!(s.contains("lock_cmd = '/opt/hyprdesk bin/hyprdesk' lock"));
         assert!(s.contains("before_sleep_cmd = loginctl lock-session"));
+        // La veille attend que le verrou soit affiché sur chaque écran.
+        assert!(s.contains("inhibit_sleep = 3"));
         assert!(s.contains(
             r#"after_sleep_cmd = hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'"#
         ));
