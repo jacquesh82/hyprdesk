@@ -10,10 +10,16 @@
 -- Sélecteurs : chaque règle accepte `workspace` et `monitor` (chaîne, nombre,
 -- liste, ou "*" pour tous). Fond d'écran et mode : la règle la plus précise
 -- l'emporte. Icônes et widgets : ils s'additionnent.
+--
+-- Vide par défaut : le bureau de départ (icônes, widgets, barre) est dans
+-- settings.lua et se règle entièrement dans les Réglages. Ce fichier sert au
+-- Lua avancé (hd.on, widgets calculés par du code…) ; il peut aussi être
+-- supprimé, hyprdesk ne le recrée pas tant que settings.lua existe.
+-- Les exemples ci-dessous, décommentés, passeraient avant les Réglages.
 
 -- Tout ce qui est décommenté ici prend le pas sur l'écran ⚙.
-hd.config({
-    terminal = "kitty",
+-- hd.config({
+--     terminal = "kitty",
     -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", lock = "SUPER + ALT + L", leave = "SUPER + Escape" },
     -- suspend_binds   = true,       -- bureau affiché : raccourcis de Hyprland suspendus
     -- float_launched  = true,       -- ouvert depuis le bureau affiché : flottant et centré
@@ -41,7 +47,7 @@ hd.config({
     -- grid  = { cell = 96, gap = 16, margin = 32, icon_size = 48 },
     -- theme = { name = "Ardoise", fg = "#f2f4fc", bg = "#171b27", accent = "#a69cff",
     --           effects = { bar = { opacity = 0.72, blur = true }, widgets = { opacity = 0.84 } } },
-})
+-- })
 
 -- Fonds d'écran (ou onglet « Fond d'écran » de l'écran ⚙) ---------------------
 -- hd.wallpaper({ path = "~/.wallpapers/default.jpg", fit = "cover" })
@@ -55,15 +61,15 @@ hd.config({
 -- hd.desktop({ workspace = "special:magic", inherit = false })
 
 -- Icônes (app = identifiant .desktop, path = fichier/dossier, exec = commande)
-hd.icon({ app = "kitty" })
-hd.icon({ label = "Dossier perso", path = "~", icon = "user-home" })
-hd.icon({ label = "htop", exec = "htop", terminal = true, icon = "utilities-system-monitor" })
+-- hd.icon({ app = "kitty" })
+-- hd.icon({ label = "Dossier perso", path = "~", icon = "user-home" })
+-- hd.icon({ label = "htop", exec = "htop", terminal = true, icon = "utilities-system-monitor" })
 
 -- Widgets -------------------------------------------------------------------
-hd.widget("clock",    { anchor = "top-right", format = "%H:%M", size = 72, card = false })
-hd.widget("calendar", { anchor = "right" })
-hd.widget("system",   { anchor = "bottom-right", show = { "cpu", "ram", "disk:/" } })
-hd.widget("media",    { anchor = "bottom-left", x = 48 })
+-- hd.widget("clock",    { anchor = "top-right", format = "%H:%M", size = 72, card = false })
+-- hd.widget("calendar", { anchor = "right" })
+-- hd.widget("system",   { anchor = "bottom-right", show = { "cpu", "ram", "disk:/" } })
+-- hd.widget("media",    { anchor = "bottom-left", x = 48 })
 -- hd.widget("command", { anchor = "top-left", exec = "curl -s 'wttr.in/?format=3'", interval = 900 })
 -- hd.widget("lua", { anchor = "left", interval = 60, render = function()
 --     return "Bonjour " .. (os.getenv("USER") or "") .. " — " .. os.date("%A %d %B")
@@ -71,13 +77,13 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 
 -- Barre native (ou Réglages ⚙ → Barre) : au-dessus des fenêtres, zone réservée.
 -- Modules : "workspaces", "window", "volume", "desktop", ou tout widget/plugin.
-hd.bar({
-    position = "top", height = 36,
+-- hd.bar({
+--     position = "top", height = 36,
     -- style = "graphite",  -- lame gravée monochrome : bas, 40 px, marge 10 par défaut,
-    left   = { "workspaces", "window" },
-    center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
-})
+--     left   = { "workspaces", "window" },
+--     center = { { "clock", format = "%a %d %b  %H:%M" } },
+--     right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
+-- })
 
 -- Session : composants lancés et supervisés par hyprdesk (relancés s'ils
 -- plantent, arrêtés avec lui). Retirez-les alors de l'autostart de Hyprland.

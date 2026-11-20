@@ -3013,9 +3013,13 @@ pub fn load_file(path: &Path) -> Result<Loaded, String> {
     if let Ok(src) = std::fs::read_to_string(&sp) {
         chunks.push((src, sp.display().to_string(), Origin::Settings));
     }
-    let src = std::fs::read_to_string(path)
-        .map_err(|e| format!("lecture de {} : {e}", path.display()))?;
-    chunks.push((src, path.display().to_string(), Origin::User));
+    // hyprdesk.lua absent : permis dès que les Réglages existent (tout s'y
+    // règle) ; sans l'un ni l'autre, il n'y a pas de configuration.
+    match std::fs::read_to_string(path) {
+        Ok(src) => chunks.push((src, path.display().to_string(), Origin::User)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !chunks.is_empty() => {}
+        Err(e) => return Err(format!("lecture de {} : {e}", path.display())),
+    }
     load_chunks(&chunks, base)
 }
 

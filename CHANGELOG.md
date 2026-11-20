@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Changed
 
+- **`hyprdesk.lua` optional, sample fully commented** (MLG-199). A first
+  installation writes the starting desktop (icons, widgets, bar) to
+  `settings.lua`, adjustable in Settings, and a `hyprdesk.lua` with comments
+  only. `hyprdesk.lua` is no longer recreated once `settings.lua` exists, and
+  the configuration loads without it. `config reset` puts the starting
+  desktop back instead of emptying the settings.
 - **`binds.lua` managed by hyprdesk** (MLG-198). It is regenerated from what
   it really defines (variables replaced by their value, loops unrolled, one
   binding per line; section comments, commented-out code and disabled

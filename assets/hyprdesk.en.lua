@@ -10,10 +10,16 @@
 -- Selectors: every rule accepts `workspace` and `monitor` (string, number,
 -- list, or "*" for all). Wallpaper and mode: the most specific rule
 -- wins. Icons and widgets: they add up.
+--
+-- Empty by default: the starting desktop (icons, widgets, bar) lives in
+-- settings.lua and is fully adjustable in Settings. This file is for advanced
+-- Lua (hd.on, widgets computed by code…); it can also be deleted, hyprdesk
+-- does not recreate it as long as settings.lua exists.
+-- The examples below, once uncommented, would take precedence over Settings.
 
 -- Anything uncommented here takes precedence over the ⚙ screen.
-hd.config({
-    terminal = "kitty",
+-- hd.config({
+--     terminal = "kitty",
     -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", lock = "SUPER + ALT + L", leave = "SUPER + Escape" },
     -- suspend_binds   = true,       -- desktop shown: Hyprland shortcuts suspended
     -- float_launched  = true,       -- opened from the shown desktop: floating and centered
@@ -41,7 +47,7 @@ hd.config({
     -- grid  = { cell = 96, gap = 16, margin = 32, icon_size = 48 },
     -- theme = { name = "Ardoise", fg = "#f2f4fc", bg = "#171b27", accent = "#a69cff",
     --           effects = { bar = { opacity = 0.72, blur = true }, widgets = { opacity = 0.84 } } },
-})
+-- })
 
 -- Wallpapers (or the "Wallpaper" tab of the ⚙ screen) -----------------------
 -- hd.wallpaper({ path = "~/.wallpapers/default.jpg", fit = "cover" })
@@ -55,15 +61,15 @@ hd.config({
 -- hd.desktop({ workspace = "special:magic", inherit = false })
 
 -- Icons (app = .desktop identifier, path = file/folder, exec = command)
-hd.icon({ app = "kitty" })
-hd.icon({ label = "Home folder", path = "~", icon = "user-home" })
-hd.icon({ label = "htop", exec = "htop", terminal = true, icon = "utilities-system-monitor" })
+-- hd.icon({ app = "kitty" })
+-- hd.icon({ label = "Home folder", path = "~", icon = "user-home" })
+-- hd.icon({ label = "htop", exec = "htop", terminal = true, icon = "utilities-system-monitor" })
 
 -- Widgets -------------------------------------------------------------------
-hd.widget("clock",    { anchor = "top-right", format = "%H:%M", size = 72, card = false })
-hd.widget("calendar", { anchor = "right" })
-hd.widget("system",   { anchor = "bottom-right", show = { "cpu", "ram", "disk:/" } })
-hd.widget("media",    { anchor = "bottom-left", x = 48 })
+-- hd.widget("clock",    { anchor = "top-right", format = "%H:%M", size = 72, card = false })
+-- hd.widget("calendar", { anchor = "right" })
+-- hd.widget("system",   { anchor = "bottom-right", show = { "cpu", "ram", "disk:/" } })
+-- hd.widget("media",    { anchor = "bottom-left", x = 48 })
 -- hd.widget("command", { anchor = "top-left", exec = "curl -s 'wttr.in/?format=3'", interval = 900 })
 -- hd.widget("lua", { anchor = "left", interval = 60, render = function()
 --     return "Hello " .. (os.getenv("USER") or "") .. " — " .. os.date("%A %d %B")
@@ -71,13 +77,13 @@ hd.widget("media",    { anchor = "bottom-left", x = 48 })
 
 -- Native bar (or Settings ⚙ → Bar): above the windows, reserved area.
 -- Modules: "workspaces", "window", "volume", "desktop", or any widget/plugin.
-hd.bar({
-    position = "top", height = 36,
+-- hd.bar({
+--     position = "top", height = 36,
     -- style = "graphite",  -- engraved monochrome slab: bottom, 40 px, 10 px margin by default,
-    left   = { "workspaces", "window" },
-    center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
-})
+--     left   = { "workspaces", "window" },
+--     center = { { "clock", format = "%a %d %b  %H:%M" } },
+--     right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
+-- })
 
 -- Session: components launched and supervised by hyprdesk (restarted if they
 -- crash, stopped along with it). Remove them from Hyprland's autostart then.

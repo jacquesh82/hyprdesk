@@ -322,8 +322,8 @@ hd_ok "$("$BIN" --version 2>/dev/null || echo hyprdesk) → $BIN"
 # Les chemins « ~/.config/… » sont affichés tels quels : tilde volontaire.
 # shellcheck disable=SC2088
 hd_step "🛠" "Configuration" "Configuration" \
-    "~/.config/hypr/hyprdesk.lua créé s'il manque ; une configuration existante est gardée." \
-    "~/.config/hypr/hyprdesk.lua created if missing; an existing configuration is kept."
+    "configuration de départ créée s'il n'y en a pas (hyprdesk.lua commenté, bureau dans les Réglages) ; une configuration existante est gardée." \
+    "starting configuration created if there is none (commented hyprdesk.lua, desktop in Settings); an existing configuration is kept."
 HD_HINT="$(t "hyprdesk check signale une erreur dans ~/.config/hypr/hyprdesk.lua : corrigez la ligne indiquée dans le journal" \
              "hyprdesk check reports an error in ~/.config/hypr/hyprdesk.lua: fix the line shown in the log")"
 hd_run "$(t "configuration de départ" "starter configuration")" "$BIN" init

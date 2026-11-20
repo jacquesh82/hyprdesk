@@ -301,6 +301,9 @@ to the monitor page. Changes in the drawer apply live and save automatically to
 pages.
 
 For a setup you can keep in your dotfiles, edit `~/.config/hypr/hyprdesk.lua`.
+It ships fully commented (the starting desktop lives in `settings.lua`), takes
+precedence over Settings, and is optional: delete it and hyprdesk does not
+recreate it as long as `settings.lua` exists.
 
 ```lua
 hd.wallpaper({ path = "~/.wallpapers/default.jpg" })
@@ -346,8 +349,9 @@ See the [configuration reference](docs/ADVANCED.md#configuration-reference).
   each change, and after each manual edit) and reverts to any of them; also
   `hyprdesk config history`, `diff <id>` and `rollback <id|date> --yes`.
 - **Restore the default configuration** in **Settings → About**, or run
-  `hyprdesk config reset --yes`, to restore the sample `hyprdesk.lua` and clear
-  the settings saved in the drawer. Both files are backed up under
+  `hyprdesk config reset --yes`, to restore the sample `hyprdesk.lua` (comments
+  only) and put the starting desktop back in place of the settings saved in the
+  drawer. Both files are backed up under
   `~/.config/hypr/hyprdesk/sauvegardes/<date>/`. Hyprland files, themes, and
   widgets are outside the scope of the reset.
 

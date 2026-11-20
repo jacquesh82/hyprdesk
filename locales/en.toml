@@ -4196,3 +4196,4 @@
 "-- hyprland.lua le charge par require(\"binds\"). Réécrit à chaque changement :" = "-- hyprland.lua loads it with require(\"binds\"). Rewritten on every change:"
 "-- variables remplacées par leur valeur, boucles dépliées, un raccourci par ligne." = "-- variables replaced by their value, loops unrolled, one binding per line."
 "-- Une retouche à la main est reprise, puis remise en forme à l'écriture suivante." = "-- A manual edit is picked up, then reformatted on the next write."
+"Dossier perso" = "Home folder"

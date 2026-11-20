@@ -328,6 +328,9 @@ direct et s'enregistrent d'eux-mêmes dans `settings.lua`. La bascule
 
 Pour un setup versionnable dans vos dotfiles, éditez
 `~/.config/hypr/hyprdesk.lua`.
+Il est livré tout en commentaires (le bureau de départ est dans
+`settings.lua`), passe avant les Réglages, et reste facultatif : supprimé, il
+n'est pas recréé tant que `settings.lua` existe.
 
 ```lua
 hd.wallpaper({ path = "~/.wallpapers/default.jpg" })
@@ -377,8 +380,8 @@ reste active. Voir la [référence de configuration](docs/ADVANCED.md#configurat
   permet d'y revenir ; aussi `hyprdesk config history`, `diff <id>` et
   `rollback <id|date> --yes`.
 - **Restaurer la configuration par défaut**, dans **Réglages → À propos** ou
-  par `hyprdesk config reset --yes`, remet le `hyprdesk.lua` d'exemple et
-  efface les réglages du tiroir. Les deux fichiers sont sauvegardés sous
+  par `hyprdesk config reset --yes`, remet le `hyprdesk.lua` d'exemple (que des
+  commentaires) et remplace les réglages du tiroir par le bureau de départ. Les deux fichiers sont sauvegardés sous
   `~/.config/hypr/hyprdesk/sauvegardes/<date>/`. Les fichiers de Hyprland, les
   thèmes et les widgets restent hors de la remise à zéro.
 
