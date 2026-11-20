@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Changed
 
+- **App theming on by default** (MLG-207). Every supported application
+  (kitty, Thunar) takes hyprdesk's theme from the start; unchecking them all
+  in Settings → App theming (`app_themes = {}`) is kept as “none”.
 - **Default configuration: screenshots, SUPER + drag, 5 workspaces**
   (MLG-204). A new “Screenshots” essential binds Print (area),
   SUPER + Print (screen) and ALT + Print (window) to `hyprdesk capture`,
@@ -278,6 +281,27 @@ and this project adheres to
   command still asks; the password is kept nowhere. Off by default; switch
   in Settings → Plugins → Updates → Configure, in the widget menu, or
   `hyprdesk updates --polkit on|off`.
+
+### Fixed
+
+- **One screenshot at a time** (MLG-207). Pressing a capture shortcut again
+  while an area is being selected (or the screen is frozen) no longer stacks
+  a second capture on top: the extra press is ignored. The next capture is
+  possible as soon as the selection ends, without waiting for the
+  notification.
+- **Shortcuts no longer written twice after a reset** (MLG-206). Resetting
+  the shortcuts re-enabled the original lines of `binds.lua` (clipboard
+  script, power menu, hyprshot…) and then replaced them again by their
+  hyprdesk equivalent, already written: SUPER + V, SUPER + W,
+  SUPER + SHIFT + Q and SUPER + Print ended up twice and ran twice (a menu
+  opened and closed at once). The original is now only switched off when its
+  hyprdesk equivalent is there, and `hyprdesk binds sync` (run at startup)
+  removes a hyprdesk shortcut written twice.
+- **Conflict with a shortcut set at runtime** (MLG-206). A shortcut bound
+  in Hyprland but written in no file was reported as coming from
+  `hyprland.lua`. `hyprdesk keys` and Settings → Shortcuts now say it is
+  found in neither `hyprland.lua` nor `binds.lua`, and that `hyprctl reload`
+  removes it.
 
 ## [0.1.7] - 2026-11-18
 

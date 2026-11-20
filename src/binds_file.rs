@@ -1411,10 +1411,42 @@ pub fn sync_hyprdesk(
             }
             continue;
         }
+        let twin = |o: &&crate::keymap::SourceBind| {
+            o.line != b.line && o.combo.0 == b.combo.0 && o.combo.1.eq_ignore_ascii_case(&b.combo.1)
+        };
         if b.action.contains("hyprdesk") {
+            // Le même raccourci écrit deux fois (MLG-206) : la commande
+            // partirait deux fois, un menu s'ouvrirait puis se refermerait.
+            if binds
+                .iter()
+                .filter(twin)
+                .any(|o| o.line < b.line && o.call == b.call)
+                && let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Delete)
+            {
+                out = n;
+                done.push(crate::tr!(
+                    "binds.lua:{n} : doublon retiré ({a})",
+                    n = b.line,
+                    a = b.action
+                ));
+            }
             continue;
         }
         if let Some((_, sub)) = EQUIVALENTS.iter().find(|(m, _)| b.action.contains(m)) {
+            // L'équivalent hyprdesk est déjà là (ligne d'origine réactivée
+            // par une remise à zéro) : l'outil d'origine est seulement coupé.
+            let wanted = format!("{exe} {sub}");
+            if binds.iter().filter(twin).any(|o| o.action.contains(&wanted)) {
+                if let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Disable) {
+                    out = n;
+                    done.push(crate::tr!(
+                        "binds.lua:{n} : désactivé, tenu par hyprdesk ({a})",
+                        n = b.line,
+                        a = b.action
+                    ));
+                }
+                continue;
+            }
             let call = format!("hl.dsp.exec_cmd(\"{exe} {sub}\")");
             if let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Action(call)) {
                 out = n;
@@ -1463,6 +1495,29 @@ for ws, code in ipairs({ 10, 11 }) do
 end
 hl.bind(mainMod .. " + T", function() hl.dispatch(hl.dsp.window.close()) end)
 "#;
+
+    #[test]
+    fn remise_a_zero_sans_doublon() {
+        // Après « tous les raccourcis réactivés » : la ligne d'origine et son
+        // équivalent hyprdesk sont actifs tous les deux ; un doublon traîne.
+        let dir = std::env::temp_dir().join(format!("hyprdesk-sync-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("hyprdesk.lua");
+        let src = "hl.bind(\"SUPER + V\", hl.dsp.exec_cmd(\"/x/scripts/clipboard\"))\n\
+                   hl.bind(\"SUPER + V\", hl.dsp.exec_cmd(\"hyprdesk clipboard\"))\n\
+                   hl.bind(\"SUPER + W\", hl.dsp.exec_cmd(\"hyprdesk switch\"))\n\
+                   hl.bind(\"SUPER + W\", hl.dsp.exec_cmd(\"hyprdesk switch\"))\n";
+        std::fs::write(path(&cfg_path), src).unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.general.keys.media = false;
+        cfg.general.keys.take.clear();
+        cfg.general.apps_launcher.unified = false;
+        let done = sync_hyprdesk(&cfg_path, &cfg, true).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(done.len(), 2, "{done:?}");
+        assert!(done.iter().any(|d| d.contains("binds.lua:1 ")), "{done:?}");
+        assert!(done.iter().any(|d| d.contains("binds.lua:4 ")), "{done:?}");
+    }
 
     #[test]
     fn binds_genere_deplie_et_garde() {

@@ -3621,6 +3621,11 @@ impl App {
     fn update(&mut self, msg: Msg) -> Task<Msg> {
         let started = Instant::now();
         let name = msg_name(&msg);
+        // Commande reçue (raccourci, CLI) : nommée dans le journal, pour
+        // savoir si un raccourci est arrivé jusqu'ici (MLG-206).
+        if let Msg::Control(c) = &msg {
+            tracing::debug!(command = c.as_str(), "commande reçue");
+        }
         self.count_msg(&msg);
         match self.damage_of(&msg) {
             Damage::All => iced_layershell::damage::all(),

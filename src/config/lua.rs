@@ -1108,7 +1108,15 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(v) = opt_bool(t, "tour_seen", CTX)? {
         g.tour_seen = v;
     }
-    if let Some(list) = string_list(t.get("app_themes")?, "app_themes", CTX)? {
+    // Liste vide : aucune application (toutes décochées), le défaut étant
+    // toutes (MLG-207).
+    let app_themes: Value = t.get("app_themes")?;
+    if let Value::Table(l) = &app_themes
+        && l.raw_len() == 0
+        && l.pairs::<Value, Value>().next().is_none()
+    {
+        g.app_themes.clear();
+    } else if let Some(list) = string_list(app_themes, "app_themes", CTX)? {
         for id in &list {
             if crate::apptheme::target(id).is_none() {
                 let known: Vec<&str> = crate::apptheme::TARGETS.iter().map(|t| t.id).collect();
@@ -3291,6 +3299,17 @@ impl LuaHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_des_applications_actif_par_defaut() {
+        // Rien de réglé : toutes les applications ; liste vide : aucune.
+        let all = load("hd.config({})").unwrap().config.general.app_themes;
+        assert!(all.contains("kitty") && all.contains("thunar"), "{all:?}");
+        let none = load("hd.config({ app_themes = {} })").unwrap();
+        assert!(none.config.general.app_themes.is_empty());
+        let one = load("hd.config({ app_themes = { 'kitty' } })").unwrap();
+        assert_eq!(one.config.general.app_themes.len(), 1);
+    }
 
     #[test]
     fn anciens_noms_francais_lus_sous_le_nom_actuel() {

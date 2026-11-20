@@ -362,7 +362,7 @@ pub fn load_source(config_path: &Path) -> Vec<SourceBind> {
 pub struct Holder {
     pub what: String,
     pub line: Option<usize>,
-    /// Fichier (`hyprland.lua` à défaut).
+    /// Fichier ; vide : lié dans Hyprland, lu dans aucun fichier.
     pub file: String,
 }
 
@@ -374,11 +374,15 @@ impl Holder {
         } else {
             self.what.as_str()
         };
-        let file = if self.file.is_empty() {
-            "hyprland.lua"
-        } else {
-            self.file.as_str()
-        };
+        // Lié dans Hyprland mais lu dans aucun fichier (MLG-206) : ne pas
+        // accuser hyprland.lua, dire comment s'en défaire.
+        if self.file.is_empty() && self.line.is_none() {
+            return crate::tr!(
+                "« {what} » (introuvable dans hyprland.lua et binds.lua : sans doute posé à chaud, `hyprctl reload` l'enlève)",
+                what = what
+            );
+        }
+        let file = self.file.as_str();
         match self.line {
             Some(n) => crate::tr!("« {what} » ({f}, ligne {n})", what = what, f = file, n = n),
             None => crate::tr!("« {what} » ({f})", what = what, f = file),
@@ -854,4 +858,22 @@ hl.bind(mainMod .. " + Tab", function()
         let missing = crate::i18n::untranslated("keymap", LABELS.iter().copied());
         assert!(missing.is_empty(), "{missing:?}");
     }
+    #[test]
+    fn raccourci_absent_des_fichiers() {
+        // Posé à chaud : aucun fichier à accuser, le rechargement est indiqué.
+        let h = Holder {
+            what: "exec_cmd".into(),
+            ..Default::default()
+        };
+        let d = h.describe();
+        assert!(d.contains("hyprctl reload"), "{d}");
+        assert!(!d.contains("(hyprland.lua)"), "{d}");
+        let h = Holder {
+            what: "rofi".into(),
+            line: Some(3),
+            file: "binds.lua".into(),
+        };
+        assert!(h.describe().contains("binds.lua"));
+    }
+
 }

@@ -2944,6 +2944,7 @@
 "{n} raccourci(s) déplacé(s) vers binds.lua ; copie : {b}" = "{n} shortcut(s) moved to binds.lua; copy: {b}"
 "{n} raccourci(s) à déplacer vers binds.lua ; locales déplacées : {t} ; copiées : {c}" = "{n} shortcut(s) to move to binds.lua; locals moved: {t}; copied: {c}"
 "« {what} » ({f})" = "“{what}” ({f})"
+"« {what} » (introuvable dans hyprland.lua et binds.lua : sans doute posé à chaud, `hyprctl reload` l'enlève)" = "“{what}” (found in neither hyprland.lua nor binds.lua: most likely set at runtime, `hyprctl reload` removes it)"
 "« {what} » ({f}, ligne {n})" = "“{what}” ({f}, line {n})"
 # MLG-116 : activer, désactiver, supprimer, capturer chaque raccourci
 "Ligne {n} de binds.lua : combinaison introuvable." = "binds.lua line {n}: key combination not found."
@@ -3492,6 +3493,7 @@
 "Les écrans s'éteignent après {d} min, la session ne se verrouille qu'après {l} min : {n} min déverrouillée, écran noir." = "Screens turn off after {d} min, the session only locks after {l} min: {n} min unlocked with a black screen."
 "binds.lua:{n} : désactivé, tenu par hyprdesk ({a})" = "binds.lua:{n}: disabled, handled by hyprdesk ({a})"
 "binds.lua:{n} : « {a} » remplacé par « hyprdesk {s} »" = "binds.lua:{n}: “{a}” replaced by “hyprdesk {s}”"
+"binds.lua:{n} : doublon retiré ({a})" = "binds.lua:{n}: duplicate removed ({a})"
 # Assistant de configuration (MLG-145)
 "  wizard            assistant de configuration : les premiers réglages, étape par étape" = "  wizard            setup wizard: the first settings, step by step"
 "ASSISTANT DE CONFIGURATION · {n} / {total}" = "SETUP WIZARD · {n} / {total}"

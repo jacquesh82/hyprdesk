@@ -187,17 +187,47 @@ pub fn newest_since(dir: &std::path::Path, since: std::time::SystemTime) -> Opti
         .map(|(_, p)| p)
 }
 
+/// Sélection de capture en cours (MLG-207) : hyprshot gèle l'écran et slurp
+/// pose sa sélection ; un second appui (raccourci répété, captures en masse)
+/// en superposerait une autre. Verrou `flock` tenu le temps de la sélection
+/// seulement : la notification d'après n'empêche pas la capture suivante.
+pub struct Busy;
+
+/// Prend le verrou de sélection ; `Err(Busy)` : une capture est en cours.
+/// Dossier d'exécution inutilisable : pas de verrou, la capture se fait.
+pub fn selection_lock() -> Result<Option<std::fs::File>, Busy> {
+    let path = crate::policy::private_runtime_or_unusable().join("hyprdesk-capture.lock");
+    let Ok(f) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+    else {
+        return Ok(None);
+    };
+    match f.try_lock() {
+        Ok(()) => Ok(Some(f)),
+        Err(std::fs::TryLockError::WouldBlock) => Err(Busy),
+        Err(_) => Ok(None),
+    }
+}
+
 /// Capture d'écran. hyprshot reste silencieux : la notification vient
 /// d'ici (« Capture enregistrée », avec « Ouvrir ») — celle de hyprshot
 /// n'arrivait pas toujours jusqu'au centre de notifications.
 pub fn shot(s: Shot) -> std::io::Result<()> {
     let dir = shots_dir();
     std::fs::create_dir_all(&dir)?;
+    // Une capture déjà en cours : celle-ci est ignorée, sans bruit.
+    let Ok(lock) = selection_lock() else {
+        return Ok(());
+    };
     let since = std::time::SystemTime::now() - Duration::from_secs(1);
     let status = Command::new("hyprshot")
         .args(["-z", "--silent", "-m", s.mode(), "-o"])
         .arg(&dir)
         .status()?;
+    drop(lock);
     if !status.success() {
         // Zone abandonnée (Échap) : rien à signaler.
         return Err(std::io::Error::other(format!("hyprshot : {status}")));
@@ -225,6 +255,9 @@ pub fn shot(s: Shot) -> std::io::Result<()> {
 /// Démarre un enregistrement (détaché : il survit à cette commande).
 pub fn start(region: bool) -> std::io::Result<Recording> {
     let geometry = if region {
+        let Ok(_lock) = selection_lock() else {
+            return Err(std::io::ErrorKind::ResourceBusy.into());
+        };
         let out = Command::new("slurp").output()?;
         if !out.status.success() {
             return Err(std::io::Error::other(crate::i18n::tr("zone non choisie")));
@@ -289,6 +322,8 @@ pub fn run(a: Action) -> std::io::Result<()> {
         (Action::Record { .. } | Action::Stop, Some(r)) => stop(&r),
         (Action::Record { region }, None) => match start(region) {
             Ok(_) => Ok(()),
+            // Une sélection déjà à l'écran : rien de plus.
+            Err(e) if e.kind() == std::io::ErrorKind::ResourceBusy => Ok(()),
             Err(e) => {
                 notify(crate::i18n::tr("Enregistrement impossible"), &e.to_string());
                 Err(e)
@@ -367,5 +402,14 @@ mod tests_newest {
         let later = std::time::SystemTime::now() + Duration::from_secs(60);
         assert_eq!(newest_since(&d, later), None);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn une_seule_selection_a_la_fois() {
+        let first = selection_lock();
+        assert!(matches!(first, Ok(Some(_))), "premier verrou pris");
+        assert!(selection_lock().is_err(), "seconde capture refusée");
+        drop(first);
+        assert!(selection_lock().is_ok(), "verrou rendu après la sélection");
     }
 }

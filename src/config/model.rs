@@ -1224,7 +1224,8 @@ pub struct General {
     pub advanced_settings: bool,
     /// Visite guidée faite ou écartée : plus proposée à l'ouverture des Réglages.
     pub tour_seen: bool,
-    /// Applications qui prennent le thème de hyprdesk (`kitty`…).
+    /// Applications qui prennent le thème de hyprdesk (`kitty`…) ; par
+    /// défaut toutes, vide : aucune.
     pub app_themes: std::collections::BTreeSet<String>,
     pub icon_theme: Option<String>,
     pub font: Option<String>,
@@ -1343,7 +1344,9 @@ impl Default for General {
             icon_double_click: true,
             advanced_settings: false,
             tour_seen: false,
-            app_themes: Default::default(),
+            // Thème des applications actif d'emblée (MLG-207) : chaque
+            // application connue prend le thème de hyprdesk.
+            app_themes: crate::apptheme::TARGETS.iter().map(|t| t.id.to_string()).collect(),
             icon_theme: None,
             font: None,
             font_size: 14.0,
