@@ -251,11 +251,16 @@ impl App {
                     .on_press(wrap(Msg::Configure(t.id.clone()))),
                 );
             }
-            if t.toggleable || active {
+            // Un interrupteur sur chaque ligne, comme dans Widgets → Disponibles :
+            // grisé quand le widget ne s'allume pas d'un clic (command / lua sans
+            // déclaration dans hyprdesk.lua, plugin en erreur).
+            if t.error.is_none() && (t.toggleable || active) {
                 let id = t.id.clone();
                 line = line.push(toggler(active).on_toggle(move |v| {
                     super::widgets::wrap(super::widgets::Msg::WidgetToggle(id.clone(), v))
                 }));
+            } else {
+                line = line.push(toggler(active));
             }
             bucket.push(line.into());
             if p.plugins.configuring.as_deref() == Some(t.id.as_str()) {

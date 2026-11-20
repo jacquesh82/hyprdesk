@@ -145,25 +145,17 @@ impl App {
                         .color(warn),
                 );
             }
-            let control: Element<'_, UiMsg> = if t.error.is_some() {
-                Space::new().into()
-            } else if t.toggleable {
-                let id = t.id.clone();
-                toggler(active)
-                    .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on)))
-                    .into()
-            } else if active || disabled > 0 {
-                // command / lua : pas de création d'un clic, mais on peut éteindre ou rallumer.
+            // Un interrupteur sur chaque ligne ; grisé quand le widget ne s'allume
+            // pas d'un clic (plugin en erreur ; command / lua, qui demandent leur
+            // option exec / render dans hyprdesk.lua, tant qu'aucun n'y est déclaré).
+            let actionable = t.error.is_none() && (t.toggleable || active || disabled > 0);
+            let control: Element<'_, UiMsg> = if actionable {
                 let id = t.id.clone();
                 toggler(active)
                     .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on)))
                     .into()
             } else {
-                text("dans hyprdesk.lua")
-                    .font(self.font)
-                    .size(12)
-                    .color(dim)
-                    .into()
+                toggler(active).into()
             };
             catalog = catalog.push(row![info, control].spacing(12).align_y(Alignment::Center));
         }
@@ -195,20 +187,29 @@ impl App {
             };
             let selected = p.widgets.widget_sel.as_deref() == Some(w.id.as_str());
             let accent = color(g.theme.accent, 1.0);
-            // Seuls les widgets placés dans les réglages se suppriment ici
-            // (ceux de hyprdesk.lua restent maîtres dans leur fichier).
-            let delete: Element<'_, UiMsg> = if w.origin == Origin::Settings {
-                let armed = p.widgets.pending_delete.as_deref() == Some(w.id.as_str());
-                self.delete_button(armed, wrap(Msg::DeleteWidget(w.id.clone())))
+            // Tous se retirent d'ici : un widget des réglages est supprimé, un
+            // widget de hyprdesk.lua désactivé (hd.disable, fichier intact ;
+            // « Disponibles » le rallume).
+            let armed = p.widgets.pending_delete.as_deref() == Some(w.id.as_str());
+            let delete = self.delete_button(armed, wrap(Msg::DeleteWidget(w.id.clone())));
+            // Libellé : le type du widget ; l'identifiant seulement s'il en
+            // faut un pour distinguer deux widgets du même type.
+            let twins = desk
+                .widgets
+                .iter()
+                .filter(|o| o.type_id == w.type_id)
+                .count();
+            let label = if twins > 1 {
+                w.id.as_str()
             } else {
-                Space::new().width(0).height(0).into()
+                w.type_id.as_str()
             };
             active = active.push(
                 row![
                     button(
                         row![
                             text(name).font(self.font).size(14).width(Length::Fill),
-                            text(format!("{} · {from}", w.id))
+                            text(format!("{label} · {from}"))
                                 .font(self.font)
                                 .size(12)
                                 .color(dim)
@@ -573,7 +574,13 @@ impl App {
                 if p.widgets.widget_sel.as_deref() == Some(id.as_str()) {
                     p.widgets.widget_sel = None;
                 }
-                self.settings.remove_widget(&id);
+                // Widget de hyprdesk.lua : désactivé ici, son fichier n'est pas touché.
+                match self.cfg.widgets.iter().find(|w| w.id == id) {
+                    Some(w) if w.origin == Origin::User => {
+                        self.settings.disabled.insert(id, w.type_id.clone());
+                    }
+                    _ => self.settings.remove_widget(&id),
+                }
                 self.commit()
             }
             Msg::WidgetReset => {

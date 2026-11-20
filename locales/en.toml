@@ -4185,3 +4185,5 @@
 "Installés" = "Installed"
 "Modules du Panorama : Hue, Notes, LYRA vocale…" = "Panorama modules: Hue, Notes, LYRA voice…"
 "Les modules vivent dans le Panorama, coupé dans Plugins → Installés." = "Modules live in the Panorama, turned off in Plugins → Installed."
+"inactif" = "off"
+"tiers" = "third-party"
