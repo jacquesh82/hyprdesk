@@ -1516,6 +1516,96 @@ pub fn fit_drawer_fullscreen(
     (added, dropped)
 }
 
+/// Écran vu par le recadrage des fenêtres flottantes près d'un tiroir.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawerScreen {
+    /// Workspace affiché.
+    pub workspace: String,
+    /// Écran, en coordonnées globales.
+    pub rect: Rect,
+    /// Largeur du tiroir à droite (réglages, LYRA) ; 0 : aucun.
+    pub right: i32,
+}
+
+/// Fenêtres flottantes retenues hors d'un tiroir : adresse → (place
+/// d'origine, place donnée par hyprdesk).
+pub type FloatHeld = std::collections::HashMap<String, (Rect, Rect)>;
+
+/// Plan du recadrage des fenêtres flottantes : `gaps_out` ne pousse que la
+/// mosaïque, une fenêtre flottante (ouverte depuis le bureau, plein bureau)
+/// resterait sous le tiroir. Sur l'écran d'un tiroir, celle qui déborde sur
+/// lui est décalée vers la gauche, rétrécie si elle ne tient pas ; le tiroir
+/// refermé, elle revient à sa place si personne ne l'a déplacée entre-temps.
+/// `gap` : marge extérieure de Hyprland (gauche, droite). Rend les places à
+/// poser et les fenêtres retenues après coup.
+pub fn plan_drawer_floats(
+    windows: &[Geometry],
+    screens: &[DrawerScreen],
+    gap: (i32, i32),
+    held: &FloatHeld,
+    skip_class: &str,
+) -> (Vec<(String, Rect)>, FloatHeld) {
+    let mut moves = Vec::new();
+    let mut next = FloatHeld::new();
+    for w in windows {
+        if !w.floating || w.class == skip_class || w.workspace.starts_with("special:") {
+            continue;
+        }
+        let Some(s) = screens.iter().find(|s| s.workspace == w.workspace) else {
+            continue;
+        };
+        let (x, y, ww, wh) = w.rect;
+        let prior = held.get(&w.address);
+        if s.right > 0 {
+            let left = s.rect.0 + gap.0;
+            let limit = s.rect.0 + s.rect.2 - s.right - gap.1;
+            if x + ww <= limit {
+                // Déjà hors du tiroir : retenue seulement si c'est notre place.
+                if let Some(&(orig, placed)) = prior.filter(|(_, p)| *p == w.rect) {
+                    next.insert(w.address.clone(), (orig, placed));
+                }
+                continue;
+            }
+            let nw = ww.min(limit - left).max(1);
+            let nx = (limit - nw).max(left);
+            let placed = (nx, y, nw, wh);
+            let orig = prior.map_or(w.rect, |&(o, _)| o);
+            moves.push((w.address.clone(), placed));
+            next.insert(w.address.clone(), (orig, placed));
+        } else if let Some(&(orig, placed)) = prior {
+            // Tiroir refermé : retour à la place d'origine, sauf fenêtre déplacée.
+            if placed == w.rect {
+                moves.push((w.address.clone(), orig));
+            }
+        }
+    }
+    (moves, next)
+}
+
+/// Pose le plan de [`plan_drawer_floats`] d'après l'état de Hyprland.
+pub fn fit_drawer_floats(screens: &[DrawerScreen], held: &FloatHeld) -> FloatHeld {
+    let Ok(clients) = ipc::query_json("clients") else {
+        return held.clone();
+    };
+    let g = base_gaps_out();
+    let (moves, next) = plan_drawer_floats(
+        &geometries(&clients),
+        screens,
+        (g[3], g[1]),
+        held,
+        crate::assistant::LYRA_APP_ID,
+    );
+    for (address, rect) in moves {
+        if let Err(e) = place(&address, rect) {
+            tracing::warn!(
+                "{}",
+                crate::tr!("fenêtre flottante près d'un tiroir : {e}", e = e)
+            );
+        }
+    }
+    next
+}
+
 /// Désactive les règles de workspace de hyprdesk (arrêt du démon).
 pub fn remove_rules() {
     if let Err(e) = ipc::eval(&build_rules_lua(None, &[], &[])) {
@@ -2174,6 +2264,68 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    fn float_win(address: &str, ws: &str, rect: Rect, floating: bool) -> Geometry {
+        Geometry {
+            address: address.into(),
+            workspace: ws.into(),
+            class: "brave".into(),
+            floating,
+            rect,
+        }
+    }
+
+    #[test]
+    fn flottantes_ramenees_hors_du_tiroir_puis_rendues() {
+        // DP-1 : 2560 de large, tiroir des réglages de 936 à droite.
+        let open = [DrawerScreen {
+            workspace: "1".into(),
+            rect: (0, 0, 2560, 1440),
+            right: 936,
+        }];
+        let shut = [DrawerScreen {
+            right: 0,
+            ..open[0].clone()
+        }];
+        let wins = [
+            float_win("a", "1", (400, 60, 1380, 950), true), // déborde sur le tiroir
+            float_win("b", "1", (100, 100, 800, 600), true), // tient déjà
+            float_win("c", "1", (0, 0, 1600, 1400), false),  // mosaïque : gaps_out
+            float_win("d", "2", (1800, 0, 600, 600), true),  // autre workspace
+            float_win("e", "1", (300, 0, 2400, 900), true),  // plus large que la place
+        ];
+        let (moves, held) = plan_drawer_floats(&wins, &open, (7, 7), &FloatHeld::new(), "lyra");
+        // limite : 2560 - 936 - 7 = 1617 ; a recule, e rétrécit à 1610 depuis 7.
+        assert_eq!(
+            moves,
+            vec![
+                ("a".to_string(), (237, 60, 1380, 950)),
+                ("e".to_string(), (7, 0, 1610, 900))
+            ]
+        );
+        assert_eq!(held.len(), 2);
+        // Tiroir refermé : a est restée où on l'a mise, elle revient ; e a été
+        // déplacée à la main, elle reste.
+        let after = [
+            float_win("a", "1", (237, 60, 1380, 950), true),
+            float_win("e", "1", (50, 50, 1610, 900), true),
+        ];
+        let (moves, held) = plan_drawer_floats(&after, &shut, (7, 7), &held, "lyra");
+        assert_eq!(moves, vec![("a".to_string(), (400, 60, 1380, 950))]);
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn fenetre_de_lyra_jamais_recadree() {
+        let open = [DrawerScreen {
+            workspace: "1".into(),
+            rect: (0, 0, 2560, 1440),
+            right: 600,
+        }];
+        let mut w = float_win("l", "1", (1960, 0, 600, 1440), true);
+        w.class = "lyra".into();
+        let (moves, _) = plan_drawer_floats(&[w], &open, (0, 0), &FloatHeld::new(), "lyra");
+        assert!(moves.is_empty());
+    }
 
     #[test]
     fn rafale_relue_une_fois() {

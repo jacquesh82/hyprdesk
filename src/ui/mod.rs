@@ -300,6 +300,8 @@ pub enum Msg {
     Media(String, &'static str),
     /// Plein écran ajusté aux tiroirs : fenêtres retenues en plus, relâchées.
     DrawerFullscreen(Vec<String>, Vec<String>),
+    /// Fenêtres flottantes retenues hors des tiroirs (`hypr::fit_drawer_floats`).
+    DrawerFloats(hypr::FloatHeld),
     Noop,
 }
 
@@ -539,6 +541,8 @@ pub struct App {
     /// Fenêtres en plein écran ramenées à la zone hors des tiroirs (agrandies
     /// pour Hyprland, plein écran pour l'application) : rendues à la fermeture.
     fs_held: HashSet<String>,
+    /// Fenêtres flottantes décalées hors d'un tiroir, à remettre en place.
+    float_held: hypr::FloatHeld,
     /// Écran du clic en cours de traitement (`Msg::On`).
     click_monitor: Option<String>,
     /// Règle Hyprland posée pour LYRA (rectangle du tiroir), si elle l'est.
@@ -1036,6 +1040,7 @@ impl App {
             nobar: HashSet::new(),
             window_gaps: Vec::new(),
             fs_held: HashSet::new(),
+            float_held: Default::default(),
             click_monitor: None,
             launcher_cycle: HashMap::new(),
             lyra_rule: None,
@@ -1729,8 +1734,10 @@ impl App {
         // ouverts, rendu en entier sur l'écran d'un tiroir refermé.
         let drawers: Vec<String> = want.iter().map(|(m, _)| m.clone()).collect();
         let held = self.fs_held.clone();
+        let floats = self.fit_drawer_floats();
         Task::batch([
             launchers,
+            floats,
             Task::perform(
                 async move {
                     tokio::task::spawn_blocking(move || {
@@ -1743,6 +1750,36 @@ impl App {
                 |(added, dropped)| Msg::DrawerFullscreen(added, dropped),
             ),
         ])
+    }
+
+    /// Fenêtres flottantes sur l'écran d'un tiroir : décalées hors de lui (la
+    /// mosaïque, elle, suit les marges) ; remises en place quand il se ferme.
+    fn fit_drawer_floats(&self) -> Task<Msg> {
+        if self.window_gaps.is_empty() && self.float_held.is_empty() {
+            return Task::none();
+        }
+        let screens: Vec<hypr::DrawerScreen> = self
+            .monitors
+            .iter()
+            .map(|m| hypr::DrawerScreen {
+                workspace: m.workspace.clone(),
+                rect: (m.x as i32, m.y as i32, m.width as i32, m.height as i32),
+                right: self
+                    .window_gaps
+                    .iter()
+                    .find(|(n, _)| *n == m.name)
+                    .map_or(0, |(_, g)| g[1]),
+            })
+            .collect();
+        let held = self.float_held.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || hypr::fit_drawer_floats(&screens, &held))
+                    .await
+                    .unwrap_or_default()
+            },
+            Msg::DrawerFloats,
+        )
     }
 
     /// Place à laisser à droite de `mon` pour la fenêtre de LYRA présentée en
@@ -3606,7 +3643,7 @@ impl App {
     /// message non listé redessine tout : un oubli coûte, il ne casse rien.
     fn damage_of(&mut self, msg: &Msg) -> Damage {
         match msg {
-            Msg::Noop | Msg::DrawerFullscreen(..) => Damage::None,
+            Msg::Noop | Msg::DrawerFullscreen(..) | Msg::DrawerFloats(..) => Damage::None,
             // Relevés : rien à redessiner s'ils n'ont pas changé.
             Msg::VolumeValue(v) if *v == self.volume => Damage::None,
             Msg::LightValue(l) if *l == self.light => Damage::None,
@@ -4159,6 +4196,10 @@ impl App {
                 // Fenêtre de LYRA ouverte ou fermée : sa place dans les marges.
                 if self.lyra_window_open() != lyra_before {
                     tasks.push(self.sync_window_gaps());
+                } else {
+                    // Fenêtre ouverte, passée en flottant ou recentrée près d'un
+                    // tiroir : ramenée hors de lui.
+                    tasks.push(self.fit_drawer_floats());
                 }
                 // Minimap vivante : fenêtres ouvertes, fermées, déplacées.
                 if self.overview.is_some()
@@ -5244,6 +5285,10 @@ impl App {
                 self.fs_held.extend(added);
                 Task::none()
             }
+            Msg::DrawerFloats(held) => {
+                self.float_held = held;
+                Task::none()
+            }
             Msg::Noop => Task::none(),
             // Messages layer-shell : traités par iced_layershell.
             _ => Task::none(),
@@ -5932,6 +5977,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::AudioValue(_) => "AudioValue",
         Msg::WallLoaded(..) => "WallLoaded",
         Msg::DrawerFullscreen(..) => "DrawerFullscreen",
+        Msg::DrawerFloats(..) => "DrawerFloats",
         Msg::Noop => "Noop",
         Msg::ConfigChanged | Msg::ConfigLoaded(_) => "Config",
         _ => "autre",

@@ -4181,3 +4181,4 @@
 "<workspace> [silent] | none — workspace où l'application s'ouvre" = "<workspace> [silent] | none — workspace the application opens on"
 "on | off — widget « {name} » sur le bureau" = "on | off — “{name}” widget on the desktop"
 "on | off — paquet « {label} » (off : retiré des Réglages et arrêté)" = "on | off — “{label}” package (off: removed from Settings and stopped)"
+"fenêtre flottante près d'un tiroir : {e}" = "floating window next to a drawer: {e}"
