@@ -3,7 +3,8 @@
 //!
 //! - Arch : `checkupdates` (pacman-contrib, sans droits, base temporaire) ;
 //!   AUR par `yay` ou `paru` (`-Qua`), qui fait alors toute la mise à jour,
-//!   dépôts compris, en passant par `pkexec` (agent polkit, pas de terminal).
+//!   dépôts compris, sans question (`--noconfirm`, PKGBUILD non relus) et
+//!   en passant par `pkexec` (agent polkit, pas de terminal).
 //! - Debian / Ubuntu : `apt list --upgradable` ; Fedora : `dnf check-update` ;
 //!   openSUSE : `zypper list-updates` ; Flatpak : `flatpak remote-ls --updates`.
 //!
@@ -21,6 +22,10 @@ pub struct Source {
     pub check: Vec<String>,
     /// Commande de mise à jour non interactive.
     pub upgrade: Vec<String>,
+    /// Source dont cette mise à jour fait aussi le travail (l'AUR par `paru
+    /// -Syu` : dépôts compris) : une seule étape, donc un seul processus qui
+    /// appelle pkexec, un seul mot de passe avec la règle polkit (MLG-160).
+    pub covers: Option<&'static str>,
 }
 
 fn argv(s: &[&str]) -> Vec<String> {
@@ -38,18 +43,20 @@ pub fn detect(has: impl Fn(&str) -> bool) -> Vec<Source> {
                 label: "Dépôts Arch",
                 check: argv(&["checkupdates"]),
                 upgrade: argv(&["pkexec", "pacman", "-Syu", "--noconfirm"]),
+                covers: None,
             });
         }
-        // AUR : relevé seulement. Un PKGBUILD est écrit par un tiers et doit
-        // être relu (diff) avant d'être construit : la mise à jour se fait au
-        // terminal (`yay -Sua`), jamais en un clic sans confirmation. Une
-        // commande choisie dans Réglages → Mises à jour reste possible.
+        // AUR : mise à jour complète (dépôts puis AUR) par l'assistant, en
+        // un clic et sans question : ni menu d'exclusion, ni relecture des
+        // PKGBUILD ; ses appels root passent par pkexec. Une commande choisie
+        // dans Réglages → Mises à jour la remplace.
         if let Some(h) = helper {
             out.push(Source {
                 id: "aur",
                 label: "AUR",
                 check: argv(&[h, "-Qua"]),
-                upgrade: Vec::new(),
+                upgrade: aur_upgrade(h),
+                covers: has("checkupdates").then_some("pacman"),
             });
         }
     } else if has("apt-get") {
@@ -63,6 +70,7 @@ pub fn detect(has: impl Fn(&str) -> bool) -> Vec<Source> {
                 "-c",
                 "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade",
             ]),
+            covers: None,
         });
     } else if has("dnf") {
         out.push(Source {
@@ -70,6 +78,7 @@ pub fn detect(has: impl Fn(&str) -> bool) -> Vec<Source> {
             label: "DNF",
             check: argv(&["dnf", "-q", "check-update"]),
             upgrade: argv(&["pkexec", "dnf", "-y", "upgrade", "--refresh"]),
+            covers: None,
         });
     } else if has("zypper") {
         out.push(Source {
@@ -77,6 +86,7 @@ pub fn detect(has: impl Fn(&str) -> bool) -> Vec<Source> {
             label: "Zypper",
             check: argv(&["zypper", "-q", "--non-interactive", "list-updates"]),
             upgrade: argv(&["pkexec", "zypper", "--non-interactive", "update"]),
+            covers: None,
         });
     }
     if has("flatpak") {
@@ -85,9 +95,29 @@ pub fn detect(has: impl Fn(&str) -> bool) -> Vec<Source> {
             label: "Flatpak",
             check: argv(&["flatpak", "remote-ls", "--updates", "--columns=application"]),
             upgrade: argv(&["flatpak", "update", "-y", "--noninteractive"]),
+            covers: None,
         });
     }
     out
+}
+
+/// `yay -Syu` / `paru -Syu` sans aucune question, root par pkexec.
+fn aur_upgrade(helper: &str) -> Vec<String> {
+    let mut a = argv(&[helper, "-Syu", "--noconfirm", "--sudo", "pkexec"]);
+    a.extend(argv(match helper {
+        "paru" => &["--skipreview", "--noupgrademenu"][..],
+        _ => &[
+            "--answerclean",
+            "None",
+            "--answerdiff",
+            "None",
+            "--answeredit",
+            "None",
+            "--answerupgrade",
+            "None",
+        ][..],
+    }));
+    a
 }
 
 /// Sources de cette machine.
@@ -102,6 +132,7 @@ pub fn with_overrides(
     over: &std::collections::BTreeMap<String, (String, String)>,
 ) -> Vec<Source> {
     let sh = |c: &str| vec!["sh".to_string(), "-c".to_string(), c.to_string()];
+    let mut replaced = Vec::new();
     for s in list.iter_mut() {
         if let Some((check, upgrade)) = over.get(s.id) {
             if !check.trim().is_empty() {
@@ -109,7 +140,17 @@ pub fn with_overrides(
             }
             if !upgrade.trim().is_empty() {
                 s.upgrade = sh(upgrade.trim());
+                replaced.push(s.id);
             }
+        }
+    }
+    // Une commande remplacée ne fait que ce qu'elle dit : chaque source
+    // garde alors son étape.
+    for s in list.iter_mut() {
+        if s.covers
+            .is_some_and(|c| replaced.contains(&c) || replaced.contains(&s.id))
+        {
+            s.covers = None;
         }
     }
     list
@@ -300,18 +341,9 @@ fn open_log() -> crate::processes::RotatingLog {
 /// Met à jour chaque source, l'une après l'autre ; s'arrête au premier échec.
 pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
     let mut steps = Vec::new();
-    let todo: Vec<&Source> = sources.iter().filter(|s| !s.upgrade.is_empty()).collect();
     // Poids des étapes : paquets en attente de chaque source (dernier relevé).
     let pending = pending_counts();
-    let counts: Vec<usize> = todo
-        .iter()
-        .map(|s| {
-            pending
-                .iter()
-                .find(|(label, _)| label == crate::i18n::tr(s.label))
-                .map_or(0, |(_, n)| *n)
-        })
-        .collect();
+    let (todo, counts) = plan(sources, &pending);
     let overall = std::sync::Arc::new(std::sync::Mutex::new(crate::update_progress::Overall::new(
         &counts,
     )));
@@ -367,6 +399,35 @@ pub async fn upgrade(sources: &[Source]) -> Vec<Step> {
         write_progress(percent(done), "", "prepare", None);
     }
     steps
+}
+
+/// Étapes à lancer et leur poids (paquets attendus), d'après le dernier
+/// relevé (libellé affiché, nombre). Une source relevée sans paquet est
+/// sautée : pas de mot de passe pour un `pacman -Syu` qui n'a rien à faire.
+/// Une source couverte par une autre étape retenue (dépôts Arch par `paru
+/// -Syu`) n'a pas d'étape à elle : son poids passe à celle qui la couvre.
+fn plan<'a>(sources: &'a [Source], pending: &[(String, usize)]) -> (Vec<&'a Source>, Vec<usize>) {
+    let count = |id: &str| -> Option<usize> {
+        let s = sources.iter().find(|s| s.id == id)?;
+        pending
+            .iter()
+            .find(|(label, _)| label == crate::i18n::tr(s.label))
+            .map(|(_, n)| *n)
+    };
+    let todo: Vec<&Source> = sources
+        .iter()
+        .filter(|s| !s.upgrade.is_empty() && count(s.id).is_none_or(|n| n > 0))
+        .collect();
+    let covered: Vec<&str> = todo.iter().filter_map(|s| s.covers).collect();
+    let todo: Vec<&Source> = todo
+        .into_iter()
+        .filter(|s| !covered.contains(&s.id))
+        .collect();
+    let counts = todo
+        .iter()
+        .map(|s| count(s.id).unwrap_or(0) + s.covers.and_then(count).unwrap_or(0))
+        .collect();
+    (todo, counts)
 }
 
 /// Pourcentage affiché : jamais 100 avant la fin réelle.
@@ -663,22 +724,14 @@ pub async fn upgrade_and_report(sources: &[Source]) -> Option<String> {
         None => {
             let pending = check(sources).await;
             let _ = std::fs::write(state_path(), render_state("idle", now(), &pending));
-            // Ce qui reste sans commande de mise à jour (AUR) : au terminal.
-            let left: usize = pending
-                .iter()
-                .filter(|p| {
-                    sources
-                        .iter()
-                        .any(|s| s.id == p.source && s.upgrade.is_empty())
-                })
-                .map(|p| p.packages.len())
-                .sum();
+            // Ce qui reste (source sans commande, paquet retenu) : dit tel quel.
+            let left = total(&pending);
             if left > 0 {
                 crate::hypr::notify(
                     1,
                     8000,
                     &crate::tr!(
-                        "hyprdesk : dépôts à jour ; {n} paquet(s) AUR à mettre à jour au terminal (yay -Sua), après relecture",
+                        "hyprdesk : mise à jour faite ; {n} paquet(s) encore en attente",
                         n = left
                     ),
                 );
@@ -769,9 +822,19 @@ mod tests {
         let arch = detect(|p| ["pacman", "checkupdates", "yay", "flatpak"].contains(&p));
         let ids: Vec<&str> = arch.iter().map(|s| s.id).collect();
         assert_eq!(ids, ["pacman", "aur", "flatpak"]);
-        // Dépôts par pacman ; l'AUR est relevé, jamais construit sans relecture.
+        // Dépôts par pacman ; l'AUR par l'assistant, dépôts compris, sans question.
         assert_eq!(arch[0].upgrade.join(" "), "pkexec pacman -Syu --noconfirm");
-        assert!(arch[1].upgrade.is_empty());
+        assert_eq!(
+            arch[1].upgrade.join(" "),
+            "yay -Syu --noconfirm --sudo pkexec --answerclean None --answerdiff None \
+             --answeredit None --answerupgrade None"
+        );
+        assert_eq!(arch[1].covers, Some("pacman"));
+        let paru = detect(|p| ["pacman", "checkupdates", "paru"].contains(&p));
+        assert_eq!(
+            paru[1].upgrade.join(" "),
+            "paru -Syu --noconfirm --sudo pkexec --skipreview --noupgrademenu"
+        );
         let pacman_seul = detect(|p| ["pacman", "checkupdates"].contains(&p));
         assert_eq!(
             pacman_seul[0].upgrade.join(" "),
@@ -883,6 +946,40 @@ mod tests {
         assert_eq!(
             shown(&flat.check),
             "flatpak remote-ls --updates --columns=application"
+        );
+    }
+
+    #[test]
+    fn etapes_de_la_mise_a_jour() {
+        let arch = detect(|p| ["pacman", "checkupdates", "paru", "flatpak"].contains(&p));
+        let n = |d: usize, a: usize, f: usize| {
+            vec![
+                (crate::i18n::tr("Dépôts Arch").to_string(), d),
+                ("AUR".to_string(), a),
+                ("Flatpak".to_string(), f),
+            ]
+        };
+        let ids = |p: &[(String, usize)]| {
+            let (todo, counts) = plan(&arch, p);
+            (todo.iter().map(|s| s.id).collect::<Vec<_>>(), counts)
+        };
+        // Dépôts et AUR : une seule étape paru, qui porte les deux poids.
+        assert_eq!(ids(&n(3, 2, 0)), (vec!["aur"], vec![5]));
+        // AUR seul : paru aussi ; dépôts seuls : pacman, sans paru.
+        assert_eq!(ids(&n(0, 2, 1)), (vec!["aur", "flatpak"], vec![2, 1]));
+        assert_eq!(ids(&n(4, 0, 0)), (vec!["pacman"], vec![4]));
+        // Rien d'attendu : aucune étape, aucun mot de passe.
+        assert_eq!(ids(&n(0, 0, 0)).0, Vec::<&str>::new());
+        // Pas encore de relevé : tout ce qui a une commande, AUR couvrant pacman.
+        assert_eq!(ids(&[]).0, vec!["aur", "flatpak"]);
+        // Commande AUR remplacée : chaque source garde son étape.
+        let mut over = std::collections::BTreeMap::new();
+        over.insert("aur".to_string(), (String::new(), "paru -Sua".to_string()));
+        let mine = with_overrides(arch.clone(), &over);
+        let (todo, _) = plan(&mine, &n(3, 2, 0));
+        assert_eq!(
+            todo.iter().map(|s| s.id).collect::<Vec<_>>(),
+            ["pacman", "aur"]
         );
     }
 
