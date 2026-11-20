@@ -43,7 +43,7 @@ impl App {
     }
 
     /// À chaque battement : relevé quand la tuile est là et qu'il est temps.
-    pub(in crate::ui::panorama) fn panorama_hue_tick(&mut self) -> Task<Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_hue_tick(&mut self) -> Task<Msg> {
         if self
             .panorama
             .hue_at
@@ -55,7 +55,10 @@ impl App {
         self.panorama_hue_refresh()
     }
 
-    pub(in crate::ui::panorama) fn panorama_hue_update(&mut self, m: PMsg) -> Task<Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_hue_update(
+        &mut self,
+        m: PMsg,
+    ) -> Task<Msg> {
         match m {
             PMsg::HueRooms(paired, r) => {
                 self.panorama.hue_paired = paired;
@@ -169,7 +172,10 @@ impl App {
     /// Tuile Hue : pièce par pièce (celles montrées dans Réglages → Hue),
     /// un en-tête (appui : toute la pièce, − / + : luminosité) puis ses
     /// lampes en pastilles (appui : allumer, éteindre).
-    pub(in crate::ui::panorama) fn panorama_hue(&self, size: Size) -> Element<'_, Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_hue(
+        &self,
+        size: Size,
+    ) -> Element<'_, Msg> {
         let (bg, fg, accent) = self.panorama_palette();
         let d = &self.cfg.general.panorama.design;
         let dim = fx::alpha(fg, 0.65);

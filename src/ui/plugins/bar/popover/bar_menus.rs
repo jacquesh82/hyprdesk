@@ -45,7 +45,7 @@ impl App {
                     .unwrap_or(id),
                 _ => crate::config::BAR_ITEMS
                     .iter()
-                    .find(|(id, _)| *id == super::super::bar::bar_item_key(item))
+                    .find(|(id, _)| *id == crate::ui::plugins::bar::surface::bar_item_key(item))
                     .map_or("", |(_, label)| crate::i18n::tr(label)),
             };
             col = col.push(

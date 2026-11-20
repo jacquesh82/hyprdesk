@@ -12,8 +12,8 @@ mod dashboard;
 mod flux;
 mod fx;
 mod halo;
-mod modules;
 mod instruments;
+mod modules;
 mod panes;
 mod swipe;
 
@@ -27,9 +27,9 @@ use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
-use super::{App, Msg, color};
 use crate::panorama::detect::{self, Offer, Screen};
 use crate::panorama::layout::{self, Orientation, Zones};
+use crate::ui::{App, Msg, color};
 use crate::widgets::media::Status;
 
 /// Poignée de l'écran escamoté.
@@ -309,7 +309,10 @@ pub enum VoiceUi {
 pub enum PMsg {
     Shortcut(usize),
     /// Pièces Hue relues : pont appairé, pièces ou erreur.
-    HueRooms(bool, Result<Vec<crate::panorama::modules::hue::Room>, String>),
+    HueRooms(
+        bool,
+        Result<Vec<crate::panorama::modules::hue::Room>, String>,
+    ),
     /// Pièce Hue : allumer / éteindre, luminosité.
     HueSet(String, Option<bool>, Option<u8>),
     /// Lampe Hue : allumer / éteindre, luminosité.
@@ -493,7 +496,7 @@ impl App {
         if family.is_empty() {
             self.font
         } else {
-            iced::Font::with_name(super::intern_font(family))
+            iced::Font::with_name(crate::ui::intern_font(family))
         }
     }
     fn panorama_palette(&self) -> (Color, Color, Color) {
@@ -515,16 +518,16 @@ impl App {
     }
 
     fn panorama_feedback<'a>(&self, content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
-        super::kinetic::magnet(
+        crate::ui::kinetic::magnet(
             content,
-            super::bar_style::convexe::Edge::Bottom,
+            crate::ui::plugins::bar::style::convexe::Edge::Bottom,
             self.panorama_palette().2,
             self.panorama_motion(),
         )
     }
 
     /// Configuration du Panorama en vigueur (réglages en cours, sinon chargée).
-    pub(super) fn panorama_cfg(&self) -> crate::panorama::Config {
+    pub(in crate::ui) fn panorama_cfg(&self) -> crate::panorama::Config {
         self.settings
             .panorama
             .clone()
@@ -532,7 +535,7 @@ impl App {
     }
 
     /// Écrans branchés au rôle Panorama (connecteurs).
-    pub(super) fn panorama_monitors(&self) -> Vec<String> {
+    pub(in crate::ui) fn panorama_monitors(&self) -> Vec<String> {
         if !self.cfg.plugin_on("panorama") {
             return Vec::new();
         }
@@ -553,7 +556,7 @@ impl App {
             .collect()
     }
 
-    pub(super) fn is_panorama(&self, monitor: &str) -> bool {
+    pub(in crate::ui) fn is_panorama(&self, monitor: &str) -> bool {
         // Écran entier seulement : un écran qui porte une zone Panorama garde
         // sa barre et son bureau.
         self.cfg
@@ -566,7 +569,7 @@ impl App {
     }
 
     /// Crée ou ferme les surfaces et poignées selon la config et les écrans.
-    pub(super) fn sync_panorama(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn sync_panorama(&mut self) -> Task<Msg> {
         let want = self.panorama_monitors();
         let mut tasks: Vec<Task<Msg>> = Vec::new();
         // Paquet coupé : plus de lecture (vidéo, radio) ni d'aperçu ; les
@@ -780,7 +783,7 @@ impl App {
             if yes != no {
                 self.panorama.voice_confirm = None;
                 self.panorama.voice = VoiceUi::Thinking;
-                return self.chat_update(super::chat::ChatMsg::Confirm(id, yes));
+                return self.chat_update(crate::ui::chat::ChatMsg::Confirm(id, yes));
             }
             let again = if asked == "en" {
                 "Sorry, yes or no?"
@@ -872,7 +875,7 @@ impl App {
     /// Relevé des programmes (gestionnaire des tâches ouvert), en arrière-
     /// plan ; la carte NVIDIA n'est interrogée que pour trier sur GPU/VRAM.
     /// Touche lourde armée il y a moins de 4 s.
-    pub(super) fn panorama_armed(&self, i: usize) -> bool {
+    pub(in crate::ui) fn panorama_armed(&self, i: usize) -> bool {
         self.panorama
             .confirm
             .is_some_and(|(j, at)| j == i && at.elapsed() < Duration::from_secs(4))
@@ -971,7 +974,7 @@ impl App {
 
     /// Avancée vers le relevé suivant (0 à 1), pour faire défiler les
     /// courbes en continu.
-    pub(super) fn panorama_graph_phase(&self) -> f32 {
+    pub(in crate::ui) fn panorama_graph_phase(&self) -> f32 {
         self.panorama.sys_at.map_or(1.0, |t| {
             (t.elapsed().as_secs_f32() / TICK.as_secs_f32()).min(1.0)
         })
@@ -995,7 +998,7 @@ impl App {
 
     /// Sources du lecteur visibles (profil Musique : services de musique ;
     /// sinon vidéo) : sans compte, connectées, ou forcées dans les Réglages.
-    pub(super) fn panorama_sources(&self) -> Vec<crate::panorama::config::Source> {
+    pub(in crate::ui) fn panorama_sources(&self) -> Vec<crate::panorama::config::Source> {
         self.cfg
             .general
             .panorama
@@ -1236,7 +1239,7 @@ impl App {
 
     /// Traite un message, puis remet zone de saisie et fenêtre vidéo à leur
     /// place (sans rien envoyer si rien n'a bougé).
-    pub(super) fn panorama_update(&mut self, m: PMsg) -> Task<Msg> {
+    pub(in crate::ui) fn panorama_update(&mut self, m: PMsg) -> Task<Msg> {
         let t = self.panorama_update_inner(m);
         Task::batch([t, self.sync_pip(), self.sync_halo()])
     }
@@ -2060,7 +2063,7 @@ impl App {
     }
 
     /// `hyprdesk panorama <toggle|show|hide|page <n|id>|detect>`.
-    pub(super) fn panorama_command(&mut self, a: &str) -> Task<Msg> {
+    pub(in crate::ui) fn panorama_command(&mut self, a: &str) -> Task<Msg> {
         let mut it = a.split_whitespace();
         let verb = it.next().unwrap_or("toggle");
         // Paquet coupé : ses commandes ne font rien, sauf LYRA vocale, que le
@@ -2257,7 +2260,7 @@ impl App {
     }
 
     /// Titre de la fenêtre d'aperçu (aucun pour les autres surfaces).
-    pub(super) fn panorama_title(&self, id: Id) -> Option<String> {
+    pub(in crate::ui) fn panorama_title(&self, id: Id) -> Option<String> {
         self.panorama
             .preview
             .filter(|p| p.win == id)
@@ -2265,7 +2268,7 @@ impl App {
     }
 
     /// Relevés utiles : un Panorama ou son aperçu est affiché.
-    pub(super) fn panorama_ticking(&self) -> bool {
+    pub(in crate::ui) fn panorama_ticking(&self) -> bool {
         !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some()
     }
 
@@ -2273,7 +2276,7 @@ impl App {
     /// (paquet Assistant), et visible quelque part — le Panorama, ou le
     /// module de barre `voix`. Sans endroit où voir l'écoute, le micro reste
     /// fermé.
-    pub(super) fn voice_allowed(&self) -> bool {
+    pub(in crate::ui) fn voice_allowed(&self) -> bool {
         self.cfg.general.panorama.voice
             && self.cfg.plugin_on("assistant")
             && (self.cfg.plugin_on("panorama") || self.voice_in_bar())
@@ -2299,7 +2302,7 @@ impl App {
     /// (LYRA coupée), off, installing, listening, awake, thinking, speaking,
     /// error ; `detail=` phrase entendue ou erreur ; `settings=` page de
     /// ses réglages.
-    pub(super) fn voice_publish(&mut self) {
+    pub(in crate::ui) fn voice_publish(&mut self) {
         let on = self.voice_allowed();
         let (state, detail) = if !self.cfg.plugin_on("assistant") {
             ("absent", String::new())
@@ -2339,7 +2342,7 @@ impl App {
 
     /// Surface fermée par le compositeur (écran débranché…) ou fenêtre
     /// d'aperçu fermée par l'utilisateur.
-    pub(super) fn panorama_closed(&mut self, id: Id) -> bool {
+    pub(in crate::ui) fn panorama_closed(&mut self, id: Id) -> bool {
         if self.panorama.preview.is_some_and(|p| p.win == id) {
             self.panorama.preview = None;
             return true;
@@ -2349,7 +2352,7 @@ impl App {
             || self.panorama.offers.remove(&id).is_some()
     }
 
-    pub(super) fn panorama_owns(&self, id: Id) -> bool {
+    pub(in crate::ui) fn panorama_owns(&self, id: Id) -> bool {
         self.panorama.preview.is_some_and(|p| p.win == id)
             || self.panorama.surfaces.contains_key(&id)
             || self.panorama.handles.contains_key(&id)
@@ -2364,13 +2367,13 @@ impl App {
     }
 
     /// Entrées du carrousel d'un écran : la vue composée, puis les pages.
-    pub(super) fn panorama_carousel(&self) -> usize {
+    pub(in crate::ui) fn panorama_carousel(&self) -> usize {
         self.cfg.general.panorama.pages.len().max(1) + self.panorama_offset()
     }
 
     /// Disposition affichée sur l'écran `key` : la configurée sur la vue
     /// composée (entrée 0), une page à la fois sur les pages qui suivent.
-    pub(super) fn panorama_layout_at(&self, key: &str) -> crate::panorama::config::Layout {
+    pub(in crate::ui) fn panorama_layout_at(&self, key: &str) -> crate::panorama::config::Layout {
         let i = self.panorama.page.get(key).copied().unwrap_or(0);
         if i >= self.panorama_offset() {
             crate::panorama::config::Layout::Single
@@ -2380,7 +2383,10 @@ impl App {
     }
 
     /// Page affichée sur un écran, hors vue par défaut.
-    pub(super) fn panorama_page_at(&self, monitor: &str) -> Option<&crate::panorama::design::Page> {
+    pub(in crate::ui) fn panorama_page_at(
+        &self,
+        monitor: &str,
+    ) -> Option<&crate::panorama::design::Page> {
         let pages = &self.cfg.general.panorama.pages;
         let i = self
             .panorama
@@ -2403,7 +2409,7 @@ impl App {
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(mins as u64 * 60))
     }
 
-    pub(super) fn view_panorama(&self, id: Id) -> Element<'_, Msg> {
+    pub(in crate::ui) fn view_panorama(&self, id: Id) -> Element<'_, Msg> {
         if let Some(m) = self.panorama.handles.get(&id) {
             return self.view_panorama_handle(m);
         }
@@ -2443,7 +2449,7 @@ impl App {
 
     /// Points de pages : la page affichée en trait, les autres en point ;
     /// un appui y mène.
-    pub(super) fn panorama_pager<'a>(
+    pub(in crate::ui) fn panorama_pager<'a>(
         n: usize,
         cur: usize,
         fg: Color,
@@ -2477,7 +2483,7 @@ impl App {
         let accent = self.panorama_palette().2;
         let primary = icon.starts_with("media-playback-");
         let ink = if primary {
-            super::design::on_accent(accent, fg, color(self.cfg.general.theme.bg, 1.0))
+            crate::ui::design::on_accent(accent, fg, color(self.cfg.general.theme.bg, 1.0))
         } else {
             fg
         };

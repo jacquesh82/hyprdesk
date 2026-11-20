@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use iced::{Point, Rectangle, Size, Task, Vector};
 
-use super::{App, PopupContent, UiMsg, thickness};
+use super::surface::{PopupContent, thickness};
+use super::{App, UiMsg};
 use crate::config::{LauncherPosition, Transition};
 use crate::hypr::Monitor;
 use crate::ui::Fade;

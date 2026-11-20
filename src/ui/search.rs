@@ -453,8 +453,8 @@ impl App {
         height: f32,
     ) -> Element<'a, Msg> {
         use super::{
-            bar_style::convexe::Edge,
             kinetic::{self, Track},
+            plugins::bar::style::convexe::Edge,
         };
         let track = if !s.shown {
             super::Fade {
@@ -481,7 +481,7 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill);
         let card: Element<'_, Msg> = if s.visibility.is_some_and(|f| f.to == 0.0) {
-            super::bar_motion::inert(card)
+            crate::ui::plugins::bar::motion::inert(card)
         } else {
             card.into()
         };

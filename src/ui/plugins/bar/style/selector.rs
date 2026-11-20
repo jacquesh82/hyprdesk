@@ -6,9 +6,10 @@
 use iced::widget::{Space, column, container, mouse_area, row, stack, text, tooltip};
 use iced::{Alignment, Background, Border, Color, Element, Length, window::Id};
 
-use super::super::bar::{BarSurface, scroll_dir};
-use super::super::{App, IconImg, Msg, bar_motion};
 use super::{WsCtx, WsRow, color, urgent_mark};
+use crate::ui::plugins::bar::motion;
+use crate::ui::plugins::bar::surface::{BarSurface, scroll_dir};
+use crate::ui::{App, IconImg, Msg};
 
 /// Minimap des fenêtres de chaque espace : un bloc à sa place réelle.
 pub(super) fn miniatures<'a>(
@@ -79,7 +80,7 @@ pub(super) fn miniatures<'a>(
                 .font(app.font)
                 .size(9)
                 .color(if active { accent } else { dim });
-            let chip = bar_motion::press(
+            let chip = motion::press(
                 iced::widget::button(
                     container(
                         column![
@@ -216,7 +217,7 @@ pub(super) fn icones<'a>(
                 border: Border::default().rounded(1.0),
                 ..Default::default()
             });
-            let chip = bar_motion::press(
+            let chip = motion::press(
                 iced::widget::button(
                     container(
                         column![glyph, underline]
@@ -328,7 +329,7 @@ fn ws_row<'a>(
                 .on_press(Msg::OpenPopover(
                     bar_id,
                     "workspaces".into(),
-                    crate::ui::popover::Request::Workspaces,
+                    crate::ui::plugins::bar::popover::Request::Workspaces,
                 ))
                 .style(move |_, st| iced::widget::button::Style {
                     background: matches!(

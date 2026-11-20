@@ -12,7 +12,35 @@ widget, et la place du lanceur.
 | **Paquet de réglages** | `src/ui/plugins/<id>.rs` | une entrée de l'écran Réglages : manifeste, messages, état, vue, mise à jour, clés CLI |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | un élément posé sur le bureau ou dans la barre, alimenté par une source de données |
 | **Plugin de widget** | `~/.config/hypr/hyprdesk/widgets/<nom>.lua` | un widget écrit en Lua, détecté sans recompiler |
-| **Lanceur** | `src/ui/plugins/launcher.rs` | le dock du bureau : widget autonome, seul contrôle du mode `launcher-only` |
+| **Lanceur** | `src/ui/plugins/launcher.rs`, `launcher/` | le dock du bureau : widget autonome, seul contrôle du mode `launcher-only` |
+
+### Plugins à surface : Barre, Lanceur, Panorama
+
+Trois paquets posent une surface à l'écran en plus de leur page de Réglages.
+Chacun tient dans son dossier, rangé de la même façon :
+
+| Chemin | Rôle |
+|---|---|
+| `src/ui/plugins/<id>.rs` | racine : manifeste (`INFO`), messages, page de Réglages, déclaration des sous-modules |
+| `src/ui/plugins/<id>/surface.rs` (ou `surface/`) | ce que le plugin pose à l'écran |
+| `src/ui/plugins/<id>/…` | ses autres pièces : modules, styles, menus, mouvement |
+| `src/<id>/` | logique sans interface servant aussi hors de l'UI (CLI, LYRA, verrou) — aujourd'hui `src/panorama/` |
+
+- **Barre** : `surface.rs` (zones, modules, actions), `layout.rs` (mesure,
+  débordement), `motion.rs` (mouvement local), `style/` (Continuité,
+  Graphite, Island, Convexe), `popover.rs` + `popover/` (menus déroulants).
+  `src/bar_offer.rs` ajoute à la barre réglée les modules livrés après coup.
+- **Lanceur** : `surface.rs` (le dock et la carte des fenêtres),
+  `lifecycle.rs`, `keyboard.rs`, `motion.rs`, `contrast.rs`. La grille
+  d'applications (`ui/apps_grid.rs`, `hyprdesk apps`) reste hors du plugin :
+  couper le Lanceur ne la coupe pas ; ses options sont dans l'onglet
+  Applications de la page Lanceur.
+- **Panorama** : `surface/` (pages, gestes, tuiles dans `surface/modules/`),
+  `design.rs` et `modules.rs` (onglets de Réglages) ; logique dans
+  `src/panorama/` (voir [PANORAMA.md](PANORAMA.md)).
+
+Le code de ces plugins reste sous `src/ui/` : il étend `App`, dont les
+champs sont privés au module `ui`.
 
 ## 1. Paquets de réglages
 
@@ -192,7 +220,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `apptheme` | Thème des applications | le thème appliqué à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
-| `bar` | Barre | position, hauteur, écrans, modules | `ui/bar.rs` |
+| `bar` | Barre | position, hauteur, écrans, modules | `bar_offer.rs` (surface : `ui/plugins/bar/`) |
 | `screens` | Écrans | détection, disposition, orientation, mode, écran principal | `screens.rs` → `monitors.lua` |
 | `workspaces` | Workspaces | workspaces permanents, affectation des applications, style du sélecteur de la barre, écran « Espaces de travail » | `hypr.rs` (règles Hyprland), `ui/overview.rs` |
 | `layouts` | Layouts | layout par défaut et par workspace, options de Dwindle, Master, Scrolling, layouts personnalisés (`lua:<nom>`), raccourcis de chaque layout | `tiling.rs` |
@@ -321,7 +349,7 @@ La barre s'adapte à chaque écran :
 - **Modules des écrans verticaux** (`portrait = { left, center, right }`) :
   ils se règlent aussi dans Barre → Modules → Écrans verticaux.
 - **Style** (`style = "continuite" | "graphite"`) : une barre complète par
-  style, un module de rendu dans `src/ui/bar_style/`. `continuite` (défaut)
+  style, un module de rendu dans `src/ui/plugins/bar/style/`. `continuite` (défaut)
   est le verre fumé à capsule glissante ; `graphite` est une lame acrylique
   neutre usinée — bloc arrondi flottant au-dessus du bord, modules gravés
   dans la surface, espace actif surélevé — et impose ses touches en relief

@@ -13,7 +13,34 @@ a widget, and where the launcher fits.
 | **Settings package** | `src/ui/plugins/<id>.rs` | an entry of the Settings screen: manifest, messages, state, view, update, CLI keys |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | an element placed on the desktop or in the bar, fed by a data source |
 | **Widget plugin** | `~/.config/hypr/hyprdesk/widgets/<name>.lua` | a widget written in Lua, detected without recompiling |
-| **Launcher** | `src/ui/plugins/launcher.rs` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
+| **Launcher** | `src/ui/plugins/launcher.rs`, `launcher/` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
+
+### Plugins with a surface: Bar, Launcher, Panorama
+
+Three packages put a surface on screen on top of their Settings page. Each
+lives in its own folder, laid out the same way:
+
+| Path | Role |
+|---|---|
+| `src/ui/plugins/<id>.rs` | root: manifest (`INFO`), messages, Settings page, submodule declarations |
+| `src/ui/plugins/<id>/surface.rs` (or `surface/`) | what the plugin puts on screen |
+| `src/ui/plugins/<id>/…` | its other parts: modules, styles, menus, motion |
+| `src/<id>/` | UI-free logic also used outside the UI (CLI, LYRA, lock) — today `src/panorama/` |
+
+- **Bar**: `surface.rs` (zones, modules, actions), `layout.rs` (measuring,
+  overflow), `motion.rs` (local motion), `style/` (Continuité, Graphite,
+  Island, Convexe), `popover.rs` + `popover/` (drop-down menus).
+  `src/bar_offer.rs` adds modules shipped later to the configured bar.
+- **Launcher**: `surface.rs` (the dock and the window card), `lifecycle.rs`,
+  `keyboard.rs`, `motion.rs`, `contrast.rs`. The app grid
+  (`ui/apps_grid.rs`, `hyprdesk apps`) stays outside the plugin: turning the
+  Launcher off does not turn it off; its options are in the Applications tab
+  of the Launcher page.
+- **Panorama**: `surface/` (pages, gestures, tiles in `surface/modules/`),
+  `design.rs` and `modules.rs` (Settings tabs); logic in `src/panorama/`.
+
+These plugins stay under `src/ui/`: they extend `App`, whose fields are
+private to the `ui` module.
 
 ## 1. Settings packages
 
@@ -192,7 +219,7 @@ each CLI key points to an existing package.
 | `apptheme` | App theming | the theme applied to other software (kitty: `~/.config/kitty/hyprdesk-theme.conf`, included at the end of kitty.conf, reloaded with SIGUSR1) | `apptheme.rs` |
 | `wallpaper` | Wallpaper | image, slideshow, color; scope | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
-| `bar` | Bar | position, height, screens, modules | `ui/bar.rs` |
+| `bar` | Bar | position, height, screens, modules | `bar_offer.rs` (surface: `ui/plugins/bar/`) |
 | `screens` | Screens | detection, layout, orientation, mode, primary screen | `screens.rs` → `monitors.lua` |
 | `workspaces` | Workspaces | persistent workspaces, application assignment, bar selector style, the “Workspaces” organising screen | `hypr.rs` (Hyprland rules), `ui/overview.rs` |
 | `layouts` | Layouts | default and per-workspace layout, Dwindle, Master, Scrolling options, custom layouts (`lua:<name>`), each layout's shortcuts | `tiling.rs` |
@@ -320,7 +347,7 @@ The bar adapts to each screen:
 - **Modules for vertical screens** (`portrait = { left, center, right }`):
   they can also be set in Bar → Modules → Vertical screens.
 - **Style** (`style = "continuite" | "graphite"`): a complete bar per style,
-  one rendering module in `src/ui/bar_style/`. `continuite` (default) is the
+  one rendering module in `src/ui/plugins/bar/style/`. `continuite` (default) is the
   smoked glass with a gliding capsule; `graphite` is a machined neutral
   acrylic slab — a rounded block floating above the screen edge, modules
   engraved into the surface, the active workspace raised — and enforces its

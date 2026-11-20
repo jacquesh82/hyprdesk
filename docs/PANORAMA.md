@@ -36,7 +36,8 @@ Panorama → Modules (bouton du pont, puis « Appairer ») ; sa clé reste dans
 `notes.command`, `notes.monitor`.
 
 Code : logique dans `src/panorama/modules/`, tuiles dans
-`src/ui/panorama/modules/`, réglages dans `src/ui/plugins/panorama/modules.rs`.
+`src/ui/plugins/panorama/surface/modules/`, réglages dans
+`src/ui/plugins/panorama/modules.rs`.
 
 ## Compositions de départ
 

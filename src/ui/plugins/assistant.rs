@@ -112,7 +112,9 @@ pub(in crate::ui) fn on_show(app: &mut App) -> Task<UiMsg> {
         providers::load_keys(app),
         app.smartui_load(),
         // Micros de PipeWire, pour l'onglet Voix.
-        Task::done(UiMsg::Panorama(crate::ui::panorama::PMsg::MicsRefresh)),
+        Task::done(UiMsg::Panorama(
+            crate::ui::plugins::panorama::surface::PMsg::MicsRefresh,
+        )),
     ])
 }
 
@@ -416,7 +418,7 @@ impl App {
     /// Onglet Voix : LYRA vocale — marche, micro, essai de la voix, halo.
     /// Les réglages restent rangés dans `panorama.voice*` (settings.lua).
     fn voice_tab(&self) -> Element<'_, UiMsg> {
-        use crate::ui::panorama::PMsg;
+        use crate::ui::plugins::panorama::surface::PMsg;
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
         // « Par défaut », puis chaque micro de PipeWire.

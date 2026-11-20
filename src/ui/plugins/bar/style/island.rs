@@ -4,9 +4,9 @@
 use iced::widget::{button, container};
 use iced::{Background, Border, Color};
 
-use super::super::bar::BarPalette;
-use super::super::bar_layout::PillSkin;
 use super::{Tokens, color};
+use crate::ui::plugins::bar::layout::PillSkin;
+use crate::ui::plugins::bar::surface::BarPalette;
 
 /// Survol 150 (minflair `animFast`), appui 90, commutation 180.
 pub(super) const TOKENS: Tokens = Tokens {

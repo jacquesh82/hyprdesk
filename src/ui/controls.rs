@@ -2,9 +2,9 @@
 use iced::widget::{Space, button, column, container, row, slider};
 use iced::{Alignment, Border, Color, Element, Length};
 
-use super::popover::Request;
 use crate::config::{RenderState, WidgetDef, WidgetKind};
 use crate::i18n::text;
+use crate::ui::plugins::bar::popover::Request;
 use crate::ui::{App, DesktopMode, Msg, color, design};
 use crate::widgets::Value;
 
@@ -125,13 +125,16 @@ impl App {
                     .font(self.ui_font(iced::font::Weight::Medium))
                     .size(12.5)
                     .color(fg),
-                text(crate::ui::bar::truncate(&detail.replace('\n', " · "), 15))
-                    .font(self.font)
-                    .size(11)
-                    .color(Color {
-                        a: 0.65 * alpha,
-                        ..fg
-                    })
+                text(crate::ui::plugins::bar::surface::truncate(
+                    &detail.replace('\n', " · "),
+                    15
+                ))
+                .font(self.font)
+                .size(11)
+                .color(Color {
+                    a: 0.65 * alpha,
+                    ..fg
+                })
             ]
             .spacing(3)
         ]
@@ -242,8 +245,12 @@ impl App {
                 .push(
                     row![
                         button(
-                            self.icon_named(super::bar::volume_icon(self.volume), 17.0, fg)
-                                .unwrap_or_else(|| text("Son").font(self.font).color(fg).into())
+                            self.icon_named(
+                                crate::ui::plugins::bar::surface::volume_icon(self.volume),
+                                17.0,
+                                fg
+                            )
+                            .unwrap_or_else(|| text("Son").font(self.font).color(fg).into())
                         )
                         .on_press(Msg::VolumeMute)
                         .padding(4)

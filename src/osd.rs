@@ -120,7 +120,7 @@ pub async fn apply(kind: Kind, step: Step) -> Result<Level, String> {
                 "@DEFAULT_AUDIO_SINK@"
             };
             let out = wpctl(&["get-volume".into(), target.into()]).await?;
-            let (value, muted) = crate::ui::bar::parse_volume(&out)
+            let (value, muted) = crate::ui::plugins::bar::surface::parse_volume(&out)
                 .ok_or_else(|| crate::i18n::tr("volume illisible (wpctl)").to_string())?;
             Ok(Level { kind, value, muted })
         }

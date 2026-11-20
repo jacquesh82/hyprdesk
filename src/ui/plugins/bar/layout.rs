@@ -1,6 +1,6 @@
 //! Mesure intrinsèque de tous les modules, centrage géométrique et débordement.
-use super::Msg;
-use super::kinetic::Spring;
+use crate::ui::Msg;
+use crate::ui::kinetic::Spring;
 use iced::advanced::{
     Clipboard, Layout, Renderer, Shell, Widget, layout, mouse, overlay, renderer,
     widget::{Tree, tree},
@@ -8,7 +8,7 @@ use iced::advanced::{
 use iced::{Border, Color, Element, Event, Length, Point, Rectangle, Size, Vector};
 use std::time::{Duration, Instant};
 
-pub(super) struct Slot<'a> {
+pub(in crate::ui) struct Slot<'a> {
     pub zone: usize,
     pub priority: u8,
     pub flexible: bool,
@@ -16,7 +16,7 @@ pub(super) struct Slot<'a> {
 }
 
 /// Capsule Island : couleurs résolues et états qui imposent son expansion.
-pub(super) struct PillSkin {
+pub(in crate::ui) struct PillSkin {
     pub fill: Color,
     pub border: Color,
     pub pinned: bool,
@@ -29,7 +29,7 @@ const PILL_INSET: f32 = 12.0;
 const IDLE_WIDTH: f32 = 112.0;
 const IDLE_HEIGHT: f32 = 28.0;
 
-pub(super) fn strip<'a>(
+pub(in crate::ui) fn strip<'a>(
     id: iced::window::Id,
     slots: Vec<Slot<'a>>,
     more: Element<'a, Msg>,

@@ -5,9 +5,10 @@
 use iced::widget::{Space, button, container, mouse_area, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, window::Id};
 
-use super::super::bar::{BarPalette, BarSurface, scroll_dir};
-use super::super::{App, Msg, bar_motion, design};
 use super::{Tokens, WsCtx, color, urgent_mark};
+use crate::ui::plugins::bar::motion;
+use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, scroll_dir};
+use crate::ui::{App, Msg, design};
 
 pub(super) const TOKENS: Tokens = Tokens {
     hover: 140,
@@ -73,7 +74,7 @@ pub(super) fn workspaces<'a>(
             {
                 content = content.push(mark);
             }
-            bar_motion::press(
+            motion::press(
                 button(
                     container(content)
                         .center_x(Length::Shrink)
@@ -110,7 +111,7 @@ pub(super) fn workspaces<'a>(
                 .on_press(Msg::OpenPopover(
                     bar_id,
                     "workspaces".into(),
-                    crate::ui::popover::Request::Workspaces,
+                    crate::ui::plugins::bar::popover::Request::Workspaces,
                 ))
                 .style(move |_, st| button::Style {
                     background: matches!(st, button::Status::Hovered | button::Status::Pressed)
@@ -154,11 +155,11 @@ pub(super) fn workspaces<'a>(
     }
     let selected = selected.map(|i| i * 2);
     mouse_area(
-        container(bar_motion::rail(
+        container(motion::rail(
             row(segments).spacing(3).align_y(Alignment::Center),
             selected,
             Vec::new(),
-            bar_motion::RailLook::Fill(Color {
+            motion::RailLook::Fill(Color {
                 a: 0.27 * alpha,
                 ..accent
             }),

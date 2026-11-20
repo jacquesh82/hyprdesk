@@ -5,7 +5,7 @@
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, mouse};
 
-use super::super::Msg;
+use crate::ui::Msg;
 
 /// Couleurs du halo : dégradé de LYRA (violet, bleu) ou l'accent du thème.
 pub(in crate::ui) fn colors(mode: &str, accent: Color) -> (Color, Color) {

@@ -1,10 +1,18 @@
-//! Paquet intégré « Panorama » (MLG-164) : rôle des écrans bandeau, pages et
-//! veille du widget plein écran tactile (`crate::panorama`, `ui::panorama`).
+//! Plugin « Panorama » (MLG-164) : widget plein écran tactile des écrans
+//! bandeau.
+//!
+//! - `surface` : la surface à pages et ses tuiles (`surface::modules`) ;
+//! - `design`, `modules` : onglets de la page de Réglages (pages, modules) ;
+//! - ce fichier : manifeste et page de Réglages (rôle des écrans, veille).
+//!
+//! La logique sans interface (détection, radio, captures, catalogue des
+//! modules) est dans `crate::panorama`, qui sert aussi la CLI et LYRA.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 mod design;
 pub mod modules;
+pub(in crate::ui) mod surface;
 
 use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
@@ -145,7 +153,7 @@ const PREVIEW_FORMATS: &[((u32, u32), &str)] = &[
 ];
 
 pub fn load() -> Task<UiMsg> {
-    super::super::panorama::detect_task()
+    crate::ui::plugins::panorama::surface::detect_task()
 }
 
 impl App {
@@ -818,9 +826,9 @@ impl App {
                 if kind == "radio" {
                     button(text("Chercher les logos").font(self.font).size(12))
                         .padding([4, 10])
-                        .on_press(UiMsg::Panorama(super::super::panorama::PMsg::RadioLogos(
-                            true,
-                        )))
+                        .on_press(UiMsg::Panorama(
+                            crate::ui::plugins::panorama::surface::PMsg::RadioLogos(true),
+                        ))
                         .into()
                 } else {
                     self.panorama_icons_buttons("sources")
@@ -867,7 +875,7 @@ impl App {
     /// Webradio du profil Musique : annuaire Radio Browser dans l'onglet, ou
     /// un service web ouvert dans le lecteur ; ambiance du flux.
     fn panorama_webradio_section(&self) -> Element<'_, UiMsg> {
-        use super::super::panorama::PMsg;
+        use crate::ui::plugins::panorama::surface::PMsg;
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
         let mut col = column![].spacing(8);
@@ -1301,9 +1309,9 @@ impl App {
                 if q.is_empty() {
                     return Task::none();
                 }
-                Task::done(UiMsg::Panorama(super::super::panorama::PMsg::RadioSearch(
-                    q, false,
-                )))
+                Task::done(UiMsg::Panorama(
+                    crate::ui::plugins::panorama::surface::PMsg::RadioSearch(q, false),
+                ))
             }
             Msg::Webradio(id) => {
                 let mut c = self.panorama_cfg();
@@ -1386,7 +1394,7 @@ impl App {
                             .await
                             .unwrap_or_else(|e| Err(e.to_string()))
                         },
-                        |r| UiMsg::Panorama(super::super::panorama::PMsg::Touch(r)),
+                        |r| UiMsg::Panorama(crate::ui::plugins::panorama::surface::PMsg::Touch(r)),
                     )
                 };
                 self.settings.panorama = Some(c);
@@ -1472,10 +1480,12 @@ impl App {
             }
             Msg::SleepCommit => self.commit(),
             Msg::Detect => self.panorama_command("detect"),
-            Msg::Preview(size) => self.panorama_update(super::super::panorama::PMsg::Preview(size)),
-            Msg::Toggle(name) => {
-                self.panorama_update(super::super::panorama::PMsg::Toggle(Some(name)))
+            Msg::Preview(size) => {
+                self.panorama_update(crate::ui::plugins::panorama::surface::PMsg::Preview(size))
             }
+            Msg::Toggle(name) => self.panorama_update(
+                crate::ui::plugins::panorama::surface::PMsg::Toggle(Some(name)),
+            ),
         }
     }
 }

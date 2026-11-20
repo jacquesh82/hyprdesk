@@ -1,7 +1,7 @@
 //! Cadre Convex : surface décorative indépendante, sans zone de saisie.
 //! La barre conserve sa réservation ; le centre transparent laisse les fenêtres
 //! et le bureau recevoir leurs événements, même dans les angles arrondis.
-use super::{App, Msg, bar_style::convexe};
+use super::{App, Msg, plugins::bar::style::convexe};
 use crate::config::{BarStyle, ConvexDef};
 use iced::{Element, Task, widget::Space, window::Id};
 use iced_layershell::{
@@ -10,8 +10,8 @@ use iced_layershell::{
 };
 
 use super::{
-    bar_style::convexe::Edge,
     kinetic::{self, Spring, Track},
+    plugins::bar::style::convexe::Edge,
 };
 use iced::widget::{button, column, container, mouse_area, pin, row, scrollable, stack, text};
 use iced::{Alignment, Length, Point, Rectangle, Size};
@@ -500,7 +500,7 @@ mod tests {
         let id = Id::unique();
         app.bar_surfaces.insert(
             id,
-            super::super::bar::BarSurface {
+            crate::ui::plugins::bar::surface::BarSurface {
                 monitor: "A".into(),
                 position: crate::config::BarPosition::Top,
                 height: 48,
@@ -517,7 +517,7 @@ mod tests {
         assert!(app.convex_frames.is_empty());
         app.bar_surfaces.insert(
             id,
-            super::super::bar::BarSurface {
+            crate::ui::plugins::bar::surface::BarSurface {
                 monitor: "A".into(),
                 position: crate::config::BarPosition::Top,
                 height: 48,

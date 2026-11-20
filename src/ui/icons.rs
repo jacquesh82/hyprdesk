@@ -322,8 +322,8 @@ mod tests {
     fn used_names() -> Vec<String> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = vec![
-            root.join("src/ui/bar.rs"),
-            root.join("src/ui/popover.rs"),
+            root.join("src/ui/plugins/bar/surface.rs"),
+            root.join("src/ui/plugins/bar/popover.rs"),
             root.join("src/ui/widget_view.rs"),
             root.join("src/ui/osd.rs"),
         ];

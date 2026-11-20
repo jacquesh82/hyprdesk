@@ -16,10 +16,11 @@ use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
-use super::popover::Request;
-use super::{App, IconImg, Msg, color, format_now};
-use super::{bar_motion, design};
+use super::motion;
 use crate::config::{BarItem, BarPosition, RenderState, Rgba, WidgetKind};
+use crate::ui::design;
+use crate::ui::plugins::bar::popover::Request;
+use crate::ui::{App, IconImg, Msg, color, format_now};
 use crate::{control, hypr, widgets};
 
 pub const BAR_NAMESPACE: &str = "hyprdesk-bar";
@@ -70,7 +71,7 @@ pub struct BarSurface {
 
 /// Couleurs effectives de la barre.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct BarPalette {
+pub(in crate::ui) struct BarPalette {
     pub fg: Rgba,
     pub bg: Rgba,
     pub accent: Rgba,
@@ -93,7 +94,7 @@ pub fn bar_item_key(item: &BarItem) -> &str {
     }
 }
 
-pub(super) fn truncate(s: &str, n: usize) -> String {
+pub(in crate::ui) fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()
     } else {
@@ -399,7 +400,7 @@ pub fn volume_icon(v: Option<(f32, bool)>) -> &'static str {
     }
 }
 
-pub(super) fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
+pub(in crate::ui) fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
     let y = match d {
         mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => y,
     };
@@ -407,7 +408,7 @@ pub(super) fn scroll_dir(d: mouse::ScrollDelta) -> i64 {
 }
 
 impl App {
-    pub(super) fn bar_input(&self, id: Id, bounds: Option<iced::Rectangle>) -> Task<Msg> {
+    pub(in crate::ui) fn bar_input(&self, id: Id, bounds: Option<iced::Rectangle>) -> Task<Msg> {
         let Some(surface) = self.bar_surfaces.get(&id) else {
             return Task::none();
         };
@@ -433,7 +434,7 @@ impl App {
         })
     }
 
-    pub(super) fn bar_duration(&self, millis: u64) -> Duration {
+    pub(in crate::ui) fn bar_duration(&self, millis: u64) -> Duration {
         if self.cfg.general.transition == crate::config::Transition::None {
             Duration::ZERO
         } else {
@@ -441,7 +442,7 @@ impl App {
         }
     }
 
-    pub(super) fn bar_overflow_items(&self, id: Id) -> Vec<BarItem> {
+    pub(in crate::ui) fn bar_overflow_items(&self, id: Id) -> Vec<BarItem> {
         let (Some(surface), Some(bar)) = (self.bar_surfaces.get(&id), self.cfg.bar.as_ref()) else {
             return Vec::new();
         };
@@ -489,7 +490,7 @@ impl App {
     }
 
     /// Crée, recrée ou ferme les surfaces de barre selon la config et les écrans.
-    pub(super) fn sync_bars(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn sync_bars(&mut self) -> Task<Msg> {
         // `"primary"` dans la liste : l'écran principal, quel que soit son nom.
         let primary = self.primary_monitor();
         let want: Vec<String> = match &self.cfg.bar {
@@ -606,7 +607,7 @@ impl App {
     }
 
     /// Ids des widgets affichés dans la barre.
-    pub(super) fn bar_widget_ids(&self) -> Vec<String> {
+    pub(in crate::ui) fn bar_widget_ids(&self) -> Vec<String> {
         if !self.cfg.plugin_on("bar") || self.bar_surfaces.is_empty() {
             return Vec::new();
         }
@@ -624,7 +625,7 @@ impl App {
             .collect()
     }
 
-    pub(super) fn bar_has(&self, item: &BarItem) -> bool {
+    pub(in crate::ui) fn bar_has(&self, item: &BarItem) -> bool {
         if !self.cfg.plugin_on("bar") || self.bar_surfaces.is_empty() {
             return false;
         }
@@ -635,7 +636,7 @@ impl App {
             .any(|i| i == item)
     }
 
-    pub(super) fn volume_action(&self, args: Vec<String>) -> Task<Msg> {
+    pub(in crate::ui) fn volume_action(&self, args: Vec<String>) -> Task<Msg> {
         Task::perform(
             async move {
                 let _ = crate::processes::output(
@@ -650,7 +651,7 @@ impl App {
     }
 
     /// Commande `wpctl` sur le micro, puis relecture du menu Son.
-    pub(super) fn mic_action(&self, args: Vec<String>) -> Task<Msg> {
+    pub(in crate::ui) fn mic_action(&self, args: Vec<String>) -> Task<Msg> {
         Task::perform(
             async move {
                 let _ = crate::processes::output(
@@ -665,7 +666,7 @@ impl App {
     }
 
     /// Couleurs de la barre : les siennes, sinon celles du thème.
-    pub(super) fn bar_palette(&self) -> BarPalette {
+    pub(in crate::ui) fn bar_palette(&self) -> BarPalette {
         use crate::config::BarStyle;
         let th = &self.cfg.general.theme;
         let c = self.cfg.bar.as_ref().map(|b| &b.colors);
@@ -686,7 +687,7 @@ impl App {
             .is_some_and(|b| b.style == BarStyle::Island);
         let neutre = |v: Rgba| {
             if graphite {
-                super::bar_style::neutral(v)
+                crate::ui::plugins::bar::style::neutral(v)
             } else {
                 v
             }
@@ -716,7 +717,7 @@ impl App {
             // Graphite privilégie un fond stable sur tout fond d’écran.
             opacity: match c.and_then(|c| c.opacity) {
                 Some(o) => o.clamp(0.0, 1.0),
-                None if graphite => super::bar_style::ACRYLIC,
+                None if graphite => crate::ui::plugins::bar::style::ACRYLIC,
                 None if self.convex_options().is_some() || island => 1.0,
                 None => th.effect(crate::config::Place::Bar).opacity.clamp(0.0, 1.0),
             },
@@ -728,7 +729,7 @@ impl App {
     }
 
     /// Couleur propre d'un module (par son identifiant, puis par son type).
-    pub(super) fn bar_item_color(&self, item: &BarItem) -> Option<Rgba> {
+    pub(in crate::ui) fn bar_item_color(&self, item: &BarItem) -> Option<Rgba> {
         let m = &self.cfg.bar.as_ref()?.colors.modules;
         match item {
             BarItem::Widget(id) => m.get(id).copied().or_else(|| {
@@ -739,7 +740,7 @@ impl App {
         }
     }
 
-    pub(super) fn state_color(&self, s: RenderState, normal: Color) -> Color {
+    pub(in crate::ui) fn state_color(&self, s: RenderState, normal: Color) -> Color {
         let p = self.bar_palette();
         match s {
             RenderState::Warning => color(p.warning, 1.0),
@@ -749,13 +750,13 @@ impl App {
         }
     }
 
-    pub(super) fn view_bar(&self, id: Id) -> Element<'_, Msg> {
+    pub(in crate::ui) fn view_bar(&self, id: Id) -> Element<'_, Msg> {
         let (Some(s), Some(bar)) = (self.bar_surfaces.get(&id), &self.cfg.bar) else {
             return Space::new().into();
         };
         let pal = self.bar_palette();
         let style = bar.style;
-        let t = super::bar_style::durations(self);
+        let t = crate::ui::plugins::bar::style::durations(self);
         // Écran vertical : ses propres zones, si la barre en déclare.
         let (zones, zone_offset) = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
             (Some(p), true) => (p, 3),
@@ -782,68 +783,70 @@ impl App {
                         .map(move |(i, item)| (zone, i, item))
                 })
                 .enumerate()
-                .map(|(index, (zone, i, item))| super::bar_layout::Slot {
-                    zone,
-                    priority: self.bar_priority(item),
-                    flexible: self.bar_item_is_launcher(item),
-                    content: {
-                        let content = self.bar_item(id, s, item);
-                        let content = if zone == 1
-                            && let Some(p) = self.popover.as_ref().filter(|p| p.bar == id)
-                            && let Some(a) = p.attached.filter(|a| {
-                                matches!(
-                                    a.edge,
-                                    super::bar_style::convexe::Edge::Top
-                                        | super::bar_style::convexe::Edge::Bottom
-                                )
-                            }) {
-                            let progress = p.visibility.value(std::time::Instant::now());
-                            let dy = if s.position == BarPosition::Top {
-                                -1.0
+                .map(
+                    |(index, (zone, i, item))| crate::ui::plugins::bar::layout::Slot {
+                        zone,
+                        priority: self.bar_priority(item),
+                        flexible: self.bar_item_is_launcher(item),
+                        content: {
+                            let content = self.bar_item(id, s, item);
+                            let content = if zone == 1
+                                && let Some(p) = self.popover.as_ref().filter(|p| p.bar == id)
+                                && let Some(a) = p.attached.filter(|a| {
+                                    matches!(
+                                        a.edge,
+                                        crate::ui::plugins::bar::style::convexe::Edge::Top
+                                            | crate::ui::plugins::bar::style::convexe::Edge::Bottom
+                                    )
+                                }) {
+                                let progress = p.visibility.value(std::time::Instant::now());
+                                let dy = if s.position == BarPosition::Top {
+                                    -1.0
+                                } else {
+                                    1.0
+                                };
+                                motion::inert(motion::surface(
+                                    content,
+                                    1.0,
+                                    iced::Vector::new(0.0, dy * a.bar_height * progress),
+                                    iced::Point::ORIGIN,
+                                ))
                             } else {
-                                1.0
+                                content
                             };
-                            bar_motion::inert(bar_motion::surface(
-                                content,
-                                1.0,
-                                iced::Vector::new(0.0, dy * a.bar_height * progress),
-                                iced::Point::ORIGIN,
-                            ))
-                        } else {
-                            content
-                        };
-                        let content = if edit && !self.bar_item_is_launcher(item) {
-                            self.bar_edit_item(content, zone + zone_offset, i, s.height)
-                        } else if edit {
-                            mouse_area(content)
-                                .on_enter(Msg::BarDragOver(zone + zone_offset, i))
-                                .on_release(Msg::BarDragEnd)
-                                .into()
-                        } else {
-                            content
-                        };
-                        let content = if self.bar_preview == Some((index, true)) {
-                            bar_motion::surface(
-                                content,
-                                0.97,
-                                iced::Vector::ZERO,
-                                iced::Point::new(0.5, 0.5),
-                            )
-                        } else {
-                            content
-                        };
-                        if self.bar_item_is_launcher(item) {
-                            content
-                        } else {
-                            bar_motion::anchor(
-                                content,
-                                id,
-                                bar_item_key(item).into(),
-                                self.bar_duration(t.hover),
-                            )
-                        }
+                            let content = if edit && !self.bar_item_is_launcher(item) {
+                                self.bar_edit_item(content, zone + zone_offset, i, s.height)
+                            } else if edit {
+                                mouse_area(content)
+                                    .on_enter(Msg::BarDragOver(zone + zone_offset, i))
+                                    .on_release(Msg::BarDragEnd)
+                                    .into()
+                            } else {
+                                content
+                            };
+                            let content = if self.bar_preview == Some((index, true)) {
+                                motion::surface(
+                                    content,
+                                    0.97,
+                                    iced::Vector::ZERO,
+                                    iced::Point::new(0.5, 0.5),
+                                )
+                            } else {
+                                content
+                            };
+                            if self.bar_item_is_launcher(item) {
+                                content
+                            } else {
+                                motion::anchor(
+                                    content,
+                                    id,
+                                    bar_item_key(item).into(),
+                                    self.bar_duration(t.hover),
+                                )
+                            }
+                        },
                     },
-                })
+                )
                 .collect();
             if edit {
                 for (zone, items) in zones.iter().enumerate() {
@@ -868,7 +871,7 @@ impl App {
                     )
                     .on_enter(Msg::BarDragOver(z, i))
                     .on_release(Msg::BarDragEnd);
-                    slots.push(super::bar_layout::Slot {
+                    slots.push(crate::ui::plugins::bar::layout::Slot {
                         zone,
                         priority: 102,
                         flexible: false,
@@ -904,14 +907,14 @@ impl App {
                 more_content = more_content.push(self.label(
                     truncate(&m.workspace, 8),
                     13.0,
-                    super::bar_style::ink(style, &pal),
+                    crate::ui::plugins::bar::style::ink(style, &pal),
                 ));
             }
             more_content = more_content.push(
                 self.icon_named("view-more-symbolic", 18.0, color(pal.fg, 1.0))
                     .unwrap_or_else(|| self.label("…", 18.0, color(pal.fg, 1.0))),
             );
-            let more = bar_motion::anchor(
+            let more = motion::anchor(
                 self.module(
                     s,
                     1.0,
@@ -929,14 +932,14 @@ impl App {
                 "overflow".into(),
                 self.bar_duration(t.hover),
             );
-            bar_motion::rail(
-                super::bar_layout::strip(
+            motion::rail(
+                crate::ui::plugins::bar::layout::strip(
                     id,
                     slots,
                     more,
                     self.bar_compact(&s.monitor),
                     style == crate::config::BarStyle::Graphite,
-                    super::bar_style::zone_pill(style, &pal).map(|mut skin| {
+                    crate::ui::plugins::bar::style::zone_pill(style, &pal).map(|mut skin| {
                         skin.pinned = edit
                             || self.bar_preview.is_some()
                             || self.popover.as_ref().is_some_and(|p| p.bar == id);
@@ -954,7 +957,7 @@ impl App {
                     .filter(|_| style != crate::config::BarStyle::Island)
                     .map(|(i, _)| i),
                 eligible,
-                super::bar_style::rail_look(style, &pal),
+                crate::ui::plugins::bar::style::rail_look(style, &pal),
                 self.bar_duration(t.hover),
             )
         } else {
@@ -1006,7 +1009,7 @@ impl App {
         }
         // Fond de zones à path (Convex) : canvas sous le contenu, aux
         // étendues mesurées des zones.
-        let content = match super::bar_style::zone_underlay(
+        let content = match crate::ui::plugins::bar::style::zone_underlay(
             style,
             &pal,
             s.height as f32,
@@ -1020,7 +1023,7 @@ impl App {
             .padding(pad)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_| super::bar_style::surface(style, &pal, top));
+            .style(move |_| crate::ui::plugins::bar::style::surface(style, &pal, top));
         if graphite {
             container(slab)
                 .width(Length::Fill)
@@ -1037,7 +1040,7 @@ impl App {
 
     /// Un espace de cet écran porte-t-il une fenêtre urgente ? Hyprland
     /// l'annonce par `urgent>>`, on la retrouve dans la liste des fenêtres.
-    pub(super) fn bar_urgent(&self, monitor: &str, ws: &str) -> bool {
+    pub(in crate::ui) fn bar_urgent(&self, monitor: &str, ws: &str) -> bool {
         !self.urgent.is_empty()
             && self.clients.iter().any(|c| {
                 self.urgent.contains(&c.address) && c.workspace == ws && c.monitor == monitor
@@ -1048,7 +1051,7 @@ impl App {
     /// espace ? L'application d'origine (`desktop-entry`, sinon `app_name`)
     /// est rapprochée de la classe d'une fenêtre ; l'indicateur suit la vie
     /// de la bulle (fermée, expirée : l'espace redevient normal).
-    pub(super) fn bar_notif(&self, monitor: &str, ws: &str) -> bool {
+    pub(in crate::ui) fn bar_notif(&self, monitor: &str, ws: &str) -> bool {
         !self.toasts.list.is_empty()
             && self.toasts.list.iter().any(|t| {
                 let entry =
@@ -1065,7 +1068,7 @@ impl App {
     }
 
     /// Écran plus haut que large (rotation à 90° ou 270°).
-    pub(super) fn bar_vertical(&self, monitor: &str) -> bool {
+    pub(in crate::ui) fn bar_vertical(&self, monitor: &str) -> bool {
         self.monitors
             .iter()
             .find(|m| m.name == monitor)
@@ -1073,7 +1076,7 @@ impl App {
     }
 
     /// Barre compacte sur cet écran : réglage, ou automatique (étroit ou vertical).
-    pub(super) fn bar_compact(&self, monitor: &str) -> bool {
+    pub(in crate::ui) fn bar_compact(&self, monitor: &str) -> bool {
         use crate::config::BarCompact;
         match self.cfg.bar.as_ref().map(|b| b.compact).unwrap_or_default() {
             BarCompact::Always => true,
@@ -1147,7 +1150,7 @@ impl App {
         let compact = self.bar_compact(&s.monitor);
         let Some(z) = edit else {
             let content = row(items.iter().map(|it| {
-                bar_motion::anchor(
+                motion::anchor(
                     self.bar_item(id, s, it),
                     id,
                     bar_item_key(it).into(),
@@ -1156,7 +1159,7 @@ impl App {
             }))
             .spacing(if compact { 0 } else { 2 })
             .align_y(Alignment::Center);
-            return bar_motion::rail(
+            return motion::rail(
                 content,
                 None,
                 items
@@ -1171,11 +1174,11 @@ impl App {
                         )
                     })
                     .collect(),
-                super::bar_style::rail_look(
+                crate::ui::plugins::bar::style::rail_look(
                     self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default(),
                     &self.bar_palette(),
                 ),
-                self.bar_duration(super::bar_style::durations(self).hover),
+                self.bar_duration(crate::ui::plugins::bar::style::durations(self).hover),
             );
         };
         // Mode réglage : chaque module est une poignée ; un repère d'accent
@@ -1255,7 +1258,14 @@ impl App {
         .padding([0, 9])
         .on_press_maybe(left.or(interactive.then_some(Msg::Noop)))
         .style(move |_, st| {
-            super::bar_style::module_button(style, alpha, fg, color(pal.bg, 1.0), active, st)
+            crate::ui::plugins::bar::style::module_button(
+                style,
+                alpha,
+                fg,
+                color(pal.bg, 1.0),
+                active,
+                st,
+            )
         });
         let mut m = mouse_area(b);
         if let Some(r) = right {
@@ -1306,7 +1316,12 @@ impl App {
         }
     }
 
-    pub(super) fn label<'a>(&self, s: impl Into<String>, size: f32, c: Color) -> Element<'a, Msg> {
+    pub(in crate::ui) fn label<'a>(
+        &self,
+        s: impl Into<String>,
+        size: f32,
+        c: Color,
+    ) -> Element<'a, Msg> {
         text(s.into())
             .font(self.font)
             .size(size)
@@ -1316,7 +1331,7 @@ impl App {
             .into()
     }
 
-    pub(super) fn bar_item<'a>(
+    pub(in crate::ui) fn bar_item<'a>(
         &'a self,
         bar_id: Id,
         bar: &'a BarSurface,
@@ -1325,7 +1340,7 @@ impl App {
         self.bar_item_alpha(bar_id, bar, item, 1.0)
     }
 
-    pub(super) fn bar_item_alpha<'a>(
+    pub(in crate::ui) fn bar_item_alpha<'a>(
         &'a self,
         bar_id: Id,
         bar: &'a BarSurface,
@@ -1334,7 +1349,7 @@ impl App {
     ) -> Element<'a, Msg> {
         let pal = self.bar_palette();
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
-        let t = super::bar_style::durations(self);
+        let t = crate::ui::plugins::bar::style::durations(self);
         // Couleur du module, sinon le texte de la barre.
         let base = self.bar_item_color(item).unwrap_or(pal.fg);
         let fg = color(base, 0.92 * alpha);
@@ -1346,7 +1361,9 @@ impl App {
         match item {
             // Les touches d'espaces sont le geste du style : chaque rendu son
             // langage (capsule glissante en Continuité, touche soulevée en Graphite).
-            BarItem::Workspaces => super::bar_style::workspaces(self, bar_id, bar, alpha),
+            BarItem::Workspaces => {
+                crate::ui::plugins::bar::style::workspaces(self, bar_id, bar, alpha)
+            }
             BarItem::Window => {
                 if self
                     .monitors
@@ -1376,7 +1393,7 @@ impl App {
             // full-desktop ; le mode en cours en couleur d'accent, un clic
             // sur un autre y passe.
             BarItem::Desktop => {
-                use super::DesktopMode as M;
+                use crate::ui::DesktopMode as M;
                 // Le mode de cet écran (celui du workspace qu'il affiche) ;
                 // un clic le change pour cet écran.
                 let mode = self.monitor_mode(&monitor);
@@ -1392,7 +1409,7 @@ impl App {
                         self.label(m.as_str().chars().take(1).collect::<String>(), size, tint)
                     });
                     iced::widget::tooltip(
-                        bar_motion::press(
+                        motion::press(
                             button(
                                 container(glyph)
                                     .center_x(Length::Fill)
@@ -1601,7 +1618,7 @@ impl App {
                     if self.bar_overflow_items(bar_id).contains(&BarItem::Tray) {
                         module
                     } else {
-                        bar_motion::anchor(
+                        motion::anchor(
                             module,
                             bar_id,
                             format!("tray:{}", t.key),
@@ -1609,11 +1626,11 @@ impl App {
                         )
                     }
                 });
-                bar_motion::rail(
+                motion::rail(
                     row(icons).spacing(0).align_y(Alignment::Center),
                     None,
                     vec![true; count],
-                    super::bar_style::rail_look(style, &pal),
+                    crate::ui::plugins::bar::style::rail_look(style, &pal),
                     self.bar_duration(t.hover),
                 )
             }

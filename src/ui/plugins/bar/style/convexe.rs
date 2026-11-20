@@ -1,7 +1,8 @@
 //! Convex : niches et tiroirs raccordés au même cadre, inspirés de minflair.
-use super::super::{Msg, bar::BarPalette};
 use super::{Tokens, color};
 use crate::config::ConvexDef;
+use crate::ui::Msg;
+use crate::ui::plugins::bar::surface::BarPalette;
 use iced::mouse;
 use iced::widget::{button, canvas, container};
 use iced::{Color, Element, Length, Point, Rectangle, Size};

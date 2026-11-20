@@ -7,7 +7,8 @@ use iced::keyboard::{Key, key::Named};
 use iced::window::Id;
 use iced_layershell::reexport::KeyboardInteractivity;
 
-use super::{App, Slot, UiMsg};
+use super::surface::Slot;
+use super::{App, UiMsg};
 use crate::ui::DesktopMode;
 
 /// Déplacement demandé au clavier dans le dock.

@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
 use iced::{Color, Element, Font, Length, Point, Rectangle, Renderer, Size, Theme, mouse};
 
-use super::super::Msg;
+use crate::ui::Msg;
 
 fn palette(id: &str) -> [Color; 3] {
     let rgb = |r: u8, g: u8, b: u8| Color::from_rgb8(r, g, b);

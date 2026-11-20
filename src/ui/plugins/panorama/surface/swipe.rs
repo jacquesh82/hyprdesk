@@ -19,8 +19,8 @@ use iced::advanced::{
 };
 use iced::{Element, Event, Length, Point, Rectangle, Size, Vector, touch};
 
-use super::super::Msg;
-use super::super::kinetic::Spring;
+use crate::ui::Msg;
+use crate::ui::kinetic::Spring;
 
 /// Distance avant de reconnaître un glisser (et non un appui).
 const SLOP: f32 = 28.0;

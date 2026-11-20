@@ -124,7 +124,7 @@ fn node(id: u32, name: String, default: bool) -> Node {
 /// Relevé complet (bloquant).
 pub fn read() -> State {
     let status = wpctl(&["status"]);
-    let (outs, ins) = crate::ui::bar::parse_wpctl_status(&status);
+    let (outs, ins) = crate::ui::plugins::bar::surface::parse_wpctl_status(&status);
     State {
         outputs: outs
             .into_iter()

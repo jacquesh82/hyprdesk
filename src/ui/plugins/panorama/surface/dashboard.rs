@@ -1273,7 +1273,7 @@ impl App {
                 .class_imgs
                 .get(&c.class)
                 .copied()
-                .unwrap_or(super::super::IconImg::None);
+                .unwrap_or(crate::ui::IconImg::None);
             let icon: Element<'_, Msg> = self
                 .img_element(img, 26.0, 1.0)
                 .unwrap_or_else(|| Space::new().width(26).height(26).into());

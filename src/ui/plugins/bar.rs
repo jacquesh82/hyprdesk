@@ -1,6 +1,20 @@
-//! Paquet intégré « Barre » : Barre native : position, hauteur, écrans, modules par zone.
+//! Plugin « Barre » : la barre native et sa page de réglages (position,
+//! hauteur, écrans, modules par zone).
+//!
+//! - `surface` : la barre posée sur chaque écran (zones, modules, actions) ;
+//! - `layout` : mesure des modules, centrage et débordement ;
+//! - `motion` : mouvement local pendant le geste ;
+//! - `style` : rendus complets choisis par `hd.bar({ style = … })` ;
+//! - `popover` : menus déroulants qui descendent sous un module ;
+//! - ce fichier : manifeste et page de Réglages.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
+
+pub(in crate::ui) mod layout;
+pub(in crate::ui) mod motion;
+pub(in crate::ui) mod popover;
+pub(in crate::ui) mod style;
+pub(crate) mod surface;
 
 use crate::i18n::text;
 use iced::widget::{
@@ -42,7 +56,7 @@ pub enum Msg {
     Height(u16),
     /// Marge au bord de l'écran (glissé).
     Margin(u16),
-    /// Style visuel de la barre (`ui::bar_style`).
+    /// Style visuel de la barre (`ui::plugins::bar::style`).
     Style(crate::config::BarStyle),
     ConvexFrame(u16),
     ConvexRadius(u16),
@@ -288,7 +302,7 @@ impl App {
                     // 0 : tous ; 1 : l'écran principal ; 2 : cet écran.
                     let which = match &b.monitors {
                         None => 0u8,
-                        Some(l) if l.len() == 1 && l[0] == super::super::bar::PRIMARY => 1,
+                        Some(l) if l.len() == 1 && l[0] == crate::ui::plugins::bar::surface::PRIMARY => 1,
                         Some(_) => 2,
                     };
                     let pick = |v: u8| {
@@ -609,7 +623,7 @@ impl App {
                 self.settings
                     .bar
                     .get_or_insert_with(Default::default)
-                    .monitors = Some(vec![super::super::bar::PRIMARY.to_string()]);
+                    .monitors = Some(vec![crate::ui::plugins::bar::surface::PRIMARY.to_string()]);
                 self.commit_reload()
             }
             Msg::Add(z, choice) => {

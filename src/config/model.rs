@@ -823,7 +823,7 @@ pub struct BarDef {
     /// Modules des écrans verticaux (portrait), s'ils diffèrent.
     pub portrait: Option<[Vec<BarItem>; 3]>,
     pub compact: BarCompact,
-    /// Style visuel de la barre (`ui::bar_style`).
+    /// Style visuel de la barre (`ui::plugins::bar::style`).
     pub style: BarStyle,
     /// Couleurs propres à la barre (sinon celles du thème).
     pub colors: BarColors,
@@ -904,7 +904,7 @@ impl BarColors {
 }
 
 /// Styles visuels de la barre : chaque style est un rendu complet (surface,
-/// modules, workspaces) porté par `ui::bar_style`, avec ses jetons de mouvement.
+/// modules, workspaces) porté par `ui::plugins::bar::style`, avec ses jetons de mouvement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BarStyle {
     /// Le style d'origine : verre fumé, capsules au survol, capsule mobile

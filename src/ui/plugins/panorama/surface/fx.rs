@@ -12,9 +12,9 @@ use iced::advanced::{
 use iced::widget::canvas::{self, Path, Stroke};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Vector, touch};
 
-use super::super::kinetic::Spring;
 use super::Msg;
 use crate::panorama::layout::Rect;
+use crate::ui::kinetic::Spring;
 
 const RESPONSE: Duration = Duration::from_millis(240);
 const FRAME: Duration = Duration::from_millis(33);

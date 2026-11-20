@@ -568,8 +568,8 @@ impl App {
         }
         if self.convex_options().is_some() {
             use super::{
-                bar_style::convexe::Edge,
                 kinetic::{self, Track},
+                plugins::bar::style::convexe::Edge,
             };
             let win = self.toasts.win.unwrap_or_else(Id::unique);
             let track = if !self.toasts.shown {
@@ -598,7 +598,7 @@ impl App {
                 .height(Length::Fill)
                 .width(Length::Fill);
             let content: Element<'_, Msg> = if self.toasts.visibility.is_some_and(|f| f.to == 0.0) {
-                super::bar_motion::inert(content)
+                crate::ui::plugins::bar::motion::inert(content)
             } else {
                 content.into()
             };

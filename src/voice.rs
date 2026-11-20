@@ -281,7 +281,7 @@ pub fn microphones() -> Vec<(String, String, bool)> {
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
             .unwrap_or_default()
     };
-    let (_, inputs) = crate::ui::bar::parse_wpctl_status(&wpctl(&["status"]));
+    let (_, inputs) = crate::ui::plugins::bar::surface::parse_wpctl_status(&wpctl(&["status"]));
     inputs
         .into_iter()
         .filter_map(|d| {

@@ -9,7 +9,10 @@ use super::super::{App, Msg, PMsg, fx, wrap};
 use crate::panorama::modules::notes;
 
 impl App {
-    pub(in crate::ui::panorama) fn panorama_notes_update(&mut self, m: PMsg) -> Task<Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_notes_update(
+        &mut self,
+        m: PMsg,
+    ) -> Task<Msg> {
         match m {
             PMsg::NotesOpen => {
                 self.panorama.last_press = Some(Instant::now());
@@ -32,7 +35,10 @@ impl App {
     }
 
     /// Tuile Notes : un grand bouton qui ouvre l'éditeur sur l'écran réglé.
-    pub(in crate::ui::panorama) fn panorama_notes(&self, size: Size) -> Element<'_, Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_notes(
+        &self,
+        size: Size,
+    ) -> Element<'_, Msg> {
         let (_, fg, accent) = self.panorama_palette();
         let t = self.cfg.general.panorama.design.text_scale;
         let dim = fx::alpha(fg, 0.65);

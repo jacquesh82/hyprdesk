@@ -8,7 +8,10 @@ use super::super::{App, Msg, PMsg, fx, wrap};
 impl App {
     /// Module LYRA vocale : le micro (un appui l'ouvre ou le coupe), l'état
     /// de l'écoute et la dernière phrase entendue.
-    pub(in crate::ui::panorama) fn panorama_voice_module(&self, size: Size) -> Element<'_, Msg> {
+    pub(in crate::ui::plugins::panorama::surface) fn panorama_voice_module(
+        &self,
+        size: Size,
+    ) -> Element<'_, Msg> {
         use super::super::VoiceUi;
         let (_, fg, accent) = self.panorama_palette();
         let t = self.cfg.general.panorama.design.text_scale;

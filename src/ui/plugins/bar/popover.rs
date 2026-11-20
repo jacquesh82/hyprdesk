@@ -13,9 +13,9 @@ use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
-use super::bar_style::convexe::Edge;
-use super::{App, Fade, Msg, color, format_now};
 use crate::config::{BarPosition, MenuEntry};
+use crate::ui::plugins::bar::style::convexe::Edge;
+use crate::ui::{App, Fade, Msg, color, format_now};
 mod bar_menus;
 
 pub const POPOVER_NAMESPACE: &str = "hyprdesk-popover";
@@ -25,7 +25,7 @@ const WIDTH: f32 = 328.0;
 /// Côté d'une image de menu (pochette).
 const IMAGE: f32 = 120.0;
 /// Écart entre la barre et le haut de la carte.
-pub(super) const GAP: f32 = 10.0;
+pub(in crate::ui) const GAP: f32 = 10.0;
 
 /// Ce qu'on demande d'ouvrir (le contenu peut devoir être calculé avant).
 #[derive(Debug, Clone)]
@@ -76,7 +76,7 @@ mod tests {
         }];
         app.bar_surfaces.insert(
             bar,
-            super::super::bar::BarSurface {
+            crate::ui::plugins::bar::surface::BarSurface {
                 monitor: "A".into(),
                 position: BarPosition::Top,
                 height: 44,
@@ -285,7 +285,7 @@ pub enum PMsg {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Attached {
+pub(in crate::ui) struct Attached {
     pub edge: Edge,
     pub top: f32,
     pub bar_height: f32,
@@ -300,7 +300,7 @@ pub struct Popover {
     pub position: BarPosition,
     pub left: f32,
     pub origin: f32,
-    pub(super) attached: Option<Attached>,
+    pub(in crate::ui) attached: Option<Attached>,
     pub visibility: Fade,
     shown: bool,
     pub change: Option<Fade>,
@@ -334,10 +334,10 @@ impl Popover {
         }
     }
 
-    pub(super) fn closing(&self) -> bool {
+    pub(in crate::ui) fn closing(&self) -> bool {
         self.visibility.to == 0.0
     }
-    pub(super) fn animating(&self, now: std::time::Instant) -> bool {
+    pub(in crate::ui) fn animating(&self, now: std::time::Instant) -> bool {
         self.shown
             && (!self.visibility.done(now)
                 || self.visibility.from != self.visibility.to
@@ -354,7 +354,7 @@ impl Drop for Popover {
 }
 
 /// Carte ancrée à la boîte rendue du module, même à l'ouverture au clavier.
-pub(super) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
+pub(in crate::ui) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
     let width = WIDTH.min((screen_width - 24.0).max(80.0));
     let card_left =
         (anchor.center_x() - width / 2.0).clamp(12.0, (screen_width - width - 12.0).max(12.0));
@@ -368,7 +368,7 @@ pub(super) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32
 fn attached_placement(
     screen: Size,
     anchor: iced::Rectangle,
-    bar: &super::bar::BarSurface,
+    bar: &crate::ui::plugins::bar::surface::BarSurface,
     height: f32,
 ) -> (f32, Size, Attached) {
     let edge = if anchor.center_x() < screen.width * 0.28 {
@@ -416,7 +416,7 @@ fn stacked(label: &str, detail: Option<&str>) -> bool {
 const AUDIO_SECTION: f32 = 26.0 + 32.0 + 30.0;
 
 /// Périphériques listés : seulement s'il y a un choix à faire.
-fn device_rows(list: &[super::bar::AudioDevice]) -> f32 {
+fn device_rows(list: &[crate::ui::plugins::bar::surface::AudioDevice]) -> f32 {
     if list.len() > 1 {
         list.len() as f32 * 30.0
     } else {
@@ -427,8 +427,8 @@ fn device_rows(list: &[super::bar::AudioDevice]) -> f32 {
 fn card_height(
     kind: &Kind,
     confirm: Option<usize>,
-    audio: &super::bar::Audio,
-    light: &super::bar::Light,
+    audio: &crate::ui::plugins::bar::surface::Audio,
+    light: &crate::ui::plugins::bar::surface::Light,
 ) -> f32 {
     let inner = match kind {
         Kind::Notifications => 420.0,
@@ -483,7 +483,7 @@ fn card_height(
 impl App {
     /// L'ouverture peut précéder le premier relevé des limites (démarrage,
     /// accès clavier, aperçu isolé). Recaler la carte dès que son ancre existe.
-    pub(super) fn refresh_popover_anchor(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn refresh_popover_anchor(&mut self) -> Task<Msg> {
         let Some(p) = self.popover.as_ref().filter(|p| !p.closing()) else {
             return Task::none();
         };
@@ -495,7 +495,7 @@ impl App {
         };
         let hidden = self.bar_overflow_items(p.bar);
         let overflowed = hidden.iter().any(|item| {
-            super::bar::bar_item_key(item) == p.key
+            crate::ui::plugins::bar::surface::bar_item_key(item) == p.key
                 || (matches!(item, crate::config::BarItem::Tray) && p.key.starts_with("tray:"))
         });
         let key = if overflowed {
@@ -567,7 +567,7 @@ impl App {
     }
 
     /// Ouvre un menu sous le module cliqué de la barre `bar` (ou le referme).
-    pub(super) fn open_popover(&mut self, bar: Id, key: String, kind: Kind) -> Task<Msg> {
+    pub(in crate::ui) fn open_popover(&mut self, bar: Id, key: String, kind: Kind) -> Task<Msg> {
         let now = std::time::Instant::now();
         let Some(b) = self.bar_surfaces.get(&bar).cloned() else {
             return Task::none();
@@ -577,7 +577,7 @@ impl App {
         };
         let hidden = self.bar_overflow_items(bar);
         let overflowed = hidden.iter().any(|item| {
-            super::bar::bar_item_key(item) == key
+            crate::ui::plugins::bar::surface::bar_item_key(item) == key
                 || (matches!(item, crate::config::BarItem::Tray) && key.starts_with("tray:"))
         });
         let anchor_key = if overflowed {
@@ -836,7 +836,7 @@ impl App {
         .into()
     }
 
-    pub(super) fn destroy_popover(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn destroy_popover(&mut self) -> Task<Msg> {
         self.cal_months = 0;
         match self.popover.take() {
             Some(p) => Task::batch([iced::window::close(p.win), iced::window::close(p.catcher)]),
@@ -844,7 +844,7 @@ impl App {
         }
     }
 
-    pub(super) fn close_popover(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn close_popover(&mut self) -> Task<Msg> {
         let duration = self.bar_duration(
             self.convex_options()
                 .filter(|o| o.attached_panels)
@@ -867,7 +867,7 @@ impl App {
         Task::none()
     }
 
-    pub(super) fn popover_frame(&mut self) -> Task<Msg> {
+    pub(in crate::ui) fn popover_frame(&mut self) -> Task<Msg> {
         if self
             .popover
             .as_ref()
@@ -908,7 +908,7 @@ impl App {
         Task::batch([resize, self.refresh_popover_anchor()])
     }
 
-    pub(super) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
+    pub(in crate::ui) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
         let Some(p) = self.popover.as_mut() else {
             return Task::none();
         };
@@ -1017,7 +1017,7 @@ impl App {
         Task::none()
     }
 
-    pub(super) fn fit_popover(&mut self, win: Id, content_height: f32) -> Task<Msg> {
+    pub(in crate::ui) fn fit_popover(&mut self, win: Id, content_height: f32) -> Task<Msg> {
         if !content_height.is_finite() || content_height <= 0.0 {
             return Task::none();
         }
@@ -1053,7 +1053,7 @@ impl App {
         Task::batch([resize, self.refresh_popover_anchor()])
     }
 
-    pub(super) fn view_catcher(&self) -> Element<'_, Msg> {
+    pub(in crate::ui) fn view_catcher(&self) -> Element<'_, Msg> {
         mouse_area(
             container(Space::new())
                 .width(Length::Fill)
@@ -1111,7 +1111,7 @@ impl App {
             .into()
     }
 
-    pub(super) fn popover_shown(&mut self, id: Id) -> Task<Msg> {
+    pub(in crate::ui) fn popover_shown(&mut self, id: Id) -> Task<Msg> {
         if let Some(p) = self.popover.as_mut().filter(|p| p.win == id && !p.shown) {
             p.shown = true;
             if p.visibility.to == 1.0 {
@@ -1122,7 +1122,7 @@ impl App {
         Task::none()
     }
 
-    pub(super) fn view_popover(&self) -> Element<'_, Msg> {
+    pub(in crate::ui) fn view_popover(&self) -> Element<'_, Msg> {
         let Some(p) = &self.popover else {
             return Space::new().into();
         };
@@ -1161,7 +1161,7 @@ impl App {
                 .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
         let mut content = iced::widget::stack![];
         if let Some(previous) = &p.previous {
-            content = content.push(super::bar_motion::inert(self.pop_content(
+            content = content.push(crate::ui::plugins::bar::motion::inert(self.pop_content(
                 previous,
                 None,
                 content_alpha * (1.0 - mix),
@@ -1185,7 +1185,7 @@ impl App {
                 .width(Length::Fill)
                 .height(a.height);
             let body: Element<'_, Msg> = if p.closing() {
-                super::bar_motion::inert(body)
+                crate::ui::plugins::bar::motion::inert(body)
             } else {
                 body.into()
             };
@@ -1193,16 +1193,16 @@ impl App {
             let track = if p.shown {
                 p.visibility
             } else {
-                super::Fade {
+                crate::ui::Fade {
                     from: 0.0,
                     to: 0.0,
                     start: p.visibility.start,
                     dur: std::time::Duration::ZERO,
                 }
             };
-            let shape = container(super::kinetic::reveal(
+            let shape = container(crate::ui::kinetic::reveal(
                 body,
-                super::kinetic::Track::Ease(track),
+                crate::ui::kinetic::Track::Ease(track),
                 a.edge,
                 color(pal.bg, pal.opacity),
                 p.shown.then_some(Msg::MotionSettled),
@@ -1231,14 +1231,14 @@ impl App {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(move |_| {
-                    let mut style = super::design::bar_card(bg, fg);
+                    let mut style = crate::ui::design::bar_card(bg, fg);
                     style.border.color.a *= alpha;
                     style.shadow.color.a *= alpha;
                     style
                 })
                 .into();
         let card = if p.closing() {
-            super::bar_motion::inert(card)
+            crate::ui::plugins::bar::motion::inert(card)
         } else {
             card
         };
@@ -1253,7 +1253,7 @@ impl App {
             iced::Point::new(p.origin, 1.0)
         };
         iced::widget::sensor(
-            container(super::bar_motion::surface(
+            container(crate::ui::plugins::bar::motion::surface(
                 card,
                 0.975 + 0.025 * alpha,
                 Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
@@ -1268,7 +1268,7 @@ impl App {
         .into()
     }
 
-    pub(super) fn pop_header(&self, alpha: f32, label: String) -> Element<'_, Msg> {
+    pub(in crate::ui) fn pop_header(&self, alpha: f32, label: String) -> Element<'_, Msg> {
         let dim = color(
             if self.convex_options().is_some() {
                 self.bar_palette().fg
@@ -1294,7 +1294,7 @@ impl App {
         .into()
     }
 
-    pub(super) fn pop_separator(&self, alpha: f32) -> Element<'_, Msg> {
+    pub(in crate::ui) fn pop_separator(&self, alpha: f32) -> Element<'_, Msg> {
         let line = color(
             if self.convex_options().is_some() {
                 self.bar_palette().fg
@@ -1400,7 +1400,7 @@ impl App {
                 } else {
                     fg
                 },
-                border: Border::default().rounded(super::design::SMALL_RADIUS),
+                border: Border::default().rounded(crate::ui::design::SMALL_RADIUS),
                 ..Default::default()
             }
         })
@@ -1508,7 +1508,7 @@ impl App {
                                         })),
                                         text_color: fg,
                                         border: Border::default()
-                                            .rounded(super::design::SMALL_RADIUS),
+                                            .rounded(crate::ui::design::SMALL_RADIUS),
                                         ..Default::default()
                                     }),
                                 button(text("Confirmer").font(self.font).size(12.5).font(font))
@@ -1525,7 +1525,7 @@ impl App {
                                         })),
                                         text_color: Color::WHITE,
                                         border: Border::default()
-                                            .rounded(super::design::SMALL_RADIUS),
+                                            .rounded(crate::ui::design::SMALL_RADIUS),
                                         ..Default::default()
                                     }),
                             ]
@@ -1550,7 +1550,7 @@ impl App {
         col = col.push(self.audio_controls(
             alpha,
             self.volume,
-            super::bar::volume_icon(self.volume),
+            crate::ui::plugins::bar::surface::volume_icon(self.volume),
             Msg::VolumeSet,
             Msg::VolumeMute,
         ));
@@ -1561,7 +1561,7 @@ impl App {
             col = col.push(self.audio_controls(
                 alpha,
                 a.mic,
-                super::bar::mic_icon(a.mic),
+                crate::ui::plugins::bar::surface::mic_icon(a.mic),
                 Msg::MicSet,
                 Msg::MicMute,
             ));
@@ -1592,7 +1592,7 @@ impl App {
 
     /// Menu Luminosité : un curseur par rétroéclairage et par écran DDC/CI.
     fn pop_brightness(&self, alpha: f32) -> Element<'_, Msg> {
-        use super::bar::LightTarget;
+        use crate::ui::plugins::bar::surface::LightTarget;
         let l = &self.light;
         let mut rows: Vec<(String, LightTarget)> = Vec::new();
         if l.screen.is_some() {
@@ -1616,13 +1616,19 @@ impl App {
         col.into()
     }
 
-    pub(super) fn light_slider(&self, alpha: f32, t: super::bar::LightTarget) -> Element<'_, Msg> {
+    pub(in crate::ui) fn light_slider(
+        &self,
+        alpha: f32,
+        t: crate::ui::plugins::bar::surface::LightTarget,
+    ) -> Element<'_, Msg> {
         let v = self.light.level(t).unwrap_or(0.0);
         row![
             slider(0.0..=1.0f32, v, move |x| Msg::LightSet(t, x))
                 .on_release(Msg::LightApply(t))
                 .step(0.01f32)
-                .style(move |theme, status| super::design::bar_slider_alpha(theme, status, alpha))
+                .style(move |theme, status| crate::ui::design::bar_slider_alpha(
+                    theme, status, alpha
+                ))
                 .width(Length::Fill),
             text(format!("{:.0} %", v * 100.0))
                 .size(12.5)
@@ -1662,7 +1668,7 @@ impl App {
                     .unwrap_or_else(|| Space::new().into()),
                 slider(0.0..=1.5f32, v.min(1.5), set)
                     .step(0.01f32)
-                    .style(move |theme, status| super::design::bar_slider_alpha(
+                    .style(move |theme, status| crate::ui::design::bar_slider_alpha(
                         theme, status, alpha
                     ))
                     .width(Length::Fill),
@@ -1706,7 +1712,7 @@ impl App {
     fn device_list<'a>(
         &'a self,
         alpha: f32,
-        list: &'a [super::bar::AudioDevice],
+        list: &'a [crate::ui::plugins::bar::surface::AudioDevice],
     ) -> Element<'a, Msg> {
         if list.len() < 2 {
             return Space::new().into();
@@ -1729,7 +1735,7 @@ impl App {
             self.pop_row(
                 alpha,
                 lead,
-                super::bar::truncate(&d.name, 28),
+                crate::ui::plugins::bar::surface::truncate(&d.name, 28),
                 None,
                 true,
                 !d.default,
@@ -1823,7 +1829,7 @@ impl App {
                 .on_press(Msg::CalendarMonth(delta))
         };
         let first =
-            super::widget_view::month_start(chrono::Local::now().date_naive(), self.cal_months);
+            crate::ui::widget_view::month_start(chrono::Local::now().date_naive(), self.cal_months);
         let month = first
             .format_localized("%B %Y", crate::i18n::chrono_locale())
             .to_string();

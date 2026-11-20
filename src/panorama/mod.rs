@@ -7,7 +7,8 @@
 //! part du rapport d'aspect et des périphériques tactiles (`detect`).
 //!
 //! Ce module est la logique pure (détection, mise en page, configuration) ;
-//! le rendu vit dans `ui::panorama`, les réglages dans `ui::plugins::panorama`.
+//! le rendu vit dans `ui::plugins::panorama::surface`, les réglages dans
+//! `ui::plugins::panorama`.
 
 pub mod auth;
 pub mod autofull;

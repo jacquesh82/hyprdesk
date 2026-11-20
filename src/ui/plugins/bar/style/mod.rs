@@ -2,8 +2,9 @@
 //! chrome des modules, touches d'espace et durées de mouvement — porté par un
 //! module de ce répertoire et choisi par le réglage `hd.bar({ style = … })`.
 //!
-//! Le conducteur commun reste `ui::bar` (zones, mesure, débordement, popovers,
-//! actions) ; un style ne décide que de l'apparence et du mouvement.
+//! Le conducteur commun reste `ui::plugins::bar::surface` (zones, mesure,
+//! débordement, popovers, actions) ; un style ne décide que de l'apparence et
+//! du mouvement.
 //!
 //! Pour ajouter un style :
 //! 1. une variante dans `config::BarStyle` (avec `BAR_STYLES`, ses défauts de
@@ -17,23 +18,24 @@ use std::time::Duration;
 use iced::widget::{container, text, tooltip};
 use iced::{Color, Element};
 
-use super::bar::{BarPalette, BarSurface, URGENT_ICON};
-use super::{App, Msg, bar_motion};
 use crate::config::{BarPosition, BarStyle};
+use crate::ui::plugins::bar::motion;
+use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, URGENT_ICON};
+use crate::ui::{App, Msg};
 
 mod continuite;
-pub(super) mod convexe;
+pub(in crate::ui) mod convexe;
 mod graphite;
 mod island;
 
 /// Matière neutre et opacité de référence de la barre Graphite.
-pub(super) use graphite::{ACRYLIC, neutral};
+pub(in crate::ui) use graphite::{ACRYLIC, neutral};
 mod selector;
 
 /// Durées de mouvement d'un style, en millisecondes (le coupe-circuit
 /// `transition = "none"` s'applique toujours par-dessus, via `bar_duration`).
 #[derive(Clone, Copy)]
-pub(super) struct Tokens {
+pub(in crate::ui) struct Tokens {
     /// Capsule de survol d'un module, ancrage des menus.
     pub hover: u64,
     /// Compression à l'appui.
@@ -51,14 +53,14 @@ const fn tokens(style: BarStyle) -> Tokens {
     }
 }
 
-/// Jetons du style courant de la barre, pour les sites communs de `ui::bar`.
-pub(super) fn durations(app: &App) -> Tokens {
+/// Jetons du style courant de la barre, pour les sites communs de `ui::plugins::bar::surface`.
+pub(in crate::ui) fn durations(app: &App) -> Tokens {
     tokens(app.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default())
 }
 
 /// Fond de la barre : la lame du style. Island et Convex rendent une lame
 /// transparente — leur silhouette vit dans le fond de zones ci-dessous.
-pub(super) fn surface(
+pub(in crate::ui) fn surface(
     style: BarStyle,
     pal: &BarPalette,
     top: bool,
@@ -78,7 +80,10 @@ pub(super) fn surface(
 /// renderer : rayon plein et ombre portée). Convex rend un canvas à niches
 /// posé sous le strip ; un changement d’étendues le repositionne à l’image
 /// suivante. `None` : lame pleine (Continuité, Graphite), rien à peindre.
-pub(super) fn zone_pill(style: BarStyle, pal: &BarPalette) -> Option<super::bar_layout::PillSkin> {
+pub(in crate::ui) fn zone_pill(
+    style: BarStyle,
+    pal: &BarPalette,
+) -> Option<crate::ui::plugins::bar::layout::PillSkin> {
     match style {
         BarStyle::Island => Some(island::pill(pal)),
         _ => None,
@@ -86,7 +91,7 @@ pub(super) fn zone_pill(style: BarStyle, pal: &BarPalette) -> Option<super::bar_
 }
 
 /// Canvas de fond pour les styles à path (Convex) ; `None` sinon.
-pub(super) fn zone_underlay<'a>(
+pub(in crate::ui) fn zone_underlay<'a>(
     style: BarStyle,
     pal: &BarPalette,
     height: f32,
@@ -100,7 +105,7 @@ pub(super) fn zone_underlay<'a>(
 }
 
 /// Chrome d’un bouton de module (survol, appui, module actif).
-pub(super) fn module_button(
+pub(in crate::ui) fn module_button(
     style: BarStyle,
     alpha: f32,
     fg: Color,
@@ -117,17 +122,17 @@ pub(super) fn module_button(
 }
 
 /// Aspect de la capsule qui suit le module survolé autour du ruban entier.
-pub(super) fn rail_look(style: BarStyle, pal: &BarPalette) -> bar_motion::RailLook {
+pub(in crate::ui) fn rail_look(style: BarStyle, pal: &BarPalette) -> motion::RailLook {
     match style {
-        BarStyle::Continuite => bar_motion::RailLook::Fill(super::color(pal.fg, 0.08)),
-        BarStyle::Graphite => bar_motion::RailLook::Fill(color(pal.fg, 0.07)),
-        BarStyle::Island => bar_motion::RailLook::Fill(color(pal.fg, 0.08)),
-        BarStyle::Convexe => bar_motion::RailLook::Fill(color(pal.fg, 0.07)),
+        BarStyle::Continuite => motion::RailLook::Fill(crate::ui::color(pal.fg, 0.08)),
+        BarStyle::Graphite => motion::RailLook::Fill(color(pal.fg, 0.07)),
+        BarStyle::Island => motion::RailLook::Fill(color(pal.fg, 0.08)),
+        BarStyle::Convexe => motion::RailLook::Fill(color(pal.fg, 0.07)),
     }
 }
 
 /// Encre d’une sélection : accent du thème dans tous les styles.
-pub(super) fn ink(style: BarStyle, pal: &BarPalette) -> Color {
+pub(in crate::ui) fn ink(style: BarStyle, pal: &BarPalette) -> Color {
     match style {
         BarStyle::Continuite => color(pal.accent, 1.0),
         BarStyle::Graphite => color(pal.accent, 1.0),
@@ -138,7 +143,7 @@ pub(super) fn ink(style: BarStyle, pal: &BarPalette) -> Color {
 
 /// Une ligne d'espaces de travail pour le style : nom, fenêtres posées,
 /// fenêtre demandant l'attention.
-pub(super) struct WsRow {
+pub(in crate::ui) struct WsRow {
     pub name: String,
     pub id: i64,
     pub windows: u32,
@@ -146,7 +151,7 @@ pub(super) struct WsRow {
 }
 
 /// Tout ce qu'un style sait des espaces de l'écran de sa barre.
-pub(super) struct WsCtx {
+pub(in crate::ui) struct WsCtx {
     pub monitor: String,
     /// Espace actif de cet écran.
     pub current: String,
@@ -191,7 +196,7 @@ fn ws_ctx(app: &App, bar: &BarSurface) -> WsCtx {
 /// rendu des touches — « relief » et « rail » reprennent les rendus natifs des
 /// styles (touche soulevée en Graphite, capsule glissante en Continuité),
 /// « miniatures » et « icônes » montrent le contenu des espaces.
-pub(super) fn workspaces<'a>(
+pub(in crate::ui) fn workspaces<'a>(
     app: &'a App,
     bar_id: iced::window::Id,
     bar: &'a BarSurface,
@@ -211,7 +216,7 @@ pub(super) fn workspaces<'a>(
 
 /// Petit losange « fenêtre demandant l'attention », avec son libellé
 /// accessible en info-bulle.
-pub(super) fn urgent_mark<'a>(
+pub(in crate::ui) fn urgent_mark<'a>(
     app: &'a App,
     bar: &'a BarSurface,
     size: f32,
@@ -252,6 +257,6 @@ pub(super) fn urgent_mark<'a>(
 }
 
 /// Couleur pratique : Rgba du thème → iced, alpha appliqué.
-pub(super) fn color(c: crate::config::Rgba, a: f32) -> Color {
-    super::color(c, a)
+pub(in crate::ui) fn color(c: crate::config::Rgba, a: f32) -> Color {
+    crate::ui::color(c, a)
 }

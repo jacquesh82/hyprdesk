@@ -1761,7 +1761,7 @@ impl Preview {
         // Module Luminosité : un portable (écran, clavier) et un écran externe.
         if SCENES[self.scene] == "luminosite" {
             use crate::brightness::{Device, Display};
-            self.app.light = super::bar::Light {
+            self.app.light = crate::ui::plugins::bar::surface::Light {
                 screen: Some(Device {
                     subsystem: "backlight",
                     name: "intel_backlight".into(),

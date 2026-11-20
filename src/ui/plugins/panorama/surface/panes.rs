@@ -289,7 +289,11 @@ impl App {
         } else {
             return;
         };
-        let Some(col) = panes.iter().find(|p| p.widget == "shortcuts").map(|p| p.rect) else {
+        let Some(col) = panes
+            .iter()
+            .find(|p| p.widget == "shortcuts")
+            .map(|p| p.rect)
+        else {
             return;
         };
         // Sous le sélecteur, sans points de pages : la vidéo est centrée
@@ -526,7 +530,10 @@ impl App {
         Task::batch(tasks)
     }
 
-    pub(super) fn panorama_save_cfg(&mut self, f: impl FnOnce(&mut crate::panorama::Config)) -> Task<Msg> {
+    pub(super) fn panorama_save_cfg(
+        &mut self,
+        f: impl FnOnce(&mut crate::panorama::Config),
+    ) -> Task<Msg> {
         let mut c = self.panorama_cfg();
         f(&mut c);
         self.settings.panorama = Some(c);
@@ -2223,11 +2230,7 @@ impl App {
                             )
                             .font(self.panorama_font())
                             .color(if on {
-                                super::super::design::on_accent(
-                                    accent,
-                                    fg,
-                                    self.panorama_palette().0,
-                                )
+                                crate::ui::design::on_accent(accent, fg, self.panorama_palette().0)
                             } else {
                                 fg
                             }),

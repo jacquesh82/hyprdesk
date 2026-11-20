@@ -8,21 +8,21 @@ use iced::advanced::{
 };
 use iced::{Border, Color, Element, Event, Length, Rectangle, Size, Transformation, Vector};
 
-use super::{Fade, Msg};
+use crate::ui::{Fade, Msg};
 
 /// Hauteur de la montée d'une touche soulevée (style Graphite), en pixels.
-pub(super) const LIFT_PX: f32 = 4.0;
+pub(in crate::ui) const LIFT_PX: f32 = 4.0;
 /// Fraction de la montée au survol d'une touche inactive.
 const HOVER_LIFT: f32 = 0.25;
 
 /// Aspect de la capsule qui suit le module survolé.
 #[derive(Clone, Copy)]
-pub(super) enum RailLook {
+pub(in crate::ui) enum RailLook {
     /// Capsule remplie (Continuité).
     Fill(Color),
 }
 
-pub(super) fn anchor<'a>(
+pub(in crate::ui) fn anchor<'a>(
     content: impl Into<Element<'a, Msg>>,
     bar: iced::window::Id,
     key: String,
@@ -43,7 +43,7 @@ pub(super) fn anchor<'a>(
     })
 }
 
-pub(super) fn press<'a>(
+pub(in crate::ui) fn press<'a>(
     content: impl Into<Element<'a, Msg>>,
     duration: Duration,
 ) -> Element<'a, Msg> {
@@ -61,7 +61,7 @@ pub(super) fn press<'a>(
     })
 }
 
-pub(super) fn rail<'a>(
+pub(in crate::ui) fn rail<'a>(
     content: impl Into<Element<'a, Msg>>,
     selected: Option<usize>,
     eligible: Vec<bool>,
@@ -85,7 +85,7 @@ pub(super) fn rail<'a>(
 /// Touche soulevée (Graphite) : monte quand elle devient active ou survolée,
 /// redescend sinon ; l'ancienne touche part de la hauteur affichée, sans
 /// rejouer les transitions intermédiaires. Les boîtes de clic ne bougent pas.
-pub(super) fn lift<'a>(
+pub(in crate::ui) fn lift<'a>(
     content: impl Into<Element<'a, Msg>>,
     raised: bool,
     ink: Color,
@@ -105,7 +105,7 @@ pub(super) fn lift<'a>(
     })
 }
 
-pub(super) fn inert<'a>(content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
+pub(in crate::ui) fn inert<'a>(content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
     Element::new(Motion {
         content: content.into(),
         anchor: None,
@@ -120,7 +120,7 @@ pub(super) fn inert<'a>(content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg
     })
 }
 
-pub(super) fn surface<'a>(
+pub(in crate::ui) fn surface<'a>(
     content: impl Into<Element<'a, Msg>>,
     scale: f32,
     offset: Vector,
@@ -409,7 +409,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Motion<'_> {
                     f.value(now)
                 }
             });
-            let radius = super::design::SMALL_RADIUS.min(rect.height / 2.0);
+            let radius = crate::ui::design::SMALL_RADIUS.min(rect.height / 2.0);
             match look {
                 RailLook::Fill(fill) => renderer.fill_quad(
                     renderer::Quad {
@@ -442,7 +442,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Motion<'_> {
         });
         let b = layout.bounds();
         if lift > 0.0 {
-            let radius = super::design::SMALL_RADIUS.min(b.height / 2.0);
+            let radius = crate::ui::design::SMALL_RADIUS.min(b.height / 2.0);
             // Le creux laissé au sol par la touche soulevée.
             renderer.fill_quad(
                 renderer::Quad {

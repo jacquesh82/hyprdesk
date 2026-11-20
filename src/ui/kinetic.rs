@@ -2,7 +2,7 @@
 //! Aucun message d'application par image ; une notification à l'arrivée.
 use super::{
     Fade, Msg,
-    bar_style::convexe::{self, Edge},
+    plugins::bar::style::convexe::{self, Edge},
 };
 use iced::advanced::graphics::geometry::Renderer as _;
 use iced::advanced::{

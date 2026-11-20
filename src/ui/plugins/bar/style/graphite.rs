@@ -3,10 +3,11 @@
 use iced::widget::{Space, button, column, container, mouse_area, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, window::Id};
 
-use super::super::bar::{BarPalette, BarSurface, scroll_dir};
-use super::super::{App, Msg, bar_motion, design};
 use super::{Tokens, WsCtx, color, urgent_mark};
 use crate::config::Rgba;
+use crate::ui::plugins::bar::motion;
+use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, scroll_dir};
+use crate::ui::{App, Msg, design};
 
 pub(super) const TOKENS: Tokens = Tokens {
     hover: 140,
@@ -76,7 +77,7 @@ pub(super) fn module_button(
 }
 
 /// Fond d'une touche : gravée au niveau de la surface, ou surélevée avec son
-/// arête claire (l'ombre et le reflet sont dessinés par `bar_motion::lift`).
+/// arête claire (l'ombre et le reflet sont dessinés par `motion::lift`).
 fn key_style(raised: bool, bg: Color, fg: Color, hovered: bool) -> button::Style {
     if raised {
         let gradient = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
@@ -169,7 +170,7 @@ pub(super) fn workspaces<'a>(
                 head = head.push(mark);
             }
             let content = column![head, dot].spacing(2).align_x(Alignment::Center);
-            bar_motion::lift(
+            motion::lift(
                 button(container(content).center(Length::Shrink))
                     .height(h)
                     .padding([0, if name.chars().count() > 1 { 8 } else { 0 }])
@@ -195,7 +196,7 @@ pub(super) fn workspaces<'a>(
                 .on_press(Msg::OpenPopover(
                     bar_id,
                     "workspaces".into(),
-                    crate::ui::popover::Request::Workspaces,
+                    crate::ui::plugins::bar::popover::Request::Workspaces,
                 ))
                 .style(move |_, st| button::Style {
                     background: matches!(st, button::Status::Hovered | button::Status::Pressed)
