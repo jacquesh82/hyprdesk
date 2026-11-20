@@ -1406,6 +1406,116 @@ pub fn set_desktop_gaps(margins: &[(String, [i32; 4])]) {
     }
 }
 
+/// Fenêtre en plein écran ou agrandie, telle que Hyprland la tient
+/// (`internal`) et telle que l'application la croit (`client`) :
+/// 0 normale, 1 agrandie, 2 plein écran.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FsWindow {
+    pub address: String,
+    pub monitor: String,
+    pub internal: i64,
+    pub client: i64,
+}
+
+/// Fenêtres en plein écran ou agrandies (écran nommé, pas numéroté).
+pub fn fullscreen_windows() -> Vec<FsWindow> {
+    let (Ok(clients), Ok(monitors)) = (ipc::query_json("clients"), ipc::query_json("monitors"))
+    else {
+        return Vec::new();
+    };
+    let name_of = |id: i64| {
+        monitors
+            .as_array()
+            .and_then(|l| l.iter().find(|m| m["id"].as_i64() == Some(id)))
+            .and_then(|m| m["name"].as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    clients
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .filter_map(|c| {
+                    let internal = c["fullscreen"].as_i64().unwrap_or(0);
+                    let client = c["fullscreenClient"].as_i64().unwrap_or(0);
+                    (internal != 0 || client != 0).then(|| FsWindow {
+                        address: c["address"].as_str().unwrap_or("").to_string(),
+                        monitor: name_of(c["monitor"].as_i64().unwrap_or(-1)),
+                        internal,
+                        client,
+                    })
+                })
+                .filter(|w| !w.address.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Ce que les tiroirs (réglages, LYRA) imposent au plein écran : sur leur
+/// écran, une fenêtre en plein écran passe agrandie pour Hyprland — elle
+/// laisse le tiroir visible, dans les marges qu'il réserve — en restant en
+/// plein écran pour l'application (vidéo sans interface). `held` : fenêtres
+/// déjà ainsi retenues. Rend les états à poser (adresse, interne, client),
+/// les fenêtres retenues en plus et celles relâchées.
+pub fn plan_drawer_fullscreen(
+    windows: &[FsWindow],
+    drawers: &[String],
+    held: &std::collections::HashSet<String>,
+) -> (Vec<(String, i64, i64)>, Vec<String>, Vec<String>) {
+    let (mut set, mut added, mut dropped) = (Vec::new(), Vec::new(), Vec::new());
+    for w in windows {
+        let on_drawer = drawers.contains(&w.monitor);
+        let kept = w.internal == 1 && w.client == 2;
+        if held.contains(&w.address) {
+            if !on_drawer {
+                // Tiroir fermé (ou parti sur un autre écran) : plein écran rendu.
+                if kept {
+                    set.push((w.address.clone(), 2, 2));
+                }
+                dropped.push(w.address.clone());
+            } else if w.internal == 2 {
+                // Plein écran basculé (Super+F) sur une fenêtre retenue : Hyprland
+                // la remet en plein écran au lieu d'en sortir ; c'est une sortie.
+                set.push((w.address.clone(), 0, 0));
+                dropped.push(w.address.clone());
+            } else if !kept {
+                // Sortie du plein écran par l'application ou l'utilisateur.
+                dropped.push(w.address.clone());
+            }
+        } else if on_drawer && w.internal == 2 {
+            set.push((w.address.clone(), 1, w.client.max(1)));
+            added.push(w.address.clone());
+        }
+    }
+    // Retenues disparues (fenêtre fermée, plein écran quitté) : relâchées.
+    for a in held {
+        if !windows.iter().any(|w| &w.address == a) {
+            dropped.push(a.clone());
+        }
+    }
+    (set, added, dropped)
+}
+
+/// Applique `plan_drawer_fullscreen` à l'état courant de Hyprland.
+pub fn fit_drawer_fullscreen(
+    drawers: &[String],
+    held: &std::collections::HashSet<String>,
+) -> (Vec<String>, Vec<String>) {
+    let (set, added, dropped) = plan_drawer_fullscreen(&fullscreen_windows(), drawers, held);
+    for (address, internal, client) in set {
+        if let Err(e) = ipc::dispatch(&format!(
+            "hl.dsp.window.fullscreen_state({{ internal = {internal}, client = {client}, action = \"set\", window = \"address:{}\" }})",
+            ipc::lua_escape(&address)
+        )) {
+            tracing::warn!(
+                "{}",
+                crate::tr!("plein écran près d'un tiroir : {e}", e = e)
+            );
+        }
+    }
+    (added, dropped)
+}
+
 /// Désactive les règles de workspace de hyprdesk (arrêt du démon).
 pub fn remove_rules() {
     if let Err(e) = ipc::eval(&build_rules_lua(None, &[], &[])) {
@@ -2167,6 +2277,60 @@ mod tests {
         // Retrait : seulement la désactivation des anciennes règles.
         let off = build_gaps_lua(&[], [0; 4]);
         assert!(off.contains("set_enabled(false)") && !off.contains("hl.workspace_rule"));
+    }
+
+    fn fs(address: &str, monitor: &str, internal: i64, client: i64) -> FsWindow {
+        FsWindow {
+            address: address.into(),
+            monitor: monitor.into(),
+            internal,
+            client,
+        }
+    }
+
+    #[test]
+    fn plein_ecran_hors_des_tiroirs() {
+        use std::collections::HashSet;
+        let drawers = vec!["DP-1".to_string()];
+        let none = HashSet::new();
+        // Plein écran sur l'écran du tiroir : agrandi pour Hyprland, plein
+        // écran pour l'application ; ailleurs et agrandi : intact.
+        let w = [
+            fs("0xa", "DP-1", 2, 2),
+            fs("0xb", "DP-2", 2, 2),
+            fs("0xc", "DP-1", 1, 0),
+        ];
+        let (set, added, dropped) = plan_drawer_fullscreen(&w, &drawers, &none);
+        assert_eq!(set, vec![("0xa".to_string(), 1, 2)]);
+        assert_eq!(added, vec!["0xa".to_string()]);
+        assert!(dropped.is_empty());
+
+        // Retenue et toujours sous le tiroir : rien à faire.
+        let held: HashSet<String> = ["0xa".to_string()].into();
+        let (set, added, dropped) =
+            plan_drawer_fullscreen(&[fs("0xa", "DP-1", 1, 2)], &drawers, &held);
+        assert!(set.is_empty() && added.is_empty() && dropped.is_empty());
+
+        // Tiroir refermé : plein écran rendu.
+        let (set, _, dropped) = plan_drawer_fullscreen(&[fs("0xa", "DP-1", 1, 2)], &[], &held);
+        assert_eq!(set, vec![("0xa".to_string(), 2, 2)]);
+        assert_eq!(dropped, vec!["0xa".to_string()]);
+
+        // Super+F sur la fenêtre retenue (Hyprland la remet en plein écran) :
+        // c'est une sortie du plein écran.
+        let (set, added, dropped) =
+            plan_drawer_fullscreen(&[fs("0xa", "DP-1", 2, 2)], &drawers, &held);
+        assert_eq!(set, vec![("0xa".to_string(), 0, 0)]);
+        assert!(added.is_empty());
+        assert_eq!(dropped, vec!["0xa".to_string()]);
+
+        // Sortie par l'application, ou fenêtre fermée : relâchée, sans retour.
+        let (set, _, dropped) = plan_drawer_fullscreen(&[fs("0xa", "DP-1", 1, 0)], &[], &held);
+        assert!(set.is_empty());
+        assert_eq!(dropped, vec!["0xa".to_string()]);
+        let (set, _, dropped) = plan_drawer_fullscreen(&[], &drawers, &held);
+        assert!(set.is_empty());
+        assert_eq!(dropped, vec!["0xa".to_string()]);
     }
 
     /// État relevé chez l'utilisateur : HDMI-A-2 affiche un workspace ORDINAIRE

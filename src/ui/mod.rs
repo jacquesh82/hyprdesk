@@ -301,6 +301,8 @@ pub enum Msg {
     Hover(String, bool),
     Launch(usize),
     Media(String, &'static str),
+    /// Plein écran ajusté aux tiroirs : fenêtres retenues en plus, relâchées.
+    DrawerFullscreen(Vec<String>, Vec<String>),
     Noop,
 }
 
@@ -537,6 +539,9 @@ pub struct App {
     /// Marges posées dans Hyprland pour dégager les contrôles du bureau, par
     /// écran (haut, droite, bas, gauche) : vide hors du bureau avec les fenêtres.
     window_gaps: Vec<(String, [i32; 4])>,
+    /// Fenêtres en plein écran ramenées à la zone hors des tiroirs (agrandies
+    /// pour Hyprland, plein écran pour l'application) : rendues à la fermeture.
+    fs_held: HashSet<String>,
     /// Écran du clic en cours de traitement (`Msg::On`).
     click_monitor: Option<String>,
     /// Règle Hyprland posée pour LYRA (rectangle du tiroir), si elle l'est.
@@ -1033,6 +1038,7 @@ impl App {
             applied: HashMap::new(),
             nobar: HashSet::new(),
             window_gaps: Vec::new(),
+            fs_held: HashSet::new(),
             click_monitor: None,
             launcher_cycle: HashMap::new(),
             lyra_rule: None,
@@ -1685,8 +1691,9 @@ impl App {
         )
     }
 
-    /// Les fenêtres en mosaïque laissent la place du lanceur (launcher-only)
-    /// et du tiroir des réglages ; sinon, les marges de Hyprland reviennent.
+    /// Les fenêtres (en mosaïque, agrandies, en plein écran) laissent la place
+    /// des tiroirs ouverts : réglages, assistant, fenêtre de LYRA ; sinon, les
+    /// marges de Hyprland et le plein écran entier reviennent.
     fn sync_window_gaps(&mut self) -> Task<Msg> {
         // launcher-only : le dock en bas ; réglages ouverts, quel que soit le
         // mode : le tiroir à droite.
@@ -1708,6 +1715,10 @@ impl App {
                 } else if chat_on == Some(*id) {
                     m[1] = m[1].max(self.chat_width().round() as i32);
                 }
+                // LYRA en fenêtre (tiroir épinglé sur l'écran principal) : sa place.
+                if let Some(r) = self.lyra_window_margin(mon) {
+                    m[1] = m[1].max(r);
+                }
                 (m != [0; 4]).then(|| (mon.clone(), m))
             })
             .collect();
@@ -1717,11 +1728,54 @@ impl App {
             return launchers;
         }
         self.window_gaps = want.clone();
+        // Les marges posées, le plein écran suit : ramené hors des tiroirs
+        // ouverts, rendu en entier sur l'écran d'un tiroir refermé.
+        let drawers: Vec<String> = want.iter().map(|(m, _)| m.clone()).collect();
+        let held = self.fs_held.clone();
+        Task::batch([
+            launchers,
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        hypr::set_desktop_gaps(&want);
+                        hypr::fit_drawer_fullscreen(&drawers, &held)
+                    })
+                    .await
+                    .unwrap_or_default()
+                },
+                |(added, dropped)| Msg::DrawerFullscreen(added, dropped),
+            ),
+        ])
+    }
+
+    /// Place à laisser à droite de `mon` pour la fenêtre de LYRA présentée en
+    /// tiroir (règle posée et fenêtre ouverte, hors workspace spécial).
+    fn lyra_window_margin(&self, mon: &str) -> Option<i32> {
+        let (x, _, _, _) = self.lyra_rule?;
+        let m = self.monitors.iter().find(|m| m.name == mon)?;
+        let right = m.x as i32 + m.width as i32;
+        (x > m.x as i32 && x < right && self.lyra_window_open()).then_some(right - x)
+    }
+
+    /// Fenêtre de LYRA (`lyra`) ouverte et visible (pas réduite).
+    fn lyra_window_open(&self) -> bool {
+        self.clients.iter().any(|c| {
+            c.class == crate::assistant::LYRA_APP_ID && !c.workspace.starts_with("special:")
+        })
+    }
+
+    /// Plein écran sur l'écran d'un tiroir : agrandi pour Hyprland (dans les
+    /// marges du tiroir), plein écran pour l'application.
+    fn fit_drawer_fullscreen(&self) -> Task<Msg> {
+        let drawers: Vec<String> = self.window_gaps.iter().map(|(m, _)| m.clone()).collect();
+        let held = self.fs_held.clone();
         Task::perform(
             async move {
-                let _ = tokio::task::spawn_blocking(move || hypr::set_desktop_gaps(&want)).await;
+                tokio::task::spawn_blocking(move || hypr::fit_drawer_fullscreen(&drawers, &held))
+                    .await
+                    .unwrap_or_default()
             },
-            |_| Msg::Noop,
+            |(added, dropped)| Msg::DrawerFullscreen(added, dropped),
         )
     }
 
@@ -3555,7 +3609,7 @@ impl App {
     /// message non listé redessine tout : un oubli coûte, il ne casse rien.
     fn damage_of(&mut self, msg: &Msg) -> Damage {
         match msg {
-            Msg::Noop => Damage::None,
+            Msg::Noop | Msg::DrawerFullscreen(..) => Damage::None,
             // Relevés : rien à redessiner s'ils n'ont pas changé.
             Msg::VolumeValue(v) if *v == self.volume => Damage::None,
             Msg::LightValue(l) if *l == self.light => Damage::None,
@@ -3787,7 +3841,17 @@ impl App {
             Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
             Msg::Hypr(hypr::Update::Workspaces(list)) => {
                 self.workspaces = list;
-                Task::none()
+                // Plein écran sur l'écran d'un tiroir : ramené hors du tiroir ;
+                // fenêtres retenues : relâchées dès qu'elles en sortent.
+                let drawer_fs = self
+                    .workspaces
+                    .iter()
+                    .any(|w| w.fullscreen && self.window_gaps.iter().any(|(m, _)| *m == w.monitor));
+                if drawer_fs || !self.fs_held.is_empty() {
+                    self.fit_drawer_fullscreen()
+                } else {
+                    Task::none()
+                }
             }
             Msg::Hypr(hypr::Update::ActiveWindow(w)) => {
                 self.active_window = w;
@@ -4091,7 +4155,12 @@ impl App {
                 // Une fenêtre fermée n'est plus urgente.
                 self.urgent.retain(|a| list.iter().any(|c| &c.address == a));
                 tasks.push(self.sync_submap());
+                let lyra_before = self.lyra_window_open();
                 self.clients = list;
+                // Fenêtre de LYRA ouverte ou fermée : sa place dans les marges.
+                if self.lyra_window_open() != lyra_before {
+                    tasks.push(self.sync_window_gaps());
+                }
                 // Minimap vivante : fenêtres ouvertes, fermées, déplacées.
                 if self.overview.is_some()
                     || self.cfg.general.workspace_selector == crate::config::WsSelector::Miniatures
@@ -5169,6 +5238,13 @@ impl App {
                 self.search_frame(),
                 self.toasts_frame(),
             ]),
+            Msg::DrawerFullscreen(added, dropped) => {
+                for a in dropped {
+                    self.fs_held.remove(&a);
+                }
+                self.fs_held.extend(added);
+                Task::none()
+            }
             Msg::Noop => Task::none(),
             // Messages layer-shell : traités par iced_layershell.
             _ => Task::none(),
@@ -5856,6 +5932,7 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::VolumeValue(_) => "VolumeValue",
         Msg::AudioValue(_) => "AudioValue",
         Msg::WallLoaded(..) => "WallLoaded",
+        Msg::DrawerFullscreen(..) => "DrawerFullscreen",
         Msg::Noop => "Noop",
         Msg::ConfigChanged | Msg::ConfigLoaded(_) => "Config",
         _ => "autre",

@@ -239,7 +239,7 @@ impl App {
         }
         self.lyra_rule = rect;
         let lua = assistant::drawer_rule_lua(rect);
-        Task::perform(
+        let rule = Task::perform(
             async move {
                 let _ = tokio::task::spawn_blocking(move || {
                     if let Err(e) = hyprpanel_core::ipc::eval(&lua) {
@@ -249,7 +249,9 @@ impl App {
                 .await;
             },
             |_| UiMsg::Noop,
-        )
+        );
+        // Fenêtre de LYRA ouverte : les marges suivent le nouveau tiroir.
+        Task::batch([rule, self.sync_window_gaps()])
     }
 
     pub(in crate::ui) fn assistant_page(&self) -> Element<'_, UiMsg> {
