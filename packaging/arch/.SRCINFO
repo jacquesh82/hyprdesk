@@ -1,6 +1,6 @@
 pkgbase = hyprdesk
 	pkgdesc = Desktop for Hyprland: bar, launcher, lock, per-workspace wallpapers and widgets
-	pkgver = 0.1.7
+	pkgver = 0.1.8
 	pkgrel = 1
 	url = https://github.com/jacquesh82/hyprdesk
 	install = hyprdesk.install
@@ -57,7 +57,7 @@ pkgbase = hyprdesk
 	optdepends = wayle: notifications through wayle (AUR; without it, hyprdesk shows them)
 	options = !lto
 	backup = etc/pam.d/hyprdesk-lock
-	source = hyprdesk-0.1.7.tar.gz::https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v0.1.7.tar.gz
+	source = hyprdesk-0.1.8.tar.gz::https://github.com/jacquesh82/hyprdesk/archive/refs/tags/v0.1.8.tar.gz
 	sha256sums = SKIP
 
 pkgname = hyprdesk

@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-21
+
+Composable Panorama, `binds.lua` managed by hyprdesk, fingerprints from
+Settings, and shortcut and screenshot fixes (MLG-160 to MLG-207).
+
 ### Changed
 
 - **App theming on by default** (MLG-207). Every supported application
@@ -50,6 +55,8 @@ and this project adheres to
 
 ### Added
 
+- **Fingerprints from Settings.** Settings → Lock enrolls and deletes your
+  fingerprints with fprintd, without leaving hyprdesk.
 - **Panorama: profiles for the shortcuts block** (MLG-172). The shortcuts
   block opens with a selector of four coloured icons — Video, Music, Remote,
   Settings (`panorama.design.shortcut_profile = video | audio | remote |
@@ -289,14 +296,14 @@ and this project adheres to
   a second capture on top: the extra press is ignored. The next capture is
   possible as soon as the selection ends, without waiting for the
   notification.
-- **Shortcuts no longer written twice after a reset** (MLG-206). Resetting
-  the shortcuts re-enabled the original lines of `binds.lua` (clipboard
-  script, power menu, hyprshot…) and then replaced them again by their
-  hyprdesk equivalent, already written: SUPER + V, SUPER + W,
-  SUPER + SHIFT + Q and SUPER + Print ended up twice and ran twice (a menu
-  opened and closed at once). The original is now only switched off when its
-  hyprdesk equivalent is there, and `hyprdesk binds sync` (run at startup)
-  removes a hyprdesk shortcut written twice.
+- **Shortcuts no longer written twice** (MLG-206). When the original lines of
+  `binds.lua` (clipboard script, power menu, hyprshot…) were switched back
+  on, they were replaced again by their hyprdesk equivalent, already
+  written: SUPER + V, SUPER + W, SUPER + SHIFT + Q and SUPER + Print ended up
+  twice and ran twice (a menu opened and closed at once). The original is now
+  only switched off when its hyprdesk equivalent is there, and
+  `hyprdesk binds sync` (run at startup) removes a hyprdesk shortcut written
+  twice.
 - **Conflict with a shortcut set at runtime** (MLG-206). A shortcut bound
   in Hyprland but written in no file was reported as coming from
   `hyprland.lua`. `hyprdesk keys` and Settings → Shortcuts now say it is
