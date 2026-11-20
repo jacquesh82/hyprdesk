@@ -296,6 +296,13 @@ ou rend le clavier au bureau complet.
   Le plein écran web est reconnu à partir du média MPRIS et du titre de la
   fenêtre ; les pages qui ne publient pas ces informations peuvent utiliser
   le PiP. Les PiP sont reconnus par les titres usuels anglais et français.
+
+  ![Panorama sur un bandeau 2560×720 en trois zones : lecteur, horloge et cartes système](assets/screenshots/panorama-split.png)
+
+  | ![Composition Forest : graphiques du processeur, de la mémoire, du disque et de la charge à côté d'une horloge à aiguilles](assets/screenshots/panorama-forest.png) | ![Composition Telemetry : horloge à volets, lecteur et jauges circulaires](assets/screenshots/panorama-telemetry.png) |
+  | --- | --- |
+  | ![Composition Studio : grande horloge et lecteur](assets/screenshots/panorama-studio.png) | ![Voile sombre autour de la vidéo en lecture, sur les zones horloge et système](assets/screenshots/panorama-video-veil.png) |
+
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.

@@ -2319,18 +2319,28 @@ impl Preview {
             });
             // Vidéo posée et lecture en cours : le voile entoure sa zone.
             self.app.panorama.video = veil.then(|| panorama::preview_video("Arte"));
+            // Mesures fictives, écrites comme le relevé réel (widgets::system) :
+            // unités et libellés dans la langue de l'interface.
+            let gib = match crate::i18n::current() {
+                crate::i18n::Lang::Fr => "Gio",
+                crate::i18n::Lang::En => "GiB",
+            };
             self.app.panorama.sys = [
-                ("CPU", "12 %", Some(0.12)),
-                ("RAM", "6,4 / 32 Go", Some(0.2)),
-                ("Disque", "128 / 512 Go", Some(0.25)),
-                ("Charge", "0,42", None),
-                ("Uptime", "3 h 24 min", None),
+                ("CPU".to_string(), "12 %".to_string(), Some(0.12)),
+                ("RAM".into(), format!("6.4 {gib} / 32.0 {gib}"), Some(0.2)),
+                ("/".into(), format!("128.0 {gib} / 512.0 {gib}"), Some(0.25)),
+                (
+                    crate::i18n::tr("Charge").into(),
+                    "0.42 0.38 0.35".into(),
+                    None,
+                ),
+                (crate::i18n::tr("Allumé").into(), "3 h 24".into(), None),
             ]
             .into_iter()
-            .map(|(l, v, r)| crate::widgets::SysLine {
-                label: l.into(),
-                value: v.into(),
-                ratio: r,
+            .map(|(label, value, ratio)| crate::widgets::SysLine {
+                label,
+                value,
+                ratio,
             })
             .collect();
             let preset = SCENES[self.scene].trim_start_matches("panorama-");

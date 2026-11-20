@@ -271,6 +271,13 @@ closes the dock or returns focus to the full desktop.
   rests your eyes; it softens when the pointer moves over the Panorama.
   Strength, scope, pause behaviour, fade and pointer softening are set in
   **Settings → Panorama → Player → Video**.
+
+  ![Panorama on a 2560×720 strip split into three zones: media player, clock, and system cards](assets/screenshots/panorama-split.png)
+
+  | ![Forest composition: CPU, memory, disk, and load graphs next to an analog clock](assets/screenshots/panorama-forest.png) | ![Telemetry composition: flip clock, player, and circular gauges](assets/screenshots/panorama-telemetry.png) |
+  | --- | --- |
+  | ![Studio composition: large clock and the player](assets/screenshots/panorama-studio.png) | ![A dark veil around the playing video, over the clock and system zones](assets/screenshots/panorama-video-veil.png) |
+
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 

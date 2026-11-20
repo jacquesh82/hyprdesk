@@ -2816,7 +2816,15 @@ impl App {
                                     (short * 0.09)
                                         .min(card_width * 0.11)
                                         .min(card_height * 0.28)
-                                        .clamp(14.0, 42.0)
+                                        // Une valeur longue (« 128.0 GiB / 512.0 GiB »)
+                                        // rapetisse pour tenir dans la carte au lieu
+                                        // d'être coupée (≈ 0,6 em par caractère).
+                                        .min(
+                                            (card_width
+                                                - 2.0 * z.pad.min((card_height * 0.14).max(4.0)))
+                                                / (l.value.chars().count().max(1) as f32 * 0.6),
+                                        )
+                                        .clamp(11.0, 42.0)
                                 )
                                 .color(fg)
                                 .wrapping(text::Wrapping::None)
