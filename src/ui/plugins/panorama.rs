@@ -1168,7 +1168,7 @@ impl App {
             );
         }
         // Ambiance de la barre « flux vocal » (radio en cours).
-        let amb = Some(match c.flux_ambiance.as_str() {
+        let amb = Some(match c.stream_mood.as_str() {
             "sunset" => "sunset",
             "ocean" => "ocean",
             _ => "aurora",
@@ -1418,7 +1418,7 @@ impl App {
             }
             Msg::FluxAmbiance(v) => {
                 let mut c = self.panorama_cfg();
-                c.flux_ambiance = v.into();
+                c.stream_mood = v.into();
                 self.settings.panorama = Some(c);
                 self.commit()
             }

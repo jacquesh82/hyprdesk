@@ -469,15 +469,15 @@ Pour ajouter un widget ou un plugin en Lua :
 
 | Plugin | Rôle | S'appuie sur |
 | --- | --- | --- |
-| `reseau` | Réseaux filaire et Wi-Fi, VPN, WireGuard, mode avion | NetworkManager |
+| `network` | Réseaux filaire et Wi-Fi, VPN, WireGuard, mode avion | NetworkManager |
 | `bluetooth` | Recherche, appariement et gestion des appareils | bluetoothctl |
-| `batterie` | État des batteries, alertes et profils d'énergie | sysfs, power-profiles-daemon |
+| `battery` | État des batteries, alertes et profils d'énergie | sysfs, power-profiles-daemon |
 | `capture` | Captures d'écran et enregistrement | hyprshot, wf-recorder |
-| `clavier` | Voir et changer de disposition clavier | Hyprland |
-| `lecteur` | Morceau en cours et commandes de lecture | MPRIS |
-| `majs` | Mises à jour en attente et mise à jour en un clic | pacman/AUR, apt, dnf, zypper, flatpak |
-| `supports` | Ouvrir et éjecter les disques amovibles | udisks2 |
-| `nuit` | Éclairage nocturne, à la demande ou selon un horaire | hyprsunset |
+| `keyboard` | Voir et changer de disposition clavier | Hyprland |
+| `player` | Morceau en cours et commandes de lecture | MPRIS |
+| `updates` | Mises à jour en attente et mise à jour en un clic | pacman/AUR, apt, dnf, zypper, flatpak |
+| `removable` | Ouvrir et éjecter les disques amovibles | udisks2 |
+| `nightlight` | Éclairage nocturne, à la demande ou selon un horaire | hyprsunset |
 | `vkbd` | Clavier virtuel | wvkbd |
 | `notifications` | Dernières notifications et Ne pas déranger | hyprdesk ou wayle |
 | `session` | Verrouiller, mettre en veille, déconnecter, redémarrer, éteindre | systemd, verrouillage hyprdesk |

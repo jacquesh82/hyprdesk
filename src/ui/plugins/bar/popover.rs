@@ -104,7 +104,7 @@ mod tests {
             ] {
                 let (mut app, bar) = app();
                 let loaded = crate::config::lua::load_source(
-                    "hd.bar({style='convexe',convex={duration=0}})",
+                    "hd.bar({style='convex',convex={duration=0}})",
                     "test.lua",
                     std::path::Path::new("/tmp"),
                 )

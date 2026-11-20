@@ -14,14 +14,14 @@ use crate::settings::{BarEntry, BarSettings, Settings};
 /// Modules proposés (dans l'ordre où ils s'ajoutent).
 pub const OFFERED: &[&str] = &[
     "brightness",
-    "clavier",
-    "nuit",
-    "supports",
+    "keyboard",
+    "nightlight",
+    "removable",
     "capture",
-    "majs",
+    "updates",
     "mymfa",
     "gpu",
-    "voix",
+    "voice",
 ];
 
 /// Modules devant lesquels les nouveaux se placent (le premier trouvé).
@@ -77,7 +77,11 @@ pub fn insert(bar: &mut BarSettings, ids: &[&str]) -> bool {
 
 /// Modules de `OFFERED` absents de la liste déjà proposée.
 pub fn pending(offered: &str) -> Vec<&'static str> {
-    let seen: Vec<&str> = offered.lines().map(str::trim).collect();
+    // Ancien nom d'un module déjà proposé : il compte sous son nom actuel.
+    let seen: Vec<&str> = offered
+        .lines()
+        .map(|l| crate::widgets::plugins::canonical(l.trim()))
+        .collect();
     OFFERED
         .iter()
         .copied()
@@ -125,16 +129,16 @@ mod tests {
     fn modules_proposes_une_fois() {
         let mut bar = BarSettings::default();
         bar.zones[2].retain(|e| !OFFERED.contains(&e.type_id.as_str()));
-        assert!(insert(&mut bar, &["nuit", "majs"]));
+        assert!(insert(&mut bar, &["nightlight", "updates"]));
         let right: Vec<&str> = bar.zones[2].iter().map(|e| e.type_id.as_str()).collect();
         let n = right.iter().position(|i| *i == "notifications").unwrap();
-        assert_eq!(&right[n - 2..n], &["nuit", "majs"]);
+        assert_eq!(&right[n - 2..n], &["nightlight", "updates"]);
         // Déjà là : rien ne change.
-        assert!(!insert(&mut bar, &["nuit"]));
+        assert!(!insert(&mut bar, &["nightlight"]));
         // Ce qui a déjà été proposé ne l'est plus (même retiré depuis).
         assert_eq!(
             pending("brightness\nclavier\nnuit\n"),
-            vec!["supports", "capture", "majs", "mymfa", "gpu", "voix"]
+            vec!["removable", "capture", "updates", "mymfa", "gpu", "voice"]
         );
         assert!(pending(&OFFERED.join("\n")).is_empty());
     }
@@ -143,7 +147,7 @@ mod tests {
     fn sans_session_ni_bureau_en_bout_de_barre() {
         let mut bar = BarSettings::default();
         bar.zones[2] = vec![BarEntry::new("volume")];
-        assert!(insert(&mut bar, &["clavier"]));
-        assert_eq!(bar.zones[2].last().unwrap().type_id, "clavier");
+        assert!(insert(&mut bar, &["keyboard"]));
+        assert_eq!(bar.zones[2].last().unwrap().type_id, "keyboard");
     }
 }

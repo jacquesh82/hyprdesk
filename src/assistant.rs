@@ -426,7 +426,7 @@ la plateforme active) ; `hyprdesk panorama radio <nom ou genre>` (première stat
 `hyprdesk media play-pause|next|previous|seek ±N`, `hyprdesk osd volume +5|-5|toggle`.\n\
 - LYRA vocale : `panorama.voice` on | off (`hyprdesk panorama voice on|off`), `panorama.voice_mic` (nœud \
 PipeWire ou default), `panorama.voice_halo` screens | panorama | off, `panorama.voice_halo_color` lyra | accent ; réglages dans IA → Voix (`hyprdesk settings assistant/voix`), \
-module de barre `voix`. En demande vocale, réponds en une ou deux phrases courtes.\n\
+module de barre `voice`. En demande vocale, réponds en une ou deux phrases courtes.\n\
 - Une tuile de mesure touchée ouvre le gestionnaire des tâches (tri CPU, mémoire, GPU, VRAM, disque) ; `hyprdesk panorama tasks <cpu|ram|gpu|vram|disk|close>` l'ouvre ou le ferme.\n",
         widgets = widgets.join(", ")
     );

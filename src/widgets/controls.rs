@@ -13,4 +13,4 @@ pub const DESCRIPTOR: Builtin = Builtin {
 };
 
 /// Sources partagées : une seule instance et un seul relevé par source.
-pub const SOURCES: &[&str] = &["reseau", "bluetooth", "batterie"];
+pub const SOURCES: &[&str] = &["network", "bluetooth", "battery"];

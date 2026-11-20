@@ -3765,7 +3765,9 @@ impl App {
                     Some((kind, value, muted)) => self.show_osd(kind, value, muted),
                     None => Task::none(),
                 },
-                control::Command::Menu(kind) => self.open_menu_by_type(&kind),
+                control::Command::Menu(kind) => {
+                    self.open_menu_by_type(crate::widgets::plugins::canonical(&kind))
+                }
                 control::Command::Assistant => self.open_assistant(),
                 // Visite guidée : les réglages s'ouvrent, puis la première étape.
                 control::Command::Search => self.toggle_search(),
@@ -5274,8 +5276,8 @@ impl App {
             );
         }
         // LYRA vocale : écoute du mot « Lyra » (bouton micro du Panorama, ou
-        // module de barre `voix`).
-        // Sans endroit où la voir (Panorama coupé, module `voix` absent de la
+        // module de barre `voice`).
+        // Sans endroit où la voir (Panorama coupé, module `voice` absent de la
         // barre) ou sans LYRA, le micro reste fermé.
         if self.voice_allowed() && crate::voice::ready() {
             // Micro choisi : changer de micro relance l'écoute.

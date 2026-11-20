@@ -93,8 +93,8 @@ impl Profile {
     pub fn id(self) -> &'static str {
         match self {
             Profile::Performance => "performance",
-            Profile::Balanced => "equilibre",
-            Profile::Quality => "rendu",
+            Profile::Balanced => "balanced",
+            Profile::Quality => "quality",
         }
     }
 

@@ -1031,7 +1031,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(s) = opt_string(t, "apps_style", CTX)? {
         g.apps_launcher.style = crate::config::AppsStyle::parse(&s).ok_or_else(|| {
             err(crate::tr!(
-                "{CTX} : apps_style « {s} » inconnu (auto, plein, central)",
+                "{CTX} : apps_style « {s} » inconnu (auto, sheet, spotlight)",
                 CTX = CTX,
                 s = s
             ))
@@ -1093,7 +1093,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(s) = opt_string(t, "workspace_selector", CTX)? {
         g.workspace_selector = crate::config::WsSelector::parse(&s).ok_or_else(|| {
             err(crate::tr!(
-                "{CTX} : workspace_selector « {s} » inconnu (relief, rail, miniatures, icones)",
+                "{CTX} : workspace_selector « {s} » inconnu (relief, rail, thumbnails, icons)",
                 CTX = CTX,
                 s = s
             ))
@@ -1216,7 +1216,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 })?;
                 m.insert(k, v);
             }
-            g.plugin_options.insert(plugin, m);
+            g.plugin_options
+                .insert(crate::widgets::plugins::canonical(&plugin).to_string(), m);
         }
     }
     if let Some(uc) = t.get::<Option<Table>>("update_commands")? {
@@ -1713,6 +1714,8 @@ fn hd_icon(b: &mut Builder, t: &Table) -> mlua::Result<()> {
 }
 
 fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) -> mlua::Result<()> {
+    // Ancien nom (français) d'un plugin livré : lu sous son nom actuel.
+    let kind = crate::widgets::plugins::canonical(kind);
     // Migration des copies de modules sérialisées par les anciennes versions.
     // La définition hd.bar reste la seule source de ces identifiants internes.
     if !in_bar
@@ -2125,7 +2128,9 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         for pair in m.pairs::<String, Value>() {
             let (k, _) = pair?;
             if let Some(c) = opt_color(&m, &k, C)? {
-                colors.modules.insert(k, c);
+                colors
+                    .modules
+                    .insert(crate::widgets::plugins::canonical(&k).to_string(), c);
             }
         }
     }
@@ -3284,14 +3289,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn anciens_noms_francais_lus_sous_le_nom_actuel() {
+        // Widgets livrés renommés, style de barre et couleurs de module :
+        // une configuration d'avant le renommage se charge à l'identique.
+        let l = load(
+            "hd.widget('majs',{id='majs'}) \
+             hd.bar({style='convexe',right={'reseau','batterie'},module_colors={reseau='#112233'}}) \
+             hd.config({plugin_options={majs={texte=false}}})",
+        )
+        .unwrap();
+        let c = &l.config;
+        let types: Vec<&str> = c.widgets.iter().map(|w| w.type_id.as_str()).collect();
+        assert!(
+            types.contains(&"updates") && types.contains(&"network") && types.contains(&"battery")
+        );
+        assert!(
+            !types
+                .iter()
+                .any(|t| ["majs", "reseau", "batterie"].contains(t))
+        );
+        let bar = c.bar.as_ref().unwrap();
+        assert_eq!(bar.style, crate::config::BarStyle::Convexe);
+        assert!(bar.colors.modules.contains_key("network"));
+        assert!(c.general.plugin_options.contains_key("updates"));
+    }
+
+    #[test]
     fn controls_share_plugin_sources_and_preserve_existing_bar_zones() {
-        let loaded = load("hd.widget('reseau',{id='network'}) hd.bar({left={'workspaces'},right={'controls','volume'}})").unwrap();
+        let loaded = load("hd.widget('network',{id='network'}) hd.bar({left={'workspaces'},right={'controls','volume'}})").unwrap();
         assert_eq!(
             loaded
                 .config
                 .widgets
                 .iter()
-                .filter(|w| w.type_id == "reseau")
+                .filter(|w| w.type_id == "network")
                 .count(),
             1
         );
@@ -3310,13 +3341,13 @@ mod tests {
         );
         let settings = crate::settings::BarSettings::from_config(&loaded.config);
         assert_eq!(settings.zones[2][0].type_id, "controls");
-        let later = load("hd.bar({right={'controls'}}) hd.widget('reseau',{id='later'})").unwrap();
+        let later = load("hd.bar({right={'controls'}}) hd.widget('network',{id='later'})").unwrap();
         assert_eq!(
             later
                 .config
                 .widgets
                 .iter()
-                .filter(|w| w.type_id == "reseau")
+                .filter(|w| w.type_id == "network")
                 .count(),
             1
         );
@@ -3445,7 +3476,7 @@ mod tests {
         )
         .exec()
         .unwrap();
-        let r = render(&lua, "reseau").unwrap();
+        let r = render(&lua, "network").unwrap();
         assert_eq!(
             r.get::<String>("icon").unwrap(),
             "network-wireless-signal-excellent-symbolic"
@@ -3454,7 +3485,7 @@ mod tests {
         let r = render(&lua, "bluetooth").unwrap();
         assert_eq!(r.get::<String>("state").unwrap(), "active");
         assert!(r.get::<String>("tooltip").unwrap().contains("Casque"));
-        let r = render(&lua, "batterie").unwrap();
+        let r = render(&lua, "battery").unwrap();
         assert_eq!(
             r.get::<String>("icon").unwrap(),
             "power-profile-balanced-symbolic"
@@ -3515,7 +3546,7 @@ mod tests {
         )
         .exec()
         .unwrap();
-        let r = render(&lua, "reseau").unwrap();
+        let r = render(&lua, "network").unwrap();
         assert_eq!(r.get::<String>("icon").unwrap(), "network-offline-symbolic");
         let r = render(&lua, "bluetooth").unwrap();
         assert_eq!(r.get::<String>("state").unwrap(), "hidden");
@@ -3707,7 +3738,7 @@ mod tests {
 
     #[test]
     fn convex_settings_validate_and_preserve_explicit_geometry() {
-        let b=load(r#"hd.bar({style='convexe',height=64,margin=8,position='bottom',convex={frame_width=10,radius=56,duration=420,attached_panels=false}})"#).unwrap().config.bar.unwrap();
+        let b=load(r#"hd.bar({style='convex',height=64,margin=8,position='bottom',convex={frame_width=10,radius=56,duration=420,attached_panels=false}})"#).unwrap().config.bar.unwrap();
         assert_eq!(
             (b.height, b.margin, b.position),
             (64, 8, BarPosition::Bottom)

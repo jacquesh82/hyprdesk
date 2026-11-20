@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **Settings: English identifiers, consistent listing** (MLG-193). The
+  bundled widgets are renamed `network`, `battery`, `keyboard`, `player`,
+  `updates`, `nightlight`, `removable` and `voice` (were `reseau`,
+  `batterie`, `clavier`, `lecteur`, `majs`, `nuit`, `supports`, `voix`);
+  values `apps_style = sheet | spotlight`, `bar.style = continuity |
+  convex`, `workspace_selector = thumbnails | icons`, `perf.profile =
+  balanced | quality`; key `panorama.stream_mood` (was
+  `flux_ambiance`). The old names are still read everywhere (hyprdesk.lua,
+  settings.lua, replacement files `<old>.lua`, `hyprdesk config`) and
+  rewritten on the next save. `hyprdesk config list` now shows booleans as
+  `on | off`, describes every key (colours, effects, layouts, widgets,
+  packages…), prints `—` for any unset value and lists each key once.
+
 ### Added
 
 - **Panorama: profiles for the shortcuts block** (MLG-172). The shortcuts

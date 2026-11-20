@@ -144,7 +144,7 @@ always shows fresh data.
 | `image` | a **local** image (path or `file:///…`), such as an album cover; nothing is downloaded |
 | `action` | `function(text)` run on click (or on Enter for `input`) |
 
-This is how the bundled `reseau` plugin asks for a Wi-Fi password:
+This is how the bundled `network` plugin asks for a Wi-Fi password:
 
 ```lua
 { input = "Password", label = string.format("Wi-Fi “%s”", ssid), secret = true,
@@ -236,7 +236,7 @@ return {
 
 ```lua
 -- hyprdesk.lua
-hd.bar({ right = { "wireguard", "reseau", "volume", "session" } })
+hd.bar({ right = { "wireguard", "network", "volume", "session" } })
 ```
 
 `pkexec` asks for the password through the session's polkit agent (hyprdesk's

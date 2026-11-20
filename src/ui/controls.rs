@@ -61,7 +61,7 @@ impl App {
         };
         let glyph = rich
             .and_then(|r| r.icon.as_deref())
-            .unwrap_or(if type_id == "reseau" {
+            .unwrap_or(if type_id == "network" {
                 "network-offline-symbolic"
             } else {
                 "bluetooth-symbolic"
@@ -228,7 +228,7 @@ impl App {
         let mut col = column![
             header,
             row![
-                self.control_tile(alpha, "reseau", crate::i18n::tr("Wi-Fi"), menu_bar),
+                self.control_tile(alpha, "network", crate::i18n::tr("Wi-Fi"), menu_bar),
                 self.control_tile(alpha, "bluetooth", crate::i18n::tr("Bluetooth"), menu_bar)
             ]
             .spacing(8)
@@ -339,7 +339,7 @@ impl App {
                 .push(self.pop_header(alpha, crate::i18n::tr("Affichage du bureau").into()))
                 .push(modes);
         }
-        if let Some(w) = self.control_source("batterie")
+        if let Some(w) = self.control_source("battery")
             && let Some(Value::Rich(r)) = self.values.get(&w.id)
             && r.state != RenderState::Hidden
         {

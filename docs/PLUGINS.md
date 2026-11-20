@@ -282,8 +282,8 @@ de recherche, le premier trouvé l'emporte :
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-Les plugins livrés (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `mymfa`, `notifications`,
-`session`, `index`, `voix`) sont intégrés au binaire, et un fichier du même nom les remplace.
+Les plugins livrés (`network`, `bluetooth`, `battery`, `capture`, `keyboard`, `player`, `updates`, `removable`, `nightlight`, `gpu`, `vkbd`, `mymfa`, `notifications`,
+`session`, `index`, `voice`) sont intégrés au binaire, et un fichier du même nom les remplace.
 
 ```lua
 return {
@@ -300,7 +300,7 @@ return {
 
 Une tâche longue peut rendre `progress` (nombre de 0 à 1) : la barre dessine
 une jauge fine dans le module, à la couleur de son état, avant le texte
-(le plugin `majs` s'en sert pendant une mise à jour, option `detaille`).
+(le plugin `updates` s'en sert pendant une mise à jour, option `detaille`).
 
 Une entrée de menu peut aussi être un **champ de saisie** : `{ input = "Mot de passe",
 label = "Wi-Fi « Maison »", secret = true, action = function(texte) … end }`. Entrée
@@ -328,8 +328,8 @@ NVIDIA basculables entre vfio-pci et nvidia, lus dans sysfs ; widget `gpu`),
 `hd.index_status()`
 (démon d'index, `nil` s'il est arrêté) et `hd.notifications()` (`nil` si un
 autre démon que hyprdesk affiche les notifications). Les champs sont décrits
-dans `hyprdesk.meta.lua` ; les widgets intégrés `reseau`, `bluetooth`,
-`batterie`, `notifications` et `index` s'en servent, et gardent `nmcli` ou
+dans `hyprdesk.meta.lua` ; les widgets intégrés `network`, `bluetooth`,
+`battery`, `notifications` et `index` s'en servent, et gardent `nmcli` ou
 `bluetoothctl` pour les actions de leurs menus.
 
 ### Barre
@@ -348,7 +348,7 @@ La barre s'adapte à chaque écran :
   leur libellé (volume, plugins).
 - **Modules des écrans verticaux** (`portrait = { left, center, right }`) :
   ils se règlent aussi dans Barre → Modules → Écrans verticaux.
-- **Style** (`style = "continuite" | "graphite"`) : une barre complète par
+- **Style** (`style = "continuity" | "graphite" | "island" | "convex"`) : une barre complète par
   style, un module de rendu dans `src/ui/plugins/bar/style/`. `continuite` (défaut)
   est le verre fumé à capsule glissante ; `graphite` est une lame acrylique
   neutre usinée — bloc arrondi flottant au-dessus du bord, modules gravés
@@ -364,7 +364,7 @@ La barre s'adapte à chaque écran :
 
 Les modules sont mesurés avant leur placement. L'horloge reste au centre géométrique ; les modules excédentaires se retrouvent dans « Autres commandes », dans leur ordre d'origine. Les contrôles critiques, le workspace, l'horloge et le centre de contrôle sont prioritaires. Le mode d'édition garde les zones originales pour déplacer les modules.
 
-`controls` est un **widget intégré**, enregistré dans le catalogue Widgets. Il peut être activé et placé sur le bureau avec `hd.widget("controls", { anchor = "top-right" })`, ou ajouté dans une zone de `hd.bar` comme tout widget. Il se retire et se sauvegarde par les réglages ordinaires des widgets et de la barre. Sa désactivation arrête ses relevés ; ses sources partagées continuent uniquement si un autre widget actif les utilise. Il réutilise les widgets `reseau`, `bluetooth` et `batterie` déjà présents. Si l'un manque, une instance interne est créée, sans carte supplémentaire sur le bureau. Les opérations audio et luminosité restent celles des modules natifs. Un plugin peut exposer `on_toggle(o)` et rendre `toggled = true | false` pour proposer un interrupteur confirmé dans cette composition ; ses clics et menus habituels gardent leur rôle.
+`controls` est un **widget intégré**, enregistré dans le catalogue Widgets. Il peut être activé et placé sur le bureau avec `hd.widget("controls", { anchor = "top-right" })`, ou ajouté dans une zone de `hd.bar` comme tout widget. Il se retire et se sauvegarde par les réglages ordinaires des widgets et de la barre. Sa désactivation arrête ses relevés ; ses sources partagées continuent uniquement si un autre widget actif les utilise. Il réutilise les widgets `network`, `bluetooth` et `battery` déjà présents. Si l'un manque, une instance interne est créée, sans carte supplémentaire sur le bureau. Les opérations audio et luminosité restent celles des modules natifs. Un plugin peut exposer `on_toggle(o)` et rendre `toggled = true | false` pour proposer un interrupteur confirmé dans cette composition ; ses clics et menus habituels gardent leur rôle.
 
 ## 3. Le lanceur
 
@@ -414,7 +414,7 @@ Le paquet **Plugins** montre tout ce qui est installé :
   pas d'avis de nouvel écran ; Panorama coupé : ni surface ni proposition
   d'écran bandeau, lecture (vidéo, radio) arrêtée, commandes `hyprdesk
   panorama …` sans effet, et LYRA vocale n'écoute plus — sauf si le module de
-  barre `voix` est posé, qui la montre et la commande sans le Panorama. `Config::plugin_on(id)` est le seul test, posé
+  barre `voice` est posé, qui la montre et la commande sans le Panorama. `Config::plugin_on(id)` est le seul test, posé
   au point où chaque fonction agit. Bureau, Effets, Thème et Plugins forment
   le cœur et restent toujours actifs (`CORE_PLUGINS`).
 - **Plugins Lua.** Chacun indique s'il est actif et d'où il vient : intégré,
@@ -434,7 +434,7 @@ Le paquet **Plugins** montre tout ce qui est installé :
   `hd.config({ plugin_options = { <plugin> = { <option> = <valeur> } } })` et
   vaut pour chaque instance du plugin, sauf les options écrites sur
   l'instance elle-même. « Valeurs du plugin » revient aux valeurs par
-  défaut. Pour le plugin `majs`, on y voit aussi les commandes de relevé et
+  défaut. Pour le plugin `updates`, on y voit aussi les commandes de relevé et
   de mise à jour de chaque source, modifiables
   (`hd.config({ update_commands = { aur = { upgrade = "…" } } })`).
 

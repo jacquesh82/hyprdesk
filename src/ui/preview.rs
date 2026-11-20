@@ -420,7 +420,7 @@ impl Preview {
         });
         for (type_id, icon, detail) in [
             (
-                "reseau",
+                "network",
                 "network-wireless-signal-excellent-symbolic",
                 "Maison",
             ),
@@ -1469,7 +1469,7 @@ impl Preview {
             Arc::make_mut(&mut self.app.cfg)
                 .catalog
                 .push(crate::config::WidgetType {
-                    id: "majs".into(),
+                    id: "updates".into(),
                     name: crate::i18n::tr("Mises à jour").into(),
                     description: crate::i18n::tr("Paquets à mettre à jour ; mise à jour en un clic. Tout à jour : une coche discrète (option masquer_a_jour pour la cacher).").into(),
                     source: crate::config::WidgetSource::Bundled,
@@ -1487,7 +1487,7 @@ impl Preview {
             && let Some(p) = self.app.panel.as_mut()
         {
             p.plugins.tab = super::plugins::plugins::Tab::Widgets;
-            p.plugins.configuring = Some("majs".into());
+            p.plugins.configuring = Some("updates".into());
             p.plugins.polkit_keep = true;
             p.plugins.update_sources = vec![
                 (
@@ -1836,13 +1836,13 @@ impl Preview {
                 let cfg = Arc::make_mut(&mut self.app.cfg);
                 for (id, type_id, icon) in [
                     (
-                        "preview-module-reseau",
-                        "reseau",
+                        "preview-module-network",
+                        "network",
                         "network-wireless-signal-excellent-symbolic",
                     ),
                     (
-                        "preview-module-batterie",
-                        "batterie",
+                        "preview-module-battery",
+                        "battery",
                         "battery-level-good-symbolic",
                     ),
                 ] {
@@ -1884,9 +1884,9 @@ impl Preview {
                     vec![],
                     vec![BarItem::Widget("barlauncher".into())],
                     vec![
-                        BarItem::Widget("preview-module-reseau".into()),
+                        BarItem::Widget("preview-module-network".into()),
                         BarItem::Volume,
-                        BarItem::Widget("preview-module-batterie".into()),
+                        BarItem::Widget("preview-module-battery".into()),
                         BarItem::Widget("barclock".into()),
                     ],
                 ];

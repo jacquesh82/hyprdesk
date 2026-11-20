@@ -647,7 +647,7 @@ mod tests {
             true,
         );
         let loaded = crate::config::lua::load_source(
-            "hd.bar({style='convexe'})",
+            "hd.bar({style='convex'})",
             "test.lua",
             std::path::Path::new("/tmp"),
         )

@@ -25,7 +25,7 @@ hd.config({
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
     -- icon_scope      = "global",   -- icônes : "global", "screen" (par écran) ou "workspace"
-    -- workspace_selector = "rail",  -- sélecteur de la barre : "relief", "rail", "miniatures" ou "icones"
+    -- workspace_selector = "rail",  -- sélecteur de la barre : "relief", "rail", "thumbnails" ou "icons"
     -- index_paths     = { "~", "/media/cle-usb" }, -- recherche :f : racines indexées
                                                    -- (défaut : home et volumes montés)
     -- index_exclude   = { "musiques" }, -- dossiers exclus en plus des défauts
@@ -76,7 +76,7 @@ hd.bar({
     -- style = "graphite",  -- lame gravée monochrome : bas, 40 px, marge 10 par défaut,
     left   = { "workspaces", "window" },
     center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session", "controls" },
+    right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
 })
 
 -- Session : composants lancés et supervisés par hyprdesk (relancés s'ils

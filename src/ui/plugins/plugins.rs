@@ -237,7 +237,7 @@ impl App {
                         .on_press(wrap(Msg::Retire(path))),
                 );
             }
-            let configurable = !t.options.is_empty() || t.id == "majs";
+            let configurable = !t.options.is_empty() || t.id == "updates";
             if configurable && t.error.is_none() {
                 let open = p.plugins.configuring.as_deref() == Some(t.id.as_str());
                 line = line.push(
@@ -526,7 +526,7 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
-        if t.id == "majs" {
+        if t.id == "updates" {
             let keep = toggler(p.plugins.polkit_keep);
             let keep = if p.plugins.polkit_busy {
                 keep
@@ -702,7 +702,7 @@ impl App {
                     p.plugins.configuring = None;
                     return Task::none();
                 }
-                if id == "majs" {
+                if id == "updates" {
                     p.plugins.polkit_keep = crate::updates::polkit_keep();
                     p.plugins.update_sources = crate::updates::sources()
                         .into_iter()

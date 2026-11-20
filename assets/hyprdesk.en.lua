@@ -25,7 +25,7 @@ hd.config({
     -- fade_ms         = 150,
     -- crossfade_ms    = 700,
     -- icon_scope      = "global",   -- icons: "global", "screen" (per screen) or "workspace"
-    -- workspace_selector = "rail",  -- bar selector: "relief", "rail", "miniatures" or "icones"
+    -- workspace_selector = "rail",  -- bar selector: "relief", "rail", "thumbnails" or "icons"
     -- index_paths     = { "~", "/media/usb-drive" }, -- :f search: indexed roots
                                                     -- (default: home and mounted volumes)
     -- index_exclude   = { "music" }, -- folders excluded in addition to the defaults
@@ -76,7 +76,7 @@ hd.bar({
     -- style = "graphite",  -- engraved monochrome slab: bottom, 40 px, 10 px margin by default,
     left   = { "workspaces", "window" },
     center = { { "clock", format = "%a %d %b  %H:%M" } },
-    right  = { "tray", "media", "reseau", "bluetooth", "batterie", "volume", "notifications", "desktop", "session", "controls" },
+    right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
 })
 
 -- Session: components launched and supervised by hyprdesk (restarted if they

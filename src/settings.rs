@@ -2594,7 +2594,7 @@ mod tests {
             ..Settings::default()
         };
         let lua = s.to_lua();
-        assert!(lua.contains("workspace_selector = \"miniatures\""));
+        assert!(lua.contains("workspace_selector = \"thumbnails\""));
         let config = load_chunks(
             &[(lua, "s.lua".into(), Origin::Settings)],
             Path::new("/cfg"),

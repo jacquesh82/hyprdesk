@@ -283,7 +283,7 @@ pub struct Config {
     /// Couleur du halo : lyra (violet-bleu) ou accent (thème).
     pub voice_halo_color: String,
     /// Ambiance de la barre « flux vocal » (webradio) : aurora, sunset, ocean.
-    pub flux_ambiance: String,
+    pub stream_mood: String,
     pub design: super::design::Design,
 }
 
@@ -449,7 +449,7 @@ impl Default for Config {
             voice_mic: String::new(),
             voice_halo: "screens".into(),
             voice_halo_color: "lyra".into(),
-            flux_ambiance: "aurora".into(),
+            stream_mood: "aurora".into(),
             design: Default::default(),
         }
     }
@@ -477,6 +477,8 @@ const KEYS: &[&str] = &[
     "voice_mic",
     "voice_halo",
     "voice_halo_color",
+    "stream_mood",
+    // Ancien nom de `stream_mood`, toujours lu.
     "flux_ambiance",
     "design",
 ];
@@ -692,10 +694,12 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     {
         c.voice_halo = h;
     }
-    if let Some(a) = t.get::<Option<String>>("flux_ambiance")?
+    if let Some(a) = t
+        .get::<Option<String>>("stream_mood")?
+        .or(t.get::<Option<String>>("flux_ambiance")?)
         && matches!(a.as_str(), "aurora" | "sunset" | "ocean")
     {
-        c.flux_ambiance = a;
+        c.stream_mood = a;
     }
     if let Some(h) = t.get::<Option<String>>("voice_halo_color")?
         && matches!(h.as_str(), "lyra" | "accent")
@@ -839,8 +843,8 @@ impl Config {
         if self.voice_halo != d.voice_halo {
             f.push(format!("voice_halo = {}", q(&self.voice_halo)));
         }
-        if self.flux_ambiance != d.flux_ambiance {
-            f.push(format!("flux_ambiance = {}", q(&self.flux_ambiance)));
+        if self.stream_mood != d.stream_mood {
+            f.push(format!("stream_mood = {}", q(&self.stream_mood)));
         }
         if self.voice_halo_color != d.voice_halo_color {
             f.push(format!("voice_halo_color = {}", q(&self.voice_halo_color)));
@@ -1033,7 +1037,7 @@ mod tests {
             voice_mic: "alsa_input.usb-x".into(),
             voice_halo: "panorama".into(),
             voice_halo_color: "accent".into(),
-            flux_ambiance: "ocean".into(),
+            stream_mood: "ocean".into(),
             design: Default::default(),
         };
         assert_eq!(eval(&c.to_lua()).unwrap(), c);

@@ -59,7 +59,7 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
----@field apps_style? "auto"|"plein"|"central" # lanceur d'applications : grande feuille en plein bureau et carte centrée sinon (auto), ou toujours l'une
+---@field apps_style? "auto"|"sheet"|"spotlight" # lanceur d'applications : grande feuille en plein bureau et carte centrée sinon (auto), ou toujours l'une
 ---@field apps_suggestions? integer # applications les plus lancées mises en avant (0 à 16, 8 par défaut)
 ---@field apps_categories? boolean # catégories dans la grande feuille
 ---@field apps_unified? boolean # le même lanceur dans tous les modes (keys.search pris à hyprland.lua) ; false : celui de hyprland.lua hors plein bureau
@@ -67,7 +67,7 @@
 ---@field primary? string|false # écran principal (connecteur, ex. "DP-1") : ancre en 0×0, bureau/barre/réglages
 ---@field close_on_launch? boolean
 ---@field icon_scope? "global"|"screen"|"workspace"
----@field workspace_selector? "relief"|"rail"|"miniatures"|"icones" # style du sélecteur de workspaces dans la barre
+---@field workspace_selector? "relief"|"rail"|"thumbnails"|"icons" # style du sélecteur de workspaces dans la barre
 ---@field icon_double_click? boolean
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" par défaut (embarquée), ou une famille installée
@@ -225,7 +225,7 @@ function hd.on(event, fn) end
 ---@field position? "top"|"bottom"
 ---@field height? integer # défaut du style : 36 en Continuité, 48 en Graphite
 ---@field margin? integer # marge au bord de l'écran (0 : collée) ; défaut du style : 0 dans les deux styles
----@field style? "continuite"|"graphite" # rendu complet de la barre ; graphite se pose en bas par défaut
+---@field style? "continuity"|"graphite"|"island"|"convex" # rendu complet de la barre ; graphite se pose en bas par défaut
 ---@field left? HD.BarModule[]
 ---@field center? HD.BarModule[]
 ---@field right? HD.BarModule[]

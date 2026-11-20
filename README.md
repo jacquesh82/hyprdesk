@@ -434,15 +434,15 @@ available under **More controls**. To add a Lua widget or plugin, see
 
 | Plugin | What it does | Relies on |
 | --- | --- | --- |
-| `reseau` | Wired and wireless networks, VPN, WireGuard, airplane mode | NetworkManager |
+| `network` | Wired and wireless networks, VPN, WireGuard, airplane mode | NetworkManager |
 | `bluetooth` | Scan, pair, and manage devices | bluetoothctl |
-| `batterie` | Battery status, alerts, and power profiles | sysfs, power-profiles-daemon |
+| `battery` | Battery status, alerts, and power profiles | sysfs, power-profiles-daemon |
 | `capture` | Screenshots and screen recording | hyprshot, wf-recorder |
-| `clavier` | View and switch keyboard layouts | Hyprland |
-| `lecteur` | Now playing and playback controls | MPRIS |
-| `majs` | Pending updates and upgrades | pacman/AUR, apt, dnf, zypper, flatpak |
-| `supports` | Open and eject removable drives | udisks2 |
-| `nuit` | Night light on demand or on a schedule | hyprsunset |
+| `keyboard` | View and switch keyboard layouts | Hyprland |
+| `player` | Now playing and playback controls | MPRIS |
+| `updates` | Pending updates and upgrades | pacman/AUR, apt, dnf, zypper, flatpak |
+| `removable` | Open and eject removable drives | udisks2 |
+| `nightlight` | Night light on demand or on a schedule | hyprsunset |
 | `vkbd` | On-screen keyboard | wvkbd |
 | `notifications` | Recent notifications and Do Not Disturb | hyprdesk or wayle |
 | `session` | Lock, suspend, log out, reboot, and power off | systemd, hyprdesk lock |

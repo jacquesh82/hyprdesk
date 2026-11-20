@@ -107,8 +107,8 @@ pub(in crate::ui) fn preview_video(name: &str) -> panes::Video {
     }
 }
 
-/// Module de barre de LYRA vocale (`assets/widgets/integres/voix.lua`).
-pub const VOICE_WIDGET: &str = "voix";
+/// Module de barre de LYRA vocale (`assets/widgets/integres/voice.lua`).
+pub const VOICE_WIDGET: &str = "voice";
 
 const ICONS: &[&str] = &[
     "media-playback-start-symbolic",
@@ -166,7 +166,7 @@ pub struct State {
     pub sources_kind: &'static str,
     /// LYRA vocale : état affiché par le bouton micro.
     pub voice: VoiceUi,
-    /// Dernier état écrit pour le module de barre `voix` (`voice_publish`).
+    /// Dernier état écrit pour le module de barre `voice` (`voice_publish`).
     pub voice_written: String,
     /// Accord demandé par LYRA pendant une demande vocale : (demande, langue).
     pub voice_confirm: Option<(String, String)>,
@@ -2083,7 +2083,7 @@ impl App {
         let mut it = a.split_whitespace();
         let verb = it.next().unwrap_or("toggle");
         // Paquet coupé : ses commandes ne font rien, sauf LYRA vocale, que le
-        // module de barre `voix` sert aussi.
+        // module de barre `voice` sert aussi.
         if verb != "voice" && !self.cfg.plugin_on("panorama") {
             tracing::warn!(
                 "{}",
@@ -2290,7 +2290,7 @@ impl App {
 
     /// LYRA vocale peut écouter : réglée (`panorama.voice`), LYRA active
     /// (paquet Assistant), et visible quelque part — le Panorama, ou le
-    /// module de barre `voix`. Sans endroit où voir l'écoute, le micro reste
+    /// module de barre `voice`. Sans endroit où voir l'écoute, le micro reste
     /// fermé.
     pub(in crate::ui) fn voice_allowed(&self) -> bool {
         self.cfg.general.panorama.voice
@@ -2298,7 +2298,7 @@ impl App {
             && (self.cfg.plugin_on("panorama") || self.voice_in_bar())
     }
 
-    /// Le module de barre `voix` est posé dans la barre.
+    /// Le module de barre `voice` est posé dans la barre.
     fn voice_in_bar(&self) -> bool {
         let ids: Vec<&str> = self
             .cfg
@@ -2313,7 +2313,7 @@ impl App {
                 .any(|id| self.bar_has(&crate::config::BarItem::Widget((*id).to_string())))
     }
 
-    /// État de LYRA vocale pour le module de barre `voix`, écrit dans
+    /// État de LYRA vocale pour le module de barre `voice`, écrit dans
     /// `$XDG_RUNTIME_DIR/hyprdesk/voix` quand il change : `state=` absent
     /// (LYRA coupée), off, installing, listening, awake, thinking, speaking,
     /// error ; `detail=` phrase entendue ou erreur ; `settings=` page de

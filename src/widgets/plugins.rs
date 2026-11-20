@@ -15,43 +15,65 @@
 
 use std::path::{Path, PathBuf};
 
+/// Anciens noms (français) des plugins livrés : toujours lus (hyprdesk.lua,
+/// settings.lua, fichier de remplacement `<ancien>.lua`), réécrits sous le
+/// nouveau nom à la prochaine sauvegarde.
+pub const RENAMED: &[(&str, &str)] = &[
+    ("batterie", "battery"),
+    ("clavier", "keyboard"),
+    ("lecteur", "player"),
+    ("majs", "updates"),
+    ("nuit", "nightlight"),
+    ("reseau", "network"),
+    ("supports", "removable"),
+    ("voix", "voice"),
+];
+
+/// Nom actuel d'un plugin, son ancien nom compris.
+pub fn canonical(id: &str) -> &str {
+    RENAMED
+        .iter()
+        .find(|(old, _)| *old == id)
+        .map_or(id, |(_, new)| new)
+}
+
 /// Plugins livrés avec hyprdesk : chargés si aucun fichier du même nom ne les remplace.
 pub const BUNDLED: &[(&str, &str)] = &[
     (
-        "reseau",
-        include_str!("../../assets/widgets/integres/reseau.lua"),
+        "network",
+        include_str!("../../assets/widgets/integres/network.lua"),
     ),
     (
         "bluetooth",
         include_str!("../../assets/widgets/integres/bluetooth.lua"),
     ),
     (
-        "batterie",
-        include_str!("../../assets/widgets/integres/batterie.lua"),
+        "battery",
+        include_str!("../../assets/widgets/integres/battery.lua"),
     ),
     (
         "capture",
         include_str!("../../assets/widgets/integres/capture.lua"),
     ),
     (
-        "clavier",
-        include_str!("../../assets/widgets/integres/clavier.lua"),
+        "keyboard",
+        include_str!("../../assets/widgets/integres/keyboard.lua"),
     ),
     (
-        "lecteur",
-        include_str!("../../assets/widgets/integres/lecteur.lua"),
+        "player",
+        include_str!("../../assets/widgets/integres/player.lua"),
     ),
     (
-        "majs",
-        include_str!("../../assets/widgets/integres/majs.lua"),
+        "updates",
+        include_str!("../../assets/widgets/integres/updates.lua"),
     ),
     (
-        "supports",
-        include_str!("../../assets/widgets/integres/supports.lua"),
+        "removable",
+        include_str!("../../assets/widgets/integres/removable.lua"),
     ),
     (
-        "nuit",
-        include_str!("../../assets/widgets/integres/nuit.lua"),
+        "nightlight",
+        include_str!("../../assets/widgets/integres/nightlight.lua"),
     ),
     ("gpu", include_str!("../../assets/widgets/integres/gpu.lua")),
     (
@@ -75,8 +97,8 @@ pub const BUNDLED: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/integres/index.lua"),
     ),
     (
-        "voix",
-        include_str!("../../assets/widgets/integres/voix.lua"),
+        "voice",
+        include_str!("../../assets/widgets/integres/voice.lua"),
     ),
 ];
 
@@ -144,9 +166,11 @@ pub fn discover(dirs: &[PathBuf]) -> Vec<(String, PathBuf)> {
                 let name = p.file_name()?.to_str()?.to_string();
                 if p.is_dir() {
                     let init = p.join("init.lua");
-                    return init.is_file().then_some((name, init));
+                    return init
+                        .is_file()
+                        .then_some((canonical(&name).to_string(), init));
                 }
-                let id = name.strip_suffix(".lua")?.to_string();
+                let id = canonical(name.strip_suffix(".lua")?).to_string();
                 Some((id, p))
             })
             .collect();

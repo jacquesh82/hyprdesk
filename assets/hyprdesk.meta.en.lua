@@ -59,7 +59,7 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
----@field apps_style? "auto"|"plein"|"central" # application launcher: large sheet in full-desktop and centered card otherwise (auto), or always one of them
+---@field apps_style? "auto"|"sheet"|"spotlight" # application launcher: large sheet in full-desktop and centered card otherwise (auto), or always one of them
 ---@field apps_suggestions? integer # most launched applications highlighted (0 to 16, 8 by default)
 ---@field apps_categories? boolean # categories in the large sheet
 ---@field apps_unified? boolean # the same launcher in every mode (keys.search taken from hyprland.lua); false: hyprland.lua's one outside the full desktop
@@ -67,7 +67,7 @@
 ---@field primary? string|false # primary screen (connector, e.g. "DP-1"): anchored at 0×0, desktop/bar/settings
 ---@field close_on_launch? boolean
 ---@field icon_scope? "global"|"screen"|"workspace"
----@field workspace_selector? "relief"|"rail"|"miniatures"|"icones" # style du sélecteur de workspaces dans la barre
+---@field workspace_selector? "relief"|"rail"|"thumbnails"|"icons" # style du sélecteur de workspaces dans la barre
 ---@field icon_double_click? boolean
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" by default (embedded), or an installed family
@@ -225,7 +225,7 @@ function hd.on(event, fn) end
 ---@field position? "top"|"bottom"
 ---@field height? integer # style default: 36 in Continuité, 48 in Graphite
 ---@field margin? integer # gap to the screen edge (0: flush); style default: 0 in both styles
----@field style? "continuite"|"graphite" # the bar's full rendering; graphite sits at the bottom by default
+---@field style? "continuity"|"graphite"|"island"|"convex" # the bar's full rendering; graphite sits at the bottom by default
 ---@field left? HD.BarModule[]
 ---@field center? HD.BarModule[]
 ---@field right? HD.BarModule[]

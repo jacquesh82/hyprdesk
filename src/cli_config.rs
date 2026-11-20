@@ -513,9 +513,9 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.launcher.show_assistant),
         |s, v, c| { s.launcher_show_assistant = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_show_assistant = None;
-    "apps_style", "launcher", "auto | plein | central — lanceur d'applications : grande feuille en plein bureau et carte centrée sinon, ou toujours l'une",
+    "apps_style", "launcher", "auto | sheet | spotlight — lanceur d'applications : grande feuille en plein bureau et carte centrée sinon, ou toujours l'une",
         |c| c.general.apps_launcher.style.as_str().to_string(),
-        |s, v, c| { s.apps_style = Some(crate::config::AppsStyle::parse(v.trim()).ok_or_else(|| crate::i18n::tr("auto, plein ou central attendu").to_string())?); Ok(()) },
+        |s, v, c| { s.apps_style = Some(crate::config::AppsStyle::parse(v.trim()).ok_or_else(|| crate::i18n::tr("auto, sheet ou spotlight attendu").to_string())?); Ok(()) },
         |s| s.apps_style = None;
     "apps_suggestions", "launcher", "0..16 — applications les plus lancées mises en avant",
         |c| c.general.apps_launcher.suggestions.to_string(),
@@ -723,15 +723,15 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| b.convex.duration.to_string()).unwrap_or_default(),
         |s,v,c| { bar(s,c).convex.duration=number(v,0u16,800)?; Ok(()) },
         |s| { if let Some(b)=s.bar.as_mut() { b.convex.duration=crate::config::ConvexDef::default().duration; } };
-    "bar.convex.auto_hide", "bar", "bool — masquage automatique du dock Convex",
-        |c| c.bar.as_ref().map(|b|b.convex.auto_hide.to_string()).unwrap_or_default(),
+    "bar.convex.auto_hide", "bar", "on | off — masquage automatique du dock Convex",
+        |c| c.bar.as_ref().map(|b| on_off(b.convex.auto_hide)).unwrap_or_default(),
         |s,v,c|{bar(s,c).convex.auto_hide=parse_bool(v)?;Ok(())},
         |s|{if let Some(b)=s.bar.as_mut(){b.convex.auto_hide=true;}};
-    "bar.convex.attached_panels", "bar", "bool — panneaux rattachés au cadre Convex",
-        |c| c.bar.as_ref().map(|b| b.convex.attached_panels.to_string()).unwrap_or_default(),
+    "bar.convex.attached_panels", "bar", "on | off — panneaux rattachés au cadre Convex",
+        |c| c.bar.as_ref().map(|b| on_off(b.convex.attached_panels)).unwrap_or_default(),
         |s,v,c| { bar(s,c).convex.attached_panels=parse_bool(v)?; Ok(()) },
         |s| { if let Some(b)=s.bar.as_mut() { b.convex.attached_panels=true; } };
-    "bar.style", "bar", "continuite | graphite | island | convexe — style de la barre : pose son rendu, sa composition et sa géométrie",
+    "bar.style", "bar", "continuity | graphite | island | convex — style de la barre : pose son rendu, sa composition et sa géométrie",
         |c| c.bar.as_ref().map(|b| b.style.as_str().to_string()).unwrap_or_default(),
         |s, v, c| {
             let all: Vec<&str> = crate::config::BAR_STYLES.iter().map(|(_, id, _)| *id).collect();
@@ -920,16 +920,16 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.voice_halo_color = "lyra".into(); } };
-    "panorama.flux_ambiance", "panorama", "aurora | sunset | ocean — ambiance de la barre « flux vocal » (webradio)",
-        |c| c.general.panorama.flux_ambiance.clone(),
+    "panorama.stream_mood", "panorama", "aurora | sunset | ocean — ambiance de la barre « flux vocal » (webradio)",
+        |c| c.general.panorama.stream_mood.clone(),
         |s, v, c| {
             if !matches!(v, "aurora" | "sunset" | "ocean") { return Err("aurora | sunset | ocean".into()); }
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
-            p.flux_ambiance = v.into();
+            p.stream_mood = v.into();
             s.panorama = Some(p);
             Ok(())
         },
-        |s| { if let Some(p) = s.panorama.as_mut() { p.flux_ambiance = "aurora".into(); } };
+        |s| { if let Some(p) = s.panorama.as_mut() { p.stream_mood = "aurora".into(); } };
     "panorama.zone", "panorama", "<écran>:<bottom|top|left|right>:<0.1..0.5> | none — zone Panorama : une bande d'écran réservée, que les fenêtres laissent libre",
         |c| c.general.panorama.zone.as_ref().map_or("none".into(), |z| format!("{}:{}:{}", z.screen, z.side, z.size)),
         |s, v, c| {
@@ -1101,7 +1101,7 @@ pub static KEYS: &[Key] = keys![
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("text_scale", &d.get("text_scale").unwrap_or_default()); } };
     "panorama.design.effects", "panorama", "on | off — décor 3D et lumières",
-        |c| c.general.panorama.design.get("effects").unwrap_or_default(),
+        |c| c.general.panorama.design.flag("effects").map(on_off).unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.design.set("effects", v)?;
@@ -1109,7 +1109,7 @@ pub static KEYS: &[Key] = keys![
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("effects", &d.get("effects").unwrap_or_default()); } };
     "panorama.design.controls", "panorama", "on | off — commandes du bandeau",
-        |c| c.general.panorama.design.get("controls").unwrap_or_default(),
+        |c| c.general.panorama.design.flag("controls").map(on_off).unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.design.set("controls", v)?;
@@ -1125,7 +1125,7 @@ pub static KEYS: &[Key] = keys![
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("clock_style", &d.get("clock_style").unwrap_or_default()); } };
     "panorama.design.seconds", "panorama", "on | off — secondes de l’horloge",
-        |c| c.general.panorama.design.get("seconds").unwrap_or_default(),
+        |c| c.general.panorama.design.flag("seconds").map(on_off).unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.design.set("seconds", v)?;
@@ -1133,7 +1133,7 @@ pub static KEYS: &[Key] = keys![
         },
         |s| { if let Some(p) = s.panorama.as_mut() { let d = crate::panorama::design::Design::default(); let _ = p.design.set("seconds", &d.get("seconds").unwrap_or_default()); } };
     "panorama.design.date", "panorama", "on | off — date sous l’horloge",
-        |c| c.general.panorama.design.get("date").unwrap_or_default(),
+        |c| c.general.panorama.design.flag("date").map(on_off).unwrap_or_default(),
         |s, v, c| {
             let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
             p.design.set("date", v)?;
@@ -1223,9 +1223,9 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.workspaces = None;
-    "workspace_selector", "workspaces", "relief | rail | miniatures | icones — style du sélecteur de la barre",
+    "workspace_selector", "workspaces", "relief | rail | thumbnails | icons — style du sélecteur de la barre",
         |c| c.general.workspace_selector.as_str().into(),
-        |s, v, c| { s.workspace_selector = Some(choice(v, crate::config::WsSelector::parse, "relief, rail, miniatures, icones")?); Ok(()) },
+        |s, v, c| { s.workspace_selector = Some(choice(v, crate::config::WsSelector::parse, "relief, rail, thumbnails, icons")?); Ok(()) },
         |s| s.workspace_selector = None;
     "workspace_dedicated", "workspaces", "écran,écran,… | none — écrans dédiés (seulement leurs workspaces)",
         |c| c.general.workspace_dedicated.iter().cloned().collect::<Vec<_>>().join(","),
@@ -1442,11 +1442,147 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
         );
     }
     if let Some(t) = key.strip_prefix("widget.") {
+        let t = crate::widgets::plugins::canonical(t);
         return Some(on_off(
             c.widgets.iter().any(|w| w.type_id == t && !w.in_bar),
         ));
     }
     None
+}
+
+/// Clés renommées : l'ancien nom (français) reste accepté par `get` et `set`.
+fn canonical_key(key: &str) -> &str {
+    match key {
+        "panorama.flux_ambiance" => "panorama.stream_mood",
+        k => k,
+    }
+}
+
+/// Valeurs admises d'une option Hyprland (layouts, effets), pour l'aide.
+fn kind_values(k: &crate::tiling::Kind) -> String {
+    use crate::tiling::Kind;
+    match k {
+        Kind::Bool => "on | off".into(),
+        Kind::Num { min, max, .. } => format!("{min}..{max}"),
+        Kind::IntChoice(l) => l
+            .iter()
+            .map(|(n, _)| n.to_string())
+            .collect::<Vec<_>>()
+            .join(" | "),
+        Kind::Choice(l) => l.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(" | "),
+        Kind::Color => "#rrggbb[aa]".into(),
+        Kind::Gradient => "#rrggbb #rrggbb… [<angle>deg]".into(),
+        Kind::Text => crate::i18n::tr("texte").into(),
+        Kind::Sides { max } => format!("0..{max} | t,r,b,l"),
+    }
+}
+
+/// Aide d'une clé dynamique (`hyprdesk config list`) : valeurs admises, puis
+/// ce qu'elle règle, comme pour les clés fixes.
+fn dynamic_help(key: &str, c: &Config) -> String {
+    use crate::i18n::tr;
+    if let Some(k) = bar_color_key(key) {
+        return match k {
+            BarColorKey::Slot(s) => crate::tr!(
+                "#rrggbb | theme — couleur de la barre : {label}",
+                label = crate::config::BAR_COLOR_SLOTS
+                    .iter()
+                    .find(|(id, _)| *id == s)
+                    .map_or(s, |(_, l)| tr(l))
+            ),
+            BarColorKey::Module(m) => {
+                crate::tr!("#rrggbb | theme — couleur du module « {m} »", m = m)
+            }
+        };
+    }
+    if let Some((place, field)) = effect_key(key) {
+        return if field == "blur" {
+            crate::tr!(
+                "on | off — flou derrière : {place}",
+                place = tr(place.label())
+            )
+        } else {
+            crate::tr!(
+                "0..1 — opacité du fond : {place}",
+                place = tr(place.label())
+            )
+        };
+    }
+    if let Some(ws) = key.strip_prefix("layout.") {
+        return crate::tr!(
+            "<layout> | none — layout du workspace {ws} (none : le layout par défaut)",
+            ws = ws
+        );
+    }
+    if key == "perf.profile" {
+        return crate::i18n::tr(
+            "performance | balanced | quality | hyprland — priorité des effets (custom : réglés à la main ; détail dans [animations])",
+        )
+        .to_string();
+    }
+    if let Some(k) = key.strip_prefix("fx.") {
+        if let Some(name) = k.strip_prefix("anim.") {
+            let label = crate::fx::leaf(name).map_or(name, |l| tr(l.label));
+            return crate::tr!(
+                "<vitesse> <courbe> [style] | off | hyprland — animation : {label}",
+                label = label
+            );
+        }
+        if let Some(o) = crate::fx::opt(k) {
+            return format!("{} | hyprland — {}", kind_values(&o.kind), tr(o.label));
+        }
+    }
+    if let Some(o) = crate::tiling::opt(key) {
+        return format!("{} | none — {}", kind_values(&o.kind), tr(o.label));
+    }
+    if let Some(ws) = key.strip_prefix("workspace.") {
+        let declared = c
+            .general
+            .workspace_monitors_declared
+            .values()
+            .flatten()
+            .any(|w| w == ws);
+        return if declared {
+            crate::tr!(
+                "<écran> | primary | auto — écran du workspace {ws}",
+                ws = ws
+            )
+        } else {
+            crate::tr!(
+                "<écran> | primary | auto — écran du workspace {ws} (placé d'office : écrans dédiés)",
+                ws = ws
+            )
+        };
+    }
+    if let Some(r) = key.strip_prefix("apps.") {
+        let label = crate::apps::role(r).map_or(r, |role| tr(role.label));
+        return crate::tr!(
+            "<application> — application par défaut : {label}",
+            label = label
+        );
+    }
+    if key.starts_with("assign.") {
+        return tr("<workspace> [silent] | none — workspace où l'application s'ouvre").to_string();
+    }
+    if let Some(t) = key.strip_prefix("widget.") {
+        let name = c
+            .catalog
+            .iter()
+            .find(|w| w.id == t)
+            .map_or(t, |w| w.name.as_str());
+        return crate::tr!(
+            "on | off — widget « {name} » sur le bureau",
+            name = tr(name)
+        );
+    }
+    if let Some(id) = key.strip_prefix("plugin.") {
+        let label = crate::ui::plugins::find(id).map_or(id, |p| tr(p.label));
+        return crate::tr!(
+            "on | off — paquet « {label} » (off : retiré des Réglages et arrêté)",
+            label = label
+        );
+    }
+    String::new()
 }
 
 fn dynamic_set(
@@ -1615,7 +1751,7 @@ fn dynamic_set(
                 Some(p) => p.apply(&mut fx.options),
                 None => {
                     return Some(Err(crate::tr!(
-                        "« {v} » : profil inconnu (performance, equilibre, rendu, hyprland)",
+                        "« {v} » : profil inconnu (performance, balanced, quality, hyprland)",
                         v = id
                     )));
                 }
@@ -1773,6 +1909,7 @@ fn dynamic_set(
         });
     }
     if let Some(t) = key.strip_prefix("widget.") {
+        let t = crate::widgets::plugins::canonical(t);
         let Some(ty) = c.catalog.iter().find(|w| w.id == t) else {
             let known: Vec<&str> = c.catalog.iter().map(|w| w.id.as_str()).collect();
             return Some(Err(crate::tr!(
@@ -1970,6 +2107,9 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
             let c = full()?;
             let only = args.get(1).map(String::as_str);
             let mut out = String::new();
+            // Clés déjà montrées : une clé partagée par deux paquets (les effets
+            // de Performance, détaillés dans Animations) ne sort qu'une fois.
+            let mut seen = std::collections::BTreeSet::<String>::new();
             for p in crate::ui::plugins::BUILTIN {
                 if only.is_some_and(|o| o != p.id) {
                     continue;
@@ -2044,6 +2184,10 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                     continue;
                 }
                 out += &format!("[{}] {}\n", p.id, crate::i18n::tr(p.label));
+                let extra: Vec<String> = extra
+                    .into_iter()
+                    .filter(|n| seen.insert(n.clone()))
+                    .collect();
                 for k in keys {
                     let v = (k.get)(&c);
                     out += &format!(
@@ -2060,7 +2204,14 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                 }
                 for name in extra {
                     let v = dynamic_get(&name, &c).unwrap_or_default();
-                    out += &format!("  {name:<18} = {v}\n");
+                    let line = format!(
+                        "  {:<18} = {:<26} {}",
+                        name,
+                        if v.is_empty() { "—".into() } else { v },
+                        dynamic_help(&name, &c)
+                    );
+                    out += line.trim_end();
+                    out += "\n";
                 }
             }
             if out.is_empty() {
@@ -2072,7 +2223,7 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
             Ok(out.trim_end().to_string())
         }
         "get" => {
-            let key = args.get(1).ok_or_else(usage)?;
+            let key = canonical_key(args.get(1).ok_or_else(usage)?);
             let c = full()?;
             KEYS.iter()
                 .find(|k| k.name == key)
@@ -2083,7 +2234,7 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                 })
         }
         cmd @ ("set" | "unset") => {
-            let key = args.get(1).ok_or_else(usage)?;
+            let key = canonical_key(args.get(1).ok_or_else(usage)?);
             let value = (cmd == "set").then(|| args[2..].join(" "));
             if cmd == "set" && args.len() < 3 {
                 return Err(usage());
@@ -2400,11 +2551,49 @@ mod tests {
         assert!(run_s(&p, &["set", "bar.style", "pastel"]).is_err());
         assert!(run_s(&p, &["set", "bar.margin", "64"]).is_err());
         run_s(&p, &["unset", "bar.style"]).unwrap();
-        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "continuite");
+        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "continuity");
         assert_eq!(run_s(&p, &["get", "bar.position"]).unwrap(), "top");
         assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "36");
         assert_eq!(run_s(&p, &["get", "bar.margin"]).unwrap(), "0");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn anciens_noms_et_liste_coherente() {
+        let p = tmp();
+        // Ancienne clé acceptée, lue sous son nouveau nom.
+        run_s(&p, &["set", "panorama.flux_ambiance", "ocean"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "panorama.stream_mood"]).unwrap(),
+            "ocean"
+        );
+        // Anciennes valeurs acceptées, réécrites en anglais.
+        run_s(&p, &["set", "workspace_selector", "miniatures"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "workspace_selector"]).unwrap(),
+            "thumbnails"
+        );
+        run_s(&p, &["set", "apps_style", "plein"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "apps_style"]).unwrap(), "sheet");
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        run_s(&p, &["set", "bar.style", "continuite"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.style"]).unwrap(), "continuity");
+        // Booléens en on/off partout.
+        assert_eq!(run_s(&p, &["get", "panorama.design.date"]).unwrap(), "on");
+        assert_eq!(run_s(&p, &["get", "bar.convex.auto_hide"]).unwrap(), "on");
+        // Liste : chaque clé une seule fois, et toutes décrites.
+        let list = run_s(&p, &["list"]).unwrap();
+        let keys: Vec<&str> = list
+            .lines()
+            .filter(|l| l.starts_with("  "))
+            .filter_map(|l| l.split(" = ").next())
+            .map(str::trim)
+            .collect();
+        let unique: std::collections::BTreeSet<&&str> = keys.iter().collect();
+        assert_eq!(unique.len(), keys.len(), "clé répétée dans la liste");
+        for l in list.lines().filter(|l| l.starts_with("  ")) {
+            assert!(l.contains(" — "), "clé sans description : {l}");
+        }
     }
 
     #[test]
@@ -2415,7 +2604,7 @@ mod tests {
             ("bar.convex.frame_width", "10"),
             ("bar.convex.radius", "56"),
             ("bar.convex.duration", "420"),
-            ("bar.convex.attached_panels", "false"),
+            ("bar.convex.attached_panels", "off"),
         ] {
             run_s(&p, &["set", key, value]).unwrap();
             assert_eq!(run_s(&p, &["get", key]).unwrap(), value);

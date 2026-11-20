@@ -486,7 +486,7 @@ mod tests {
         let (mut app, _) =
             App::boot_with(PathBuf::from("/tmp/hyprdesk-convex-tests/config.lua"), true);
         let loaded = crate::config::lua::load_source(
-            "hd.bar({style='convexe'})",
+            "hd.bar({style='convex'})",
             "test.lua",
             Path::new("/tmp"),
         )

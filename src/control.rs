@@ -428,8 +428,8 @@ mod tests {
         }
         assert_eq!(Command::parse("nope"), None);
         assert_eq!(
-            Command::parse("menu reseau"),
-            Some(Command::Menu("reseau".into()))
+            Command::parse("menu network"),
+            Some(Command::Menu("network".into()))
         );
     }
 

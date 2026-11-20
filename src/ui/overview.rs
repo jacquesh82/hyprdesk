@@ -1116,8 +1116,8 @@ mod tests {
         for (s, v) in [
             ("relief", WsSelector::Relief),
             ("rail", WsSelector::Rail),
-            ("miniatures", WsSelector::Miniatures),
-            ("icones", WsSelector::Icones),
+            ("thumbnails", WsSelector::Miniatures),
+            ("icons", WsSelector::Icones),
         ] {
             assert_eq!(WsSelector::parse(s), Some(v));
             assert_eq!(v.as_str(), s);

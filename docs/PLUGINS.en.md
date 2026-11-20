@@ -281,8 +281,8 @@ folders, the first match wins:
 2. `~/.local/share/hyprdesk/widgets`
 3. `/usr/share/hyprdesk/widgets`
 
-The shipped plugins (`reseau`, `bluetooth`, `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`, `gpu`, `vkbd`, `mymfa`, `notifications`,
-`session`, `index`, `voix`) are built into the binary, and a file with the same name replaces them.
+The shipped plugins (`network`, `bluetooth`, `battery`, `capture`, `keyboard`, `player`, `updates`, `removable`, `nightlight`, `gpu`, `vkbd`, `mymfa`, `notifications`,
+`session`, `index`, `voice`) are built into the binary, and a file with the same name replaces them.
 
 ```lua
 return {
@@ -298,7 +298,7 @@ return {
 ```
 
 A long task can return `progress` (a number from 0 to 1): the bar draws a
-thin gauge in the module, in its state colour, before the text (the `majs`
+thin gauge in the module, in its state colour, before the text (the `updates`
 plugin uses it during an update, option `detaille`).
 
 A menu entry can also be a **text field**: `{ input = "Password",
@@ -326,8 +326,8 @@ plugin then falls back to `hd.exec`. Alongside them, `hd.batteries()`
 vfio-pci and nvidia, read from sysfs; `gpu` widget), `hd.index_status()` (file index daemon, `nil`
 when stopped) and `hd.notifications()` (`nil` when a daemon other than
 hyprdesk shows notifications). The fields are described in
-`hyprdesk.meta.en.lua`; the built-in widgets `reseau`, `bluetooth`,
-`batterie`, `notifications` and `index` use them, and keep `nmcli` or
+`hyprdesk.meta.en.lua`; the built-in widgets `network`, `bluetooth`,
+`battery`, `notifications` and `index` use them, and keep `nmcli` or
 `bluetoothctl` for their menu actions.
 
 ### Bar
@@ -346,7 +346,7 @@ The bar adapts to each screen:
   their label (volume, plugins).
 - **Modules for vertical screens** (`portrait = { left, center, right }`):
   they can also be set in Bar → Modules → Vertical screens.
-- **Style** (`style = "continuite" | "graphite"`): a complete bar per style,
+- **Style** (`style = "continuity" | "graphite" | "island" | "convex"`): a complete bar per style,
   one rendering module in `src/ui/plugins/bar/style/`. `continuite` (default) is the
   smoked glass with a gliding capsule; `graphite` is a machined neutral
   acrylic slab — a rounded block floating above the screen edge, modules
@@ -409,7 +409,7 @@ The **Plugins** package shows everything that is installed:
   workspace rules, no icons or widgets on the desktop, plain background,
   no new-screen notice; Panorama off: no surface nor strip-screen offer,
   playback (video, radio) stopped, `hyprdesk panorama …` commands ignored,
-  and LYRA voice stops listening — unless the `voix` bar module is placed,
+  and LYRA voice stops listening — unless the `voice` bar module is placed,
   which shows and drives it without the Panorama. `Config::plugin_on(id)` is the only check, placed
   at the point where each feature acts. Desktop, Effects, Theme and Plugins form
   the core and always stay enabled (`CORE_PLUGINS`).
@@ -430,7 +430,7 @@ The **Plugins** package shows everything that is installed:
   `hd.config({ plugin_options = { <plugin> = { <option> = <value> } } })` and
   applies to every instance of the plugin, except options written on the
   instance itself. "Plugin defaults" goes back to the default values. For the
-  `majs` plugin, the check and update commands of each source are shown and
+  `updates` plugin, the check and update commands of each source are shown and
   can be changed (`hd.config({ update_commands = { aur = { upgrade = "…" } } })`).
 
 A third-party *compiled* package cannot be hot-loaded. Third-party extensions

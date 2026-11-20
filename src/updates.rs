@@ -549,7 +549,7 @@ pub fn mask_credentials(s: &str) -> String {
     TOKEN.replace_all(&s, "${1}${2}${3}***").into_owned()
 }
 
-/// État partagé avec le plugin de barre (`majs.lua`), en lignes simples
+/// État partagé avec le plugin de barre (`updates.lua`), en lignes simples
 /// faciles à lire en Lua :
 /// `state=idle|checking|running|failed`, `checked=<unix>`, `total=<n>`,
 /// puis une ligne `source=<libellé>|<n>|<paquets séparés par des espaces>`

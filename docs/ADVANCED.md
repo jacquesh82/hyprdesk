@@ -377,7 +377,7 @@ name, a number, a list, or `"*"`.
 | Look | `theme = { name, fg, bg, accent, effects = { bar, menus, launcher, settings, widgets } }` (each effect: `opacity`, `blur`), `font`, `font_size` |
 | Motion | `transition` (`"fade"`/`"slide"`/`"none"`), `fade_ms`, `crossfade_ms`, `fx` (Hyprland animations, curves and decoration, as `hl.config` keys) |
 | Dock | `running_apps` (`"off"`/`"workspace"`/`"all"`), `launcher_group` (`"none"`/`"app"`/`"workspace"`) |
-| App launcher | `apps_unified` (`true` by default: `keys.search` opens hyprdesk's launcher in every mode, taken from `hyprland.lua` if it binds that key; `false`: `hyprland.lua` keeps it outside the full desktop), `apps_style` (`"auto"`: large sheet on the full desktop, centered card otherwise; or `"plein"` / `"central"` to always use one), `apps_suggestions` (0 to 16 most launched apps, 8 by default), `apps_categories`, `terminal` |
+| App launcher | `apps_unified` (`true` by default: `keys.search` opens hyprdesk's launcher in every mode, taken from `hyprland.lua` if it binds that key; `false`: `hyprland.lua` keeps it outside the full desktop), `apps_style` (`"auto"`: large sheet on the full desktop, centered card otherwise; or `"sheet"` / `"spotlight"` to always use one), `apps_suggestions` (0 to 16 most launched apps, 8 by default), `apps_categories`, `terminal` |
 | Workspaces and layouts | `workspaces` (1 to 30, or `false`), `workspace_monitors`, `layout` (`dwindle`, `master`, `scrolling`, `monocle`, `grid`, `columns`, `rows`, `centered`, `lua:<name>`), `layout_workspaces`, `dwindle`, `master`, `scrolling` |
 | Keys | `keys = { toggle, launcher, hide, settings, lock, leave, switch, search, search_desktop, overview, media, take }` (`false` disables a key; `search` is `SUPER + R`; `search_desktop` replaces it on the full desktop; `take` lists `hyprland.lua` combinations hyprdesk unbinds and uses — given back when removed), `suspend_binds`, `overview_command` (a Hyprland plugin's overview, such as hyprexpo or Hyprspace; otherwise hyprdesk's switcher, which stays open until you click, press Enter or Escape) |
 | Session | `autostart`, `clipboard_history`, `index_paths` (roots of the `:f` file index; default: home and mounted volumes), `index_exclude` (folder names skipped, on top of the defaults), `index_interval` (safety rescan, seconds), `index_autostart` (index daemon started with hyprdesk; `false`: on the first `:f`), `idle_manage`, `idle_dim`, `idle_lock`, `idle_dpms`, `idle_suspend`, `idle_wake_volume` (screens turned off by `hyprdesk screens-off` come back on when the volume changes), `lock_fingerprint`, `update_commands` |
@@ -419,7 +419,7 @@ hd.disable("calendar#0")                          -- remove by id
 -- are migrated when their old window/workspaces layout is detected.
 hd.bar({ monitor = "primary", position = "top", compact = "auto", margin = 0,
          left = { "workspaces", "window" }, center = { { "clock", format = "%a %d %H:%M" } },
-         right = { "tray", "volume", "brightness", "reseau", "session", "controls" },
+         right = { "tray", "volume", "brightness", "network", "session", "controls" },
          portrait = { left = { "workspaces" }, right = { "clock" } } })
 
 -- Window rules and session components.
@@ -444,8 +444,8 @@ provides a name wins**:
 1. `~/.config/hypr/hyprdesk/widgets/`
 2. `$XDG_DATA_HOME/hyprdesk/widgets/` (`~/.local/share/…`)
 3. `$XDG_DATA_DIRS/*/hyprdesk/widgets/` (system-wide)
-4. bundled plugins, compiled into the binary: `reseau`, `bluetooth`,
-   `batterie`, `capture`, `clavier`, `lecteur`, `majs`, `supports`, `nuit`,
+4. bundled plugins, compiled into the binary: `network`, `bluetooth`,
+   `battery`, `capture`, `keyboard`, `player`, `updates`, `removable`, `nightlight`,
    `vkbd`, `notifications`, `session`
 
 ```lua

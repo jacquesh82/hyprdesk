@@ -2055,7 +2055,7 @@ impl App {
             "video" if self.panorama.radio.is_some() => {
                 let (name, _) = self.panorama.radio.clone().unwrap_or_default();
                 super::flux::view(
-                    &self.cfg.general.panorama.flux_ambiance,
+                    &self.cfg.general.panorama.stream_mood,
                     self.panorama.bg_levels,
                     &self.panorama.level_hist,
                     name,

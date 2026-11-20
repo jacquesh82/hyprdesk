@@ -141,8 +141,9 @@ impl WsSelector {
         Some(match s {
             "relief" => WsSelector::Relief,
             "rail" => WsSelector::Rail,
-            "miniatures" => WsSelector::Miniatures,
-            "icones" => WsSelector::Icones,
+            // Anciens noms (français) toujours lus.
+            "thumbnails" | "miniatures" => WsSelector::Miniatures,
+            "icons" | "icones" => WsSelector::Icones,
             _ => return None,
         })
     }
@@ -150,8 +151,8 @@ impl WsSelector {
         match self {
             WsSelector::Relief => "relief",
             WsSelector::Rail => "rail",
-            WsSelector::Miniatures => "miniatures",
-            WsSelector::Icones => "icones",
+            WsSelector::Miniatures => "thumbnails",
+            WsSelector::Icones => "icons",
         }
     }
 }
@@ -471,8 +472,8 @@ impl AppsStyle {
     pub fn as_str(self) -> &'static str {
         match self {
             AppsStyle::Auto => "auto",
-            AppsStyle::Sheet => "plein",
-            AppsStyle::Spotlight => "central",
+            AppsStyle::Sheet => "sheet",
+            AppsStyle::Spotlight => "spotlight",
         }
     }
 }
@@ -923,14 +924,20 @@ pub enum BarStyle {
 
 /// Styles de barre réglables : (id Lua, libellé).
 pub const BAR_STYLES: &[(BarStyle, &str, &str)] = &[
-    (BarStyle::Continuite, "continuite", "Continuité"),
+    (BarStyle::Continuite, "continuity", "Continuité"),
     (BarStyle::Graphite, "graphite", "Graphite"),
     (BarStyle::Island, "island", "Island"),
-    (BarStyle::Convexe, "convexe", "Convex"),
+    (BarStyle::Convexe, "convex", "Convex"),
 ];
 
 impl BarStyle {
     pub fn parse(s: &str) -> Option<Self> {
+        // Anciens noms (français) toujours lus.
+        let s = match s {
+            "continuite" => "continuity",
+            "convexe" => "convex",
+            s => s,
+        };
         BAR_STYLES
             .iter()
             .find(|(_, id, _)| *id == s)
@@ -940,7 +947,7 @@ impl BarStyle {
         BAR_STYLES
             .iter()
             .find(|(style, _, _)| *style == self)
-            .map_or("continuite", |&(_, id, _)| id)
+            .map_or("continuity", |&(_, id, _)| id)
     }
     /// Hauteur proposée quand `hd.bar` ne la fixe pas.
     pub fn default_height(self) -> u16 {
@@ -993,17 +1000,17 @@ impl BarStyle {
                 vec![
                     sans_option("tray"),
                     sans_option("media"),
-                    sans_option("reseau"),
+                    sans_option("network"),
                     sans_option("bluetooth"),
-                    sans_option("batterie"),
+                    sans_option("battery"),
                     sans_option("volume"),
                     sans_option("brightness"),
                     // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
-                    sans_option("clavier"),
-                    sans_option("nuit"),
-                    sans_option("supports"),
+                    sans_option("keyboard"),
+                    sans_option("nightlight"),
+                    sans_option("removable"),
                     sans_option("capture"),
-                    sans_option("majs"),
+                    sans_option("updates"),
                     sans_option("notifications"),
                     // Accès au bureau vide, toujours en bout de barre.
                     sans_option("desktop"),
@@ -1017,9 +1024,9 @@ impl BarStyle {
                 vec![sans_option("launcher")],
                 vec![
                     sans_option("tray"),
-                    sans_option("reseau"),
+                    sans_option("network"),
                     sans_option("volume"),
-                    sans_option("batterie"),
+                    sans_option("battery"),
                     BarPreset {
                         type_id: "clock",
                         options: &[("format", "%H:%M\n%d/%m/%Y")],
@@ -1853,10 +1860,12 @@ mod tests {
     #[test]
     fn styles_de_barre() {
         // Aller-retour par l'id Lua, défauts de géométrie par style.
+        assert_eq!(BarStyle::parse("continuity"), Some(BarStyle::Continuite));
         assert_eq!(BarStyle::parse("continuite"), Some(BarStyle::Continuite));
+        assert_eq!(BarStyle::parse("convexe"), Some(BarStyle::Convexe));
         assert_eq!(BarStyle::parse("graphite"), Some(BarStyle::Graphite));
         assert_eq!(BarStyle::parse("pastel"), None);
-        assert_eq!(BarStyle::Continuite.as_str(), "continuite");
+        assert_eq!(BarStyle::Continuite.as_str(), "continuity");
         assert_eq!(BarStyle::Graphite.as_str(), "graphite");
         assert_eq!(BarStyle::default(), BarStyle::Continuite);
         assert_eq!(

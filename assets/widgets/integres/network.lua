@@ -192,7 +192,7 @@ return {
                         -- Mot de passe demandé : le menu se rouvre avec un champ de saisie.
                         action = function()
                             pending = net.ssid
-                            hd.spawn(string.format("%q menu reseau", hd.exe))
+                            hd.spawn(string.format("%q menu network", hd.exe))
                         end
                     else
                         action = function() hd.spawn("nmcli dev wifi connect " .. q(net.ssid)) end
