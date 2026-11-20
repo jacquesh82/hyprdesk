@@ -59,8 +59,6 @@ pub enum Msg {
     First(crate::panorama::config::Layout, crate::zones::First),
     /// Disposition dont on règle les zones (active ou non).
     EditLayout(crate::panorama::config::Layout),
-    /// Ouvre l'onglet Composition.
-    OpenComposition,
     /// Zone, widget.
     PaneWidget(crate::panorama::config::Layout, usize, String),
     SourceName(String),
@@ -276,7 +274,8 @@ impl App {
         col.into()
     }
 
-    fn panorama_pages_tab(&self) -> Element<'_, UiMsg> {
+    /// Disposition active et réglages de chaque disposition (onglet Composition).
+    pub(super) fn panorama_layout_section(&self) -> Element<'_, UiMsg> {
         use crate::panorama::config::Layout;
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
@@ -336,7 +335,7 @@ impl App {
         match edit {
             Layout::Single => {
                 col = col.push(
-                    text("Une page à la fois : les pages et leur ordre sont réglés plus bas (Pages).")
+                    text("Une page à la fois : les pages et leur ordre se règlent dans l'onglet Pages.")
                         .font(self.font)
                         .size(12)
                         .color(dim),
@@ -344,20 +343,13 @@ impl App {
             }
             Layout::Dashboard => {
                 col = col.push(
-                    row![
-                        text(crate::tr!(
-                            "Composition libre : {n} zone(s) placée(s) librement.",
-                            n = c.design.tiles.len()
-                        ))
-                        .font(self.font)
-                        .size(12)
-                        .color(dim),
-                        button(text("Ouvrir Composition").font(self.font).size(12))
-                            .padding([4, 10])
-                            .on_press(wrap(Msg::OpenComposition)),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
+                    text(crate::tr!(
+                        "Composition libre : {n} zone(s) placée(s) librement, réglées plus bas.",
+                        n = c.design.tiles.len()
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
                 );
             }
             l => {
@@ -420,6 +412,13 @@ impl App {
             .size(12)
             .color(dim),
         );
+        col.into()
+    }
+
+    fn panorama_pages_tab(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        let mut col = column![].spacing(10);
         col = col.push(self.panorama_sources_section());
         col = col.push(self.panorama_voice_section());
         col = col.extend([
@@ -869,10 +868,6 @@ impl App {
             }
             Msg::EditLayout(l) => {
                 self.panorama.edit_layout = Some(l);
-                Task::none()
-            }
-            Msg::OpenComposition => {
-                self.subtabs.insert(INFO.id, "composition");
                 Task::none()
             }
             Msg::PaneWidget(l, i, w) => {

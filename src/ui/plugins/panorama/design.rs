@@ -239,6 +239,7 @@ impl App {
             boards = boards.push(pick(p.name.clone(), Some(i)));
         }
         let mut col = column![
+            self.panorama_layout_section(),
             self.section("Composition"),
             iced::widget::scrollable(boards).direction(
                 iced::widget::scrollable::Direction::Horizontal(
