@@ -4885,7 +4885,7 @@ impl App {
             }
             Msg::Closed(id) => {
                 if self.panorama_closed(id) {
-                    return Task::none();
+                    return self.sync_pip();
                 }
                 if self.osd.as_ref().is_some_and(|o| o.win == id) {
                     self.osd = None;

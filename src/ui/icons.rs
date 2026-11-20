@@ -231,6 +231,18 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         // Enregistrement : un disque plein.
         "media-record" => r#"<circle cx="12" cy="12" r="6" fill="currentColor"/>"#,
         // Presse-papiers : une planchette et sa pince.
+        // Lumières (Hue) : une ampoule.
+        "lightbulb" | "hue-lights" => {
+            r#"<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.9.7 1.5 1.6 1.5 2.6V17h4v-.5c0-1 .6-1.9 1.5-2.6A6 6 0 0 0 12 3z"/>"#
+        }
+        // Calendrier : une page à anneaux.
+        "x-office-calendar" | "calendar" => {
+            r#"<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>"#
+        }
+        // Notes : un crayon.
+        "accessories-text-editor" | "document-edit" => {
+            r#"<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14 8l3 3"/>"#
+        }
         "edit-paste" => {
             r#"<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>"#
         }

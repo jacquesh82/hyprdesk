@@ -10,6 +10,33 @@ Les réglages sont dans **Réglages → Panorama** :
   chaque touche. Les commandes ne sont exécutées qu'au clic ou au toucher.
 - **Pages** : pages classiques et dispositions partagées ; sources vidéo et veille.
 - **Écrans** : attribution du rôle, tactile et fenêtre Panorama interactive.
+- **Modules** : modules de la bande du profil Raccourcis, réglages de Hue et de
+  Notes.
+
+## Modules
+
+Panorama est un plugin de hyprdesk ; ses **modules** sont ce que la bande du
+profil Raccourcis montre côte à côte (elle défile de côté, la tuile « + »
+ajoute ou retire un module) :
+
+| Module | Widget | Rôle |
+| --- | --- | --- |
+| Notes | `notes` | Lance l'éditeur réglé sur le workspace actif de l'écran choisi |
+| Lumières | `hue` | Pont Philips Hue local : pièces, lampes, curseurs, « Tout éteindre » |
+| LYRA vocale | `voice` | Micro de LYRA : ouvrir, couper, dernière phrase entendue |
+| Musique | `media` | Lecture en cours (MPRIS) |
+| Plateformes vidéo | `playlist` | Services du lecteur |
+| Horloge, Calendrier, Système | `clock`, `calendar`, `system` | Widgets du Panorama |
+
+Un média en cours (vidéo, radio, musique) se loge sous le sélecteur de
+profils, à la place des touches. Le pont Hue s'appaire dans Réglages →
+Panorama → Modules (bouton du pont, puis « Appairer ») ; sa clé reste dans
+`$XDG_STATE_HOME/hyprdesk/hue.json` (0600). Options des modules :
+`plugin_options.panorama`, clés `hue.hidden` (pièces masquées),
+`notes.command`, `notes.monitor`.
+
+Code : logique dans `src/panorama/modules/`, tuiles dans
+`src/ui/panorama/modules/`, réglages dans `src/ui/plugins/panorama/modules.rs`.
 
 ## Compositions de départ
 

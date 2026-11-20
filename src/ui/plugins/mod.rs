@@ -425,6 +425,9 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "reseau" | "réseau" | "wifi" | "wi-fi" | "vpn" => "network",
         "bluetooth" => "bt",
         "energie" | "énergie" | "power" | "batterie" => "energy",
+        "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "modules" => {
+            "panorama"
+        }
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
         "clavier" | "souris" | "keyboard" | "mouse" | "touchpad" | "pave" | "pavé" | "entrees"
         | "entrées" => "input",
@@ -593,7 +596,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             desktop::load_hyprbars(app.cfg.general.hyprbars_path.clone()),
         ]),
         "screens" => App::detect_screens(),
-        "panorama" => panorama::load(),
+        "panorama" => Task::batch([panorama::load(), panorama::modules::load()]),
         "keys" => app.keys_load(),
         "index" => {
             index::init_fields(app);

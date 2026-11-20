@@ -8,7 +8,7 @@ use iced::widget::{Space, button, column, container, image, row, stack, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::swipe::{Axis, swipe};
+use super::swipe::{Axis, Edge, swipe};
 use super::{App, Msg, PMsg, PREVIEW, PREVIEW_PX_PER_MM, fx, wrap};
 use crate::panorama::config::Layout;
 use crate::panorama::layout::{self, Rect};
@@ -34,6 +34,7 @@ pub struct Video {
     pub placed: Option<(i32, i32, i32, i32)>,
     /// Fenêtre active avant le lancement (le clavier lui est rendu).
     pub focus_back: Option<String>,
+    pub borrowed: Option<crate::panorama::capture::Borrowed>,
 }
 
 /// Lancement abandonné (autre source choisie pendant l'ouverture) : sa
@@ -112,6 +113,8 @@ enum VideoState<'a> {
     Hole,
     /// La vidéo est dans une autre zone.
     Elsewhere,
+    /// Aucune vidéo, plateformes listées à côté : le mode d'emploi.
+    Guide,
 }
 
 impl App {
@@ -191,13 +194,24 @@ impl App {
                     } else {
                         (t.y, t.x, t.h, t.w)
                     };
+                    let mut rect = Rect {
+                        x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
+                        y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
+                        w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
+                        h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
+                    };
+                    // Lecteur des profils Vidéo et Musique : toute la hauteur
+                    // de l'écran, bord à bord (sa largeur est déjà 16:9 de
+                    // cette hauteur, voir `player_tiles`).
+                    if bare && t.widget == "video" {
+                        if h >= 0.99 {
+                            (rect.y, rect.h) = (0.0, s.h);
+                        } else if w >= 0.99 {
+                            (rect.x, rect.w) = (0.0, s.w);
+                        }
+                    }
                     Pane {
-                        rect: Rect {
-                            x: pad + x * (s.w - 2.0 * pad) + gap / 2.0,
-                            y: pad + y * (s.h - 2.0 * pad) + gap / 2.0,
-                            w: (w * (s.w - 2.0 * pad) - gap).max(1.0),
-                            h: (h * (s.h - 2.0 * pad) - gap).max(1.0),
-                        },
+                        rect,
                         widget: t.widget.clone(),
                         index: None,
                         bare,
@@ -218,6 +232,13 @@ impl App {
                 bare: false,
             }]
         };
+        if self.panorama.capture_host == Some(s.id) {
+            return Geo {
+                panes: full("video"),
+                header: target,
+                target,
+            };
+        }
         let panes = match self.panorama_layout_at(&s.key) {
             // Pages : leur composition ; un seul widget sur tout l'écran
             // garde l'écran entier. La veille passe à l'horloge.
@@ -231,7 +252,9 @@ impl App {
             },
             Layout::Dashboard => {
                 let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
-                map(&c.design.active_tiles(s.w, s.h), player)
+                let mut panes = map(&c.design.active_tiles(s.w, s.h), player);
+                self.panorama_embed_media(&mut panes);
+                panes
             }
             _ => layout::split_panes(&c.split().unwrap_or_default(), s.w, s.h, c.design.gap)
                 .into_iter()
@@ -249,6 +272,47 @@ impl App {
             header: target,
             target,
         }
+    }
+
+    /// Profil Raccourcis : un média en cours (vidéo, radio, musique) prend
+    /// la place des touches, sous le sélecteur de profils, en 16:9 à la
+    /// largeur de la colonne. La page Fenêtres du bloc garde la colonne.
+    fn panorama_embed_media(&self, panes: &mut Vec<Pane>) {
+        let c = &self.cfg.general.panorama;
+        if c.design.shortcut_profile != "system" || self.panorama.shortcuts_page != 0 {
+            return;
+        }
+        let widget = if self.panorama.video.is_some() || self.panorama.radio.is_some() {
+            "video"
+        } else if self.panorama.media.as_ref().is_some_and(|m| m.playing) {
+            "media"
+        } else {
+            return;
+        };
+        let Some(col) = panes.iter().find(|p| p.widget == "shortcuts").map(|p| p.rect) else {
+            return;
+        };
+        // Sous le sélecteur, sans points de pages : la vidéo est centrée
+        // dans la hauteur qui reste.
+        let (top, _) = self.panorama_shortcuts_frame(col.h);
+        let bottom = 8.0;
+        let room_h = (col.h - top - bottom).max(40.0);
+        let w = (col.w - 16.0).max(40.0).min(room_h * 16.0 / 9.0);
+        let h = w * 9.0 / 16.0;
+        let top = top + (room_h - h) / 2.0;
+        // Une seule zone vidéo : celle de la colonne.
+        panes.retain(|p| p.widget != widget);
+        panes.push(Pane {
+            rect: Rect {
+                x: col.x + (col.w - w) / 2.0,
+                y: col.y + top,
+                w,
+                h,
+            },
+            widget: widget.to_string(),
+            index: None,
+            bare: true,
+        });
     }
 
     /// Trous de la surface (zone de la fenêtre vidéo posée).
@@ -390,6 +454,14 @@ impl App {
     /// fenêtre vidéo ; n'envoie rien si rien n'a changé.
     pub(in crate::ui) fn sync_pip(&mut self) -> Task<Msg> {
         let mut tasks = Vec::new();
+        // Mode capture (vidéo sur tout le Panorama) quitté dès qu'une zone
+        // l'accueille : profil Raccourcis, page avec lecteur…
+        if let Some(host) = self.panorama.capture_host {
+            self.panorama.capture_host = None;
+            if self.pip_target().is_none() {
+                self.panorama.capture_host = Some(host);
+            }
+        }
         let surfs = self.panorama_surfs();
         self.panorama
             .regions
@@ -417,16 +489,36 @@ impl App {
             }));
         }
         let target = self.pip_target();
+        // Fenêtre empruntée rendue seulement quand plus aucun Panorama ne
+        // s'affiche : une page sans lecteur la garde sous la surface (le son
+        // continue, la pastille « en cours » le dit) et le retour à la page
+        // du lecteur la remontre.
+        if target.is_none()
+            && surfs.is_empty()
+            && self
+                .panorama
+                .video
+                .as_ref()
+                .is_some_and(|v| v.borrowed.is_some())
+        {
+            tasks.push(self.panorama_close_video());
+        }
         if let Some(v) = self.panorama.video.as_mut()
             && let (Some(addr), Some(rect)) = (v.address.clone(), target)
             && v.placed != Some(rect)
         {
             v.placed = Some(rect);
+            let borrowed = v.borrowed.clone();
             tasks.push(Task::perform(
                 async move {
-                    tokio::task::spawn_blocking(move || crate::hypr::place(&addr, rect))
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
+                    tokio::task::spawn_blocking(move || match borrowed {
+                        Some(b) => b.place(rect),
+                        None => {
+                            video::anchor(&addr, rect).and_then(|_| crate::hypr::place(&addr, rect))
+                        }
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
                 },
                 |r| wrap(PMsg::VideoPlaced(r)),
             ));
@@ -434,7 +526,7 @@ impl App {
         Task::batch(tasks)
     }
 
-    fn panorama_save_cfg(&mut self, f: impl FnOnce(&mut crate::panorama::Config)) -> Task<Msg> {
+    pub(super) fn panorama_save_cfg(&mut self, f: impl FnOnce(&mut crate::panorama::Config)) -> Task<Msg> {
         let mut c = self.panorama_cfg();
         f(&mut c);
         self.settings.panorama = Some(c);
@@ -445,24 +537,14 @@ impl App {
         match m {
             PMsg::Profile(id) => {
                 self.panorama.last_press = Some(std::time::Instant::now());
-                // Vidéo ↔ Musique : le lecteur change de services, celui en
-                // cours se ferme (Télécommande et Système le laissent jouer).
-                let old = self.cfg.general.panorama.design.shortcut_profile.clone();
-                let swap = matches!(
-                    (old.as_str(), id.as_str()),
-                    ("video", "audio") | ("audio", "video")
-                );
-                let close = if swap && self.panorama.video.is_some() {
-                    let t = self.panorama_close_video();
-                    self.panorama.video = None;
-                    t
-                } else {
-                    Task::none()
-                };
+                // Changer de profil ne ferme pas la lecture : la vidéo reste
+                // dans le Panorama (lecteur du profil Musique, ou cachée sous
+                // un profil sans lecteur, pastille « en cours »). Seuls
+                // « Fermer » ou une autre source l'arrêtent.
                 let save = self.panorama_save_cfg(|c| {
                     let _ = c.design.set("shortcut_profile", &id);
                 });
-                Task::batch([close, save, self.sync_pip()])
+                Task::batch([save, self.sync_pip()])
             }
             PMsg::Layout(l) => {
                 // Nouvelle disposition : chaque écran revient à sa vue composée.
@@ -524,6 +606,14 @@ impl App {
                 )
             }
             PMsg::VideoFound(Some(addr)) => {
+                if self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .is_some_and(|v| v.address.is_some())
+                {
+                    return Task::none();
+                }
                 let Some(v) = self.panorama.video.as_mut() else {
                     // Fermée entre-temps : la fenêtre part aussi.
                     return Task::perform(
@@ -575,6 +665,7 @@ impl App {
                                 .map(|(_, p)| p)
                                 .unwrap_or_default();
                             self.panorama.video = Some(Video {
+                                borrowed: None,
                                 name: src.name,
                                 url: src.url,
                                 prefix,
@@ -803,6 +894,113 @@ impl App {
                 }
                 self.panorama_frame(op)
             }
+            PMsg::CaptureScan(snapshot) => {
+                self.panorama.capture_busy = false;
+                let Some((clients, media)) = snapshot else {
+                    return Task::none();
+                };
+                if self.panorama_surfs().is_empty() {
+                    return Task::none();
+                }
+                if !self.cfg.plugin_on("panorama")
+                    || self
+                        .panorama
+                        .video
+                        .as_ref()
+                        .is_some_and(|v| v.address.is_none())
+                {
+                    return Task::none();
+                }
+                if let Some(b) = self
+                    .panorama
+                    .video
+                    .as_mut()
+                    .and_then(|v| v.borrowed.as_mut())
+                    && self.cfg.general.panorama.restore_on_fullscreen_exit
+                    && b.exited_fullscreen(&clients)
+                {
+                    b.return_before_fullscreen();
+                    return self.panorama_close_video();
+                }
+                let current = self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .and_then(|v| v.address.as_deref());
+                let Some(b) = self.panorama.capture_watch.next(&clients, &media, current) else {
+                    return Task::none();
+                };
+                let close = self.panorama_close_video();
+                if self.panorama.radio.take().is_some() {
+                    crate::panorama::radio_play::stop();
+                    crate::panorama::radio_play::remember(None);
+                }
+                let addr = b.address.clone();
+                // La vidéo est en cours avant de chercher sa place : le profil
+                // Raccourcis ne lui ouvre sa zone (sous le sélecteur) qu'à
+                // cette condition. Sans zone nulle part, le Panorama entier
+                // l'accueille (mode capture).
+                self.panorama.video = Some(Video {
+                    name: b.title.clone(),
+                    url: String::new(),
+                    prefix: b.class.clone(),
+                    address: Some(addr.clone()),
+                    known: Vec::new(),
+                    error: None,
+                    placed: None,
+                    focus_back: None,
+                    borrowed: Some(b.clone()),
+                });
+                if self.pip_target().is_none() {
+                    self.panorama.capture_host = self.panorama_surfs().first().map(|s| s.id);
+                }
+                let Some(rect) = self.pip_target() else {
+                    self.panorama.capture_host = None;
+                    self.panorama.video = None;
+                    return close;
+                };
+                if let Some(v) = self.panorama.video.as_mut() {
+                    v.placed = Some(rect);
+                }
+                self.panorama.capture_busy = true;
+                self.panorama.last_press = Some(std::time::Instant::now());
+                Task::batch([
+                    close,
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || b.adopt(rect))
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()))
+                        },
+                        move |r| wrap(PMsg::CapturePlaced(addr.clone(), r)),
+                    ),
+                ])
+            }
+            PMsg::CapturePlaced(addr, result) => {
+                self.panorama.capture_busy = false;
+                if self
+                    .panorama
+                    .video
+                    .as_ref()
+                    .and_then(|v| v.address.as_ref())
+                    != Some(&addr)
+                {
+                    return Task::none();
+                }
+                if let Err(e) = result {
+                    tracing::warn!("Panorama : capture : {e}");
+                    return self.panorama_close_video();
+                }
+                if let Some(b) = self
+                    .panorama
+                    .video
+                    .as_mut()
+                    .and_then(|v| v.borrowed.as_mut())
+                {
+                    b.confirm_transfer();
+                }
+                Task::none()
+            }
             PMsg::VideoFound(None) => Task::none(),
             PMsg::VideoPlaced(r) => {
                 if let Err(e) = r {
@@ -880,6 +1078,7 @@ impl App {
         let c = &self.cfg.general.panorama;
         let Some((cmd, prefix)) = video::browser(&c.browser) else {
             self.panorama.video = Some(Video {
+                    borrowed: None,
                     name: src.name,
                     url: src.url,
                     prefix: String::new(),
@@ -909,6 +1108,7 @@ impl App {
         let close = self.panorama_close_video();
         let known: Vec<String> = self.clients.iter().map(|c| c.address.clone()).collect();
         self.panorama.video = Some(Video {
+            borrowed: None,
             name: src.name.clone(),
             url: src.url.clone(),
             prefix,
@@ -941,6 +1141,7 @@ impl App {
 
     /// Ferme la fenêtre vidéo, s'il y en a une.
     fn panorama_close_video(&mut self) -> Task<Msg> {
+        self.panorama.capture_host = None;
         // Fenêtre pas encore apparue : fermée à son arrivée.
         if let Some(v) = self
             .panorama
@@ -954,6 +1155,28 @@ impl App {
                 known: v.known.clone(),
                 since: std::time::Instant::now(),
             });
+        }
+        if let Some(b) = self
+            .panorama
+            .video
+            .as_ref()
+            .and_then(|v| v.borrowed.clone())
+        {
+            b.cancel();
+            self.panorama.video = None;
+            return Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || b.restore())
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                },
+                |r| {
+                    if let Err(e) = r {
+                        tracing::warn!("Panorama : restitution : {e}");
+                    }
+                    Msg::Noop
+                },
+            );
         }
         match self.panorama.video.take().and_then(|v| v.address) {
             Some(a) => Task::perform(
@@ -998,6 +1221,60 @@ impl App {
         }))
     }
 
+    /// Renouvellement du bail du cadre ; les corrections sont locales au compositeur.
+    pub(super) fn panorama_anchor(&self) -> Task<Msg> {
+        let Some(v) = self.panorama.video.as_ref() else {
+            return Task::none();
+        };
+        let (Some(addr), Some(rect)) = (v.address.clone(), self.pip_target()) else {
+            return Task::none();
+        };
+        let borrowed = v.borrowed.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || match borrowed {
+                    Some(b) => b.renew_anchor(rect),
+                    None => video::anchor(&addr, rect),
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            |r| {
+                if let Err(e) = r {
+                    tracing::warn!("Panorama : cadre : {e}");
+                }
+                Msg::Noop
+            },
+        )
+    }
+
+    /// Un relevé global par seconde, sans filtrage sur l'écran actif.
+    pub(super) fn panorama_capture_scan(&mut self) -> Task<Msg> {
+        if self.panorama.capture_busy
+            || !self.cfg.plugin_on("panorama")
+            || self.panorama_surfs().is_empty()
+        {
+            return Task::none();
+        }
+        self.panorama.capture_busy = true;
+        Task::perform(
+            async {
+                let media = tokio::time::timeout(
+                    Duration::from_millis(900),
+                    crate::widgets::media::statuses(),
+                )
+                .await
+                .unwrap_or_default();
+                tokio::task::spawn_blocking(|| hyprpanel_core::ipc::query_json("clients").ok())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|v| (v, media))
+            },
+            |r| wrap(PMsg::CaptureScan(r)),
+        )
+    }
+
     /// Fenêtre vidéo fermée hors du Panorama (SUPER+Q…) : on l'oublie.
     pub(super) fn panorama_video_gone(&mut self) {
         let gone = self
@@ -1005,10 +1282,9 @@ impl App {
             .video
             .as_ref()
             .and_then(|v| v.address.as_ref())
-            .is_some_and(|a| {
-                !self.clients.is_empty() && !self.clients.iter().any(|c| &c.address == a)
-            });
+            .is_some_and(|a| !self.clients.iter().any(|c| &c.address == a));
         if gone {
+            self.panorama.capture_host = None;
             self.panorama.video = None;
         }
     }
@@ -1052,13 +1328,18 @@ impl App {
             return stack![inner, self.panorama_tasks_view(&s)].into();
         }
         match self.panorama_surf(id) {
+            Some(s) if self.panorama.notifs.as_deref() == Some(s.key.as_str()) => {
+                stack![inner, self.panorama_notifs(&s)].into()
+            }
             Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
                 stack![inner, self.panorama_picker(&s)].into()
             }
-            Some(s) => match self.panorama_dots_overlay(&s) {
-                Some(dots) => stack![inner, dots].into(),
-                None => inner,
-            },
+            Some(s) => {
+                let mut layers = vec![inner];
+                layers.extend(self.panorama_dots_overlay(&s));
+                layers.extend(self.panorama_notifs_hint());
+                stack(layers).into()
+            }
             None => inner,
         }
     }
@@ -1134,11 +1415,83 @@ impl App {
         )
     }
 
+    /// Repère translucide au bord droit : les notifications s'ouvrent en
+    /// glissant depuis ce bord (leur nombre, s'il y en a).
+    fn panorama_notifs_hint(&self) -> Option<Element<'_, Msg>> {
+        if self.panorama_asleep() {
+            return None;
+        }
+        let (bg, fg, accent) = self.panorama_palette();
+        let active = self
+            .panorama
+            .last_press
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
+        let n = self.toasts.history.len();
+        let a = match (active, n > 0) {
+            (true, _) => 0.85,
+            (false, true) => 0.5,
+            (false, false) => 0.28,
+        };
+        static BELL: std::sync::LazyLock<iced::widget::svg::Handle> = std::sync::LazyLock::new(
+            || {
+                iced::widget::svg::Handle::from_memory(
+                    br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>"##
+                        .to_vec(),
+                )
+            },
+        );
+        let tint = fx::alpha(fg, a);
+        let mut col = column![
+            iced::widget::svg(BELL.clone())
+                .width(18)
+                .height(18)
+                .style(move |_, _| iced::widget::svg::Style { color: Some(tint) }),
+        ]
+        .spacing(4)
+        .align_x(Alignment::Center);
+        if n > 0 {
+            col = col.push(text(n.min(99).to_string()).size(11).color(tint));
+        }
+        // Poignée : une languette collée au bord, le geste part de là.
+        let tab = container(col)
+            .padding([8, 6])
+            .style(move |_| container::Style {
+                background: Some(fx::alpha(bg, a * 0.5).into()),
+                border: Border {
+                    radius: iced::border::Radius {
+                        top_left: 10.0,
+                        bottom_left: 10.0,
+                        top_right: 0.0,
+                        bottom_right: 0.0,
+                    },
+                    width: 1.0,
+                    color: fx::alpha(if n > 0 { accent } else { fg }, a * 0.5),
+                },
+                ..Default::default()
+            });
+        Some(
+            container(tab)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::End)
+                .align_y(Alignment::Center)
+                .into(),
+        )
+    }
+
     /// Points du carrousel en bas au centre : la page affichée et leur
     /// nombre ; translucides sans toucher récent.
     fn panorama_dots_overlay(&self, s: &Surf) -> Option<Element<'_, Msg>> {
         let n = self.panorama_carousel();
         if n < 2 || self.panorama_asleep() {
+            return None;
+        }
+        // Profil Raccourcis, vue composée : la bande des modules défile de
+        // côté, les points des pages n'y servent pas.
+        if self.panorama.page.get(&s.key).copied().unwrap_or(0) == 0
+            && self.panorama_layout_at(&s.key) == Layout::Dashboard
+            && self.cfg.general.panorama.design.shortcut_profile == "system"
+        {
             return None;
         }
         let (_, fg, accent) = self.panorama_palette();
@@ -1158,18 +1511,150 @@ impl App {
                 ..accent
             },
         );
+        // Sous la colonne des plateformes s'il y en a une (le lecteur, bord
+        // à bord, n'en est pas recouvert) ; sinon au centre.
+        let geo = self.panorama_geo(s);
+        let (left, width) = match geo.panes.iter().find(|p| p.widget == "playlist") {
+            Some(p) if s.w >= s.h => (p.rect.x, p.rect.w),
+            _ => (0.0, s.w),
+        };
         Some(
-            container(dots)
+            container(row![
+                Space::new().width(left),
+                container(dots).width(width).center_x(width)
+            ])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Alignment::End)
+            .padding(iced::Padding {
+                bottom: 2.0,
+                ..iced::Padding::ZERO
+            })
+            .into(),
+        )
+    }
+
+    /// Notifications (geste depuis le bord droit) : l'historique dans un
+    /// volet à droite ; toucher à côté ou le repousser vers la droite le ferme.
+    fn panorama_notifs(&self, s: &Surf) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let font = self.panorama_font();
+        let size = (s.h / 32.0).clamp(12.0, 18.0);
+        let dim = fx::alpha(fg, 0.65);
+        let pill = move |_: &iced::Theme, st: button::Status| button::Style {
+            background: Some(
+                fx::alpha(
+                    accent,
+                    if matches!(st, button::Status::Pressed) {
+                        0.6
+                    } else {
+                        0.18
+                    },
+                )
+                .into(),
+            ),
+            border: Border::default().rounded(10),
+            text_color: fg,
+            ..Default::default()
+        };
+        let history = &self.toasts.history;
+        let mut head = row![
+            text(crate::i18n::tr("Notifications"))
+                .size(size * 1.2)
+                .font(font)
+                .color(fg)
+                .width(Length::Fill)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if !history.is_empty() {
+            head = head.push(
+                self.panorama_feedback(
+                    button(text(crate::i18n::tr("Tout effacer")).size(size).color(fg))
+                        .padding([5, 12])
+                        .on_press(wrap(PMsg::NotifsClear))
+                        .style(pill),
+                ),
+            );
+        }
+        head = head.push(
+            self.panorama_feedback(
+                button(text("✕").size(size).color(fg))
+                    .padding([5, 12])
+                    .on_press(wrap(PMsg::Notifs(None)))
+                    .style(pill),
+            ),
+        );
+        let mut list = column![].spacing(size * 0.7);
+        if history.is_empty() {
+            list = list.push(
+                text(crate::i18n::tr("Aucune notification"))
+                    .size(size)
+                    .font(font)
+                    .color(dim),
+            );
+        }
+        for n in history.iter().take(30) {
+            let mut card = column![
+                text(n.app.clone()).size(size * 0.75).font(font).color(dim),
+                text(n.summary.clone()).size(size).font(font).color(fg),
+            ]
+            .spacing(3);
+            if !n.body.is_empty() {
+                card = card.push(text(n.body.clone()).size(size * 0.85).font(font).color(fg));
+            }
+            list = list.push(
+                container(card)
+                    .width(Length::Fill)
+                    .padding([size * 0.5, size * 0.7])
+                    .style(move |_| container::Style {
+                        background: Some(fx::alpha(fg, 0.06).into()),
+                        border: Border::default().rounded(size * 0.6),
+                        ..Default::default()
+                    }),
+            );
+        }
+        let width = (s.w * 0.34).clamp(280.0, 560.0).min(s.w);
+        let panel = container(
+            column![
+                head,
+                iced::widget::scrollable(list)
+                    .height(Length::Fill)
+                    .width(Length::Fill)
+            ]
+            .spacing(size * 0.8),
+        )
+        .width(width)
+        .height(Length::Fill)
+        .padding(size)
+        .style(move |_| container::Style {
+            background: Some(fx::alpha(bg, 0.94).into()),
+            border: Border {
+                width: 1.0,
+                color: fx::alpha(accent, 0.4),
+                radius: 0.0.into(),
+            },
+            ..Default::default()
+        });
+        // Le volet absorbe ses appuis ; à côté, un appui ferme.
+        let panel = iced::widget::mouse_area(panel).on_press(wrap(PMsg::Pressed));
+        // Repoussé vers la droite (ou vers le haut/bas), il se ferme.
+        let panel =
+            swipe(panel, Axis::Horizontal, |_| wrap(PMsg::Notifs(None))).motion(Duration::ZERO);
+        let veil = iced::widget::mouse_area(
+            container(Space::new())
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .align_x(Alignment::Center)
-                .align_y(Alignment::End)
-                .padding(iced::Padding {
-                    bottom: 2.0,
-                    ..iced::Padding::ZERO
-                })
-                .into(),
+                .style(move |_| container::Style {
+                    background: Some(fx::alpha(bg, 0.35).into()),
+                    ..Default::default()
+                }),
         )
+        .on_press(wrap(PMsg::Notifs(None)));
+        row![veil, container(panel).width(width).height(Length::Fill)]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     /// Choix de la disposition (geste de bas en haut) : une tuile par
@@ -1320,14 +1805,32 @@ impl App {
                 .as_ref()
                 .map(|(_, h, size)| (h.clone(), *size)),
         };
-        let lay = self.panorama_layout_at(&s.key);
+        let lay = if self.panorama.capture_host == Some(s.id) {
+            Layout::Single
+        } else {
+            self.panorama_layout_at(&s.key)
+        };
         let axis = if s.w >= s.h {
             Axis::Horizontal
         } else {
             Axis::Vertical
         };
         // La vue composée est l'entrée 0 du carrousel : on glisse vers les pages.
-        let paged = |content| self.panorama_paged(&s.key, axis, content);
+        // Le bloc des raccourcis glisse entre ses touches et les fenêtres :
+        // un geste qui y part ne change pas de page.
+        let yields: Vec<iced::Rectangle> = geo
+            .panes
+            .iter()
+            // La bande des modules défile de côté : elle aussi garde le geste.
+            .filter(|p| matches!(p.widget.as_str(), "shortcuts" | "modules"))
+            .map(|p| {
+                iced::Rectangle::new(
+                    iced::Point::new(p.rect.x, p.rect.y),
+                    iced::Size::new(p.rect.w, p.rect.h),
+                )
+            })
+            .collect();
+        let paged = |content| self.panorama_paged(&s.key, axis, content, yields.clone());
         if lay == Layout::Dashboard {
             return fx::stage(paged(self.panorama_dashboard(&s, &geo, video_at)), scene);
         }
@@ -1341,7 +1844,8 @@ impl App {
             let page = self.panorama_pane_view(&s, &geo, p, true, video_at);
             let cross = key.clone();
             let paged = swipe(page, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
-                .on_cross(move |d| wrap(PMsg::Cross(cross.clone(), d)))
+                .on_edge(EDGES, edge_msg(cross))
+                .yield_to(yields.clone())
                 .motion(self.panorama_motion())
                 .on_press(wrap(PMsg::Pressed));
             if p.widget == "video" {
@@ -1426,11 +1930,13 @@ impl App {
         key: &str,
         axis: Axis,
         content: Element<'a, Msg>,
+        yields: Vec<iced::Rectangle>,
     ) -> Element<'a, Msg> {
         let key = key.to_string();
         let cross = key.clone();
         swipe(content, axis, move |d| wrap(PMsg::Swipe(key.clone(), d)))
-            .on_cross(move |d| wrap(PMsg::Cross(cross.clone(), d)))
+            .on_edge(EDGES, edge_msg(cross))
+            .yield_to(yields)
             .motion(self.panorama_motion())
             .on_press(wrap(PMsg::Pressed))
             .into()
@@ -1451,7 +1957,19 @@ impl App {
         z.unit *= self.cfg.general.panorama.design.text_scale;
         let body: Element<'_, Msg> = match p.widget.as_str() {
             "calendar" => self.panorama_calendar(iced::Size::new(content.w, content.h)),
-            "shortcuts" => self.panorama_shortcuts(iced::Size::new(content.w, content.h)),
+            "shortcuts" => {
+                // Média logé dans la colonne : sa place est réservée.
+                let inside = |q: &&Pane| {
+                    q.bare
+                        && matches!(q.widget.as_str(), "video" | "media")
+                        && q.rect.x >= p.rect.x
+                        && q.rect.x + q.rect.w <= p.rect.x + p.rect.w + 0.5
+                        && q.rect.y >= p.rect.y
+                        && q.rect.y + q.rect.h <= p.rect.y + p.rect.h + 0.5
+                };
+                let media_h = geo.panes.iter().find(inside).map(|q| q.rect.h);
+                self.panorama_shortcuts(iced::Size::new(content.w, content.h), media_h)
+            }
             // Tuile d'une mesure : graphique, jauge ou carte.
             w if crate::panorama::design::metric_of(w).is_some() => {
                 let (m, style) = crate::panorama::design::metric_of(w).unwrap_or_default();
@@ -1495,6 +2013,10 @@ impl App {
             ),
             "clock" => self.panorama_clock(&z, fg),
             "playlist" => self.panorama_playlist(iced::Size::new(content.w, content.h)),
+            "hue" => self.panorama_hue(iced::Size::new(content.w, content.h)),
+            "modules" => self.panorama_modules(iced::Size::new(content.w, content.h)),
+            "voice" => self.panorama_voice_module(iced::Size::new(content.w, content.h)),
+            "notes" => self.panorama_notes(iced::Size::new(content.w, content.h)),
             "updates" => self.panorama_updates(iced::Size::new(content.w, content.h)),
             // Webradio en cours : barre « flux vocal ».
             "video" if self.panorama.radio.is_some() => {
@@ -1521,13 +2043,39 @@ impl App {
                 )
             }
             "video" => {
+                // La liste des plateformes est déjà à l'écran : le lecteur
+                // explique comment s'en servir au lieu de la répéter.
+                let listed = geo.panes.iter().any(|q| q.widget == "playlist");
                 let state = match &self.panorama.video {
                     _ if video_at != Some(p.rect) => VideoState::Elsewhere,
                     Some(v) if v.address.is_some() => VideoState::Hole,
                     Some(v) if v.error.is_none() => VideoState::Opening(&v.name),
+                    _ if listed => VideoState::Guide,
                     _ => VideoState::Tiles,
                 };
                 self.panorama_video(&z, content, state, fg)
+            }
+            // Musique ou vidéo d'un onglet, logée sous le sélecteur du profil
+            // Raccourcis : les commandes, et comment en voir l'image ici.
+            "media" if p.bare && self.cfg.general.panorama.design.shortcut_profile == "system" => {
+                let hint = 34.0;
+                column![
+                    self.panorama_compact_media(iced::Size::new(
+                        content.w,
+                        (content.h - hint).max(40.0)
+                    )),
+                    container(
+                        text(crate::i18n::tr(
+                            "Pour voir l'image ici : Picture-in-Picture ou plein écran dans le navigateur.",
+                        ))
+                        .size(12)
+                        .color(Color { a: 0.65, ..fg })
+                    )
+                    .height(hint)
+                    .padding([0, 8])
+                    .center_y(hint)
+                ]
+                .into()
             }
             "media" if self.cfg.general.panorama.design.media_style == "vinyl" => {
                 self.panorama_vinyl(iced::Size::new(content.w, content.h))
@@ -1832,6 +2380,65 @@ impl App {
                     .color(dim)
                     .into(),
             ),
+            VideoState::Guide => {
+                let error = self.panorama.video.as_ref().and_then(|v| v.error.clone());
+                let size = (z.unit * 0.05).clamp(13.0, 22.0);
+                let step = |n: &'static str, t: &'static str| -> Element<'_, Msg> {
+                    row![
+                        container(text(n).size(size * 0.9).color(fg))
+                            .center_x(size * 1.7)
+                            .center_y(size * 1.7)
+                            .style(move |_| container::Style {
+                                background: Some(fx::alpha(accent, 0.3).into()),
+                                border: Border::default().rounded(size),
+                                ..Default::default()
+                            }),
+                        text(crate::i18n::tr(t))
+                            .size(size)
+                            .font(self.panorama_font())
+                            .color(dim)
+                            .width(Length::Fill),
+                    ]
+                    .spacing(size * 0.7)
+                    .align_y(Alignment::Center)
+                    .into()
+                };
+                let mut col = column![
+                    text(crate::i18n::tr("Lecteur vidéo"))
+                        .size(size * 1.4)
+                        .font(iced::Font {
+                            weight: iced::font::Weight::Semibold,
+                            ..self.panorama_font()
+                        })
+                        .color(fg),
+                    step(
+                        "1",
+                        "Touchez une plateforme dans la liste Plateformes : elle s'ouvre ici.",
+                    ),
+                    step(
+                        "2",
+                        "Ou, depuis un navigateur, lancez une vidéo en Picture-in-Picture ou en \
+                         plein écran : elle vient se placer ici.",
+                    ),
+                ]
+                .spacing(size * 0.9)
+                .max_width((area.w * 0.8).max(200.0));
+                if let Some(e) = error {
+                    col = col.push(
+                        text(e)
+                            .size(size * 0.85)
+                            .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                            .font(self.panorama_font()),
+                    );
+                }
+                container(col)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .padding(z.pad)
+                    .into()
+            }
             VideoState::Elsewhere => centered(
                 text(crate::i18n::tr("La vidéo est dans l'autre zone."))
                     .size(z.unit * 0.06)
@@ -1904,19 +2511,24 @@ impl App {
                     line = line.push(
                         self.panorama_feedback(
                             button(
-                                column![
-                                    icon,
-                                    text(src.name.clone())
-                                        .size((side * 0.11).max(11.0))
-                                        .font(iced::Font {
-                                            weight: iced::font::Weight::Semibold,
-                                            ..self.panorama_font()
-                                        })
-                                        .color(fg)
-                                        .wrapping(text::Wrapping::None),
-                                ]
-                                .spacing(side * 0.07)
-                                .align_x(Alignment::Center),
+                                // Icône et nom au centre de la tuile.
+                                container(
+                                    column![
+                                        icon,
+                                        text(src.name.clone())
+                                            .size((side * 0.11).max(11.0))
+                                            .font(iced::Font {
+                                                weight: iced::font::Weight::Semibold,
+                                                ..self.panorama_font()
+                                            })
+                                            .color(fg)
+                                            .wrapping(text::Wrapping::None),
+                                    ]
+                                    .spacing(side * 0.07)
+                                    .align_x(Alignment::Center),
+                                )
+                                .center_x(Length::Fill)
+                                .center_y(Length::Fill),
                             )
                             .width(side)
                             .height(side)
@@ -1980,5 +2592,191 @@ impl App {
                     .into()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    fn app() -> App {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-capture-test/config.lua"),
+            true,
+        )
+        .0;
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .panorama
+            .layout = Layout::Single;
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .panorama
+            .pages = vec![crate::panorama::design::Page::single("clock")];
+        app.panorama.preview = Some(super::super::Preview {
+            win: Id::unique(),
+            virtual_size: (1600, 450),
+            scale: 1.0,
+        });
+        app.panorama.preview_at = Some((100, 100));
+        app
+    }
+    fn snapshot() -> PMsg {
+        PMsg::CaptureScan(Some((
+            serde_json::json!([{
+                "address":"0x42", "class":"firefox", "title":"Picture-in-Picture",
+                "workspace":{"name":"12"}, "at":[2560,100], "size":[600,338],
+                "floating":true, "monitor":2
+            }]),
+            Vec::new(),
+        )))
+    }
+    #[test]
+    fn capture_lodges_under_profile_tabs_in_shortcuts_profile() {
+        let mut app = app();
+        let id = app.panorama.preview.unwrap().win;
+        {
+            let c = &mut std::sync::Arc::make_mut(&mut app.cfg).general.panorama;
+            c.layout = Layout::Dashboard;
+            c.design.set("shortcut_profile", "system").unwrap();
+        }
+        let _ = app.panorama_update(snapshot());
+        assert!(app.panorama.video.is_some());
+        assert!(
+            app.panorama.capture_host.is_none(),
+            "pas de plein écran : la colonne l'accueille"
+        );
+        let geo = app.panorama_geo(&app.panorama_surf(id).unwrap());
+        let video = geo.video_pane().expect("zone vidéo");
+        let col = geo
+            .panes
+            .iter()
+            .find(|p| p.widget == "shortcuts")
+            .expect("colonne des raccourcis");
+        assert!(video.bare);
+        assert!(video.rect.y > col.rect.y && video.rect.x >= col.rect.x);
+        assert!(video.rect.x + video.rect.w <= col.rect.x + col.rect.w + 0.5);
+        assert!((video.rect.w / video.rect.h - 16.0 / 9.0).abs() < 0.01);
+        // Page Fenêtres du bloc : la vidéo reste en cours, cachée sous le
+        // Panorama (pas rendue) ; retour aux touches, retour à la colonne.
+        let _ = app.panorama_update(PMsg::ShortcutsPage(1));
+        assert!(app.panorama.video.is_some());
+        assert!(app.pip_target().is_none());
+        let _ = app.panorama_update(PMsg::ShortcutsPage(0));
+        assert!(app.pip_target().is_some());
+        assert!(app.panorama.capture_host.is_none());
+    }
+    #[test]
+    fn capture_temporarily_replaces_clock_then_restores_page() {
+        let mut app = app();
+        let id = app.panorama.preview.unwrap().win;
+        let before = app.cfg.general.panorama.clone();
+        let _ = app.panorama_update(snapshot());
+        assert!(app.panorama.video.as_ref().unwrap().borrowed.is_some());
+        assert_eq!(app.panorama.capture_host, Some(id));
+        assert!(
+            app.panorama_geo(&app.panorama_surf(id).unwrap())
+                .video_pane()
+                .is_some()
+        );
+        let _ = app.panorama_update(PMsg::VideoClose);
+        assert!(app.panorama.video.is_none());
+        assert!(app.panorama.capture_host.is_none());
+        assert_eq!(app.cfg.general.panorama, before);
+        assert!(
+            app.panorama_geo(&app.panorama_surf(id).unwrap())
+                .video_pane()
+                .is_none()
+        );
+        let _ = app.panorama_update(snapshot());
+        assert!(
+            app.panorama.video.is_none(),
+            "pas de reprise après restitution"
+        );
+    }
+    #[test]
+    fn fullscreen_exit_only_returns_window_after_transfer_confirmation() {
+        let mut app = app();
+        let mut c = serde_json::json!({
+            "address":"0x77", "class":"mpv", "title":"Film",
+            "workspace":{"name":"12"}, "at":[2560,100], "size":[800,450],
+            "floating":false, "monitor":2, "fullscreen":2, "fullscreenClient":2
+        });
+        let scan =
+            |c: &serde_json::Value| PMsg::CaptureScan(Some((serde_json::json!([c]), Vec::new())));
+        let _ = app.panorama_update(scan(&c));
+        assert_eq!(
+            app.panorama.video.as_ref().unwrap().address.as_deref(),
+            Some("0x77")
+        );
+        c["fullscreen"] = 0.into();
+        c["fullscreenClient"] = 0.into();
+        // Relevés successifs après une transition ou une sortie de plein écran.
+        for _ in 0..30 {
+            let _ = app.panorama_update(scan(&c));
+            assert_eq!(
+                app.panorama.video.as_ref().unwrap().address.as_deref(),
+                Some("0x77")
+            );
+        }
+        let _ = app.panorama_update(PMsg::CapturePlaced("0x77".into(), Ok(())));
+        assert!(app.cfg.general.panorama.restore_on_fullscreen_exit);
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .panorama
+            .restore_on_fullscreen_exit = false;
+        let _ = app.panorama_update(scan(&c));
+        assert_eq!(
+            app.panorama.video.as_ref().unwrap().address.as_deref(),
+            Some("0x77"),
+            "retour automatique désactivé : la fenêtre reste dans Panorama"
+        );
+        assert!(app.panorama.capture_host.is_some());
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .panorama
+            .restore_on_fullscreen_exit = true;
+        let _ = app.panorama_update(scan(&c));
+        assert!(
+            app.panorama.video.is_none(),
+            "sortie de plein écran après transfert confirmé"
+        );
+        assert!(app.panorama.capture_host.is_none());
+    }
+
+    #[test]
+    fn failed_capture_and_lost_surface_release_borrowed_window() {
+        let mut app = app();
+        let _ = app.panorama_update(snapshot());
+        let _ = app.panorama_update(PMsg::CapturePlaced("0x42".into(), Err("échec".into())));
+        assert!(app.panorama.video.is_none());
+        assert!(app.panorama.capture_host.is_none());
+        let mut app = self::app();
+        let _ = app.panorama_update(snapshot());
+        app.panorama.preview = None;
+        let _ = app.sync_pip();
+        assert!(app.panorama.video.is_none());
+    }
+    #[test]
+    fn stale_capture_failure_does_not_close_current_window() {
+        let mut app = app();
+        let _ = app.panorama_update(snapshot());
+        let _ = app.panorama_update(PMsg::CapturePlaced("0x99".into(), Err("retard".into())));
+        assert_eq!(
+            app.panorama.video.as_ref().unwrap().address.as_deref(),
+            Some("0x42")
+        );
+    }
+}
+
+/// Bords suivis sur les pages du Panorama.
+const EDGES: &[Edge] = &[Edge::Bottom, Edge::Top, Edge::Right];
+
+/// Bas : choix de la disposition ; haut : fermer ou masquer ; droite :
+/// notifications.
+fn edge_msg(key: String) -> impl Fn(Edge) -> Msg {
+    move |e| match e {
+        Edge::Bottom => wrap(PMsg::Cross(key.clone(), 1)),
+        Edge::Top => wrap(PMsg::Cross(key.clone(), -1)),
+        Edge::Right | Edge::Left => wrap(PMsg::Notifs(Some(key.clone()))),
     }
 }

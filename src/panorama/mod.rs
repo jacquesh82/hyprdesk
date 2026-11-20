@@ -11,11 +11,13 @@
 
 pub mod auth;
 pub mod autofull;
+pub mod capture;
 pub mod config;
 pub mod design;
 pub mod detect;
 pub mod icons;
 pub mod layout;
+pub mod modules;
 pub mod radio;
 pub mod radio_play;
 pub mod tasks;
@@ -35,6 +37,9 @@ pub const PAGES: &[(&str, &str)] = &[
     ("video", "Vidéo"),
     ("calendar", "Calendrier"),
     ("shortcuts", "Raccourcis"),
+    ("hue", "Lumières"),
+    ("notes", "Notes"),
+    ("voice", "LYRA vocale"),
 ];
 
 /// Libellé d'une page (« Page » si elle est inconnue).

@@ -277,6 +277,17 @@ ou rend le clavier au bureau complet.
   Partagez-le en 2 ou 3 zones, chacune avec son widget ; le widget Vidéo
   lit Free TV, Netflix, Disney+, HBO Max… dans sa zone (une fenêtre
   d'application du navigateur posée là).
+  Quand Panorama est affiché, il accueille aussi les fenêtres PiP et les
+  vidéos mises en plein écran depuis les autres écrans, une à la fois.
+  Une page sans lecteur laisse temporairement place à la vidéo. Retirer
+  cette vidéo du Panorama restitue sa fenêtre au workspace d'origine. Quitter
+  le plein écran restitue également sa fenêtre, avec sa position et sa taille
+  d'avant le plein écran (ou son placement en mosaïque). Ce retour automatique
+  s'active ou se désactive dans **Réglages → Panorama → Lecteur → Vidéo**
+  (activé par défaut ; désactivé, la fenêtre reste dans Panorama).
+  Le plein écran web est reconnu à partir du média MPRIS et du titre de la
+  fenêtre ; les pages qui ne publient pas ces informations peuvent utiliser
+  le PiP. Les PiP sont reconnus par les titres usuels anglais et français.
 - **Ajoutez des widgets en Lua.** Commencez par l'horloge, le calendrier, le
   système ou le lecteur, puis ajoutez vos propres widgets et modules de barre
   comme de simples fichiers Lua.

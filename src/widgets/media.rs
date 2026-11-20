@@ -171,6 +171,23 @@ fn status_from_props(bus: &str, props: &HashMap<String, OwnedValue>) -> Status {
     }
 }
 
+/// Tous les lecteurs : la capture Panorama ne dépend pas du premier MPRIS.
+pub async fn statuses() -> Vec<Status> {
+    let Ok(conn) = bus().await else {
+        return Vec::new();
+    };
+    let Ok(names) = players(conn).await else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for name in names {
+        if let Ok(props) = player_props(conn, &name).await {
+            out.push(status_from_props(&name, &props));
+        }
+    }
+    out
+}
+
 /// Lecteur détaillé : celui qui joue en priorité, sinon le premier.
 pub async fn status() -> Option<Status> {
     let conn = bus().await.ok()?;

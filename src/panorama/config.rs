@@ -253,6 +253,8 @@ pub struct Config {
     pub music_sources: Vec<Source>,
     /// Navigateur des sources vidéo (vide : détection automatique).
     pub browser: String,
+    /// Restituer automatiquement la fenêtre capturée à la sortie du plein écran.
+    pub restore_on_fullscreen_exit: bool,
     /// Service de webradio de l'onglet Webradio (`radio::SERVICES`).
     pub webradio: String,
     /// Radios favorites de l'onglet Webradio (adresse du flux).
@@ -311,6 +313,7 @@ impl Default for Config {
             sources: default_sources(),
             music_sources: default_music_sources(),
             browser: String::new(),
+            restore_on_fullscreen_exit: true,
             webradio: super::radio::DEFAULT_SERVICE.into(),
             radios: super::radio::default_radios(),
             declined: Vec::new(),
@@ -337,6 +340,7 @@ const KEYS: &[&str] = &[
     "sources",
     "music_sources",
     "browser",
+    "restore_on_fullscreen_exit",
     "webradio",
     "radios",
     "declined",
@@ -513,6 +517,9 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(b) = t.get::<Option<String>>("browser")? {
         c.browser = b.trim().to_string();
     }
+    if let Some(b) = t.get::<Option<bool>>("restore_on_fullscreen_exit")? {
+        c.restore_on_fullscreen_exit = b;
+    }
     if let Some(w) = t.get::<Option<String>>("webradio")? {
         if super::radio::service(&w).is_none() {
             return Err(mlua::Error::RuntimeError(format!(
@@ -676,6 +683,9 @@ impl Config {
         }
         if !self.browser.is_empty() {
             f.push(format!("browser = {}", q(&self.browser)));
+        }
+        if !self.restore_on_fullscreen_exit {
+            f.push("restore_on_fullscreen_exit = false".into());
         }
         if !self.declined.is_empty() {
             f.push(format!("declined = {}", lua_list(&self.declined)));
@@ -866,6 +876,7 @@ mod tests {
                 ..Default::default()
             }],
             browser: "chromium".into(),
+            restore_on_fullscreen_exit: false,
             webradio: "radio-garden".into(),
             radios: vec![Source {
                 name: "FIP".into(),

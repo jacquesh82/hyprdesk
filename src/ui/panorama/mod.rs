@@ -12,6 +12,7 @@ mod dashboard;
 mod flux;
 mod fx;
 mod halo;
+mod modules;
 mod instruments;
 mod panes;
 mod swipe;
@@ -133,6 +134,9 @@ pub struct State {
     pub preview: Option<Preview>,
     /// Vidéo du widget Vidéo (fenêtre de navigateur posée dans sa zone).
     pub video: Option<panes::Video>,
+    pub capture_watch: crate::panorama::capture::Watch,
+    pub capture_busy: bool,
+    pub capture_host: Option<Id>,
     /// Lancements abandonnés avant que leur fenêtre n'apparaisse : elle sera
     /// fermée à son arrivée (une seule source à la fois).
     pub strays: Vec<panes::Stray>,
@@ -220,6 +224,25 @@ pub struct State {
     pub page_names: HashMap<usize, String>,
     /// Écran où le choix de la disposition est ouvert (geste de bas en haut).
     pub picker: Option<String>,
+    /// Écran où les notifications sont ouvertes (geste du bord droit).
+    pub notifs: Option<String>,
+    /// Bloc des raccourcis : 0 les touches, 1 les fenêtres ouvertes.
+    pub shortcuts_page: usize,
+    /// Tuile Hue : pont appairé, pièces, dernière erreur, dernier relevé.
+    pub hue_paired: bool,
+    pub hue: Vec<crate::panorama::modules::hue::Room>,
+    pub hue_error: Option<String>,
+    pub hue_at: Option<Instant>,
+    /// Premier relevé du pont reçu (avant : « Lecture… »).
+    pub hue_read: bool,
+    /// Curseur de luminosité tenu : (lampe ? sinon pièce), identifiant, valeur.
+    pub hue_drag: Option<(bool, String, u8)>,
+    /// Lampe désignée dans la tuile Hue.
+    pub hue_focus: Option<String>,
+    /// Bande des modules : catalogue ouvert (ajouter, retirer).
+    pub modules_edit: bool,
+    /// Tuile Notes : échec du dernier lancement.
+    pub notes_error: Option<String>,
     /// Réglages : `hyprdesk panorama icons` en cours.
     pub icons_job: Option<String>,
     /// Compte rendu de la dernière génération d'icônes.
@@ -285,6 +308,28 @@ pub enum VoiceUi {
 #[derive(Debug, Clone)]
 pub enum PMsg {
     Shortcut(usize),
+    /// Pièces Hue relues : pont appairé, pièces ou erreur.
+    HueRooms(bool, Result<Vec<crate::panorama::modules::hue::Room>, String>),
+    /// Pièce Hue : allumer / éteindre, luminosité.
+    HueSet(String, Option<bool>, Option<u8>),
+    /// Lampe Hue : allumer / éteindre, luminosité.
+    HueLight(String, Option<bool>, Option<u8>),
+    /// Curseur de luminosité d'une pièce : en cours, puis relâché.
+    HueDrag(String, u8),
+    HueLightDrag(String, u8),
+    HueRelease,
+    /// Lampe désignée (survol, appui) : son nom et son curseur.
+    HueFocus(Option<String>),
+    /// Bande des modules : catalogue ouvert ou fermé ; module ajouté/retiré.
+    ModulesEdit(bool),
+    ModuleToggle(String),
+    /// Tuile Notes : ouvre l'éditeur.
+    NotesOpen,
+    NotesOpened(Result<(), String>),
+    /// Bloc des raccourcis : page des touches (0) ou des fenêtres (1).
+    ShortcutsPage(usize),
+    /// Fenêtre (adresse) envoyée sur le workspace actif de cet écran.
+    SendWindow(String, String),
     /// Profil du bloc de raccourcis (vidéo, audio, télécommande, système).
     Profile(String),
     /// Cadrage de la source ouverte : start (bascule), zoom+, zoom-, left,
@@ -355,11 +400,16 @@ pub enum PMsg {
     /// Écrans et tactiles relus.
     Detected(Vec<Screen>, Vec<String>),
     Swipe(String, i32),
-    /// Geste sur l'autre axe : +1 de bas en haut (choix de la disposition),
-    /// -1 de haut en bas (ferme le choix, sinon masque le Panorama).
+    /// Geste depuis le bord bas (+1, choix de la disposition) ou le bord
+    /// haut (-1 : ferme ce qui est ouvert, sinon masque le Panorama).
     Cross(String, i32),
     /// Ferme le choix de la disposition.
     PickerClose,
+    /// Notifications (geste depuis le bord droit) : ouvre sur cet écran,
+    /// `None` ferme.
+    Notifs(Option<String>),
+    /// Efface l'historique des notifications.
+    NotifsClear,
     Goto(String, usize),
     Hide(String),
     Show(String),
@@ -396,6 +446,8 @@ pub enum PMsg {
     VideoFound(Option<String>),
     VideoPlaced(Result<(), String>),
     VideoClose,
+    CaptureScan(Option<(serde_json::Value, Vec<crate::widgets::media::Status>)>),
+    CapturePlaced(String, Result<(), String>),
     PreviewAt(Option<(i32, i32)>),
 }
 
@@ -1003,7 +1055,7 @@ impl App {
         let Some(addr) = v.address.clone() else {
             return Task::none();
         };
-        if self.panorama.autofull_done.contains(&addr) {
+        if v.borrowed.is_some() || self.panorama.autofull_done.contains(&addr) {
             return Task::none();
         }
         // Le lecteur (MPRIS) qui joue est celui du navigateur.
@@ -1273,6 +1325,38 @@ impl App {
                 }
                 Task::none()
             }
+            PMsg::ShortcutsPage(i) => {
+                self.panorama.shortcuts_page = i;
+                self.panorama.last_press = Some(Instant::now());
+                Task::none()
+            }
+            PMsg::SendWindow(address, monitor) => {
+                self.panorama.last_press = Some(Instant::now());
+                let Some(ws) = self
+                    .monitors
+                    .iter()
+                    .find(|m| m.name == monitor)
+                    .map(|m| {
+                        if m.base.is_empty() {
+                            m.workspace.clone()
+                        } else {
+                            m.base.clone()
+                        }
+                    })
+                    .filter(|w| !w.is_empty() && !w.starts_with("special:"))
+                else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || {
+                            crate::hypr::move_window(&address, &ws)
+                        })
+                        .await;
+                    },
+                    |_| Msg::Noop,
+                )
+            }
             PMsg::Shortcut(i) => {
                 self.panorama.last_press = Some(Instant::now());
                 let list = self.cfg.general.panorama.design.active_shortcuts();
@@ -1530,13 +1614,22 @@ impl App {
             }
             PMsg::Signed(cookies) => {
                 let c = &self.cfg.general.panorama;
+                // Service web de l'onglet Webradio (TuneIn…) compris.
+                let web = crate::panorama::radio::SERVICES
+                    .iter()
+                    .filter_map(|s| s.2.map(String::from));
                 self.panorama.signed = match cookies {
                     Some(k) => c
                         .sources
                         .iter()
                         .chain(&c.music_sources)
                         .chain(&c.radios)
-                        .map(|s| (s.url.clone(), crate::panorama::auth::signed_in(&k, &s.url)))
+                        .map(|s| s.url.clone())
+                        .chain(web)
+                        .map(|u| {
+                            let on = crate::panorama::auth::signed_in(&k, &u);
+                            (u, on)
+                        })
                         .collect(),
                     None => HashMap::new(),
                 };
@@ -1589,6 +1682,8 @@ impl App {
             | PMsg::VideoPoll(_)
             | PMsg::VideoFound(_)
             | PMsg::VideoPlaced(_)
+            | PMsg::CaptureScan(_)
+            | PMsg::CapturePlaced(..)
             | PMsg::VideoClose) => self.panorama_panes_update(m),
             PMsg::PreviewAt(at) => {
                 self.panorama.preview_at = at;
@@ -1603,16 +1698,42 @@ impl App {
             PMsg::Cross(mon, dir) => {
                 self.panorama.last_press = Some(Instant::now());
                 if dir > 0 {
+                    self.panorama.notifs = None;
                     self.panorama.picker = Some(mon);
                     Task::none()
-                } else if self.panorama.picker.take().is_some() {
+                } else if self.panorama.picker.take().is_some()
+                    || self.panorama.notifs.take().is_some()
+                {
                     Task::none()
                 } else {
                     self.panorama_update(PMsg::Hide(mon))
                 }
             }
+            m @ (PMsg::HueRooms(..)
+            | PMsg::HueSet(..)
+            | PMsg::HueLight(..)
+            | PMsg::HueDrag(..)
+            | PMsg::HueLightDrag(..)
+            | PMsg::HueFocus(_)
+            | PMsg::HueRelease
+            | PMsg::ModulesEdit(_)
+            | PMsg::ModuleToggle(_)
+            | PMsg::NotesOpen
+            | PMsg::NotesOpened(_)) => self.panorama_modules_update(m),
             PMsg::PickerClose => {
                 self.panorama.picker = None;
+                Task::none()
+            }
+            PMsg::Notifs(mon) => {
+                self.panorama.last_press = Some(Instant::now());
+                if mon.is_some() {
+                    self.panorama.picker = None;
+                }
+                self.panorama.notifs = mon;
+                Task::none()
+            }
+            PMsg::NotifsClear => {
+                self.toasts.command("clear");
                 Task::none()
             }
             PMsg::Swipe(mon, dir) => {
@@ -1704,7 +1825,10 @@ impl App {
                     self.panorama_check_signed(),
                     self.panorama_auto_icons(),
                     self.panorama_auto_full(),
+                    self.panorama_capture_scan(),
+                    self.panorama_anchor(),
                     self.panorama_updates_read(),
+                    self.panorama_hue_tick(),
                 ]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;
@@ -1719,9 +1843,17 @@ impl App {
                         strays,
                         Task::perform(
                             async {
-                                tokio::task::spawn_blocking(crate::panorama::video::tagged)
-                                    .await
-                                    .unwrap_or_default()
+                                tokio::task::spawn_blocking(|| {
+                                    // Captures d'une session précédente : rendues
+                                    // à la surveillance, qui les reprend.
+                                    let n = crate::panorama::capture::release_stale();
+                                    if n > 0 {
+                                        tracing::info!("Panorama : {n} capture(s) reprise(s)");
+                                    }
+                                    crate::panorama::video::tagged()
+                                })
+                                .await
+                                .unwrap_or_default()
                             },
                             |l| wrap(PMsg::Orphans(l)),
                         ),
@@ -1766,9 +1898,15 @@ impl App {
                         .design
                         .active_tiles(1600.0, 450.0)
                         .iter()
-                        .any(|t| {
-                            t.widget == "system"
-                                || crate::panorama::design::metric_of(&t.widget).is_some()
+                        .map(|t| t.widget.clone())
+                        // Bande des modules du profil Raccourcis.
+                        .chain(
+                            (self.cfg.general.panorama.design.shortcut_profile == "system")
+                                .then(|| self.cfg.general.panorama.design.modules())
+                                .unwrap_or_default(),
+                        )
+                        .any(|w| {
+                            w == "system" || crate::panorama::design::metric_of(&w).is_some()
                         }))
                     || self
                         .panorama
@@ -2297,6 +2435,21 @@ impl App {
         fg: Color,
         accent: Color,
     ) -> Element<'a, Msg> {
+        let mon = mon.to_string();
+        Self::panorama_pager(n, cur, fg, accent, move |i| {
+            wrap(PMsg::Goto(mon.clone(), i))
+        })
+    }
+
+    /// Points de pages : la page affichée en trait, les autres en point ;
+    /// un appui y mène.
+    pub(super) fn panorama_pager<'a>(
+        n: usize,
+        cur: usize,
+        fg: Color,
+        accent: Color,
+        go: impl Fn(usize) -> Msg,
+    ) -> Element<'a, Msg> {
         let items: Vec<Element<'a, Msg>> = (0..n)
             .map(|i| {
                 let on = i == cur;
@@ -2312,7 +2465,7 @@ impl App {
                     ),
                 )
                 .padding(10)
-                .on_press(wrap(PMsg::Goto(mon.to_string(), i)))
+                .on_press(go(i))
                 .style(|_, _| button::Style::default())
                 .into()
             })

@@ -6,6 +6,10 @@
 //!
 //! Un geste sur l'autre axe (de bas en haut ou de haut en bas pour un
 //! bandeau paysage) publie `on_cross(+1)` (vers le haut) ou `-1`.
+//!
+//! Un geste parti d'un bord (`on_edge`) et qui rentre vers le centre publie
+//! ce bord ; il passe avant le changement de page, et l'autre axe ne part
+//! alors plus que des bords.
 
 use std::time::{Duration, Instant};
 
@@ -24,6 +28,52 @@ const SLOP: f32 = 28.0;
 const PAGE_PART: f32 = 0.18;
 /// Vitesse (px/ms) qui change de page même sur un geste court.
 const FLICK: f32 = 0.6;
+/// Bande du bord d'où part un geste de bord (part du petit côté, bornée).
+const EDGE_PART: f32 = 0.06;
+const EDGE_MIN: f32 = 24.0;
+const EDGE_MAX: f32 = 64.0;
+/// Distance à parcourir depuis le bord (sans élan) pour le reconnaître.
+const EDGE_RUN: f32 = 72.0;
+
+/// Bord de l'écran d'où part un geste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl Edge {
+    /// Déplacement vers l'intérieur, et en travers, pour un mouvement `v`.
+    fn inward(self, v: Vector) -> (f32, f32) {
+        match self {
+            Edge::Top => (v.y, v.x),
+            Edge::Bottom => (-v.y, v.x),
+            Edge::Left => (v.x, v.y),
+            Edge::Right => (-v.x, v.y),
+        }
+    }
+}
+
+/// Bord (parmi `edges`) dans la bande duquel tombe `p`, le plus proche.
+pub fn edge_at(b: Rectangle, p: Point, edges: &[Edge]) -> Option<Edge> {
+    let band = (b.width.min(b.height) * EDGE_PART).clamp(EDGE_MIN, EDGE_MAX);
+    edges
+        .iter()
+        .map(|&e| {
+            let d = match e {
+                Edge::Top => p.y - b.y,
+                Edge::Bottom => b.y + b.height - p.y,
+                Edge::Left => p.x - b.x,
+                Edge::Right => b.x + b.width - p.x,
+            };
+            (e, d)
+        })
+        .filter(|(_, d)| *d >= 0.0 && *d <= band)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(e, _)| e)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
@@ -37,6 +87,11 @@ pub struct Swipe<'a> {
     on_swipe: Box<dyn Fn(i32) -> Msg + 'a>,
     /// Geste sur l'autre axe : +1 vers le haut (ou la gauche), -1 vers le bas.
     on_cross: Option<Box<dyn Fn(i32) -> Msg + 'a>>,
+    /// Zones (relatives au widget) qui ont leur propre glisser latéral :
+    /// un geste qui y part ne change pas de page (les bords restent).
+    yields: Vec<Rectangle>,
+    /// Gestes partis de ces bords.
+    on_edge: Option<(&'static [Edge], Box<dyn Fn(Edge) -> Msg + 'a>)>,
     /// Publié à chaque appui (activité : retarde la veille).
     on_press: Option<Msg>,
     duration: Duration,
@@ -52,6 +107,8 @@ pub fn swipe<'a>(
         axis,
         on_swipe: Box::new(on_swipe),
         on_cross: None,
+        on_edge: None,
+        yields: Vec::new(),
         on_press: None,
         duration: Duration::from_millis(240),
     }
@@ -64,6 +121,17 @@ impl<'a> Swipe<'a> {
     }
     pub fn on_cross(mut self, f: impl Fn(i32) -> Msg + 'a) -> Self {
         self.on_cross = Some(Box::new(f));
+        self
+    }
+    /// Geste parti d'un de ces bords vers le centre. L'autre axe
+    /// (`on_cross`) ne part alors plus que des bords.
+    pub fn on_edge(mut self, edges: &'static [Edge], f: impl Fn(Edge) -> Msg + 'a) -> Self {
+        self.on_edge = Some((edges, Box::new(f)));
+        self
+    }
+    /// Laisse le glisser latéral aux zones `rects` (relatives au widget).
+    pub fn yield_to(mut self, rects: Vec<Rectangle>) -> Self {
+        self.yields = rects;
         self
     }
     pub fn on_press(mut self, m: Msg) -> Self {
@@ -82,6 +150,14 @@ struct State {
     crossing: bool,
     /// Déplacement sur l'autre axe.
     cross: f32,
+    /// Bord d'où part l'appui (s'il en est un de suivi).
+    edge: Option<Edge>,
+    /// Geste de bord reconnu (le contenu ne suit pas).
+    edging: bool,
+    /// Distance parcourue depuis le bord.
+    run: f32,
+    /// Parti d'une zone qui a son propre glisser : pas de changement de page.
+    yielded: bool,
     offset: f32,
     last: Option<(f32, Instant)>,
     /// px/ms, sur l'axe.
@@ -214,6 +290,12 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                         s.reset();
                         s.start = Some(p);
                         s.finger = f;
+                        let local = Point::new(p.x - b.x, p.y - b.y);
+                        s.yielded = self.yields.iter().any(|r| r.contains(local));
+                        s.edge = self
+                            .on_edge
+                            .as_ref()
+                            .and_then(|(edges, _)| edge_at(b, p, edges));
                         if let Some(m) = &self.on_press {
                             shell.publish(m.clone());
                         }
@@ -222,15 +304,41 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                 Ev::Move(p, f) if s.start.is_some() && s.finger == f => {
                     let start = s.start.unwrap_or(p);
                     let (along, across) = self.along(p - start);
-                    if !s.dragging && !s.crossing {
-                        if along.abs() > SLOP && along.abs() > across.abs() * 1.5 {
+                    if !s.dragging && !s.crossing && !s.edging {
+                        let inward = s.edge.map(|e| e.inward(p - start));
+                        if let Some((run, side)) = inward
+                            && run > SLOP
+                            && run > side.abs() * 1.5
+                        {
+                            s.edging = true;
+                        } else if !s.yielded
+                            && along.abs() > SLOP
+                            && along.abs() > across.abs() * 1.5
+                        {
                             s.dragging = true;
                         } else if self.on_cross.is_some()
+                            && self.on_edge.is_none()
                             && across.abs() > SLOP
                             && across.abs() > along.abs() * 1.5
                         {
                             s.crossing = true;
                         }
+                    }
+                    if s.edging
+                        && let Some(e) = s.edge
+                    {
+                        let (run, _) = e.inward(p - start);
+                        let now = Instant::now();
+                        if let Some((prev, t)) = s.last {
+                            let dt = now.duration_since(t).as_secs_f32() * 1000.0;
+                            if dt > 0.5 {
+                                s.velocity = 0.7 * ((run - prev) / dt) + 0.3 * s.velocity;
+                            }
+                        }
+                        s.last = Some((run, now));
+                        s.run = run;
+                        shell.capture_event();
+                        forward = false;
                     }
                     if s.crossing {
                         let now = Instant::now();
@@ -261,7 +369,20 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                     }
                 }
                 Ev::Release(f) if s.start.is_some() && s.finger == f => {
-                    if s.crossing {
+                    if s.edging {
+                        let cancelled =
+                            matches!(event, Event::Touch(touch::Event::FingerLost { .. }));
+                        // Assez loin du bord, ou lancé vers le centre.
+                        if !cancelled
+                            && (s.run >= EDGE_RUN || s.velocity >= FLICK)
+                            && let (Some(e), Some((_, f))) = (s.edge, &self.on_edge)
+                        {
+                            shell.publish(f(e));
+                        }
+                        shell.capture_event();
+                        child_cursor = mouse::Cursor::Unavailable;
+                        s.reset();
+                    } else if s.crossing {
                         let cancelled =
                             matches!(event, Event::Touch(touch::Event::FingerLost { .. }));
                         let cross_extent = match self.axis {
@@ -329,7 +450,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Swipe<'_> {
                 }
                 _ => {}
             }
-            if s.dragging || s.crossing {
+            if s.dragging || s.crossing || s.edging {
                 child_cursor = mouse::Cursor::Unavailable;
             }
             if let Some(settle) = s.settle {
@@ -454,5 +575,31 @@ mod tests {
         // Geste court mais vif.
         assert_eq!(decide(-100.0, -0.9, 2560.0), 1);
         assert_eq!(decide(80.0, 1.2, 2560.0), -1);
+    }
+
+    #[test]
+    fn bords() {
+        // Bandeau 2560×720 : bande de 6 % de 720 ≈ 43 px.
+        let b = Rectangle::new(Point::ORIGIN, Size::new(2560.0, 720.0));
+        let all = [Edge::Top, Edge::Bottom, Edge::Right];
+        assert_eq!(
+            edge_at(b, Point::new(1200.0, 700.0), &all),
+            Some(Edge::Bottom)
+        );
+        assert_eq!(edge_at(b, Point::new(1200.0, 10.0), &all), Some(Edge::Top));
+        assert_eq!(
+            edge_at(b, Point::new(2540.0, 360.0), &all),
+            Some(Edge::Right)
+        );
+        // Le milieu n'est pas un bord ; un bord non suivi non plus.
+        assert_eq!(edge_at(b, Point::new(1200.0, 360.0), &all), None);
+        assert_eq!(edge_at(b, Point::new(10.0, 360.0), &all), None);
+        // Coin : le bord le plus proche.
+        assert_eq!(
+            edge_at(b, Point::new(2555.0, 690.0), &all),
+            Some(Edge::Right)
+        );
+        assert_eq!(Edge::Bottom.inward(Vector::new(5.0, -100.0)), (100.0, 5.0));
+        assert_eq!(Edge::Right.inward(Vector::new(-90.0, 3.0)), (90.0, 3.0));
     }
 }

@@ -113,17 +113,17 @@ pub fn needs_confirm(command: &str) -> bool {
 fn menu_split(w: f32, h: f32, pad: f32, gap: f32) -> (f32, f32) {
     let (long, short) = (w.max(h), w.min(h));
     let inner_l = (long - 2.0 * pad).max(1.0);
-    let inner_s = (short - 2.0 * pad).max(1.0);
-    // Paysage : le lecteur prend 16:9 de la hauteur utile. Portrait (bande
-    // verticale) : 16:9 de la largeur, la playlist profite de la hauteur.
+    // Paysage : le lecteur prend 16:9 de toute la hauteur de l'écran (il
+    // touche les bords : 1280×720 sur un bandeau 2560×720). Portrait (bande
+    // verticale) : 16:9 de toute la largeur, la playlist profite de la hauteur.
     if h > w {
         // Playlist : ce qu'il faut pour ses lignes (~28 %) ; les touches
         // prennent le reste.
-        let p = (((inner_s - gap) * 9.0 / 16.0 + gap) / inner_l).clamp(0.15, 0.5);
+        let p = ((short * 9.0 / 16.0 + gap) / inner_l).clamp(0.15, 0.5);
         let list = 0.28_f32.min(1.0 - p - 0.2);
         (1.0 - p - list, p)
     } else {
-        let p = (((inner_s - gap) * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
+        let p = ((short * 16.0 / 9.0 + gap) / inner_l).clamp(0.3, 0.6);
         (0.26_f32.min((1.0 - p) * 0.55), p)
     }
 }
@@ -153,35 +153,14 @@ pub fn power_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
 }
 
 /// Composition du profil Raccourcis : la colonne des touches à la même
-/// place que dans les autres profils, la composition de la personne (sans
-/// son bloc de raccourcis) ramenée sur le reste.
-pub fn framed_tiles(tiles: &[Tile], w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
+/// place que dans les autres profils, puis la bande horizontale des modules
+/// (widget `modules`, qui défile) sur le reste.
+pub fn modules_tiles(w: f32, h: f32, pad: f32, gap: f32) -> Vec<Tile> {
     let (menu, _) = menu_split(w, h, pad, gap);
-    let rest: Vec<&Tile> = tiles.iter().filter(|t| t.widget != "shortcuts").collect();
-    let mut out = vec![Tile::new("shortcuts", 0.0, 0.0, menu, 1.0)];
-    if rest.is_empty() {
-        out[0].w = 1.0;
-        return out;
-    }
-    // Boîte englobante des autres zones, étirée sur la place restante.
-    let x0 = rest.iter().map(|t| t.x).fold(f32::MAX, f32::min);
-    let x1 = rest.iter().map(|t| t.x + t.w).fold(0.0, f32::max);
-    let y0 = rest.iter().map(|t| t.y).fold(f32::MAX, f32::min);
-    let y1 = rest.iter().map(|t| t.y + t.h).fold(0.0, f32::max);
-    let (sx, sy) = (
-        (1.0 - menu) / (x1 - x0).max(0.05),
-        1.0 / (y1 - y0).max(0.05),
-    );
-    out.extend(rest.into_iter().map(|t| {
-        Tile::new(
-            &t.widget,
-            menu + (t.x - x0) * sx,
-            (t.y - y0) * sy,
-            t.w * sx,
-            t.h * sy,
-        )
-    }));
-    out
+    vec![
+        Tile::new("shortcuts", 0.0, 0.0, menu, 1.0),
+        Tile::new("modules", menu, 0.0, 1.0 - menu, 1.0),
+    ]
 }
 
 /// Touches intégrées d'un profil (`system` : la liste de la personne). Les
@@ -327,6 +306,7 @@ impl Tile {
         if !super::PAGES.iter().any(|(id, _)| *id == self.widget)
             && self.widget != "playlist"
             && self.widget != "updates"
+            && self.widget != "modules"
             && metric_of(&self.widget).is_none()
             && !self
                 .widget
@@ -492,8 +472,51 @@ impl Design {
         match self.shortcut_profile.as_str() {
             "video" | "audio" => player_tiles(w, h, self.padding, self.gap).into(),
             "power" => power_tiles(w, h, self.padding, self.gap).into(),
-            _ => framed_tiles(&self.tiles, w, h, self.padding, self.gap).into(),
+            _ => modules_tiles(w, h, self.padding, self.gap).into(),
         }
+    }
+
+    /// Modules de la bande du profil Raccourcis, dans l'ordre (la
+    /// composition de la personne lue de gauche à droite).
+    pub fn modules(&self) -> Vec<String> {
+        let mut t: Vec<&Tile> = self
+            .tiles
+            .iter()
+            .filter(|t| {
+                super::modules::CATALOGUE
+                    .iter()
+                    .any(|(id, _, _)| *id == t.widget)
+            })
+            .collect();
+        t.sort_by(|a, b| {
+            (a.x, a.y)
+                .partial_cmp(&(b.x, b.y))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut out: Vec<String> = Vec::new();
+        for x in t {
+            if !out.contains(&x.widget) {
+                out.push(x.widget.clone());
+            }
+        }
+        out
+    }
+
+    /// Ajoute (au bout) ou retire un module de la bande ; la composition
+    /// devient une rangée, dans l'ordre.
+    pub fn toggle_module(&mut self, id: &str) {
+        let mut list = self.modules();
+        if let Some(i) = list.iter().position(|m| m == id) {
+            list.remove(i);
+        } else if super::modules::CATALOGUE.iter().any(|(m, _, _)| *m == id) {
+            list.push(id.to_string());
+        }
+        let n = list.len().max(1) as f32;
+        self.tiles = list
+            .iter()
+            .enumerate()
+            .map(|(i, m)| Tile::new(m, i as f32 / n, 0.0, 1.0 / n, 1.0))
+            .collect();
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
@@ -970,15 +993,15 @@ mod tests {
             assert_eq!(read(&d.to_lua()).unwrap(), d);
         }
         assert!(profile_shortcuts("remote").is_none());
-        // Bandeau 1600×450 : lecteur 16:9 sur toute la hauteur utile.
+        // Bandeau 1600×450 : lecteur 16:9 sur toute la hauteur de l'écran.
         let t = player_tiles(1600.0, 450.0, 20.0, 12.0);
-        let (pw, ph) = (t[1].w * 1560.0 - 12.0, 410.0 - 12.0);
+        let (pw, ph) = (t[1].w * 1560.0 - 12.0, 450.0);
         assert!((pw / ph - 16.0 / 9.0).abs() < 0.01, "{pw}×{ph}");
         assert!((t.iter().map(|t| t.w).sum::<f32>() - 1.0).abs() < 1e-4);
         assert!(t.iter().all(|t| t.validate().is_ok()));
         // Bande verticale 640×1392 : lecteur 16:9 sur la largeur.
         let t = player_tiles(640.0, 1392.0, 20.0, 12.0);
-        let (pw, ph) = (600.0 - 12.0, t[1].w * 1352.0 - 12.0);
+        let (pw, ph) = (640.0, t[1].w * 1352.0 - 12.0);
         assert!((pw / ph - 16.0 / 9.0).abs() < 0.02, "{pw}×{ph}");
         assert!(
             (0.2..=0.3).contains(&t[2].w),
@@ -1006,9 +1029,10 @@ mod tests {
         }
         d.set("shortcut_profile", "system").unwrap();
         let t = d.active_tiles(1600.0, 450.0);
-        assert_eq!(t.len(), d.tiles.len(), "le bloc de la personne remplacé");
-        assert!(t[1..].iter().all(|t| t.widget != "shortcuts"));
-        assert!(t.iter().any(|t| (t.x + t.w - 1.0).abs() < 1e-4));
+        // Colonne des touches, puis la bande des modules jusqu'au bord.
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[1].widget, "modules");
+        assert!((t[1].x + t[1].w - 1.0).abs() < 1e-4);
         assert!(needs_confirm("systemctl poweroff") && !needs_confirm("hyprdesk lock"));
         d.set("shortcut_profile", "system").unwrap();
         // Un préréglage garde le profil choisi.
@@ -1017,6 +1041,26 @@ mod tests {
         d.set("shortcut_profile", "audio").unwrap();
         d.apply_preset("studio").unwrap();
         assert_eq!(d.shortcut_profile, "audio");
+    }
+
+    #[test]
+    fn modules_de_la_bande() {
+        let mut d = Design {
+            tiles: vec![
+                Tile::new("hue", 0.36, 0.0, 0.64, 1.0),
+                Tile::new("notes", 0.0, 0.0, 0.34, 1.0),
+                Tile::new("shortcuts", 0.0, 0.0, 0.2, 1.0),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(d.modules(), ["notes", "hue"]);
+        d.toggle_module("voice");
+        assert_eq!(d.modules(), ["notes", "hue", "voice"]);
+        d.toggle_module("notes");
+        assert_eq!(d.modules(), ["hue", "voice"]);
+        d.toggle_module("inconnu");
+        assert_eq!(d.modules(), ["hue", "voice"]);
+        assert!(d.tiles.iter().all(|t| t.validate().is_ok()));
     }
 
     #[test]

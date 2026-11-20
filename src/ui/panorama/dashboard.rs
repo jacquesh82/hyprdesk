@@ -16,8 +16,13 @@ impl App {
         let (bg, fg, accent) = self.panorama_palette();
         let mut layers: Vec<Element<'a, Msg>> =
             vec![Space::new().width(Length::Fill).height(Length::Fill).into()];
+        // Vidéo logée dans la colonne des raccourcis : le fond de la carte
+        // ne doit pas passer sous la fenêtre (le trou resterait couvert).
+        let lodged = geo.panes.iter().any(|q| q.bare && q.widget == "video")
+            && d.shortcut_profile == "system";
         for p in &geo.panes {
             let body = self.panorama_pane_view(s, geo, p, false, video_at);
+            let clear = lodged && p.widget == "shortcuts";
             let content: Element<'a, Msg> = if p.widget == "video" {
                 body
             } else {
@@ -26,7 +31,7 @@ impl App {
                     .height(p.rect.h)
                     .clip(true)
                     .style(move |_| container::Style {
-                        background: Some(fx::alpha(bg, d.card_opacity).into()),
+                        background: (!clear).then(|| fx::alpha(bg, d.card_opacity).into()),
                         border: Border {
                             radius: d.radius.into(),
                             width: if d.border_opacity > 0.0 { 1.0 } else { 0.0 },
@@ -436,7 +441,7 @@ impl App {
             .align_y(Alignment::Center)
         } else {
             row![
-                text(crate::i18n::tr("Vidéo"))
+                text(crate::i18n::tr("Plateformes"))
                     .size(16.0 * d.text_scale)
                     .font(iced::Font {
                         weight: iced::font::Weight::Semibold,
@@ -447,18 +452,6 @@ impl App {
             ]
             .align_y(Alignment::Center)
         };
-        if self.panorama.video.is_some() {
-            head = head
-                .push(
-                    self.panorama_feedback(
-                        button(text(crate::i18n::tr("Cadrer")).size(13).color(fg))
-                            .padding([6, 12])
-                            .on_press(wrap(PMsg::Frame("start")))
-                            .style(pill(self.panorama.framing)),
-                    ),
-                )
-                .push(Space::new().width(8));
-        }
         if playing.is_some() {
             head = head.push(
                 self.panorama_feedback(
@@ -556,19 +549,22 @@ impl App {
             list = self.panorama_radio_list(list, playing);
         } else {
             let sources = self.panorama_sources();
-            // Lignes tactiles : toute la hauteur partagée, entre 40 et 72 px.
-            let room = size.height - 16.0 - 34.0 - gap;
-            let n = sources.len().max(1) as f32;
-            let line_h = ((room - gap / 2.0 * (n - 1.0)) / n).clamp(40.0, 72.0);
+            // Petites tuiles carrées, autant par rangée que la largeur le permet.
+            let aw = (size.width - 16.0).max(1.0);
+            let side = (84.0 * d.text_scale).min(aw);
+            let cols = ((aw + gap) / (side + gap)).floor().max(1.0) as usize;
+            let mut line = row![].spacing(gap);
             for (i, src) in sources.iter().enumerate() {
                 let on = playing == Some(src.name.as_str());
-                list = list.push(self.panorama_source_row(
-                    src,
-                    on,
-                    line_h,
-                    wrap(PMsg::VideoOpen(i)),
-                    None,
-                ));
+                line =
+                    line.push(self.panorama_source_tile(src, on, side, wrap(PMsg::VideoOpen(i))));
+                if (i + 1) % cols == 0 {
+                    list = list.push(line);
+                    line = row![].spacing(gap);
+                }
+            }
+            if !sources.len().is_multiple_of(cols) {
+                list = list.push(line);
             }
             if sources.is_empty() {
                 list = list.push(
@@ -813,9 +809,91 @@ impl App {
         }
     }
 
+    /// Plateforme en petite tuile carrée : son logo au centre, son nom dessous ;
+    /// celle qui joue en évidence.
+    fn panorama_source_tile<'a>(
+        &'a self,
+        src: &crate::panorama::config::Source,
+        on: bool,
+        side: f32,
+        press: Msg,
+    ) -> Element<'a, Msg> {
+        let d = &self.cfg.general.panorama.design;
+        let (bg, fg, accent) = self.panorama_palette();
+        let radius = d.radius.min(side * 0.18);
+        let icon_side = side * 0.5;
+        let icon: Element<'a, Msg> = (!src.icon.is_empty())
+            .then(|| self.icon_named(&src.icon, icon_side, fg))
+            .flatten()
+            .unwrap_or_else(|| {
+                let letter = src
+                    .name
+                    .chars()
+                    .find(|ch| ch.is_alphanumeric())
+                    .map(|ch| ch.to_uppercase().to_string())
+                    .unwrap_or_else(|| "•".into());
+                container(text(letter).size(icon_side * 0.55).color(fg))
+                    .center_x(icon_side)
+                    .center_y(icon_side)
+                    .style(move |_| container::Style {
+                        background: Some(fx::alpha(accent, 0.3).into()),
+                        border: Border::default().rounded(icon_side * 0.24),
+                        ..Default::default()
+                    })
+                    .into()
+            });
+        let name = text(src.name.clone())
+            .size((side * 0.13).clamp(10.0, 14.0))
+            .color(fg)
+            .wrapping(text::Wrapping::None);
+        self.panorama_feedback(
+            button(
+                container(
+                    column![icon, name]
+                        .spacing(side * 0.06)
+                        .align_x(Alignment::Center),
+                )
+                .center_x(Length::Fill)
+                .center_y(Length::Fill),
+            )
+            .width(side)
+            .height(side)
+            .padding(side * 0.06)
+            .on_press(press)
+            .style(move |_, st| {
+                let hot = on || matches!(st, button::Status::Pressed);
+                button::Style {
+                    background: Some(
+                        fx::alpha(if hot { accent } else { bg }, if hot { 0.45 } else { 0.5 })
+                            .into(),
+                    ),
+                    border: Border {
+                        radius: radius.into(),
+                        width: 1.0,
+                        color: fx::alpha(if on { accent } else { fg }, if on { 0.8 } else { 0.2 }),
+                    },
+                    text_color: fg,
+                    ..Default::default()
+                }
+            }),
+        )
+    }
+
     /// Bloc de raccourcis : sélecteur de profil (vidéo, audio,
     /// télécommande, système) au-dessus des touches du profil choisi.
-    pub(super) fn panorama_shortcuts(&self, size: Size) -> Element<'_, Msg> {
+    /// Bloc des raccourcis de hauteur `h` : place du sélecteur de profils en
+    /// haut (marge comprise) et des points de pages en bas.
+    pub(super) fn panorama_shortcuts_frame(&self, h: f32) -> (f32, f32) {
+        let gap = self.cfg.general.panorama.design.gap.min(20.0);
+        let seg_h = (h * 0.16).clamp(34.0, 52.0);
+        (8.0 + seg_h + gap, 30.0 + gap + 8.0)
+    }
+
+    pub(super) fn panorama_shortcuts<'a>(
+        &'a self,
+        size: Size,
+        media_h: Option<f32>,
+    ) -> Element<'a, Msg> {
         let d = &self.cfg.general.panorama.design;
         let (bg, fg, accent) = self.panorama_palette();
         let gap = d.gap.min(20.0);
@@ -982,6 +1060,47 @@ impl App {
             tabs = tabs.push(profile_tab("power"));
         }
 
+        // Sous le bloc : les touches, ou les fenêtres ouvertes à placer.
+        let page = self.panorama.shortcuts_page.min(1);
+        let pager = container(Self::panorama_pager(2, page, fg, accent, |i| {
+            wrap(PMsg::ShortcutsPage(i))
+        }))
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+        // Glisser dans le bloc : des touches aux fenêtres et retour (la page
+        // du Panorama, elle, ne bouge pas).
+        let motion = self.panorama_motion();
+        let paging = move |body: Element<'a, Msg>| -> Element<'a, Msg> {
+            super::swipe::swipe(body, super::swipe::Axis::Horizontal, move |d| {
+                wrap(PMsg::ShortcutsPage((page as i32 + d).clamp(0, 1) as usize))
+            })
+            .motion(motion)
+            .on_press(wrap(PMsg::Pressed))
+            .into()
+        };
+        // Média en cours logé sous le sélecteur (zone posée par-dessus) : il
+        // remplace les touches et les points du bloc.
+        if media_h.is_some() && page == 0 {
+            return column![tabs, Space::new().width(Length::Fill).height(Length::Fill)]
+                .spacing(gap)
+                .padding(8)
+                .into();
+        }
+        if page == 1 {
+            return column![
+                tabs,
+                paging(
+                    container(self.panorama_windows())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .into()
+                ),
+                pager
+            ]
+            .spacing(gap)
+            .padding(8)
+            .into();
+        }
         let list = d.active_shortcuts();
         if list.is_empty() {
             return column![
@@ -994,7 +1113,8 @@ impl App {
                     .color(fg),
                 )
                 .height(Length::Fill)
-                .center_y(Length::Fill)
+                .center_y(Length::Fill),
+                pager
             ]
             .spacing(gap)
             .padding(8)
@@ -1004,8 +1124,12 @@ impl App {
         let columns = (d.shortcut_columns as usize).max(1);
         let width = ((size.width - 16.0 - gap * (columns - 1) as f32) / columns as f32).max(28.0);
         let rows = list.len().div_ceil(columns);
-        let room = size.height - 16.0 - seg_h - gap;
+        // Place des touches : sous le sélecteur, au-dessus des points (30 px).
+        let room = size.height - 16.0 - seg_h - gap - 30.0 - gap;
         let height = ((room - gap * (rows - 1) as f32) / rows as f32).clamp(40.0, 120.0);
+        // Touches toujours carrées : le plus petit des deux côtés.
+        let side = width.min(height);
+        let (width, height) = (side, side);
         let mut grid = column![].spacing(gap);
         for (r, chunk) in list.chunks(columns).enumerate() {
             let mut line = row![].spacing(gap);
@@ -1062,14 +1186,159 @@ impl App {
         }
         column![
             tabs,
-            container(iced::widget::scrollable(grid))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_y(Length::Fill)
+            paging(
+                container(iced::widget::scrollable(grid))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into()
+            ),
+            pager
         ]
         .spacing(gap)
         .padding(8)
         .into()
+    }
+
+    /// Fenêtres ouvertes, chacune avec un bouton par écran : un appui la
+    /// pose sur le workspace actif de cet écran (sans la suivre). L'écran
+    /// où elle se trouve est en évidence ; ceux que le Panorama couvre
+    /// n'en reçoivent pas.
+    fn panorama_windows(&self) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let dim = fx::alpha(fg, 0.65);
+        let covered: Vec<String> = self
+            .panorama_monitors()
+            .into_iter()
+            .filter(|m| !self.panorama.hidden.contains(m))
+            .collect();
+        let screens: Vec<&str> = self
+            .monitors
+            .iter()
+            .filter(|m| !covered.contains(&m.name))
+            .map(|m| m.name.as_str())
+            .collect();
+        let video = self
+            .panorama
+            .video
+            .as_ref()
+            .and_then(|v| v.address.as_deref());
+        let wins: Vec<&crate::hypr::Client> = self
+            .clients
+            .iter()
+            .filter(|c| !c.workspace.starts_with("special:") && Some(c.address.as_str()) != video)
+            .collect();
+        let mut list = column![
+            text(crate::i18n::tr("Fenêtres ouvertes"))
+                .size(15)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Semibold,
+                    ..self.panorama_font()
+                })
+                .color(fg)
+        ]
+        .spacing(6);
+        if wins.is_empty() {
+            list = list.push(
+                text(crate::i18n::tr("Aucune fenêtre ouverte"))
+                    .size(13)
+                    .color(dim),
+            );
+        }
+        let pill = move |on: bool| {
+            move |_: &iced::Theme, st: button::Status| button::Style {
+                background: Some(
+                    fx::alpha(
+                        accent,
+                        if on || matches!(st, button::Status::Pressed) {
+                            0.6
+                        } else {
+                            0.18
+                        },
+                    )
+                    .into(),
+                ),
+                border: Border {
+                    radius: 10.0.into(),
+                    width: 1.0,
+                    color: fx::alpha(accent, if on { 0.9 } else { 0.3 }),
+                },
+                text_color: fg,
+                ..Default::default()
+            }
+        };
+        for c in wins {
+            let img = self
+                .class_imgs
+                .get(&c.class)
+                .copied()
+                .unwrap_or(super::super::IconImg::None);
+            let icon: Element<'_, Msg> = self
+                .img_element(img, 26.0, 1.0)
+                .unwrap_or_else(|| Space::new().width(26).height(26).into());
+            let title = if c.title.is_empty() {
+                &c.class
+            } else {
+                &c.title
+            };
+            let mut line = row![
+                icon,
+                container(
+                    column![
+                        text(title.clone())
+                            .size(13)
+                            .color(fg)
+                            .wrapping(text::Wrapping::None),
+                        text(format!("{} · {}", c.class, c.monitor))
+                            .size(11)
+                            .color(dim)
+                            .wrapping(text::Wrapping::None),
+                    ]
+                    .spacing(1)
+                )
+                .width(Length::Fill)
+                .clip(true),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center);
+            for m in &screens {
+                let here = c.monitor == *m;
+                let b = button(
+                    text(m.to_string())
+                        .size(12)
+                        .color(fg)
+                        .wrapping(text::Wrapping::None),
+                )
+                .padding([6, 10])
+                .style(pill(here));
+                line = line.push(self.panorama_feedback(if here {
+                    b
+                } else {
+                    b.on_press(wrap(PMsg::SendWindow(c.address.clone(), m.to_string())))
+                }));
+            }
+            list = list.push(container(line).width(Length::Fill).padding([4, 8]).style(
+                move |_| container::Style {
+                    background: Some(fx::alpha(bg, 0.5).into()),
+                    border: Border {
+                        radius: 10.0.into(),
+                        width: 1.0,
+                        color: fx::alpha(fg, 0.15),
+                    },
+                    ..Default::default()
+                },
+            ));
+        }
+        iced::widget::scrollable(list)
+            .height(Length::Fill)
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4)
+                    .spacing(6),
+            ))
+            .into()
     }
 
     pub(super) fn panorama_vinyl(&self, size: Size) -> Element<'_, Msg> {
@@ -1447,7 +1716,7 @@ fn profile_icon(id: &str) -> iced::widget::svg::Handle {
 }
 
 /// Icône du micro de LYRA vocale : dégradé violet-bleu (active) ou gris.
-fn mic_icon(on: bool) -> iced::widget::svg::Handle {
+pub(super) fn mic_icon(on: bool) -> iced::widget::svg::Handle {
     let (a, b) = if on {
         ("#7f5af0", "#2cb1ff")
     } else {

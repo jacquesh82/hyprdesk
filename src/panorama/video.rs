@@ -105,20 +105,51 @@ pub fn launch(cmd: &str, url: &str) -> Result<(), String> {
 /// Règle de Hyprland des fenêtres étiquetées : sans bordure, arrondi, ombre ni flou.
 pub fn rule_lua() -> String {
     format!(
-        "pcall(function() return hl.window_rule({{ name = \"{TAG}\", match = {{ tag = \"{TAG}\" }}, \
-         border_size = 0, rounding = 0, no_shadow = true, no_blur = true }}) end)"
+        "if not __hyprdesk_player_rule then __hyprdesk_player_rule = hl.window_rule({{ name = \"{TAG}\", match = {{ tag = \"{TAG}\" }}, \
+         border_size = 0, rounding = 0, no_shadow = true, no_blur = true, no_anim = true, no_xdg_drags = true, sync_fullscreen = false }}) end"
     )
+}
+
+/// Poser la règle avant toute transition de plein écran/flottant : autrement
+/// Hyprland peut notifier une sortie de plein écran au navigateur.
+pub fn prepare(address: &str) -> Result<(), String> {
+    hyprpanel_core::ipc::eval(&rule_lua()).map_err(|e| e.to_string())?;
+    hyprpanel_core::ipc::eval(include_str!("../../assets/panorama-player.lua"))
+        .map_err(|e| e.to_string())?;
+    hyprpanel_core::ipc::dispatch(&format!(
+        "hl.dsp.window.tag({{ tag = \"+{TAG}\", window = \"address:{}\" }})",
+        hyprpanel_core::ipc::lua_escape(address)
+    ))
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn anchor(address: &str, rect: (i32, i32, i32, i32)) -> Result<(), String> {
+    let (x, y, w, h) = rect;
+    hyprpanel_core::ipc::eval(&format!(
+        "if __hyprdesk_player then __hyprdesk_player.frames[\"{}\"] = {{ x={x}, y={y}, w={w}, h={h}, until_time=os.time()+3 }} end",
+        hyprpanel_core::ipc::lua_escape(address)
+    )).map(|_| ()).map_err(|e| e.to_string())
+}
+
+pub fn unanchor(address: &str) -> Result<(), String> {
+    hyprpanel_core::ipc::eval(&format!(
+        "if __hyprdesk_player then __hyprdesk_player.frames[\"{}\"] = nil end",
+        hyprpanel_core::ipc::lua_escape(address)
+    ))
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 /// Flottante, épinglée (visible quel que soit l'espace de travail de
 /// l'écran), étiquetée (sans bordure ni ombre), puis posée sur `rect`
 /// (coordonnées globales) s'il est déjà connu.
 pub fn adopt(address: &str, rect: Option<(i32, i32, i32, i32)>) -> Result<(), String> {
+    prepare(address)?;
     let a = hyprpanel_core::ipc::lua_escape(address);
-    let _ = hyprpanel_core::ipc::eval(&rule_lua());
     // Plein écran (bouton du lecteur, F11) : l'application se croit en plein
     // écran mais reste dans son cadre (MLG-172, `assets/zones.lua`).
-    let _ = hyprpanel_core::ipc::eval(crate::zones::runtime_lua());
+    hyprpanel_core::ipc::eval(crate::zones::runtime_lua()).map_err(|e| e.to_string())?;
     crate::hypr::set_floating(address, true)?;
     for cmd in [
         format!("hl.dsp.window.pin({{ action = \"enable\", window = \"address:{a}\" }})"),
@@ -127,7 +158,10 @@ pub fn adopt(address: &str, rect: Option<(i32, i32, i32, i32)>) -> Result<(), St
         let _ = hyprpanel_core::ipc::dispatch(&cmd);
     }
     match rect {
-        Some(r) => crate::hypr::place(address, r),
+        Some(r) => {
+            anchor(address, r)?;
+            crate::hypr::place(address, r)
+        }
         None => Ok(()),
     }
 }
@@ -155,7 +189,10 @@ pub fn tagged() -> Vec<(String, String)> {
     v.as_array()
         .map(|l| {
             l.iter()
-                .filter(|c| c["tags"].to_string().contains(TAG))
+                .filter(|c| {
+                    c["tags"].to_string().contains(TAG)
+                        && !c["tags"].to_string().contains(super::capture::TAG)
+                })
                 .filter_map(|c| {
                     Some((
                         c["address"].as_str()?.to_string(),
@@ -169,6 +206,7 @@ pub fn tagged() -> Vec<(String, String)> {
 
 /// Ferme la fenêtre.
 pub fn close(address: &str) {
+    let _ = unanchor(address);
     let _ = hyprpanel_core::ipc::dispatch(&format!(
         "hl.dsp.window.close({{ window = \"address:{}\" }})",
         hyprpanel_core::ipc::lua_escape(address)
@@ -178,6 +216,54 @@ pub fn close(address: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cadre_corrige_la_geometrie_et_libere_les_fenetres() {
+        let lua = mlua::Lua::new();
+        lua.load(
+            r#"
+            now = 100
+            os.time = function() return now end
+            moves, sizes, timers = 0, 0, 0
+            window = { at = { 10, 20 }, size = { 800, 450 }, tags = { "hyprdesk-pip" } }
+            hl = {
+                get_window = function() return window end,
+                timer = function(fn, options) tick = fn; timers = timers + 1; return {} end,
+                dispatch = function(cmd)
+                    if cmd.kind == "move" then moves = moves + 1; window.at = {cmd.x, cmd.y}
+                    else sizes = sizes + 1; window.size = {cmd.x, cmd.y} end
+                end,
+                dsp = { window = {
+                    move = function(t) t.kind = "move"; return t end,
+                    resize = function(t) t.kind = "resize"; return t end,
+                } },
+            }
+        "#,
+        )
+        .exec()
+        .unwrap();
+        let runtime = include_str!("../../assets/panorama-player.lua");
+        lua.load(runtime).exec().unwrap();
+        lua.load(runtime).exec().unwrap();
+        lua.load(
+            r#"
+            assert(timers == 1)
+            __hyprdesk_player.frames.a = {x=10,y=20,w=800,h=450,until_time=103}
+            tick(); assert(moves == 0 and sizes == 0)
+            window.at = {100,200}; window.size = {900,500}
+            tick(); assert(moves == 1 and sizes == 1)
+            tick(); assert(moves == 1 and sizes == 1)
+            window.tags = {}; window.at = {40,50}
+            tick(); assert(moves == 1 and __hyprdesk_player.frames.a == nil)
+            window.tags = {"hyprdesk-pip"}
+            __hyprdesk_player.frames.a = {x=10,y=20,w=800,h=450,until_time=103}
+            now = 104
+            tick(); assert(moves == 1 and __hyprdesk_player.frames.a == nil)
+        "#,
+        )
+        .exec()
+        .unwrap();
+    }
 
     #[test]
     fn hote_et_correspondance() {

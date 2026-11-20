@@ -4,6 +4,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 mod design;
+pub mod modules;
 
 use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
@@ -27,6 +28,7 @@ pub const TABS: &[SubTab] = &[
     ("lecteur", "Lecteur"),
     ("style", "Style"),
     ("raccourcis", "Raccourcis"),
+    ("modules", "Modules"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -35,6 +37,8 @@ pub fn wrap(m: Msg) -> UiMsg {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
+    /// Réglages des modules (onglet Modules).
+    Module(modules::Msg),
     /// Écran (connecteur), rôle Panorama.
     Role(String, bool),
     /// Page (indice), ±1 dans l'ordre.
@@ -91,6 +95,7 @@ pub enum Msg {
     IconsDone(Result<String, String>),
     Browser(String),
     BrowserCommit,
+    RestoreOnFullscreenExit(bool),
     Preset(String),
     DesignText(String, String),
     DesignApply(String),
@@ -156,6 +161,9 @@ impl App {
         }
         if self.on_subtab(INFO.id, "pages") {
             return self.panorama_pages_tab();
+        }
+        if self.on_subtab(INFO.id, "modules") {
+            return self.panorama_modules_tab();
         }
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
@@ -417,9 +425,11 @@ impl App {
         }
         col = col.push(
             text(
-                "Sur l'écran : glisser de bas en haut ouvre le choix de la disposition, de haut en \
-                 bas masque le Panorama ; glisser de côté passe de la vue composée aux pages. ◀ ▶ \
-                 change le widget d'une zone. En plein écran, la vidéo reste dans sa zone.",
+                "Sur l'écran : depuis le bord bas, glisser vers le haut ouvre le choix de la \
+                 disposition ; depuis le bord haut, glisser vers le bas masque le Panorama ; \
+                 depuis le bord droit, glisser vers la gauche affiche les notifications ; \
+                 glisser de côté passe de la vue composée aux pages. ◀ ▶ change le widget \
+                 d'une zone. En plein écran, la vidéo reste dans sa zone.",
             )
             .font(self.font)
             .size(12)
@@ -548,8 +558,26 @@ impl App {
         } else {
             self.panorama_browser_section()
         };
-        column![tabs, self.panorama_sources_section(view), extra]
-            .spacing(14)
+        let mut col = column![tabs].spacing(14);
+        if view == "video" {
+            col = col.push(
+                column![
+                    self.section("Sortie du plein écran"),
+                    toggler(self.panorama_cfg().restore_on_fullscreen_exit)
+                        .label(crate::i18n::tr("Remettre la fenêtre à sa place à la sortie du plein écran"))
+                        .font(self.font)
+                        .text_size(13)
+                        .on_toggle(|v| wrap(Msg::RestoreOnFullscreenExit(v))),
+                    text("Rétablit le workspace, la position et la taille d'origine. Désactivé : la fenêtre reste dans Panorama après la sortie du plein écran.")
+                        .font(self.font)
+                        .size(12)
+                        .color(self.ink().dim),
+                ]
+                .spacing(8),
+            );
+        }
+        col.push(self.panorama_sources_section(view))
+            .push(extra)
             .into()
     }
 
@@ -1023,22 +1051,33 @@ impl App {
         if let Some((label, url)) = web
             && crate::panorama::auth::needs_account(url)
         {
-            col = col.push(
-                row![
-                    text(crate::tr!(
-                        "{service} demande un compte : connectez-vous une fois dans le navigateur des sources.",
-                        service = label.to_string()
-                    ))
-                    .font(self.font)
-                    .size(12)
-                    .width(Length::Fill),
+            // État lu dans les cookies du navigateur des sources.
+            let signed = self.panorama.signed.get(url).copied().flatten();
+            let state = match signed {
+                Some(true) => crate::tr!(
+                    "Connecté à {service} (navigateur des sources).",
+                    service = label.to_string()
+                ),
+                Some(false) => crate::tr!(
+                    "{service} demande un compte : connectez-vous une fois dans le navigateur des sources.",
+                    service = label.to_string()
+                ),
+                None => crate::tr!(
+                    "{service} demande un compte ; sa connexion ne se lit pas dans le navigateur des sources.",
+                    service = label.to_string()
+                ),
+            };
+            let mut line = row![text(state).font(self.font).size(12).width(Length::Fill)]
+                .spacing(10)
+                .align_y(Alignment::Center);
+            if signed != Some(true) {
+                line = line.push(
                     button(text("Se connecter").font(self.font).size(12))
                         .padding([4, 10])
                         .on_press(wrap(Msg::WebradioLogin)),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
+                );
+            }
+            col = col.push(line);
         }
         col.into()
     }
@@ -1089,6 +1128,7 @@ impl App {
 
     pub(in crate::ui) fn panorama_settings_update(&mut self, m: Msg) -> Task<UiMsg> {
         match m {
+            Msg::Module(m) => self.panorama_modules_settings_update(m),
             m @ (Msg::Preset(_)
             | Msg::DesignText(..)
             | Msg::DesignApply(_)
@@ -1285,6 +1325,12 @@ impl App {
             Msg::Browser(v) => {
                 self.panorama.browser_draft = Some(v);
                 Task::none()
+            }
+            Msg::RestoreOnFullscreenExit(v) => {
+                let mut c = self.panorama_cfg();
+                c.restore_on_fullscreen_exit = v;
+                self.settings.panorama = Some(c);
+                self.commit()
             }
             Msg::BrowserCommit => {
                 let Some(v) = self.panorama.browser_draft.take() else {
