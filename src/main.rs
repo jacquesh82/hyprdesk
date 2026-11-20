@@ -935,7 +935,14 @@ fn main() -> ExitCode {
             Ok(false) => {
                 println!(
                     "{}",
-                    crate::tr!("existe déjà : {p0}", p0 = config_path.display())
+                    if config_path.exists() {
+                        crate::tr!("existe déjà : {p0}", p0 = config_path.display())
+                    } else {
+                        crate::tr!(
+                            "configuration déjà en place (Réglages : {p0}) ; hyprdesk.lua, facultatif, n'est pas recréé",
+                            p0 = config::lua::settings_path(&config_path).display()
+                        )
+                    }
                 );
                 ExitCode::SUCCESS
             }
