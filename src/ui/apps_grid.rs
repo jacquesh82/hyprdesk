@@ -419,11 +419,8 @@ impl App {
                 left: 24.0,
                 right: 24.0,
             })
-            .height(Length::Fill)
-            .style(|_| container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.45).into()),
-                ..Default::default()
-            });
+            .height(Length::Fill);
+        // Le voile flouté est posé dessous (`view_search`).
         mouse_area(page)
             .on_press(Msg::Control(super::control::Command::Apps))
             .into()

@@ -32,6 +32,11 @@ pub(super) const INPUT_ID: &str = "hyprdesk-search-input";
 pub const SHOWN: usize = 8;
 const ROW: f32 = 46.0;
 const SHADOW: f32 = 18.0;
+/// Voile derrière la carte centrée et derrière la feuille : assez opaque
+/// pour que Hyprland floute ce qu'il recouvre (règle de calque du thème,
+/// `ignore_alpha = 0.2`, `crate::hypr`).
+const BACKDROP: f32 = 0.30;
+const SHEET_BACKDROP: f32 = 0.45;
 /// Icône des éléments de l'historique du presse-papiers.
 const CLIP_ICON: &str = "edit-paste-symbolic";
 /// Icône des codes et mots de passe du coffre.
@@ -351,14 +356,8 @@ impl App {
             .map(|n| self.want_icon(n))
             .collect();
         let convex = self.convex_options().filter(|o| o.attached_panels);
-        let size = if sheet || convex.is_some() {
-            (0, 0)
-        } else {
-            (
-                (super::apps_grid::SPOT_WIDTH + 2.0 * SHADOW) as u32,
-                (super::apps_grid::spot_height(!suggested.is_empty()) + 2.0 * SHADOW) as u32,
-            )
-        };
+        // Toujours plein écran : le voile flouté couvre le bureau.
+        let size = (0, 0);
         self.search = Some(Search {
             shown: cfg!(test),
             visibility: convex.map(|o| super::Fade {
@@ -382,11 +381,7 @@ impl App {
             settings: NewLayerShellSettings {
                 size: Some(size),
                 layer: Layer::Overlay,
-                anchor: if sheet || convex.is_some() {
-                    LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right
-                } else {
-                    LsAnchor::empty()
-                },
+                anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
                 exclusive_zone: Some(-1),
                 keyboard_interactivity: KeyboardInteractivity::Exclusive,
                 // Sur l'écran du clic (bouton du dock), sinon l'écran actif.
@@ -502,12 +497,8 @@ impl App {
         .max_width(width)
         .height(height)
         .clip(true);
-        let catch = iced::widget::mouse_area(
-            container(iced::widget::Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill),
-        )
-        .on_press(Msg::Search(SMsg::Close));
+        // Le voile s'éclaircit avec le tiroir : le flou part avec lui.
+        let catch = backdrop(BACKDROP * track.value(std::time::Instant::now()));
         iced::widget::stack![
             catch,
             container(drawer)
@@ -1034,7 +1025,16 @@ impl App {
         let Some(s) = &self.search else {
             return iced::widget::Space::new().into();
         };
-        iced::widget::sensor(self.view_search_card(s))
+        let card = self.view_search_card(s);
+        // Le mode convexe pose son propre voile, qui suit le tiroir.
+        let content: Element<'_, Msg> = if self.convex_options().is_some_and(|o| o.attached_panels)
+        {
+            card
+        } else {
+            let alpha = if s.grid { SHEET_BACKDROP } else { BACKDROP };
+            iced::widget::stack![backdrop(alpha), container(card).center(Length::Fill)].into()
+        };
+        iced::widget::sensor(content)
             .key(format!("{:?}", s.win))
             .on_show(|_| Msg::Search(SMsg::Shown))
             .into()
@@ -1482,4 +1482,19 @@ impl App {
             })
             .into()
     }
+}
+
+/// Voile plein écran derrière le lanceur ; un clic dessus le referme.
+fn backdrop<'a>(alpha: f32) -> Element<'a, Msg> {
+    iced::widget::mouse_area(
+        container(iced::widget::Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, alpha).into()),
+                ..Default::default()
+            }),
+    )
+    .on_press(Msg::Search(SMsg::Close))
+    .into()
 }
