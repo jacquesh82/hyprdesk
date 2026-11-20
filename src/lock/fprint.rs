@@ -11,10 +11,10 @@
 
 use iced::futures::StreamExt;
 
-const DEST: &str = "net.reactivated.Fprint";
+pub(super) const DEST: &str = "net.reactivated.Fprint";
 const MANAGER: &str = "/net/reactivated/Fprint/Manager";
 const MANAGER_IFACE: &str = "net.reactivated.Fprint.Manager";
-const DEVICE_IFACE: &str = "net.reactivated.Fprint.Device";
+pub(super) const DEVICE_IFACE: &str = "net.reactivated.Fprint.Device";
 /// Essais avant de laisser la place au mot de passe seul.
 const TRIES: u32 = 3;
 
@@ -59,7 +59,7 @@ pub fn classify(result: &str, done: bool) -> Verdict {
     }
 }
 
-async fn device(conn: &zbus::Connection) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
+pub(super) async fn device(conn: &zbus::Connection) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
     let r = conn
         .call_method(
             Some(DEST),

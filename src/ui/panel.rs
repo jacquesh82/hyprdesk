@@ -81,6 +81,8 @@ pub struct Panel {
     pub search_list: bool,
     pub colors: plugins::colors::State,
     pub login: plugins::login::State,
+    /// Empreintes digitales (Verrouillage).
+    pub fingerprints: plugins::lock::State,
     pub passwords: plugins::passwords::State,
     pub apps: plugins::apps::State,
     pub plugins: plugins::plugins::State,
@@ -148,6 +150,7 @@ impl Panel {
             search_list: false,
             colors: Default::default(),
             login: Default::default(),
+            fingerprints: Default::default(),
             passwords: Default::default(),
             apps: Default::default(),
             plugins: Default::default(),

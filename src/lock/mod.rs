@@ -16,6 +16,7 @@
 //! Anti-marquage : le contenu dérive lentement, et s'estompe après un moment
 //! sans saisie (l'extinction de l'écran reste l'affaire de hypridle).
 
+pub mod enroll;
 pub mod fprint;
 pub mod pam;
 pub mod state;

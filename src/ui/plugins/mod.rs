@@ -630,6 +630,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "colors" => colors::load(),
         "workspaces" => workspaces::load_foreign(app.config_path.clone()),
         "login" => login::load(),
+        "lock" => lock::load(),
         "passwords" => passwords::load(),
         "assistant" => assistant::on_show(app),
         "about" => about::load(app.config_path.clone()),

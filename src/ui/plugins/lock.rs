@@ -1,12 +1,15 @@
 //! Paquet intégré « Verrouillage » : réglages de `hyprdesk lock` (fond,
-//! assombrissement, contenus affichés) et verrouillage immédiat.
-//! Domaine : `crate::lock`.
+//! assombrissement, contenus affichés), empreintes digitales (liste,
+//! enregistrement, suppression : `crate::lock::enroll`) et verrouillage
+//! immédiat. Domaine : `crate::lock`.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, row, slider, toggler};
-use iced::{Color, Element, Task};
+use iced::widget::{button, column, pick_list, progress_bar, row, slider, toggler};
+use iced::{Alignment, Color, Element, Task};
+
+use crate::lock::enroll::{self, Progress, Reader};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -32,6 +35,72 @@ pub enum IdleStep {
     Suspend,
 }
 
+/// Doigt proposé à l'enregistrement (nom de fprintd, affiché traduit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Finger(pub &'static str);
+
+impl std::fmt::Display for Finger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&enroll::finger_label(self.0))
+    }
+}
+
+/// Enregistrement d'une empreinte en cours.
+#[derive(Debug)]
+pub struct Enrolling {
+    pub finger: &'static str,
+    /// Le lecteur attend le doigt (avant : polkit demande le mot de passe).
+    pub started: bool,
+    /// Passages réussis, sur `total` (0 : inconnu).
+    pub done: u32,
+    pub total: u32,
+    /// Conseil après un passage raté.
+    pub hint: Option<String>,
+    /// Arrête l'enregistrement ; lâché avec le tiroir, il l'arrête aussi.
+    pub cancel: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+/// Empreintes digitales : lecteur, doigts enregistrés, enregistrement en cours.
+#[derive(Debug, Default)]
+pub struct State {
+    pub loaded: bool,
+    /// `None` : pas de fprintd ou pas de lecteur.
+    pub reader: Option<Reader>,
+    pub choice: Option<Finger>,
+    pub enrolling: Option<Enrolling>,
+    /// Retour inline : (erreur, texte).
+    pub note: Option<(bool, String)>,
+}
+
+impl State {
+    /// Doigts qui restent à enregistrer.
+    pub fn free(&self) -> Vec<Finger> {
+        let taken = self.reader.as_ref().map(|r| r.fingers.as_slice());
+        enroll::FINGERS
+            .into_iter()
+            .filter(|f| !taken.is_some_and(|t| t.iter().any(|x| x == f)))
+            .map(Finger)
+            .collect()
+    }
+
+    /// Doigt que le bouton enregistrera : celui choisi s'il est encore
+    /// libre, sinon le premier libre.
+    pub fn target(&self) -> Option<Finger> {
+        let free = self.free();
+        self.choice
+            .filter(|c| free.contains(c))
+            .or_else(|| free.first().copied())
+    }
+}
+
+/// Relit le lecteur et les empreintes de l'utilisateur.
+pub fn load() -> Task<UiMsg> {
+    Task::perform(
+        async { enroll::list(&crate::lock::pam::current_user()).await },
+        |r| wrap(Msg::Fingers(r)),
+    )
+}
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Lock(m)))
 }
@@ -46,6 +115,14 @@ pub enum Msg {
     ShowBattery(bool),
     ShowMedia(bool),
     Fingerprint(bool),
+    /// Lecteur et empreintes relus.
+    Fingers(Option<Reader>),
+    FingerChoice(Finger),
+    FingerEnroll,
+    FingerProgress(Progress),
+    FingerCancel,
+    FingerDelete(String),
+    FingerDeleted(Result<(), String>),
     LockNow,
     /// hyprdesk gère la veille (hypridle).
     IdleManage(bool),
@@ -183,6 +260,7 @@ impl App {
                 }),
             ]
             .spacing(8),
+            self.fingerprints_section(),
             self.section("Sécurité"),
             text(crate::tr!(
                 "Protocole de verrouillage de Wayland : si l'écran de verrouillage s'arrête, \
@@ -199,6 +277,146 @@ impl App {
                 .on_press(wrap(Msg::LockNow)),
         ]
         .spacing(14)
+        .into()
+    }
+
+    /// Empreintes digitales : doigts enregistrés, enregistrement, suppression.
+    fn fingerprints_section(&self) -> Element<'_, UiMsg> {
+        if !crate::doctor::has("fprintd") || !crate::policy::get().fingerprint_allowed() {
+            return column![].into();
+        }
+        let ink = self.ink();
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let note =
+            |s: String, c: Color| -> Element<'_, UiMsg> { text(s).font(self.font).size(12).color(c).into() };
+        let mut col = column![self.section("Empreintes digitales")].spacing(10);
+        let Some(s) = self
+            .panel
+            .as_ref()
+            .map(|p| &p.fingerprints)
+            .filter(|s| s.loaded)
+        else {
+            return col
+                .push(text("Lecture…").font(self.font).size(13).color(ink.dim))
+                .into();
+        };
+        let Some(reader) = &s.reader else {
+            return col
+                .push(
+                    text("Aucun lecteur d'empreintes détecté.")
+                        .font(self.font)
+                        .size(13)
+                        .color(ink.dim),
+                )
+                .into();
+        };
+        col = col.push(note(
+            crate::tr!("Lecteur : {n}", n = reader.name),
+            ink.dim,
+        ));
+        if reader.fingers.is_empty() {
+            col = col.push(note(
+                crate::i18n::tr(
+                    "Aucune empreinte enregistrée : l'écran de verrouillage ne demande que \
+                     le mot de passe.",
+                )
+                .to_string(),
+                warn,
+            ));
+        } else if !self.cfg.general.lock.fingerprint {
+            col = col.push(note(
+                crate::i18n::tr(
+                    "Pour déverrouiller avec, activez « Empreinte digitale à la place du \
+                     mot de passe » ci-dessus.",
+                )
+                .to_string(),
+                warn,
+            ));
+        }
+        let idle = s.enrolling.is_none();
+        for f in &reader.fingers {
+            col = col.push(
+                row![
+                    text(enroll::finger_label(f))
+                        .font(self.font)
+                        .size(14)
+                        .width(200),
+                    button(text("Supprimer").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+        if let Some(e) = &s.enrolling {
+            let name = enroll::finger_label(e.finger);
+            col = col.push(
+                text(if !e.started {
+                    crate::tr!(
+                        "{f} : donnez votre mot de passe dans la fenêtre d'autorisation…",
+                        f = name
+                    )
+                } else if e.total > 0 {
+                    crate::tr!(
+                        "{f} : posez le doigt sur le lecteur, levez-le, puis recommencez \
+                         ({n} sur {t}).",
+                        f = name,
+                        n = e.done,
+                        t = e.total
+                    )
+                } else {
+                    crate::tr!(
+                        "{f} : posez le doigt sur le lecteur, levez-le, puis recommencez.",
+                        f = name
+                    )
+                })
+                .font(self.font)
+                .size(13),
+            );
+            if e.started && e.total > 0 {
+                col = col.push(
+                    iced::widget::container(progress_bar(
+                        0.0..=e.total as f32,
+                        e.done.min(e.total) as f32,
+                    ))
+                    .width(320)
+                    .height(8),
+                );
+            }
+            if let Some(h) = &e.hint {
+                col = col.push(note(h.clone(), warn));
+            }
+            col = col.push(
+                button(text("Annuler").font(self.font).size(13))
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::FingerCancel)),
+            );
+        } else if let Some(target) = s.target() {
+            col = col.push(
+                row![
+                    pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
+                        .font(self.font)
+                        .text_size(13),
+                    button(text("Enregistrer ce doigt").font(self.font).size(13))
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::FingerEnroll)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+        if let Some((error, t)) = &s.note {
+            col = col.push(note(t.clone(), if *error { warn } else { ink.accent }));
+        }
+        col.push(note(
+            crate::i18n::tr(
+                "Enregistrer ou supprimer une empreinte demande votre mot de passe (polkit). \
+                 Les empreintes sont gardées par fprintd, pas par hyprdesk.",
+            )
+            .to_string(),
+            ink.dim,
+        ))
         .into()
     }
 
@@ -434,6 +652,108 @@ impl App {
             Msg::Fingerprint(v) => {
                 self.settings.lock_fingerprint = Some(v);
                 self.commit()
+            }
+            Msg::Fingers(r) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.fingerprints.reader = r;
+                    p.fingerprints.loaded = true;
+                }
+                Task::none()
+            }
+            Msg::FingerChoice(f) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.fingerprints.choice = Some(f);
+                }
+                Task::none()
+            }
+            Msg::FingerEnroll => {
+                let Some(s) = self.panel.as_mut().map(|p| &mut p.fingerprints) else {
+                    return Task::none();
+                };
+                let (Some(target), None) = (s.target(), &s.enrolling) else {
+                    return Task::none();
+                };
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                s.note = None;
+                s.enrolling = Some(Enrolling {
+                    finger: target.0,
+                    started: false,
+                    done: 0,
+                    total: 0,
+                    hint: None,
+                    cancel: Some(tx),
+                });
+                Task::run(
+                    enroll::enroll(
+                        crate::lock::pam::current_user(),
+                        target.0.to_string(),
+                        rx,
+                    ),
+                    |p| wrap(Msg::FingerProgress(p)),
+                )
+            }
+            Msg::FingerProgress(p) => {
+                let Some(s) = self.panel.as_mut().map(|p| &mut p.fingerprints) else {
+                    return Task::none();
+                };
+                let Some(e) = s.enrolling.as_mut() else {
+                    return Task::none();
+                };
+                match p {
+                    Progress::Started(total) => {
+                        e.started = true;
+                        e.total = total;
+                    }
+                    Progress::Stage => {
+                        e.done += 1;
+                        e.hint = None;
+                    }
+                    Progress::Retry(h) => e.hint = Some(h),
+                    Progress::Done => {
+                        s.note = Some((
+                            false,
+                            crate::tr!(
+                                "Empreinte enregistrée : {f}.",
+                                f = enroll::finger_label(e.finger)
+                            ),
+                        ));
+                        s.enrolling = None;
+                        s.choice = None;
+                        return load();
+                    }
+                    Progress::Cancelled => s.enrolling = None,
+                    Progress::Failed(m) => {
+                        s.note = Some((true, m));
+                        s.enrolling = None;
+                    }
+                }
+                Task::none()
+            }
+            Msg::FingerCancel => {
+                if let Some(tx) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.fingerprints.enrolling.as_mut())
+                    .and_then(|e| e.cancel.take())
+                {
+                    let _ = tx.send(());
+                }
+                Task::none()
+            }
+            Msg::FingerDelete(f) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.fingerprints.note = None;
+                }
+                Task::perform(
+                    async move { enroll::delete(&crate::lock::pam::current_user(), &f).await },
+                    |r| wrap(Msg::FingerDeleted(r)),
+                )
+            }
+            Msg::FingerDeleted(r) => {
+                if let (Err(e), Some(p)) = (r, self.panel.as_mut()) {
+                    p.fingerprints.note = Some((true, e));
+                }
+                load()
             }
             Msg::LockNow => {
                 let exe = std::env::current_exe()
