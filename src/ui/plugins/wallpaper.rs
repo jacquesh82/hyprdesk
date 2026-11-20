@@ -34,7 +34,7 @@ pub fn wrap(m: Msg) -> UiMsg {
 
 /// État propre à ce paquet, porté par le tiroir des réglages.
 pub struct State {
-    /// Portée réglée (`None` : le workspace où les réglages sont ouverts).
+    /// Portée réglée (`None` : tous les écrans, tous les workspaces).
     pub scope: Option<Scope>,
     /// Règle dont la suppression attend confirmation.
     pub pending_rule: Option<Scope>,
@@ -681,7 +681,8 @@ impl App {
         col.into()
     }
 
-    /// Portée affichée : celle choisie, sinon le workspace où les réglages sont ouverts.
+    /// Portée affichée : celle choisie, sinon tous les écrans et tous les
+    /// workspaces (le fond par défaut, celui qu'on veut changer le plus souvent).
     pub(in crate::ui) fn wall_scope(&self) -> Scope {
         self.panel
             .as_ref()
@@ -690,10 +691,7 @@ impl App {
     }
 
     fn wall_scope_of(&self, p: &Panel) -> Scope {
-        p.wallpaper.scope.clone().unwrap_or_else(|| Scope {
-            monitor: None,
-            workspace: Some(self.panel_ctx().unwrap_or_default().1),
-        })
+        p.wallpaper.scope.clone().unwrap_or_default()
     }
 
     pub(in crate::ui) fn scope_selector(&self, scope: Scope) -> Selector {
