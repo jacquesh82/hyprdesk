@@ -1076,9 +1076,7 @@ pub fn gamma_holders(with_hyprdesk: bool) -> Vec<String> {
             Some(n.to_string())
         } else if with_hyprdesk && comm == "hyprdesk" {
             let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
-            cmd.split(|b| *b == 0)
-                .any(|a| a == b"daemon")
-                .then(|| format!("hyprdesk daemon ({pid})"))
+            desktop_daemon(&cmd).then(|| format!("hyprdesk daemon ({pid})"))
         } else {
             None
         };
@@ -1090,6 +1088,25 @@ pub fn gamma_holders(with_hyprdesk: bool) -> Vec<String> {
     }
     out.sort();
     out
+}
+
+/// La ligne de commande (`/proc/<pid>/cmdline`) est-elle celle d'un démon de
+/// bureau hyprdesk ? Même lecture que `main` : sans `--config <f>` ni
+/// `--replace`, la sous-commande est le premier argument (`daemon`), ou
+/// absente. Les autres démons du binaire (`index daemon`, `polkit-ui`…) ne
+/// tiennent pas de tables gamma.
+fn desktop_daemon(cmdline: &[u8]) -> bool {
+    let mut args = cmdline.split(|b| *b == 0).skip(1).filter(|a| !a.is_empty());
+    while let Some(a) = args.next() {
+        match a {
+            b"--config" | b"-c" => {
+                args.next();
+            }
+            b"--replace" => {}
+            sub => return sub == b"daemon",
+        }
+    }
+    true
 }
 
 /// Profil ICC appliqué à l'écran : celui de hyprdesk, ou une ligne de la
@@ -1430,6 +1447,45 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seul_le_demon_de_bureau_tient_les_tables_gamma() {
+        let cmd = |args: &[&str]| {
+            let mut v = Vec::new();
+            for a in args {
+                v.extend_from_slice(a.as_bytes());
+                v.push(0);
+            }
+            v
+        };
+        assert!(desktop_daemon(&cmd(&[
+            "/usr/bin/hyprdesk",
+            "daemon",
+            "--replace"
+        ])));
+        assert!(desktop_daemon(&cmd(&["hyprdesk", "--replace", "daemon"])));
+        assert!(desktop_daemon(&cmd(&[
+            "hyprdesk",
+            "-c",
+            "/tmp/x.lua",
+            "daemon"
+        ])));
+        assert!(desktop_daemon(&cmd(&["hyprdesk"])));
+        // L'indexeur de fichiers et la fenêtre polkit, enfants du démon, non.
+        assert!(!desktop_daemon(&cmd(&[
+            "hyprdesk",
+            "index",
+            "daemon",
+            "--paths",
+            "/home/u",
+            "--interval",
+            "21600"
+        ])));
+        assert!(!desktop_daemon(&cmd(&["hyprdesk", "polkit-ui"])));
+        assert!(!desktop_daemon(&cmd(&[
+            "hyprdesk", "--config", "daemon", "settings"
+        ])));
+    }
 
     #[test]
     fn commandes_tronquees() {
