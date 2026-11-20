@@ -4379,6 +4379,9 @@ impl App {
                     again.push(self.want_icon(&n));
                 }
                 again.push(self.resolve_class_icons());
+                // Le Panorama ne redemande ses icônes qu'à sa synchro : sans
+                // cette relance, ses tuiles restaient sur l'initiale.
+                again.push(self.panorama_want_icons());
                 again.push(smart);
                 Task::batch(again)
             }

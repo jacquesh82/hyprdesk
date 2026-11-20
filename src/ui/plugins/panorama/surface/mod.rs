@@ -776,11 +776,23 @@ impl App {
                 id,
             }));
         }
-        if !self.panorama.surfaces.is_empty() || self.panorama.preview.is_some() {
-            for icon in self.panorama_icon_names() {
-                tasks.push(self.want_icon(&icon));
-            }
+        tasks.push(self.panorama_want_icons());
+        Task::batch(tasks)
+    }
+
+    /// Résout les icônes du bandeau s'il est affiché (surface ou aperçu).
+    /// Rappelé après chaque relecture des icônes (`Msg::IconsResolved`), qui
+    /// vide `named_icons` : sans cela, les tuiles retombaient sur l'initiale
+    /// jusqu'au prochain `sync_panorama`.
+    pub(in crate::ui) fn panorama_want_icons(&mut self) -> Task<Msg> {
+        if self.panorama.surfaces.is_empty() && self.panorama.preview.is_none() {
+            return Task::none();
         }
+        let tasks: Vec<Task<Msg>> = self
+            .panorama_icon_names()
+            .iter()
+            .map(|n| self.want_icon(n))
+            .collect();
         Task::batch(tasks)
     }
 
