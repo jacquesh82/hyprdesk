@@ -3689,6 +3689,7 @@
 "{CTX} : « {key} » attend une liste de chaînes, pas {p0}" = "{CTX}: “{key}” expects a list of strings, not {p0}"
 "Lancez un lecteur (Spotify, Firefox, mpv…)" = "Start a player (Spotify, Firefox, mpv…)"
 "Panorama : tactile non rattaché : {e}" = "Panorama: touch not attached: {e}"
+"Panorama : tactile rattaché à {p0}" = "Panorama: touch attached to {p0}"
 "Panorama sur {p0}" = "Panorama on {p0}"
 "Panorama" = "Panorama"
 "Rien ne joue" = "Nothing playing"

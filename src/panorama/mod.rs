@@ -71,3 +71,62 @@ pub fn map_touch(config_path: &std::path::Path, output: Option<&str>) -> Result<
     }
     crate::inputs::save(&crate::inputs::inputs_path(config_path), &i).map_err(|e| e.to_string())
 }
+
+/// Écran Panorama que le tactile doit suivre : celui du même fabricant que
+/// le périphérique tactile, sinon le premier.
+pub fn touch_target(
+    panoramas: &[String],
+    screens: &[detect::Screen],
+    touch: &[String],
+) -> Option<String> {
+    panoramas
+        .iter()
+        .find(|p| {
+            screens
+                .iter()
+                .find(|s| &s.name == *p)
+                .is_some_and(|s| touch.iter().any(|d| detect::same_maker(s, d)))
+        })
+        .or_else(|| panoramas.first())
+        .cloned()
+}
+
+/// Faut-il rattacher le tactile à `target` ? Oui s'il n'est rattaché à
+/// rien (Hyprland le pose alors sur l'écran qui a le focus) ou à un
+/// connecteur absent : un écran peut changer de nom d'un démarrage à l'autre
+/// (HDMI-A-3 devenu HDMI-A-1), et Hyprland met alors aussi le toucher sur
+/// l'écran qui a le focus. Un écran branché choisi ailleurs reste en place.
+pub fn touch_stale(current: &str, target: &str, connected: &[String]) -> bool {
+    current != target && (current.is_empty() || !connected.iter().any(|c| c == current))
+}
+
+/// Remet le tactile sur l'écran Panorama si son rattachement est périmé
+/// (`touch_stale`). Bloquant. Rend vrai s'il a été déplacé.
+pub fn keep_touch(
+    config_path: &std::path::Path,
+    target: &str,
+    connected: &[String],
+) -> Result<bool, String> {
+    let current = crate::inputs::read().touch_output;
+    if !touch_stale(&current, target, connected) {
+        return Ok(false);
+    }
+    map_touch(config_path, Some(target)).map(|()| true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_follows_renamed_connector() {
+        let on = vec!["DP-1".to_string(), "HDMI-A-1".to_string()];
+        // Connecteur d'hier disparu : le tactile part sur le Panorama.
+        assert!(touch_stale("HDMI-A-3", "HDMI-A-1", &on));
+        // Aucun rattachement : le focus déciderait, on rattache.
+        assert!(touch_stale("", "HDMI-A-1", &on));
+        // Déjà en place, ou écran branché choisi ailleurs : on n'y touche pas.
+        assert!(!touch_stale("HDMI-A-1", "HDMI-A-1", &on));
+        assert!(!touch_stale("DP-1", "HDMI-A-1", &on));
+    }
+}

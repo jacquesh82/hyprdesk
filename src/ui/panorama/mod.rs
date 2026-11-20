@@ -159,6 +159,8 @@ pub struct State {
     pub halo_since: Option<Instant>,
     /// Zone Panorama dont la surface est posée (pour la refaire si elle change).
     pub zone_applied: Option<crate::panorama::config::Zone>,
+    /// Dernier rattachement du tactile vérifié : (écran visé, écrans branchés).
+    pub touch_checked: Option<(String, Vec<String>)>,
     /// Webradio jouée par mpv : (station, flux) ; en pause.
     pub radio: Option<(String, String)>,
     pub radio_paused: bool,
@@ -533,6 +535,40 @@ impl App {
                         (wallpaper, size)
                     },
                     |(p, s)| wrap(PMsg::Wallpaper(p, s)),
+                ));
+            }
+        }
+        // Le tactile suit l'écran Panorama même quand son connecteur change
+        // de nom : rattaché à un écran absent, Hyprland met le toucher sur
+        // l'écran qui a le focus, et le Panorama ne répond plus qu'avec lui.
+        if !self.panorama.touch.is_empty()
+            && let Some(target) =
+                crate::panorama::touch_target(&want, &self.panorama.screens, &self.panorama.touch)
+        {
+            let connected: Vec<String> = self.monitors.iter().map(|m| m.name.clone()).collect();
+            let key = (target.clone(), connected.clone());
+            if self.panorama.touch_checked.as_ref() != Some(&key) {
+                self.panorama.touch_checked = Some(key);
+                let path = self.config_path.clone();
+                tasks.push(Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::panorama::keep_touch(&path, &target, &connected).map(|moved| {
+                                if moved {
+                                    tracing::info!(
+                                        "{}",
+                                        crate::tr!(
+                                            "Panorama : tactile rattaché à {p0}",
+                                            p0 = target
+                                        )
+                                    );
+                                }
+                            })
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(PMsg::Touch(r)),
                 ));
             }
         }
