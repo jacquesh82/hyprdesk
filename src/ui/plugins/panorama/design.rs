@@ -211,7 +211,8 @@ impl App {
         col.into()
     }
 
-    pub(super) fn panorama_composition_tab(&self) -> Element<'_, UiMsg> {
+    /// Zones de la page réglée (vue par défaut ou page du carrousel).
+    pub(super) fn panorama_board_editor(&self) -> Element<'_, UiMsg> {
         let c = self.panorama_cfg();
         let board = self.panorama.edit_board.filter(|i| *i < c.pages.len());
         let tiles = board_tiles(&c, board).clone();
@@ -219,43 +220,17 @@ impl App {
             .panorama
             .selected_tile
             .min(tiles.len().saturating_sub(1));
-        // Composition réglée : la vue par défaut ou une page.
-        let mut boards = row![].spacing(6);
-        let pick = |label: String, b: Option<usize>| {
-            let on = board == b;
-            button(text(label).size(12))
-                .padding([4, 10])
-                .style(move |th, st| {
-                    if on {
-                        button::primary(th, st)
-                    } else {
-                        button::secondary(th, st)
-                    }
-                })
-                .on_press(wrap(Msg::ComposePage(b)))
-        };
-        boards = boards.push(pick(crate::i18n::tr("Vue par défaut").to_string(), None));
-        for (i, p) in c.pages.iter().enumerate() {
-            boards = boards.push(pick(p.name.clone(), Some(i)));
-        }
         let mut col = column![
-            self.panorama_layout_section(),
             self.section("Composition"),
-            iced::widget::scrollable(boards).direction(
-                iced::widget::scrollable::Direction::Horizontal(
-                    iced::widget::scrollable::Scrollbar::new()
-                        .width(4)
-                        .scroller_width(4),
-                )
-            ),
+            text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(12),
         ]
         .spacing(12);
         col = match board {
-            None => col.extend([
-                text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(12).into(),
-                button(text("Utiliser cette composition").size(13)).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))).into(),
-            ]),
-            Some(_) => col.push(text("Page du carrousel, après la vue par défaut : glissez sur le bandeau pour y aller. Mesures : une tuile par mesure, en graphique (metric:cpu) ou en jauge (metric:cpu:gauges).").size(12)),
+            None if c.layout != crate::panorama::config::Layout::Dashboard => col.push(
+                button(text("Utiliser cette composition").size(13)).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))),
+            ),
+            None => col,
+            Some(_) => col.push(text("Mesures : une tuile par mesure, en graphique (metric:cpu) ou en jauge (metric:cpu:gauges).").size(12)),
         };
         col = col.push(self.panorama_design_error());
         for (i, t) in tiles.iter().enumerate() {

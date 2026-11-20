@@ -2345,10 +2345,10 @@ impl Preview {
             if let Some(tab) = SCENES[self.scene].strip_prefix("panorama-config-") {
                 self.app.subtabs.insert(
                     "panorama",
-                    if tab == "shortcuts" {
-                        "raccourcis"
-                    } else {
-                        tab
+                    match tab {
+                        "shortcuts" => "raccourcis",
+                        "composition" => "pages",
+                        t => t,
                     },
                 );
             }

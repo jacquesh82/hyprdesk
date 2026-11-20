@@ -24,7 +24,7 @@ pub const INFO: PluginInfo = PluginInfo {
 pub const TABS: &[SubTab] = &[
     ("ecrans", "Écrans"),
     ("pages", "Pages"),
-    ("composition", "Composition"),
+    ("lecteur", "Lecteur"),
     ("style", "Style"),
     ("raccourcis", "Raccourcis"),
 ];
@@ -68,7 +68,7 @@ pub enum Msg {
     /// Source, ±1 dans l'ordre.
     SourceMove(usize, i32),
     SourcesReset,
-    /// Liste réglée : vidéo, musique, radio.
+    /// Liste réglée (sous-onglet du Lecteur) : vidéo, musique, radio.
     SourcesKind(&'static str),
     /// Affichage d'une source dans le Panorama : auto, on, off.
     SourceShow(usize, &'static str),
@@ -119,6 +119,13 @@ fn layout_label(l: crate::panorama::config::Layout) -> &'static str {
     }
 }
 
+/// Sous-onglets de l'onglet Lecteur : (profil de sources, libellé).
+const PLAYER_VIEWS: &[(&str, &str)] = &[
+    ("video", "Vidéo"),
+    ("music", "Musique"),
+    ("radio", "Webradio"),
+];
+
 /// Formats proposés pour l'aperçu : (taille simulée, libellé).
 const PREVIEW_FORMATS: &[((u32, u32), &str)] = &[
     ((2560, 720), "2560×720"),
@@ -136,8 +143,8 @@ impl App {
         if self.on_subtab(INFO.id, "style") {
             return self.panorama_style_tab();
         }
-        if self.on_subtab(INFO.id, "composition") {
-            return self.panorama_composition_tab();
+        if self.on_subtab(INFO.id, "lecteur") {
+            return self.panorama_player_tab();
         }
         if self.on_subtab(INFO.id, "raccourcis") {
             return self.panorama_shortcuts_tab();
@@ -242,6 +249,7 @@ impl App {
                 .padding([4, 10])
                 .on_press(wrap(Msg::Detect)),
         );
+        col = col.push(self.panorama_sleep_section());
         col = col.push(self.section("Aperçu"));
         col = col.push(
             text(
@@ -335,7 +343,7 @@ impl App {
         match edit {
             Layout::Single => {
                 col = col.push(
-                    text("Une page à la fois : les pages et leur ordre se règlent dans l'onglet Pages.")
+                    text("Une page à la fois : la vue par défaut, puis les pages des onglets ci-dessus.")
                         .font(self.font)
                         .size(12)
                         .color(dim),
@@ -415,72 +423,136 @@ impl App {
         col.into()
     }
 
+    /// Un sous-onglet par page (la vue par défaut d'abord) ; chacun porte sa
+    /// composition.
     fn panorama_pages_tab(&self) -> Element<'_, UiMsg> {
+        use crate::panorama::config::Layout;
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        let board = self.panorama.edit_board.filter(|i| *i < c.pages.len());
+        let n = c.pages.len();
+        let tab = |label: String, b: Option<usize>| {
+            let on = board == b;
+            button(text(label).font(self.font).size(12))
+                .padding([4, 12])
+                .style(move |th, st| {
+                    if on {
+                        button::primary(th, st)
+                    } else {
+                        button::secondary(th, st)
+                    }
+                })
+                .on_press(wrap(Msg::ComposePage(b)))
+        };
+        let mut tabs = row![tab(crate::i18n::tr("Vue par défaut").to_string(), None)]
+            .spacing(6)
+            .align_y(Alignment::Center);
+        for (i, p) in c.pages.iter().enumerate() {
+            tabs = tabs.push(tab(p.name.clone(), Some(i)));
+        }
+        tabs = tabs.extend([
+            button(text("+ Page").font(self.font).size(12))
+                .padding([4, 10])
+                .style(button::text)
+                .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(false))))
+                .into(),
+            button(text("+ Page Système").font(self.font).size(12))
+                .padding([4, 10])
+                .style(button::text)
+                .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(true))))
+                .into(),
+        ]);
+        let mut col = column![
+            iced::widget::scrollable(tabs).direction(
+                iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4),
+                )
+            ),
+            text(
+                "La vue par défaut, puis les pages dans cet ordre : on glisse de l'une à \
+                 l'autre sur le bandeau ; les points en bas de l'écran y mènent aussi."
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(12);
+        match board {
+            None => {
+                col = col.push(self.panorama_layout_section());
+                if self.panorama.edit_layout.unwrap_or(c.layout) == Layout::Dashboard {
+                    col = col.push(self.panorama_board_editor());
+                }
+            }
+            Some(i) => {
+                let p = &c.pages[i];
+                let name = self
+                    .panorama
+                    .page_names
+                    .get(&i)
+                    .cloned()
+                    .unwrap_or_else(|| p.name.clone());
+                col = col.push(self.section("Page"));
+                col = col.push(
+                    row![
+                        iced::widget::text_input(crate::i18n::tr("Nom"), &name)
+                            .on_input(move |v| wrap(Msg::PageName(i, v)))
+                            .on_submit(wrap(Msg::PageNameCommit(i)))
+                            .size(13)
+                            .width(Length::Fill),
+                        self.panorama_move_buttons(i, n, |i, d| wrap(Msg::PageMove(i, d))),
+                        button(text("Retirer la page").font(self.font).size(12))
+                            .padding([4, 10])
+                            .on_press(wrap(Msg::PageRemove(i))),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+                col = col.push(self.panorama_board_editor());
+            }
+        }
+        col.into()
+    }
+
+    /// Sources du lecteur, par profil : Vidéo, Musique, Webradio.
+    fn panorama_player_tab(&self) -> Element<'_, UiMsg> {
+        let view = match self.panorama.sources_kind {
+            v @ ("music" | "radio") => v,
+            _ => "video",
+        };
+        let mut tabs = row![].spacing(6);
+        for (id, label) in PLAYER_VIEWS {
+            let on = view == *id;
+            tabs = tabs.push(
+                button(text(crate::i18n::tr(label)).font(self.font).size(12))
+                    .padding([4, 12])
+                    .style(move |th, st| {
+                        if on {
+                            button::primary(th, st)
+                        } else {
+                            button::secondary(th, st)
+                        }
+                    })
+                    .on_press(wrap(Msg::SourcesKind(id))),
+            );
+        }
+        let extra = if view == "radio" {
+            self.panorama_webradio_section()
+        } else {
+            self.panorama_browser_section()
+        };
+        column![tabs, self.panorama_sources_section(view), extra]
+            .spacing(14)
+            .into()
+    }
+
+    /// Horloge du Panorama après inactivité.
+    fn panorama_sleep_section(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
         let mut col = column![].spacing(10);
-        col = col.push(self.panorama_sources_section());
-        col = col.push(self.panorama_voice_section());
-        col = col.extend([
-            self.section("Pages"),
-            text("Glisser d'une page à l'autre ; les points en bas de l'écran y mènent aussi.")
-                .font(self.font)
-                .size(12)
-                .color(dim)
-                .into(),
-        ]);
-        // Vue par défaut, puis chaque page : nom, ordre, composition.
-        col = col.push(
-            row![
-                text(crate::i18n::tr("Vue par défaut"))
-                    .size(13)
-                    .width(Length::Fill),
-                button(text("Composer").size(12))
-                    .padding([2, 10])
-                    .on_press(wrap(Msg::ComposePage(None))),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-        );
-        let n = c.pages.len();
-        for (i, p) in c.pages.iter().enumerate() {
-            let name = self
-                .panorama
-                .page_names
-                .get(&i)
-                .cloned()
-                .unwrap_or_else(|| p.name.clone());
-            col = col.push(
-                row![
-                    iced::widget::text_input("", &name)
-                        .on_input(move |v| wrap(Msg::PageName(i, v)))
-                        .on_submit(wrap(Msg::PageNameCommit(i)))
-                        .size(13)
-                        .width(Length::Fill),
-                    text(crate::tr!("{n} zone(s)", n = p.tiles.len().to_string())).size(12),
-                    self.panorama_move_buttons(i, n, |i, d| wrap(Msg::PageMove(i, d))),
-                    button(text("Composer").size(12))
-                        .padding([2, 10])
-                        .on_press(wrap(Msg::ComposePage(Some(i)))),
-                    button(text("Retirer").size(12))
-                        .padding([2, 10])
-                        .on_press(wrap(Msg::PageRemove(i))),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-        }
-        col = col.push(
-            row![
-                button(text("Ajouter une page").size(12))
-                    .padding([4, 10])
-                    .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(false)))),
-                button(text("Ajouter une page Système").size(12))
-                    .padding([4, 10])
-                    .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(true)))),
-            ]
-            .spacing(8),
-        );
         col = col.push(self.section("Veille"));
         col = col.push(
             self.field(
@@ -600,69 +672,35 @@ impl App {
     }
 
     /// LYRA vocale : ses réglages sont dans IA → Voix ; ici, un renvoi.
-    fn panorama_voice_section(&self) -> Element<'_, UiMsg> {
-        let dim = self.ink().dim;
-        column![
-            self.section("LYRA vocale"),
-            text(
-                "Le bouton micro du Panorama active ou coupe LYRA vocale ; micro, essai de la \
-                 voix et halo se règlent dans IA → Voix.",
-            )
-            .font(self.font)
-            .size(12)
-            .color(dim),
-            button(text("Réglages de LYRA vocale").font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(UiMsg::Control(crate::control::Command::Settings(
-                    "assistant/voix".into(),
-                ))),
-        ]
-        .spacing(8)
-        .into()
-    }
-
-    fn panorama_sources_section(&self) -> Element<'_, UiMsg> {
+    /// Sources d'un profil du lecteur : video, music ou radio.
+    fn panorama_sources_section(&self, kind: &'static str) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         let c = self.panorama_cfg();
-        let kind = match self.panorama.sources_kind {
-            "music" | "radio" => self.panorama.sources_kind,
-            _ => "video",
+        let (title, about) = match kind {
+            "music" => (
+                "Sources musicales",
+                "La musique s'ouvre dans votre navigateur (fenêtre d'application, votre profil \
+                 habituel), posée dans la zone du lecteur. Le Panorama ne montre que les \
+                 plateformes sans compte et celles où vous êtes connecté (lu dans le \
+                 navigateur) ; « Se connecter » ouvre le service pour le faire.",
+            ),
+            "radio" => (
+                "Radios favorites",
+                "Les flux des radios favorites, joués par le lecteur du profil Musique.",
+            ),
+            _ => (
+                "Sources vidéo",
+                "Les vidéos s'ouvrent dans votre navigateur (fenêtre d'application, votre profil \
+                 habituel), posées dans la zone du lecteur. Le Panorama ne montre que les \
+                 plateformes sans compte et celles où vous êtes connecté (lu dans le \
+                 navigateur) ; « Se connecter » ouvre le service pour le faire. Les services \
+                 protégés (Netflix, Disney+…) demandent un navigateur Chromium avec Widevine ; \
+                 sous Linux, ils sont limités à 720p.",
+            ),
         };
-        let mut kinds = row![].spacing(6);
-        for (id, label) in [
-            ("video", "Vidéo"),
-            ("music", "Musique"),
-            ("radio", "Webradio"),
-        ] {
-            let on = kind == id;
-            kinds = kinds.push(
-                button(text(crate::i18n::tr(label)).font(self.font).size(12))
-                    .padding([4, 12])
-                    .style(move |th, st| {
-                        if on {
-                            button::primary(th, st)
-                        } else {
-                            button::secondary(th, st)
-                        }
-                    })
-                    .on_press(wrap(Msg::SourcesKind(id))),
-            );
-        }
         let mut col = column![
-            self.section("Sources du lecteur"),
-            kinds,
-            text(
-                "Vidéo et Musique s'ouvrent dans votre navigateur (fenêtre d'application, votre \
-                 profil habituel), posées dans la zone du lecteur ; Webradio : les flux des radios \
-                 favorites. Le Panorama ne montre que les plateformes sans compte et celles où vous \
-                 êtes connecté (lu dans le navigateur) ; « Se connecter » ouvre le service pour le \
-                 faire. Les services protégés (Netflix, Disney+…) demandent un navigateur Chromium \
-                 avec Widevine ; sous Linux, ils sont limités à 720p.",
-            )
-            .font(self.font)
-            .size(12)
-            .color(dim),
+            self.section(title),
+            text(about).font(self.font).size(12).color(dim),
         ]
         .spacing(8);
         let list = match kind {
@@ -747,8 +785,14 @@ impl App {
             .align_y(Alignment::Center),
         );
         col = col.push(self.panorama_icons_status());
-        // Webradio du profil Musique : annuaire Radio Browser dans l'onglet,
-        // ou un service web ouvert dans le lecteur.
+        col.into()
+    }
+
+    /// Webradio du profil Musique : annuaire Radio Browser dans l'onglet, ou
+    /// un service web ouvert dans le lecteur ; ambiance du flux.
+    fn panorama_webradio_section(&self) -> Element<'_, UiMsg> {
+        let c = self.panorama_cfg();
+        let mut col = column![].spacing(8);
         col = col.push(self.section("Webradio (profil Musique)"));
         let mut services = row![].spacing(14);
         let current = crate::panorama::radio::service(&c.webradio).map(|s| s.0);
@@ -794,6 +838,14 @@ impl App {
             ))
             .size(12),
         );
+        col.into()
+    }
+
+    /// Navigateur des sources Vidéo et Musique.
+    fn panorama_browser_section(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        let c = self.panorama_cfg();
+        let mut col = column![self.section("Navigateur")].spacing(8);
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         col = col.push(
             self.field(
@@ -1102,6 +1154,11 @@ impl App {
                 let j = i as i64 + d as i64;
                 if i < c.pages.len() && j >= 0 && (j as usize) < c.pages.len() {
                     c.pages.swap(i, j as usize);
+                    if self.panorama.edit_board == Some(i) {
+                        self.panorama.edit_board = Some(j as usize);
+                    } else if self.panorama.edit_board == Some(j as usize) {
+                        self.panorama.edit_board = Some(i);
+                    }
                 }
                 self.panorama.page.clear();
                 self.panorama.page_names.clear();
@@ -1121,6 +1178,8 @@ impl App {
                     crate::tr!("Page {n}", n = (c.pages.len() + 2).to_string())
                 };
                 c.pages.push(p);
+                self.panorama.edit_board = Some(c.pages.len() - 1);
+                self.panorama.selected_tile = 0;
                 self.panorama.page_names.clear();
                 self.settings.panorama = Some(c);
                 self.commit()
@@ -1130,9 +1189,11 @@ impl App {
                 if i < c.pages.len() {
                     c.pages.remove(i);
                 }
-                if self.panorama.edit_board == Some(i) {
-                    self.panorama.edit_board = None;
-                }
+                self.panorama.edit_board = match self.panorama.edit_board {
+                    Some(b) if b == i => None,
+                    Some(b) if b > i => Some(b - 1),
+                    b => b,
+                };
                 self.panorama.page.clear();
                 self.panorama.page_names.clear();
                 self.settings.panorama = Some(c);
@@ -1157,7 +1218,7 @@ impl App {
             Msg::ComposePage(board) => {
                 self.panorama.edit_board = board;
                 self.panorama.selected_tile = 0;
-                self.subtabs.insert(INFO.id, "composition");
+                self.subtabs.insert(INFO.id, "pages");
                 Task::none()
             }
             Msg::Sleep(v) => {
