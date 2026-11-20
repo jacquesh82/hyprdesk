@@ -875,5 +875,4 @@ hl.bind(mainMod .. " + Tab", function()
         };
         assert!(h.describe().contains("binds.lua"));
     }
-
 }

@@ -1932,9 +1932,11 @@ impl App {
                         .map(|t| t.widget.clone())
                         // Bande des modules du profil Raccourcis.
                         .chain(
-                            (self.cfg.general.panorama.design.shortcut_profile == "system")
-                                .then(|| self.cfg.general.panorama.design.modules())
-                                .unwrap_or_default(),
+                            if self.cfg.general.panorama.design.shortcut_profile == "system" {
+                                self.cfg.general.panorama.design.modules()
+                            } else {
+                                Default::default()
+                            },
                         )
                         .any(|w| {
                             w == "system" || crate::panorama::design::metric_of(&w).is_some()

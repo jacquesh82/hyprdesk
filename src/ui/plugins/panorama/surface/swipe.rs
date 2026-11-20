@@ -81,6 +81,9 @@ pub enum Axis {
     Vertical,
 }
 
+/// Bords suivis et message rendu par un geste parti de l'un d'eux.
+type EdgeHandler<'a> = (&'static [Edge], Box<dyn Fn(Edge) -> Msg + 'a>);
+
 pub struct Swipe<'a> {
     content: Element<'a, Msg>,
     axis: Axis,
@@ -91,7 +94,7 @@ pub struct Swipe<'a> {
     /// un geste qui y part ne change pas de page (les bords restent).
     yields: Vec<Rectangle>,
     /// Gestes partis de ces bords.
-    on_edge: Option<(&'static [Edge], Box<dyn Fn(Edge) -> Msg + 'a>)>,
+    on_edge: Option<EdgeHandler<'a>>,
     /// Publié à chaque appui (activité : retarde la veille).
     on_press: Option<Msg>,
     duration: Duration,

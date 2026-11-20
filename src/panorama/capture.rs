@@ -6,13 +6,16 @@ use std::collections::{HashMap, HashSet};
 
 pub const TAG: &str = "hyprdesk-captured-video";
 
+/// Rectangle de repli (x, y, largeur, hauteur), partagé entre fils.
+type SharedRect = std::sync::Arc<std::sync::Mutex<Option<(i32, i32, i32, i32)>>>;
+
 #[derive(Debug, Clone)]
 pub struct Borrowed {
     touched: std::sync::Arc<std::sync::atomic::AtomicBool>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     mutation: std::sync::Arc<std::sync::Mutex<()>>,
     origin: Option<Origin>,
-    fallback_rect: std::sync::Arc<std::sync::Mutex<Option<(i32, i32, i32, i32)>>>,
+    fallback_rect: SharedRect,
     fullscreen_session: bool,
     exit_ready: bool,
     pub address: String,
@@ -556,7 +559,7 @@ mod tests {
             playing: true,
             ..Default::default()
         };
-        assert!(eligible(&c, &[m.clone()]));
+        assert!(eligible(&c, std::slice::from_ref(&m)));
         assert!(!eligible(&client("firefox", "Film", 2), &[m]));
     }
     #[test]

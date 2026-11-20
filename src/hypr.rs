@@ -1457,11 +1457,14 @@ pub fn fullscreen_windows() -> Vec<FsWindow> {
 /// plein écran pour l'application (vidéo sans interface). `held` : fenêtres
 /// déjà ainsi retenues. Rend les états à poser (adresse, interne, client),
 /// les fenêtres retenues en plus et celles relâchées.
+/// États à poser (adresse, interne, client), retenues en plus, relâchées.
+pub type DrawerFullscreenPlan = (Vec<(String, i64, i64)>, Vec<String>, Vec<String>);
+
 pub fn plan_drawer_fullscreen(
     windows: &[FsWindow],
     drawers: &[String],
     held: &std::collections::HashSet<String>,
-) -> (Vec<(String, i64, i64)>, Vec<String>, Vec<String>) {
+) -> DrawerFullscreenPlan {
     let (mut set, mut added, mut dropped) = (Vec::new(), Vec::new(), Vec::new());
     for w in windows {
         let on_drawer = drawers.contains(&w.monitor);

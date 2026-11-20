@@ -122,7 +122,10 @@ pub async fn list(user: &str) -> Option<Reader> {
     let proxy = zbus::Proxy::new(&conn, DEST, path.as_str(), DEVICE_IFACE)
         .await
         .ok()?;
-    let name = proxy.get_property::<String>("name").await.unwrap_or_default();
+    let name = proxy
+        .get_property::<String>("name")
+        .await
+        .unwrap_or_default();
     // Aucune empreinte : l'appel échoue (NoEnrolledPrints).
     let fingers = match proxy.call_method("ListEnrolledFingers", &(user,)).await {
         Ok(r) => r.body().deserialize::<Vec<String>>().unwrap_or_default(),

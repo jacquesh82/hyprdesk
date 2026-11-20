@@ -287,8 +287,9 @@ impl App {
         }
         let ink = self.ink();
         let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
-        let note =
-            |s: String, c: Color| -> Element<'_, UiMsg> { text(s).font(self.font).size(12).color(c).into() };
+        let note = |s: String, c: Color| -> Element<'_, UiMsg> {
+            text(s).font(self.font).size(12).color(c).into()
+        };
         let mut col = column![self.section("Empreintes digitales")].spacing(10);
         let Some(s) = self
             .panel
@@ -310,10 +311,7 @@ impl App {
                 )
                 .into();
         };
-        col = col.push(note(
-            crate::tr!("Lecteur : {n}", n = reader.name),
-            ink.dim,
-        ));
+        col = col.push(note(crate::tr!("Lecteur : {n}", n = reader.name), ink.dim));
         if reader.fingers.is_empty() {
             col = col.push(note(
                 crate::i18n::tr(
@@ -684,11 +682,7 @@ impl App {
                     cancel: Some(tx),
                 });
                 Task::run(
-                    enroll::enroll(
-                        crate::lock::pam::current_user(),
-                        target.0.to_string(),
-                        rx,
-                    ),
+                    enroll::enroll(crate::lock::pam::current_user(), target.0.to_string(), rx),
                     |p| wrap(Msg::FingerProgress(p)),
                 )
             }

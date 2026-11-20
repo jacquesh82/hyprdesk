@@ -2624,6 +2624,19 @@ impl App {
     }
 }
 
+/// Bords suivis sur les pages du Panorama.
+const EDGES: &[Edge] = &[Edge::Bottom, Edge::Top, Edge::Right];
+
+/// Bas : choix de la disposition ; haut : fermer ou masquer ; droite :
+/// notifications.
+fn edge_msg(key: String) -> impl Fn(Edge) -> Msg {
+    move |e| match e {
+        Edge::Bottom => wrap(PMsg::Cross(key.clone(), 1)),
+        Edge::Top => wrap(PMsg::Cross(key.clone(), -1)),
+        Edge::Right | Edge::Left => wrap(PMsg::Notifs(Some(key.clone()))),
+    }
+}
+
 #[cfg(test)]
 mod capture_tests {
     use super::*;
@@ -2794,18 +2807,5 @@ mod capture_tests {
             app.panorama.video.as_ref().unwrap().address.as_deref(),
             Some("0x42")
         );
-    }
-}
-
-/// Bords suivis sur les pages du Panorama.
-const EDGES: &[Edge] = &[Edge::Bottom, Edge::Top, Edge::Right];
-
-/// Bas : choix de la disposition ; haut : fermer ou masquer ; droite :
-/// notifications.
-fn edge_msg(key: String) -> impl Fn(Edge) -> Msg {
-    move |e| match e {
-        Edge::Bottom => wrap(PMsg::Cross(key.clone(), 1)),
-        Edge::Top => wrap(PMsg::Cross(key.clone(), -1)),
-        Edge::Right | Edge::Left => wrap(PMsg::Notifs(Some(key.clone()))),
     }
 }

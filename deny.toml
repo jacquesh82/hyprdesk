@@ -23,6 +23,10 @@ ignore = [
     # clé panique sous catch_unwind ; les clés de cryoglyph n'ont pas de Drop
     # qui panique. À retirer quand iced passera à lru ≥ 0.18.2. (2026-11-16)
     { id = "RUSTSEC-2026-0253", reason = "lru transitif via iced/cryoglyph, chemin non atteignable" },
+    # chrono sans mainteneur (avis « unmaintained », pas une faille) : dates
+    # localisées (unstable-locales) dans une dizaine de modules ; passage à
+    # jiff suivi dans Plane (MLG-208). À retirer après la migration. (2026-11-21)
+    { id = "RUSTSEC-2026-0543", reason = "chrono sans mainteneur, migration vers jiff suivie (MLG-208)" },
 ]
 
 [licenses]

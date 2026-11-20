@@ -21,7 +21,7 @@ use std::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Part {
+pub enum Part {
     Left,
     Right,
     Dock,

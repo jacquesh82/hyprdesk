@@ -7,7 +7,7 @@ use iced::{Color, Rectangle, Size};
 const GRID: usize = 24;
 
 #[derive(Clone, Debug)]
-pub(crate) struct Backdrop {
+pub struct Backdrop {
     size: Size,
     cells: Vec<(f32, f32)>,
 }

@@ -1436,7 +1436,11 @@ pub fn sync_hyprdesk(
             // L'équivalent hyprdesk est déjà là (ligne d'origine réactivée
             // par une remise à zéro) : l'outil d'origine est seulement coupé.
             let wanted = format!("{exe} {sub}");
-            if binds.iter().filter(twin).any(|o| o.action.contains(&wanted)) {
+            if binds
+                .iter()
+                .filter(twin)
+                .any(|o| o.action.contains(&wanted))
+            {
                 if let Ok(n) = edit_src(&out, b.line, &b.combo, &Edit::Disable) {
                     out = n;
                     done.push(crate::tr!(

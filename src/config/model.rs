@@ -1346,7 +1346,10 @@ impl Default for General {
             tour_seen: false,
             // Thème des applications actif d'emblée (MLG-207) : chaque
             // application connue prend le thème de hyprdesk.
-            app_themes: crate::apptheme::TARGETS.iter().map(|t| t.id.to_string()).collect(),
+            app_themes: crate::apptheme::TARGETS
+                .iter()
+                .map(|t| t.id.to_string())
+                .collect(),
             icon_theme: None,
             font: None,
             font_size: 14.0,

@@ -59,7 +59,9 @@ pub fn classify(result: &str, done: bool) -> Verdict {
     }
 }
 
-pub(super) async fn device(conn: &zbus::Connection) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
+pub(super) async fn device(
+    conn: &zbus::Connection,
+) -> zbus::Result<zbus::zvariant::OwnedObjectPath> {
     let r = conn
         .call_method(
             Some(DEST),
