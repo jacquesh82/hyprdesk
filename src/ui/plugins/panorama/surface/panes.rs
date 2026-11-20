@@ -342,6 +342,29 @@ impl App {
             .map(|s| s.id)
     }
 
+    /// Voile autour de la vidéo (MLG-191) : seulement sur la surface dont un
+    /// trou montre la fenêtre vidéo, pendant la lecture (ou en pause si
+    /// réglé). Lu dans les réglages en cours : les curseurs agissent en direct.
+    fn panorama_veil(&self, holes: &[Rect]) -> fx::Veil {
+        let c = &self
+            .settings
+            .panorama
+            .as_ref()
+            .unwrap_or(&self.cfg.general.panorama)
+            .video_dim;
+        let playing = self.panorama.media.as_ref().is_some_and(|m| m.playing);
+        fx::Veil {
+            alpha: if holes.is_empty() {
+                0.0
+            } else {
+                c.alpha(playing)
+            },
+            over_content: c.scope != "background",
+            fade: Duration::from_millis(u64::from(c.fade)),
+            hover: c.hover_factor(),
+        }
+    }
+
     fn panorama_surface_holes(&self, s: &Surf, geo: &Geo) -> Vec<Rect> {
         if self.panorama_video_host() == Some(s.id) {
             self.panorama_holes(geo)
@@ -1787,6 +1810,8 @@ impl App {
         let video_at = (self.panorama_video_host() == Some(s.id))
             .then(|| geo.video_pane().map(|p| p.rect))
             .flatten();
+        let holes = self.panorama_surface_holes(&s, &geo);
+        let veil = self.panorama_veil(&holes);
         let scene = fx::Scene {
             key: format!(
                 "{}:{}",
@@ -1804,7 +1829,8 @@ impl App {
             playing: self.cfg.general.panorama.design.effects
                 && !self.panorama_asleep()
                 && self.panorama.media.as_ref().is_some_and(|m| m.playing),
-            holes: self.panorama_surface_holes(&s, &geo),
+            holes,
+            veil,
             design: self.cfg.general.panorama.design.clone(),
             wallpaper: self
                 .panorama

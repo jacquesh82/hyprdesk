@@ -13,6 +13,13 @@
 //!   browser  = "brave",               -- vide : le premier navigateur Chromium trouvé
 //!   declined = { "Acme M 1" },        -- écrans refusés (identifiant EDID)
 //!   sleep_minutes = 5,                -- 0 : jamais d'horloge de veille
+//!   video_dim = {                     -- voile autour de la vidéo qui joue
+//!     on = true, level = 55,          -- intensité en % (10..90)
+//!     scope = "all",                  -- all : fond et zones | background : fond
+//!     paused = false,                 -- garder le voile en pause
+//!     fade = 600,                     -- durée du fondu, ms (0..3000)
+//!     hover = 35,                     -- % du voile gardé sous la souris
+//!   },
 //! } })
 //! ```
 
@@ -255,6 +262,8 @@ pub struct Config {
     pub browser: String,
     /// Restituer automatiquement la fenêtre capturée à la sortie du plein écran.
     pub restore_on_fullscreen_exit: bool,
+    /// Voile sombre autour de la vidéo pendant la lecture.
+    pub video_dim: VideoDim,
     /// Service de webradio de l'onglet Webradio (`radio::SERVICES`).
     pub webradio: String,
     /// Radios favorites de l'onglet Webradio (adresse du flux).
@@ -276,6 +285,122 @@ pub struct Config {
     /// Ambiance de la barre « flux vocal » (webradio) : aurora, sunset, ocean.
     pub flux_ambiance: String,
     pub design: super::design::Design,
+}
+
+/// Voile sombre posé autour de la zone Vidéo pendant la lecture (MLG-191) :
+/// la vidéo se détache, l'écran fatigue moins. Jamais sur la fenêtre vidéo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoDim {
+    pub on: bool,
+    /// Intensité, en % d'opacité du voile (10..=90).
+    pub level: u8,
+    /// `all` : fond et zones autour de la vidéo ; `background` : fond seul.
+    pub scope: String,
+    /// Garder le voile quand la lecture est en pause.
+    pub paused: bool,
+    /// Durée du fondu d'entrée et de sortie, en ms (0..=3000).
+    pub fade: u32,
+    /// Part du voile gardée quand la souris est sur le Panorama, en %
+    /// (0 : le voile s'efface, 100 : il ne change pas).
+    pub hover: u8,
+}
+
+impl VideoDim {
+    pub const SCOPES: [&'static str; 2] = ["all", "background"];
+    pub const LEVELS: std::ops::RangeInclusive<u8> = 10..=90;
+    pub const FADE_MAX: u32 = 3000;
+
+    /// Opacité du voile (0..1) : lecture en cours, ou en pause si réglé.
+    pub fn alpha(&self, playing: bool) -> f32 {
+        if self.on && (playing || self.paused) {
+            f32::from(self.level) / 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Part du voile gardée sous la souris (0..1).
+    pub fn hover_factor(&self) -> f32 {
+        f32::from(self.hover.min(100)) / 100.0
+    }
+
+    fn from_lua(v: Value) -> mlua::Result<Self> {
+        let mut d = VideoDim::default();
+        match v {
+            Value::Boolean(b) => d.on = b,
+            Value::Table(t) => {
+                if let Some(b) = t.get::<Option<bool>>("on")? {
+                    d.on = b;
+                }
+                if let Some(n) = t.get::<Option<f64>>("level")? {
+                    d.level = (n.round().clamp(0.0, 100.0) as u8)
+                        .clamp(*Self::LEVELS.start(), *Self::LEVELS.end());
+                }
+                if let Some(sc) = t.get::<Option<String>>("scope")? {
+                    if !Self::SCOPES.contains(&sc.as_str()) {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "{CTX} : video_dim.scope = all | background"
+                        )));
+                    }
+                    d.scope = sc;
+                }
+                if let Some(b) = t.get::<Option<bool>>("paused")? {
+                    d.paused = b;
+                }
+                if let Some(n) = t.get::<Option<f64>>("fade")? {
+                    d.fade = n.round().clamp(0.0, f64::from(Self::FADE_MAX)) as u32;
+                }
+                if let Some(n) = t.get::<Option<f64>>("hover")? {
+                    d.hover = n.round().clamp(0.0, 100.0) as u8;
+                }
+            }
+            Value::Nil => {}
+            _ => {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "{CTX} : video_dim = {{ on, level, scope, paused, fade, hover }}"
+                )));
+            }
+        }
+        Ok(d)
+    }
+
+    /// Champs différents du défaut (vide : rien à écrire).
+    fn to_lua(&self) -> Option<String> {
+        let d = VideoDim::default();
+        let mut f = Vec::new();
+        if self.on != d.on {
+            f.push(format!("on = {}", self.on));
+        }
+        if self.level != d.level {
+            f.push(format!("level = {}", self.level));
+        }
+        if self.scope != d.scope {
+            f.push(format!("scope = {}", q(&self.scope)));
+        }
+        if self.paused != d.paused {
+            f.push(format!("paused = {}", self.paused));
+        }
+        if self.fade != d.fade {
+            f.push(format!("fade = {}", self.fade));
+        }
+        if self.hover != d.hover {
+            f.push(format!("hover = {}", self.hover));
+        }
+        (!f.is_empty()).then(|| format!("{{ {} }}", f.join(", ")))
+    }
+}
+
+impl Default for VideoDim {
+    fn default() -> Self {
+        VideoDim {
+            on: true,
+            level: 55,
+            scope: "all".into(),
+            paused: false,
+            fade: 600,
+            hover: 35,
+        }
+    }
 }
 
 /// Réglages d'un découpage : widget de chaque zone, part de la zone 1.
@@ -314,6 +439,7 @@ impl Default for Config {
             music_sources: default_music_sources(),
             browser: String::new(),
             restore_on_fullscreen_exit: true,
+            video_dim: VideoDim::default(),
             webradio: super::radio::DEFAULT_SERVICE.into(),
             radios: super::radio::default_radios(),
             declined: Vec::new(),
@@ -341,6 +467,7 @@ const KEYS: &[&str] = &[
     "music_sources",
     "browser",
     "restore_on_fullscreen_exit",
+    "video_dim",
     "webradio",
     "radios",
     "declined",
@@ -520,6 +647,7 @@ pub fn from_lua(t: &Table) -> mlua::Result<Config> {
     if let Some(b) = t.get::<Option<bool>>("restore_on_fullscreen_exit")? {
         c.restore_on_fullscreen_exit = b;
     }
+    c.video_dim = VideoDim::from_lua(t.get::<Value>("video_dim")?)?;
     if let Some(w) = t.get::<Option<String>>("webradio")? {
         if super::radio::service(&w).is_none() {
             return Err(mlua::Error::RuntimeError(format!(
@@ -686,6 +814,9 @@ impl Config {
         }
         if !self.restore_on_fullscreen_exit {
             f.push("restore_on_fullscreen_exit = false".into());
+        }
+        if let Some(v) = self.video_dim.to_lua() {
+            f.push(format!("video_dim = {v}"));
         }
         if !self.declined.is_empty() {
             f.push(format!("declined = {}", lua_list(&self.declined)));
@@ -877,6 +1008,14 @@ mod tests {
             }],
             browser: "chromium".into(),
             restore_on_fullscreen_exit: false,
+            video_dim: VideoDim {
+                on: false,
+                level: 70,
+                scope: "background".into(),
+                paused: true,
+                fade: 0,
+                hover: 100,
+            },
             webradio: "radio-garden".into(),
             radios: vec![Source {
                 name: "FIP".into(),
@@ -910,6 +1049,13 @@ mod tests {
     fn erreurs_et_pages_inconnues() {
         assert!(eval("{ screen = {} }").is_err());
         assert!(eval("{ sleep_minutes = 'x' }").is_err());
+        assert!(eval("{ video_dim = { scope = 'tout' } }").is_err());
+        assert!(eval("{ video_dim = 3 }").is_err());
+        let v = eval("{ video_dim = { level = 99, fade = 9000, hover = 150 } }")
+            .unwrap()
+            .video_dim;
+        assert_eq!((v.level, v.fade, v.hover), (90, 3000, 100));
+        assert!(!eval("{ video_dim = false }").unwrap().video_dim.on);
         assert!(eval("{ screens = 3 }").is_err());
         assert!(eval("{ layout = 'split9' }").is_err());
         assert!(eval("{ sources = { { name = 'x', url = 'file:///etc' } } }").is_err());

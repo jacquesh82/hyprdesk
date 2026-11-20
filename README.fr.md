@@ -285,6 +285,10 @@ ou rend le clavier au bureau complet.
   d'avant le plein écran (ou son placement en mosaïque). Ce retour automatique
   s'active ou se désactive dans **Réglages → Panorama → Lecteur → Vidéo**
   (activé par défaut ; désactivé, la fenêtre reste dans Panorama).
+  Pendant la lecture, un voile sombre se pose autour de la vidéo pour la
+  détacher et reposer les yeux ; il s'atténue quand la souris passe sur le
+  Panorama. Intensité, portée (fond et zones, ou fond seul), pause, durée du
+  fondu et atténuation sous la souris se règlent au même endroit.
   Le plein écran web est reconnu à partir du média MPRIS et du titre de la
   fenêtre ; les pages qui ne publient pas ces informations peuvent utiliser
   le PiP. Les PiP sont reconnus par les titres usuels anglais et français.

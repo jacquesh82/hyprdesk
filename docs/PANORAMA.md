@@ -121,6 +121,30 @@ Les zones peuvent se superposer : la dernière apparaît au-dessus. Les marges
 et espacements sont exprimés en pixels logiques. Une couleur ou police vide
 hérite du thème. L'image est cadrée en conservant ses proportions.
 
+### Voile autour de la vidéo
+
+Quand une vidéo joue dans la zone Vidéo, un voile sombre couvre le reste de
+la surface en fondu ; la fenêtre vidéo, sous son trou, n'est jamais voilée.
+La souris sur le Panorama l'atténue, il revient quand elle part (la fenêtre
+vidéo reçoit le pointeur : la survoler compte comme partir).
+
+```lua
+hd.config({ panorama = {
+  video_dim = {
+    on = true,          -- défaut
+    level = 55,         -- intensité en % (10..90)
+    scope = "all",      -- all : fond et zones | background : fond seul
+    paused = false,     -- garder le voile en pause
+    fade = 600,         -- durée du fondu, ms (0..3000)
+    hover = 35,         -- % du voile gardé sous la souris (100 : inchangé)
+  },
+} })
+```
+
+Réglages → Panorama → Lecteur → Vidéo, ou `hyprdesk config set
+panorama.video_dim.<champ>`. Peint par `fx::Stage` sur le complément des
+trous vidéo (`ui/plugins/panorama/surface/fx.rs`).
+
 `controls = false` masque les commandes superposées du bandeau ; les réglages
 restent accessibles depuis le lanceur et `hyprdesk settings panorama`.
 `effects = false` enlève le décor géométrique ; `transition = "none"` dans la
@@ -146,8 +170,9 @@ Une entrée incorrecte est refusée avant l'écriture de la configuration.
 ## Vérification visuelle isolée
 
 Les scènes `panorama-forest`, `panorama-telemetry`, `panorama-studio`,
-`panorama-applications`, `panorama-config-style`, `panorama-config-composition`
-et `panorama-config-shortcuts` utilisent les vrais rendus avec des données de
+`panorama-applications`, `panorama-video-veil` (vidéo posée et voile),
+`panorama-config-style`, `panorama-config-composition`,
+`panorama-config-shortcuts` et `panorama-config-video` utilisent les vrais rendus avec des données de
 démonstration, sans lancer les raccourcis ni les applications.
 
 ```sh

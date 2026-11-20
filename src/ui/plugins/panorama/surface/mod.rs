@@ -91,6 +91,22 @@ fn preview_rule_lua(w: u32, h: u32) -> String {
 /// Relevés (lecteur, système) tant qu'un Panorama est affiché.
 pub const TICK: Duration = Duration::from_secs(1);
 
+/// Vidéo posée dans sa zone sans navigateur : aperçu isolé (`hyprdesk
+/// preview`), pour voir le trou et le voile qui l'entoure.
+pub(in crate::ui) fn preview_video(name: &str) -> panes::Video {
+    panes::Video {
+        name: name.into(),
+        url: String::new(),
+        prefix: String::new(),
+        address: Some("0xpreview".into()),
+        known: Vec::new(),
+        error: None,
+        placed: None,
+        focus_back: None,
+        borrowed: None,
+    }
+}
+
 /// Module de barre de LYRA vocale (`assets/widgets/integres/voix.lua`).
 pub const VOICE_WIDGET: &str = "voix";
 

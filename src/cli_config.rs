@@ -958,6 +958,60 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { if let Some(p) = s.panorama.as_mut() { p.sleep_minutes = crate::panorama::Config::default().sleep_minutes; } };
+    "panorama.video_dim.on", "panorama", "on | off — voile sombre autour de la vidéo du Panorama pendant la lecture",
+        |c| on_off(c.general.panorama.video_dim.on),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.on = parse_bool(v)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.on = crate::panorama::config::VideoDim::default().on; } };
+    "panorama.video_dim.level", "panorama", "10..90 — intensité du voile autour de la vidéo, en %",
+        |c| c.general.panorama.video_dim.level.to_string(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.level = number(v, 10u8, 90)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.level = crate::panorama::config::VideoDim::default().level; } };
+    "panorama.video_dim.scope", "panorama", "all | background — voile sur le fond et les zones, ou sur le fond seul",
+        |c| c.general.panorama.video_dim.scope.clone(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.scope = match v { "all" | "background" => v.to_string(), _ => return Err("all | background".into()) };
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.scope = crate::panorama::config::VideoDim::default().scope; } };
+    "panorama.video_dim.paused", "panorama", "on | off — garder le voile quand la vidéo est en pause",
+        |c| on_off(c.general.panorama.video_dim.paused),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.paused = parse_bool(v)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.paused = crate::panorama::config::VideoDim::default().paused; } };
+    "panorama.video_dim.fade", "panorama", "0..3000 — durée du fondu du voile, en ms",
+        |c| c.general.panorama.video_dim.fade.to_string(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.fade = number(v, 0u32, crate::panorama::config::VideoDim::FADE_MAX)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.fade = crate::panorama::config::VideoDim::default().fade; } };
+    "panorama.video_dim.hover", "panorama", "0..100 — part du voile gardée quand la souris est sur le Panorama, en % (100 : inchangé)",
+        |c| c.general.panorama.video_dim.hover.to_string(),
+        |s, v, c| {
+            let mut p = s.panorama.clone().unwrap_or_else(|| c.general.panorama.clone());
+            p.video_dim.hover = number(v, 0u8, 100)?;
+            s.panorama = Some(p);
+            Ok(())
+        },
+        |s| { if let Some(p) = s.panorama.as_mut() { p.video_dim.hover = crate::panorama::config::VideoDim::default().hover; } };
     "panorama.design.preset", "panorama", "cinematic | forest | telemetry | studio | applications — composition et style de départ",
         |c| c.general.panorama.design.get("preset").unwrap_or_default(),
         |s, v, c| {

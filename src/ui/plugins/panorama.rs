@@ -104,6 +104,15 @@ pub enum Msg {
     Browser(String),
     BrowserCommit,
     RestoreOnFullscreenExit(bool),
+    /// Voile autour de la vidéo (MLG-191) : curseurs appliqués en direct,
+    /// enregistrés au relâché (`DimCommit`).
+    DimOn(bool),
+    DimLevel(u8),
+    DimScope(&'static str),
+    DimPaused(bool),
+    DimFade(u32),
+    DimHover(u8),
+    DimCommit,
     Preset(String),
     DesignText(String, String),
     DesignApply(String),
@@ -583,10 +592,151 @@ impl App {
                 ]
                 .spacing(8),
             );
+            col = col.push(self.panorama_veil_section());
         }
         col.push(self.panorama_sources_section(view))
             .push(extra)
             .into()
+    }
+
+    /// Voile autour de la vidéo pendant la lecture (MLG-191).
+    fn panorama_veil_section(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        let v = self.panorama_cfg().video_dim;
+        let mut col = column![
+            self.section("Pendant la lecture"),
+            toggler(v.on)
+                .label(crate::i18n::tr("Assombrir autour de la vidéo"))
+                .font(self.font)
+                .text_size(13)
+                .on_toggle(|b| wrap(Msg::DimOn(b))),
+            text("Un voile sombre se pose autour de la zone Vidéo quand elle joue : l'image se détache, l'écran fatigue moins. La vidéo elle-même n'est jamais voilée.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        ]
+        .spacing(8);
+        if !v.on {
+            return col.into();
+        }
+        let value = |s: String| text(s).font(self.font).size(14);
+        col = col.push(
+            self.field(
+                "Intensité",
+                "",
+                row![
+                    slider(
+                        crate::panorama::config::VideoDim::LEVELS,
+                        v.level,
+                        |n| wrap(Msg::DimLevel(n))
+                    )
+                    .on_release(wrap(Msg::DimCommit))
+                    .width(260),
+                    value(format!("{} %", v.level)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ),
+        );
+        let scope = Some(if v.scope == "background" {
+            "background"
+        } else {
+            "all"
+        });
+        col = col.push(
+            self.field(
+                "Portée",
+                "",
+                row![
+                    iced::widget::radio(
+                        crate::i18n::tr("Fond et zones autour de la vidéo"),
+                        "all",
+                        scope,
+                        |s: &'static str| wrap(Msg::DimScope(s)),
+                    )
+                    .text_size(13),
+                    iced::widget::radio(
+                        crate::i18n::tr("Fond seulement"),
+                        "background",
+                        scope,
+                        |s: &'static str| wrap(Msg::DimScope(s)),
+                    )
+                    .text_size(13),
+                ]
+                .spacing(14),
+            ),
+        );
+        col = col.push(
+            toggler(v.paused)
+                .label(crate::i18n::tr(
+                    "Garder le voile quand la vidéo est en pause",
+                ))
+                .font(self.font)
+                .text_size(13)
+                .on_toggle(|b| wrap(Msg::DimPaused(b))),
+        );
+        col = col.push(
+            self.field(
+                "Durée du fondu",
+                "",
+                row![
+                    slider(
+                        0..=crate::panorama::config::VideoDim::FADE_MAX,
+                        v.fade,
+                        |n| { wrap(Msg::DimFade(n)) }
+                    )
+                    .step(100u32)
+                    .on_release(wrap(Msg::DimCommit))
+                    .width(260),
+                    value(if v.fade == 0 {
+                        crate::i18n::tr("instantané").to_string()
+                    } else {
+                        format!("{:.1} s", v.fade as f32 / 1000.0)
+                    }),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ),
+        );
+        col = col.push(
+            self.field(
+                "Souris sur le Panorama",
+                "",
+                row![
+                    slider(0..=100u8, v.hover, |n| wrap(Msg::DimHover(n)))
+                        .step(5u8)
+                        .on_release(wrap(Msg::DimCommit))
+                        .width(260),
+                    value(match v.hover {
+                        0 => crate::i18n::tr("voile effacé").to_string(),
+                        100 => crate::i18n::tr("voile inchangé").to_string(),
+                        n => crate::tr!("{n} % du voile", n = n),
+                    }),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ),
+        );
+        col.push(
+            text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
+                .font(self.font)
+                .size(12)
+                .color(dim),
+        )
+        .into()
+    }
+
+    /// Change le voile dans le brouillon des réglages : le Panorama le montre
+    /// aussitôt ; un choix s'enregistre tout de suite, un curseur au relâché.
+    fn panorama_dim(
+        &mut self,
+        f: impl FnOnce(&mut crate::panorama::config::VideoDim),
+        save: bool,
+    ) -> Task<UiMsg> {
+        let mut c = self.panorama_cfg();
+        f(&mut c.video_dim);
+        self.settings.panorama = Some(c);
+        if save { self.commit() } else { Task::none() }
     }
 
     /// Horloge du Panorama après inactivité.
@@ -1334,6 +1484,13 @@ impl App {
                 self.panorama.browser_draft = Some(v);
                 Task::none()
             }
+            Msg::DimOn(b) => self.panorama_dim(|d| d.on = b, true),
+            Msg::DimLevel(n) => self.panorama_dim(|d| d.level = n, false),
+            Msg::DimScope(sc) => self.panorama_dim(|d| d.scope = sc.into(), true),
+            Msg::DimPaused(b) => self.panorama_dim(|d| d.paused = b, true),
+            Msg::DimFade(n) => self.panorama_dim(|d| d.fade = n, false),
+            Msg::DimHover(n) => self.panorama_dim(|d| d.hover = n, false),
+            Msg::DimCommit => self.commit(),
             Msg::RestoreOnFullscreenExit(v) => {
                 let mut c = self.panorama_cfg();
                 c.restore_on_fullscreen_exit = v;

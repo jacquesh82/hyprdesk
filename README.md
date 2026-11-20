@@ -264,6 +264,10 @@ closes the dock or returns focus to the full desktop.
   a floating window with `hyprdesk panorama preview`. Split it into 2 or 3
   zones, each with its own widget; the Video widget plays Free TV, Netflix,
   Disney+, HBO Max… right in its zone (a browser app window placed there).
+  While it plays, a dark veil settles around the video so it stands out and
+  rests your eyes; it softens when the pointer moves over the Panorama.
+  Strength, scope, pause behaviour, fade and pointer softening are set in
+  **Settings → Panorama → Player → Video**.
 - **Add widgets in Lua.** Start with the clock, calendar, system stats, or media
   player, then add your own widgets and bar modules as Lua files.
 

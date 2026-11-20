@@ -42,6 +42,32 @@ pub(super) struct Scene {
     pub holes: Vec<Rect>,
     pub design: crate::panorama::design::Design,
     pub wallpaper: Option<(iced::widget::image::Handle, Size)>,
+    /// Voile autour de la vidéo (MLG-191).
+    pub veil: Veil,
+}
+
+/// Voile sombre peint sur le complément des trous vidéo, en fondu.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Veil {
+    /// Opacité visée (0 : aucun voile).
+    pub alpha: f32,
+    /// Au-dessus des zones (`true`) ou sur le fond seul.
+    pub over_content: bool,
+    /// Durée du fondu.
+    pub fade: Duration,
+    /// Part de l'opacité gardée quand la souris est sur la surface.
+    pub hover: f32,
+}
+
+impl Veil {
+    /// Opacité visée, souris présente ou non.
+    fn target(&self, hovered: bool) -> f32 {
+        if hovered {
+            self.alpha * self.hover
+        } else {
+            self.alpha
+        }
+    }
 }
 
 pub(super) fn stage<'a>(content: impl Into<Element<'a, Msg>>, scene: Scene) -> Element<'a, Msg> {
@@ -67,6 +93,9 @@ struct State {
     phase: f32,
     last_frame: Option<Instant>,
     paint: RefCell<String>,
+    /// Opacité du voile, et souris sur la surface.
+    veil: Spring,
+    hovered: bool,
 }
 
 impl Default for State {
@@ -82,6 +111,8 @@ impl Default for State {
             phase: 0.0,
             last_frame: None,
             paint: RefCell::new(String::new()),
+            veil: Spring::rest(0.0),
+            hovered: false,
         }
     }
 }
@@ -578,6 +609,25 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
             }
             s.last_frame = Some(now);
         }
+        // Voile : la souris sur le Panorama l'atténue (la fenêtre vidéo, sous
+        // son trou, reçoit le pointeur : la quitter vers la vidéo le rend).
+        match event {
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                s.hovered = b.contains(*position);
+            }
+            Event::Mouse(mouse::Event::CursorLeft) => s.hovered = false,
+            _ => {}
+        }
+        let veil = self.scene.veil.target(s.hovered);
+        let veil_changed = (s.veil.to - veil).abs() > 0.0005;
+        if veil_changed {
+            let fade = if self.scene.animate {
+                self.scene.veil.fade
+            } else {
+                Duration::ZERO
+            };
+            s.veil = s.veil.retarget(veil, fade, now);
+        }
         let pos = match event {
             Event::Mouse(mouse::Event::CursorMoved { position }) => Some(*position),
             Event::Mouse(mouse::Event::CursorLeft) => Some(b.center()),
@@ -607,6 +657,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
             s.reveal.snap();
             s.x.snap();
             s.y.snap();
+            s.veil.snap();
             s.ripple = None;
         }
         if s.ripple
@@ -615,6 +666,9 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
             s.ripple = None;
         }
         let moving = !s.reveal.done(now) || !s.x.done(now) || !s.y.done(now) || s.ripple.is_some();
+        if veil_changed || !s.veil.done(now) {
+            shell.request_redraw();
+        }
         if let Some(delay) = next_frame(
             self.scene.animate,
             self.scene.playing,
@@ -753,6 +807,10 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
                 });
             }
         }
+        let veil = s.veil.value(now);
+        if !self.scene.veil.over_content {
+            self.paint_veil(renderer, b, viewport, veil);
+        }
         let shift = self.shift(s, now, b);
         let cursor = cursor.position().map_or(mouse::Cursor::Unavailable, |p| {
             mouse::Cursor::Available(p - shift)
@@ -770,6 +828,9 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
                 );
             })
         });
+        if self.scene.veil.over_content {
+            self.paint_veil(renderer, b, viewport, veil);
+        }
     }
     fn overlay<'b>(
         &'b mut self,
@@ -795,6 +856,33 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Stage<'_> {
 }
 
 impl Stage<'_> {
+    /// Voile noir sur tout ce qui n'est pas un trou vidéo.
+    fn paint_veil(
+        &self,
+        renderer: &mut iced::Renderer,
+        b: Rectangle,
+        viewport: &Rectangle,
+        a: f32,
+    ) {
+        if a <= 0.002 {
+            return;
+        }
+        for r in visible_regions(b.size(), &self.scene.holes) {
+            let global = r + Vector::new(b.x, b.y);
+            if let Some(clip) = global.intersection(viewport) {
+                renderer.with_layer(clip, |r| {
+                    r.fill_quad(
+                        renderer::Quad {
+                            bounds: global,
+                            ..Default::default()
+                        },
+                        Color { a, ..Color::BLACK },
+                    );
+                });
+            }
+        }
+    }
+
     fn shift(&self, s: &State, now: Instant, b: Rectangle) -> Vector {
         let d = if self.scene.animate && self.scene.holes.is_empty() {
             (1.0 - s.reveal.value(now)) * 28.0
@@ -819,6 +907,18 @@ mod tests {
         assert_eq!(next_frame(true, false, false, true), None);
         assert_eq!(next_frame(false, true, true, true), None);
         assert_eq!(next_frame(true, true, true, false), None);
+    }
+    #[test]
+    fn veil_softens_under_the_pointer() {
+        let v = Veil {
+            alpha: 0.6,
+            over_content: true,
+            fade: Duration::from_millis(600),
+            hover: 0.25,
+        };
+        assert_eq!(v.target(false), 0.6);
+        assert!((v.target(true) - 0.15).abs() < 1e-6);
+        assert_eq!(Veil::default().target(true), 0.0);
     }
     #[test]
     fn video_holes_are_never_painted() {

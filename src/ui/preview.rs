@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 154] = [
+const SCENES: [&str; 156] = [
     "desktop",
     "typography",
     "icons",
@@ -169,6 +169,7 @@ const SCENES: [&str; 154] = [
     "panorama-clock",
     "panorama-split",
     "panorama-video",
+    "panorama-video-veil",
     "panorama-still",
     "panorama-forest",
     "panorama-telemetry",
@@ -179,6 +180,7 @@ const SCENES: [&str; 154] = [
     "panorama-config-composition",
     "panorama-config-shortcuts",
     "panorama-config-lecteur",
+    "panorama-config-video",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -2270,14 +2272,19 @@ impl Preview {
             let cfg = Arc::make_mut(&mut self.app.cfg);
             cfg.general.panorama = Default::default();
             cfg.general.panorama.sleep_minutes = 0;
-            cfg.general.panorama.layout = if SCENES[self.scene] == "panorama-split" {
+            let veil = SCENES[self.scene] == "panorama-video-veil";
+            cfg.general.panorama.layout = if SCENES[self.scene] == "panorama-split" || veil {
                 Layout::Split3
             } else {
                 Layout::Single
             };
             cfg.general.panorama.set_panes(
                 Layout::Split3,
-                vec!["media".into(), "clock".into(), "system".into()],
+                if veil {
+                    vec!["clock".into(), "video".into(), "system".into()]
+                } else {
+                    vec!["media".into(), "clock".into(), "system".into()]
+                },
             );
             cfg.general.transition = if SCENES[self.scene] == "panorama-still" {
                 config::Transition::None
@@ -2310,6 +2317,8 @@ impl Preview {
                 length: Some(244),
                 ..Default::default()
             });
+            // Vidéo posée et lecture en cours : le voile entoure sa zone.
+            self.app.panorama.video = veil.then(|| panorama::preview_video("Arte"));
             self.app.panorama.sys = [
                 ("CPU", "12 %", Some(0.12)),
                 ("RAM", "6,4 / 32 Go", Some(0.2)),
@@ -2385,6 +2394,8 @@ impl Preview {
                     match tab {
                         "shortcuts" => "raccourcis",
                         "composition" => "pages",
+                        // Lecteur, sous-vue Vidéo : sortie du plein écran, voile.
+                        "video" => "lecteur",
                         t => t,
                     },
                 );
