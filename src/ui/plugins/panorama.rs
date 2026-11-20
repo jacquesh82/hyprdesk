@@ -78,6 +78,11 @@ pub enum Msg {
     FluxAmbiance(&'static str),
     /// Service de l'onglet Webradio (profil Musique).
     Webradio(String),
+    /// Ouvre le service web de l'onglet Webradio pour s'y connecter.
+    WebradioLogin,
+    /// Recherche de radio : saisie, puis envoi.
+    RadioQuery(String),
+    RadioQuerySubmit,
     /// Raccourci, ±1 dans l'ordre.
     ShortcutMove(usize, i32),
     /// Icônes dessinées par SmartUI : (sources | shortcuts, toutes).
@@ -686,7 +691,7 @@ impl App {
             ),
             "radio" => (
                 "Radios favorites",
-                "Les flux des radios favorites, joués par le lecteur du profil Musique.",
+                "Les radios de l'onglet Webradio du Panorama, jouées directement (sans navigateur). Ajoutez-en depuis la recherche ci-dessous (☆), ou par l'adresse de leur flux.",
             ),
             _ => (
                 "Sources vidéo",
@@ -711,7 +716,9 @@ impl App {
         let n = list.len();
         for (i, s) in list.iter().enumerate() {
             let signed = self.panorama.signed.get(&s.url).copied().flatten();
-            let state = if !crate::panorama::auth::needs_account(&s.url) {
+            let state = if kind == "radio" {
+                crate::i18n::tr("flux")
+            } else if !crate::panorama::auth::needs_account(&s.url) {
                 crate::i18n::tr("sans compte")
             } else {
                 match signed {
@@ -779,21 +786,191 @@ impl App {
                 button(text("Liste par défaut").font(self.font).size(12))
                     .padding([4, 10])
                     .on_press(wrap(Msg::SourcesReset)),
-                self.panorama_icons_buttons("sources"),
+                // Radios : leurs logos viennent de l'annuaire, pas de SmartUI.
+                if kind == "radio" {
+                    button(text("Chercher les logos").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(UiMsg::Panorama(super::super::panorama::PMsg::RadioLogos(
+                            true,
+                        )))
+                        .into()
+                } else {
+                    self.panorama_icons_buttons("sources")
+                },
             ]
             .spacing(8)
             .align_y(Alignment::Center),
         );
-        col = col.push(self.panorama_icons_status());
+        if kind != "radio" {
+            col = col.push(self.panorama_icons_status());
+        }
         col.into()
+    }
+
+    /// Ouvre `url` dans une fenêtre ordinaire du navigateur des sources, pour
+    /// s'y connecter (même profil : la connexion vaut pour le Panorama).
+    fn panorama_open_login(&mut self, url: String) -> Task<UiMsg> {
+        let c = self.panorama_cfg();
+        // Fenêtre ordinaire du navigateur des sources : même profil,
+        // la connexion vaut ensuite pour le Panorama.
+        let browser = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
+        self.panorama.signed_at = None;
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || match browser {
+                    Some(b) => {
+                        let _ = std::process::Command::new(b)
+                            .arg(&url)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                    }
+                    None => {
+                        let _ = crate::hypr::exec(&format!("xdg-open '{}'", url.replace('\'', "")));
+                    }
+                })
+                .await
+            },
+            |_| UiMsg::Noop,
+        )
     }
 
     /// Webradio du profil Musique : annuaire Radio Browser dans l'onglet, ou
     /// un service web ouvert dans le lecteur ; ambiance du flux.
     fn panorama_webradio_section(&self) -> Element<'_, UiMsg> {
+        use super::super::panorama::PMsg;
+        let dim = self.ink().dim;
         let c = self.panorama_cfg();
         let mut col = column![].spacing(8);
+        // Chercher une station : Radio Browser, annuaire libre, sans compte.
+        col = col.push(self.section("Chercher une radio"));
+        col = col.push(
+            row![
+                iced::widget::text_input(
+                    crate::i18n::tr("Nom, ville ou genre (FIP, jazz, Lyon…)"),
+                    &self.panorama.radio_query
+                )
+                .on_input(|v| wrap(Msg::RadioQuery(v)))
+                .on_submit(wrap(Msg::RadioQuerySubmit))
+                .size(13),
+                button(text("Chercher").font(self.font).size(12))
+                    .padding([4, 10])
+                    .on_press_maybe(
+                        (!self.panorama.radio_query.trim().is_empty() && !self.panorama.radio_busy)
+                            .then(|| wrap(Msg::RadioQuerySubmit))
+                    ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+        let country = crate::panorama::radio::local_country();
+        let mut chips = row![
+            button(text(crate::i18n::tr("Populaires")).font(self.font).size(12))
+                .padding([3, 10])
+                .style(button::secondary)
+                .on_press(UiMsg::Panorama(PMsg::RadioSearch(
+                    format!("@{country}"),
+                    false
+                )))
+        ]
+        .spacing(6);
+        for (tag, label) in crate::panorama::radio::GENRES {
+            chips = chips.push(
+                button(text(crate::i18n::tr(label)).font(self.font).size(12))
+                    .padding([3, 10])
+                    .style(button::secondary)
+                    .on_press(UiMsg::Panorama(PMsg::RadioSearch(format!("#{tag}"), false))),
+            );
+        }
+        col = col.push(
+            iced::widget::scrollable(chips).direction(
+                iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(3)
+                        .scroller_width(3),
+                ),
+            ),
+        );
+        if self.panorama.radio_busy {
+            col = col.push(
+                text(crate::i18n::tr("Recherche…"))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim),
+            );
+        }
+        if let Some(e) = &self.panorama.radio_error {
+            col = col.push(text(e.clone()).font(self.font).size(12).color(dim));
+        }
+        if let Some((q, found)) = &self.panorama.radio_results {
+            col = col.push(
+                text(crate::tr!(
+                    "Résultats : {q}",
+                    q = crate::panorama::radio::query_label(q)
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
+            let playing = self.panorama.radio.as_ref().map(|r| r.1.as_str());
+            let mut rows = column![].spacing(6);
+            for r in found {
+                let fav = c.radios.iter().any(|f| f.url == r.url);
+                let on = playing == Some(r.url.as_str());
+                rows = rows.push(
+                    row![
+                        self.panorama_icon_thumb(&r.icon, 28.0),
+                        column![
+                            text(r.name.clone()).font(self.font).size(13),
+                            text(r.url.clone()).font(self.font).size(11).color(dim),
+                        ]
+                        .width(Length::Fill),
+                        button(
+                            text(if on {
+                                crate::i18n::tr("Arrêter")
+                            } else {
+                                crate::i18n::tr("Écouter")
+                            })
+                            .font(self.font)
+                            .size(12)
+                        )
+                        .padding([4, 10])
+                        .on_press(if on {
+                            UiMsg::Panorama(PMsg::VideoClose)
+                        } else {
+                            UiMsg::Panorama(PMsg::PlayUrl(r.name.clone(), r.url.clone()))
+                        }),
+                        button(
+                            text(if fav {
+                                crate::i18n::tr("★ Favori")
+                            } else {
+                                crate::i18n::tr("☆ Ajouter")
+                            })
+                            .font(self.font)
+                            .size(12)
+                        )
+                        .padding([4, 10])
+                        .style(if fav {
+                            button::primary
+                        } else {
+                            button::secondary
+                        })
+                        .on_press(UiMsg::Panorama(PMsg::RadioFav(
+                            r.name.clone(),
+                            r.url.clone()
+                        ))),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            }
+            col = col.push(iced::widget::scrollable(rows).height(Length::Fixed(
+                320.0_f32.min(found.len() as f32 * 44.0 + 4.0),
+            )));
+        }
         col = col.push(self.section("Webradio (profil Musique)"));
+        // Service affiché en tête de l'onglet Webradio du Panorama.
         let mut services = row![].spacing(14);
         let current = crate::panorama::radio::service(&c.webradio).map(|s| s.0);
         for (id, label, _) in crate::panorama::radio::SERVICES.iter().copied() {
@@ -830,14 +1007,39 @@ impl App {
                 .text_size(13),
             );
         }
-        col = col.push(ambiances);
-        col = col.push(services).push(
-            text(crate::tr!(
-                "{n} radios favorites. Radio Browser est un annuaire libre, sans compte : l'onglet Webradio liste vos favoris et la dernière recherche (★ pour garder une station). Demandez à LYRA « mets FIP » ou « une radio jazz » ; elle peut aussi chercher de la musique sur la plateforme active.",
-                n = c.radios.len().to_string()
-            ))
-            .size(12),
-        );
+        col = col.push(ambiances).push(services);
+        let web = crate::panorama::radio::service(&c.webradio).and_then(|s| s.2.map(|u| (s.1, u)));
+        let about = match web {
+            None => crate::i18n::tr(
+                "L'onglet Webradio du Panorama montre vos favoris, les plus écoutées, des genres et la dernière recherche : le flux est joué directement, sans navigateur. Demandez aussi à LYRA « mets FIP » ou « une radio jazz ».",
+            )
+            .to_string(),
+            Some((label, _)) => crate::tr!(
+                "{service} s'ajoute en tête de l'onglet Webradio : un appui ouvre son site dans le lecteur du Panorama (navigateur des sources). Vos favoris, les genres et la recherche restent servis par Radio Browser.",
+                service = label.to_string()
+            ),
+        };
+        col = col.push(text(about).font(self.font).size(12).color(dim));
+        if let Some((label, url)) = web
+            && crate::panorama::auth::needs_account(url)
+        {
+            col = col.push(
+                row![
+                    text(crate::tr!(
+                        "{service} demande un compte : connectez-vous une fois dans le navigateur des sources.",
+                        service = label.to_string()
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .width(Length::Fill),
+                    button(text("Se connecter").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::WebradioLogin)),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
         col.into()
     }
 
@@ -1041,32 +1243,27 @@ impl App {
                 let Some(url) = list_mut(&mut c, kind).get(i).map(|s| s.url.clone()) else {
                     return Task::none();
                 };
-                // Fenêtre ordinaire du navigateur des sources : même profil,
-                // la connexion vaut ensuite pour le Panorama.
-                let browser = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
-                self.panorama.signed_at = None;
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || match browser {
-                            Some(b) => {
-                                let _ = std::process::Command::new(b)
-                                    .arg(&url)
-                                    .stdin(std::process::Stdio::null())
-                                    .stdout(std::process::Stdio::null())
-                                    .stderr(std::process::Stdio::null())
-                                    .spawn();
-                            }
-                            None => {
-                                let _ = crate::hypr::exec(&format!(
-                                    "xdg-open '{}'",
-                                    url.replace('\'', "")
-                                ));
-                            }
-                        })
-                        .await
-                    },
-                    |_| UiMsg::Noop,
-                )
+                self.panorama_open_login(url)
+            }
+            Msg::WebradioLogin => {
+                let c = self.panorama_cfg();
+                match crate::panorama::radio::service(&c.webradio) {
+                    Some((_, _, Some(url))) => self.panorama_open_login(url.to_string()),
+                    _ => Task::none(),
+                }
+            }
+            Msg::RadioQuery(v) => {
+                self.panorama.radio_query = v;
+                Task::none()
+            }
+            Msg::RadioQuerySubmit => {
+                let q = self.panorama.radio_query.trim().to_string();
+                if q.is_empty() {
+                    return Task::none();
+                }
+                Task::done(UiMsg::Panorama(super::super::panorama::PMsg::RadioSearch(
+                    q, false,
+                )))
             }
             Msg::Webradio(id) => {
                 let mut c = self.panorama_cfg();

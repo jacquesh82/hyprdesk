@@ -26,7 +26,7 @@ mlua = { version = "0.12", features = ["lua54", "vendored"] }
 hyprpanel-core = { version = "0.1.0", git = "https://github.com/jacquesh82/mindlog.hyprland_tools", rev = "275671f" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "process", "sync", "fs", "signal"] }
 notify = "8.2"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "ico", "bmp"] }
 sysinfo = "0.40"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 freedesktop-icons = "0.4"

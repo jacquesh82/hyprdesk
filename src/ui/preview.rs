@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 152] = [
+const SCENES: [&str; 154] = [
     "desktop",
     "typography",
     "icons",
@@ -174,9 +174,11 @@ const SCENES: [&str; 152] = [
     "panorama-telemetry",
     "panorama-studio",
     "panorama-applications",
+    "panorama-webradio",
     "panorama-config-style",
     "panorama-config-composition",
     "panorama-config-shortcuts",
+    "panorama-config-lecteur",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -2341,6 +2343,41 @@ impl Preview {
             for shortcut in &self.app.cfg.general.panorama.design.shortcuts.clone() {
                 let icon = self.app.builtin_icon(&shortcut.icon);
                 self.app.named_icons.insert(shortcut.icon.clone(), icon);
+            }
+            // Webradio : profil Musique, onglet Webradio, une radio qui se
+            // connecte et une recherche par genre (Panorama et Réglages).
+            if matches!(
+                SCENES[self.scene],
+                "panorama-webradio" | "panorama-config-lecteur"
+            ) {
+                let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
+                c.layout = Layout::Dashboard;
+                c.design.shortcut_profile = "audio".into();
+                c.radios = crate::panorama::radio::default_radios();
+                c.webradio = "tunein".into();
+                let p = &mut self.app.panorama;
+                p.music_tab = "radio";
+                p.sources_kind = "radio";
+                p.radio_query = "jazz".into();
+                p.radio = Some((c.radios[1].name.clone(), c.radios[1].url.clone()));
+                p.radio_connecting = true;
+                p.radio_results = Some((
+                    "#jazz".into(),
+                    [
+                        "101 Smooth Jazz",
+                        "Jazz Radio",
+                        "BBC Radio 6 Music",
+                        "Radio Swiss Jazz",
+                    ]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| crate::panorama::config::Source {
+                        name: n.to_string(),
+                        url: format!("https://stream.example/jazz-{i}.mp3"),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ));
             }
             if let Some(tab) = SCENES[self.scene].strip_prefix("panorama-config-") {
                 self.app.subtabs.insert(

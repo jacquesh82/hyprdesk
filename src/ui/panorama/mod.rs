@@ -193,6 +193,10 @@ pub struct State {
     pub radio_results: Option<(String, Vec<crate::panorama::config::Source>)>,
     pub radio_busy: bool,
     pub radio_error: Option<String>,
+    /// La radio lancée se connecte encore (tampon de mpv pas rempli).
+    pub radio_connecting: bool,
+    /// Logos des radios favorites déjà cherchés (une fois par session).
+    pub radio_logos_tried: bool,
     /// Zone de saisie posée sur chaque surface : ses trous (vidéo).
     pub regions: HashMap<Id, Vec<layout::Rect>>,
     /// Position globale de la fenêtre d'aperçu (la vidéo s'y pose quand
@@ -200,6 +204,8 @@ pub struct State {
     pub preview_at: Option<(i32, i32)>,
     /// Réglages : nouvelle source (nom, adresse) en cours de saisie.
     pub draft: (String, String),
+    /// Réglages : recherche de radio en cours de saisie.
+    pub radio_query: String,
     /// Réglages : navigateur en cours de saisie.
     pub browser_draft: Option<String>,
     pub design_drafts: HashMap<String, String>,
@@ -332,6 +338,15 @@ pub enum PMsg {
     ),
     /// Ajoute (ou retire) une radio des favoris : (nom, flux).
     RadioFav(String, String),
+    /// Suivi de la connexion d'une radio : (flux, essai).
+    RadioPoll(String, u32),
+    RadioStatus(String, u32, crate::panorama::radio_play::Status),
+    /// Lecture impossible : (flux, raison).
+    RadioFailed(String, String),
+    /// Cherche les logos des radios favorites qui n'en ont pas ; `true` :
+    /// même déjà cherchés cette session.
+    RadioLogos(bool),
+    RadioLogosFound(Vec<(String, String)>),
     /// Fin de la mise en vidéo seule automatique : (adresse de la source,
     /// méthode qui a marché, à mémoriser).
     AutoFull(String, Result<Option<String>, String>),
@@ -1090,6 +1105,8 @@ impl App {
             c.sources
                 .iter()
                 .chain(&c.music_sources)
+                .chain(&c.radios)
+                .chain(self.panorama.radio_results.iter().flat_map(|(_, l)| l))
                 .map(|s| s.icon.clone())
                 .filter(|i| !i.is_empty()),
         );
@@ -1560,6 +1577,11 @@ impl App {
             | PMsg::RadioSearch(..)
             | PMsg::RadioFound(..)
             | PMsg::RadioFav(..)
+            | PMsg::RadioPoll(..)
+            | PMsg::RadioStatus(..)
+            | PMsg::RadioFailed(..)
+            | PMsg::RadioLogos(_)
+            | PMsg::RadioLogosFound(_)
             | PMsg::Frame(_)
             | PMsg::Orphans(_)
             | PMsg::Pane(..)

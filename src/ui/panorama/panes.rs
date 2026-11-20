@@ -606,6 +606,103 @@ impl App {
             PMsg::MusicTab(t) => {
                 self.panorama.last_press = Some(std::time::Instant::now());
                 self.panorama.music_tab = t;
+                if t == "radio" {
+                    return self.panorama_panes_update(PMsg::RadioLogos(false));
+                }
+                Task::none()
+            }
+            PMsg::RadioLogos(force) => {
+                if self.panorama.radio_logos_tried && !force {
+                    return Task::none();
+                }
+                self.panorama.radio_logos_tried = true;
+                let radios: Vec<_> = self
+                    .cfg
+                    .general
+                    .panorama
+                    .radios
+                    .iter()
+                    .filter(|r| r.icon.is_empty() || !std::path::Path::new(&r.icon).is_file())
+                    .map(|r| crate::panorama::config::Source {
+                        icon: String::new(),
+                        ..r.clone()
+                    })
+                    .collect();
+                if radios.is_empty() {
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::panorama::radio::favourite_logos(&radios)
+                        })
+                        .await
+                        .unwrap_or_default()
+                    },
+                    |l| wrap(PMsg::RadioLogosFound(l)),
+                )
+            }
+            PMsg::RadioLogosFound(found) => {
+                if found.is_empty() {
+                    return Task::none();
+                }
+                let icons: Vec<Task<Msg>> = found.iter().map(|(_, i)| self.want_icon(i)).collect();
+                let save = self.panorama_save_cfg(move |c| {
+                    for (url, icon) in &found {
+                        if let Some(r) = c.radios.iter_mut().find(|r| &r.url == url) {
+                            r.icon = icon.clone();
+                        }
+                    }
+                });
+                Task::batch(icons.into_iter().chain([save]))
+            }
+            PMsg::RadioPoll(url, n) => Task::perform(
+                async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(if n == 0 {
+                        300
+                    } else {
+                        500
+                    }))
+                    .await;
+                    let st = tokio::task::spawn_blocking(crate::panorama::radio_play::status)
+                        .await
+                        .unwrap_or(crate::panorama::radio_play::Status::Dead);
+                    (url, st)
+                },
+                move |(url, st)| wrap(PMsg::RadioStatus(url, n, st)),
+            ),
+            PMsg::RadioStatus(url, n, st) => {
+                use crate::panorama::radio_play::Status;
+                // Une autre radio a pris la place : suivi abandonné.
+                let Some((name, _)) = self.panorama.radio.clone().filter(|r| r.1 == url) else {
+                    return Task::none();
+                };
+                match st {
+                    Status::Playing => {
+                        self.panorama.radio_connecting = false;
+                        Task::none()
+                    }
+                    // Environ 20 s pour se connecter, puis abandon.
+                    Status::Connecting if n < 40 => Task::done(wrap(PMsg::RadioPoll(url, n + 1))),
+                    Status::Connecting => self.panorama_panes_update(PMsg::RadioFailed(
+                        url,
+                        crate::tr!("{name} ne répond pas.", name = name),
+                    )),
+                    Status::Dead => self.panorama_panes_update(PMsg::RadioFailed(
+                        url,
+                        crate::tr!("Impossible de lire {name} : flux injoignable.", name = name),
+                    )),
+                }
+            }
+            PMsg::RadioFailed(url, why) => {
+                if self.panorama.radio.as_ref().is_some_and(|r| r.1 == url) {
+                    self.panorama.radio = None;
+                    self.panorama.radio_connecting = false;
+                    crate::panorama::radio_play::stop();
+                    crate::panorama::radio_play::remember(None);
+                }
+                tracing::warn!("Panorama : webradio : {why}");
+                self.panorama.radio_error = Some(why);
                 Task::none()
             }
             PMsg::RadioSearch(q, play) => {
@@ -628,14 +725,25 @@ impl App {
                     Ok(l) => {
                         let first = l.first().cloned();
                         if l.is_empty() {
-                            self.panorama.radio_error =
-                                Some(crate::tr!("Aucune radio pour « {q} ».", q = q.clone()));
+                            self.panorama.radio_error = Some(crate::tr!(
+                                "Aucune radio pour « {q} ».",
+                                q = crate::panorama::radio::query_label(&q)
+                            ));
                         }
+                        let icons: Vec<Task<Msg>> = l
+                            .iter()
+                            .filter(|s| !s.icon.is_empty())
+                            .map(|s| s.icon.clone())
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .map(|i| self.want_icon(i))
+                            .collect();
                         self.panorama.radio_results = Some((q, l));
-                        match first {
+                        let open = match first {
                             Some(s) if play => self.panorama_open(s),
                             _ => Task::none(),
-                        }
+                        };
+                        Task::batch(icons.into_iter().chain([open]))
                     }
                     Err(e) => {
                         self.panorama.radio_error = Some(e);
@@ -645,6 +753,15 @@ impl App {
             }
             PMsg::RadioFav(name, url) => {
                 self.panorama.last_press = Some(std::time::Instant::now());
+                // Le logo trouvé par la recherche suit la station.
+                let icon = self
+                    .panorama
+                    .radio_results
+                    .iter()
+                    .flat_map(|(_, l)| l)
+                    .find(|r| r.url == url)
+                    .map(|r| r.icon.clone())
+                    .unwrap_or_default();
                 self.panorama_save_cfg(|c| {
                     if let Some(i) = c.radios.iter().position(|r| r.url == url) {
                         c.radios.remove(i);
@@ -652,6 +769,7 @@ impl App {
                         c.radios.push(crate::panorama::config::Source {
                             name,
                             url,
+                            icon,
                             ..Default::default()
                         });
                     }
@@ -731,9 +849,12 @@ impl App {
             crate::panorama::radio_play::remember(Some((&src.name, &src.url)));
             self.panorama.radio = Some((src.name.clone(), src.url.clone()));
             self.panorama.radio_paused = false;
+            self.panorama.radio_connecting = true;
+            self.panorama.radio_error = None;
             self.panorama.level_hist.clear();
             self.panorama.last_press = Some(std::time::Instant::now());
             let url = src.url;
+            let back = url.clone();
             return Task::batch([
                 close,
                 Task::perform(
@@ -743,9 +864,10 @@ impl App {
                             .await
                             .unwrap_or_else(|e| Err(e.to_string()))
                     },
-                    |r| match r {
-                        Ok(()) => Msg::Noop,
-                        Err(e) => wrap(PMsg::RadioFound(String::new(), false, Err(e))),
+                    // Lancé : la connexion est suivie jusqu'au son.
+                    move |r| match r {
+                        Ok(()) => wrap(PMsg::RadioPoll(back.clone(), 0)),
+                        Err(e) => wrap(PMsg::RadioFailed(back.clone(), e)),
                     },
                 ),
             ]);
@@ -1384,6 +1506,8 @@ impl App {
                     name,
                     if self.panorama.radio_paused {
                         crate::i18n::tr("En pause").into()
+                    } else if self.panorama.radio_connecting {
+                        crate::i18n::tr("Connexion…").into()
                     } else {
                         crate::i18n::tr("En direct").into()
                     },

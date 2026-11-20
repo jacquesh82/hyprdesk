@@ -621,6 +621,57 @@ impl App {
                 None,
             ));
         }
+        // Parcourir l'annuaire au doigt (le Panorama n'a pas de clavier) :
+        // les plus écoutées du pays, puis des genres.
+        let (_, _, accent) = self.panorama_palette();
+        let current = self
+            .panorama
+            .radio_results
+            .as_ref()
+            .map(|(q, _)| q.as_str());
+        let chip = |label: String, query: String| {
+            let on = current == Some(query.as_str());
+            self.panorama_feedback(
+                button(text(label).size(13).color(fg))
+                    .padding([6, 12])
+                    .on_press(wrap(PMsg::RadioSearch(query, false)))
+                    .style(move |_, st| button::Style {
+                        background: Some(
+                            fx::alpha(
+                                accent,
+                                if on || matches!(st, button::Status::Pressed) {
+                                    0.6
+                                } else {
+                                    0.25
+                                },
+                            )
+                            .into(),
+                        ),
+                        border: Border::default().rounded(10),
+                        text_color: fg,
+                        ..Default::default()
+                    }),
+            )
+        };
+        let country = crate::panorama::radio::local_country();
+        let mut chips = row![chip(
+            crate::i18n::tr("Populaires").to_string(),
+            format!("@{country}")
+        )]
+        .spacing(6);
+        for (tag, label) in crate::panorama::radio::GENRES {
+            chips = chips.push(chip(crate::i18n::tr(label).to_string(), format!("#{tag}")));
+        }
+        list = list.push(
+            iced::widget::scrollable(chips).direction(
+                iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(3)
+                        .scroller_width(3)
+                        .spacing(4),
+                ),
+            ),
+        );
         list = list.push(small(crate::i18n::tr("Favoris").to_string()));
         for r in c.radios.iter().filter(|r| r.show != "off") {
             list = list.push(self.panorama_source_row(
@@ -638,7 +689,10 @@ impl App {
             list = list.push(small(e.clone()));
         }
         if let Some((q, found)) = &self.panorama.radio_results {
-            list = list.push(small(crate::tr!("Résultats : {q}", q = q.clone())));
+            list = list.push(small(crate::tr!(
+                "Résultats : {q}",
+                q = crate::panorama::radio::query_label(q)
+            )));
             for r in found {
                 let fav = c.radios.iter().any(|f| f.url == r.url);
                 list = list.push(self.panorama_source_row(
@@ -651,7 +705,10 @@ impl App {
             }
         }
         list.push(small(
-            crate::i18n::tr("Demandez à LYRA : « mets FIP », « une radio jazz ».").to_string(),
+            crate::i18n::tr(
+                "Cherchez une station par son nom dans Réglages → Panorama → Lecteur, ou demandez à LYRA : « mets FIP », « une radio jazz ».",
+            )
+            .to_string(),
         ))
     }
 
@@ -698,10 +755,21 @@ impl App {
                 .wrapping(text::Wrapping::None)
         ];
         if on {
+            // Radio lancée qui n'a pas encore de son : « Connexion… ».
+            let connecting = self.panorama.radio_connecting
+                && self
+                    .panorama
+                    .radio
+                    .as_ref()
+                    .is_some_and(|r| r.1 == src.url || r.0 == src.name);
             label = label.push(
-                text(crate::i18n::tr("En cours"))
-                    .size(11.0 * d.text_scale)
-                    .color(fx::alpha(fg, 0.7)),
+                text(crate::i18n::tr(if connecting {
+                    "Connexion…"
+                } else {
+                    "En cours"
+                }))
+                .size(11.0 * d.text_scale)
+                .color(fx::alpha(fg, 0.7)),
             );
         }
         let style = move |hot: bool, on: bool| button::Style {

@@ -111,9 +111,59 @@ fn send(cmd: &str) -> Option<String> {
     s.set_read_timeout(Some(std::time::Duration::from_millis(500)))
         .ok()?;
     writeln!(s, "{cmd}").ok()?;
-    let mut line = String::new();
-    std::io::BufReader::new(s).read_line(&mut line).ok()?;
-    Some(line)
+    // mpv glisse ses événements (`{"event":…}`) avant la réponse : sautés.
+    let mut r = std::io::BufReader::new(s);
+    for _ in 0..16 {
+        let mut line = String::new();
+        if r.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        if !line.trim_start().starts_with(r#"{"event""#) {
+            return Some(line);
+        }
+    }
+    None
+}
+
+/// Où en est le flux lancé par `play`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// mpv se connecte ou remplit son tampon.
+    Connecting,
+    /// Le son sort (ou la lecture est en pause).
+    Playing,
+    /// mpv s'est arrêté : flux injoignable ou illisible.
+    Dead,
+}
+
+/// État du lecteur : processus encore là, puis ce que dit mpv.
+pub fn status() -> Status {
+    let alive = PLAYER
+        .lock()
+        .ok()
+        .and_then(|mut p| p.as_mut().map(|c| matches!(c.try_wait(), Ok(None))))
+        .unwrap_or(false);
+    if !alive {
+        return Status::Dead;
+    }
+    let prop = |name: &str| {
+        send(&format!(r#"{{"command":["get_property","{name}"]}}"#))
+            .and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok())
+            .and_then(|v| v["data"].as_bool())
+    };
+    // Socket pas encore ouverte : mpv démarre.
+    let Some(idle) = prop("core-idle") else {
+        return Status::Connecting;
+    };
+    if prop("pause") == Some(true) {
+        return Status::Playing;
+    }
+    let buffering = prop("paused-for-cache").unwrap_or(false);
+    if idle || buffering {
+        Status::Connecting
+    } else {
+        Status::Playing
+    }
 }
 
 /// Lecture / pause ; rend l'état après coup (`true` : en pause).
