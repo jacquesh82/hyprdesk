@@ -222,7 +222,16 @@
 +}
 --- a/src/events.rs
 +++ b/src/events.rs
-@@ -272,6 +272,18 @@
+@@ -140,6 +140,8 @@
+ pub struct NewXdgWindowSettings {
+     /// The window title.
+     pub title: Option<String>,
++    /// xdg app_id (hyprdesk : la « class » des règles de Hyprland).
++    pub app_id: Option<String>,
+     /// The initial window size.
+     pub size: Option<(u32, u32)>,
+     /// Request client-side decorations instead of the default server-side mode.
+@@ -272,6 +274,18 @@
          time: u32,
      },
      MouseLeave,
@@ -241,7 +250,7 @@
      MouseEnter {
          pointer: WlPointer,
          serial: u32,
-@@ -353,6 +365,18 @@
+@@ -353,6 +367,18 @@
      },
      /// Mouse leave the surface
      MouseLeave,
@@ -260,7 +269,7 @@
      /// forward the event of wayland-mouse
      MouseEnter {
          pointer: WlPointer,
-@@ -455,6 +479,12 @@
+@@ -455,6 +481,12 @@
                  time,
              },
              DispatchMessageInner::MouseLeave => DispatchMessage::MouseLeave,
@@ -318,3 +327,21 @@
  
          let wmbase = globals.bind::<XdgWmBase, _, _>(&qh, 2..=6, ())?;
          self.wmbase = Some(wmbase);
+@@ -2808,6 +2823,7 @@
+                         ReturnData::NewXdgBase((
+                             NewXdgWindowSettings {
+                                 title,
++                                app_id,
+                                 size,
+                                 client_side_decorations,
+                             },
+@@ -2819,6 +2835,9 @@
+                             let toplevel = wl_xdg_surface.get_toplevel(&qh, ());
+ 
+                             toplevel.set_title(title.unwrap_or("".to_owned()));
++                            if let Some(app_id) = app_id {
++                                toplevel.set_app_id(app_id);
++                            }
+ 
+                             let decoration = if let Some(decoration_manager) =
+                                 &zxdg_decoration_manager

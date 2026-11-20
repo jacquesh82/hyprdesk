@@ -34,6 +34,11 @@ seulement si wl-clipboard manque (`src/clipboard.rs`). Son fil tournait sa
 propre boucle sur la connexion Wayland partagée, réveillé par chaque événement
 des surfaces (≈ 44 fois/s au repos, MLG-136).
 
+Ajout : `title` et `app_id` dans `IcedXdgWindowSettings`
+(`src/actions.rs`), transmis aux fenêtres xdg de layershellev (voir
+vendor/layershellev/HYPRDESK.md). L'original imposait un titre vide et ne
+dérivait plus `Copy` faute de chaînes (MLG-164).
+
 ## Origine
 
 - Archive de départ : `iced_layershell-0.19.1.crate`, https://static.crates.io/crates/iced_layershell/iced_layershell-0.19.1.crate

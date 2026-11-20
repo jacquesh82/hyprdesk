@@ -8,6 +8,11 @@ Ajout : glisser-déposer de fichiers vers les surfaces (`src/dnd.rs`).
 
 À reporter lors d'une mise à jour (ou à proposer en amont : waycrate/exwlshelleventloop).
 
+Ajout : titre et `app_id` des fenêtres xdg (`NewXdgWindowSettings` dans `src/events.rs`,
+appliqués dans `src/lib.rs`). L'original laissait l'`app_id` vide : les règles de
+Hyprland ne pouvaient pas reconnaître la fenêtre d'aperçu du Panorama
+(app_id `hyprdesk-panorama-preview`, flottante et centrée, MLG-164).
+
 ## Origine
 
 - Archive de départ : `layershellev-0.19.1.crate`, https://static.crates.io/crates/layershellev/layershellev-0.19.1.crate

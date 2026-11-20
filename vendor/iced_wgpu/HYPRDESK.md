@@ -10,6 +10,13 @@ Elle est désormais chargée une seule fois, et seulement pour un SVG qui
 contient du texte (`<text`) ou qui est compressé ; les icônes reçoivent
 une base vide, qui ne change rien à leur rendu.
 
+Ajout : adaptateur wgpu imposé par son identifiant PCI
+(`src/window/compositor.rs`, MLG-171). `HYPRDESK_WGPU_PCI=vvvv:dddd`
+(hexadécimal) choisit la carte de rendu de Hyprland, si elle prend en
+charge la surface : les surfaces de hyprdesk ne sont plus recopiées d'une
+carte à l'autre. Variable absente, invalide ou carte introuvable : choix
+habituel de wgpu.
+
 ## Origine
 
 - Archive de départ : `iced_wgpu-0.14.0.crate`, https://static.crates.io/crates/iced_wgpu/iced_wgpu-0.14.0.crate
