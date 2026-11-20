@@ -123,14 +123,13 @@ pub const GROUPS: &[Group] = &[
         label: "Bureau",
         ids: &["desktop", "wallpaper", "icons"],
     },
-    Group {
-        label: "Barre et lanceur",
-        ids: &["bar", "launcher", "panorama"],
-    },
-    // Ce qui s'ajoute au bureau : modules du Panorama, widgets, plugins installés.
+    // Les plugins (Barre, Lanceur, Panorama), puis ce qui s'y ajoute :
+    // modules du Panorama, widgets, plugins installés.
     Group {
         label: "Plugins",
-        ids: &["modules", "widgets", "plugins"],
+        ids: &[
+            "bar", "launcher", "panorama", "modules", "widgets", "plugins",
+        ],
     },
     Group {
         label: "Apparence",
@@ -759,9 +758,15 @@ mod tests {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
         assert!(!visible("share", false) && visible("share", true));
-        // Groupe Plugins : modules, widgets et plugins installés, toujours visibles.
+        // Groupe Plugins : les plugins, leurs modules, les widgets et les
+        // plugins installés, toujours visibles.
         let g = GROUPS.iter().find(|g| g.label == "Plugins").unwrap();
-        assert_eq!(g.ids, &["modules", "widgets", "plugins"]);
+        assert_eq!(
+            g.ids,
+            &[
+                "bar", "launcher", "panorama", "modules", "widgets", "plugins"
+            ]
+        );
         assert!(g.ids.iter().all(|id| visible(id, false)));
         assert_eq!(find("hue").map(|p| p.id), Some("modules"));
         assert_eq!(visible_tabs("desktop", false).len(), 3);

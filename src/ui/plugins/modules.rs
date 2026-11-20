@@ -12,7 +12,7 @@ use crate::ui::{App, Msg as UiMsg};
 pub const INFO: PluginInfo = PluginInfo {
     id: "modules",
     label: "Modules",
-    icon: "view-app-grid",
+    icon: "applications-other",
     summary: "Modules du Panorama : Hue, Notes, LYRA vocale…",
     builtin: true,
 };
