@@ -32,7 +32,8 @@ pub const EXAMPLE_EN: &str = include_str!("../../assets/hyprdesk.en.lua");
 fn starter_lua() -> String {
     let home = hyprpanel_core::ipc::lua_escape(crate::i18n::tr("Dossier perso"));
     format!(
-        r#"hd.icon({{ app = "kitty" }})
+        r#"hd.config({{ workspaces = 5 }})
+hd.icon({{ app = "kitty" }})
 hd.icon({{ label = "{home}", path = "~", icon = "user-home" }})
 hd.icon({{ label = "htop", exec = "htop", terminal = true, icon = "utilities-system-monitor" }})
 hd.widget("clock", {{ id = "clock", anchor = "top-right", size = 72, card = false }})

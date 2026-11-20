@@ -718,7 +718,7 @@ pub fn build_keys_lua(
     media(&mut lua, "", false);
     // Essentiels de fenêtres, de workspaces et d'écrans (MLG-109) : là où
     // hyprland.lua n'en a pas, sur une combinaison libre.
-    let essential = |lua: &mut String, indent: &str, l: &crate::essentials::Line| {
+    let essential = |lua: &mut String, indent: &str, combo: &str, l: &crate::essentials::Line| {
         let desc = if l.detail.is_empty() {
             format!("hyprdesk : {}", l.label)
         } else {
@@ -731,13 +731,13 @@ pub fn build_keys_lua(
         };
         *lua += &format!(
             "{indent}keep(hl.bind({}, {}, {{ description = {}{opts} }}))\n",
-            q(&l.combo),
+            q(combo),
             l.lua,
             q(&desc)
         );
     };
     for l in plan.essentials.iter().filter(|l| l.state.installs()) {
-        essential(&mut lua, "", l);
+        essential(&mut lua, "", &l.combo, l);
     }
     // Dans la submap (full-desktop), les raccourcis de Hyprland sont
     // suspendus, sauf ceux marqués submap_universal.
@@ -810,7 +810,7 @@ pub fn build_keys_lua(
     }
     // Essentiels qui ont un sens bureau affiché (le bureau suit).
     for l in plan.essentials.iter().filter(|l| l.desktop) {
-        essential(&mut lua, "  ", l);
+        essential(&mut lua, "  ", &l.desktop_combo, l);
     }
     // Bureau affiché : celles de hyprland.lua sont suspendues, hyprdesk les
     // tient, sauf celles marquées submap_universal.

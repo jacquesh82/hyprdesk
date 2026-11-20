@@ -24,16 +24,23 @@ pub enum Group {
     Windows,
     Workspaces,
     Screens,
+    Captures,
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::Windows, Group::Workspaces, Group::Screens];
+    pub const ALL: [Group; 4] = [
+        Group::Windows,
+        Group::Workspaces,
+        Group::Screens,
+        Group::Captures,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Group::Windows => "Fenêtres",
             Group::Workspaces => "Workspaces",
             Group::Screens => "Écrans",
+            Group::Captures => "Captures d'écran",
         }
     }
 }
@@ -90,11 +97,12 @@ pub const CATALOGUE: &[Essential] = &[
         "Épingler sur tous les workspaces",
         false,
     ),
+    // Plein bureau : les fenêtres du workspace y flottent, on les déplace.
     e(
         "mouse",
         Group::Windows,
         "Déplacer et redimensionner à la souris",
-        false,
+        true,
     ),
     e(
         "group",
@@ -157,6 +165,7 @@ pub const CATALOGUE: &[Essential] = &[
         "Envoyer le workspace à l'écran suivant",
         false,
     ),
+    e("capture", Group::Captures, "Capturer", true),
 ];
 
 /// Précisions d'un raccourci (direction, sens), traduites à l'affichage.
@@ -170,6 +179,9 @@ const DETAILS: &[&str] = &[
     "redimensionner",
     "suivant",
     "précédent",
+    "zone",
+    "écran",
+    "fenêtre",
 ];
 
 /// Libellés à traduire (catalogue anglais vérifié par `libelles_traduits`).
@@ -234,6 +246,9 @@ pub struct Line {
     pub state: State,
     /// Posé aussi bureau affiché (submap « hyprdesk »).
     pub desktop: bool,
+    /// Combinaison posée bureau affiché : celle de hyprdesk, ou celle de
+    /// hyprland.lua quand il fait déjà la même chose (la submap la suspend).
+    pub desktop_combo: String,
     /// Remarque : un raccourci de hyprland.lua pour la même action, qui ne
     /// se déclenche sans doute jamais.
     pub note: Option<String>,
@@ -544,6 +559,49 @@ impl Ctx {
                 "hl.dsp.workspace.move({ monitor = \"+1\" })",
                 &["workspace.move({monitor=", "workspace.swap_monitors("],
             )],
+            // hyprdesk capture : enregistrée dans Images/Captures et copiée.
+            "capture" => [
+                (
+                    "zone",
+                    "Print",
+                    "zone",
+                    "region",
+                    &["capturezone", "captureregion"][..],
+                ),
+                (
+                    "écran",
+                    "SUPER + Print",
+                    "ecran",
+                    "output",
+                    &["captureecran", "captureoutput", "capturescreen"][..],
+                ),
+                (
+                    "fenêtre",
+                    "ALT + Print",
+                    "fenetre",
+                    "window",
+                    &["capturefenetre", "capturewindow"][..],
+                ),
+            ]
+            .into_iter()
+            .map(|(detail, combo, arg, mode, own)| {
+                let hyprshot = format!("exec_cmd(&hyprshot&-m{mode}");
+                let grimblast = format!(
+                    "exec_cmd(&grimblast&{}",
+                    if mode == "region" { "area" } else { mode }
+                );
+                let mut calls: Vec<String> = own.iter().map(|o| format!("exec_cmd(&{o}")).collect();
+                calls.push(hyprshot);
+                calls.push(grimblast);
+                let calls: Vec<&str> = calls.iter().map(String::as_str).collect();
+                want(
+                    detail,
+                    combo.into(),
+                    &format!("hl.dsp.exec_cmd(\"hyprdesk capture {arg}\")"),
+                    &calls,
+                )
+            })
+            .collect(),
             _ => Vec::new(),
         }
     }
@@ -723,6 +781,7 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
                 }
                 !dead
             });
+            let present_combo = present.as_ref().map(|(c, _)| c.clone());
             let state = if let Some((c, at)) = present {
                 State::Present {
                     combo: combo_text(&c),
@@ -775,12 +834,29 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
             } else {
                 State::Installed
             };
-            // Bureau affiché : pas sur un raccourci universel de hyprland.lua
-            // (il y agit déjà), ni sur un raccourci de hyprdesk du bureau.
-            let desktop = ess.desktop
-                && state.installs()
-                && !holder.is_some_and(|f| f.universal)
-                && !mine.iter().any(|(m, _, d, _)| *d && same_combo(m, &n));
+            // Bureau affiché : le raccourci de hyprdesk, ou celui de
+            // hyprland.lua qui fait déjà la même chose (suspendu par la
+            // submap) ; pas sur un raccourci universel de hyprland.lua (il y
+            // agit déjà), ni sur un raccourci de hyprdesk du bureau.
+            let desk = if state.installs() {
+                Some(n.clone())
+            } else if matches!(state, State::Present { .. }) {
+                present_combo
+            } else {
+                None
+            };
+            let desk = desk.filter(|c| {
+                ess.desktop
+                    && !foreign
+                        .iter()
+                        .any(|f| f.universal && same_combo(&f.combo, c))
+                    && !mine.iter().any(|(m, _, d, _)| *d && same_combo(m, c))
+            });
+            let desktop = desk.is_some();
+            let desktop_combo = match &desk {
+                Some(c) if !state.installs() => combo_text(c),
+                _ => w.combo.clone(),
+            };
             out.push(Line {
                 id: ess.id,
                 group: ess.group,
@@ -793,6 +869,7 @@ pub fn plan(keys: &Keys, binds: &Value, source: &[SourceBind], layouts: &[String
                 opts: w.opts,
                 state,
                 desktop,
+                desktop_combo,
                 note,
             });
         }
@@ -1097,6 +1174,7 @@ fn hyprdesk_category(desc: &str) -> Category {
             Group::Windows => Category::Windows,
             Group::Workspaces => Category::Workspaces,
             Group::Screens => Category::Screens,
+            Group::Captures => Category::Captures,
         };
     }
     if d.contains("workspace") {
@@ -1238,8 +1316,10 @@ hl.bind(mainMod .. " + Right",     hl.dsp.focus({ workspace = "+1" }))
 hl.bind(mainMod .. " + SHIFT + 1", hl.dsp.window.move({ monitor = "HDMI-A-2" }))
 hl.bind(mainMod .. " + mouse_down", hl.dsp.layout("move +col"))
 hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
+hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { submap_universal = true })
 "#;
         let binds = serde_json::json!([
+            { "submap": "", "dispatcher": "HL.Dispatcher(exec_cmd)", "key": "Print", "modmask": 0, "submap_universal": true },
             { "submap": "", "dispatcher": "HL.Dispatcher(close)", "key": "Q", "modmask": 64 },
             { "submap": "", "dispatcher": "HL.Dispatcher(focus)", "key": "ampersand", "modmask": 64 },
             { "submap": "", "dispatcher": "HL.Dispatcher(move)", "key": "ampersand", "modmask": 72 },
@@ -1287,11 +1367,24 @@ hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
         // Maximiser, épingler : posés.
         assert_eq!(find(&lines, "maximize", "").state, State::Installed);
         assert!(!find(&lines, "maximize", "").desktop);
-        // Souris : déjà là pour déplacer.
-        assert!(matches!(
-            find(&lines, "mouse", "déplacer").state,
-            State::Present { .. }
-        ));
+        // Souris : déjà là pour déplacer ; bureau affiché, la submap la
+        // suspend : hyprdesk la repose là, sur la même combinaison.
+        let drag = find(&lines, "mouse", "déplacer");
+        assert!(matches!(drag.state, State::Present { .. }));
+        assert!(drag.desktop);
+        assert_eq!(drag.desktop_combo, "SUPER + mouse:272");
+        assert_eq!(drag.opts, "mouse = true");
+        // Captures : la zone est déjà là (universelle, rien à reposer) ;
+        // l'écran et la fenêtre sont posés, bureau affiché aussi.
+        let zone = find(&lines, "capture", "zone");
+        assert!(matches!(zone.state, State::Present { .. }));
+        assert!(!zone.desktop);
+        let screen = find(&lines, "capture", "écran");
+        assert_eq!(screen.state, State::Installed);
+        assert!(screen.desktop);
+        assert_eq!(screen.combo, "SUPER + Print");
+        assert_eq!(screen.lua, "hl.dsp.exec_cmd(\"hyprdesk capture ecran\")");
+        assert_eq!(find(&lines, "capture", "fenêtre").combo, "ALT + Print");
     }
 
     #[test]

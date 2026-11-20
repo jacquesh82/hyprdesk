@@ -10,6 +10,15 @@ and this project adheres to
 
 ### Changed
 
+- **Default configuration: screenshots, SUPER + drag, 5 workspaces**
+  (MLG-204). A new “Screenshots” essential binds Print (area),
+  SUPER + Print (screen) and ALT + Print (window) to `hyprdesk capture`,
+  wherever hyprland.lua has no screenshot binding of its own (hyprshot,
+  grimblast or `hyprdesk capture`). With the desktop shown, moving and
+  resizing windows with SUPER + mouse works again: the submap no longer
+  suspends the hyprland.lua binding, hyprdesk binds it there too (same for
+  the other essentials that make sense on the desktop). The starting desktop
+  keeps 5 permanent workspaces.
 - **`hyprdesk.lua` optional, sample fully commented** (MLG-199). A first
   installation writes the starting desktop (icons, widgets, bar) to
   `settings.lua`, adjustable in Settings, and a `hyprdesk.lua` with comments
