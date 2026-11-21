@@ -3036,6 +3036,7 @@
 "index query attend un mot à chercher" = "index query expects a word to search for"
 "rescan complet demandé" = "full rescan requested"
 "usage : hyprdesk index daemon|query <mot>|status|rebuild|stop" = "usage: hyprdesk index daemon|query <word>|status|rebuild|stop"
+"usage : hyprdesk preview [dossier]" = "usage: hyprdesk preview [folder]"
 "Rechercher une application… (:f, :clip, :2fa, :mdp)" = "Search an application… (:f, :clip, :2fa, :mdp)"
 "Aucun fichier ne correspond." = "No file matches."
 "Démarrage du démon d'index…" = "Starting the index daemon…"

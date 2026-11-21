@@ -647,6 +647,12 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Une option n'est pas un dossier de sortie : `preview --help` créait
+        // un dossier `--help/` rempli de captures (MLG-211).
+        "preview" if args.get(1).is_some_and(|a| a.starts_with('-')) => {
+            eprintln!("{}", hyprdesk::tr!("usage : hyprdesk preview [dossier]"));
+            ExitCode::from(2)
+        }
         "preview" => match ui::preview::run(args.get(1).map(PathBuf::from)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
