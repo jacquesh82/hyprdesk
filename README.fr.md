@@ -47,7 +47,9 @@ et LYRA peut le ranger avec vous.
   livrée par défaut, et formulaire placable en neuf points de l'écran.
 - **Écran de verrouillage** (`hyprlock`) : verrouillage natif
   (ext-session-lock-v1) avec PAM et empreinte au besoin ; la liaison
-  SUPER + L est réécrite vers `hyprdesk lock`.
+  SUPER + L est réécrite vers `hyprdesk lock`. Il tourne dans son propre
+  binaire (`hyprdesk-lock`) et sa propre scope systemd : redémarrer ou
+  mettre à jour hyprdesk ne l'emporte jamais.
 - **Secret Service** (`gnome-keyring`) : avec myMFA, son démon tient le
   Secret Service — hyprdesk importe les secrets de gnome-keyring, masque ses
   unités, et un clic les lui rend.
@@ -118,8 +120,14 @@ l'écran de connexion, LYRA et myMFA restent décochés tant que vous ne les
 choisissez pas, et rien ne change hors de votre session. Si Hyprland est plus ancien que 0.57,
 l'assistant propose de le mettre à jour ; reconnectez-vous ensuite à Hyprland.
 
-Le binaire est installé dans `~/.local/bin` (copie du paquet, ou compilation
-avec `--from-source`) et le service systemd utilisateur est mis en place. Le
+Le paquet installe ses binaires dans `/usr/bin` ; `--from-source` les
+compile dans `~/.local/bin`. À côté de `hyprdesk` (le démon et ses
+commandes), trois binaires dédiés s'occupent de l'authentification :
+`hyprdesk-lock` (verrouillage), `hyprdesk-greeter` (écran de connexion) et
+`hyprdesk-polkit` (agent polkit). Chacun ne contient que son propre code (ni
+démon, ni Lua, ni index de fichiers), et `hyprdesk lock`, `hyprdesk greeter`
+et `hyprdesk polkit-ui` leur passent la main. Le service systemd utilisateur
+est mis en place. Le
 script crée `~/.config/hypr/hyprdesk.lua` s'il manque et sauvegarde
 `hyprland.lua` avant d'y toucher (`hyprland.lua.avant-hyprdesk-*.bak`). Le
 bilan final montre les composants en marche et ce qu'il reste à faire. Au
@@ -189,7 +197,7 @@ jamais effacé. Les paquets installés pour hyprdesk sont proposés au retrait
 l'installation n'est pas défaite.
 
 Le script rend l'écran de connexion d'avant si hyprdesk l'avait remplacé,
-retire le service, le binaire et la police, et ôte ses lignes de
+retire le service, les binaires et la police, et ôte ses lignes de
 `hyprland.lua` et `binds.lua` : `SUPER + L` revient à hyprlock, et les
 services que hyprdesk avait pris en charge (agent polkit, hyprpaper…)
 repartent. Chaque fichier modifié est d'abord copié
@@ -561,7 +569,7 @@ lockfile épingle `winit-core` en `0.31.0-beta.2`, requis par la pile
 d'interface.
 
 ```bash
-cargo test --locked
+cargo test --locked --workspace
 bash scripts/verify.sh
 cargo run --locked -- preview
 ```
@@ -572,6 +580,13 @@ démonstration à 1440, 900 et 640 px, sous `/tmp/hyprdesk-visual` par défaut.
 L'aperçu interactif emploie des données de démonstration et ne touche pas aux
 réglages de la session. Le flou du compositeur et le multi-écran se
 vérifient dans une session Hyprland.
+
+Le dépôt est un espace de travail Cargo : le paquet `hyprdesk` (une
+bibliothèque, le binaire `hyprdesk` et les binaires dédiés de `src/bin/`),
+plus `crates/hyprdesk-auth` (PAM, fprintd) et `crates/hyprdesk-i18n`
+(traductions), qui ne dépendent ni d'iced ni de Lua. `cargo build --release`
+retire les symboles ; les paquets passent par le profil `dist` (LTO complet,
+environ 20 % plus petits, compilation bien plus longue).
 
 Le [guide de développement](docs/ADVANCED.md#development) (en anglais)
 détaille build et vérifications, et le [guide de contribution](CONTRIBUTING.md)

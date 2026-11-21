@@ -46,7 +46,8 @@ can tidy it with you.
   screen anchors.
 - **Lock screen** (`hyprlock`): a native ext-session-lock-v1 screen with PAM
   and optional fingerprint; the SUPER + L binding is rewritten to
-  `hyprdesk lock`.
+  `hyprdesk lock`. It runs as its own binary (`hyprdesk-lock`) in its own
+  systemd scope, so restarting or updating hyprdesk never takes it down.
 - **Secret Service** (`gnome-keyring`): with myMFA, its daemon serves the
   Secret Service — hyprdesk imports gnome-keyring secrets, masks its units,
   and one click gives them back.
@@ -116,8 +117,13 @@ pick them, and nothing outside your session changes. If your Hyprland
 version is older than 0.57, the assistant offers to update it. Log back into
 Hyprland after that update.
 
-The binary is installed in `~/.local/bin` (copied from the package, or built
-with `--from-source`) and the systemd user service is set up. The script
+The package installs its binaries in `/usr/bin`; `--from-source` builds them
+into `~/.local/bin`. Besides `hyprdesk` (the daemon and its commands), three
+dedicated binaries handle authentication: `hyprdesk-lock` (lock screen),
+`hyprdesk-greeter` (login screen) and `hyprdesk-polkit` (polkit agent). Each
+one only contains its own code (no daemon, no Lua, no file index), and
+`hyprdesk lock`, `hyprdesk greeter` and `hyprdesk polkit-ui` hand over to
+them. The systemd user service is set up as well. The script
 creates `~/.config/hypr/hyprdesk.lua` if needed and backs up `hyprland.lua`
 before editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report
 shows which components are running and any actions still needed. On the
@@ -185,7 +191,7 @@ hyprdesk are offered for removal (`--remove-packages` to skip the question). A
 Hyprland upgrade done at install time is not rolled back.
 
 The script restores your previous login screen if hyprdesk replaced it,
-removes the service, binary, and font, and takes its lines out of
+removes the service, binaries, and font, and takes its lines out of
 `hyprland.lua` and `binds.lua`: `SUPER + L` goes back to hyprlock, and the
 services hyprdesk had taken over (polkit agent, hyprpaper…) start again. Each
 edited file is backed up first (`*.avant-desinstallation-hyprdesk.bak`), and
@@ -522,7 +528,7 @@ Use **Rust 1.99 or newer** and keep builds locked to `Cargo.lock`. The lockfile
 pins `winit-core` to `0.31.0-beta.2` for compatibility with the UI stack.
 
 ```bash
-cargo test --locked
+cargo test --locked --workspace
 bash scripts/verify.sh
 cargo run --locked -- preview
 ```
@@ -532,6 +538,13 @@ and isolated D-Bus checks. Add `--visual` to capture the demo views at 1440,
 900, and 640 px under `/tmp/hyprdesk-visual` by default. The interactive preview
 uses demo data and leaves session settings untouched. Check compositor blur and
 multi-monitor behavior in a Hyprland session.
+
+The repository is a Cargo workspace: the `hyprdesk` package (a library, the
+`hyprdesk` binary and the dedicated binaries in `src/bin/`), plus
+`crates/hyprdesk-auth` (PAM, fprintd) and `crates/hyprdesk-i18n`
+(translations), which depend on neither iced nor Lua. `cargo build --release`
+strips symbols; packages use the `dist` profile (full LTO, about 20 % smaller,
+much slower to build).
 
 See the [development guide](docs/ADVANCED.md#development) for more build and
 verification details, and the [contributing guide](CONTRIBUTING.md) for the

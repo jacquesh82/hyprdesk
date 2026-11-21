@@ -16,7 +16,7 @@ read [docs/ADVANCED.md](docs/ADVANCED.md) first.
 ## Build and test
 
 ```bash
-cargo test --locked
+cargo test --locked --workspace
 ```
 
 Always pass `--locked`: `Cargo.lock` pins `winit-core` to `0.31.0-beta.2`
