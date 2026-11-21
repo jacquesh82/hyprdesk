@@ -16,6 +16,7 @@ pub mod capture;
 pub mod config;
 pub mod design;
 pub mod detect;
+pub mod guest;
 pub mod icons;
 pub mod layout;
 pub mod modules;

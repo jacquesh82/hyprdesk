@@ -190,6 +190,17 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "workspace-switcher" => {
             r#"<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M14 17h6m-3-3v6"/>"#
         }
+        // Panorama côte à côte : le média à gauche, la zone d'accueil (+) à droite.
+        "hyprdesk-split" => {
+            r#"<rect x="2" y="4" width="20" height="16" rx="3"/><path d="M12 4v16M5.5 9.5 9 12l-3.5 2.5ZM17 9.5v5M14.5 12h5"/>"#
+        }
+        // Inverser les deux zones.
+        "hyprdesk-split-swap" => r#"<path d="M4 8h15m-4-4 4 4-4 4M20 16H5m4-4-4 4 4 4"/>"#,
+        // Retour sans partage : le média seul.
+        "hyprdesk-split-off" => {
+            r#"<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3Z"/>"#
+        }
+        "list-add" => r#"<path d="M12 5v14M5 12h14"/>"#,
         "view-grid" => {
             r#"<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>"#
         }

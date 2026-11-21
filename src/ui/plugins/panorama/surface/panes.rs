@@ -80,7 +80,7 @@ pub(super) struct Geo {
 impl Geo {
     /// La zone a un bandeau (écran partagé, ou page Vidéo).
     pub fn has_header(p: &Pane) -> bool {
-        !p.bare && (p.index.is_some() || p.widget == "video")
+        !p.bare && (p.index.is_some() || p.widget == "video" || p.widget == "aside")
     }
 
     /// Contenu d'une zone, sous son bandeau.
@@ -252,6 +252,14 @@ impl App {
             },
             Layout::Dashboard => {
                 let player = matches!(c.design.shortcut_profile.as_str(), "video" | "audio");
+                // Côte à côte : le média et la zone d'accueil.
+                if player && let Some(sp) = &self.panorama.split {
+                    return Geo {
+                        panes: self.panorama_side_panes(s, sp),
+                        header: target,
+                        target,
+                    };
+                }
                 let mut panes = map(&c.design.active_tiles(s.w, s.h), player);
                 self.panorama_embed_media(&mut panes);
                 panes
@@ -319,19 +327,27 @@ impl App {
         });
     }
 
-    /// Trous de la surface (zone de la fenêtre vidéo posée).
+    /// Trous de la surface (zone de la fenêtre vidéo posée, et celle de la
+    /// fenêtre ramenée dans la zone d'accueil du côte à côte).
     fn panorama_holes(&self, geo: &Geo) -> Vec<Rect> {
+        let mut holes = Vec::new();
         if self
             .panorama
             .video
             .as_ref()
-            .is_none_or(|v| v.address.is_none())
+            .is_some_and(|v| v.address.is_some())
         {
-            return Vec::new();
+            holes.extend(geo.video_pane().map(|p| geo.content(p)));
         }
-        geo.video_pane()
-            .map(|p| vec![geo.content(p)])
-            .unwrap_or_default()
+        if self.panorama_side_hosting() {
+            holes.extend(
+                geo.panes
+                    .iter()
+                    .find(|p| p.widget == "aside")
+                    .map(|p| geo.content(p)),
+            );
+        }
+        holes
     }
 
     /// Une seule surface accueille la vidéo : les autres gardent leur matière.
@@ -389,7 +405,19 @@ impl App {
         for s in self.panorama_surfs() {
             let geo = self.panorama_geo(&s);
             let Some(p) = geo.video_pane() else { continue };
-            let r = geo.content(p);
+            let zone = self.panorama_global(&s, geo.content(p))?;
+            // Cadrage de la source : seule la vidéo reste dans la zone.
+            return Some(match self.panorama_current_source() {
+                Some(src) => src.framed(zone),
+                None => zone,
+            });
+        }
+        None
+    }
+
+    /// Rectangle global (écran) d'un rectangle de la surface `s`.
+    pub(super) fn panorama_global(&self, s: &Surf, r: Rect) -> Option<(i32, i32, i32, i32)> {
+        {
             let origin = if s.key == PREVIEW {
                 self.panorama.preview_at?
             } else {
@@ -411,19 +439,13 @@ impl App {
                 };
                 ((m.x + zx).round() as i32, (m.y + zy).round() as i32)
             };
-            let zone = (
+            Some((
                 origin.0 + r.x.round() as i32,
                 origin.1 + r.y.round() as i32,
                 r.w.round() as i32,
                 r.h.round() as i32,
-            );
-            // Cadrage de la source : seule la vidéo reste dans la zone.
-            return Some(match self.panorama_current_source() {
-                Some(src) => src.framed(zone),
-                None => zone,
-            });
+            ))
         }
-        None
     }
 
     /// Source ouverte dans le lecteur (vidéo ou musique).
@@ -530,6 +552,7 @@ impl App {
         {
             tasks.push(self.panorama_close_video());
         }
+        tasks.push(self.panorama_side_sync(surfs.is_empty()));
         if let Some(v) = self.panorama.video.as_mut()
             && let (Some(addr), Some(rect)) = (v.address.clone(), target)
             && v.placed != Some(rect)
@@ -1331,7 +1354,7 @@ impl App {
                     .panorama_geo(s)
                     .panes
                     .iter()
-                    .any(|p| p.widget == "shortcuts")
+                    .any(|p| p.widget == "shortcuts" || p.widget == "aside")
         }) {
             Some(_) => stack![
                 inner,
@@ -1855,7 +1878,7 @@ impl App {
             .panes
             .iter()
             // La bande des modules défile de côté : elle aussi garde le geste.
-            .filter(|p| matches!(p.widget.as_str(), "shortcuts" | "modules"))
+            .filter(|p| matches!(p.widget.as_str(), "shortcuts" | "modules" | "aside"))
             .map(|p| {
                 iced::Rectangle::new(
                     iced::Point::new(p.rect.x, p.rect.y),
@@ -2051,6 +2074,7 @@ impl App {
             "voice" => self.panorama_voice_module(iced::Size::new(content.w, content.h)),
             "notes" => self.panorama_notes(iced::Size::new(content.w, content.h)),
             "updates" => self.panorama_updates(iced::Size::new(content.w, content.h)),
+            "aside" => self.panorama_aside(iced::Size::new(content.w, content.h)),
             // Webradio en cours : barre « flux vocal ».
             "video" if self.panorama.radio.is_some() => {
                 let (name, _) = self.panorama.radio.clone().unwrap_or_default();
@@ -2129,13 +2153,14 @@ impl App {
                 }),
             _ => self.panorama_media(&z, fg),
         };
-        let hole = p.widget == "video"
+        let hole = (p.widget == "video"
             && video_at == Some(p.rect)
             && self
                 .panorama
                 .video
                 .as_ref()
-                .is_some_and(|v| v.address.is_some());
+                .is_some_and(|v| v.address.is_some()))
+            || (p.widget == "aside" && self.panorama_side_hosting());
         let body: Element<'_, Msg> = if hole || !Geo::has_header(p) {
             body
         } else {
@@ -2168,6 +2193,9 @@ impl App {
         fg: Color,
         bg: Color,
     ) -> Element<'_, Msg> {
+        if p.widget == "aside" {
+            return self.panorama_aside_header(geo, p, fg, bg);
+        }
         let t = geo.target;
         let small = t * 0.8;
         let label = crate::i18n::tr(crate::panorama::page_label(&p.widget));

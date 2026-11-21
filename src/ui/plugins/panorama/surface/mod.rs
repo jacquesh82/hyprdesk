@@ -15,6 +15,7 @@ mod halo;
 mod instruments;
 mod modules;
 mod panes;
+mod side;
 mod swipe;
 
 use std::collections::{HashMap, HashSet};
@@ -271,6 +272,8 @@ pub struct State {
     pub updates_asked: bool,
     /// Touche lourde armée (éteindre, redémarrer) : (rang, depuis).
     pub confirm: Option<(usize, Instant)>,
+    /// Côte à côte des profils Vidéo et Musique (média | zone d'accueil).
+    pub split: Option<side::SideBySide>,
 }
 
 /// Gestionnaire des tâches du Panorama : sur quel écran, trié sur quoi.
@@ -324,6 +327,16 @@ pub enum VoiceUi {
 #[derive(Debug, Clone)]
 pub enum PMsg {
     Shortcut(usize),
+    /// Côte à côte : toggle, on, off, swap, pick, done, release.
+    Side(&'static str),
+    /// Zone d'accueil : module ajouté ou retiré.
+    SideModule(String),
+    /// Zone d'accueil : fenêtre (adresse) à ramener.
+    SideWindow(String),
+    /// Fenêtre ramenée, ou pourquoi elle ne l'a pas été.
+    SideTaken(Result<crate::panorama::guest::Guest, String>),
+    /// Fin d'une pose ou d'une restitution de la fenêtre invitée.
+    SideDone(Result<(), String>),
     /// Pièces Hue relues : pont appairé, pièces ou erreur.
     HueRooms(
         bool,
@@ -1402,6 +1415,10 @@ impl App {
                     return Task::none();
                 }
                 self.panorama.confirm = None;
+                // Côte à côte : sans passer par la ligne de commande.
+                if command.trim() == "hyprdesk panorama split" {
+                    return self.panorama_side_update(PMsg::Side("toggle"));
+                }
                 // Mise à jour : son avancement s'affiche aussitôt.
                 if command.trim() == "hyprdesk updates --upgrade" {
                     return self.panorama_updates_run("--upgrade");
@@ -1693,6 +1710,11 @@ impl App {
                 self.panorama.design_error = r.err();
                 Task::none()
             }
+            m @ (PMsg::Side(_)
+            | PMsg::SideModule(_)
+            | PMsg::SideWindow(_)
+            | PMsg::SideTaken(_)
+            | PMsg::SideDone(_)) => self.panorama_side_update(m),
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
             | PMsg::AutoFull(..)
@@ -1850,6 +1872,7 @@ impl App {
                     return Task::none();
                 }
                 self.panorama_video_gone();
+                self.panorama_side_gone();
                 let mut strays = Task::batch([
                     self.panorama_tasks_refresh(),
                     self.panorama_close_strays(),
@@ -1858,6 +1881,7 @@ impl App {
                     self.panorama_auto_full(),
                     self.panorama_capture_scan(),
                     self.panorama_anchor(),
+                    self.panorama_side_anchor(),
                     self.panorama_updates_read(),
                     self.panorama_hue_tick(),
                 ]);
@@ -2115,6 +2139,14 @@ impl App {
                 self.panorama.offered.clear();
                 detect_task()
             }
+            // Côte à côte : split [toggle|on|off|swap].
+            ("split", _) => match it.next().unwrap_or("toggle") {
+                "toggle" => self.panorama_update(PMsg::Side("toggle")),
+                "on" => self.panorama_update(PMsg::Side("on")),
+                "off" => self.panorama_update(PMsg::Side("off")),
+                "swap" => self.panorama_update(PMsg::Side("swap")),
+                _ => Task::none(),
+            },
             ("layout", _) => match it.next().and_then(crate::panorama::config::Layout::parse) {
                 Some(l) => self.panorama_update(PMsg::Layout(l)),
                 None => Task::none(),

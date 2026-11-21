@@ -44,6 +44,36 @@ impl App {
         }
     }
 
+    /// Tuile d'un module du catalogue, à la taille donnée (bande des
+    /// modules, zone d'accueil du côte à côte).
+    pub(super) fn panorama_module_body<'a>(&'a self, id: &str, inner: Size) -> Element<'a, Msg> {
+        let (_, fg, accent) = self.panorama_palette();
+        let d = &self.cfg.general.panorama.design;
+        match id {
+            "notes" => self.panorama_notes(inner),
+            "hue" => self.panorama_hue(inner),
+            "voice" => self.panorama_voice_module(inner),
+            "playlist" => self.panorama_playlist(inner),
+            "calendar" => self.panorama_calendar(inner),
+            "media" => self.panorama_compact_media(inner),
+            "clock" => {
+                let z = crate::panorama::layout::zones(inner.width, inner.height, None);
+                self.panorama_clock(&z, fg)
+            }
+            "system" => super::instruments::metrics(
+                &d.system_style,
+                &self.panorama.sys,
+                &self.panorama.history,
+                d.history_seconds as usize,
+                (fg, accent),
+                self.panorama_font(),
+                d.text_scale,
+                self.panorama_graph_phase(),
+            ),
+            _ => Space::new().into(),
+        }
+    }
+
     /// Bande du profil Raccourcis : les modules côte à côte (largeur selon
     /// le module), qui défilent de côté, puis une tuile « + » pour en
     /// ajouter ou retirer (catalogue à cocher).
@@ -180,30 +210,7 @@ impl App {
                     "media" | "calendar" => h * 1.15,
                     _ => h,
                 };
-                let inner = Size::new(w, h);
-                let body: Element<'a, Msg> = match m.as_str() {
-                    "notes" => self.panorama_notes(inner),
-                    "hue" => self.panorama_hue(inner),
-                    "voice" => self.panorama_voice_module(inner),
-                    "playlist" => self.panorama_playlist(inner),
-                    "calendar" => self.panorama_calendar(inner),
-                    "media" => self.panorama_compact_media(inner),
-                    "clock" => {
-                        let z = crate::panorama::layout::zones(w, h, None);
-                        self.panorama_clock(&z, fg)
-                    }
-                    "system" => super::instruments::metrics(
-                        &d.system_style,
-                        &self.panorama.sys,
-                        &self.panorama.history,
-                        d.history_seconds as usize,
-                        (fg, accent),
-                        self.panorama_font(),
-                        d.text_scale,
-                        self.panorama_graph_phase(),
-                    ),
-                    _ => Space::new().into(),
-                };
+                let body = self.panorama_module_body(&m, Size::new(w, h));
                 strip = strip.push(card(body, w));
             }
             strip = strip.push(square(

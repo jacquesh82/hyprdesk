@@ -23,24 +23,26 @@ impl App {
         for p in &geo.panes {
             let body = self.panorama_pane_view(s, geo, p, false, video_at);
             let clear = lodged && p.widget == "shortcuts";
-            let content: Element<'a, Msg> = if p.widget == "video" {
-                body
-            } else {
-                container(body)
-                    .width(p.rect.w)
-                    .height(p.rect.h)
-                    .clip(true)
-                    .style(move |_| container::Style {
-                        background: (!clear).then(|| fx::alpha(bg, d.card_opacity).into()),
-                        border: Border {
-                            radius: d.radius.into(),
-                            width: if d.border_opacity > 0.0 { 1.0 } else { 0.0 },
-                            color: fx::alpha(fg, d.border_opacity),
-                        },
-                        ..Default::default()
-                    })
-                    .into()
-            };
+            // Fenêtre ramenée dans la zone d'accueil : rien ne couvre son trou.
+            let content: Element<'a, Msg> =
+                if p.widget == "video" || (p.widget == "aside" && self.panorama_side_hosting()) {
+                    body
+                } else {
+                    container(body)
+                        .width(p.rect.w)
+                        .height(p.rect.h)
+                        .clip(true)
+                        .style(move |_| container::Style {
+                            background: (!clear).then(|| fx::alpha(bg, d.card_opacity).into()),
+                            border: Border {
+                                radius: d.radius.into(),
+                                width: if d.border_opacity > 0.0 { 1.0 } else { 0.0 },
+                                color: fx::alpha(fg, d.border_opacity),
+                            },
+                            ..Default::default()
+                        })
+                        .into()
+                };
             layers.push(pin(content).x(p.rect.x).y(p.rect.y).into());
         }
         if d.controls {

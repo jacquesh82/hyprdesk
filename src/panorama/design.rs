@@ -183,7 +183,11 @@ pub fn profile_shortcuts(id: &str) -> Option<Vec<Shortcut>> {
                 "media-seek-forward-symbolic",
                 "hyprdesk media seek +10",
             ),
-            ("Plein écran", "view-fullscreen-symbolic", "hyprdesk key f"),
+            (
+                "Côte à côte",
+                "hyprdesk-split-symbolic",
+                "hyprdesk panorama split",
+            ),
             (
                 "Volume −",
                 "audio-volume-low-symbolic",
@@ -221,7 +225,11 @@ pub fn profile_shortcuts(id: &str) -> Option<Vec<Shortcut>> {
                 "media-skip-forward-symbolic",
                 "hyprdesk media next",
             ),
-            ("Sortie", "audio-speakers-symbolic", "hyprdesk menu volume"),
+            (
+                "Côte à côte",
+                "hyprdesk-split-symbolic",
+                "hyprdesk panorama split",
+            ),
             (
                 "Volume −",
                 "audio-volume-low-symbolic",
