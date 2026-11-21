@@ -983,17 +983,12 @@ impl App {
                 let Some(b) = self.panorama.capture_watch.next(&clients, &media, current) else {
                     return Task::none();
                 };
-                let close = self.panorama_close_video();
-                if self.panorama.radio.take().is_some() {
-                    crate::panorama::radio_play::stop();
-                    crate::panorama::radio_play::remember(None);
-                }
                 let addr = b.address.clone();
                 // La vidéo est en cours avant de chercher sa place : le profil
                 // Raccourcis ne lui ouvre sa zone (sous le sélecteur) qu'à
                 // cette condition. Sans zone nulle part, le Panorama entier
-                // l'accueille (mode capture).
-                self.panorama.video = Some(Video {
+                // l'accueille (mode capture)…
+                let incoming = Video {
                     name: b.title.clone(),
                     url: String::new(),
                     prefix: b.class.clone(),
@@ -1003,7 +998,28 @@ impl App {
                     placed: None,
                     focus_back: None,
                     borrowed: Some(b.clone()),
-                });
+                };
+                let before = self.panorama.video.replace(incoming);
+                // … sauf sur le tableau de bord : un profil sans lecteur
+                // (Système) ou la page Fenêtres du bloc laisse la fenêtre au
+                // navigateur, reprise en revenant sur une page qui l'accueille.
+                if self.pip_target().is_none()
+                    && self.panorama_surfs().iter().any(|s| {
+                        self.panorama_layout_at(&s.key)
+                            == crate::panorama::config::Layout::Dashboard
+                    })
+                {
+                    self.panorama.video = before;
+                    self.panorama.capture_watch.forget(&addr);
+                    return Task::none();
+                }
+                let incoming = std::mem::replace(&mut self.panorama.video, before);
+                let close = self.panorama_close_video();
+                if self.panorama.radio.take().is_some() {
+                    crate::panorama::radio_play::stop();
+                    crate::panorama::radio_play::remember(None);
+                }
+                self.panorama.video = incoming;
                 if self.pip_target().is_none() {
                     self.panorama.capture_host = self.panorama_surfs().first().map(|s| s.id);
                 }
@@ -2733,6 +2749,28 @@ mod capture_tests {
         assert!(app.pip_target().is_none());
         let _ = app.panorama_update(PMsg::ShortcutsPage(0));
         assert!(app.pip_target().is_some());
+        assert!(app.panorama.capture_host.is_none());
+    }
+    #[test]
+    fn dashboard_profile_without_player_leaves_pip_to_browser() {
+        let mut app = app();
+        {
+            let c = &mut std::sync::Arc::make_mut(&mut app.cfg).general.panorama;
+            c.layout = Layout::Dashboard;
+            c.design.set("shortcut_profile", "power").unwrap();
+        }
+        let _ = app.panorama_update(snapshot());
+        assert!(app.panorama.video.is_none(), "profil Système : pas de capture");
+        assert!(app.panorama.capture_host.is_none());
+        // Retour au profil Raccourcis : la PiP est reprise dans la colonne.
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .panorama
+            .design
+            .set("shortcut_profile", "system")
+            .unwrap();
+        let _ = app.panorama_update(snapshot());
+        assert!(app.panorama.video.is_some());
         assert!(app.panorama.capture_host.is_none());
     }
     #[test]

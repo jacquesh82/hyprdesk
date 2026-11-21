@@ -195,6 +195,12 @@ pub struct Watch {
     origins: HashMap<String, Origin>,
 }
 impl Watch {
+    /// Candidat écarté pour l'instant (aucune page ne l'accueille) : repris
+    /// au relevé suivant qui lui trouve une place.
+    pub fn forget(&mut self, address: &str) {
+        self.seen.remove(address);
+    }
+
     pub fn next(
         &mut self,
         clients: &Value,
