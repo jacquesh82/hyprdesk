@@ -221,15 +221,18 @@ impl App {
                 wrap(PMsg::ModulesEdit(true)),
             ));
         }
-        iced::widget::scrollable(strip)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .direction(iced::widget::scrollable::Direction::Horizontal(
-                iced::widget::scrollable::Scrollbar::new()
-                    .width(4)
-                    .scroller_width(4)
-                    .spacing(8),
-            ))
-            .into()
+        // Défile au doigt, n'importe où sur la bande (pas seulement sa barre).
+        super::drag::drag_scroll(
+            iced::widget::scrollable(strip)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .direction(iced::widget::scrollable::Direction::Horizontal(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4)
+                        .spacing(8),
+                )),
+        )
+        .into()
     }
 }

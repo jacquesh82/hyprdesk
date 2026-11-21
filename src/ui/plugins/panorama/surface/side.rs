@@ -3,8 +3,15 @@
 //! ajoute (« + ») un ou plusieurs modules, ou une fenêtre ouverte ramenée
 //! par Hyprland (`crate::panorama::guest`). Le bandeau de la zone inverse
 //! les deux côtés ou revient sans partage (la fenêtre est alors rendue).
+//!
+//! Le contenu de la zone (modules, classe de la fenêtre) est retenu
+//! (`plugin_options.panorama` : `side.last`) et revient au prochain côte à
+//! côte. Cinq préréglages (`side.preset1` à `side.preset5`) : un appui
+//! rappelle, un appui long enregistre le contenu affiché (et remplace).
 
-use iced::widget::{Space, button, column, container, row, scrollable, svg, text};
+use std::time::{Duration, Instant};
+
+use iced::widget::{Space, button, column, container, mouse_area, row, scrollable, svg, text};
 use iced::{Alignment, Border, Color, Element, Length, Size, Task};
 
 use super::panes::{Geo, Pane, Surf};
@@ -14,6 +21,56 @@ use crate::panorama::layout::Rect;
 
 /// Modules au plus dans la zone d'accueil.
 const MAX_MODULES: usize = 4;
+/// Préréglages de la zone d'accueil.
+pub const PRESETS: usize = 5;
+/// Durée d'un appui long (enregistrement d'un préréglage).
+const HOLD: Duration = Duration::from_millis(650);
+/// Durée d'affichage d'un avis dans le bandeau.
+const NOTICE: Duration = Duration::from_millis(2500);
+/// Clé des options du Panorama (`side.<clé>`).
+const OPTION: &str = "side";
+
+/// Contenu de la zone d'accueil, tel qu'il est retenu : ses modules et la
+/// classe de la fenêtre ramenée (une adresse ne survit pas à la fenêtre).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Content {
+    pub modules: Vec<String>,
+    pub window: Option<String>,
+}
+
+impl Content {
+    /// `notes,hue|kitty` ; jamais vide (un préréglage vide reste enregistré).
+    pub fn encode(&self) -> String {
+        format!(
+            "{}|{}",
+            self.modules.join(","),
+            self.window.as_deref().unwrap_or("")
+        )
+    }
+
+    pub fn decode(v: &str) -> Option<Content> {
+        if v.trim().is_empty() {
+            return None;
+        }
+        let (m, w) = v.split_once('|').unwrap_or((v, ""));
+        let mut modules: Vec<String> = Vec::new();
+        for id in m.split(',').map(str::trim) {
+            if crate::panorama::modules::CATALOGUE
+                .iter()
+                .any(|(c, _, _)| *c == id)
+                && !modules.iter().any(|x| x == id)
+                && modules.len() < MAX_MODULES
+            {
+                modules.push(id.to_string());
+            }
+        }
+        let w = w.trim();
+        Some(Content {
+            modules,
+            window: (!w.is_empty()).then(|| w.to_string()),
+        })
+    }
+}
 
 /// État du côte à côte (pour la session).
 #[derive(Debug, Clone, Default)]
@@ -31,6 +88,11 @@ pub struct SideBySide {
     /// Fenêtre en cours de transfert.
     pub busy: bool,
     pub error: Option<String>,
+    /// Préréglage tenu : (rang, appui) ; l'appui long l'enregistre.
+    pub hold: Option<(usize, u64)>,
+    pub presses: u64,
+    /// Avis du bandeau (préréglage enregistré…) et son heure.
+    pub notice: Option<(String, Instant)>,
 }
 
 impl App {
@@ -171,15 +233,22 @@ impl App {
                 };
                 match op {
                     "on" => {
+                        let mut tasks = Vec::new();
                         if self.panorama.split.is_none() {
                             self.panorama.split = Some(SideBySide::default());
+                            // La zone revient comme la fois d'avant.
+                            if let Some(c) = self.side_saved("last") {
+                                tasks.push(self.side_apply(c, true));
+                            }
                         }
                         // Les profils Vidéo et Musique portent le côte à côte.
                         let profile = &self.cfg.general.panorama.design.shortcut_profile;
                         if !matches!(profile.as_str(), "video" | "audio") {
-                            return self.panorama_update(PMsg::Profile("video".into()));
+                            tasks.insert(0, self.panorama_update(PMsg::Profile("video".into())));
+                        } else {
+                            tasks.insert(0, self.sync_pip());
                         }
-                        self.sync_pip()
+                        Task::batch(tasks)
                     }
                     "off" => {
                         let guest = self.panorama.split.take().and_then(|sp| sp.guest);
@@ -203,7 +272,7 @@ impl App {
                             sp.placed = None;
                             sp.guest.take()
                         });
-                        Task::batch([restore(guest), self.sync_pip()])
+                        Task::batch([restore(guest), self.sync_pip(), self.side_remember()])
                     }
                     _ => Task::none(),
                 }
@@ -220,11 +289,54 @@ impl App {
                         sp.modules.push(id.clone());
                     }
                 }
+                let remember = self.side_remember();
                 // Tuile Hue : relevé aussitôt.
                 if id == "hue" {
-                    return self.panorama_hue_refresh();
+                    return Task::batch([remember, self.panorama_hue_refresh()]);
                 }
-                Task::none()
+                remember
+            }
+            PMsg::SidePreset(i, true) => {
+                let Some(sp) = self.panorama.split.as_mut() else {
+                    return Task::none();
+                };
+                sp.presses += 1;
+                let stamp = sp.presses;
+                sp.hold = Some((i, stamp));
+                Task::perform(tokio::time::sleep(HOLD), move |_| {
+                    wrap(PMsg::SideHold(i, stamp))
+                })
+            }
+            PMsg::SidePreset(i, false) => {
+                let Some(sp) = self.panorama.split.as_mut() else {
+                    return Task::none();
+                };
+                // Appui long déjà servi (enregistré) : le relâcher ne rappelle pas.
+                if sp.hold.take().is_none_or(|(h, _)| h != i) {
+                    return Task::none();
+                }
+                match self.side_saved(&format!("preset{}", i + 1)) {
+                    Some(c) => self.side_apply(c, false),
+                    None => {
+                        self.side_notice(crate::tr!(
+                            "Préréglage {n} vide : appui long pour l'enregistrer",
+                            n = i + 1
+                        ));
+                        Task::none()
+                    }
+                }
+            }
+            PMsg::SideHold(i, stamp) => {
+                let Some(sp) = self.panorama.split.as_mut() else {
+                    return Task::none();
+                };
+                if sp.hold != Some((i, stamp)) {
+                    return Task::none();
+                }
+                sp.hold = None;
+                let c = self.side_content();
+                self.side_notice(crate::tr!("Préréglage {n} enregistré", n = i + 1));
+                self.side_store(&format!("preset{}", i + 1), &c)
             }
             PMsg::SideWindow(addr) => {
                 let Some(rect) = self.panorama_aside_target() else {
@@ -257,7 +369,7 @@ impl App {
                 (Ok(g), Some(sp)) => {
                     sp.busy = false;
                     sp.guest = Some(g);
-                    self.sync_pip()
+                    Task::batch([self.sync_pip(), self.side_remember()])
                 }
                 // Côte à côte quitté pendant le transfert : la fenêtre repart.
                 (Ok(g), None) => restore(Some(g)),
@@ -276,6 +388,108 @@ impl App {
             }
             _ => Task::none(),
         }
+    }
+
+    /// Contenu affiché de la zone d'accueil.
+    fn side_content(&self) -> Content {
+        let sp = self.panorama.split.clone().unwrap_or_default();
+        Content {
+            modules: sp.modules,
+            window: sp.guest.map(|g| g.class).filter(|c| !c.is_empty()),
+        }
+    }
+
+    /// Contenu retenu sous `key` (`last`, `preset1`…).
+    fn side_saved(&self, key: &str) -> Option<Content> {
+        Content::decode(&crate::panorama::modules::option(&self.cfg, OPTION, key))
+    }
+
+    /// Préréglages enregistrés (pour le bandeau).
+    fn side_presets(&self) -> [bool; PRESETS] {
+        std::array::from_fn(|i| self.side_saved(&format!("preset{}", i + 1)).is_some())
+    }
+
+    fn side_store(&mut self, key: &str, c: &Content) -> Task<Msg> {
+        let all = self
+            .settings
+            .plugin_options
+            .clone()
+            .unwrap_or_else(|| self.cfg.general.plugin_options.clone());
+        self.settings.plugin_options = Some(crate::panorama::modules::with_option(
+            all,
+            OPTION,
+            key,
+            &c.encode(),
+        ));
+        self.commit()
+    }
+
+    /// Retient le contenu affiché pour le prochain côte à côte.
+    fn side_remember(&mut self) -> Task<Msg> {
+        let c = self.side_content();
+        if self.side_saved("last").as_ref() == Some(&c) {
+            return Task::none();
+        }
+        self.side_store("last", &c)
+    }
+
+    fn side_notice(&mut self, msg: String) {
+        if let Some(sp) = self.panorama.split.as_mut() {
+            sp.notice = Some((msg, Instant::now()));
+        }
+    }
+
+    /// Affiche un contenu retenu : ses modules, et sa fenêtre si une fenêtre
+    /// de cette classe est ouverte (`quiet` : sans avis si elle ne l'est pas).
+    fn side_apply(&mut self, c: Content, quiet: bool) -> Task<Msg> {
+        let video = self.panorama.video.as_ref().and_then(|v| v.address.clone());
+        let found = c.window.as_ref().and_then(|class| {
+            self.clients
+                .iter()
+                .find(|w| {
+                    &w.class == class
+                        && !w.workspace.starts_with("special:")
+                        && Some(&w.address) != video.as_ref()
+                })
+                .map(|w| w.address.clone())
+        });
+        let Some(sp) = self.panorama.split.as_mut() else {
+            return Task::none();
+        };
+        sp.modules = c.modules.clone();
+        sp.picking = false;
+        let current = sp.guest.as_ref().map(|g| g.class.clone());
+        let mut tasks = vec![self.side_remember()];
+        match (&c.window, found) {
+            // Déjà là : rien à ramener.
+            (Some(class), _) if current.as_ref() == Some(class) => {}
+            (Some(_), Some(addr)) => tasks.push(Task::done(wrap(PMsg::SideWindow(addr)))),
+            (window, _) => {
+                if let Some(class) = window
+                    && !quiet
+                {
+                    self.side_notice(crate::tr!(
+                        "Aucune fenêtre {class} ouverte",
+                        class = class.clone()
+                    ));
+                }
+                // Le préréglage n'a pas de fenêtre : celle affichée est rendue.
+                if window.is_none() || !quiet {
+                    let guest = self.panorama.split.as_mut().and_then(|sp| {
+                        sp.placed = None;
+                        sp.guest.take()
+                    });
+                    if guest.is_some() {
+                        tasks.push(restore(guest));
+                        tasks.push(self.sync_pip());
+                    }
+                }
+            }
+        }
+        if c.modules.iter().any(|m| m == "hue") {
+            tasks.push(self.panorama_hue_refresh());
+        }
+        Task::batch(tasks)
     }
 
     // -- Vue -------------------------------------------------------------------
@@ -350,11 +564,13 @@ impl App {
         let sp = self.panorama.split.clone().unwrap_or_default();
         let lbl = |l: &'static str| if compact { "" } else { l };
         let mut r = row![].spacing(8).align_y(Alignment::Center);
-        let title = match &sp.guest {
-            Some(g) if !g.title.is_empty() => g.title.clone(),
-            Some(g) => g.class.clone(),
-            None => crate::i18n::tr("Zone d'accueil").to_string(),
+        let title = match (&sp.notice, &sp.guest) {
+            (Some((n, at)), _) if at.elapsed() < NOTICE => n.clone(),
+            (_, Some(g)) if !g.title.is_empty() => g.title.clone(),
+            (_, Some(g)) => g.class.clone(),
+            _ => crate::i18n::tr("Zone d'accueil").to_string(),
         };
+        let accent = self.panorama_palette().2;
         r = r.push(
             container(
                 text(title)
@@ -366,6 +582,55 @@ impl App {
             .width(Length::Fill)
             .clip(true),
         );
+        // Préréglages 1 à 5 : appui = rappel, appui long = enregistrement.
+        let saved = self.side_presets();
+        let side = h * 0.85;
+        let mut presets = row![].spacing(4).align_y(Alignment::Center);
+        for (i, on) in saved.into_iter().enumerate() {
+            let held = sp.hold.is_some_and(|(k, _)| k == i);
+            presets = presets.push(
+                mouse_area(
+                    container(
+                        text((i + 1).to_string())
+                            .size(side * 0.45)
+                            .font(self.panorama_font())
+                            .color(fg),
+                    )
+                    .width(side)
+                    .height(side)
+                    .center_x(side)
+                    .center_y(side)
+                    .style(move |_| container::Style {
+                        background: Some(
+                            fx::alpha(
+                                if on || held { accent } else { fg },
+                                if held {
+                                    0.7
+                                } else if on {
+                                    0.32
+                                } else {
+                                    0.06
+                                },
+                            )
+                            .into(),
+                        ),
+                        border: Border {
+                            radius: (side / 2.0).into(),
+                            width: 1.0,
+                            color: fx::alpha(
+                                if on { accent } else { fg },
+                                if on { 0.8 } else { 0.25 },
+                            ),
+                        },
+                        ..Default::default()
+                    }),
+                )
+                .on_press(wrap(PMsg::SidePreset(i, true)))
+                .on_release(wrap(PMsg::SidePreset(i, false)))
+                .interaction(iced::mouse::Interaction::Pointer),
+            );
+        }
+        r = r.push(presets);
         if sp.guest.is_some() {
             r = r.push(self.side_button(
                 "window-close",
@@ -374,7 +639,15 @@ impl App {
                 fg,
                 wrap(PMsg::Side("release")),
             ));
-        } else if !sp.picking {
+        } else if sp.picking {
+            r = r.push(self.side_button(
+                "object-select",
+                lbl("Terminé"),
+                h,
+                fg,
+                wrap(PMsg::Side("done")),
+            ));
+        } else {
             r = r.push(self.side_button(
                 "list-add",
                 lbl("Ajouter"),
@@ -421,7 +694,7 @@ impl App {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         }
         if sp.picking {
-            return self.panorama_aside_picker(&sp);
+            return self.panorama_aside_picker(&sp, size);
         }
         let dim = fx::alpha(fg, 0.65);
         if sp.busy {
@@ -527,7 +800,7 @@ impl App {
     }
 
     /// Choix « + » : modules à cocher, puis les fenêtres ouvertes à ramener.
-    fn panorama_aside_picker(&self, sp: &SideBySide) -> Element<'_, Msg> {
+    fn panorama_aside_picker(&self, sp: &SideBySide, size: Size) -> Element<'_, Msg> {
         let (bg, fg, accent) = self.panorama_palette();
         let dim = fx::alpha(fg, 0.65);
         let heading = |s: &str| {
@@ -563,7 +836,7 @@ impl App {
                 ..Default::default()
             }
         };
-        let mut mods = iced::widget::Row::new().spacing(8);
+        let mut chips: Vec<Element<'_, Msg>> = Vec::new();
         for (id, label, icon) in crate::panorama::modules::CATALOGUE {
             let on = sp.modules.iter().any(|m| m == id);
             let glyph: Element<'_, Msg> = match crate::ui::icons::get(icon) {
@@ -574,7 +847,7 @@ impl App {
                     .into(),
                 None => Space::new().width(0).into(),
             };
-            mods = mods.push(
+            chips.push(
                 self.panorama_feedback(
                     button(
                         column![
@@ -593,6 +866,17 @@ impl App {
                     .style(chip(on)),
                 ),
             );
+        }
+        // Modules en grille : tous visibles d'un coup, sans défiler de côté.
+        let cols = (((size.width - 24.0 + 8.0) / 112.0).floor() as usize).max(1);
+        let mut mods = column![].spacing(8);
+        let mut it = chips.into_iter().peekable();
+        while it.peek().is_some() {
+            let mut line = row![].spacing(8);
+            for c in it.by_ref().take(cols) {
+                line = line.push(c);
+            }
+            mods = mods.push(line);
         }
         let video = self
             .panorama
@@ -687,26 +971,26 @@ impl App {
             .on_press(wrap(PMsg::Side("done")))
             .style(chip(true)),
         );
-        let mut col = column![
-            heading("Modules"),
-            scrollable(mods).direction(scrollable::Direction::Horizontal(
-                scrollable::Scrollbar::new()
-                    .width(4)
-                    .scroller_width(4)
-                    .spacing(6),
-            )),
-            heading("Ramener une fenêtre"),
-            wins,
-        ]
-        .spacing(10);
+        // « Terminé » toujours en haut, hors de ce qui défile.
+        let top = row![heading("Modules"), Space::new().width(Length::Fill), done]
+            .align_y(Alignment::Center)
+            .padding([8, 12]);
+        let mut col = column![mods, heading("Ramener une fenêtre"), wins].spacing(10);
         if let Some(e) = &sp.error {
             col = col.push(text(e.clone()).size(13).color(dim));
         }
-        col = col.push(done);
-        container(scrollable(col.padding(12)).height(Length::Fill))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        // Le tout défile au doigt, n'importe où dans la zone.
+        column![
+            top,
+            super::drag::drag_scroll(
+                scrollable(col.padding([4, 12]))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            )
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 }
 
@@ -727,5 +1011,29 @@ fn restore(guest: Option<Guest>) -> Task<Msg> {
     match guest {
         Some(g) => blocking(move || g.restore()),
         None => Task::none(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contenu_retenu() {
+        let c = Content {
+            modules: vec!["notes".into(), "hue".into()],
+            window: Some("kitty".into()),
+        };
+        assert_eq!(c.encode(), "notes,hue|kitty");
+        assert_eq!(Content::decode(&c.encode()), Some(c));
+        // Préréglage vide : enregistré quand même.
+        let vide = Content::default();
+        assert_eq!(vide.encode(), "|");
+        assert_eq!(Content::decode("|"), Some(Content::default()));
+        assert_eq!(Content::decode(""), None);
+        // Modules inconnus, doublons et excédent écartés.
+        let d = Content::decode("notes,inconnu,notes,hue,clock,calendar,system").unwrap();
+        assert_eq!(d.modules, ["notes", "hue", "clock", "calendar"]);
+        assert_eq!(d.window, None);
     }
 }

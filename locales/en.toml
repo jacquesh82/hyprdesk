@@ -4517,3 +4517,6 @@
 "Rendre la fenêtre" = "Give the window back"
 "Sans partage" = "Unsplit"
 "Zone d'accueil" = "Free zone"
+"Aucune fenêtre {class} ouverte" = "No {class} window open"
+"Préréglage {n} enregistré" = "Preset {n} saved"
+"Préréglage {n} vide : appui long pour l'enregistrer" = "Preset {n} is empty: long-press to save it"

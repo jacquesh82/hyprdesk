@@ -9,6 +9,7 @@
 //!   (`crate::panorama::detect`), une fois par écran.
 
 mod dashboard;
+mod drag;
 mod flux;
 mod fx;
 mod halo;
@@ -337,6 +338,10 @@ pub enum PMsg {
     SideTaken(Result<crate::panorama::guest::Guest, String>),
     /// Fin d'une pose ou d'une restitution de la fenêtre invitée.
     SideDone(Result<(), String>),
+    /// Préréglage de la zone d'accueil (rang 0 à 4) : appuyé (true) ou relâché.
+    SidePreset(usize, bool),
+    /// Fin du délai d'appui long : (rang, appui).
+    SideHold(usize, u64),
     /// Pièces Hue relues : pont appairé, pièces ou erreur.
     HueRooms(
         bool,
@@ -1714,7 +1719,9 @@ impl App {
             | PMsg::SideModule(_)
             | PMsg::SideWindow(_)
             | PMsg::SideTaken(_)
-            | PMsg::SideDone(_)) => self.panorama_side_update(m),
+            | PMsg::SideDone(_)
+            | PMsg::SidePreset(..)
+            | PMsg::SideHold(..)) => self.panorama_side_update(m),
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
             | PMsg::AutoFull(..)
