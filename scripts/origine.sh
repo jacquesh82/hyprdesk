@@ -168,7 +168,7 @@ origine_remove_pkgs() {
 # effacé : ce qui est apparu depuis y est déplacé). Après la désinstallation
 # ordinaire (service arrêté, écran de connexion rendu).
 origine_restore() {
-    local keep="$1" p rel
+    local keep="$1" p t='~'
     local h_list=() s_list=()
     while read -r state p; do
         [[ "$state" == present || "$state" == absent ]] || continue
@@ -180,8 +180,11 @@ origine_restore() {
         local cur="$HOME/$p"
         if [[ -e "$cur" || -L "$cur" ]]; then
             if [[ "$DRY" == 1 ]]; then
-                origine_has "$p" && hd_info "$(origine_t "ferait : remis comme avant :" "would: put back:") ~/$p" \
-                    || hd_info "$(origine_t "ferait : rangé (absent avant hyprdesk) :" "would: moved aside (absent before hyprdesk):") ~/$p"
+                if origine_has "$p"; then
+                    hd_info "$(origine_t "ferait : remis comme avant :" "would: put back:") $t/$p"
+                else
+                    hd_info "$(origine_t "ferait : rangé (absent avant hyprdesk) :" "would: moved aside (absent before hyprdesk):") $t/$p"
+                fi
                 continue
             fi
             mkdir -p "$keep/actuel/${p%/*}"
@@ -189,11 +192,13 @@ origine_restore() {
         fi
         if origine_has "$p" && [[ "$DRY" == 0 ]]; then
             mkdir -p "$HOME/${p%/*}"
-            tar -C "$HOME" -xpf "$ORIGINE_DIR/utilisateur.tar" -- "$p" 2>/dev/null \
-                && hd_ok "~/$p $(origine_t "remis comme avant" "put back as it was")" \
-                || hd_warn "~/$p : $(origine_t "non remis (voir" "not put back (see") ${keep/#$HOME/\~}/actuel)"
+            if tar -C "$HOME" -xpf "$ORIGINE_DIR/utilisateur.tar" -- "$p" 2>/dev/null; then
+                hd_ok "$t/$p $(origine_t "remis comme avant" "put back as it was")"
+            else
+                hd_warn "$t/$p : $(origine_t "non remis (voir" "not put back (see") ${keep/#$HOME/\~}/actuel)"
+            fi
         elif [[ "$DRY" == 0 && -e "$keep/actuel/$p" ]]; then
-            hd_ok "~/$p $(origine_t "rangé : absent avant hyprdesk" "moved aside: absent before hyprdesk")"
+            hd_ok "$t/$p $(origine_t "rangé : absent avant hyprdesk" "moved aside: absent before hyprdesk")"
         fi
     done
     # La config de hyprdesk, rangée avec ~/.config/hypr, ne revient pas.
@@ -234,8 +239,11 @@ origine_restore() {
     if ((${#sys_todo[@]} > 0)); then
         if [[ "$DRY" == 1 ]]; then
             for p in "${sys_todo[@]}"; do
-                origine_has "$p" && hd_info "$(origine_t "ferait (sudo) : remis comme avant :" "would (sudo): put back:") $p" \
-                    || hd_info "$(origine_t "ferait (sudo) : rangé (absent avant hyprdesk) :" "would (sudo): moved aside (absent before hyprdesk):") $p"
+                if origine_has "$p"; then
+                    hd_info "$(origine_t "ferait (sudo) : remis comme avant :" "would (sudo): put back:") $p"
+                else
+                    hd_info "$(origine_t "ferait (sudo) : rangé (absent avant hyprdesk) :" "would (sudo): moved aside (absent before hyprdesk):") $p"
+                fi
             done
         elif hd_sudo_ready "$(origine_t "remettre les fichiers système comme avant" "put the system files back")"; then
             mkdir -p "$keep/systeme"
@@ -247,9 +255,11 @@ origine_restore() {
                     hyprdesk_root rm -rf -- "$p"
                 fi
                 if origine_has "$p"; then
-                    hyprdesk_root tar -C / -xpf "$ORIGINE_DIR/systeme.tar" -- "${p#/}" \
-                        && hd_ok "$p $(origine_t "remis comme avant" "put back as it was")" \
-                        || hd_warn "$p : $(origine_t "non remis" "not put back")"
+                    if hyprdesk_root tar -C / -xpf "$ORIGINE_DIR/systeme.tar" -- "${p#/}"; then
+                        hd_ok "$p $(origine_t "remis comme avant" "put back as it was")"
+                    else
+                        hd_warn "$p : $(origine_t "non remis" "not put back")"
+                    fi
                 else
                     hd_ok "$p $(origine_t "retiré : absent avant hyprdesk (copie :" "removed: absent before hyprdesk (copy:") ${keep/#$HOME/\~}/systeme)"
                 fi
