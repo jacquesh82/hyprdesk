@@ -48,6 +48,10 @@ and this project adheres to
   configuration launch the dedicated binaries directly; the greeter binary
   must pass the same root-ownership check as `hyprdesk`.
 
+- **README rewritten as a short overview** (MLG-210). A new description,
+  the major features up front, then installation and a quick start. Every
+  detail moved to a user guide, [docs/GUIDE.md](docs/GUIDE.md) and
+  [docs/GUIDE.fr.md](docs/GUIDE.fr.md).
 - **The Panorama no longer shows its layout bar by default** (MLG-209). The
   1 | 1×2 | 1×3 | 2×2 | 3×3 | ✦ selector and the hide button are now off
   unless *Show strip screen controls* is on in the Panorama settings

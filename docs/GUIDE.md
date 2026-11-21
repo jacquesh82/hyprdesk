@@ -1,0 +1,507 @@
+# hyprdesk user guide
+
+[Version française](GUIDE.fr.md) · [Back to the README](../README.md)
+
+This guide covers each hyprdesk feature in detail. For the architecture and
+the full list of configuration keys, see the [advanced guide](ADVANCED.md).
+
+- [Installation in detail](#installation-in-detail)
+- [Uninstalling and restoring](#uninstalling-and-restoring)
+- [What hyprdesk replaces](#what-hyprdesk-replaces)
+- [The desktop and its modes](#the-desktop-and-its-modes)
+- [Shortcuts and binds.lua](#shortcuts-and-bindslua)
+- [Tuning Hyprland from Settings](#tuning-hyprland-from-settings)
+- [Session controls and recovery](#session-controls-and-recovery)
+- [File search](#file-search)
+- [Panorama](#panorama)
+- [LYRA and SmartUI](#lyra-and-smartui)
+- [The myMFA keyring](#the-mymfa-keyring)
+- [Widgets and plugins](#widgets-and-plugins)
+- [Troubleshooting](#troubleshooting)
+
+## Installation in detail
+
+There are two ways to install. The **latest release package** is
+recommended and needs no compiler for hyprdesk. You can also **build this
+repository as it stands** with `scripts/install_nightly_build.sh`, which
+takes the last commit or your modified working tree.
+
+`scripts/install.sh` downloads the release package and installs it with
+your package manager. For a manual install, use
+`apt install ./hyprdesk_*.deb`, `dnf install hyprdesk-*.rpm`, or
+`pacman -U hyprdesk-*.pkg.tar.zst`. Every version is on the
+[releases page](https://github.com/jacquesh82/hyprdesk/releases).
+
+The setup assistant lets you choose a language and keyboard layout, review
+dependencies, and decide which integrations to enable. By default it installs
+the desktop only: the login screen, LYRA, and myMFA stay unchecked until you
+pick them, and nothing outside your session changes. If your Hyprland
+version is older than 0.57, the assistant offers to update it. Log back into
+Hyprland after that update.
+
+The package installs its binaries in `/usr/bin`; `--from-source` builds them
+into `~/.local/bin`. Besides `hyprdesk` (the daemon and its commands), three
+dedicated binaries handle authentication: `hyprdesk-lock` (lock screen),
+`hyprdesk-greeter` (login screen) and `hyprdesk-polkit` (polkit agent). Each
+one only contains its own code (no daemon, no Lua, no file index), and
+`hyprdesk lock`, `hyprdesk greeter` and `hyprdesk polkit-ui` hand over to
+them.
+
+The script also sets up the systemd user service. It creates
+`~/.config/hypr/hyprdesk.lua` if needed and backs up `hyprland.lua` before
+editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report shows
+which components are running and any actions still needed.
+
+On the first launch, a visual setup wizard walks through the essentials:
+language, screens, keyboard, theme and wallpaper, bar, desktop, performance,
+sleep, and default apps. Each choice applies at once. Reopen it from the
+**Assistant** button of Settings or with `hyprdesk wizard`.
+
+### Installer options
+
+```bash
+./scripts/install.sh --help
+```
+
+Passing options or running without a terminal skips the setup assistant.
+The installer can install missing build dependencies and use rustup in
+`~/.cargo` if the system Rust is too old.
+
+| Option | What it controls |
+| --- | --- |
+| `--defaults` | Use the default choices without the setup assistant |
+| `--lang fr\|en\|auto` | Choose the interface and installer language |
+| `--keyboard fr:azerty` | Set the session keyboard using `layout[:variant[:options]]` |
+| `--system-keyboard` | Apply the same layout system-wide |
+| `--greeter` / `--no-greeter` | Replace your display manager with the greetd login screen, which uses cage (off unless asked) |
+| `--optional-deps ask\|all\|none` | Choose how to handle optional dependencies |
+| `--lyra` / `--no-lyra` | Install the LYRA assistant, or not (off unless asked; kept if already installed) |
+| `--mymfa` / `--no-mymfa` | Install the myMFA keyring, its Secret Service integration, and PAM module, or not (off unless asked; kept if already installed) |
+| `--no-hyprbars` | Skip the Hyprbars title-bar plugin |
+| `--fingerprint` / `--no-fingerprint` | With a fingerprint reader detected (default: on): install fprintd, unlock with a finger, offer to enroll one |
+| `--from-source` | Build hyprdesk from this repository instead of installing the release (what `scripts/install_nightly_build.sh` does) |
+| `--no-deps` | Manage prerequisites yourself. Check them with `scripts/deps.sh --dry-run` |
+| `--no-autostart` | Skip the Hyprland startup entry |
+| `--no-lock-key` | Skip the `SUPER + L` lock shortcut |
+| `--remove-hyprpaper` | Remove hyprpaper from autostart |
+| `--verbose` | Show full command output in the terminal |
+
+### Integrations
+
+- **LYRA** is built from [mindlog.hyprland_tools](https://github.com/jacquesh82/mindlog.hyprland_tools). The installer builds the release that ships with this version of hyprdesk ([`scripts/versions.sh`](../scripts/versions.sh)). Set `HYPRDESK_LYRA_SRC` to use a local checkout or `HYPRDESK_LYRA_REF` to select another tag or branch (`main` follows development).
+- **myMFA** provides a keyring for passwords and 2FA codes. Set `HYPRDESK_MYMFA_SRC` to use a local checkout of [mindlog.mymfa.clients](https://github.com/lelabnet-creator/mindlog.mymfa.clients) or `HYPRDESK_MYMFA_REF` to select another tag or branch than the Linux client release in `scripts/versions.sh`. If the installer cannot access the repository, it logs the reason and continues.
+- **Hyprbars** adds minimize, maximize, and close buttons in full desktop mode. The installer builds it with `hyprpm` against the running Hyprland version. The updater rebuilds it when that version changes.
+
+Set `HYPRDESK_INSTALLER_TUI=0` to use terminal prompts in place of whiptail.
+`NO_COLOR=1` or `HYPRDESK_COLOR=0` disables color, and `HYPRDESK_ASCII=1`
+selects ASCII icons.
+
+### Updating
+
+From the cloned repository, run `./scripts/update.sh` to review and apply
+updates. The updater reuses your installer options and stops if the checkout
+has local changes. Use `--check` for the report alone (exit code `10` means
+an update is available), or `--yes` to apply without prompting.
+
+## Uninstalling and restoring
+
+```bash
+./scripts/uninstall.sh --dry-run   # see what would change, touch nothing
+./scripts/uninstall.sh             # summary, confirmation, then uninstall
+./scripts/uninstall.sh --restore   # put everything back exactly as before hyprdesk
+```
+
+**Trying hyprdesk is risk-free.** Before changing anything, `install.sh`
+saves the original state once, in `~/.local/state/hyprdesk/origine/`. That
+covers the files it may touch: `~/.config/hypr`, kitty, GTK, default
+applications, and user services that are enabled, masked, or running. It
+also covers system files (login screen, PAM, keyboard, polkit, GPU) and the
+packages it installs. `--restore` puts all of it back. Anything that
+appeared since is moved to `~/hyprdesk-avant-restauration-<date>/`, never
+deleted. Packages installed for hyprdesk are offered for removal
+(`--remove-packages` skips the question). A Hyprland upgrade done at
+install time is not rolled back.
+
+A plain uninstall restores your previous login screen if hyprdesk replaced
+it, and removes the service, binaries, and font. It takes hyprdesk's lines
+out of `hyprland.lua` and `binds.lua`, so `SUPER + L` goes back to
+hyprlock. Services hyprdesk had taken over (polkit agent, hyprpaper…)
+start again. Each edited file is backed up first
+(`*.avant-desinstallation-hyprdesk.bak`), and the edit is rolled back if
+Hyprland reports a new error. Your configuration stays for a later install
+unless you pass `--purge`; `--lyra` and `--mymfa` also remove LYRA and
+myMFA.
+
+## What hyprdesk replaces
+
+hyprdesk takes over the parts of a session that usually need a tool of their
+own. The Hyprland configuration page reports anything left running, and LYRA
+can tidy it with you.
+
+**Replaced**: hyprdesk does the work.
+
+- **Wallpaper** (`hyprpaper`): drawn natively per workspace and screen, with
+  slideshows and crossfades; the installer can remove hyprpaper from
+  autostart. An image or a **looping video** (mp4, webm…) per rule.
+- **Login screen** (`GDM`, `SDDM`, `LightDM`): an optional greeter under
+  greetd and cage takes over at the next boot; `sudo hyprdesk greeter setup
+  restore` switches back to the previous one. Image or **looping video**
+  background (played by mpv on the GPU when present, decoded by hyprdesk
+  otherwise), a bundled default video, and a login form placeable on nine
+  screen anchors.
+- **Lock screen** (`hyprlock`): a native ext-session-lock-v1 screen with PAM
+  and optional fingerprint; the SUPER + L binding is rewritten to
+  `hyprdesk lock`. It runs as its own binary (`hyprdesk-lock`) in its own
+  systemd scope, so restarting or updating hyprdesk never takes it down.
+- **Secret Service** (`gnome-keyring`): with myMFA, its daemon serves the
+  Secret Service. hyprdesk imports gnome-keyring secrets, masks its units,
+  and one click gives them back.
+- **Screen colours** (`wlsunset`, `gammastep`, `redshift`): brightness,
+  contrast and gamma per screen through gamma tables; `hyprdesk colors free`
+  stops (and can disable) a program still holding them.
+- **Monitor arrangement** (written to `monitors.lua`): position, rotation,
+  scale, primary and hotplug, applied live; an existing `monitors.lua` is
+  taken over, not overwritten.
+
+**Built in, with cohabitation**: hyprdesk provides the service and only
+takes it if nobody else holds it. This covers the notification daemon
+(`mako`, `dunst`… stay in charge if they run), the polkit agent (an
+already-registered one keeps the session), and the tray's
+StatusNotifierWatcher.
+
+**Orchestrated**: the external tool stays and hyprdesk drives it. This
+covers `hypridle` (config written and supervised), `cliphist` +
+`wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night
+light), `hyprshot` and `wf-recorder` (screenshots, recording). The bar,
+dock, and launcher are native too. The Hyprland configuration page reports
+duplicate bars (waybar, ags, eww), and an existing launcher binding is
+taken over.
+
+## The desktop and its modes
+
+When your tiled windows fill the screen, press `SUPER + D` twice (dock, then
+full desktop) to reach your wallpaper, icons, and widgets. Your windows float
+above the desktop while you use it and return to their tiled layout when you
+leave.
+
+Desktop modes are saved per workspace across sessions. With multiple monitors,
+each screen follows the workspace it displays. Use **Settings → Desktop →
+Forced modes** to set a mode for a specific screen or workspace. Windows you
+move or resize in full desktop mode keep their positions for that application
+and workspace. Clear those positions in **Settings → Desktop**.
+
+**Keyboard navigation in the dock.** Open the dock in launcher-only mode or
+press Tab from the full desktop to focus it. Use the arrow keys, Tab, and
+Shift + Tab to move between items, Home and End to jump to either end, and
+Enter or Space to activate an item. Escape closes the dock or returns focus
+to the full desktop.
+
+## Shortcuts and binds.lua
+
+**Settings → Shortcuts** and `hyprdesk keys` show every active binding,
+outside the full desktop and with the desktop shown, with its source line in
+`hyprland.lua`. hyprdesk respects existing bindings unless you assign them to
+hyprdesk or leave its default `SUPER + R` override enabled.
+
+Where `hyprland.lua` lacks an essential shortcut, hyprdesk sets it on a free
+combination, without editing the file. Essentials cover windows, workspaces,
+screens, and screenshots: workspaces 1 to 10, previous workspace, maximize,
+pin, swap, group tabs, next screen, `Print` captures… Each one can be turned
+off in **Settings → Shortcuts → Windows and workspaces**. To change a
+hyprdesk shortcut or an adjustable essential, press **Capture** and then the
+new combination; **Default** sets it back.
+
+At startup, hyprdesk moves the `hl.bind` lines of `hyprland.lua` into
+`binds.lua`, next to it, which `hyprland.lua` loads with
+`require("binds")`. The comments above them and the locals they use, such
+as `mainMod`, move too. A copy is kept
+(`hyprland.lua.avant-hyprdesk-binds.bak`), and everything is put back if
+Hyprland reports a new error.
+
+`binds.lua` is managed by hyprdesk. Every change made in Settings →
+Shortcuts regenerates it from what it really defines: variables replaced by
+their value, loops unrolled, one binding per line. Your section comments
+and disabled bindings are kept. A hand-written file is copied
+(`binds.lua.avant-hyprdesk-binds.bak`) the first time. Preview with
+`hyprdesk binds generate`, apply with `hyprdesk binds generate --write`.
+
+## Tuning Hyprland from Settings
+
+- **Make the desktop yours.** Set wallpapers and slideshows per screen or
+  workspace, add app and file shortcuts, and build a theme from an image.
+  Drag modules to rearrange the bar, or use the dock to group windows by
+  app. App theming carries the theme to kitty and Thunar.
+- **Screens and input.** Arrange monitors and set the keyboard and
+  touchpad. Display layout changes revert after 12 seconds unless you keep
+  them.
+- **Layouts and zones.** Pick a layout per workspace (Dwindle, Master,
+  Scrolling, or Monocle). **Settings → Screens → Zones** splits one screen
+  into 1×2, 1×3, 2×2, or 3×3 zones. Each window stays in its zone, and
+  maximizing only covers that zone. `SUPER + CTRL + SHIFT + arrow` sends a
+  window to the next zone.
+- **Look and behaviour.** Adjust animations, borders, gaps, window rules,
+  groups, cursor, gestures, environment, and idle delays. hyprdesk writes
+  them to generated files loaded by `hyprland.lua`.
+- **Performance.** Pick a rendering profile (Performance, Balanced, or
+  Visual quality) to trade effects for CPU and GPU load. **Settings →
+  Performance → Graphics card** shows which card Hyprland renders on and
+  warns when your screens are plugged into another one. It can pin
+  Hyprland to a card (`hyprland_gpu`). hyprdesk renders on the same card by
+  default, and its renderer and worker threads can be changed there.
+
+### Bar styles
+
+The bar has two styles. Continuité keeps its Unix-style menu bar and separate
+floating dock. `style = "graphite"` integrates the launcher into a
+rectangular bottom taskbar (48 logical pixels, no edge gap): Start, Search,
+Task View, and applications are centered on the screen. Bar widgets default
+to the right, with the clock and date on two lines. Modules can be added or
+dragged to the left, center, or right, both on the bar and in Settings →
+Bar → Modules. The launcher's pinned applications and actions are shared,
+and no second floating dock is created on these screens.
+
+## Session controls and recovery
+
+- **Autostart** lists programs managed by hyprdesk, eligible entries in the
+  `hl.on("hyprland.start", …)` block of `hyprland.lua`, and XDG autostart
+  entries. hyprdesk-managed entries go in `autostart.lua`, loaded with
+  `require("autostart")`. Use **Run** to try a command.
+- **Screen colours** adjusts brightness, contrast, gamma, and individual color
+  channels. It accepts ArgyllCMS `.cal` curves and passes `.icc` or `.icm`
+  profiles to Hyprland via `monitors.lua`. Run `hyprdesk color-test` for a
+  full-screen test pattern or `hyprdesk colors diag` to diagnose gamma-table
+  conflicts. The settings page can stop a program holding the gamma tables,
+  with a separate option to also disable its user service or XDG autostart
+  entry.
+- **Laptop lid** lets you choose what happens on battery, on AC power, or with
+  an external monitor attached. Available actions include using the system
+  default, suspending, hibernating, locking, turning off the laptop display,
+  or ignoring the lid event. hyprdesk locks before suspending.
+- **Lock** sets up the lock screen and enrolls or deletes your fingerprints
+  with fprintd, without leaving hyprdesk.
+- **Hyprland configuration** flags errors, duplicate bindings or startup
+  entries, and programs that overlap with built-in services. **Tidy
+  everything** backs up `hyprland.lua` and applies the fixes marked safe.
+  Its **History** tab keeps 30 days of configuration snapshots (one before
+  each change, and after each manual edit) and reverts to any of them; also
+  `hyprdesk config history`, `diff <id>` and `rollback <id|date> --yes`.
+
+### Default configuration
+
+Every Settings page that keeps something in hyprdesk has a **Defaults…**
+button (top right). On the command line, run
+`hyprdesk config reset <component>` to preview, then add `--yes`. A
+component returns to its default configuration: its settings go back to
+those of the starting desktop, and the Hyprland files it holds are
+rewritten:
+
+- Shortcuts: `binds.lua` with no shortcut turned off;
+- Keyboard and mouse: `inputs.lua` at Hyprland's values, keyboard layout kept;
+- Screens: `monitors.lua` in preferred mode;
+- Autostart: an empty `autostart.lua`.
+
+Its remembered state is forgotten: icon positions, desktop modes, window
+places and launches. Other components stay as they are.
+
+**Settings → About** or `hyprdesk config reset all --yes` does everything at
+once. It also clears kept notifications and sets custom themes and widgets
+aside.
+
+`hyprdesk.lua` is never touched: a key it sets keeps its value, and the
+reset says so. Replaced files are copied under
+`~/.config/hypr/hyprdesk/sauvegardes/<date>/`, and the history can bring
+them back. Sound, network, power and the other system settings have no
+default configuration of their own, because hyprdesk keeps nothing for them.
+
+### Export and import
+
+`hyprdesk export [file]` and **Settings → Sharing** pack a whole setup into
+one archive. It includes hyprdesk's settings, plugins, themes, and state;
+`hyprland.lua`, every local file it `require`s, and the scripts those
+files reference; and every image the settings point to. `hyprdesk import
+<archive>` restores it. Hyprland checks the imported Hyprland files, and
+they count as code needing your consent. `monitors.lua` is only applied
+with `--screens`, and home-folder paths are rewritten for the new machine.
+`--theme` exports the theme alone: colours, font, icon theme, app theming,
+and lock image.
+
+## File search
+
+The dock's loupe (or `:f` in the launcher, or `hyprdesk files`) searches an
+index of all your files, home and mounted volumes (NTFS, FAT…) included, by
+name, path, or category: answers come back in a few milliseconds. Filter by
+kind (files, folders, links) and by category (documents, images, videos,
+programs…).
+
+The index runs in the background, kept fresh by inotify and a periodic
+rescan. Tune it in **Settings → File index**: roots, exclusions by name or
+regular expression, ignored extensions and categories, maximum file size.
+From a terminal: `hyprdesk index query <word>`, `index status` (JSON), and
+`index rebuild`; add `--json` for structured results.
+
+## Panorama
+
+A very wide screen (2560×720, 1920×480, 1280×400…, landscape or portrait),
+touch or not, becomes a full screen of pages you swipe with a finger or the
+mouse. hyprdesk offers it on its own when such a screen is plugged in, ties
+the touch device to that screen, keeps the bar off it, and never takes the
+keyboard from your windows. Tuck it away to use the screen for windows.
+
+- **No strip screen?** **Settings → Screens → a screen → Set a Panorama
+  zone** reserves a band (top, bottom, left, or right, 10 to 50 % of the
+  screen) on an ordinary monitor; windows stop before it. Or try it in a
+  floating window with `hyprdesk panorama preview`.
+- **Compositions.** Forest, telemetry, studio, applications, and cinematic
+  compositions place clocks, the player, gauges, history graphs, the
+  calendar, and touch shortcuts freely. After the main view, the carousel
+  holds more pages, each with its own composition. Swipe up for a layout
+  picker, swipe down to hide the Panorama.
+- **Zones.** Split the Panorama into up to nine zones (1×2 to 3×3), each
+  with its own widget. Each layout keeps its own settings.
+- **Video and music.** The Video widget plays Free TV, Netflix, Disney+, HBO
+  Max… in its zone, in a browser app window placed there and framed so only
+  the video shows. Only platforms you can use are listed (no account
+  needed, or signed in). The Music profile adds streaming services and web
+  radios (favourites and the Radio Browser directory), played without a
+  window behind a “voice stream” visualizer.
+- **Picture-in-picture.** While the Panorama is shown, it takes in PiP
+  windows and videos put fullscreen on other screens, one at a time.
+  Removing the video, or leaving fullscreen, gives the window back to its
+  workspace with its previous place. Turn this off in **Settings → Panorama
+  → Player → Video**.
+- **Video veil.** While a video plays, a dark veil settles around it so it
+  stands out and rests your eyes; it softens when the pointer moves over the
+  Panorama. Strength, scope, pause behaviour, fade, and pointer softening
+  are set in **Settings → Panorama → Player → Video**.
+- **System.** Metric tiles (CPU, RAM, GPU and VRAM through `nvidia-smi`,
+  disk, temperatures) draw smooth live graphs. Tapping one opens a task
+  manager sorted by that metric.
+- **Controls.** The layout selector and hide button are off by default;
+  turn on **Show strip screen controls** to see them on the Panorama.
+
+| ![Telemetry composition: flip clock, player, and circular gauges](../assets/screenshots/panorama-telemetry.png) | ![A dark veil around the playing video, over the clock and system zones](../assets/screenshots/panorama-video-veil.png) |
+| --- | --- |
+| ![Studio composition: large clock and the player](../assets/screenshots/panorama-studio.png) | ![Panorama on a 2560×720 strip split into three zones](../assets/screenshots/panorama-split.png) |
+
+Every setting lives in **Settings → Panorama**, `hyprdesk config set
+panorama.*`, and `hyprdesk panorama`. The
+[Panorama configuration guide](PANORAMA.md) (French) covers modules,
+compositions, and Lua keys.
+
+## LYRA and SmartUI
+
+Open LYRA from the dock or run `hyprdesk assistant`. The assistant can explain a
+setting or help work through an issue using context from your session, such as
+your monitors, workspaces, shortcuts, and apps. Run `hyprdesk context` to see
+what hyprdesk provides to LYRA.
+
+When LYRA proposes a command or a change, you can review and approve it in the
+drawer. Some changes include a live preview that you can accept or discard.
+**Ask LYRA** buttons open a conversation with the relevant details already
+filled in. Scripts can do the same with `hyprdesk ask <title> <text>`.
+
+Choose Claude Code, Codex, or Zcode in **Settings → AI → Assistant**. LYRA uses
+your existing CLI subscription. You can also select providers for other AI
+features in **Settings → AI → Other AI services**, including Anthropic, OpenAI,
+Z.ai, and OpenAI-compatible endpoints such as Ollama. API keys for those
+providers are stored in the session keyring.
+
+**Voice.** The microphone button of the Panorama turns on LYRA's voice.
+hyprdesk listens for the word “Lyra” (Vosk, offline), sends the request, and
+reads the answer aloud with Piper's local voices, in French or English.
+Only high-risk commands are confirmed aloud. The models install on first
+use in `~/.local/share/hyprdesk/voice` (~350 MB, no root); see
+`hyprdesk voice setup | say | status`.
+
+**SmartUI design** redraws app icons in a consistent style. Approved icons form
+the `hyprdesk-smartui` icon theme under `~/.local/share/icons`, used across the
+desktop, dock, app launcher, bar, and notifications. Automatic generation is
+enabled by default when LYRA is installed.
+
+![LYRA’s drawer showing a live preview and an approval prompt for a command](../assets/screenshots/assistant-chat.png)
+
+| Assistant | Other AI services | SmartUI design |
+| --- | --- | --- |
+| ![Assistant and CLI subscription settings](../assets/screenshots/assistant-settings.png) | ![Provider settings](../assets/screenshots/settings-ai-services.png) | ![SmartUI icon generation settings](../assets/screenshots/settings-smartui.png) |
+
+## The myMFA keyring
+
+myMFA is an optional keyring for passwords and 2FA codes. It is installed
+with hyprdesk from its
+[public repository](https://github.com/lelabnet-creator/mindlog.mymfa.clients)
+when you ask for it (`--mymfa`, or checked in the setup assistant). Its
+daemon serves the Secret Service, so the secrets your applications keep go
+to the myMFA vault, and the `pam_mymfa` module can open that vault when you
+log in. hyprdesk is its interface:
+
+- **The myMFA window** (`hyprdesk mymfa window`) shows the 2FA codes, the
+  passwords, the vault’s dashboard and activity, this device, its settings,
+  and a scanner that adds an account from a QR image or a screenshot. The
+  bar’s `mymfa` module shows the vault’s state, and an unlock card in
+  hyprdesk’s own style answers applications asking for the vault.
+- **The launcher** finds codes and passwords with `:2fa` and `:mdp`. The
+  daemon itself does the copying, and a copied password clears from the
+  clipboard after 30 seconds.
+- **Settings → Passwords** creates the vault, or installs the backup of the
+  [myMFA web app](https://app.mymfa.mindlog.today). It can also take the
+  Secret Service over from gnome-keyring (importing its secrets, then
+  stopping it), with one button to go back.
+- The **Device** tab links this machine’s vault to the web app’s, merges
+  the two, and shows the synchronization journal.
+
+## Widgets and plugins
+
+Enable widgets in **Settings → Widgets** or add them to your Lua configuration.
+The built-in widgets are `clock`, `calendar`, `system`, `media` (MPRIS),
+`command` (periodic shell output), `lua` (output of an inline function), and
+`controls` (the control center). Desktop widgets default to the primary
+screen. You can target a specific output or all outputs and choose whether a
+widget moves or hides when a screen is unplugged.
+
+```lua
+hd.widget("clock", { screen = "DP-2", if_missing = "primary" })
+hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
+hd.widget("controls", {})
+```
+
+The bar includes `workspaces`, `window`, `volume`, `brightness`, `tray`, and
+`desktop`. Add any widget in **Settings → Bar → Modules**, or to a zone in
+`hd.bar`. Modules that do not fit remain available under **More controls**.
+To add a Lua widget or plugin, see [Writing a plugin](WRITING_PLUGINS.md).
+
+| Bundled plugin | What it does | Relies on |
+| --- | --- | --- |
+| `network` | Wired and wireless networks, VPN, WireGuard, airplane mode | NetworkManager |
+| `bluetooth` | Scan, pair, and manage devices | bluetoothctl |
+| `battery` | Battery status, alerts, and power profiles | sysfs, power-profiles-daemon |
+| `capture` | Screenshots and screen recording | hyprshot, wf-recorder |
+| `keyboard` | View and switch keyboard layouts | Hyprland |
+| `player` | Now playing and playback controls | MPRIS |
+| `updates` | Pending updates, upgrades with live progress, one password per update (optional polkit rule) | pacman/AUR, apt, dnf, zypper, flatpak |
+| `removable` | Open and eject removable drives | udisks2 |
+| `nightlight` | Night light on demand or on a schedule | hyprsunset |
+| `vkbd` | On-screen keyboard | wvkbd |
+| `notifications` | Recent notifications and Do Not Disturb | hyprdesk or wayle |
+| `session` | Lock, suspend, log out, reboot, and power off | systemd, hyprdesk lock |
+| `gpu` | Switch a passthrough GPU live between VFIO and the NVIDIA driver (hidden without passthrough) | vfio-pci, nvidia |
+
+The installer places two editable examples, `meteo` and `notes`, in
+`~/.config/hypr/hyprdesk/widgets/`.
+
+## Troubleshooting
+
+- **Install failed.** See `~/.local/state/hyprdesk/install-<date>.log` for the
+  failed step and its full output, then rerun the installer after addressing it.
+- **hyprdesk won’t start.** Run `journalctl --user -u hyprdesk -n 50` and
+  `hyprdesk doctor`.
+- **A configuration error.** hyprdesk reports the file and line and keeps the
+  last working configuration. `hyprdesk check [file]` validates a file
+  without touching the running daemon.
+- **myMFA is missing.** Check **Settings → Passwords** and the install log for
+  the cause. If the installer cannot access the myMFA repository, rerun it with
+  `HYPRDESK_MYMFA_SRC` pointing to a local checkout.
+- **Hyprbars is missing.** From a terminal inside Hyprland, run
+  `hyprpm update`, then
+  `hyprpm add https://github.com/hyprwm/hyprland-plugins`.
+- **Restore the previous login screen.** Run `sudo hyprdesk greeter setup restore`.
+- **Undo everything.** Run `./scripts/uninstall.sh --restore`.
