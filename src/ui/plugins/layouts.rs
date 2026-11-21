@@ -220,7 +220,14 @@ impl App {
             }
         }
         let ws_choices = self.layout_choices(crate::i18n::tr("Par défaut"));
-        let rows = names.chunks(2).map(|pair| {
+        // Deux par ligne quand elles tiennent, sinon une : la liste passait
+        // sous la suivante et sa flèche sur le texte.
+        let per_row = if self.detail_width() >= 2.0 * (110.0 + 8.0 + 180.0) + 16.0 {
+            2
+        } else {
+            1
+        };
+        let rows = names.chunks(per_row).map(|pair| {
             row(pair.iter().map(|ws| {
                 let now = t.workspaces.get(ws).cloned();
                 let sel = ws_choices.iter().find(|c| c.value == now).cloned();

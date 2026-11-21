@@ -576,6 +576,15 @@ impl App {
         self.drawer_width(self.panel.as_ref().map(|p| p.win), DRAWER_W)
     }
 
+    /// Largeur utile de la colonne des réglages (tiroir moins la navigation,
+    /// les marges et la barre de défilement) : les grilles en tirent leur
+    /// nombre de colonnes plutôt que de déborder.
+    pub(in crate::ui) fn detail_width(&self) -> f32 {
+        let w = self.panel_width();
+        let nav = if w >= 640.0 { 166.0 } else { 46.0 };
+        (w - 2.0 * DRAWER_GAP - 48.0 - nav - 24.0 - 14.0).max(0.0)
+    }
+
     /// Largeur du tiroir de l'assistant.
     pub(super) fn chat_width(&self) -> f32 {
         self.drawer_width(
@@ -864,6 +873,9 @@ impl App {
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
+        // Tiroir étroit : la ligne des actions ne tient plus à côté du titre
+        // (la recherche passait sur « Réglages ») ; elle passe dessous.
+        let one_line = self.panel_width() >= 880.0;
         let actions = row![
             iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
                 .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
@@ -874,7 +886,11 @@ impl App {
                 .padding([6, 10])
                 .size(13)
                 .font(self.font)
-                .width(if wide { 230 } else { 150 }),
+                .width(if one_line {
+                    Length::Fixed(230.0)
+                } else {
+                    Length::Fill
+                }),
             button(
                 text(crate::i18n::tr("Visite guidée"))
                     .font(self.font)
@@ -895,31 +911,42 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        let header = row![
-            column![
-                text("HYPRDESK")
-                    .font(self.font)
-                    .size(11)
-                    .color(self.ink().dim)
-                    .font(self.title_font()),
-                text("Réglages")
-                    .font(self.font)
-                    .size(27)
-                    .font(self.title_font())
-                    .color(fg),
-                text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
-                    .font(self.font)
-                    .size(12)
-                    .color(Color { a: 0.65, ..fg }),
-            ]
-            .spacing(5)
-            .width(Length::Fill),
-            // La croix tient seule la ligne du haut : sur la ligne des actions,
-            // un libellé trop long (traduction, tiroir étroit) débordait dessus.
-            column![close, actions].spacing(2).align_x(Alignment::End),
+        let titles = column![
+            text("HYPRDESK")
+                .font(self.font)
+                .size(11)
+                .color(self.ink().dim)
+                .font(self.title_font()),
+            text("Réglages")
+                .font(self.font)
+                .size(27)
+                .font(self.title_font())
+                .color(fg),
+            text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
+                .font(self.font)
+                .size(12)
+                .color(Color { a: 0.65, ..fg }),
         ]
-        .spacing(12)
-        .align_y(Alignment::Start);
+        .spacing(5)
+        .width(Length::Fill);
+        // La croix tient seule la ligne du haut : sur la ligne des actions,
+        // un libellé trop long (traduction, tiroir étroit) débordait dessus.
+        let header: Element<'_, Msg> = if one_line {
+            row![
+                titles,
+                column![close, actions].spacing(2).align_x(Alignment::End),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Start)
+            .into()
+        } else {
+            column![
+                row![titles, close].spacing(12).align_y(Alignment::Start),
+                actions,
+            ]
+            .spacing(12)
+            .into()
+        };
         let content: Element<'_, Msg> = if searching && p.search_list {
             self.search_results(&query, &found)
         } else if searching {

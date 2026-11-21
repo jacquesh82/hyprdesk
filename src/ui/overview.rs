@@ -233,14 +233,18 @@ impl App {
         }
         let cols = (n as f32).sqrt().ceil() as usize;
         let rows = n.div_ceil(cols);
+        let (top, bottom) = self.overview_insets();
         let avail_w = (surface.width - 2.0 * MARGIN).max(120.0);
-        let avail_h = (surface.height - TITLE_H - HINTS_H - 2.0 * MARGIN).max(120.0);
+        let avail_h = (surface.height - top - bottom - TITLE_H - HINTS_H - 2.0 * MARGIN).max(120.0);
         let cw = ((avail_w - GAP * (cols as f32 - 1.0)) / cols as f32).min(CARD_MAX_W);
         let ch = ((avail_h - GAP * (rows as f32 - 1.0)) / rows as f32).min(CARD_MAX_H);
         let grid_w = cw * cols as f32 + GAP * (cols as f32 - 1.0);
         let grid_h = ch * rows as f32 + GAP * (rows as f32 - 1.0);
         let x0 = ((surface.width - grid_w) / 2.0).max(MARGIN);
-        let y0 = TITLE_H + ((surface.height - TITLE_H - HINTS_H - grid_h) / 2.0).max(MARGIN / 2.0);
+        let y0 = top
+            + TITLE_H
+            + ((surface.height - top - bottom - TITLE_H - HINTS_H - grid_h) / 2.0)
+                .max(MARGIN / 2.0);
         cards
             .into_iter()
             .enumerate()
@@ -258,6 +262,17 @@ impl App {
     }
 
     /// Taille de la surface (relue à chaque `Resized`, l'écran sinon).
+    /// Zones réservées de l'écran (barre, dock), en haut et en bas : le
+    /// calque couvre tout l'écran, le titre et les aides se posent en dehors
+    /// pour ne pas chevaucher l'horloge de la barre ni le dock.
+    fn overview_insets(&self) -> (f32, f32) {
+        self.overview
+            .as_ref()
+            .and_then(|o| self.monitors.iter().find(|m| m.name == o.monitor))
+            .map(|m| (m.reserved.1.max(0.0), m.reserved.3.max(0.0)))
+            .unwrap_or_default()
+    }
+
     fn overview_surface(&self, o: &Overview) -> Size {
         self.sizes
             .get(&o.win)
@@ -736,13 +751,20 @@ impl App {
                 ..Default::default()
             }),
         ]
+        .spacing(18)
         .align_y(Alignment::Center)
         .padding([0.0, MARGIN])
         .height(HINTS_H);
 
+        let (inset_top, inset_bottom) = self.overview_insets();
         let content = column![title, Space::new().height(Length::Fill), hints]
             .width(Length::Fill)
-            .height(Length::Fill);
+            .height(Length::Fill)
+            .padding(iced::Padding {
+                top: inset_top,
+                bottom: inset_bottom,
+                ..iced::Padding::ZERO
+            });
 
         // Fond assombri, les cartes posées aux rectangles du layout partagé
         // (le dépôt d'une fenêtre relit exactement ces rectangles), la

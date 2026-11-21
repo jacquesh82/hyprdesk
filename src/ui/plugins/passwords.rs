@@ -196,7 +196,9 @@ impl App {
                     self.pw_button("Codes 2FA (:2fa)", Some(Msg::Search(":2fa ")), st.busy),
                     self.pw_button("Mots de passe (:mdp)", Some(Msg::Search(":mdp ")), st.busy),
                 ]
-                .spacing(8),
+                .spacing(8)
+                .wrap()
+                .vertical_spacing(8),
             );
         }
 

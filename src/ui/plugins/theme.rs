@@ -258,7 +258,9 @@ impl App {
                             .color(dim),
                     ]
                     .spacing(12)
-                    .align_y(Alignment::Center),
+                    .align_y(Alignment::Center)
+                    .wrap()
+                    .vertical_spacing(6),
                 ]
                 .spacing(8)
                 .width(Length::Fill),

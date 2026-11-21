@@ -581,6 +581,8 @@ impl Preview {
         self.app.panorama = Default::default();
         self.app.panel = None;
         self.app.chat = None;
+        // La vue d'ensemble restait ouverte sur les scènes suivantes.
+        self.app.overview = None;
         self.app.bar_preview = None;
         self.app.convex_runtime = Default::default();
         self.app.workspaces.retain(|w| w.id <= 4);

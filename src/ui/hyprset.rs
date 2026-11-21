@@ -241,13 +241,18 @@ impl App {
                     Some(OptValue::Num(n)) => *n,
                     _ => theirs.and_then(|s| s.parse::<f64>().ok()).unwrap_or(*min),
                 };
+                // Curseur extensible, plafonné : en colonne étroite il cède sa
+                // place plutôt que de pousser la valeur sur l'origine.
                 row![
-                    slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
-                        Msg::Drag(store, p.clone(), x as f64)
-                    ))
-                    .step(*step as f32)
-                    .on_release(wrap(Msg::Commit))
-                    .width(240),
+                    container(
+                        slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
+                            Msg::Drag(store, p.clone(), x as f64)
+                        ))
+                        .step(*step as f32)
+                        .on_release(wrap(Msg::Commit))
+                    )
+                    .width(Length::Fill)
+                    .max_width(240),
                     text(format!("{}", (v * 100.0).round() / 100.0))
                         .font(self.font)
                         .size(13),
@@ -307,12 +312,16 @@ impl App {
                     .unwrap_or_default();
                 let p2 = p.clone();
                 let mut r = row![
-                    text_input(&placeholder, &shown)
-                        .on_input(move |s| wrap(Msg::Draft(p2.clone(), s)))
-                        .on_submit(wrap(Msg::Submit(store, p)))
-                        .font(self.font)
-                        .size(13)
-                        .width(280),
+                    container(
+                        text_input(&placeholder, &shown)
+                            .on_input(move |s| wrap(Msg::Draft(p2.clone(), s)))
+                            .on_submit(wrap(Msg::Submit(store, p)))
+                            .font(self.font)
+                            .size(13)
+                            .width(Length::Fill)
+                    )
+                    .width(Length::Fill)
+                    .max_width(280),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center);

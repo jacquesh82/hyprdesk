@@ -144,7 +144,14 @@ impl App {
                 .find(|(_, l)| l.iter().any(|w| w == ws))
                 .map(|(m, _)| m.clone())
         };
-        let rows = names.chunks(2).map(|pair| {
+        // Deux par ligne quand elles tiennent, sinon une : la liste passait
+        // sous la suivante et sa flèche sur le texte.
+        let per_row = if self.detail_width() >= 2.0 * (110.0 + 8.0 + 170.0) + 16.0 {
+            2
+        } else {
+            1
+        };
+        let rows = names.chunks(per_row).map(|pair| {
             row(pair.iter().map(|ws| {
                 let now = current(ws);
                 let selected = choices.iter().find(|c| c.value == now).cloned();

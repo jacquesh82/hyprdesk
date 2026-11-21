@@ -295,7 +295,9 @@ impl App {
                                 })
                                 .collect::<Vec<_>>(),
                         )
-                        .spacing(16),
+                        .spacing(16)
+                        .wrap()
+                        .vertical_spacing(8),
                     )
                 })
                 .push(self.field("Écrans", "", {
@@ -325,6 +327,8 @@ impl App {
                         .font(self.font),
                     ]
                     .spacing(16)
+                    .wrap()
+                    .vertical_spacing(8)
                 }));
             if b.style == crate::config::BarStyle::Convexe {
                 for (label, value, max, message, unit) in [
@@ -355,9 +359,12 @@ impl App {
                             label,
                             "",
                             row![
-                                slider(0..=max, value.min(max), move |v| wrap(message(v)))
-                                    .on_release(wrap(Msg::Commit))
-                                    .width(260),
+                                container(
+                                    slider(0..=max, value.min(max), move |v| wrap(message(v)))
+                                        .on_release(wrap(Msg::Commit))
+                                )
+                                .width(Length::Fill)
+                                .max_width(260),
                                 text(format!("{value} {unit}")).font(self.font).size(13),
                             ]
                             .spacing(12),
@@ -394,7 +401,9 @@ impl App {
                         compact("Toujours", BarCompact::Always),
                         compact("Jamais", BarCompact::Never),
                     ]
-                    .spacing(16),
+                    .spacing(16)
+                    .wrap()
+                    .vertical_spacing(8),
                 ),
             );
             return col.into();

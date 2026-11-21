@@ -2760,7 +2760,10 @@ mod capture_tests {
             c.design.set("shortcut_profile", "power").unwrap();
         }
         let _ = app.panorama_update(snapshot());
-        assert!(app.panorama.video.is_none(), "profil Système : pas de capture");
+        assert!(
+            app.panorama.video.is_none(),
+            "profil Système : pas de capture"
+        );
         assert!(app.panorama.capture_host.is_none());
         // Retour au profil Raccourcis : la PiP est reprise dans la colonne.
         std::sync::Arc::make_mut(&mut app.cfg)
