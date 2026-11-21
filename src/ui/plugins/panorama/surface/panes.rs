@@ -2212,7 +2212,7 @@ impl App {
         } else {
             r = r.push(Space::new().width(Length::Fill));
         }
-        if last || p.index.is_none() {
+        if (last || p.index.is_none()) && self.cfg.general.panorama.design.controls {
             r = r.push(self.panorama_controls(s, geo, fg, p.rect.w < geo.target * 8.0));
         }
         container(r)

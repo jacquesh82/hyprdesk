@@ -387,7 +387,7 @@ impl Default for Design {
             padding: 20.0,
             text_scale: 1.0,
             effects: true,
-            controls: true,
+            controls: false,
             clock_style: "digital".into(),
             seconds: false,
             date: true,

@@ -23,6 +23,12 @@ and this project adheres to
   configuration launch the dedicated binaries directly; the greeter binary
   must pass the same root-ownership check as `hyprdesk`.
 
+- **The Panorama no longer shows its layout bar by default** (MLG-209). The
+  1 | 1×2 | 1×3 | 2×2 | 3×3 | ✦ selector and the hide button are now off
+  unless *Show strip screen controls* is on in the Panorama settings
+  (`panorama.design.controls`). Split layouts now honour that setting too;
+  before, they always showed the selector in the last zone's header.
+
 ### Fixed
 
 - **Lock screen killed when hyprdesk restarts.** Started by hypridle, the
