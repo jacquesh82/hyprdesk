@@ -349,6 +349,8 @@ pub enum PMsg {
     SideMove(usize, i32),
     /// Module retiré de la zone d'accueil.
     SideRemove(usize),
+    /// Glisser dans la zone d'accueil : préréglage suivant (+1) ou précédent.
+    SideSwipe(i32),
     /// Pièces Hue relues : pont appairé, pièces ou erreur.
     HueRooms(
         bool,
@@ -1731,7 +1733,8 @@ impl App {
             | PMsg::SideHold(..)
             | PMsg::SideEdit(_)
             | PMsg::SideMove(..)
-            | PMsg::SideRemove(_)) => self.panorama_side_update(m),
+            | PMsg::SideRemove(_)
+            | PMsg::SideSwipe(_)) => self.panorama_side_update(m),
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
             | PMsg::AutoFull(..)

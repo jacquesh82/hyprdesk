@@ -4520,3 +4520,5 @@
 "Aucune fenêtre {class} ouverte" = "No {class} window open"
 "Préréglage {n} enregistré" = "Preset {n} saved"
 "Préréglage {n} vide : composez la zone, puis appui long pour l'enregistrer" = "Preset {n} is empty: set up the zone, then long-press to save it"
+"Préréglage {n}" = "Preset {n}"
+"Aucun préréglage : appui long sur 1 à 5 pour en enregistrer" = "No preset yet: long-press 1 to 5 to save one"

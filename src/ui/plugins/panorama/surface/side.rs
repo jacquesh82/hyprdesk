@@ -15,6 +15,7 @@ use iced::widget::{Space, button, column, container, mouse_area, row, scrollable
 use iced::{Alignment, Border, Color, Element, Length, Size, Task};
 
 use super::panes::{Geo, Pane, Surf};
+use super::swipe::{Axis, swipe};
 use super::{App, Msg, PMsg, fx, wrap};
 use crate::panorama::guest::Guest;
 use crate::panorama::layout::Rect;
@@ -320,19 +321,33 @@ impl App {
                 if sp.hold.take().is_none_or(|(h, _)| h != i) {
                     return Task::none();
                 }
-                sp.active = Some(i);
-                sp.editing = None;
-                match self.side_saved(&format!("preset{}", i + 1)) {
-                    Some(c) => self.side_apply(c, false),
-                    // Préréglage libre : la zone se vide (fenêtre rendue)
-                    // pour qu'on la compose, puis l'appui long l'enregistre.
+                self.side_load(i)
+            }
+            // Glisser dans la zone : préréglage enregistré suivant (+1) ou
+            // précédent (-1), en boucle.
+            PMsg::SideSwipe(d) => {
+                let defined: Vec<usize> = self
+                    .side_presets()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, on)| **on)
+                    .map(|(i, _)| i)
+                    .collect();
+                let active = self.panorama.split.as_ref().and_then(|sp| sp.active);
+                match next_preset(&defined, active, d) {
+                    Some(i) => {
+                        let load = self.side_load(i);
+                        self.side_notice(crate::tr!("Préréglage {n}", n = i + 1));
+                        load
+                    }
                     None => {
-                        let clear = self.side_apply(Content::default(), true);
-                        self.side_notice(crate::tr!(
-                            "Préréglage {n} vide : composez la zone, puis appui long pour l'enregistrer",
-                            n = i + 1
-                        ));
-                        clear
+                        self.side_notice(
+                            crate::i18n::tr(
+                                "Aucun préréglage : appui long sur 1 à 5 pour en enregistrer",
+                            )
+                            .to_string(),
+                        );
+                        Task::none()
                     }
                 }
             }
@@ -471,6 +486,27 @@ impl App {
             return Task::none();
         }
         self.side_store("last", &c)
+    }
+
+    /// Affiche le préréglage `i` (rang 0 à 4) et en fait le préréglage actif.
+    fn side_load(&mut self, i: usize) -> Task<Msg> {
+        if let Some(sp) = self.panorama.split.as_mut() {
+            sp.active = Some(i);
+            sp.editing = None;
+        }
+        match self.side_saved(&format!("preset{}", i + 1)) {
+            Some(c) => self.side_apply(c, false),
+            // Préréglage libre : la zone se vide (fenêtre rendue) pour
+            // qu'on la compose ; elle s'y enregistre au fil des changements.
+            None => {
+                let clear = self.side_apply(Content::default(), true);
+                self.side_notice(crate::tr!(
+                    "Préréglage {n} vide : composez la zone, puis appui long pour l'enregistrer",
+                    n = i + 1
+                ));
+                clear
+            }
+        }
     }
 
     /// La zone a changé : retenue pour la prochaine fois, et enregistrée
@@ -749,7 +785,6 @@ impl App {
     /// Contenu de la zone d'accueil : la fenêtre (trou), le choix « + »,
     /// ou les modules ajoutés.
     pub(super) fn panorama_aside(&self, size: Size) -> Element<'_, Msg> {
-        let (bg, fg, accent) = self.panorama_palette();
         let d = &self.cfg.general.panorama.design;
         let sp = self.panorama.split.clone().unwrap_or_default();
         if sp.guest.is_some() {
@@ -758,6 +793,40 @@ impl App {
         if sp.picking {
             return self.panorama_aside_picker(&sp, size);
         }
+        // Glisser dans la zone : préréglage suivant ou précédent. Les tuiles
+        // à curseurs (Lumières, Musique) gardent leur glisser.
+        let axis = if size.width >= size.height {
+            Axis::Horizontal
+        } else {
+            Axis::Vertical
+        };
+        let (cols, w, h) = side_grid(sp.modules.len(), size, d.gap.min(16.0));
+        let gap = d.gap.min(16.0);
+        let yields = sp
+            .modules
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| matches!(m.as_str(), "hue" | "media"))
+            .map(|(i, _)| {
+                let (r, c) = ((i / cols) as f32, (i % cols) as f32);
+                iced::Rectangle::new(
+                    iced::Point::new(8.0 + c * (w + gap), 8.0 + r * (h + gap)),
+                    Size::new(w, h),
+                )
+            })
+            .collect();
+        swipe(self.panorama_aside_body(&sp, size), axis, |d| {
+            wrap(PMsg::SideSwipe(d))
+        })
+        .yield_to(yields)
+        .motion(self.panorama_motion())
+        .into()
+    }
+
+    /// Zone d'accueil sans fenêtre ni choix ouvert : modules, ou le « + ».
+    fn panorama_aside_body(&self, sp: &SideBySide, size: Size) -> Element<'_, Msg> {
+        let (bg, fg, accent) = self.panorama_palette();
+        let d = &self.cfg.general.panorama.design;
         let dim = fx::alpha(fg, 0.65);
         if sp.busy {
             return container(
@@ -827,15 +896,7 @@ impl App {
         // Modules : une ou deux colonnes selon la forme de la zone.
         let gap = d.gap.min(16.0);
         let n = sp.modules.len();
-        let cols = if n > 1 && size.width > size.height * 1.3 {
-            2
-        } else {
-            1
-        };
-        let rows = n.div_ceil(cols);
-        let inner = 16.0;
-        let w = ((size.width - inner - gap * (cols - 1) as f32) / cols as f32).max(40.0);
-        let h = ((size.height - inner - gap * (rows - 1) as f32) / rows as f32).max(40.0);
+        let (cols, w, h) = side_grid(n, size, gap);
         let mut grid = column![].spacing(gap);
         for (r, chunk) in sp.modules.chunks(cols).enumerate() {
             let mut line = row![].spacing(gap);
@@ -1138,6 +1199,43 @@ impl App {
     }
 }
 
+/// Grille des modules de la zone d'accueil (marge de 8) : (colonnes,
+/// largeur, hauteur d'une tuile). Deux colonnes sur une zone large.
+fn side_grid(n: usize, size: Size, gap: f32) -> (usize, f32, f32) {
+    let cols = if n > 1 && size.width > size.height * 1.3 {
+        2
+    } else {
+        1
+    };
+    let rows = n.div_ceil(cols).max(1);
+    let inner = 16.0;
+    let w = ((size.width - inner - gap * (cols - 1) as f32) / cols as f32).max(40.0);
+    let h = ((size.height - inner - gap * (rows - 1) as f32) / rows as f32).max(40.0);
+    (cols, w, h)
+}
+
+/// Préréglage suivant (`d` > 0) ou précédent parmi les rangs `defined`
+/// (croissants), en boucle ; depuis aucun : le premier ou le dernier.
+fn next_preset(defined: &[usize], active: Option<usize>, d: i32) -> Option<usize> {
+    if defined.is_empty() {
+        return None;
+    }
+    let next = match active.and_then(|a| defined.iter().position(|x| *x == a)) {
+        Some(p) => (p as i64 + i64::from(d.signum())).rem_euclid(defined.len() as i64) as usize,
+        // Actif vide (ou aucun) : le suivant ou le précédent selon son rang.
+        None => match (active, d > 0) {
+            (Some(a), true) => defined.iter().position(|x| *x > a).unwrap_or(0),
+            (Some(a), false) => defined
+                .iter()
+                .rposition(|x| *x < a)
+                .unwrap_or(defined.len() - 1),
+            (None, true) => 0,
+            (None, false) => defined.len() - 1,
+        },
+    };
+    Some(defined[next])
+}
+
 /// Arrondi des tuiles de la zone d'accueil.
 fn d_radius(app: &App) -> f32 {
     app.cfg.general.panorama.design.radius.min(18.0)
@@ -1184,5 +1282,19 @@ mod tests {
         let d = Content::decode("notes,inconnu,notes,hue,clock,calendar,system").unwrap();
         assert_eq!(d.modules, ["notes", "hue", "clock", "calendar"]);
         assert_eq!(d.window, None);
+    }
+
+    #[test]
+    fn prereglage_suivant_en_boucle() {
+        let def = [0, 2, 4];
+        assert_eq!(next_preset(&def, Some(0), 1), Some(2));
+        assert_eq!(next_preset(&def, Some(4), 1), Some(0));
+        assert_eq!(next_preset(&def, Some(0), -1), Some(4));
+        // Depuis un préréglage vide (rang 1) : ses voisins enregistrés.
+        assert_eq!(next_preset(&def, Some(1), 1), Some(2));
+        assert_eq!(next_preset(&def, Some(1), -1), Some(0));
+        assert_eq!(next_preset(&def, None, 1), Some(0));
+        assert_eq!(next_preset(&def, None, -1), Some(4));
+        assert_eq!(next_preset(&[], None, 1), None);
     }
 }
