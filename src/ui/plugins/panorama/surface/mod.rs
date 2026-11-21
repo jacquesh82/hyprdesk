@@ -13,6 +13,7 @@ mod drag;
 mod flux;
 mod fx;
 mod halo;
+mod hold;
 mod instruments;
 mod modules;
 mod panes;
@@ -342,6 +343,12 @@ pub enum PMsg {
     SidePreset(usize, bool),
     /// Fin du délai d'appui long : (rang, appui).
     SideHold(usize, u64),
+    /// Module de la zone d'accueil en édition (appui long), ou fin d'édition.
+    SideEdit(Option<usize>),
+    /// Module déplacé d'un cran (avant : -1, après : +1).
+    SideMove(usize, i32),
+    /// Module retiré de la zone d'accueil.
+    SideRemove(usize),
     /// Pièces Hue relues : pont appairé, pièces ou erreur.
     HueRooms(
         bool,
@@ -1721,7 +1728,10 @@ impl App {
             | PMsg::SideTaken(_)
             | PMsg::SideDone(_)
             | PMsg::SidePreset(..)
-            | PMsg::SideHold(..)) => self.panorama_side_update(m),
+            | PMsg::SideHold(..)
+            | PMsg::SideEdit(_)
+            | PMsg::SideMove(..)
+            | PMsg::SideRemove(_)) => self.panorama_side_update(m),
             m @ (PMsg::Layout(_)
             | PMsg::Profile(_)
             | PMsg::AutoFull(..)

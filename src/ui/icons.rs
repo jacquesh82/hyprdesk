@@ -201,6 +201,11 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3Z"/>"#
         }
         "list-add" => r#"<path d="M12 5v14M5 12h14"/>"#,
+        "go-previous" => r#"<path d="m15 5-7 7 7 7"/>"#,
+        "go-next" => r#"<path d="m9 5 7 7-7 7"/>"#,
+        "user-trash" | "edit-delete" => {
+            r#"<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>"#
+        }
         "view-grid" => {
             r#"<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>"#
         }

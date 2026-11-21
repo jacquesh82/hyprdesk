@@ -26,7 +26,7 @@ pub const PRESETS: usize = 5;
 /// Durée d'un appui long (enregistrement d'un préréglage).
 const HOLD: Duration = Duration::from_millis(650);
 /// Durée d'affichage d'un avis dans le bandeau.
-const NOTICE: Duration = Duration::from_millis(2500);
+const NOTICE: Duration = Duration::from_millis(4000);
 /// Clé des options du Panorama (`side.<clé>`).
 const OPTION: &str = "side";
 
@@ -93,6 +93,10 @@ pub struct SideBySide {
     pub presses: u64,
     /// Avis du bandeau (préréglage enregistré…) et son heure.
     pub notice: Option<(String, Instant)>,
+    /// Préréglage affiché : les changements de la zone y sont enregistrés.
+    pub active: Option<usize>,
+    /// Module en édition (appui long sur sa tuile) : déplacer, retirer.
+    pub editing: Option<usize>,
 }
 
 impl App {
@@ -263,6 +267,7 @@ impl App {
                     "pick" | "done" => {
                         if let Some(sp) = self.panorama.split.as_mut() {
                             sp.picking = op == "pick";
+                            sp.editing = None;
                             sp.error = None;
                         }
                         Task::none()
@@ -272,7 +277,7 @@ impl App {
                             sp.placed = None;
                             sp.guest.take()
                         });
-                        Task::batch([restore(guest), self.sync_pip(), self.side_remember()])
+                        Task::batch([restore(guest), self.sync_pip(), self.side_changed()])
                     }
                     _ => Task::none(),
                 }
@@ -289,7 +294,7 @@ impl App {
                         sp.modules.push(id.clone());
                     }
                 }
-                let remember = self.side_remember();
+                let remember = self.side_changed();
                 // Tuile Hue : relevé aussitôt.
                 if id == "hue" {
                     return Task::batch([remember, self.panorama_hue_refresh()]);
@@ -315,14 +320,19 @@ impl App {
                 if sp.hold.take().is_none_or(|(h, _)| h != i) {
                     return Task::none();
                 }
+                sp.active = Some(i);
+                sp.editing = None;
                 match self.side_saved(&format!("preset{}", i + 1)) {
                     Some(c) => self.side_apply(c, false),
+                    // Préréglage libre : la zone se vide (fenêtre rendue)
+                    // pour qu'on la compose, puis l'appui long l'enregistre.
                     None => {
+                        let clear = self.side_apply(Content::default(), true);
                         self.side_notice(crate::tr!(
-                            "Préréglage {n} vide : appui long pour l'enregistrer",
+                            "Préréglage {n} vide : composez la zone, puis appui long pour l'enregistrer",
                             n = i + 1
                         ));
-                        Task::none()
+                        clear
                     }
                 }
             }
@@ -334,9 +344,39 @@ impl App {
                     return Task::none();
                 }
                 sp.hold = None;
+                sp.active = Some(i);
                 let c = self.side_content();
                 self.side_notice(crate::tr!("Préréglage {n} enregistré", n = i + 1));
                 self.side_store(&format!("preset{}", i + 1), &c)
+            }
+            PMsg::SideEdit(e) => {
+                if let Some(sp) = self.panorama.split.as_mut() {
+                    sp.editing = e.filter(|i| *i < sp.modules.len());
+                }
+                Task::none()
+            }
+            PMsg::SideMove(i, d) => {
+                let Some(sp) = self.panorama.split.as_mut() else {
+                    return Task::none();
+                };
+                let j = i as i64 + i64::from(d);
+                if i >= sp.modules.len() || j < 0 || j as usize >= sp.modules.len() {
+                    return Task::none();
+                }
+                sp.modules.swap(i, j as usize);
+                // L'édition suit le module déplacé.
+                sp.editing = Some(j as usize);
+                self.side_changed()
+            }
+            PMsg::SideRemove(i) => {
+                let Some(sp) = self.panorama.split.as_mut() else {
+                    return Task::none();
+                };
+                if i < sp.modules.len() {
+                    sp.modules.remove(i);
+                }
+                sp.editing = None;
+                self.side_changed()
             }
             PMsg::SideWindow(addr) => {
                 let Some(rect) = self.panorama_aside_target() else {
@@ -369,7 +409,7 @@ impl App {
                 (Ok(g), Some(sp)) => {
                     sp.busy = false;
                     sp.guest = Some(g);
-                    Task::batch([self.sync_pip(), self.side_remember()])
+                    Task::batch([self.sync_pip(), self.side_changed()])
                 }
                 // Côte à côte quitté pendant le transfert : la fenêtre repart.
                 (Ok(g), None) => restore(Some(g)),
@@ -431,6 +471,21 @@ impl App {
             return Task::none();
         }
         self.side_store("last", &c)
+    }
+
+    /// La zone a changé : retenue pour la prochaine fois, et enregistrée
+    /// dans le préréglage affiché s'il y en a un.
+    fn side_changed(&mut self) -> Task<Msg> {
+        let last = self.side_remember();
+        let Some(i) = self.panorama.split.as_ref().and_then(|sp| sp.active) else {
+            return last;
+        };
+        let c = self.side_content();
+        let key = format!("preset{}", i + 1);
+        if self.side_saved(&key).as_ref() == Some(&c) {
+            return last;
+        }
+        Task::batch([last, self.side_store(&key, &c)])
     }
 
     fn side_notice(&mut self, msg: String) {
@@ -588,6 +643,7 @@ impl App {
         let mut presets = row![].spacing(4).align_y(Alignment::Center);
         for (i, on) in saved.into_iter().enumerate() {
             let held = sp.hold.is_some_and(|(k, _)| k == i);
+            let active = sp.active == Some(i);
             presets = presets.push(
                 mouse_area(
                     container(
@@ -616,10 +672,16 @@ impl App {
                         ),
                         border: Border {
                             radius: (side / 2.0).into(),
-                            width: 1.0,
+                            width: if active { 2.5 } else { 1.0 },
                             color: fx::alpha(
-                                if on { accent } else { fg },
-                                if on { 0.8 } else { 0.25 },
+                                if on || active { accent } else { fg },
+                                if active {
+                                    1.0
+                                } else if on {
+                                    0.8
+                                } else {
+                                    0.25
+                                },
                             ),
                         },
                         ..Default::default()
@@ -775,28 +837,110 @@ impl App {
         let w = ((size.width - inner - gap * (cols - 1) as f32) / cols as f32).max(40.0);
         let h = ((size.height - inner - gap * (rows - 1) as f32) / rows as f32).max(40.0);
         let mut grid = column![].spacing(gap);
-        for chunk in sp.modules.chunks(cols) {
+        for (r, chunk) in sp.modules.chunks(cols).enumerate() {
             let mut line = row![].spacing(gap);
-            for m in chunk {
-                line = line.push(
-                    container(self.panorama_module_body(m, Size::new(w, h)))
-                        .width(w)
-                        .height(h)
-                        .clip(true)
-                        .style(move |_| container::Style {
-                            background: Some(fx::alpha(bg, d.card_opacity.max(0.06)).into()),
-                            border: Border {
-                                radius: d.radius.min(18.0).into(),
-                                width: 1.0,
-                                color: fx::alpha(fg, d.border_opacity.max(0.12)),
+            for (k, m) in chunk.iter().enumerate() {
+                let i = r * cols + k;
+                let editing = sp.editing == Some(i);
+                let card = container(self.panorama_module_body(m, Size::new(w, h)))
+                    .width(w)
+                    .height(h)
+                    .clip(true)
+                    .style(move |_| container::Style {
+                        background: Some(fx::alpha(bg, d.card_opacity.max(0.06)).into()),
+                        border: Border {
+                            radius: d.radius.min(18.0).into(),
+                            width: if editing { 2.0 } else { 1.0 },
+                            color: if editing {
+                                accent
+                            } else {
+                                fx::alpha(fg, d.border_opacity.max(0.12))
                             },
-                            ..Default::default()
-                        }),
-                );
+                        },
+                        ..Default::default()
+                    });
+                // Appui long : la tuile passe en édition (ou en sort).
+                let tile: Element<'_, Msg> =
+                    super::hold::hold(card, wrap(PMsg::SideEdit((!editing).then_some(i)))).into();
+                line = line.push(if editing {
+                    iced::widget::stack![tile, self.side_edit_bar(i, n, w, h)].into()
+                } else {
+                    tile
+                });
             }
             grid = grid.push(line);
         }
         container(grid).padding(8).into()
+    }
+
+    /// Commandes d'une tuile en édition : avant, après, retirer, terminé.
+    fn side_edit_bar(&self, i: usize, n: usize, w: f32, h: f32) -> Element<'_, Msg> {
+        let (bg, fg, _) = self.panorama_palette();
+        let b = (w.min(h) * 0.22).clamp(36.0, 56.0);
+        let key = |icon: &str, msg: Option<Msg>| -> Element<'_, Msg> {
+            let tint = if msg.is_some() {
+                fg
+            } else {
+                fx::alpha(fg, 0.3)
+            };
+            let glyph: Element<'_, Msg> = match crate::ui::icons::get(icon) {
+                Some(handle) => svg(handle)
+                    .width(b * 0.45)
+                    .height(b * 0.45)
+                    .style(move |_, _| svg::Style { color: Some(tint) })
+                    .into(),
+                None => Space::new().into(),
+            };
+            let mut bt = button(
+                container(glyph)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill),
+            )
+            .width(b)
+            .height(b)
+            .style(move |_, st| button::Style {
+                background: Some(
+                    fx::alpha(
+                        fg,
+                        match st {
+                            button::Status::Pressed => 0.32,
+                            button::Status::Hovered => 0.2,
+                            _ => 0.12,
+                        },
+                    )
+                    .into(),
+                ),
+                border: Border::default().rounded(b / 2.0),
+                ..Default::default()
+            });
+            if let Some(m) = msg {
+                bt = bt.on_press(m);
+            }
+            self.panorama_feedback(bt)
+        };
+        let bar = row![
+            key("go-previous", (i > 0).then(|| wrap(PMsg::SideMove(i, -1)))),
+            key("go-next", (i + 1 < n).then(|| wrap(PMsg::SideMove(i, 1)))),
+            key("user-trash", Some(wrap(PMsg::SideRemove(i)))),
+            key("object-select", Some(wrap(PMsg::SideEdit(None)))),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        container(container(bar).padding(10).style(move |_| container::Style {
+            background: Some(fx::alpha(bg, 0.85).into()),
+            border: Border::default().rounded(b * 0.6),
+            ..Default::default()
+        }))
+        .width(w)
+        .height(h)
+        .center_x(w)
+        .center_y(h)
+        .style(move |_| container::Style {
+            background: Some(fx::alpha(bg, 0.45).into()),
+            border: Border::default().rounded(d_radius(self)),
+            ..Default::default()
+        })
+        .into()
     }
 
     /// Choix « + » : modules à cocher, puis les fenêtres ouvertes à ramener.
@@ -992,6 +1136,11 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+}
+
+/// Arrondi des tuiles de la zone d'accueil.
+fn d_radius(app: &App) -> f32 {
+    app.cfg.general.panorama.design.radius.min(18.0)
 }
 
 /// Tâche bloquante (appels à Hyprland) hors du fil de l'interface.
