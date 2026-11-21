@@ -1080,6 +1080,11 @@ impl App {
                 }
                 Task::none()
             }
+            PMsg::CastCard(on) => {
+                self.panorama.cast_card = on;
+                self.panorama.last_press = Some(std::time::Instant::now());
+                Task::none()
+            }
             PMsg::VideoClose => {
                 self.panorama.framing = false;
                 if self.panorama.radio.take().is_some() {
@@ -1188,6 +1193,7 @@ impl App {
             focus_back: self.active_window.as_ref().map(|(a, _)| a.clone()),
         });
         self.panorama.last_press = Some(std::time::Instant::now());
+        self.panorama.cast_card = false;
         let url = src.url;
         Task::batch([
             close,
@@ -2445,6 +2451,9 @@ impl App {
                 .center_y(Length::Fill)
                 .into()
         };
+        if self.panorama.cast_card && matches!(state, VideoState::Guide | VideoState::Tiles) {
+            return self.panorama_cast_card(z, area, fg);
+        }
         match state {
             VideoState::Hole => Space::new().width(area.w).height(area.h).into(),
             VideoState::Opening(name) => centered(
@@ -2493,6 +2502,14 @@ impl App {
                         "Ou, depuis un navigateur, lancez une vidéo en Picture-in-Picture ou en \
                          plein écran : elle vient se placer ici.",
                     ),
+                    button(step(
+                        "3",
+                        "Ou depuis le téléphone : touchez ici pour afficher le code à scanner \
+                         (Disney+, HBO Max… par Partager ; YouTube par l'icône cast).",
+                    ))
+                    .padding(0)
+                    .style(|_, _| button::Style::default())
+                    .on_press(wrap(PMsg::CastCard(true))),
                 ]
                 .spacing(size * 0.9)
                 .max_width((area.w * 0.8).max(200.0));
@@ -2532,7 +2549,14 @@ impl App {
                 // au-delà d'un minimum tactile, la zone défile.
                 let gap = z.pad / 2.0;
                 let (aw, ah) = ((area.w - z.pad).max(1.0), (area.h - z.pad).max(1.0));
-                let shown = self.panorama_sources();
+                let mut shown = self.panorama_sources();
+                let sources = shown.len();
+                // Dernière tuile : « Téléphone », la carte du cast (MLG-217).
+                shown.push(crate::panorama::config::Source {
+                    name: crate::i18n::tr("Téléphone").to_string(),
+                    icon: "smartphone".into(),
+                    ..Default::default()
+                });
                 let n = shown.len().max(1);
                 let (mut cols, mut side) = (1, 0.0_f32);
                 for k in 1..=n {
@@ -2606,7 +2630,11 @@ impl App {
                             .width(side)
                             .height(side)
                             .padding(side * 0.1)
-                            .on_press(wrap(PMsg::VideoOpen(i)))
+                            .on_press(wrap(if i < sources {
+                                PMsg::VideoOpen(i)
+                            } else {
+                                PMsg::CastCard(true)
+                            }))
                             .style(move |_, st| button::Style {
                                 background: Some(
                                     match st {
@@ -2645,7 +2673,7 @@ impl App {
                 if !shown.len().is_multiple_of(cols) {
                     col = col.push(line);
                 }
-                if shown.is_empty() {
+                if sources == 0 {
                     col = col.push(
                         text(crate::i18n::tr(
                             "Aucune source : ajoutez-en dans Réglages → Panorama.",
@@ -2665,6 +2693,148 @@ impl App {
                     .into()
             }
         }
+    }
+}
+
+/// Adresse de la page du téléphone et son QR code, recalculés au plus
+/// toutes les 30 s (l'adresse du réseau peut changer).
+static CAST_QR: std::sync::Mutex<Option<(std::time::Instant, String, image::Handle)>> =
+    std::sync::Mutex::new(None);
+
+fn cast_qr() -> Option<(String, image::Handle)> {
+    let mut g = CAST_QR.lock().ok()?;
+    if let Some((at, url, h)) = g.as_ref()
+        && at.elapsed() < Duration::from_secs(30)
+    {
+        return Some((url.clone(), h.clone()));
+    }
+    let url = crate::panorama::cast::page_url()?;
+    let h = match g.as_ref() {
+        Some((_, u, h)) if *u == url => h.clone(),
+        _ => {
+            let (w, hh, px) = crate::panorama::cast::qr_rgba(&url, 8)?;
+            image::Handle::from_rgba(w, hh, px)
+        }
+    };
+    *g = Some((std::time::Instant::now(), url.clone(), h.clone()));
+    Some((url, h))
+}
+
+impl App {
+    /// Carte « Téléphone » de la zone vidéo : QR code de la page du cast,
+    /// mode d'emploi, état du serveur (MLG-217, MLG-218).
+    fn panorama_cast_card(&self, z: &layout::Zones, area: Rect, fg: Color) -> Element<'_, Msg> {
+        let dim = Color { a: 0.7, ..fg };
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let size = (z.unit * 0.045).clamp(12.0, 20.0);
+        let font = self.panorama_font();
+        let line = |t: String, c: Color| -> Element<'_, Msg> {
+            text(t).size(size).font(font).color(c).into()
+        };
+        let mut info = column![
+            text(crate::i18n::tr("Depuis le téléphone"))
+                .size(size * 1.35)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Semibold,
+                    ..font
+                })
+                .color(fg),
+        ]
+        .spacing(size * 0.7)
+        .width(Length::Fill);
+        let on = crate::panorama::cast::enabled(&self.cfg);
+        let qr = on.then(cast_qr).flatten();
+        if !on {
+            info = info.push(line(
+                crate::i18n::tr("Cast coupé : Réglages → Plugins → Modules → Zone vidéo.")
+                    .to_string(),
+                warn,
+            ));
+        } else {
+            info = info
+                .push(line(
+                    crate::i18n::tr(
+                        "Scannez le code : la télécommande s'ouvre sur le téléphone. Dans Disney+, \
+                         HBO Max, Netflix… touchez Partager → Copier le lien, puis collez-le dans \
+                         la page : le titre s'ouvre ici, avec votre compte.",
+                    )
+                    .to_string(),
+                    dim,
+                ))
+                .push(line(
+                    crate::tr!(
+                        "YouTube : touchez l'icône cast de l'application et choisissez « {name} ».",
+                        name = crate::panorama::cast::device_name()
+                    ),
+                    dim,
+                ));
+            match &qr {
+                Some((url, _)) => {
+                    info = info.push(
+                        text(url.clone())
+                            .size(size * 0.8)
+                            .font(font)
+                            .color(Color { a: 0.5, ..fg }),
+                    );
+                }
+                None => {
+                    info = info.push(line(
+                        crate::i18n::tr(
+                            "Aucun réseau local : le téléphone ne peut pas joindre le bureau.",
+                        )
+                        .to_string(),
+                        warn,
+                    ));
+                }
+            }
+            if let Some(p) = crate::panorama::cast::problem() {
+                info = info.push(line(p, warn));
+            }
+        }
+        info = info.push(
+            button(
+                text(crate::i18n::tr("Retour"))
+                    .size(size)
+                    .font(font)
+                    .color(fg),
+            )
+            .padding([size * 0.4, size])
+            .style(move |_, st| button::Style {
+                background: Some(
+                    Color {
+                        a: if matches!(st, button::Status::Hovered) {
+                            0.18
+                        } else {
+                            0.1
+                        },
+                        ..fg
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(size),
+                ..Default::default()
+            })
+            .on_press(wrap(PMsg::CastCard(false))),
+        );
+        let side = (area.h - z.pad * 2.0).min(area.w * 0.42).max(80.0);
+        let mut body = row![].spacing(z.pad).align_y(Alignment::Center);
+        if let Some((_, h)) = qr {
+            body = body.push(
+                container(image(h).width(side).height(side))
+                    .style(move |_| container::Style {
+                        border: Border::default().rounded(side * 0.06),
+                        ..Default::default()
+                    })
+                    .clip(true),
+            );
+        }
+        body = body.push(info);
+        container(iced::widget::scrollable(body).height(Length::Shrink))
+            .padding(z.pad)
+            .width(area.w)
+            .height(area.h)
+            .center_y(area.h)
+            .into()
     }
 }
 

@@ -87,7 +87,14 @@ pub fn find_new(clients: &Value, known: &[String], prefix: &str, url: &str) -> O
 /// Lance la source (détaché). Bloquant le temps du `spawn`.
 pub fn launch(cmd: &str, url: &str) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
-    let mut child = std::process::Command::new(cmd)
+    let mut command = std::process::Command::new(cmd);
+    // YouTube pour téléviseur (récepteur de cast, MLG-218) : il ne s'affiche
+    // qu'à un agent de téléviseur, donc dans un navigateur à part (profil
+    // dédié : l'option ne vaut que pour un nouveau processus).
+    if super::cast::is_youtube_tv(url) {
+        command.args(super::cast::tv_browser_args());
+    }
+    let mut child = command
         .arg(format!("--app={url}"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

@@ -5396,6 +5396,14 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        // Cast vers la zone vidéo (MLG-217, MLG-218) : page du téléphone et
+        // récepteur YouTube, tant qu'un écran Panorama est là.
+        if self.cfg.plugin_on("panorama")
+            && crate::panorama::cast::enabled(&self.cfg)
+            && !self.panorama_monitors().is_empty()
+        {
+            subs.push(Subscription::run(crate::panorama::cast::stream).map(Msg::Control));
+        }
         // Webradio : niveaux du son pour la barre « flux vocal ».
         if self.panorama.radio.is_some() {
             subs.push(

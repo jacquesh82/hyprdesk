@@ -49,6 +49,8 @@ pub enum Msg {
     NotesMonitor(String),
     NotesOpen,
     NotesOpened(Result<(), String>),
+    /// Cast vers la zone vidéo (page du téléphone, récepteur YouTube).
+    Cast(bool),
 }
 
 /// Pont enregistré et ses pièces.
@@ -116,6 +118,37 @@ impl App {
                 ]
                 .align_y(Alignment::Center),
             );
+        }
+
+        // Zone vidéo : cast depuis le téléphone (MLG-217, MLG-218).
+        let cast = crate::panorama::cast::enabled(&self.cfg);
+        col = col
+            .push(self.section("Zone vidéo"))
+            .push(
+                row![
+                    text("Recevoir depuis le téléphone (Partager, cast YouTube)")
+                        .font(self.font)
+                        .size(13)
+                        .color(fg)
+                        .width(Length::Fill),
+                    toggler(cast).on_toggle(|v| wrap(Msg::Cast(v))),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .push(
+                text(crate::tr!(
+                    "Un petit serveur du réseau local (port {port}) : la tuile « Téléphone » de la \
+                     zone vidéo montre le code à scanner ; les liens partagés depuis Disney+, HBO \
+                     Max… s'y ouvrent, et l'application YouTube y voit « {name} » sous son icône cast.",
+                    port = crate::panorama::cast::PORT,
+                    name = crate::panorama::cast::device_name()
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            );
+        if let Some(p) = cast.then(crate::panorama::cast::problem).flatten() {
+            col = col.push(text(p).font(self.font).size(12).color(warn));
         }
 
         // Hue
@@ -322,6 +355,7 @@ impl App {
                 self.module_option("notes", "command", &v)
             }
             Msg::NotesMonitor(name) => self.module_option("notes", "monitor", &name),
+            Msg::Cast(on) => self.module_option("video", "cast", if on { "" } else { "off" }),
             Msg::NotesOpen => {
                 let (command, monitor) = notes::options(&self.cfg);
                 Task::perform(

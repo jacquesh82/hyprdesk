@@ -13,6 +13,7 @@
 pub mod auth;
 pub mod autofull;
 pub mod capture;
+pub mod cast;
 pub mod config;
 pub mod design;
 pub mod detect;

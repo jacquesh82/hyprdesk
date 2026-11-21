@@ -156,6 +156,8 @@ pub struct State {
     pub capture_watch: crate::panorama::capture::Watch,
     pub capture_busy: bool,
     pub capture_host: Option<Id>,
+    /// Carte « Téléphone » de la zone vidéo (QR de la page du cast, MLG-217).
+    pub cast_card: bool,
     /// Lancements abandonnés avant que leur fenêtre n'apparaisse : elle sera
     /// fermée à son arrivée (une seule source à la fois).
     pub strays: Vec<panes::Stray>,
@@ -492,6 +494,8 @@ pub enum PMsg {
     VideoFound(Option<String>),
     VideoPlaced(Result<(), String>),
     VideoClose,
+    /// Carte « Téléphone » de la zone vidéo montrée ou non.
+    CastCard(bool),
     CaptureScan(Option<(serde_json::Value, Vec<crate::widgets::media::Status>)>),
     CapturePlaced(String, Result<(), String>),
     PreviewAt(Option<(i32, i32)>),
@@ -1757,7 +1761,8 @@ impl App {
             | PMsg::VideoPlaced(_)
             | PMsg::CaptureScan(_)
             | PMsg::CapturePlaced(..)
-            | PMsg::VideoClose) => self.panorama_panes_update(m),
+            | PMsg::VideoClose
+            | PMsg::CastCard(_)) => self.panorama_panes_update(m),
             PMsg::PreviewAt(at) => {
                 self.panorama.preview_at = at;
                 Task::none()
@@ -2201,8 +2206,18 @@ impl App {
                     return Task::none();
                 }
                 let name = it.collect::<Vec<_>>().join(" ");
+                // Sans nom (lien partagé depuis le téléphone) : celui de la
+                // source du même site, sinon le site.
                 let name = if name.is_empty() {
-                    crate::panorama::video::host(&url)
+                    let host = crate::panorama::video::host(&url);
+                    let bare = |h: &str| h.trim_start_matches("www.").to_string();
+                    let c = &self.cfg.general.panorama;
+                    c.sources
+                        .iter()
+                        .chain(&c.music_sources)
+                        .find(|s| bare(&crate::panorama::video::host(&s.url)) == bare(&host))
+                        .map(|s| s.name.clone())
+                        .unwrap_or(host)
                 } else {
                     name
                 };
