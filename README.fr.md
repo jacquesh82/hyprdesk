@@ -159,11 +159,11 @@ l'écran de connexion, LYRA et myMFA restent décochés tant que vous ne les
 choisissez pas. Au premier démarrage, un assistant visuel passe en revue
 écrans, clavier, thème, barre et applications par défaut.
 
-| Distribution | Paquet de la release 0.1.8 |
+| Distribution | Paquet de la release 0.1.9 |
 | --- | --- |
-| Debian, Ubuntu (amd64) | [hyprdesk_0.1.8-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.8/hyprdesk_0.1.8-1_amd64.deb) |
-| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.8-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.8/hyprdesk-0.1.8-1.x86_64.rpm) |
-| Arch Linux (x86_64) | [hyprdesk-0.1.8-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.8/hyprdesk-0.1.8-1-x86_64.pkg.tar.zst), ou le [paquet AUR](https://aur.archlinux.org/packages/hyprdesk) |
+| Debian, Ubuntu (amd64) | [hyprdesk_0.1.9-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk_0.1.9-1_amd64.deb) |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.9-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1.x86_64.rpm) |
+| Arch Linux (x86_64) | [hyprdesk-0.1.9-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1-x86_64.pkg.tar.zst), ou le [paquet AUR](https://aur.archlinux.org/packages/hyprdesk) |
 
 ### Mettre à jour et désinstaller
 

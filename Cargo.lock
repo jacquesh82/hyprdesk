@@ -1633,7 +1633,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hyprdesk"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "hyprdesk-auth"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "futures",
  "hyprdesk-i18n",
@@ -1683,7 +1683,7 @@ dependencies = [
 
 [[package]]
 name = "hyprdesk-i18n"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "toml",

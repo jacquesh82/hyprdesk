@@ -8,8 +8,41 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-21
+
+Safe to try and easy to undo: original state restored in one command, the
+whole setup exported, every component back to its defaults, shortcut
+conflicts asked instead of guessed, and a lock screen that survives hyprdesk
+restarts (MLG-202 to MLG-210).
+
 ### Added
 
+- **Back to exactly how it was before hyprdesk.** Before changing anything,
+  `install.sh` saves the original state once in
+  `~/.local/state/hyprdesk/origine/`: the user files it may touch
+  (`~/.config/hypr`, kitty, GTK, default applications, user services), the
+  system files (login screen, PAM, keyboard, polkit, GPU) and the packages
+  already installed. `./scripts/uninstall.sh --restore` puts all of it back;
+  whatever appeared since is moved to `~/hyprdesk-avant-restauration-<date>/`,
+  never deleted, and packages installed for hyprdesk are offered for removal
+  (`--remove-packages` skips the question). `--dry-run` shows the plan.
+- **Shortcut conflicts asked, not guessed.** When a hyprdesk shortcut
+  (`SUPER + D`…) is already bound in the Hyprland configuration, a window
+  asks for each one: take it for hyprdesk, keep the existing binding (the
+  hyprdesk one then only works with the desktop shown), or capture another
+  combination. Answers are remembered; a new conflict, after an update or
+  because another tool took the combination, is asked again. Installing or
+  resetting the shortcuts clears the answers.
+- **Setup wizard: backup and going back.** The wizard says when the
+  configuration from before hyprdesk was saved, and **Undo the wizard**
+  restores the configuration from before it was opened (also in History).
+- **Guided tour, block by block.** The first time Settings opens, a tour
+  presents each major theme in a few paragraphs while the drawer opens on
+  it. Run it again from the **Guided tour** button or with `hyprdesk tour`.
+- **Graphics card: one button to apply.** Settings → Performance → Graphics
+  card now applies a new choice the right way: restart hyprdesk (a few
+  seconds, windows stay open) or log out and back in when Hyprland's card
+  changes, after a confirmation.
 - **The export carries the whole hyprdesk and Hyprland setup** (MLG-203).
   `hyprdesk export` and Settings → Sharing now include `hyprland.lua`, every
   local file it `require`s and the scripts those files reference. They also
