@@ -3,7 +3,8 @@
 *[Back to the README](../README.md)*
 
 This guide explains how hyprdesk works under the hood and what you can
-configure. If you only want to try it out, the [README](../README.md) is enough.
+configure. If you only want to try it out, the [README](../README.md) is enough;
+every feature, as seen from Settings, is in the [user guide](GUIDE.md).
 
 - [Architecture](#architecture)
 - [The desktop and its three modes](#the-desktop-and-its-three-modes)
@@ -13,6 +14,7 @@ configure. If you only want to try it out, the [README](../README.md) is enough.
 - [Session root: native and orchestrated services](#session-root-native-and-orchestrated-services)
 - [Lock screen and greeter](#lock-screen-and-greeter)
 - [Keyring: myMFA](#keyring-mymfa)
+- [Indexed file search: `:f`](#indexed-file-search-f)
 - [Configuration reference](#configuration-reference)
 - [Widget plugins](#widget-plugins) · [Writing a plugin](WRITING_PLUGINS.md)
 - [AI assistant](#ai-assistant)
@@ -21,14 +23,25 @@ configure. If you only want to try it out, the [README](../README.md) is enough.
 
 ## Architecture
 
-hyprdesk is **one Rust binary** that plays several roles:
+hyprdesk is **one main Rust binary**, `hyprdesk`, plus **three dedicated
+binaries** installed next to it. The dedicated ones only link their own code:
+no daemon, no Lua, no SQLite, no file index.
 
-| Process | Started by | Role |
-|---|---|---|
-| `hyprdesk daemon` | the systemd user service | draws every surface, runs the Lua config, supervises the session |
-| `hyprdesk <command>` | a key binding, a script, you | short-lived client: sends one line to the daemon and exits |
-| `hyprdesk lock` | the daemon, logind, hypridle | lock screen, a **separate** process that runs no Lua |
-| `hyprdesk greeter` | greetd | login screen, before any user session exists |
+| Process | Binary | Started by | Role |
+|---|---|---|---|
+| `hyprdesk daemon` | `hyprdesk` | the systemd user service | draws every surface, runs the Lua config, supervises the session |
+| `hyprdesk <command>` | `hyprdesk` | a key binding, a script, you | short-lived client: sends one line to the daemon and exits |
+| lock screen | `hyprdesk-lock` | the daemon, logind, hypridle, the laptop lid | a **separate** process that runs no Lua |
+| login screen | `hyprdesk-greeter` | greetd | before any user session exists |
+| polkit agent | `hyprdesk-polkit` | the daemon (supervised component) | authentication dialogs, no Lua |
+
+`hyprdesk lock`, `hyprdesk greeter` and `hyprdesk polkit-ui` are still valid
+commands, so bindings and configs written earlier keep working: they hand
+over to the dedicated binary when it sits next to `hyprdesk`, and otherwise
+run the same code themselves. The code is a library (`src/lib.rs`) with four
+programs (`src/main.rs`, `src/bin/`). PAM and fprintd live in the
+`hyprdesk-auth` crate, and the translation catalog in `hyprdesk-i18n`
+(`crates/`), neither of which depends on iced or Lua.
 
 ```
                      hyprland.lua bindings / scripts
@@ -62,7 +75,7 @@ hyprdesk is **one Rust binary** that plays several roles:
 
 Main dependencies: [iced](https://github.com/iced-rs/iced) 0.14,
 [iced_layershell](https://github.com/waycrate/exwlshelleventloop) and
-`iced_sessionlock` 0.19, [mlua](https://github.com/mlua-rs/mlua) (Lua 5.4,
+`iced_sessionlock` 0.19 (with `sessionlockev`), [mlua](https://github.com/mlua-rs/mlua) (Lua 5.4,
 vendored), [zbus](https://github.com/dbus2/zbus) and `hyprpanel-core` for the
 Hyprland IPC.
 
@@ -75,6 +88,7 @@ hyprdesk creates **one layer-shell surface per screen**:
 | Desktop | `background` | wallpaper at rest; icons and widgets when shown |
 | Bar | `top`, with an exclusive zone | Hyprland tiles windows beside it, and the desktop grid shifts by the same amount |
 | Dock / launcher | its own layer | open windows, pinned apps, settings button |
+| Panorama | its own surface, on a strip screen or a zone | swiped pages of clocks, player, gauges and modules; never takes the keyboard (see the [user guide](GUIDE.md#panorama)) |
 | Settings, menus, assistant, notifications, OSD | separate surfaces | drawers, popovers and bubbles |
 
 The desktop **never covers windows**. To show it, hyprdesk moves them out of
@@ -121,10 +135,28 @@ to return to. The Alt+Tab switcher filters it out too.
 
 ## Keyboard: bindings and the submap
 
-- hyprdesk installs its own bindings (`keys.*`) and reinstalls them after
-  every `hyprctl reload`. It **never overrides** a binding that
-  `hyprland.lua` already owns. Conflicts show up in Settings → Desktop →
-  Shortcuts.
+- **`binds.lua` is held by hyprdesk.** At startup, the `hl.bind` lines of
+  `hyprland.lua` move to `binds.lua`, loaded with `require("binds")`,
+  together with the comments above them and the locals they use (a copy is
+  kept, and everything is put back if Hyprland reports a new error). A
+  hand-written `binds.lua` is adopted once, after a copy. From then on, every
+  change in Settings → Shortcuts, every agreement with hyprdesk and every
+  tidy-up from `hyprland.lua` regenerates the file from what it **really
+  defines**, evaluated as Hyprland would: variables replaced by their value,
+  loops unrolled, one binding per line, the home folder written as a `HOME`
+  local (`os.getenv("HOME")`), so the file moves between machines.
+  Section comments, commented-out code and disabled bindings are kept, and
+  an action written as a Lua function keeps its locals. Generation is
+  idempotent, and Hyprland checks every write. `hyprdesk binds generate`
+  previews it and `--write` applies it.
+- hyprdesk's own shortcuts (`keys.*`) and the **essentials** are set live,
+  and reinstalled after every `hyprctl reload`. hyprdesk **never overrides**
+  a binding that `hyprland.lua` or `binds.lua` already owns. An essential
+  (workspaces, window actions, screens, `Print` captures…) only lands on a
+  combination your config leaves free, and each one can be turned off in
+  Settings → Shortcuts. After a reset, an essential whose original tool comes
+  back is only switched off when hyprdesk's equivalent is already written,
+  and a binding written twice is removed.
 - While the desktop is shown with no window on it (an empty workspace),
   hyprdesk enters a **submap**, so `SUPER + Q`, `SUPER + F` and the like do
   nothing behind it. As soon as windows float on the desktop, your usual
@@ -139,15 +171,29 @@ to return to. The Alt+Tab switcher filters it out too.
   follows, and the new workspace's windows float on it too. `keys.search` (or
   `keys.search_desktop`), `keys.switch` and `keys.overview` also stay
   available.
+- **Submap and your mouse bindings.** Essentials that make sense on the
+  desktop (the `SUPER` + drag of windows included) are set again inside the
+  submap, on the combination `hyprland.lua` uses, so they keep working while
+  the desktop is shown.
 - **Shortcut conflicts.** hyprdesk compares its shortcuts with Hyprland's
-  live bindings and with `hyprland.lua` (line and command of each
-  `hl.bind`). Two hyprdesk actions on one combination: the second is not
-  installed. A combination bound in `hyprland.lua`: hyprdesk's action only
+  live bindings and with `hyprland.lua` and `binds.lua` (line and command of
+  each `hl.bind`). Two hyprdesk actions on one combination: the second is not
+  installed. A combination bound in your config: hyprdesk's action only
   works while the desktop is shown. A combination marked
   `submap_universal`: hyprdesk leaves it alone, so nothing fires twice
-  (media keys included). Settings → Shortcuts → hyprdesk shortcuts lists them first,
-  with "hyprdesk takes it" (`keys.take`) and a LYRA button; `hyprdesk keys`
-  prints the same report and exits with 1 if there is a conflict.
+  (media keys included). A combination bound in Hyprland but in none of
+  these files is reported as "set live, `hyprctl reload` removes it".
+- **Conflicts asked as a question.** For each hyprdesk shortcut already
+  bound in your config, a window asks once: take it for hyprdesk
+  (`keys.take`), keep the existing one (hyprdesk then only has it while the
+  desktop is shown), or capture another combination. Answers are remembered
+  in `hyprdesk/.raccourcis-repondus` (key, combination, and the command that
+  holds it), so an answered conflict is not asked again, but a new one is,
+  including after an update or when another tool takes the combination.
+  "Later" asks again at the next start; installing and resetting clear the
+  answers. Settings → Shortcuts → hyprdesk shortcuts lists conflicts first,
+  with a LYRA button; `hyprdesk keys` prints the same report and exits with
+  1 if there is a conflict.
 - **Alt+Tab on the full desktop** lists the windows floating on it. Picking
   a window from another workspace hides the desktop and focuses it. A window opened from the
   desktop takes focus without leaving it.
@@ -162,7 +208,7 @@ to return to. The Alt+Tab switcher filters it out too.
 
 ```
  ~/.config/hypr/hyprdesk/settings.lua   ← generated: Settings drawer, `hyprdesk config set`
- ~/.config/hypr/hyprdesk.lua            ← yours, never rewritten, has the last word
+ ~/.config/hypr/hyprdesk.lua            ← optional, yours, never rewritten, has the last word
               │  executed in this order on a dedicated Lua thread
               ▼
        configuration model  →  resolution per (screen, workspace)  →  surfaces
@@ -173,6 +219,13 @@ to return to. The Alt+Tab switcher filters it out too.
   executing it. It loads **before** your `hyprdesk.lua`, so anything you write
   by hand wins. The drawer and `hyprdesk config` flag keys that your file
   overrides.
+- **`hyprdesk.lua` is optional.** Everything can be set in Settings. On a
+  first install, hyprdesk writes the starting desktop (icons, widgets, a bar
+  at the top, five permanent workspaces) into `settings.lua`, in the form
+  Settings uses, and drops an example `hyprdesk.lua` whose lines are all
+  commented out. You can delete it: hyprdesk loads without it as long as
+  `settings.lua` exists, and recreates neither file once one of them is
+  there.
 - **Safe reload.** Both files are watched. A reload builds a *new* Lua state,
   and the old one is replaced only if the new files run without error. On
   error you get a notification with `file:line`, and the last valid
@@ -189,6 +242,27 @@ to return to. The Alt+Tab switcher filters it out too.
 - **Command line.** `hyprdesk config list [package] | get | set | unset` has
   the same effect as the drawer: it writes to `settings.lua`, which the daemon
   reloads right away.
+- **Hyprland files written by hyprdesk.** What Settings holds for Hyprland is
+  written to small files next to `hyprland.lua`, loaded by a block of
+  `require` at its end so they win over what comes before: `env.lua`,
+  `appearance.lua` (gaps, borders, decoration, blur, groups),
+  `animations.lua`, `layouts.lua`, `rules.lua` (window, layer and workspace
+  rules) and `system.lua`, plus `binds.lua`, `inputs.lua`, `monitors.lua`
+  and `autostart.lua`. They only contain the values set in hyprdesk. Every
+  write goes through Hyprland's check: a new config error puts everything
+  back.
+- **Default configuration.** Each Settings component (one settings package)
+  can go back to its default with **Defaults…** or `hyprdesk config reset
+  <component> [--yes]` (without `--yes`, it only prints the plan). Its
+  fields in `settings.lua` return to the starting desktop, the Hyprland
+  files it holds are rewritten (`binds.lua` with nothing turned off,
+  `inputs.lua` at Hyprland's values with the keyboard layout kept,
+  `monitors.lua` in preferred mode, an empty `autostart.lua`), and its
+  remembered state is forgotten (icon positions, desktop modes, window
+  places, launch history). `all` does every component, and also clears kept
+  notifications and sets custom themes and widgets aside. `hyprdesk.lua` is
+  never touched. Replaced files are copied first to
+  `~/.config/hypr/hyprdesk/sauvegardes/<date>/`.
 
 ## Session root: native and orchestrated services
 
@@ -201,7 +275,7 @@ already holds it, so your existing setup stays in charge.
 | Wallpaper | native (replaces hyprpaper) | — |
 | Notifications | native `org.freedesktop.Notifications` 1.2 daemon (bubbles, history, Do Not Disturb) | name taken with `DoNotQueue`: mako, dunst, swaync… keep it |
 | Tray | native StatusNotifierItem host, `dbusmenu` menus rendered natively | — |
-| polkit agent | native, speaks to `polkit-agent-helper-1`, in its own process without Lua (`hyprdesk polkit-ui`, supervised by the daemon) | the existing agent stays |
+| polkit agent | native, speaks to `polkit-agent-helper-1`, in its own process without Lua (`hyprdesk-polkit`, supervised by the daemon) | the existing agent stays |
 | Lock screen | native (`ext-session-lock-v1`, PAM, optional fprintd) | — |
 | Idle | orchestrates **hypridle** (`idle_manage`): hyprdesk writes its config and supervises it | a hand-configured hypridle stays in charge |
 | Clipboard history | orchestrates **cliphist** (`wl-paste --watch cliphist store`) | an existing watcher is left alone |
@@ -220,12 +294,21 @@ launched and offer to hand it over to hyprdesk. It always asks before acting.
 
 ## Lock screen and greeter
 
-**`hyprdesk lock`** is designed so that a plugin can neither block it nor
-unlock it:
+**`hyprdesk-lock`** (or `hyprdesk lock`, which hands over to it) is designed
+so that a plugin can neither block it nor unlock it:
 
 - it uses `ext-session-lock-v1`: **Hyprland** enforces the lock, so if the
-  process crashes, the session stays locked;
-- it is a separate process with **no Lua**. It reads values the daemon has
+  process crashes, the session stays locked. If Hyprland refuses the lock or
+  ends it (`finished`), the lock process exits instead of waiting forever
+  with its instance lock held: hyprdesk carries a fixed copy of
+  `sessionlockev` for that (`vendor/sessionlockev/HYPRDESK.md`);
+- it moves itself into its **own systemd scope**
+  (`hyprdesk-lock-<pid>.scope`) before anything else. Started by hypridle,
+  it would otherwise live in the cgroup of `hyprdesk.service`, and an
+  update or a restart of the service would kill it, leaving Hyprland locked
+  with no screen to unlock it. Without a systemd user instance, it stays
+  where it is: locking comes first;
+- it is a separate binary with **no Lua**. It reads values the daemon has
   already resolved from `$XDG_RUNTIME_DIR/hyprdesk/lock.json`, and falls back
   to safe defaults if the file is missing;
 - it checks the password through PAM (a small hand-written binding) on a
@@ -241,7 +324,9 @@ unlock it:
   provides `/etc/pam.d/hyprdesk-fingerprint` (with `pam_fprintd`), the
   fingerprint goes through that PAM service; otherwise fprintd is read over
   D-Bus and the account phase of the lock service still decides. Every
-  fingerprint unlock is logged (authpriv);
+  fingerprint unlock is logged (authpriv). Settings → Lock enrolls and
+  deletes fingerprints through fprintd, pass by pass, with the password
+  asked by polkit;
 - only one instance runs, and nothing can unlock it from outside. If the
   instance lock file cannot be taken, it locks anyway and exits with an
   error. It never falls back to `/tmp`: `$XDG_RUNTIME_DIR` (or
@@ -278,8 +363,15 @@ It shows the login manager in use and the pieces greetd needs, then does
 each system step through `pkexec hyprdesk greeter setup <action>`:
 
 - `packages` installs greetd and cage;
-- `install` copies hyprdesk to `/usr/local/bin`, because the `greeter` user
-  cannot read `~/.local/bin`. It then writes `/etc/greetd/config.toml`. A file
+- `install` makes greetd start a hyprdesk **installed as root**:
+  `/usr/bin/hyprdesk` from the package, else `/usr/local/bin/hyprdesk` put
+  there by `scripts/install.sh --from-source`, never the binary in
+  `~/.local/bin`, which the `greeter` user cannot read and you could
+  replace. greetd runs the `hyprdesk-greeter` next to it when it passes the
+  same check (owned by root, neither it nor its folder writable by others),
+  else `hyprdesk greeter`. `pkexec` also only runs that root-owned binary,
+  so a system action new in a local build stays inactive until it is
+  installed as root. It then writes `/etc/greetd/config.toml`. A file
   from another tool is kept once as `config.toml.bak`. It also installs the
   screen profile `/etc/greetd/hyprdesk.json`, taken from your session: the
   keyboard layout is passed to cage (`XKB_DEFAULT_*`), so the password is not
@@ -374,13 +466,14 @@ name, a number, a list, or `"*"`.
 |---|---|
 | Desktop | `mode` (`"opaque"`/`"glass"`), `glass_opacity`, `background`, `show_on` (`"all"`/`"focused"`/`"primary"`), `primary`, `float_launched`, `icon_scope` (`"global"`/`"screen"`/`"workspace"`), `icon_double_click`, `forced_modes`, `desktop_files` (Desktop folder and Trash as icons) |
 | Grid and icons | `grid = { cell, gap, margin, icon_size }`, `icon_theme` |
-| Look | `theme = { name, fg, bg, accent, effects = { bar, menus, launcher, settings, widgets } }` (each effect: `opacity`, `blur`), `font`, `font_size` |
+| Look | `theme = { name, fg, bg, accent, effects = { bar, menus, launcher, settings, widgets } }` (each effect: `opacity`, `blur`), `font`, `font_size`, `app_themes` (applications that follow hyprdesk's theme, `kitty`…: all of them by default, `{}` for none) |
 | Motion | `transition` (`"fade"`/`"slide"`/`"none"`), `fade_ms`, `crossfade_ms`, `fx` (Hyprland animations, curves and decoration, as `hl.config` keys) |
 | Dock | `running_apps` (`"off"`/`"workspace"`/`"all"`), `launcher_group` (`"none"`/`"app"`/`"workspace"`) |
 | App launcher | `apps_unified` (`true` by default: `keys.search` opens hyprdesk's launcher in every mode, taken from `hyprland.lua` if it binds that key; `false`: `hyprland.lua` keeps it outside the full desktop), `apps_style` (`"auto"`: large sheet on the full desktop, centered card otherwise; or `"sheet"` / `"spotlight"` to always use one), `apps_suggestions` (0 to 16 most launched apps, 8 by default), `apps_categories`, `terminal` |
 | Workspaces and layouts | `workspaces` (1 to 30, or `false`), `workspace_monitors`, `layout` (`dwindle`, `master`, `scrolling`, `monocle`, `grid`, `columns`, `rows`, `centered`, `lua:<name>`), `layout_workspaces`, `dwindle`, `master`, `scrolling` |
 | Keys | `keys = { toggle, launcher, hide, settings, lock, leave, switch, search, search_desktop, overview, media, take }` (`false` disables a key; `search` is `SUPER + R`; `search_desktop` replaces it on the full desktop; `take` lists `hyprland.lua` combinations hyprdesk unbinds and uses — given back when removed), `suspend_binds`, `overview_command` (a Hyprland plugin's overview, such as hyprexpo or Hyprspace; otherwise hyprdesk's switcher, which stays open until you click, press Enter or Escape) |
 | Session | `autostart`, `clipboard_history`, `index_paths` (roots of the `:f` file index; default: home and mounted volumes), `index_exclude` (folder names skipped, on top of the defaults), `index_interval` (safety rescan, seconds), `index_autostart` (index daemon started with hyprdesk; `false`: on the first `:f`), `idle_manage`, `idle_dim`, `idle_lock`, `idle_dpms`, `idle_suspend`, `idle_wake_volume` (screens turned off by `hyprdesk screens-off` come back on when the volume changes), `lock_fingerprint`, `update_commands` |
+| Screens | `screen_zones` (screens split into zones), `screen_colors` (brightness, contrast, gamma and channels of each screen), `panorama` (strip screens and their pages: see [`PANORAMA.md`](PANORAMA.md), in French) |
 | Plugins | `plugin_options = { [plugin] = { option = value } }`: defaults for every instance |
 | Interface | `language` (`"auto"`/`"fr"`/`"en"`), `advanced_settings`, `tour_seen` |
 
@@ -451,7 +544,7 @@ provides a name wins**:
 ```lua
 return {
     name = "VPN", description = "VPN status", interval = 5, anchor = "top-right",
-    options = { interface = "wg0" },                -- defaults, editable in Settings → Plugins → Configure
+    options = { interface = "wg0" },                -- defaults, editable in Settings → Plugins → Installed → Configure
     render   = function(o) return { icon = "network-vpn-symbolic", tooltip = "VPN", state = "active" } end,
     on_click = function(o) end,
     on_scroll = function(o, dir) end,              -- dir = -1 or +1
@@ -502,8 +595,14 @@ confirmations and memory.
 | `~/.config/hypr/hyprdesk/settings.lua` | generated settings |
 | `~/.config/hypr/hyprdesk/widgets/` | your plugins |
 | `~/.config/hypr/hyprdesk/themes/` | "My themes" (theme archives) |
+| `~/.config/hypr/hyprdesk/sauvegardes/<date>/` | copies made before a reset to defaults |
+| `~/.config/hypr/hyprdesk/.raccourcis-repondus` | answers to shortcut conflicts |
 | `~/.config/hypr/monitors.lua` | screen layout, written on **Keep** (`require("monitors")` in `hyprland.lua`) |
 | `~/.config/hypr/inputs.lua` | keyboard, mouse and touchpad settings (`require("inputs")` in `hyprland.lua`) |
+| `~/.config/hypr/binds.lua` | your bindings, held and regenerated by hyprdesk (`require("binds")`) |
+| `~/.config/hypr/autostart.lua` | programs started by hyprdesk at login (`require("autostart")`) |
+| `~/.config/hypr/{env,appearance,animations,layouts,rules,system}.lua` | Hyprland settings made in hyprdesk, required at the end of `hyprland.lua` |
+| `$XDG_STATE_HOME/hyprdesk/origine/` | the machine's state before hyprdesk, saved once by `install.sh` |
 | `$XDG_STATE_HOME/hyprdesk/layout.toml` | icon positions moved with the mouse |
 | `$XDG_STATE_HOME/hyprdesk/bar-offered` | bar modules already offered once |
 | `$XDG_RUNTIME_DIR/hypr/<instance>/hyprdesk.sock` · `.lock` | control socket, single-instance lock |
@@ -517,30 +616,53 @@ confirmations and memory.
 | `HYPRDESK_CHAT_ENGINE` | assistant engine command (development) |
 | `HYPRDESK_PREVIEW_SCENES`, `_SCALE`, `_WIDTH`, `_HEIGHT` | preview: scenes to capture, HiDPI scale, size |
 
-**Sharing a setup.** `hyprdesk export` writes a `.tar.gz` with a
-`manifest.json`. It contains `hyprdesk.lua`, `settings.lua`, third-party
-plugins and the wallpapers in use, plus `monitors.lua` with `--screens`.
-`--theme` exports only what you see: colors, effects, wallpapers, desktop
-mode, lock veil and transitions. `hyprdesk import` backs up the current setup
-first, and `--dry-run` shows what would change.
+**Sharing a setup.** `hyprdesk export [file]` (or Settings → Sharing)
+writes a `.tar.gz` with a `manifest.json`. It carries the whole setup:
+`hyprdesk.lua`, `settings.lua`, third-party plugins, "My themes" and screen
+calibrations; `hyprland.lua`, each local file it `require`s (followed in the
+text, nothing is run), the files hyprdesk holds (`binds.lua`, `inputs.lua`,
+`monitors.lua`, `autostart.lua`, `appearance.lua`…) and the files of the
+config folder they cite, such as scripts; the remembered state (icon
+positions, desktop mode of each workspace); the wallpapers in use and every
+other file the settings point to (icons, lock image…). AI services and
+their keys, passwords, light pairing and system settings (sound, network…)
+are left out. `--theme` exports only what you see: colors, effects,
+wallpapers, desktop mode, lock veil and image, transitions, font, icon theme
+and app theming. `hyprdesk import` backs up the current setup first, and
+`--dry-run` shows what would change. Imported Hyprland files are checked by
+Hyprland and count as code that needs your consent; `monitors.lua` is only
+applied with `--screens`, and paths into the home folder are rewritten for
+the new machine.
+
+**Back to the original state.** `install.sh` saves the machine's state once
+before touching anything, and `scripts/uninstall.sh --restore` puts it back
+(`scripts/origine.sh` does the work). Details are in the
+[user guide](GUIDE.md#uninstalling-and-restoring).
 
 ## Development
 
 ```bash
-cargo test --locked                 # Lua config, resolution, placement, IPC, .desktop, i18n catalog
+cargo test --locked --workspace     # Lua config, resolution, placement, IPC, .desktop, i18n catalog
 cargo run --locked -- preview       # isolated preview with demo data: no IPC, no persistence, no launches
 cargo run --locked -- preview out/  # same, and capture every view into out/
 bash scripts/verify.sh              # format, strict Clippy, tests, build, isolated D-Bus
 bash scripts/verify.sh --visual     # adds screenshots at 1440, 900 and 640 px
-bash scripts/package.sh             # .deb, .rpm and Arch packages (nfpm)
+bash scripts/package.sh             # .deb, .rpm and Arch packages (nfpm), built with the `dist` profile
 ```
+
+- The repository is a Cargo workspace: the `hyprdesk` package (library and
+  four binaries) and the `crates/hyprdesk-auth` and `crates/hyprdesk-i18n`
+  crates. `release` strips symbols; `dist` adds full LTO and a single
+  codegen unit for packages.
 
 - `Cargo.lock` pins `winit-core` to `0.31.0-beta.2`, because beta.4 breaks
   `iced_exdevtools`, a dependency of `iced_layershell` 0.19. Always build
   with `--locked`.
 - Drag and drop onto the desktop needs the Wayland data device, which
-  `layershellev` 0.19.1 lacks. hyprdesk carries patched local copies in
-  `vendor/` (see each `vendor/*/HYPRDESK.md`).
+  `layershellev` 0.19.1 lacks, and `sessionlockev` 0.19.1 ignores the end
+  of a refused lock. hyprdesk carries patched local copies in `vendor/`
+  (see each `vendor/*/HYPRDESK.md`); `scripts/verifier-vendor.sh` checks
+  them against the published archives.
 - Interface strings: French is the source language and serves as the key, as
   in gettext, and `locales/en.toml` holds the English catalog. The
   `catalogue_complet` test fails if any marked string has no translation.
