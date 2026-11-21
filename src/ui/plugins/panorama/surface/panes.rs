@@ -2252,16 +2252,8 @@ impl App {
                     .font(self.panorama_font())
                     .wrapping(text::Wrapping::None),
             );
-            r = r.push(Space::new().width(Length::Fill));
-            r = r.push(self.panorama_text_button(
-                crate::i18n::tr("Sources"),
-                small,
-                fg,
-                wrap(PMsg::VideoClose),
-            ));
-        } else {
-            r = r.push(Space::new().width(Length::Fill));
         }
+        r = r.push(Space::new().width(Length::Fill));
         if (last || p.index.is_none()) && self.cfg.general.panorama.design.controls {
             r = r.push(self.panorama_controls(s, geo, fg, p.rect.w < geo.target * 8.0));
         }

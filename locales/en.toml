@@ -3809,7 +3809,6 @@
 "La vidéo est dans l'autre zone." = "The video is in the other zone."
 "Ouverture de {name}…" = "Opening {name}…"
 "Panorama : vidéo : {e}" = "Panorama: video: {e}"
-"Sources" = "Sources"
 "Aucun navigateur Chromium trouvé : installez Brave, Chromium ou Chrome." = "No Chromium browser found: install Brave, Chromium or Chrome."
 "Le widget Vidéo ouvre ces services dans votre navigateur (fenêtre d'application, votre profil habituel : déjà connecté), posée exactement dans sa zone. Les services protégés (Netflix, Disney+…) demandent un navigateur Chromium avec Widevine ; sous Linux, ils sont limités à 720p." = "The Video widget opens these services in your browser (an app window, your usual profile: already signed in), placed exactly in its zone. Protected services (Netflix, Disney+…) need a Chromium browser with Widevine; on Linux they are limited to 720p."
 "Navigateur utilisé : {cmd} (vide : détection automatique)." = "Browser in use: {cmd} (empty: automatic detection)."
