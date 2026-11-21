@@ -864,25 +864,7 @@ impl App {
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
-        let header = row![
-            column![
-                text("HYPRDESK")
-                    .font(self.font)
-                    .size(11)
-                    .color(self.ink().dim)
-                    .font(self.title_font()),
-                text("Réglages")
-                    .font(self.font)
-                    .size(27)
-                    .font(self.title_font())
-                    .color(fg),
-                text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
-                    .font(self.font)
-                    .size(12)
-                    .color(Color { a: 0.65, ..fg }),
-            ]
-            .spacing(5)
-            .width(Length::Fill),
+        let actions = row![
             iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
                 .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
                 .on_submit(match found.first() {
@@ -910,10 +892,34 @@ impl App {
                 .text_size(12)
                 .font(self.font)
                 .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
-            close,
         ]
         .spacing(12)
         .align_y(Alignment::Center);
+        let header = row![
+            column![
+                text("HYPRDESK")
+                    .font(self.font)
+                    .size(11)
+                    .color(self.ink().dim)
+                    .font(self.title_font()),
+                text("Réglages")
+                    .font(self.font)
+                    .size(27)
+                    .font(self.title_font())
+                    .color(fg),
+                text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
+                    .font(self.font)
+                    .size(12)
+                    .color(Color { a: 0.65, ..fg }),
+            ]
+            .spacing(5)
+            .width(Length::Fill),
+            // La croix tient seule la ligne du haut : sur la ligne des actions,
+            // un libellé trop long (traduction, tiroir étroit) débordait dessus.
+            column![close, actions].spacing(2).align_x(Alignment::End),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Start);
         let content: Element<'_, Msg> = if searching && p.search_list {
             self.search_results(&query, &found)
         } else if searching {
