@@ -74,7 +74,8 @@ pub fn is_youtube_tv(url: &str) -> bool {
 }
 
 /// Options du navigateur de YouTube pour téléviseur : profil à part, agent
-/// de téléviseur, lecture sans geste (le téléphone lance la vidéo).
+/// de téléviseur, lecture sans geste (le téléphone lance la vidéo), aucune
+/// mise à jour de composant (relance de Brave).
 pub fn tv_browser_args() -> Vec<String> {
     let dir = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
@@ -90,6 +91,9 @@ pub fn tv_browser_args() -> Vec<String> {
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
         "--password-store=basic".into(),
+        // Sans composants téléchargés : à l'arrivée de Widevine, Brave se
+        // relançait seul et perdait la page (« New Tab » hors de la zone).
+        "--disable-component-update".into(),
     ]
 }
 
