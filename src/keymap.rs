@@ -945,8 +945,16 @@ hl.bind(mainMod .. " + Tab", function()
             "require(\"binds\") -- raccourcis\n-- require(\"absent\")\nrequire('ui/init')\n",
         )
         .unwrap();
-        std::fs::write(dir.join("binds.lua"), "hl.bind(\"SUPER + Q\", hl.dsp.window.close())\n").unwrap();
-        std::fs::write(dir.join("ui/init.lua"), "require(\"ui/binds\")\nrequire(\"ui/init\")\n").unwrap();
+        std::fs::write(
+            dir.join("binds.lua"),
+            "hl.bind(\"SUPER + Q\", hl.dsp.window.close())\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("ui/init.lua"),
+            "require(\"ui/binds\")\nrequire(\"ui/init\")\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.join("ui/binds.lua"),
             "-- x\nhl.bind(\"SUPER + D\", hl.dsp.exec_cmd(\"wofi --show drun\"))\n",
@@ -954,10 +962,16 @@ hl.bind(mainMod .. " + Tab", function()
         .unwrap();
         let src = load_source(&dir.join("hyprdesk.lua"));
         let _ = std::fs::remove_dir_all(&dir);
-        let d = src.iter().find(|b| b.combo == norm("SUPER + D").unwrap()).expect("SUPER + D lu");
+        let d = src
+            .iter()
+            .find(|b| b.combo == norm("SUPER + D").unwrap())
+            .expect("SUPER + D lu");
         assert_eq!((d.file.as_str(), d.line), ("ui/binds.lua", 2));
         assert_eq!(d.action, "wofi --show drun");
         assert!(src.iter().any(|b| b.file == "binds.lua"));
-        assert_eq!(requires("require(\"a\") require 'b' -- require(\"c\")"), vec!["a", "b"]);
+        assert_eq!(
+            requires("require(\"a\") require 'b' -- require(\"c\")"),
+            vec!["a", "b"]
+        );
     }
 }

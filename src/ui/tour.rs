@@ -478,7 +478,11 @@ impl App {
         let go = |m: TourMsg| Msg::Panel(PanelMsg::Tour(m));
         let last = i + 1 == steps.len();
         // Les réglages du bloc, en tuiles sur deux colonnes.
-        let items: Vec<&Item> = s.items.iter().filter(|it| self.cfg.plugin_on(it.pkg)).collect();
+        let items: Vec<&Item> = s
+            .items
+            .iter()
+            .filter(|it| self.cfg.plugin_on(it.pkg))
+            .collect();
         let tile = |it: &Item| -> Element<'_, Msg> {
             container(
                 column![
@@ -519,15 +523,13 @@ impl App {
         for k in 0..steps.len() {
             let on = k == i;
             dots = dots.push(
-                container(Space::new().width(if on { 18 } else { 7 }).height(7)).style(
-                    move |_| container::Style {
-                        background: Some(
-                            if on { accent } else { Color { a: 0.3, ..fg } }.into(),
-                        ),
+                container(Space::new().width(if on { 18 } else { 7 }).height(7)).style(move |_| {
+                    container::Style {
+                        background: Some(if on { accent } else { Color { a: 0.3, ..fg } }.into()),
                         border: Border::default().rounded(4),
                         ..Default::default()
-                    },
-                ),
+                    }
+                }),
             );
         }
         let mut buttons = row![dots, Space::new().width(Length::Fill)]
@@ -535,10 +537,14 @@ impl App {
             .align_y(Alignment::Center);
         if !last {
             buttons = buttons.push(
-                button(text(crate::i18n::tr("Quitter la visite")).font(self.font).size(12))
-                    .padding([6, 10])
-                    .style(button::text)
-                    .on_press(go(TourMsg::End)),
+                button(
+                    text(crate::i18n::tr("Quitter la visite"))
+                        .font(self.font)
+                        .size(12),
+                )
+                .padding([6, 10])
+                .style(button::text)
+                .on_press(go(TourMsg::End)),
             );
         }
         if i > 0 {

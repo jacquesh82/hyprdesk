@@ -485,8 +485,9 @@ impl App {
                 .spacing(8),
             );
         } else if hypr_pending {
-            col = col.push(
-                row![
+            col =
+                col.push(
+                    row![
                     small(
                         crate::i18n::tr(
                             "Pour appliquer : fermer puis rouvrir la session (Hyprland ne lit sa \
@@ -500,9 +501,9 @@ impl App {
                         .padding([4, 10])
                         .on_press(wrap(Msg::AskExit)),
                 ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            );
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                );
         } else if desk_pending {
             col = col.push(
                 row![
@@ -679,7 +680,10 @@ impl App {
                             crate::hypr::notify(
                                 0,
                                 8000,
-                                &crate::tr!("hyprdesk : fermeture de session impossible ({e})", e = e),
+                                &crate::tr!(
+                                    "hyprdesk : fermeture de session impossible ({e})",
+                                    e = e
+                                ),
                             );
                         }
                         UiMsg::Noop

@@ -1118,7 +1118,11 @@ impl App {
             .spacing(3);
             let members = super::settings_search::block(e);
             let total = members.len();
-            for m in members.iter().filter(|m| m.section.as_deref() != Some(m.text.as_str())).take(12) {
+            for m in members
+                .iter()
+                .filter(|m| m.section.as_deref() != Some(m.text.as_str()))
+                .take(12)
+            {
                 let tr = crate::i18n::tr(&m.text);
                 let hit = super::settings_search::matches(&m.text, query)
                     || super::settings_search::matches(tr, query);
@@ -1130,23 +1134,20 @@ impl App {
                     self.font,
                 );
                 // Le réglage trouvé : liseré et fond d'accent.
-                lines = lines.push(
-                    container(line)
-                        .padding([2, 8])
-                        .width(Length::Fill)
-                        .style(move |_| container::Style {
-                            background: hit.then(|| Color { a: 0.12, ..accent }.into()),
-                            border: if hit {
-                                Border::default()
-                                    .rounded(6)
-                                    .width(1)
-                                    .color(Color { a: 0.55, ..accent })
-                            } else {
-                                Border::default()
-                            },
-                            ..Default::default()
-                        }),
-                );
+                lines = lines.push(container(line).padding([2, 8]).width(Length::Fill).style(
+                    move |_| container::Style {
+                        background: hit.then(|| Color { a: 0.12, ..accent }.into()),
+                        border: if hit {
+                            Border::default()
+                                .rounded(6)
+                                .width(1)
+                                .color(Color { a: 0.55, ..accent })
+                        } else {
+                            Border::default()
+                        },
+                        ..Default::default()
+                    },
+                ));
             }
             if total > 12 {
                 lines = lines.push(

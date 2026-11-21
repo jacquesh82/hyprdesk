@@ -89,7 +89,12 @@ pub fn items(report: &crate::keymap::Report) -> Vec<Item> {
             .map(|(m, k)| format!("{m}:{k}"))
             .unwrap_or_else(|| i.action.combo.clone());
         out.push(Item {
-            id: format!("{}\t{}\t{}", i.action.key, combo, h.what.replace(['\t', '\n'], " ")),
+            id: format!(
+                "{}\t{}\t{}",
+                i.action.key,
+                combo,
+                h.what.replace(['\t', '\n'], " ")
+            ),
             key: i.action.key,
             label: i.action.label,
             combo: i.action.combo.clone(),
@@ -121,7 +126,10 @@ fn remember(config_path: &std::path::Path, id: &str) {
         let _ = std::fs::create_dir_all(d);
     }
     if let Err(e) = std::fs::write(&path, list.join("\n") + "\n") {
-        tracing::warn!("{}", crate::tr!("raccourcis : réponse non retenue ({e})", e = e));
+        tracing::warn!(
+            "{}",
+            crate::tr!("raccourcis : réponse non retenue ({e})", e = e)
+        );
     }
 }
 
@@ -192,7 +200,12 @@ impl App {
     /// Combinaison capturée pour le conflit `n` : refusée si elle est déjà
     /// prise (par hyprdesk ou par Hyprland), enregistrée sinon.
     fn kc_apply(&mut self, n: usize, combo: String) -> Task<Msg> {
-        let Some(item) = self.key_conflict.as_ref().and_then(|k| k.items.get(n)).cloned() else {
+        let Some(item) = self
+            .key_conflict
+            .as_ref()
+            .and_then(|k| k.items.get(n))
+            .cloned()
+        else {
             return Task::none();
         };
         let Some(i) = super::plugins::keys::key_index(item.key) else {
@@ -204,11 +217,11 @@ impl App {
             }
             Task::none()
         };
-        let same = |a: &str, b: &str| match (crate::hypr::parse_combo(a), crate::hypr::parse_combo(b))
-        {
-            (Some(x), Some(y)) => crate::binds_file::same_combo(&x, &y),
-            _ => false,
-        };
+        let same =
+            |a: &str, b: &str| match (crate::hypr::parse_combo(a), crate::hypr::parse_combo(b)) {
+                (Some(x), Some(y)) => crate::binds_file::same_combo(&x, &y),
+                _ => false,
+            };
         if let Some(l) = self
             .key_report
             .hyprland
@@ -389,20 +402,32 @@ impl App {
         let btn = |label: String, on: KcMsg, primary: bool| {
             button(text(label).font(font).size(13))
                 .padding([6, 12])
-                .style(if primary { button::primary } else { button::secondary })
+                .style(if primary {
+                    button::primary
+                } else {
+                    button::secondary
+                })
                 .on_press(Msg::KeyConflict(on))
         };
         let mut list = column![].spacing(10);
         for (n, it) in kc.items.iter().enumerate() {
             let head = row![
-                container(text(crate::essentials::pretty(&it.combo)).font(font).size(14).color(accent))
-                    .padding([3, 8])
-                    .style(move |_| container::Style {
-                        background: Some(Color { a: 0.12, ..accent }.into()),
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
-                text(crate::i18n::tr(it.label)).font(font).size(14).color(fg),
+                container(
+                    text(crate::essentials::pretty(&it.combo))
+                        .font(font)
+                        .size(14)
+                        .color(accent)
+                )
+                .padding([3, 8])
+                .style(move |_| container::Style {
+                    background: Some(Color { a: 0.12, ..accent }.into()),
+                    border: Border::default().rounded(6),
+                    ..Default::default()
+                }),
+                text(crate::i18n::tr(it.label))
+                    .font(font)
+                    .size(14)
+                    .color(fg),
             ]
             .spacing(10)
             .align_y(Alignment::Center);
@@ -443,7 +468,11 @@ impl App {
                     .size(13)
                     .color(fg)
                     .width(Length::Fill),
-                    btn(crate::i18n::tr("Annuler").to_string(), KcMsg::CaptureCancel, false),
+                    btn(
+                        crate::i18n::tr("Annuler").to_string(),
+                        KcMsg::CaptureCancel,
+                        false
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)

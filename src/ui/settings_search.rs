@@ -198,7 +198,11 @@ fn build() -> Vec<Entry> {
         sections.sort_by_key(|x| x.0);
         // Section d'un libellé : la dernière ouverte avant lui, dans sa fonction.
         let section_at = |pos: usize| -> Option<String> {
-            let f = starts.iter().rev().find(|(p, _)| *p < pos).map_or(0, |x| x.0);
+            let f = starts
+                .iter()
+                .rev()
+                .find(|(p, _)| *p < pos)
+                .map_or(0, |x| x.0);
             sections
                 .iter()
                 .rev()

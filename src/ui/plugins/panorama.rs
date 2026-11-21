@@ -1243,26 +1243,28 @@ impl App {
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         // La commande du navigateur : avancé (vide : détection automatique) ;
         // le navigateur trouvé, ou son absence, reste dit à tous.
-        col = col.push(self.adv(
-            self.field(
-                "Navigateur",
-                "panorama",
-                iced::widget::text_input(
-                    found
-                        .as_deref()
-                        .unwrap_or("brave, chromium, google-chrome-stable…"),
-                    &self
-                        .panorama
-                        .browser_draft
-                        .clone()
-                        .unwrap_or_else(|| c.browser.clone()),
-                )
-                .on_input(|v| wrap(Msg::Browser(v)))
-                .on_submit(wrap(Msg::BrowserCommit))
-                .size(13)
-                .width(320),
+        col = col.push(
+            self.adv(
+                self.field(
+                    "Navigateur",
+                    "panorama",
+                    iced::widget::text_input(
+                        found
+                            .as_deref()
+                            .unwrap_or("brave, chromium, google-chrome-stable…"),
+                        &self
+                            .panorama
+                            .browser_draft
+                            .clone()
+                            .unwrap_or_else(|| c.browser.clone()),
+                    )
+                    .on_input(|v| wrap(Msg::Browser(v)))
+                    .on_submit(wrap(Msg::BrowserCommit))
+                    .size(13)
+                    .width(320),
+                ),
             ),
-        ));
+        );
         col = col.push(
             text(match found {
                 Some(cmd) => crate::tr!(

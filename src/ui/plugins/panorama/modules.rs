@@ -243,22 +243,24 @@ impl App {
             .color(dim),
         );
         // La commande lancée : avancé (par défaut, un éditeur détecté).
-        col = col.push(self.adv(
-            row![
-                text_input("gnome-text-editor", &shown)
-                    .font(self.font)
-                    .size(13)
-                    .padding(6)
-                    .width(Length::Fill)
-                    .on_input(|v| wrap(Msg::NotesDraft(v)))
-                    .on_submit(wrap(Msg::NotesSubmit)),
-                button(text("Enregistrer").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::NotesSubmit)),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-        ));
+        col = col.push(
+            self.adv(
+                row![
+                    text_input("gnome-text-editor", &shown)
+                        .font(self.font)
+                        .size(13)
+                        .padding(6)
+                        .width(Length::Fill)
+                        .on_input(|v| wrap(Msg::NotesDraft(v)))
+                        .on_submit(wrap(Msg::NotesSubmit)),
+                    button(text("Enregistrer").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::NotesSubmit)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            ),
+        );
         let mut screens = row![].spacing(8);
         let mut names: Vec<&str> = vec![""];
         names.extend(self.monitors.iter().map(|m| m.name.as_str()));
