@@ -244,7 +244,8 @@ and disabled bindings are kept. A hand-written file is copied
   move, resize, fullscreen…), environment, and idle delays. hyprdesk writes
   them to generated files loaded by `hyprland.lua`.
 - **Advanced settings** (switch in the Settings header) show what only an
-  expert needs, marked in cyan: a dot next to the package or tab, an
+  expert needs, marked in cyan: a flask next to the tab and, with the count
+  of advanced settings, next to each package that holds some, an
   *Advanced* badge on the page, a cyan frame around advanced sections.
   Behind it: animation curves, desktop transitions, window behaviour and
   groups, layer and workspace rules, per-device settings (speed,

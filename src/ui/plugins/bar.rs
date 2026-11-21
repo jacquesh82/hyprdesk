@@ -1014,15 +1014,16 @@ impl App {
         );
         col = col.push(
             text(crate::i18n::tr(
-                "0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Effets.",
+                "0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Transparence.",
             ))
             .font(font)
             .size(12)
             .color(dim),
         );
-        // Couleur de chaque module.
-        col = col.push(self.section("Couleur de chaque module"));
-        col = col.push(
+        // Couleur de chaque module : configuration avancée.
+        let mut fine = column![].spacing(10);
+        fine = fine.push(self.section("Couleur de chaque module"));
+        fine = fine.push(
             text(crate::i18n::tr(
                 "Texte et icônes du module, y compris quand il est actif ; avertissement et critique gardent leurs couleurs.",
             ))
@@ -1031,7 +1032,7 @@ impl App {
             .color(dim),
         );
         if modules.is_empty() {
-            col = col.push(
+            fine = fine.push(
                 text(crate::i18n::tr("Aucun module dans la barre."))
                     .font(font)
                     .size(12)
@@ -1040,7 +1041,7 @@ impl App {
         }
         for (k, label) in modules {
             let v = b.colors.modules.get(&k).copied();
-            col = col.push(
+            fine = fine.push(
                 column![
                     text(label).font(self.title_font()).size(13),
                     line(format!("mod:{k}"), v, pal.fg),
@@ -1048,6 +1049,7 @@ impl App {
                 .spacing(6),
             );
         }
+        col = col.push(self.adv(fine));
         col.into()
     }
 }

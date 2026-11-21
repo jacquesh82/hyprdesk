@@ -727,7 +727,6 @@ impl App {
         if let Some(e) = self.left_in_hyprland("gesture") {
             col = col.push(e);
         }
-        col = col.push(self.hyprset_tab("gestes"));
         col.into()
     }
 

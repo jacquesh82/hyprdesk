@@ -622,7 +622,7 @@ impl App {
             .align_y(Alignment::Center);
             // Onglet de la configuration avancée : point cyan.
             if plugins::is_advanced(pkg, Some(id)) {
-                content = content.push(text("●").size(8).color(plugins::ADV_COLOR));
+                content = content.push(plugins::adv_icon(13.0));
             }
             button(content)
                 .padding([6, 14])
@@ -695,9 +695,10 @@ impl App {
                 })
                 .unwrap_or_else(|| Space::new().into());
             let mut content = row![glyph].spacing(10).align_y(Alignment::Center);
-            // Tiroir étroit (icônes seules) : le point cyan suit l'icône.
-            if !wide && plugins::is_advanced(tab, None) {
-                content = content.push(text("●").size(8).color(plugins::ADV_COLOR));
+            // Tiroir étroit (icônes seules) : la fiole suit l'icône d'un
+            // paquet avancé, ou d'un paquet qui contient de l'avancé.
+            if !wide && (plugins::is_advanced(tab, None) || (adv && plugins::adv_count(tab) > 0)) {
+                content = content.push(plugins::adv_icon(12.0));
             }
             if wide {
                 content = content.push(
@@ -707,9 +708,23 @@ impl App {
                         .font(self.ui_font(iced::font::Weight::Medium))
                         .width(Length::Fill),
                 );
-                // Paquet de la configuration avancée : point cyan.
+                // Paquet de la configuration avancée : la fiole ; paquet qui
+                // en contient (configuration avancée affichée) : la fiole et
+                // le nombre de réglages avancés.
                 if plugins::is_advanced(tab, None) {
-                    content = content.push(text("●").size(9).color(plugins::ADV_COLOR));
+                    content = content.push(plugins::adv_icon(14.0));
+                } else if adv {
+                    let n = plugins::adv_count(tab);
+                    if n > 0 {
+                        content = content.push(
+                            row![
+                                plugins::adv_icon(13.0),
+                                text(n.to_string()).size(11).color(plugins::ADV_COLOR)
+                            ]
+                            .spacing(3)
+                            .align_y(Alignment::Center),
+                        );
+                    }
                 }
                 if searching && n > 0 {
                     content = content.push(
@@ -796,7 +811,7 @@ impl App {
                         ]
                         .align_y(Alignment::Center);
                         if plugins::is_advanced(i.id, Some(t)) {
-                            tab_label = tab_label.push(text("●").size(8).color(plugins::ADV_COLOR));
+                            tab_label = tab_label.push(plugins::adv_icon(13.0));
                         }
                         nav = nav.push(
                             button(tab_label)

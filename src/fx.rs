@@ -250,6 +250,23 @@ pub const GROUPS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// Options de l'onglet Effets réservées à la configuration avancée : les
+/// réglages fins (le reste : interrupteurs et valeurs principales).
+pub const ADVANCED: &[&str] = &[
+    "decoration.rounding_power",
+    "decoration.dim_strength",
+    "decoration.blur.variant",
+    "decoration.blur.size",
+    "decoration.blur.passes",
+    "decoration.blur.vibrancy",
+    "decoration.blur.noise",
+    "decoration.shadow.range",
+    "decoration.shadow.render_power",
+    "decoration.glow.range",
+    "decoration.glow.render_power",
+    "decoration.wobble.intensity",
+];
+
 pub fn opt(path: &str) -> Option<&'static Opt> {
     OPTIONS.iter().find(|o| o.path() == path)
 }

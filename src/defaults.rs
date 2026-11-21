@@ -182,7 +182,15 @@ pub const KEPT_FIELDS: &[&str] = &["advanced_settings", "tour_seen"];
 /// Options de Hyprland (`hypr`) de chaque composant, par groupe des Réglages
 /// (`hyprset::GROUPS`). Une option sans groupe va à Configuration.
 const HYPR_GROUPS: &[(&str, &[&str])] = &[
-    ("windows", &["fenetres", "groupes", "comportement-fenetres"]),
+    (
+        "windows",
+        &[
+            "fenetres",
+            "fenetres-details",
+            "groupes",
+            "comportement-fenetres",
+        ],
+    ),
     ("input", &["souris", "pave", "curseur", "gestes"]),
     ("workspaces", &["workspaces"]),
     ("keys", &["raccourcis"]),

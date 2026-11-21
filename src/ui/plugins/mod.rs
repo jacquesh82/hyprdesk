@@ -180,7 +180,11 @@ pub const ADVANCED_ONLY: &[&str] = &["share"];
 /// fichiers ou de réglages d'expert est avancé ; sur une page de base, les
 /// options brutes de Hyprland sont encadrées (`App::hyprset_tab`).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
+    ("desktop", "modes"),
     ("desktop", "session"),
+    ("desktop", "dependances"),
+    ("assistant", "services"),
+    ("performance", "hyprdesk"),
     ("theme", "transparence"),
     ("animations", "courbes"),
     ("animations", "bureau"),
@@ -241,14 +245,82 @@ pub fn adv_frame<'a>(e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
         .into()
 }
 
+/// Icône de la configuration avancée (fiole), dans la couleur donnée.
+pub fn adv_glyph<'a>(size: f32, color: iced::Color) -> Element<'a, Msg> {
+    match super::icons::get("hyprdesk-advanced") {
+        Some(handle) => iced::widget::svg(handle)
+            .width(size)
+            .height(size)
+            .style(move |_, _| iced::widget::svg::Style { color: Some(color) })
+            .into(),
+        None => iced::widget::Space::new().width(0).height(0).into(),
+    }
+}
+
+/// Repère d'un paquet ou d'un onglet avancé : la fiole en cyan.
+pub fn adv_icon<'a>(size: f32) -> Element<'a, Msg> {
+    adv_glyph(size, ADV_COLOR)
+}
+
+/// Sources des paquets, pour compter leurs sections avancées
+/// (`self.adv(…)`) ; un fichier qui en contient doit y figurer (test).
+const ADV_SOURCES: &[(&str, &str)] = &[
+    ("animations", include_str!("animations.rs")),
+    ("assistant", include_str!("assistant.rs")),
+    ("bar", include_str!("bar.rs")),
+    ("colors", include_str!("colors.rs")),
+    ("desktop", include_str!("desktop.rs")),
+    ("index", include_str!("index.rs")),
+    ("input", include_str!("input.rs")),
+    ("keys", include_str!("keys.rs")),
+    ("layouts", include_str!("layouts.rs")),
+    ("lock", include_str!("lock.rs")),
+    ("panorama", include_str!("panorama.rs")),
+    ("panorama", include_str!("panorama/design.rs")),
+    ("modules", include_str!("panorama/modules.rs")),
+    ("plugins", include_str!("plugins.rs")),
+    ("screens", include_str!("screens.rs")),
+    ("windows", include_str!("windows.rs")),
+    ("windows", include_str!("../hyprlists.rs")),
+    ("workspaces", include_str!("workspaces.rs")),
+];
+
+/// Sections avancées écrites dans un source (hors tests).
+fn adv_calls(src: &str) -> usize {
+    src.split("#[cfg(test)]")
+        .next()
+        .unwrap_or("")
+        .matches("self.adv(")
+        .count()
+}
+
+/// Nombre de réglages avancés d'un paquet : onglets avancés, sections
+/// d'options de Hyprland ajoutées à ses pages, sections encadrées.
+pub fn adv_count(id: &str) -> usize {
+    let tabs = tabs(id)
+        .iter()
+        .filter(|(t, _)| ADVANCED_TABS.contains(&(id, *t)))
+        .count();
+    let places = ADVANCED_PLACES.iter().filter(|(p, _, _)| *p == id).count();
+    let sections: usize = ADV_SOURCES
+        .iter()
+        .filter(|(p, _)| *p == id)
+        .map(|(_, s)| adv_calls(s))
+        .sum();
+    tabs + places + sections
+}
+
 /// Pastille « Avancé » en tête d'une page ou d'un onglet avancé.
 pub fn adv_badge<'a>(font: iced::Font) -> Element<'a, Msg> {
     use iced::widget::container;
+    let ink = iced::Color::from_rgb8(0x14, 0x14, 0x1c);
     container(
-        crate::i18n::text("Avancé")
-            .font(font)
-            .size(11)
-            .color(iced::Color::from_rgb8(0x14, 0x14, 0x1c)),
+        iced::widget::row![
+            adv_glyph(12.0, ink),
+            crate::i18n::text("Avancé").font(font).size(11).color(ink),
+        ]
+        .spacing(4)
+        .align_y(iced::Alignment::Center),
     )
     .padding([2, 8])
     .style(|_| container::Style {
@@ -670,6 +742,7 @@ mod tests {
         // Chaque groupe du registre a sa place : un onglet propre ou une page.
         let own = [
             "fenetres",
+            "fenetres-details",
             "comportement-fenetres",
             "groupes",
             "curseur",
@@ -700,6 +773,7 @@ mod tests {
         // Groupe du registre → onglet qui l'affiche, et s'il y est encadré.
         let places: &[(&str, &str, &str, bool)] = &[
             ("fenetres", "windows", "apparence", false),
+            ("fenetres-details", "windows", "apparence", true),
             ("comportement-fenetres", "windows", "comportement", false),
             ("groupes", "windows", "groupes", false),
             ("curseur", "input", "curseur", true),
@@ -739,6 +813,42 @@ mod tests {
         assert_eq!(find("effets").map(|p| p.id), Some("animations"));
         assert_eq!(find_tab("theme", "effets"), Some("transparence"));
         assert!(BUILTIN.iter().all(|p| p.id != "effects"));
+    }
+
+    /// Chaque fichier de paquet qui encadre une section avancée est compté.
+    #[test]
+    fn sections_avancees_comptees() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut files = Vec::new();
+        fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        walk(&dir, &mut files);
+        let counted: usize = ADV_SOURCES.iter().map(|(_, s)| adv_calls(s)).sum();
+        let total: usize = files
+            .iter()
+            // mod.rs : `adv` lui-même ; ui/hyprset.rs : le repli de
+            // `hyprset_tab`, dont les appelants encadrent eux-mêmes.
+            .filter(|f| !f.ends_with("plugins/mod.rs") && !f.ends_with("ui/hyprset.rs"))
+            .map(|f| adv_calls(&std::fs::read_to_string(f).unwrap()))
+            .sum();
+        assert_eq!(
+            counted, total,
+            "un fichier avec self.adv( manque à ADV_SOURCES"
+        );
+        assert!(adv_count("input") >= 2);
+        assert!(icons_ok());
+    }
+
+    fn icons_ok() -> bool {
+        crate::ui::icons::get("hyprdesk-advanced").is_some()
     }
 
     #[test]
@@ -843,7 +953,7 @@ mod tests {
         );
         assert!(g.ids.iter().all(|id| visible(id, false)));
         assert_eq!(find("hue").map(|p| p.id), Some("modules"));
-        assert_eq!(visible_tabs("desktop", false).len(), 3);
+        assert_eq!(visible_tabs("desktop", false).len(), 1);
         assert_eq!(visible_tabs("desktop", true).len(), 4);
     }
 

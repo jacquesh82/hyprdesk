@@ -666,11 +666,7 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
     (
         "fenetres",
         "Espacement",
-        &[
-            "general.gaps_in",
-            "general.gaps_out",
-            "general.gaps_workspaces",
-        ],
+        &["general.gaps_in", "general.gaps_out"],
     ),
     (
         "fenetres",
@@ -679,6 +675,13 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
             "general.border_size",
             "general.col.active_border",
             "general.col.inactive_border",
+        ],
+    ),
+    (
+        "fenetres-details",
+        "Bordures et espacement : détails",
+        &[
+            "general.gaps_workspaces",
             "general.col.nogroup_border",
             "general.col.nogroup_border_active",
             "general.resize_on_border",

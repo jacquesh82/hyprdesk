@@ -59,6 +59,7 @@ impl App {
             .color(dim),
             self.theme_borders_field(),
             self.hyprset_tab("fenetres"),
+            self.adv(self.hyprset_groups("fenetres-details")),
         ]
         .spacing(14)
         .into()

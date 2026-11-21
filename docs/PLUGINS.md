@@ -171,9 +171,12 @@ tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
 entoure de `self.adv(…)`. Rien ne disparaît de la configuration : seul
 l'affichage change.
 
-Marquage, partout (tiroir large ou étroit) : point cyan à côté d'un paquet ou
-d'un onglet avancé, pastille « Avancé » en tête de page, cadre cyan autour
-d'une section avancée. Règle : un onglet fait seulement d'options brutes de
+Marquage, partout (tiroir large ou étroit) : fiole cyan (icône
+`hyprdesk-advanced`) à côté d'un onglet avancé, et, configuration avancée
+affichée, à côté de chaque paquet qui contient de l'avancé avec leur nombre
+(`plugins::adv_count` : onglets avancés, sections de `ADVANCED_PLACES`,
+appels `self.adv(…)` comptés dans `ADV_SOURCES`) ; pastille « Avancé » en
+tête de page, cadre cyan autour d'une section avancée. Règle : un onglet fait seulement d'options brutes de
 Hyprland, de fichiers ou de réglages d'expert est avancé (● ci-dessous) ;
 sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
 `BASIC_GROUPS`) sont encadrées par `App::hyprset_tab`. Le test
@@ -183,7 +186,7 @@ sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
 
 | Paquet | Onglets |
 |---|---|
-| Bureau | Affichage · Raccourcis · Session |
+| Bureau | Affichage · Modes imposés ● · Session ● · Dépendances ● |
 | Thème | Thèmes · Couleurs · Texte (police, taille) · Transparence ● |
 | Animations | Animations · Courbes ● · Effets · Bureau ● (transitions du bureau, fondu entre fonds) |
 | Fenêtres | Apparence · Comportement ● · Règles (fenêtres ; couches et workspaces en avancé) · Groupes ● |

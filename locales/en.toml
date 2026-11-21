@@ -154,7 +154,7 @@
 "-- Sans cette option, Print et les autres raccourcis de capture sont suspendus sur le bureau." = "-- Without this option, Print and the other screenshot shortcuts are suspended on the desktop."
 "-- « hyprdesk ») : ils n'agissent plus sur les fenêtres cachées. Pour en" = "-- “hyprdesk”): they no longer act on hidden windows. To"
 "--config attend un fichier" = "--config expects a file"
-"0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Effets." = "0 %: transparent bar (only the modules remain); 100 %: opaque. Background blur is set in Theme → Effects."
+"0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Transparence." = "0 %: transparent bar (only the modules remain); 100 %: opaque. Background blur is set in Theme → Transparency."
 "0..0.9 — assombrissement du fond verrouillé" = "0..0.9 — lock screen background dimming"
 "0..1 | theme — opacité du fond de la barre (0 : transparente)" = "0..1 | theme — bar background opacity (0: transparent)"
 "0..1 — opacité du voile en mode glass" = "0..1 — veil opacity in glass mode"
@@ -4522,3 +4522,4 @@
 "Préréglage {n} vide : composez la zone, puis appui long pour l'enregistrer" = "Preset {n} is empty: set up the zone, then long-press to save it"
 "Préréglage {n}" = "Preset {n}"
 "Aucun préréglage : appui long sur 1 à 5 pour en enregistrer" = "No preset yet: long-press 1 to 5 to save one"
+"Bordures et espacement : détails" = "Borders and gaps: details"

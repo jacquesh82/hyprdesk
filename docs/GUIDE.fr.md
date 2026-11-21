@@ -251,9 +251,10 @@ application : `hyprdesk binds generate --write`.
   délais de veille. hyprdesk les écrit dans des fichiers générés chargés
   par `hyprland.lua`.
 - **Configuration avancée** (interrupteur en tête des Réglages) : ce qui ne
-  sert qu'à l'expert, marqué en cyan — un point à côté du paquet ou de
-  l'onglet, une pastille « Avancé » en tête de page, un cadre cyan autour
-  des sections avancées. On y trouve les courbes d'animation, les
+  sert qu'à l'expert, marqué en cyan — une fiole à côté de l'onglet et, avec
+  le nombre de réglages avancés, à côté de chaque paquet qui en contient,
+  une pastille « Avancé » en tête de page, un cadre cyan autour des sections
+  avancées. On y trouve les courbes d'animation, les
   transitions du bureau, le comportement et les groupes de fenêtres, les
   règles de couches et de workspaces, les réglages par périphérique
   (vitesse, accélération, défilement, disposition d'un seul clavier ou

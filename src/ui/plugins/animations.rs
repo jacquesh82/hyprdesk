@@ -188,8 +188,17 @@ impl App {
         .spacing(14);
         for (title, keys) in fx::GROUPS {
             col = col.push(self.section(title));
+            let mut fine = column![].spacing(14);
             for k in *keys {
-                col = col.push(self.fx_option(k));
+                if fx::ADVANCED.contains(k) {
+                    fine = fine.push(self.fx_option(k));
+                } else {
+                    col = col.push(self.fx_option(k));
+                }
+            }
+            // Réglages fins du groupe : configuration avancée.
+            if keys.iter().any(|k| fx::ADVANCED.contains(k)) {
+                col = col.push(self.adv(fine));
             }
         }
         col.into()

@@ -101,6 +101,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "preferences-system" | "emblem-system" => {
             r#"<path d="m9 3-.6 2.2-2 .9-2-.6-2 3.5 1.5 1.6v2.3L2.4 15l2 3.5 2-.6 2 .9L9 21h4l.6-2.2 2-.9 2 .6 2-3.5-1.5-1.6v-2.3l1.5-1.6-2-3.5-2 .6-2-.9L13 3Z"/><circle cx="11" cy="12" r="3"/>"#
         }
+        // Configuration avancée : une fiole de laboratoire.
+        "hyprdesk-advanced" => {
+            r#"<path d="M9 3h6M10 3v6.2L4.8 18.1A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-2.9L14 9.2V3"/><path d="M7.4 15h9.2"/>"#
+        }
         "preferences-system-controls" => {
             r#"<path d="M3 7h8m5 0h5M3 17h3m5 0h10"/><circle cx="13" cy="7" r="3"/><circle cx="8" cy="17" r="3"/>"#
         }

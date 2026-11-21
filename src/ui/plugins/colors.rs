@@ -270,32 +270,38 @@ impl App {
         }
         // Curseurs et courbes.
         let mut sliders = column![].spacing(6).width(Length::Fill);
+        // Gamma par canal : configuration avancée.
+        let mut fine_sliders = column![].spacing(6).width(Length::Fill);
         for (key, label, lo, hi, neutral) in FIELDS {
             let v = a.get(key).unwrap_or(*neutral);
             let k = key.to_string();
             let k2 = key.to_string();
-            sliders = sliders.push(
-                row![
-                    container(self.marked(crate::i18n::tr(label), 13, fg, self.font)).width(110),
-                    slider(*lo..=*hi, v, move |x| wrap(Msg::Drag(k.clone(), x)))
-                        .step(0.01f32)
-                        .on_release(wrap(Msg::Release))
-                        .width(Length::Fill),
-                    iced::widget::text(format!("{v:.2}"))
-                        .font(self.font)
-                        .size(12)
-                        .color(dim)
-                        .width(40),
-                    button(iced::widget::text("↺").size(12))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe(
-                            ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
-                        ),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
+            let line: Element<'_, UiMsg> = row![
+                container(self.marked(crate::i18n::tr(label), 13, fg, self.font)).width(110),
+                slider(*lo..=*hi, v, move |x| wrap(Msg::Drag(k.clone(), x)))
+                    .step(0.01f32)
+                    .on_release(wrap(Msg::Release))
+                    .width(Length::Fill),
+                iced::widget::text(format!("{v:.2}"))
+                    .font(self.font)
+                    .size(12)
+                    .color(dim)
+                    .width(40),
+                button(iced::widget::text("↺").size(12))
+                    .padding([2, 8])
+                    .style(button::text)
+                    .on_press_maybe(
+                        ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
+                    ),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into();
+            if key.starts_with("gamma_") {
+                fine_sliders = fine_sliders.push(line);
+            } else {
+                sliders = sliders.push(line);
+            }
         }
         let curves: Element<'_, UiMsg> = match &s.curves {
             Some(h) => column![
@@ -311,6 +317,7 @@ impl App {
             None => Space::new().into(),
         };
         col = col.push(sliders);
+        col = col.push(self.adv(fine_sliders));
         col = col.push(curves);
         col = col.push(
             row![
@@ -335,14 +342,16 @@ impl App {
             ]
             .spacing(10),
         );
+        // Fichier de calibration et image de référence : configuration avancée.
+        let mut fine = column![].spacing(10);
         // Fichier de calibration.
-        col = col.push(self.section(crate::i18n::tr("Fichier de calibration")));
+        fine = fine.push(self.section(crate::i18n::tr("Fichier de calibration")));
         let current = if a.calibration.trim().is_empty() {
             crate::i18n::tr("aucun").to_string()
         } else {
             a.calibration.clone()
         };
-        col = col.push(
+        fine = fine.push(
             row![
                 iced::widget::text(crate::tr!("En place : {f}", f = current))
                     .font(self.font)
@@ -359,7 +368,7 @@ impl App {
             .spacing(8)
             .align_y(Alignment::Center),
         );
-        col = col.push(
+        fine = fine.push(
             row![
                 text_input(crate::i18n::tr("~/Téléchargements/ecran.icc"), &s.cal_input)
                     .on_input(|v| wrap(Msg::CalInput(v)))
@@ -374,7 +383,7 @@ impl App {
             .align_y(Alignment::Center),
         );
         if !s.profiles.is_empty() {
-            col = col.push(
+            fine = fine.push(
                 row![
                     text("Profils du poste").font(self.font).size(13).color(fg),
                     pick_list(s.profiles.clone(), None::<String>, |v| wrap(Msg::CalPick(
@@ -387,14 +396,14 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
-        col = col.push(
+        fine = fine.push(
             text("Importer copie le fichier dans ~/.config/hypr/hyprdesk/calibration. .cal : courbes d'ArgyllCMS (dispcal), appliquées par hyprdesk ; .icc / .icm : profil appliqué par Hyprland (monitors.lua).")
                 .font(self.font)
                 .size(11)
                 .color(dim),
         );
         if let Some(m) = &s.info {
-            col = col.push(
+            fine = fine.push(
                 iced::widget::text(m.clone())
                     .font(self.font)
                     .size(12)
@@ -402,7 +411,7 @@ impl App {
             );
         }
         if let Some(e) = &s.error {
-            col = col.push(
+            fine = fine.push(
                 iced::widget::text(e.clone())
                     .font(self.font)
                     .size(12)
@@ -410,16 +419,17 @@ impl App {
             );
         }
         // Image de référence.
-        col = col.push(self.section(crate::i18n::tr("Image de référence")));
+        fine = fine.push(self.section(crate::i18n::tr("Image de référence")));
         if let Some(h) = &s.reference {
-            col = col.push(image(h.clone()).width(Length::Fill));
+            fine = fine.push(image(h.clone()).width(Length::Fill));
         }
-        col = col.push(
+        fine = fine.push(
             text("Les cases des ombres (1 à 32) et des hautes lumières (223 à 254) doivent toutes se distinguer de leur fond ; le dégradé de gris doit rester neutre, sans dominante ni marches ; les peaux doivent paraître naturelles. « Mire plein écran » l'affiche sur chaque écran, avec ses réglages.")
                 .font(self.font)
                 .size(11)
                 .color(dim),
         );
+        col = col.push(self.adv(fine));
         col.into()
     }
 

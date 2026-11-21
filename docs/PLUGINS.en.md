@@ -170,9 +170,12 @@ is shown; unchecked, only the essentials. Hidden then: the packages of
 `self.adv(…)`. Nothing is removed from the configuration: only the display
 changes.
 
-Marking, everywhere (wide or narrow drawer): a cyan dot next to an advanced
-package or tab, an “Advanced” badge at the top of the page, a cyan frame
-around an advanced section. Rule: a tab made only of raw Hyprland options,
+Marking, everywhere (wide or narrow drawer): a cyan flask (icon
+`hyprdesk-advanced`) next to an advanced tab and, while advanced settings are
+shown, next to every package that holds advanced settings, with their count
+(`plugins::adv_count`: advanced tabs, `ADVANCED_PLACES` sections,
+`self.adv(…)` calls counted in `ADV_SOURCES`); an “Advanced” badge at the top
+of the page, a cyan frame around an advanced section. Rule: a tab made only of raw Hyprland options,
 files or expert settings is advanced (● below); on a basic page, raw
 Hyprland options (`hyprset::GROUPS` outside `BASIC_GROUPS`) are framed by
 `App::hyprset_tab`. The `options_brutes_marquees_avancees` test checks it.
@@ -181,7 +184,7 @@ Hyprland options (`hyprset::GROUPS` outside `BASIC_GROUPS`) are framed by
 
 | Package | Tabs |
 |---|---|
-| Desktop | Display · Shortcuts · Session |
+| Desktop | Display · Forced modes ● · Session ● · Dependencies ● |
 | Theme | Themes · Colors · Text (font, size) · Transparency ● |
 | Animations | Animations · Curves ● · Effects · Desktop ● (desktop transitions, wallpaper crossfade) |
 | Windows | Appearance · Behaviour ● · Rules (windows; layers and workspaces when advanced) · Groups ● |

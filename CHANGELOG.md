@@ -46,6 +46,19 @@ and this project adheres to
   the cyan dot also marks tabs and packages in the narrow drawer.
 - Mouse page: the “No acceleration” warning pointed to an Advanced tab that
   no longer exists.
+- **Advanced settings visible from the menu** (MLG-212): a cyan flask
+  replaces the cyan dots; every package that holds advanced settings shows
+  the flask and how many (advanced tabs and framed sections) while advanced
+  settings are on; the “Advanced” badge carries it too.
+- **More settings moved to advanced** (MLG-212): Desktop → Forced modes and
+  Dependencies, Performance → hyprdesk engine, AI → Other AI services; fine
+  effect settings (rounding shape, dimming strength, blur variant, size,
+  passes, vibrancy, noise, shadow and glow range and falloff, wobble
+  intensity); window border details (gaps between workspaces, ungrouped
+  colours, resize on border, grab area, cursor on border, shadow colour);
+  file index exclusions, file types and safety rescan; per-channel gamma,
+  calibration file and reference image (Screen colours); adding a
+  third-party plugin; each bar module's colour.
 
 ## [0.1.9] - 2026-11-21
 

@@ -382,8 +382,10 @@ impl App {
         );
 
         // — Exclusions —
-        col = col.push(self.section("Exclusions"));
-        col = col.push(
+        // Réglages fins : configuration avancée.
+        let mut fine = column![].spacing(10);
+        fine = fine.push(self.section("Exclusions"));
+        fine = fine.push(
             self.field(
                 "Noms de dossiers",
                 "index_exclude",
@@ -395,14 +397,14 @@ impl App {
                     .on_input(|v| wrap(Msg::Exclude(v))),
             ),
         );
-        col = col.push(
+        fine = fine.push(
             text("En plus des défauts : .git, node_modules, target, .cache, __pycache__…")
                 .font(self.font)
                 .size(12)
                 .color(dim),
         );
         for (i, motif) in s.regexes.iter().enumerate() {
-            col = col.push(
+            fine = fine.push(
                 row![
                     text(motif.clone()).font(self.font).size(13).color(fg),
                     iced::widget::Space::new().width(iced::Length::Fill),
@@ -414,7 +416,7 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
-        col = col.push(
+        fine = fine.push(
             row![
                 text_input(
                     "exclusion par expression régulière (ex. \\.iso$)",
@@ -435,7 +437,7 @@ impl App {
             .spacing(10)
             .align_y(Alignment::Center),
         );
-        col = col.push(
+        fine = fine.push(
             text("Appliquée au chemin complet ; une regex invalide est refusée à l'ajout.")
                 .font(self.font)
                 .size(12)
@@ -443,8 +445,8 @@ impl App {
         );
 
         // — Type de fichiers —
-        col = col.push(self.section("Type de fichiers"));
-        col = col.push(
+        fine = fine.push(self.section("Type de fichiers"));
+        fine = fine.push(
             text("Catégories exclues de l'indexation :")
                 .font(self.font)
                 .size(13)
@@ -474,14 +476,14 @@ impl App {
                     .on_press(wrap(Msg::CatToggle(nom))),
             );
         }
-        col = col.push(cats.wrap());
-        col = col.push(
+        fine = fine.push(cats.wrap());
+        fine = fine.push(
             text("Une catégorie exclue n'est pas indexée (ex. toutes les vidéos), quelle que soit son extension.")
                 .font(self.font)
                 .size(12)
                 .color(dim),
         );
-        col = col.push(
+        fine = fine.push(
             self.field(
                 "Extensions exclues",
                 "index_exclude_ext",
@@ -493,7 +495,7 @@ impl App {
                     .on_input(|v| wrap(Msg::ExtText(v))),
             ),
         );
-        col = col.push(
+        fine = fine.push(
             self.field(
                 "Taille maximale indexée",
                 "index_max_size",
@@ -505,6 +507,7 @@ impl App {
                     .on_input(|v| wrap(Msg::MaxText(v))),
             ),
         );
+        col = col.push(self.adv(fine));
 
         // — Démarrage —
         // Quand démarre le démon d'index : avancé.
@@ -527,7 +530,9 @@ impl App {
         );
 
         // — Rescan —
-        col = col.push(
+        // Réglages fins : configuration avancée.
+        let mut rescan = column![].spacing(10);
+        rescan = rescan.push(
             self.field(
                 "Rescan de sûreté",
                 "index_interval",
@@ -539,12 +544,13 @@ impl App {
                     .on_input(|v| wrap(Msg::Interval(v))),
             ),
         );
-        col = col.push(
+        rescan = rescan.push(
             text("Réindexation complète à cet intervalle ; inotify couvre le reste.")
                 .font(self.font)
                 .size(12)
                 .color(dim),
         );
+        col = col.push(self.adv(rescan));
 
         // — retour inline + Appliquer —
         if let Some(m) = &s.info {

@@ -135,12 +135,20 @@ impl App {
     pub(in crate::ui) fn input_page(&self) -> Element<'_, UiMsg> {
         // Onglets tenus par le registre `hyprset` (MLG-142).
         if self.on_subtab(INFO.id, "curseur") {
-            return column![self.cursor_theme_editor(), self.hyprset_tab("curseur")]
-                .spacing(14)
-                .into();
+            return column![
+                self.cursor_theme_editor(),
+                self.adv(self.hyprset_groups("curseur"))
+            ]
+            .spacing(14)
+            .into();
         }
         if self.on_subtab(INFO.id, "gestes") {
-            return self.gestures_page();
+            return column![
+                self.gestures_page(),
+                self.adv(self.hyprset_groups("gestes"))
+            ]
+            .spacing(14)
+            .into();
         }
         if self.on_subtab(INFO.id, "peripheriques") {
             return self.devices_page();

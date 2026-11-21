@@ -448,16 +448,22 @@ impl App {
             Tab::Widgets => column![
                 self.section("Plugins de widget de barre"),
                 lua,
-                self.section("Ajouter un plugin tiers"),
-                text(crate::tr!(
-                    "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
-                     dans {p0} ; il apparaît aussitôt ci-dessus et dans Widgets.",
-                    p0 = user.display()
-                ))
-                .font(self.font)
-                .size(12)
-                .color(dim),
-                add,
+                // Plugin tiers : configuration avancée.
+                self.adv(
+                    column![
+                        self.section("Ajouter un plugin tiers"),
+                        text(crate::tr!(
+                            "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
+                             dans {p0} ; il apparaît aussitôt ci-dessus et dans Widgets.",
+                            p0 = user.display()
+                        ))
+                        .font(self.font)
+                        .size(12)
+                        .color(dim),
+                        add,
+                    ]
+                    .spacing(14)
+                ),
             ]
             .spacing(14)
             .into(),
