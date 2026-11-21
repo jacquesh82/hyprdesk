@@ -3,232 +3,9 @@
 //! Le même binaire est le démon (`hyprdesk`, `hyprdesk daemon`) et son client
 //! (`hyprdesk toggle`, à lier à une touche dans `hyprland.lua`).
 
-mod adopt;
-mod ai_services;
-mod apps;
-mod apptheme;
-mod assistant;
-mod autostart;
-mod bar_offer;
-mod binds_file;
-mod brightness;
-mod capture;
-mod chat;
-mod cli_config;
-mod cli_tools;
-mod clipboard;
-mod colors;
-mod config;
-mod control;
-mod desktop_files;
-mod doctor;
-mod essentials;
-mod fileindex;
-mod fonts;
-mod fx;
-mod genfiles;
-mod gpu;
-mod greeter;
-mod greeter_setup;
-mod greeter_ui;
-mod history;
-mod hypr;
-mod hyprbars;
-mod hyprcheck;
-mod hyprset;
-mod hyprsrc;
-mod hyprwrite;
-mod i18n;
-mod idle;
-mod inputs;
-mod keymap;
-mod launch;
-mod layout;
-mod lid;
-mod lock;
-mod mymfa;
-mod notifications;
-mod osd;
-mod panorama;
-mod perf;
-mod policy;
-mod polkit;
-mod portal;
-mod processes;
-mod render;
-mod render_gpu;
-mod screens;
-mod search;
-mod session;
-mod session_start;
-mod settings;
-mod share;
-mod single;
-mod smartui;
-mod sources;
-mod span;
-mod storage;
-mod switcher;
-mod takeover;
-mod theme;
-mod tiling;
-mod tray;
-mod ui;
-mod update_progress;
-mod updates;
-mod video;
-mod voice;
-mod widgets;
-mod windows;
-mod zones;
-
+use hyprdesk::*;
 use std::path::PathBuf;
 use std::process::ExitCode;
-
-const USAGE: &str = "\
-hyprdesk — bureau à la demande pour Hyprland
-
-Usage : hyprdesk [--config <fichier>] [commande]
-
-Commandes :
-  daemon            lance le démon (par défaut) ; une seule instance par session
-  daemon --replace  remplace proprement l'instance en place
-  toggle            full-desktop, ou no-desktop s'il y est déjà
-  toggle-launcher   launcher-only, ou no-desktop s'il y est déjà
-  show | hide       full-desktop (fenêtres mises de côté) / no-desktop
-  launcher-only     fenêtres en place, lanceur (dock) accessible en bas
-  cycle             mode suivant : no-desktop → launcher-only → full-desktop
-  settings [paquet[/onglet] | ?mots]
-                    ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
-  toggle-settings   ouvre les Réglages, ou les referme s'ils sont ouverts (raccourci keys.settings)
-  assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
-  search            ouvre ou referme le lanceur avec recherche (toutes les applications)
-  files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)
-  apps              ouvre ou referme la grille des applications (plein écran, catégories)
-  overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
-  notifications [list | dnd [on|off] | clear]
-                    notifications de hyprdesk : historique, Ne pas déranger
-  ask <titre> <texte>
-                    demande à LYRA (nouvelle conversation, affichée)
-  switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
-                    à la fenêtre suivante (prev : précédente)
-  tour              ouvre les réglages sur la visite guidée
-  wizard            assistant de configuration : les premiers réglages, étape par étape
-                    (paquet : desktop, icons, launcher, wallpaper, widgets, bar,
-                    screens, workspaces, effects, theme…)
-  export [fichier] [--theme] [--screens]
-                    archive du setup à partager (configs, plugins, fonds d'écran ;
-                    --theme : le thème seul — couleurs, fonds, effets ;
-                    --screens : monitors.lua aussi)
-  import <archive> [--theme] [--dry-run] [--screens]
-                    applique un setup partagé (sauvegarde l'actuel d'abord) ;
-                    --theme : n'en prendre que le thème (une archive de thème
-                    ne change jamais que le thème)
-  theme [list]      « Mes thèmes »
-  theme new <image|pack.zip|dossier> [--name NOM]
-                    crée un thème depuis une scène : couleurs tirées de l'image,
-                    scène étalée sur tous les écrans (bureau et verrouillage)
-  theme apply <nom|archive>
-                    applique un thème (le reste de la configuration ne change pas)
-  wallpaper split <image> [dossier] [--scale N]
-                    découpe une scène selon la disposition des écrans : une
-                    image par écran (<écran>.png) ; --scale 2 pour du HiDPI
-  context           décrit l'environnement hyprdesk (Markdown), pour un assistant IA
-  lock              verrouille la session (écran de verrouillage de hyprdesk)
-  open <rôle>       lance l'application par défaut : browser, terminal, files, editor,
-                    image, video, audio, pdf, mail, ai
-  config            réglages en ligne de commande, par paquet :
-                    config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé>
-                    config history | diff <id> | rollback <id|date> [--yes] : historique sur 30 jours
-  menu <module>     ouvre un menu de la barre (volume, clock, tray, reseau, session…)
-  osd <volume|mic|brightness|kbd> <+N|-N|toggle>
-                    règle le son ou la luminosité (touches XF86, keys.media)
-  media <play-pause|next|previous|status|seek ±N>
-                    commande le lecteur en cours (MPRIS) ; status : son état
-                    (clé=valeur) ; seek : avance ou recule de N secondes
-  voice [setup|say [--en] <texte>|status]
-                    LYRA vocale : installe Piper et Vosk (hors ligne), fait
-                    parler la voix, ou dit si tout est prêt
-  key <touche> [mods]
-                    envoie une touche à la fenêtre active (télécommande du
-                    Panorama) : key Up, key Return, key f, key Tab SHIFT
-  capture <zone|fenetre|ecran>
-                    capture d'écran (Images/Captures, copiée ; touches Impr)
-  capture enregistrer [zone] | capture arreter
-                    enregistre l'écran actif ou une zone (Vidéos/Enregistrements),
-                    ou arrête l'enregistrement en cours
-  greeter [--tty | --demo] [--window]
-                    écran de connexion pour greetd (connexion, choix de l'environnement) ;
-                    --tty : au terminal ; --demo : sans greetd, pour l'essayer ;
-                    --window : fenêtre ordinaire plein écran (cage, sans layer-shell)
-  greeter setup <status|profile|packages|install|enable|restore>
-                    met l'écran de hyprdesk à la place de GDM (en root ; Réglages →
-                    Écran de connexion) ; restore : revient au gestionnaire d'avant
-  mymfa <open|unlock|setup|lock|codes|logins>
-                    trousseau myMFA : fenêtre complète, déverrouillage, création du coffre, verrouillage, lanceur sur
-                    les codes 2FA (:2fa) ou les mots de passe (:mdp)
-  panorama [toggle|show|hide|page <n|id>|detect|preview [LxH]|icons [sources|music|shortcuts|all] [--force]|fullscreen]
-                    Panorama des écrans bandeau tactiles : afficher, escamoter, aller à une
-                    page ; detect : relit les écrans et refait les propositions ;
-                    preview : aperçu en fenêtre flottante (2560x720 par défaut) ;
-                    icons : icônes des sources vidéo et des raccourcis dessinées par SmartUI (LYRA)
-  panorama layout <single|1x2|1x3|2x2|3x3|dashboard> | video <n|nom|close>
-                    une page, l'écran découpé en zones ou la composition ; ouvre une source du
-                    widget Vidéo (Free TV, Netflix…) dans sa zone, ou la ferme
-  polkit-ui         agent d'authentification polkit de la session (lancé par le démon)
-  polkit-agent      agent d'authentification polkit au terminal (essai, ou session sans démon)
-  updates [--upgrade | --refresh | --report]
-                    paquets à mettre à jour (pacman, AUR, apt, dnf, zypper, flatpak) ;
-                    --upgrade : mise à jour non interactive (pkexec), échec confié au démon
-  gpu [status | nvidia | display | vfio | toggle] [--boot | --next-boot] [--device <adresse>]
-                    GPU NVIDIA réservé aux VM : bascule à chaud entre vfio-pci et nvidia
-                    (pkexec) ; --boot : garde aussi ce pilote aux prochains démarrages
-                    display : nvidia avec les écrans branchés sur la carte (nvidia_drm)
-                    --next-boot : pilote des prochains démarrages, sans basculer maintenant
-  reload            relit la configuration
-  status            état du démon
-  quit              arrête le démon
-  chat-mock         faux moteur d'assistant (protocole serve, pour essais)
-  preview [dossier] aperçu isolé ; capture les vues si un dossier est fourni
-  check [fichier]   exécute et vérifie la configuration sans modifier le démon
-  doctor            dépendances externes : présentes, absentes, et ce qui en dépend
-  doctor --missing  les absentes, une par ligne (nom, paquet Arch, fonction ; tabulations)
-  autostart [list | add | remove | on | off <commande>]
-                    démarrage automatique (autostart.lua, hyprland.lua, XDG)
-  hyprland-check [--json]
-                    ménage de hyprland.lua : erreurs, doublons, conflits avec hyprdesk
-  hyprland-fix (--safe | <ligne>… | backups)
-                    applique les corrections du ménage (copie de hyprland.lua d'abord)
-  window-places [forget]
-                    places des fenêtres choisies en plein bureau ; les oublier
-  icons [list | add app|path|exec <valeur> | remove <id>]
-                    icônes du bureau
-  app-theme [status | apply]
-                    thème de hyprdesk appliqué aux applications (kitty, Thunar)
-  color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
-  screens-off       éteint tous les écrans sans mettre la machine en veille ;
-                    un changement de volume les rallume (idle_wake_volume)
-  colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none | diag | free [--disable]]
-                    couleurs de chaque écran (luminosité, contraste, gamma, canaux, calibration)
-  lid [status | close | open]
-                    capot du portable : état et effet de sa fermeture (Réglages → Verrouillage → Veille)
-  window minimize | maximize | close
-                    fenêtre active : réduire (le dock la rappelle), agrandir, fermer
-  keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua
-  binds [split]     raccourcis de hyprland.lua à ranger dans binds.lua (fait au démarrage)
-  init              écrit la configuration d'exemple si aucune n'existe
-  keyboard [disposition [variante [options]]]
-                    clavier de la session : sans argument, celui en vigueur ;
-                    sinon appliqué et écrit dans inputs.lua (ex. keyboard fr azerty)
-  stubs [dossier]   écrit les définitions LuaLS (hyprdesk.meta.lua) pour l'autocomplétion
-  snippet           lignes à ajouter à hyprland.lua (raccourci, flou, démarrage)
-  index daemon      démon d'indexation des fichiers (recherche :f du lanceur) ;
-                    options : --paths /a,/b --exclude nom --interval secondes
-  index query <mot> cherche dans l'index (--limit N) : nom, type, chemin, taille
-  index status      état de l'indexation (JSON) ; rebuild : rescan complet ;
-                    stop : arrêt propre (sauvegarde du snapshot)
-
-Configuration : $HYPRDESK_CONFIG, sinon ~/.config/hypr/hyprdesk.lua";
 
 const STUBS: &str = include_str!("../assets/hyprdesk.meta.lua");
 const STUBS_EN: &str = include_str!("../assets/hyprdesk.meta.en.lua");
@@ -240,33 +17,6 @@ fn stubs() -> &'static str {
         i18n::Lang::En => STUBS_EN,
     }
 }
-
-const SNIPPET: &str = r#"-- hyprdesk : à ajouter dans ~/.config/hypr/hyprland.lua
-
--- Démarrage : SEULEMENT si le service systemd utilisateur n'est pas activé
--- (une seule instance tourne de toute façon : la seconde s'arrête aussitôt),
--- dans le bloc hl.on("hyprland.start", …) ; hyprdesk remplace hyprpaper.
-hl.exec_cmd("hyprdesk")
-
--- Les raccourcis de hyprdesk (SUPER + D par défaut) sont installés par
--- hyprdesk lui-même : voir hd.config({ keys = … }) ou Réglages → Bureau.
---
--- Bureau affiché, les raccourcis de Hyprland sont suspendus (submap
--- « hyprdesk ») : ils n'agissent plus sur les fenêtres cachées. Pour en
--- garder un actif sur le bureau, marquez-le submap_universal, par exemple
--- le changement de workspace (le bureau suit alors le workspace) :
-hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }), { submap_universal = true })
-hl.bind(mainMod .. " + Right",     hl.dsp.focus({ workspace = "+1" }), { submap_universal = true })
-
--- Captures : ajouter submap_universal AUX raccourcis existants (ne pas les dupliquer).
--- Sans cette option, Print et les autres raccourcis de capture sont suspendus sur le bureau.
--- Exemples :
--- hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { submap_universal = true })
--- hl.bind("SUPER + Print", hl.dsp.exec_cmd("hyprshot -m output -m active"), { submap_universal = true })
-
--- Barre de hyprdesk (hd.bar) : flou derrière elle, comme une barre classique.
-hl.layer_rule({ name = "hyprdesk-bar-blur", match = { namespace = "^hyprdesk-bar$" }, blur = true, ignore_alpha = 0.2 })
-"#;
 
 /// Plugins de widgets d'exemple, déposés s'ils n'existent pas encore.
 const EXAMPLE_WIDGETS: &[(&str, &str)] = &[
@@ -292,7 +42,7 @@ fn keyboard_cli(config_path: &std::path::Path, args: &[String]) -> ExitCode {
     if !ok(layout) || !ok(&variant) || !ok(&options) {
         eprintln!(
             "{}",
-            crate::i18n::tr("hyprdesk keyboard : valeur de clavier invalide")
+            hyprdesk::i18n::tr("hyprdesk keyboard : valeur de clavier invalide")
         );
         return ExitCode::FAILURE;
     }
@@ -310,7 +60,7 @@ fn keyboard_cli(config_path: &std::path::Path, args: &[String]) -> ExitCode {
         if running {
             eprintln!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "clavier refusé par Hyprland, inputs.lua inchangé : {e}",
                     e = e
                 )
@@ -319,7 +69,7 @@ fn keyboard_cli(config_path: &std::path::Path, args: &[String]) -> ExitCode {
         }
         eprintln!(
             "{}",
-            crate::tr!(
+            hyprdesk::tr!(
                 "clavier non appliqué à chaud ({e}) : il le sera au prochain démarrage",
                 e = e
             )
@@ -328,13 +78,13 @@ fn keyboard_cli(config_path: &std::path::Path, args: &[String]) -> ExitCode {
     let path = inputs::inputs_path(config_path);
     match inputs::save(&path, &i) {
         Ok(()) => {
-            println!("{}", crate::tr!("écrit : {p0}", p0 = path.display()));
+            println!("{}", hyprdesk::tr!("écrit : {p0}", p0 = path.display()));
             ExitCode::SUCCESS
         }
         Err(e) => {
             eprintln!(
                 "{}",
-                crate::tr!("{p0} : {e}", p0 = path.display(), e = e.to_string())
+                hyprdesk::tr!("{p0} : {e}", p0 = path.display(), e = e.to_string())
             );
             ExitCode::FAILURE
         }
@@ -350,7 +100,7 @@ fn install_example_widgets(config_path: &std::path::Path) {
     for (name, src) in EXAMPLE_WIDGETS {
         let p = dir.join(name);
         if !p.exists() && std::fs::write(&p, src).is_ok() {
-            println!("{}", crate::tr!("écrit : {p0}", p0 = p.display()));
+            println!("{}", hyprdesk::tr!("écrit : {p0}", p0 = p.display()));
         }
     }
 }
@@ -374,7 +124,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     if let Some((a, b, c)) = hypr::running_version()
         && (a, b) < hypr::MIN_HYPRLAND
     {
-        let msg = crate::tr!(
+        let msg = hyprdesk::tr!(
             "hyprdesk : Hyprland {v} trop ancien ({min} ou plus requis) — mettez à jour Hyprland puis reconnectez-vous",
             v = format!("{a}.{b}.{c}"),
             min = format!("{}.{}", hypr::MIN_HYPRLAND.0, hypr::MIN_HYPRLAND.1)
@@ -391,7 +141,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         Err(None) => {
             eprintln!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "hyprdesk : verrou indisponible — vérifier le dossier de session et ses permissions"
                 )
             );
@@ -402,7 +152,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             // raccourcis en quittant, puis libère le verrou.
             tracing::info!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "remplacement de l'instance en place{p0}",
                     p0 = pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
                 )
@@ -410,7 +160,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             if let Err(e) = control::send(control::Command::Quit) {
                 tracing::warn!(
                     "{}",
-                    crate::tr!("arrêt de l'instance en place : {e}", e = e)
+                    hyprdesk::tr!("arrêt de l'instance en place : {e}", e = e)
                 );
             }
             match single::acquire_within(&lock, std::time::Duration::from_secs(5)) {
@@ -418,7 +168,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
                 Err(pid) => {
                     eprintln!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "hyprdesk : l'instance en place{p0} ne s'arrête pas ; arrêtez-la (hyprdesk quit, ou systemctl --user stop hyprdesk)",
                             p0 = pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
                         )
@@ -432,7 +182,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             // relancer en boucle un démon qui fait double emploi.
             eprintln!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "hyprdesk : déjà lancé{p0} — une seule instance par session (hyprdesk daemon --replace pour la remplacer)",
                     p0 = pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
                 )
@@ -445,7 +195,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     if left == hypr::SUBMAP || left == hypr::CAPTURE_SUBMAP {
         tracing::info!(
             "{}",
-            crate::tr!(
+            hyprdesk::tr!(
                 "submap « {p0} » laissée active par un arrêt précédent : remise à zéro",
                 p0 = left
             )
@@ -461,7 +211,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     // rechargé, tout rendu tel quel s'il signale une erreur nouvelle.
     match binds_file::migrate(&path) {
         Ok(Some(d)) => {
-            let msg = crate::tr!(
+            let msg = hyprdesk::tr!(
                 "hyprdesk : {n} raccourci(s) de hyprland.lua rangé(s) dans binds.lua (Réglages → Raccourcis) ; copie : {b}",
                 n = d.moved,
                 b = d.backup.display()
@@ -472,14 +222,14 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         Ok(None) => {}
         Err(e) => {
             tracing::warn!("{e}");
-            hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
+            hypr::notify(0, 10000, &hyprdesk::tr!("hyprdesk : {e}", e = e));
         }
     }
     // binds.lua tenu par hyprdesk (MLG-198) : un fichier écrit à la main est
     // copié puis régénéré ; Hyprland vérifie, tout est rendu s'il proteste.
     match binds_file::adopt(&path) {
         Ok(Some(bak)) => {
-            let msg = crate::tr!(
+            let msg = hyprdesk::tr!(
                 "hyprdesk : binds.lua est maintenant tenu par hyprdesk (Réglages → Raccourcis) ; copie : {b}",
                 b = bak.display()
             );
@@ -494,17 +244,17 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     // Hyprland : tout est rendu tel quel s'il signale une erreur nouvelle.
     match adopt::run(&path) {
         Ok(d) if !d.adopted.is_empty() => {
-            let msg = crate::tr!("hyprdesk : {s}", s = adopt::summary(&d));
+            let msg = hyprdesk::tr!("hyprdesk : {s}", s = adopt::summary(&d));
             tracing::info!("{msg}");
             for l in &d.left {
-                tracing::info!("{}", crate::tr!("laissé dans hyprland.lua : {l}", l = l));
+                tracing::info!("{}", hyprdesk::tr!("laissé dans hyprland.lua : {l}", l = l));
             }
             hypr::notify(1, 10000, &msg);
         }
         Ok(_) => {}
         Err(e) => {
             tracing::warn!("{e}");
-            hypr::notify(0, 10000, &crate::tr!("hyprdesk : {e}", e = e));
+            hypr::notify(0, 10000, &hyprdesk::tr!("hyprdesk : {e}", e = e));
         }
     }
     // binds.lua en accord avec ce que hyprdesk tient (MLG-140) : touches
@@ -518,7 +268,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
                 hypr::notify(
                     1,
                     10000,
-                    &crate::tr!(
+                    &hyprdesk::tr!(
                         "hyprdesk : {n} raccourci(s) de binds.lua accordé(s) à hyprdesk (Réglages → Raccourcis)",
                         n = done.len()
                     ),
@@ -535,7 +285,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     if let Err(e) = std::fs::create_dir_all(&widget_dir) {
         tracing::warn!(
             "{}",
-            crate::tr!("création de {p0} : {e}", p0 = widget_dir.display(), e = e)
+            hyprdesk::tr!("création de {p0} : {e}", p0 = widget_dir.display(), e = e)
         );
     }
     match config::ensure_exists(&path) {
@@ -543,7 +293,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             install_example_widgets(&path);
             tracing::info!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "configuration d'exemple écrite dans {p0}",
                     p0 = path.display()
                 )
@@ -551,7 +301,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
             hypr::notify(
                 1,
                 6000,
-                &crate::tr!(
+                &hyprdesk::tr!(
                     "hyprdesk : configuration d'exemple créée — {p0}",
                     p0 = path.display()
                 ),
@@ -560,7 +310,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         Ok(false) => {}
         Err(e) => tracing::warn!(
             "{}",
-            crate::tr!("création de {p0} : {e}", p0 = path.display(), e = e)
+            hyprdesk::tr!("création de {p0} : {e}", p0 = path.display(), e = e)
         ),
     }
     // Premier démarrage : l'assistant de configuration s'ouvre pour faire connaissance.
@@ -571,7 +321,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     bar_offer::run(&path);
     tracing::info!(
         "{}",
-        crate::tr!(
+        hyprdesk::tr!(
             "hyprdesk {p0} — config {p1}",
             p0 = env!("CARGO_PKG_VERSION"),
             p1 = path.display()
@@ -581,7 +331,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     let reason = control::EXIT_REASON.lock().ok().and_then(|r| r.clone());
     match (r, reason) {
         (Ok(()), Some(why)) => {
-            tracing::info!("{}", crate::tr!("hyprdesk s'arrête : {why}", why = why));
+            tracing::info!("{}", hyprdesk::tr!("hyprdesk s'arrête : {why}", why = why));
             // `hyprdesk quit` : code dédié, que systemd ne relance pas ;
             // un signal (systemctl stop, Ctrl-C) : 0.
             if control::QUIT_REQUESTED.load(std::sync::atomic::Ordering::Relaxed) {
@@ -594,7 +344,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         (Ok(()), None) => {
             tracing::error!(
                 "{}",
-                crate::i18n::tr(
+                hyprdesk::i18n::tr(
                     "boucle d'affichage terminée sans demande d'arrêt : sortie en erreur"
                 )
             );
@@ -603,7 +353,7 @@ fn daemon(path: PathBuf, replace: bool) -> ExitCode {
         (Err(e), _) => {
             tracing::error!(
                 "{}",
-                crate::tr!("hyprdesk s'arrête sur une erreur : {e}", e = e)
+                hyprdesk::tr!("hyprdesk s'arrête sur une erreur : {e}", e = e)
             );
             ExitCode::FAILURE
         }
@@ -632,7 +382,7 @@ fn index_cli(args: &[String]) -> ExitCode {
             match fileindex::daemon::run(config) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("démon d'index : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("démon d'index : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -660,7 +410,7 @@ fn index_cli(args: &[String]) -> ExitCode {
                 }
             }
             if q.trim().is_empty() {
-                eprintln!("{}", crate::tr!("index query attend un mot à chercher"));
+                eprintln!("{}", hyprdesk::tr!("index query attend un mot à chercher"));
                 return ExitCode::from(2);
             }
             match request(&Request::Query {
@@ -678,14 +428,14 @@ fn index_cli(args: &[String]) -> ExitCode {
                         return ExitCode::SUCCESS;
                     }
                     if hits.is_empty() {
-                        println!("{}", crate::tr!("aucun résultat dans l'index"));
+                        println!("{}", hyprdesk::tr!("aucun résultat dans l'index"));
                         return ExitCode::SUCCESS;
                     }
                     for h in &hits {
                         let genre = match h.kind {
-                            fileindex::index::KIND_DIR => crate::tr!("dossier"),
-                            fileindex::index::KIND_LINK => crate::tr!("lien"),
-                            _ => crate::tr!("fichier"),
+                            fileindex::index::KIND_DIR => hyprdesk::tr!("dossier"),
+                            fileindex::index::KIND_LINK => hyprdesk::tr!("lien"),
+                            _ => hyprdesk::tr!("fichier"),
                         };
                         println!("{genre}\t{}\t{}", fileindex::fmt_taille(h.size), h.path);
                     }
@@ -699,7 +449,7 @@ fn index_cli(args: &[String]) -> ExitCode {
                 Err(e) => {
                     eprintln!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "démon d'index injoignable : {e} — lancez « hyprdesk index daemon »",
                             e = e
                         )
@@ -726,7 +476,7 @@ fn index_cli(args: &[String]) -> ExitCode {
             Err(e) => {
                 eprintln!(
                     "{}",
-                    crate::tr!(
+                    hyprdesk::tr!(
                         "démon d'index injoignable : {e} — lancez « hyprdesk index daemon »",
                         e = e
                     )
@@ -736,7 +486,7 @@ fn index_cli(args: &[String]) -> ExitCode {
         },
         "rebuild" => match request(&Request::Rebuild) {
             Ok(Reply::Ok) => {
-                println!("{}", crate::tr!("rescan complet demandé"));
+                println!("{}", hyprdesk::tr!("rescan complet demandé"));
                 ExitCode::SUCCESS
             }
             Ok(Reply::Err(m)) => {
@@ -745,13 +495,16 @@ fn index_cli(args: &[String]) -> ExitCode {
             }
             Ok(_) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("{}", crate::tr!("démon d'index injoignable : {e}", e = e));
+                eprintln!(
+                    "{}",
+                    hyprdesk::tr!("démon d'index injoignable : {e}", e = e)
+                );
                 ExitCode::FAILURE
             }
         },
         "stop" => match fileindex::proto::stop() {
             Ok(()) => {
-                println!("{}", crate::tr!("démon d'index arrêté"));
+                println!("{}", hyprdesk::tr!("démon d'index arrêté"));
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -762,7 +515,7 @@ fn index_cli(args: &[String]) -> ExitCode {
         _ => {
             eprintln!(
                 "{}",
-                crate::tr!("usage : hyprdesk index daemon|query <mot>|status|rebuild|stop")
+                hyprdesk::tr!("usage : hyprdesk index daemon|query <mot>|status|rebuild|stop")
             );
             ExitCode::from(2)
         }
@@ -850,7 +603,7 @@ fn main() -> ExitCode {
     let mut config_path = config::default_path();
     if let Some(i) = args.iter().position(|a| a == "--config" || a == "-c") {
         let Some(p) = args.get(i + 1).cloned() else {
-            eprintln!("{}", crate::tr!("--config attend un fichier"));
+            eprintln!("{}", hyprdesk::tr!("--config attend un fichier"));
             return ExitCode::from(2);
         };
         config_path = PathBuf::from(p);
@@ -880,7 +633,7 @@ fn main() -> ExitCode {
         "-V" | "--version" | "version" => {
             println!(
                 "{}",
-                crate::tr!("hyprdesk {p0}", p0 = env!("CARGO_PKG_VERSION"))
+                hyprdesk::tr!("hyprdesk {p0}", p0 = env!("CARGO_PKG_VERSION"))
             );
             ExitCode::SUCCESS
         }
@@ -889,7 +642,7 @@ fn main() -> ExitCode {
             match ui::run_mymfa_fenetre(config_path) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("fenêtre myMFA : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("fenêtre myMFA : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -897,7 +650,7 @@ fn main() -> ExitCode {
         "preview" => match ui::preview::run(args.get(1).map(PathBuf::from)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("{}", crate::tr!("aperçu : {e}", e = e));
+                eprintln!("{}", hyprdesk::tr!("aperçu : {e}", e = e));
                 ExitCode::FAILURE
             }
         },
@@ -907,7 +660,7 @@ fn main() -> ExitCode {
                 Ok(c) => {
                     println!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "{p0} : ok — {p1} fonds, {p2} bureaux, {p3} icônes, {p4} widgets, {p5} hooks",
                             p0 = p.display(),
                             p1 = c.wallpapers.len(),
@@ -928,7 +681,10 @@ fn main() -> ExitCode {
         "keyboard" => keyboard_cli(&config_path, &args[1..]),
         "init" => match config::ensure_exists(&config_path) {
             Ok(true) => {
-                println!("{}", crate::tr!("écrit : {p0}", p0 = config_path.display()));
+                println!(
+                    "{}",
+                    hyprdesk::tr!("écrit : {p0}", p0 = config_path.display())
+                );
                 install_example_widgets(&config_path);
                 ExitCode::SUCCESS
             }
@@ -936,9 +692,9 @@ fn main() -> ExitCode {
                 println!(
                     "{}",
                     if config_path.exists() {
-                        crate::tr!("existe déjà : {p0}", p0 = config_path.display())
+                        hyprdesk::tr!("existe déjà : {p0}", p0 = config_path.display())
                     } else {
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "configuration déjà en place (Réglages : {p0}) ; hyprdesk.lua, facultatif, n'est pas recréé",
                             p0 = config::lua::settings_path(&config_path).display()
                         )
@@ -959,7 +715,7 @@ fn main() -> ExitCode {
             let p = dir.join("hyprdesk.meta.lua");
             match std::fs::write(&p, stubs()) {
                 Ok(()) => {
-                    println!("{}", crate::tr!("écrit : {p0}", p0 = p.display()));
+                    println!("{}", hyprdesk::tr!("écrit : {p0}", p0 = p.display()));
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
@@ -969,7 +725,11 @@ fn main() -> ExitCode {
             }
         }
         // Écran de verrouillage (ext-session-lock-v1, PAM) : processus à part.
-        "lock" => lock::run(),
+        // Binaire dédié s'il est installé à côté (voir `companion`).
+        "lock" => {
+            companion::exec(companion::LOCK, &companion::forward(&config_path, &[]));
+            lock::run()
+        }
         "chat-mock" => chat::mock(),
         // Lance l'application par défaut d'un rôle (navigateur, terminal, ai…).
         "open" => {
@@ -977,14 +737,14 @@ fn main() -> ExitCode {
                 let all: Vec<&str> = apps::ROLES.iter().map(|r| r.id).collect();
                 eprintln!(
                     "{}",
-                    crate::tr!("hyprdesk open <rôle> : {p0}", p0 = all.join(", "))
+                    hyprdesk::tr!("hyprdesk open <rôle> : {p0}", p0 = all.join(", "))
                 );
                 return ExitCode::FAILURE;
             };
             let cfg = match config::lua::load_file(&config_path) {
                 Ok(l) => l.config,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("configuration : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("configuration : {e}", e = e));
                     return ExitCode::FAILURE;
                 }
             };
@@ -1005,7 +765,7 @@ fn main() -> ExitCode {
                     Err(e) => {
                         eprintln!(
                             "{}",
-                            crate::tr!("lancement de « {cmd} » : {e}", cmd = cmd, e = e)
+                            hyprdesk::tr!("lancement de « {cmd} » : {e}", cmd = cmd, e = e)
                         );
                         ExitCode::FAILURE
                     }
@@ -1013,7 +773,7 @@ fn main() -> ExitCode {
                 None => {
                     eprintln!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "aucune application pour « {p0} » (hyprdesk config set apps.{p1} …)",
                             p0 = r.id,
                             p1 = r.id
@@ -1050,7 +810,7 @@ fn main() -> ExitCode {
                 Ok(m) if scope == share::Scope::Theme => {
                     println!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "{p0} — thème « {p1} », {p2} fond(s)",
                             p0 = out.display(),
                             p1 = m.theme.map(|t| t.name).unwrap_or_default(),
@@ -1062,14 +822,14 @@ fn main() -> ExitCode {
                 Ok(m) => {
                     println!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "{p0} — {p1} fichier(s), {p2} fond(s), {p3} plugin(s){p4}",
                             p0 = out.display(),
                             p1 = m.files.len(),
                             p2 = m.wallpapers.len(),
                             p3 = m.plugins.len(),
                             p4 = if screens {
-                                crate::i18n::tr(", écrans compris")
+                                hyprdesk::i18n::tr(", écrans compris")
                             } else {
                                 ""
                             }
@@ -1078,7 +838,7 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("export : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("export : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1089,7 +849,7 @@ fn main() -> ExitCode {
             let Some(file) = args[1..].iter().find(|a| !a.starts_with("--")) else {
                 eprintln!(
                     "{}",
-                    crate::tr!(
+                    hyprdesk::tr!(
                         "hyprdesk import <archive.tar.gz> [--theme] [--dry-run] [--screens] [--trust-code]"
                     )
                 );
@@ -1113,7 +873,7 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("import : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("import : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1129,7 +889,7 @@ fn main() -> ExitCode {
                 else {
                     eprintln!(
                         "{}",
-                        crate::tr!("hyprdesk theme new <image|pack.zip|dossier> [--name NOM]")
+                        hyprdesk::tr!("hyprdesk theme new <image|pack.zip|dossier> [--name NOM]")
                     );
                     return ExitCode::FAILURE;
                 };
@@ -1143,12 +903,12 @@ fn main() -> ExitCode {
                     Ok((out, warning)) => {
                         println!("{}", out.display());
                         if let Some(w) = warning {
-                            eprintln!("{}", crate::tr!("attention : {w}", w = w));
+                            eprintln!("{}", hyprdesk::tr!("attention : {w}", w = w));
                         }
                         ExitCode::SUCCESS
                     }
                     Err(e) => {
-                        eprintln!("{}", crate::tr!("theme new : {e}", e = e));
+                        eprintln!("{}", hyprdesk::tr!("theme new : {e}", e = e));
                         ExitCode::FAILURE
                     }
                 }
@@ -1161,7 +921,7 @@ fn main() -> ExitCode {
             }
             Some("apply") => {
                 let Some(what) = args.get(2) else {
-                    eprintln!("{}", crate::tr!("hyprdesk theme apply <nom|archive>"));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk theme apply <nom|archive>"));
                     return ExitCode::FAILURE;
                 };
                 let file = theme::library(&config_path)
@@ -1180,7 +940,7 @@ fn main() -> ExitCode {
                         ExitCode::SUCCESS
                     }
                     Err(e) => {
-                        eprintln!("{}", crate::tr!("theme apply : {e}", e = e));
+                        eprintln!("{}", hyprdesk::tr!("theme apply : {e}", e = e));
                         ExitCode::FAILURE
                     }
                 }
@@ -1188,7 +948,7 @@ fn main() -> ExitCode {
             Some(other) => {
                 eprintln!(
                     "{}",
-                    crate::tr!(
+                    hyprdesk::tr!(
                         "« {other} » : hyprdesk theme [list | new <source> | apply <nom>]",
                         other = other
                     )
@@ -1215,7 +975,7 @@ fn main() -> ExitCode {
             let Some(img) = pos.first() else {
                 eprintln!(
                     "{}",
-                    crate::tr!("hyprdesk wallpaper split <image> [dossier] [--scale N]")
+                    hyprdesk::tr!("hyprdesk wallpaper split <image> [dossier] [--scale N]")
                 );
                 return ExitCode::FAILURE;
             };
@@ -1231,7 +991,7 @@ fn main() -> ExitCode {
                         .map(|s| span::physical(s.rect, scale))
                         .collect();
                     if let Some(warn) = span::resolution_warning(w, h, &rects, true) {
-                        eprintln!("{}", crate::tr!("attention : {warn}", warn = warn));
+                        eprintln!("{}", hyprdesk::tr!("attention : {warn}", warn = warn));
                     }
                 }
                 span::split(&img, &screens, &out, scale)
@@ -1244,7 +1004,7 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("wallpaper split : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("wallpaper split : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1253,17 +1013,17 @@ fn main() -> ExitCode {
         // fonction smartui, LYRA par défaut) : sources vidéo et raccourcis.
         // Vidéo seule dans le lecteur du Panorama : détection et plein écran.
         "panorama" if args.get(1).map(String::as_str) == Some("fullscreen") => {
-            let Some((addr, _)) = crate::panorama::video::tagged().into_iter().next() else {
-                eprintln!("{}", crate::i18n::tr("aucun lecteur du Panorama ouvert"));
+            let Some((addr, _)) = hyprdesk::panorama::video::tagged().into_iter().next() else {
+                eprintln!("{}", hyprdesk::i18n::tr("aucun lecteur du Panorama ouvert"));
                 return ExitCode::FAILURE;
             };
-            match crate::panorama::autofull::run(&addr, None) {
+            match hyprdesk::panorama::autofull::run(&addr, None) {
                 Ok(Some(m)) => {
                     println!("{}", m.id());
                     ExitCode::SUCCESS
                 }
                 Ok(None) => {
-                    println!("{}", crate::i18n::tr("déjà en vidéo seule"));
+                    println!("{}", hyprdesk::i18n::tr("déjà en vidéo seule"));
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
@@ -1280,10 +1040,10 @@ fn main() -> ExitCode {
                 .find(|a| !a.starts_with("--"))
                 .map(String::as_str)
                 .unwrap_or("all");
-            let Some(kinds) = crate::panorama::icons::Kind::parse(what) else {
+            let Some(kinds) = hyprdesk::panorama::icons::Kind::parse(what) else {
                 eprintln!(
                     "{}",
-                    crate::i18n::tr(
+                    hyprdesk::i18n::tr(
                         "hyprdesk panorama icons [sources|music|shortcuts|all] [--force]"
                     )
                 );
@@ -1292,14 +1052,14 @@ fn main() -> ExitCode {
             let mut progress = |i: usize, n: usize, name: &str| {
                 println!("{i}/{n} {name}…");
             };
-            match crate::panorama::icons::run(&config_path, &kinds, force, &mut progress) {
+            match hyprdesk::panorama::icons::run(&config_path, &kinds, force, &mut progress) {
                 Ok((done, errors)) => {
                     for e in &errors {
                         eprintln!("{e}");
                     }
                     println!(
                         "{}",
-                        crate::tr!("{n} icône(s) dessinée(s) par SmartUI", n = done)
+                        hyprdesk::tr!("{n} icône(s) dessinée(s) par SmartUI", n = done)
                     );
                     if errors.is_empty() {
                         ExitCode::SUCCESS
@@ -1308,7 +1068,7 @@ fn main() -> ExitCode {
                     }
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk panorama icons : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk panorama icons : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1320,7 +1080,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("{}", crate::tr!("configuration : {e}", e = e));
+                eprintln!("{}", hyprdesk::tr!("configuration : {e}", e = e));
                 ExitCode::FAILURE
             }
         },
@@ -1331,7 +1091,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("{}", crate::tr!("hyprdesk config : {e}", e = e));
+                eprintln!("{}", hyprdesk::tr!("hyprdesk config : {e}", e = e));
                 ExitCode::FAILURE
             }
         },
@@ -1362,15 +1122,15 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk osd : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk osd : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
         }
         // État du lecteur (plugin « lecteur ») ; aucun lecteur : sortie vide.
         "media" if args.get(1).map(String::as_str) == Some("status") => {
-            if let Some(s) = block_on(crate::widgets::media::status()) {
-                print!("{}", crate::widgets::media::status_lines(&s));
+            if let Some(s) = block_on(hyprdesk::widgets::media::status()) {
+                print!("{}", hyprdesk::widgets::media::status_lines(&s));
             }
             ExitCode::SUCCESS
         }
@@ -1380,15 +1140,15 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             };
             let r = block_on(async {
-                let s = crate::widgets::media::status()
+                let s = hyprdesk::widgets::media::status()
                     .await
-                    .ok_or_else(|| crate::i18n::tr("aucun lecteur (MPRIS)").to_string())?;
-                crate::widgets::media::seek(&s.bus, secs).await
+                    .ok_or_else(|| hyprdesk::i18n::tr("aucun lecteur (MPRIS)").to_string())?;
+                hyprdesk::widgets::media::seek(&s.bus, secs).await
             });
             match r {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk media : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1426,7 +1186,7 @@ fn main() -> ExitCode {
                                     }
                                 );
                             } else if line == "dnd=1" {
-                                println!("{}", crate::i18n::tr("Ne pas déranger : activé"));
+                                println!("{}", hyprdesk::i18n::tr("Ne pas déranger : activé"));
                             }
                         }
                         ExitCode::SUCCESS
@@ -1434,7 +1194,7 @@ fn main() -> ExitCode {
                     Err(_) => {
                         eprintln!(
                             "{}",
-                            crate::i18n::tr(
+                            hyprdesk::i18n::tr(
                                 "les notifications sont affichées par un autre démon (wayle, mako…), pas par hyprdesk"
                             )
                         );
@@ -1480,7 +1240,7 @@ fn main() -> ExitCode {
             match hyprpanel_core::ipc::eval(&lua) {
                 Ok(_) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk key : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk key : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1493,15 +1253,33 @@ fn main() -> ExitCode {
             match block_on(osd::media(method)) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk media : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk media : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
         }
-        // Écran de connexion pour greetd, au terminal.
-        "greeter" if args.get(1).is_none() => greeter_ui::run(false, false),
-        "greeter" if args.get(1).map(String::as_str) == Some("--window") => {
-            greeter_ui::run(false, true)
+        // Écran de connexion pour greetd : binaire dédié s'il est là
+        // (`setup`, en root, reste ici).
+        "greeter" if args.get(1).map(String::as_str) != Some("setup") => {
+            let rest: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+            companion::exec(companion::GREETER, &companion::forward(&config_path, &rest));
+            match rest.as_slice() {
+                [] => greeter_ui::run(false, false),
+                ["--window"] => greeter_ui::run(false, true),
+                ["--demo"] => greeter_ui::run(true, false),
+                ["--demo", "--window"] => greeter_ui::run(true, true),
+                ["--tty"] => match greeter::run_tty() {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("{}", hyprdesk::tr!("hyprdesk greeter : {e}", e = e));
+                        ExitCode::FAILURE
+                    }
+                },
+                _ => {
+                    eprintln!("{}", i18n::tr_lines(USAGE));
+                    ExitCode::from(2)
+                }
+            }
         }
         // Mise en place (Réglages → Écran de connexion), en root par pkexec.
         "greeter" if args.get(1).map(String::as_str) == Some("setup") => {
@@ -1511,21 +1289,11 @@ fn main() -> ExitCode {
             ) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk greeter setup : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk greeter setup : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
         }
-        "greeter" if args.get(1).map(String::as_str) == Some("--demo") => {
-            greeter_ui::run(true, args.get(2).map(String::as_str) == Some("--window"))
-        }
-        "greeter" if args.get(1).map(String::as_str) == Some("--tty") => match greeter::run_tty() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", crate::tr!("hyprdesk greeter : {e}", e = e));
-                ExitCode::FAILURE
-            }
-        },
         // Captures et enregistrement de l'écran (hyprshot, wf-recorder).
         "capture" => {
             let action = match capture::parse(&args[1..]) {
@@ -1538,36 +1306,25 @@ fn main() -> ExitCode {
             match capture::run(action) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk capture : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk capture : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
         }
         // Agent polkit de la session, avec sa carte : processus à part, sans
         // Lua, lancé et supervisé par le démon.
-        "polkit-ui" => ui::polkit::run(config_path.clone()),
+        "polkit-ui" => {
+            companion::exec(companion::POLKIT, &companion::forward(&config_path, &[]));
+            ui::polkit::run(config_path.clone())
+        }
         // Agent polkit au terminal : mot de passe demandé ici (comme pkttyagent).
-        "polkit-agent" => block_on(async {
-            let _conn = match polkit::register(std::sync::Arc::new(polkit::TtyPrompter)).await {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!(
-                        "{}",
-                        crate::tr!(
-                            "hyprdesk polkit-agent : enregistrement refusé ({e}) — un autre agent est-il déjà en place ?",
-                            e = e
-                        )
-                    );
-                    return ExitCode::FAILURE;
-                }
-            };
-            eprintln!(
-                "{}",
-                crate::i18n::tr("Agent polkit en place (Ctrl+C pour l'arrêter).")
+        "polkit-agent" => {
+            companion::exec(
+                companion::POLKIT,
+                &companion::forward(&config_path, &["--tty"]),
             );
-            let _ = tokio::signal::ctrl_c().await;
-            ExitCode::SUCCESS
-        }),
+            polkit::tty_agent()
+        }
         // GPU NVIDIA réservé aux VM : bascule vfio-pci ⇄ nvidia (MLG-162).
         "gpu" => gpu::cli(&args[1..]),
         // Mises à jour en attente, et mise à jour non interactive.
@@ -1585,15 +1342,15 @@ fn main() -> ExitCode {
                 };
                 return match updates::set_polkit_keep(on) {
                     Ok(()) => {
-                        crate::hypr::notify(
+                        hyprdesk::hypr::notify(
                             1,
                             5000,
                             if on {
-                                crate::i18n::tr(
+                                hyprdesk::i18n::tr(
                                     "hyprdesk : un seul mot de passe par mise à jour (5 min)",
                                 )
                             } else {
-                                crate::i18n::tr(
+                                hyprdesk::i18n::tr(
                                     "hyprdesk : mot de passe demandé à chaque étape de mise à jour",
                                 )
                             },
@@ -1608,7 +1365,10 @@ fn main() -> ExitCode {
             }
             let sources = updates::configured_sources(&config_path);
             if sources.is_empty() {
-                eprintln!("{}", crate::i18n::tr("aucune source de paquets reconnue"));
+                eprintln!(
+                    "{}",
+                    hyprdesk::i18n::tr("aucune source de paquets reconnue")
+                );
                 return ExitCode::FAILURE;
             }
             match args.get(1).map(String::as_str) {
@@ -1639,7 +1399,7 @@ fn main() -> ExitCode {
                         Err(_) => {
                             eprintln!(
                                 "{}",
-                                crate::i18n::tr("aucun échec de mise à jour enregistré")
+                                hyprdesk::i18n::tr("aucun échec de mise à jour enregistré")
                             );
                             ExitCode::FAILURE
                         }
@@ -1649,14 +1409,14 @@ fn main() -> ExitCode {
             }
             let pending = block_on(updates::check(&sources));
             for p in &pending {
-                println!("{} : {}", crate::i18n::tr(p.label), p.packages.len());
+                println!("{} : {}", hyprdesk::i18n::tr(p.label), p.packages.len());
                 for name in p.packages.iter().take(30) {
                     println!("  {name}");
                 }
             }
             println!(
                 "{}",
-                crate::tr!(
+                hyprdesk::tr!(
                     "{n} paquet(s) à mettre à jour",
                     n = updates::total(&pending)
                 )
@@ -1674,12 +1434,12 @@ fn main() -> ExitCode {
                         Ok(Some(b)) => {
                             println!(
                                 "{}",
-                                crate::tr!("binds.lua régénéré ; copie : {b}", b = b.display())
+                                hyprdesk::tr!("binds.lua régénéré ; copie : {b}", b = b.display())
                             );
                             ExitCode::SUCCESS
                         }
                         Ok(None) => {
-                            println!("{}", crate::i18n::tr("binds.lua déjà à jour"));
+                            println!("{}", hyprdesk::i18n::tr("binds.lua déjà à jour"));
                             ExitCode::SUCCESS
                         }
                         Err(e) => {
@@ -1711,7 +1471,10 @@ fn main() -> ExitCode {
                 };
                 return match binds_file::sync_hyprdesk(&config_path, &cfg, dry) {
                     Ok(done) if done.is_empty() => {
-                        println!("{}", crate::tr!("binds.lua est en accord avec hyprdesk."));
+                        println!(
+                            "{}",
+                            hyprdesk::tr!("binds.lua est en accord avec hyprdesk.")
+                        );
                         ExitCode::SUCCESS
                     }
                     Ok(done) => {
@@ -1731,7 +1494,7 @@ fn main() -> ExitCode {
                     Ok(Some(d)) => {
                         println!(
                             "{}",
-                            crate::tr!(
+                            hyprdesk::tr!(
                                 "{n} raccourci(s) déplacé(s) vers binds.lua ; copie : {b}",
                                 n = d.moved,
                                 b = d.backup.display()
@@ -1742,7 +1505,7 @@ fn main() -> ExitCode {
                     Ok(None) => {
                         println!(
                             "{}",
-                            crate::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
+                            hyprdesk::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
                         );
                         ExitCode::SUCCESS
                     }
@@ -1759,7 +1522,7 @@ fn main() -> ExitCode {
                 Some(s) => {
                     println!(
                         "{}",
-                        crate::tr!(
+                        hyprdesk::tr!(
                             "{n} raccourci(s) à déplacer vers binds.lua ; locales déplacées : {t} ; copiées : {c}",
                             n = s.moved,
                             t = if s.taken.is_empty() {
@@ -1779,7 +1542,7 @@ fn main() -> ExitCode {
                 }
                 None => println!(
                     "{}",
-                    crate::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
+                    hyprdesk::i18n::tr("hyprland.lua n'a plus de raccourci à déplacer.")
                 ),
             }
             ExitCode::SUCCESS
@@ -1795,7 +1558,7 @@ fn main() -> ExitCode {
             };
             let keys = &cfg.general.keys;
             let source = keymap::load_source(&config_path);
-            let layouts = crate::tiling::in_use(&cfg.general.tiling);
+            let layouts = hyprdesk::tiling::in_use(&cfg.general.tiling);
             match hypr::key_report(keys, cfg.general.apps_launcher.unified, &source, &layouts) {
                 Ok(r) => {
                     print!("{}", keymap::text_report(keys, &r));
@@ -1806,7 +1569,7 @@ fn main() -> ExitCode {
                     }
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("Hyprland injoignable : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("Hyprland injoignable : {e}", e = e));
                     ExitCode::FAILURE
                 }
             }
@@ -1855,14 +1618,14 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("{}", crate::tr!("hyprdesk : {e}", e = e));
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk : {e}", e = e));
                     ExitCode::FAILURE
                 }
             },
             None => {
                 eprintln!(
                     "{}\n\n{}",
-                    crate::tr!("commande inconnue : {other}", other = other),
+                    hyprdesk::tr!("commande inconnue : {other}", other = other),
                     i18n::tr_lines(USAGE)
                 );
                 ExitCode::from(2)

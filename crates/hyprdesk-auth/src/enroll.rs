@@ -11,7 +11,7 @@
 //! une étape par passage du doigt, jusqu'à « enroll-completed » ;
 //! EnrollStop et Release dans tous les cas, annulation comprise.
 
-use iced::futures::{SinkExt, Stream, StreamExt};
+use futures::{SinkExt, Stream, StreamExt};
 
 use super::fprint::{DEST, DEVICE_IFACE, device};
 
@@ -164,20 +164,21 @@ pub fn enroll(
     finger: String,
     cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> impl Stream<Item = Progress> {
-    iced::stream::channel(
-        8,
-        async move |mut out: iced::futures::channel::mpsc::Sender<Progress>| {
-            let end = run(&user, &finger, cancel, &mut out).await;
-            let _ = out.send(end).await;
-        },
-    )
+    // Comme `iced::stream::channel` : les envois de `run`, puis la fin.
+    let (mut out, receiver) = futures::channel::mpsc::channel(8);
+    let runner = futures::stream::once(async move {
+        let end = run(&user, &finger, cancel, &mut out).await;
+        let _ = out.send(end).await;
+    })
+    .filter_map(|()| async { None });
+    futures::stream::select(receiver, runner)
 }
 
 async fn run(
     user: &str,
     finger: &str,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
-    out: &mut iced::futures::channel::mpsc::Sender<Progress>,
+    out: &mut futures::channel::mpsc::Sender<Progress>,
 ) -> Progress {
     let unavailable =
         || Progress::Failed(crate::i18n::tr("Aucun lecteur d'empreintes détecté.").to_string());

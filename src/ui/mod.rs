@@ -34,6 +34,7 @@ pub(crate) mod plugins;
 pub mod polkit;
 pub mod preview;
 mod problem;
+mod key_conflict;
 mod screens_off;
 mod search;
 mod settings_search;
@@ -260,6 +261,8 @@ pub enum Msg {
     Toasts(toasts::TMsg),
     /// Fenêtre de détail d'un problème.
     Problem(problem::PrMsg),
+    /// Conflits de raccourcis posés en question (MLG-209).
+    KeyConflict(key_conflict::KcMsg),
     /// Assistant de configuration.
     Wizard(wizard::WMsg),
     /// Lanceur avec recherche.
@@ -473,6 +476,12 @@ pub struct App {
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
     problem: Option<problem::Problem>,
+    /// Conflits de raccourcis en question (installation, remise à zéro).
+    key_conflict: Option<key_conflict::KeyConflict>,
+    /// « Plus tard » : la question ne revient qu'au prochain démarrage.
+    key_conflict_later: bool,
+    /// Fenêtre de la visite guidée (au-dessus de tout), pendant la visite.
+    tour_win: Option<Id>,
     /// Assistant de configuration ouvert.
     wizard: Option<wizard::Wizard>,
     /// Lanceur avec recherche ouvert.
@@ -998,6 +1007,9 @@ impl App {
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
+            key_conflict: None,
+            key_conflict_later: false,
+            tour_win: None,
             wizard: None,
             search: None,
             icon_menu: None,
@@ -1201,6 +1213,11 @@ impl App {
             || old.catalog.is_empty()
         {
             tasks.push(self.install_keys());
+        } else if !crate::config::keys_answers_path(&self.config_path).exists() {
+            // Remise à zéro sans changement de raccourcis : les réponses sont
+            // effacées, les conflits du dernier relevé sont redemandés (MLG-209).
+            self.key_conflict_later = false;
+            tasks.push(self.review_key_conflicts());
         }
         if o.workspaces != n.workspaces
             || o.workspace_monitors != n.workspace_monitors
@@ -2526,6 +2543,13 @@ impl App {
 
     fn close_panel(&mut self) -> Task<Msg> {
         self.bar_drag = None;
+        // Visite en cours : sa fenêtre part avec le tiroir (elle reste à voir).
+        if let Some(w) = self.tour_win.take() {
+            if let Some(p) = self.panel.as_mut() {
+                p.tour = None;
+            }
+            return Task::batch([iced::window::close(w), self.close_panel()]);
+        }
         // Capture en cours : Hyprland retrouve ses raccourcis.
         let end = if self
             .panel
@@ -4115,10 +4139,19 @@ impl App {
                 match r {
                     Ok(report) => {
                         // Conflits nouveaux : dits une fois, à l'installation.
+                        // Ceux avec Hyprland passent par la fenêtre (question,
+                        // ou réponse déjà donnée) : pas de notification en plus.
                         let fresh: Vec<String> = report
                             .issues
                             .iter()
                             .filter(|i| !self.key_report.issues.contains(i))
+                            .map(|i| i.message())
+                            .collect();
+                        let notify: Vec<String> = report
+                            .issues
+                            .iter()
+                            .filter(|i| !self.key_report.issues.contains(i))
+                            .filter(|i| matches!(i.kind, crate::keymap::Kind::Duplicate(_)))
                             .map(|i| i.message())
                             .collect();
                         if !fresh.is_empty() {
@@ -4126,16 +4159,19 @@ impl App {
                                 "{}",
                                 crate::tr!("raccourcis en conflit : {p0}", p0 = fresh.join(" ; "))
                             );
-                            hypr::notify(
-                                0,
-                                10000,
-                                &crate::tr!(
-                                    "hyprdesk : raccourcis en conflit (Réglages → Raccourcis, ou hyprdesk keys) — {p0}",
-                                    p0 = fresh.join(" ; ")
-                                ),
-                            );
+                            if !notify.is_empty() {
+                                hypr::notify(
+                                    0,
+                                    10000,
+                                    &crate::tr!(
+                                        "hyprdesk : raccourcis en conflit (Réglages → Raccourcis, ou hyprdesk keys) — {p0}",
+                                        p0 = notify.join(" ; ")
+                                    ),
+                                );
+                            }
                         }
                         self.key_report = report;
+                        return self.review_key_conflicts();
                     }
                     Err(e) => tracing::warn!("{}", crate::tr!("raccourcis : {e}", e = e)),
                 }
@@ -4439,6 +4475,7 @@ impl App {
             Msg::MymfaF(m) => self.mfa_fenetre_update(m),
             Msg::Toasts(m) => self.toasts_update(m),
             Msg::Problem(m) => self.problem_update(m),
+            Msg::KeyConflict(m) => self.key_conflict_update(m),
             Msg::Wizard(m) => self.wizard_update(m),
             Msg::Search(m) => self.search_update(m),
             Msg::HyprSet(m) => self.hyprset_update(m),
@@ -4947,6 +4984,14 @@ impl App {
                     self.problem = None;
                     return Task::none();
                 }
+                if self.key_conflict.as_ref().is_some_and(|k| k.win == id) {
+                    self.key_conflict = None;
+                    return Task::none();
+                }
+                if self.tour_win == Some(id) {
+                    self.tour_win = None;
+                    return Task::none();
+                }
                 if self.wizard.as_ref().is_some_and(|w| w.win == id) {
                     self.wizard = None;
                     return Task::none();
@@ -5403,6 +5448,26 @@ impl App {
                 },
             ));
         }
+        // Conflits de raccourcis : capture d'une autre combinaison (MLG-209).
+        if self
+            .key_conflict
+            .as_ref()
+            .is_some_and(|k| k.capture.is_some())
+        {
+            subs.push(iced::event::listen_with(|e, _, _| match e {
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    physical_key,
+                    modifiers,
+                    ..
+                }) => Some(Msg::KeyConflict(key_conflict::KcMsg::CaptureKey(
+                    key,
+                    physical_key,
+                    modifiers,
+                ))),
+                _ => None,
+            }));
+        }
         // Capture d'un raccourci : chaque touche, sans modificateurs appliqués.
         if self
             .panel
@@ -5560,6 +5625,12 @@ impl App {
         }
         if self.problem.as_ref().is_some_and(|p| p.win == id) {
             return self.view_problem();
+        }
+        if self.key_conflict.as_ref().is_some_and(|k| k.win == id) {
+            return self.view_key_conflict();
+        }
+        if self.tour_win == Some(id) {
+            return self.view_tour();
         }
         if self.wizard.as_ref().is_some_and(|w| w.win == id) {
             return self.view_wizard();

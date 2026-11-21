@@ -151,6 +151,7 @@ dans `~/.cargo` si la Rust du système est trop ancienne.
 | `--lyra` / `--no-lyra` | installe l'assistante LYRA, ou non (non, sauf demandée ; gardée si déjà là) |
 | `--mymfa` / `--no-mymfa` | installe le trousseau myMFA, l'intégration Secret Service et le module PAM, ou non (non, sauf demandé ; gardé si déjà là) |
 | `--no-hyprbars` | passe le plugin de barres de titre Hyprbars |
+| `--fingerprint` / `--no-fingerprint` | lecteur d'empreintes détecté (par défaut : oui) : installe fprintd, déverrouille au doigt, propose d'enregistrer un doigt |
 | `--from-source` | compile hyprdesk depuis ce dépôt au lieu d'installer la release (ce que fait `scripts/install_nightly_build.sh`) |
 | `--no-deps` | gérez les prérequis vous-même ; `scripts/deps.sh --dry-run` les vérifie |
 | `--no-autostart` | passe l'entrée de démarrage de Hyprland |
@@ -173,7 +174,19 @@ choisit les icônes ASCII.
 ```bash
 ./scripts/uninstall.sh --dry-run   # ce qui changerait, sans rien toucher
 ./scripts/uninstall.sh             # récapitulatif, confirmation, puis désinstallation
+./scripts/uninstall.sh --restore   # tout remettre exactement comme avant hyprdesk
 ```
+
+**Essayer hyprdesk est sans conséquence.** Avant toute modification,
+`install.sh` garde une fois pour toutes l'état d'origine dans
+`~/.local/state/hyprdesk/origine/` : les fichiers qu'il peut toucher
+(`~/.config/hypr`, kitty, GTK, applications par défaut, services utilisateur
+activés, masqués ou lancés), les fichiers système (écran de connexion, PAM,
+clavier, polkit, GPU) et les paquets qu'il installe. `--restore` remet le tout ;
+ce qui est apparu depuis est rangé dans `~/hyprdesk-avant-restauration-<date>/`,
+jamais effacé. Les paquets installés pour hyprdesk sont proposés au retrait
+(`--remove-packages` : sans question). Une mise à jour de Hyprland faite à
+l'installation n'est pas défaite.
 
 Le script rend l'écran de connexion d'avant si hyprdesk l'avait remplacé,
 retire le service, le binaire et la police, et ôte ses lignes de

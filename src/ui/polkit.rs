@@ -655,12 +655,10 @@ pub fn run(config_path: std::path::PathBuf) -> std::process::ExitCode {
 
 /// Composant de session du démon : l'agent, relancé s'il s'arrête.
 pub fn component() -> crate::config::ComponentDef {
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "hyprdesk".into());
+    // `hyprdesk-polkit` s'il est installé à côté, sinon `hyprdesk polkit-ui`.
     crate::config::ComponentDef {
         name: COMPONENT.into(),
-        exec: format!("'{}' polkit-ui", exe.replace('\'', "'\\''")),
+        exec: crate::companion::command(crate::companion::POLKIT, "polkit-ui"),
         restart: true,
     }
 }

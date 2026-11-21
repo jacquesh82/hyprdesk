@@ -118,7 +118,7 @@ const KEY_LABELS: &[(usize, &str)] = &[
 ];
 
 /// Case de `State::keys` d'une clé de configuration (`keys.toggle`).
-fn key_index(key: &str) -> Option<usize> {
+pub(in crate::ui) fn key_index(key: &str) -> Option<usize> {
     Some(match key {
         "keys.toggle" => 0,
         "keys.settings" => 1,
@@ -438,7 +438,7 @@ pub fn combo_of(key: &Key, physical: &Physical, mods: Modifiers) -> Result<Optio
 type StateTest = fn(&Ess) -> bool;
 
 /// Change la submap de Hyprland, hors du fil de l'interface.
-fn submap_task(name: Option<&'static str>) -> Task<UiMsg> {
+pub(in crate::ui) fn submap_task(name: Option<&'static str>) -> Task<UiMsg> {
     Task::perform(
         async move {
             let _ = tokio::task::spawn_blocking(move || crate::hypr::set_submap(name)).await;
@@ -537,7 +537,7 @@ impl App {
     }
 
     /// Raccourci de hyprdesk : combinaison réglée (`None` : par défaut).
-    fn set_key(&mut self, i: usize, v: Option<String>) {
+    pub(in crate::ui) fn set_key(&mut self, i: usize, v: Option<String>) {
         if let Some(p) = self.panel.as_mut()
             && let Some(slot) = p.keys.keys.get_mut(i)
         {
@@ -836,10 +836,10 @@ impl App {
                         s.capture = Some(Target::Bind(*n, c.clone()));
                         s.deletable = true;
                     } else {
-                        s.note = Some(
-                            crate::i18n::tr("Dans hyprland.lua : hyprdesk n'y touche pas.")
-                                .to_string(),
-                        );
+                        s.note = Some(crate::tr!(
+                            "Dans {f} : hyprdesk n'y touche pas.",
+                            f = f.as_str()
+                        ));
                     }
                 }
             }

@@ -7,14 +7,48 @@ license = "GPL-3.0-or-later"
 description = "Bureau à la demande pour Hyprland : fond d'écran, icônes et widgets par workspace, configuré en Lua"
 repository = "https://github.com/jacquesh82/hyprdesk"
 publish = false
+default-run = "hyprdesk"
+
+# Une bibliothèque, plusieurs binaires : chacun ne lie que ce qu'il atteint.
+# L'écran de verrouillage, l'écran de connexion et l'agent polkit (code
+# d'authentification) n'embarquent ni le démon, ni Lua, ni l'index.
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "hyprdesk"
+path = "src/main.rs"
+
+[[bin]]
+name = "hyprdesk-lock"
+path = "src/bin/hyprdesk-lock.rs"
+
+[[bin]]
+name = "hyprdesk-greeter"
+path = "src/bin/hyprdesk-greeter.rs"
+
+[[bin]]
+name = "hyprdesk-polkit"
+path = "src/bin/hyprdesk-polkit.rs"
+
+[workspace]
+# Crates du dépôt ; vendor/ reste hors de l'espace de travail (copies
+# vérifiées de crates.io, branchées par [patch.crates-io]).
+members = ["crates/hyprdesk-i18n", "crates/hyprdesk-auth"]
+exclude = ["vendor"]
 
 [dependencies]
+# Langue et authentification, en crates à part (voir crates/).
+hyprdesk-i18n = { path = "crates/hyprdesk-i18n" }
+hyprdesk-auth = { path = "crates/hyprdesk-auth" }
 # Couple iced / iced_layershell : iced_layershell 0.19 suit iced 0.14.
 # winit-core est épinglé en 0.31.0-beta.2 dans Cargo.lock : la beta.4 casse
 # iced_exdevtools (énumération NativeKeyCode devenue non exhaustive).
 iced_layershell = "0.19.1"
 # Écran de verrouillage (ext-session-lock-v1), même famille que iced_layershell.
 iced_sessionlock = "0.19.1"
+sessionlockev = "0.19.1"
 # Liaison PAM écrite à la main (src/lock/pam.rs).
 libc = "0.2"
 # Couleurs par écran : tables gamma (wlr-gamma-control), mêmes versions que layershellev.
@@ -61,3 +95,23 @@ iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 # Écran de verrouillage noir au réveil : la surface n'était jamais
 # reconfigurée après un échec de présentation (MLG-175).
 iced_sessionlock = { path = "vendor/iced_sessionlock" }
+# Verrou refusé par le compositeur (`finished`) : sortir au lieu d'attendre
+# pour toujours en gardant le verrou d'instance (session jamais reverrouillée).
+sessionlockev = { path = "vendor/sessionlockev" }
+
+[dev-dependencies]
+# Tests : langue source figée (ils lisent des textes français).
+hyprdesk-i18n = { path = "crates/hyprdesk-i18n", features = ["fixed-lang"] }
+
+# Binaires sans table de symboles : 88 → 69 Mo pour hyprdesk, sans coût de
+# compilation (les paquets les strippaient déjà). Les traces de panique
+# perdent les noms de fonctions.
+[profile.release]
+strip = "symbols"
+
+# Paquets (scripts/package.sh, PKGBUILD) : LTO complet, une seule unité de
+# compilation (environ −25 % ; compilation bien plus longue).
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

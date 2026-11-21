@@ -8,6 +8,34 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **Dedicated binaries for authentication.** The lock screen
+  (`hyprdesk-lock`), the login screen (`hyprdesk-greeter`) and the polkit
+  agent (`hyprdesk-polkit`) are now separate executables installed next to
+  `hyprdesk`. Each one only links its own code: no daemon, no Lua, no file
+  index (about 27–32 MB stripped instead of 69 MB). PAM and fprintd code
+  lives in the `hyprdesk-auth` crate and translations in `hyprdesk-i18n`,
+  neither of which depends on iced or Lua. `hyprdesk lock`,
+  `hyprdesk greeter` and `hyprdesk polkit-ui` keep working: they hand over
+  to the dedicated binary when it is installed, and run in-process
+  otherwise. hypridle, the lid action, the polkit component and the greetd
+  configuration launch the dedicated binaries directly; the greeter binary
+  must pass the same root-ownership check as `hyprdesk`.
+
+### Fixed
+
+- **Lock screen killed when hyprdesk restarts.** Started by hypridle, the
+  lock screen lived in `hyprdesk.service`'s cgroup: an update or a restart of
+  the service killed it, leaving Hyprland locked with no way to unlock (seen
+  on wake-up). It now moves into its own systemd scope
+  (`hyprdesk-lock-<pid>.scope`).
+- **Lock screen waiting forever after a refused lock.** When Hyprland
+  refused the lock (`ext_session_lock_v1.finished`), `hyprdesk lock` kept
+  running without locking and held its instance lock, so the session could
+  never be locked again. The event is now handled (vendored `sessionlockev`)
+  and the process exits.
+
 ## [0.1.8] - 2026-11-21
 
 Composable Panorama, `binds.lua` managed by hyprdesk, fingerprints from

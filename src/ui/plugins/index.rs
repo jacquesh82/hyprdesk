@@ -507,17 +507,19 @@ impl App {
         );
 
         // — Démarrage —
-        col = col.push(self.field(
-            "Lancer l'index avec hyprdesk",
-            "index_autostart",
-            toggler(self.cfg.general.index_autostart).on_toggle(|v| wrap(Msg::Autostart(v))),
-        ));
-        col = col.push(
+        // Quand démarre le démon d'index : avancé.
+        col = col.push(self.adv(column![
+            self.field(
+                "Lancer l'index avec hyprdesk",
+                "index_autostart",
+                toggler(self.cfg.general.index_autostart).on_toggle(|v| wrap(Msg::Autostart(v))),
+            ),
             text("Désactivé : le démon démarre à la première recherche « :f ».")
                 .font(self.font)
                 .size(12)
                 .color(dim),
-        );
+        ]
+        .spacing(8)));
 
         // — Rescan —
         col = col.push(

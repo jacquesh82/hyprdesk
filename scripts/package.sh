@@ -5,7 +5,7 @@
 #   scripts/package.sh                 les trois
 #   scripts/package.sh deb rpm         seulement ceux-là
 #   scripts/package.sh --release 2     itération du paquet (défaut : 1)
-#   scripts/package.sh --no-build      réutilise target/release/hyprdesk
+#   scripts/package.sh --no-build      réutilise target/dist/hyprdesk (profil dist : LTO complet)
 #   MAINTAINER="Nom <mail>" scripts/package.sh   (défaut : Jacques HULLU)
 #
 # Un seul outil, nfpm, produit les trois formats depuis packaging/nfpm.yaml.in :
@@ -57,9 +57,9 @@ if [ "$BUILD" = 1 ]; then
     source scripts/deps.sh
     hyprdesk_deps
     echo "== build release"
-    cargo build --release --locked
+    cargo build --profile dist --locked
 fi
-BIN="${CARGO_TARGET_DIR:-target}/release/hyprdesk"
+BIN="${CARGO_TARGET_DIR:-target}/dist/hyprdesk"
 [ -x "$BIN" ] || { echo "$BIN absent : lancer sans --no-build" >&2; exit 1; }
 
 # Version minimale de la glibc : la plus haute version de symbole GLIBC_x.y requise.
@@ -73,6 +73,12 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/usr/bin" "$STAGE/usr/lib/systemd/user"
 install -m755 "$BIN" "$STAGE/usr/bin/hyprdesk"
 strip --strip-unneeded "$STAGE/usr/bin/hyprdesk" 2>/dev/null || true
+# Binaires dédiés : écran de verrouillage, écran de connexion, agent polkit.
+for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit; do
+    [ -x "$(dirname "$BIN")/$b" ] || { echo "$(dirname "$BIN")/$b absent : lancer sans --no-build" >&2; exit 1; }
+    install -m755 "$(dirname "$BIN")/$b" "$STAGE/usr/bin/$b"
+    strip --strip-unneeded "$STAGE/usr/bin/$b" 2>/dev/null || true
+done
 sed -e 's#%h/\.local/bin/hyprdesk#/usr/bin/hyprdesk#' \
     -e 's#déposée par scripts/install.sh#installée par le paquet hyprdesk#' \
     -e 's#(qui précise WAYLAND_DISPLAY détecté)\.#(environnement de session : systemctl --user import-environment).#' \

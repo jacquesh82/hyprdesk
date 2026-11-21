@@ -1,0 +1,19 @@
+[package]
+name = "hyprdesk-auth"
+version = "0.1.8"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+description = "Authentification de hyprdesk : PAM, fprintd"
+publish = false
+
+[dependencies]
+hyprdesk-i18n = { path = "../hyprdesk-i18n" }
+libc = "0.2"
+zeroize = "1.9.1"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["sync", "macros", "rt", "time"] }
+futures = "0.3"
+
+[dev-dependencies]
+hyprdesk-i18n = { path = "../hyprdesk-i18n", features = ["fixed-lang"] }

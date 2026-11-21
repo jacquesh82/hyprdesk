@@ -9,7 +9,7 @@
 //! « verify-match » déverrouille ; un échec relance la vérification
 //! (trois essais) ; VerifyStop et Release dans tous les cas.
 
-use iced::futures::StreamExt;
+use futures::StreamExt;
 
 pub(super) const DEST: &str = "net.reactivated.Fprint";
 const MANAGER: &str = "/net/reactivated/Fprint/Manager";

@@ -113,8 +113,19 @@ hyprdesk_root_bin() {
 # Compilation depuis le dépôt : le binaire construit, installé en root dans
 # /usr/local/bin avant tout appel en root (qui vise alors cette copie).
 hyprdesk_root_install_build() {
-    hyprdesk_root install -o root -g root -m0755 "$1" /usr/local/bin/hyprdesk
+    hyprdesk_root install -o root -g root -m0755 "$1" /usr/local/bin/hyprdesk || return 1
+    # Écran de connexion en binaire dédié (lancé par greetd), s'il a été
+    # construit à côté : même copie root.
+    local greeter
+    greeter="$(dirname -- "$1")/hyprdesk-greeter"
+    [[ ! -x "$greeter" ]] \
+        || hyprdesk_root install -o root -g root -m0755 "$greeter" /usr/local/bin/hyprdesk-greeter
 }
+
+# Binaires dédiés installés à côté de hyprdesk : écran de verrouillage,
+# écran de connexion, agent polkit (chacun ne lie que son code).
+# shellcheck disable=SC2034 # lue par les scripts qui sourcent celui-ci
+HYPRDESK_COMPANIONS=(hyprdesk-lock hyprdesk-greeter hyprdesk-polkit)
 
 # hyprdesk_check_commit <dossier> <commit attendu> <nom> (MLG-154) : la copie
 # git est-elle au commit épinglé par scripts/versions.sh ? Commit attendu vide
@@ -146,8 +157,36 @@ hyprdesk_versions_get() {
     printf '%s' "$v"
 }
 
+# Lecteur d'empreintes digitales (MLG-214) : son nom s'il y en a un, rien sinon.
+# fprintd présent : ce qu'il voit. Sinon, les périphériques USB : un fabricant
+# de lecteurs connu (Goodix, Validity, Upek, Egis, FPC, Focaltech, AuthenTec…),
+# ou un nom de produit qui le dit (Synaptics et Elan font aussi des pavés).
+hyprdesk_fingerprint_reader() {
+    local d v p name
+    if command -v fprintd-list >/dev/null 2>&1; then
+        name="$(fprintd-list "${USER:-$(id -un)}" 2>/dev/null | sed -n 's/^Fingerprints for user .* on \(.*\) (.*$/\1/p' | head -1)"
+        [ -n "$name" ] && { printf '%s' "$name"; return 0; }
+    fi
+    for d in /sys/bus/usb/devices/*; do
+        [ -r "$d/idVendor" ] || continue
+        v="$(cat "$d/idVendor" 2>/dev/null)"
+        p="$(cat "$d/product" 2>/dev/null)"
+        case "$v" in
+            27c6|138a|147e|1c7a|298d|10a5|2808|08ff|2541)
+                printf '%s' "${p:-$(hyprdesk_t "lecteur d'empreintes" "fingerprint reader") ($v)}"; return 0 ;;
+            06cb|04f3|0483)
+                case "$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]')" in
+                    *finger*|*fprint*|*prometheus*|*biometric*) printf '%s' "$p"; return 0 ;;
+                esac ;;
+        esac
+    done
+    return 1
+}
+
 hyprdesk_install_packages() {
     local pm="$1"; shift
+    # Notés dans l'état d'origine : uninstall.sh --restore propose de les retirer.
+    if command -v origine_note_pkgs >/dev/null 2>&1; then origine_note_pkgs "$@"; fi
     case "$pm" in
         pacman) hyprdesk_root pacman -S --needed --noconfirm "$@" ;;
         apt-get) hyprdesk_root apt-get update -qq && hyprdesk_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null ;;

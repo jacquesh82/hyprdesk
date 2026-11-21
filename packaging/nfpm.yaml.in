@@ -21,6 +21,19 @@ contents:
     dst: /usr/bin/hyprdesk
     file_info:
       mode: 0755
+  # Binaires dédiés : écran de verrouillage, écran de connexion, agent polkit.
+  - src: "@STAGE@/usr/bin/hyprdesk-lock"
+    dst: /usr/bin/hyprdesk-lock
+    file_info:
+      mode: 0755
+  - src: "@STAGE@/usr/bin/hyprdesk-greeter"
+    dst: /usr/bin/hyprdesk-greeter
+    file_info:
+      mode: 0755
+  - src: "@STAGE@/usr/bin/hyprdesk-polkit"
+    dst: /usr/bin/hyprdesk-polkit
+    file_info:
+      mode: 0755
   # Unit systemd utilisateur : ExecStart sur /usr/bin (la version de
   # scripts/install.sh vise ~/.local/bin).
   - src: "@STAGE@/usr/lib/systemd/user/hyprdesk.service"

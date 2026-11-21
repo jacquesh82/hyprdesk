@@ -538,7 +538,8 @@ impl App {
             } else {
                 keep.on_toggle(|v| wrap(Msg::PolkitKeep(v)))
             };
-            col = col.push(
+            // Règle polkit posée dans /etc : avancé.
+            col = col.push(self.adv(column![
                 row![
                     text(crate::i18n::tr("Un seul mot de passe par mise à jour"))
                         .font(self.font)
@@ -548,8 +549,6 @@ impl App {
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
-            );
-            col = col.push(
                 text(crate::i18n::tr(
                     "Règle polkit : pendant 5 minutes, les étapes d'une même mise à jour \
                      (pacman, apt-get, dnf, zypper, appelés par pkexec, aussi par yay ou paru) \
@@ -559,7 +558,8 @@ impl App {
                 .font(self.font)
                 .size(12)
                 .color(dim),
-            );
+            ]
+            .spacing(8)));
             col = col.push(
                 text(crate::i18n::tr("Commandes utilisées"))
                     .font(self.title_font())

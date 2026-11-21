@@ -198,7 +198,17 @@ $(t "  1. Langue                  ✔
 
 $(t "Rien n'est modifié avant votre confirmation à l'étape 5. À la fin, un bilan
 dit ce qui marche et ce qu'il reste à faire." "Nothing is changed before you confirm at step 5. At the end, a report
-says what works and what is left to do.")"
+says what works and what is left to do.")
+
+$(t "Essai sans risque : avant de toucher à quoi que ce soit, l'installation
+sauvegarde l'état actuel (configuration Hyprland, thèmes, applications par
+défaut, services, écran de connexion, paquets ajoutés). Pour revenir en
+arrière, à tout moment :
+  ./scripts/uninstall.sh --restore    tout remis comme avant hyprdesk" \
+"Risk-free trial: before touching anything, the install backs up the current
+state (Hyprland configuration, themes, default applications, services, login
+screen, added packages). To go back, at any time:
+  ./scripts/uninstall.sh --restore    everything put back as before hyprdesk")"
 PREFLIGHT=0
 REPORT=""
 if [[ "$TUI" == 1 ]]; then
@@ -332,10 +342,18 @@ HYPRBARS_STATE=""
 for f in /var/cache/hyprpm/"$USER"/hyprland-plugins/hyprbars.so /usr/lib/hyprland/plugins/hyprbars.so; do
     [[ -f "$f" ]] && { HYPRBARS_ITEM=(); HYPRBARS_STATE="$(t "déjà installé" "already installed")"; break; }
 done
+# Empreinte : proposée (cochée) seulement si un lecteur est détecté.
+FP_ITEM=()
+FP_STATE="$(t "aucun lecteur détecté" "no reader detected")"
+FP_NAME="$(hyprdesk_fingerprint_reader 2>/dev/null || true)"
+if [[ -n "$FP_NAME" ]]; then
+    FP_ITEM=(fingerprint "$(t "Déverrouiller au doigt ($FP_NAME : installe fprintd, enregistre un doigt)" "Unlock with a finger ($FP_NAME: installs fprintd, enrolls a finger)")" on)
+fi
 OPTIONS="$(checklist "$(t "Options à activer (espace : cocher, Entrée : suivant)" "Options to enable (space: toggle, Enter: next)")" \
     "${LYRA_ITEM[@]}" \
     "${MYMFA_ITEM[@]}" \
     "${HYPRBARS_ITEM[@]}" \
+    "${FP_ITEM[@]}" \
     deps "$(t "Installer les prérequis manquants (paquets, Rust récente)" "Install missing prerequisites (packages, recent Rust)")" on \
     autostart "$(t "Démarrer hyprdesk à la connexion" "Start hyprdesk at login")" on \
     lockkey "$(t "SUPER + L verrouille avec hyprdesk" "SUPER + L locks with hyprdesk")" on \
@@ -357,6 +375,14 @@ if has greeter; then ARGS+=(--greeter); else ARGS+=(--no-greeter); fi
 if [[ ${#LYRA_ITEM[@]} -gt 0 ]]; then has lyra && ARGS+=(--lyra) || ARGS+=(--no-lyra); fi
 if [[ ${#MYMFA_ITEM[@]} -gt 0 ]]; then has mymfa && ARGS+=(--mymfa) || ARGS+=(--no-mymfa); fi
 [[ ${#HYPRBARS_ITEM[@]} -eq 0 ]] || has hyprbars || ARGS+=(--no-hyprbars)
+if [[ ${#FP_ITEM[@]} -gt 0 ]]; then has fingerprint && ARGS+=(--fingerprint) || ARGS+=(--no-fingerprint); fi
+# Où l'état d'origine est (ou sera) gardé ; déjà là : celui d'une installation précédente.
+ORIGINE_DIR_SHOWN="${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk/origine"
+if [[ -f "$ORIGINE_DIR_SHOWN/manifest" ]]; then
+    ORIGINE_DIR_SHOWN="${ORIGINE_DIR_SHOWN/#$HOME/\~}, $(t "déjà gardé le" "already kept on") $(sed -n 's/^date \(.\{10\}\).*/\1/p' "$ORIGINE_DIR_SHOWN/manifest")"
+else
+    ORIGINE_DIR_SHOWN="${ORIGINE_DIR_SHOWN/#$HOME/\~}"
+fi
 # Colonnes alignées en caractères (printf et ${#x} peuvent compter des octets).
 row() { local n=$((28 - $(hd_strlen "$1"))); ((n < 1)) && n=1; printf '  %s%*s%s\n' "$1" "$n" "" "$2"; }
 SUMMARY="$(t "Contrôles préalables : tout est en ordre ✔" "Preflight checks: all good ✔")
@@ -365,6 +391,7 @@ $(row "$(t "Langue" "Language")" "$LANG_CHOICE")
 $(row "LYRA" "$( [[ ${#LYRA_ITEM[@]} -eq 0 ]] && echo "$LYRA_STATE" || yes_no lyra)")
 $(row "myMFA" "$( [[ ${#MYMFA_ITEM[@]} -eq 0 ]] && echo "$MYMFA_STATE" || yes_no mymfa)")
 $(row "Hyprbars" "$( [[ ${#HYPRBARS_ITEM[@]} -eq 0 ]] && echo "$HYPRBARS_STATE" || yes_no hyprbars)")
+$(row "$(t "Empreinte digitale" "Fingerprint")" "$( [[ ${#FP_ITEM[@]} -eq 0 ]] && echo "$FP_STATE" || yes_no fingerprint)")
 $(row "$(t "Clavier" "Keyboard")" "$KEYBOARD")
 $(row "$(t "Prérequis manquants" "Missing prerequisites")" "$(yes_no deps)")
 $(row "$(t "Démarrage à la connexion" "Start at login")" "$(yes_no autostart)")
@@ -376,12 +403,17 @@ $(row "$(t "Écran de connexion" "Login screen")" "$( [[ ${#GREETER_ITEM[@]} -eq
 $(t "Ensuite : compilation et installation en étapes numérotées (5 à 10 min la
 première fois). L'étape « Dépendances facultatives » propose d'installer celles
 qui manquent (veille, captures, Bluetooth…), puis un bilan dit ce qu'il reste
-à faire. hyprland.lua est
-sauvegardé avant chaque modification ; sudo est demandé pour les paquets, le
-clavier du système et l'écran de connexion." "Then: build and install in numbered steps (5 to 10 min the first time).
+à faire. sudo est demandé pour les paquets, le clavier du système et l'écran
+de connexion.
+
+Sauvegarde avant toute modification (${ORIGINE_DIR_SHOWN}) ; marche
+arrière à tout moment : ./scripts/uninstall.sh --restore (essai : --dry-run)." "Then: build and install in numbered steps (5 to 10 min the first time).
 The “Optional dependencies” step offers to install the missing ones (idle,
-screenshots, Bluetooth…), then a report says what is left to do. hyprland.lua is backed up before each
-change; sudo is asked for packages, the system keyboard and the login screen.")"
+screenshots, Bluetooth…), then a report says what is left to do. sudo is asked
+for packages, the system keyboard and the login screen.
+
+Backed up before any change (${ORIGINE_DIR_SHOWN}); go back at any
+time: ./scripts/uninstall.sh --restore (try first: --dry-run).")"
 yesno "$SUMMARY" "$(t "Installer" "Install")" "$(t "Annuler" "Cancel")" || quit
 
 # -- Installation et bilan ------------------------------------------------------

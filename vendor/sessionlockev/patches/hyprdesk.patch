@@ -1,0 +1,93 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -141,7 +141,7 @@
+ use wayland_protocols::ext::session_lock::v1::client::{
+     ext_session_lock_manager_v1::ExtSessionLockManagerV1,
+     ext_session_lock_surface_v1::{self, ExtSessionLockSurfaceV1},
+-    ext_session_lock_v1::ExtSessionLockV1,
++    ext_session_lock_v1::{self, ExtSessionLockV1},
+ };
+ use wayland_protocols::wp::viewporter::client::{
+     wp_viewport::WpViewport, wp_viewporter::WpViewporter,
+@@ -198,6 +198,11 @@
+     EventLoopError(#[from] CallLoopError),
+     #[error("roundtrip Error")]
+     RoundTripError(#[from] WaylandError),
++    /// hyprdesk : le compositeur a refusé le verrou ou y a mis fin
++    /// (`ext_session_lock_v1.finished`) : la session n'est pas verrouillée
++    /// par ce client.
++    #[error("session lock refused or ended by the compositor")]
++    LockFinished,
+ }
+ 
+ /// reexport the wayland objects which are needed
+@@ -569,6 +574,9 @@
+     enter_serial: Option<u32>,
+ 
+     return_data: Vec<ReturnData>,
++
++    /// hyprdesk : `ext_session_lock_v1.finished` reçu.
++    lock_finished: bool,
+ }
+ 
+ #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+@@ -687,6 +695,8 @@
+             enter_serial: None,
+ 
+             return_data: Vec::new(),
++
++            lock_finished: false,
+         }
+     }
+ }
+@@ -940,7 +950,24 @@
+ delegate_noop!(@<T>WindowState<T>: ignore WlBuffer); // buffer show the picture
+ //
+ 
+-delegate_noop!(@<T>WindowState<T>: ignore ExtSessionLockV1); // buffer show the picture
++// hyprdesk : `finished` n'est plus ignoré. Sans lui, un verrou refusé (session
++// déjà verrouillée par un client disparu, autre verrou actif) laissait le
++// processus attendre pour toujours sans rien verrouiller.
++impl<T> Dispatch<ExtSessionLockV1, ()> for WindowState<T> {
++    fn event(
++        state: &mut Self,
++        _proxy: &ExtSessionLockV1,
++        event: <ExtSessionLockV1 as Proxy>::Event,
++        _data: &(),
++        _conn: &Connection,
++        _qhandle: &QueueHandle<Self>,
++    ) {
++        if let ext_session_lock_v1::Event::Finished = event {
++            log::warn!("session lock finished by the compositor");
++            state.lock_finished = true;
++        }
++    }
++}
+ delegate_noop!(@<T>WindowState<T>: ignore ExtSessionLockManagerV1); // buffer show the picture
+ 
+ delegate_noop!(@<T>WindowState<T>: ignore WpCursorShapeManagerV1);
+@@ -1148,6 +1175,14 @@
+         let signal = event_loop.get_signal();
+ 
+         let process_window_state = |window_state: &mut WindowState<T>, event_handler: &mut F| {
++            // hyprdesk : verrou refusé ou terminé par le compositeur : le
++            // détruire (le protocole le demande) et sortir de la boucle.
++            if window_state.lock_finished {
++                lock.destroy();
++                let _ = connection.flush();
++                signal.stop();
++                return true;
++            }
+             let mut messages = Vec::new();
+             std::mem::swap(&mut messages, &mut window_state.message);
+             for msg in messages.iter() {
+@@ -1419,6 +1454,9 @@
+                     .expect("We need message state");
+             }
+         }
++        if state.raw.lock_finished {
++            return Err(SessionLockEventError::LockFinished);
++        }
+         Ok(())
+     }
+ }

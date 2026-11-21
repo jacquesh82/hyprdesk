@@ -689,6 +689,43 @@ impl Prompter for TtyPrompter {
     }
 }
 
+/// Agent polkit au terminal (`hyprdesk-polkit --tty`, `hyprdesk
+/// polkit-agent`) : le mot de passe est demandé ici, comme pkttyagent.
+pub fn tty_agent() -> std::process::ExitCode {
+    use std::process::ExitCode;
+    let rt = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("hyprdesk polkit-agent : {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    rt.block_on(async {
+        let _conn = match register(Arc::new(TtyPrompter)).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    crate::tr!(
+                        "hyprdesk polkit-agent : enregistrement refusé ({e}) — un autre agent est-il déjà en place ?",
+                        e = e
+                    )
+                );
+                return ExitCode::FAILURE;
+            }
+        };
+        eprintln!(
+            "{}",
+            crate::i18n::tr("Agent polkit en place (Ctrl+C pour l'arrêter).")
+        );
+        let _ = tokio::signal::ctrl_c().await;
+        ExitCode::SUCCESS
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

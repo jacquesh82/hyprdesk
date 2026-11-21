@@ -1639,6 +1639,8 @@ dependencies = [
  "chrono",
  "flate2",
  "freedesktop-icons",
+ "hyprdesk-auth",
+ "hyprdesk-i18n",
  "hyprpanel-core",
  "iced",
  "iced_layershell",
@@ -1654,6 +1656,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sessionlockev",
  "sysinfo",
  "thiserror 2.0.21",
  "tokio",
@@ -1664,6 +1667,27 @@ dependencies = [
  "wayland-protocols-wlr",
  "zbus",
  "zeroize",
+]
+
+[[package]]
+name = "hyprdesk-auth"
+version = "0.1.8"
+dependencies = [
+ "futures",
+ "hyprdesk-i18n",
+ "libc",
+ "tokio",
+ "zbus",
+ "zeroize",
+]
+
+[[package]]
+name = "hyprdesk-i18n"
+version = "0.1.8"
+dependencies = [
+ "chrono",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
@@ -4127,8 +4151,6 @@ dependencies = [
 [[package]]
 name = "sessionlockev"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a50dd03affe5176bca3e763ebfc3b68f423e0096b4c1c6662d598b103b64c3be"
 dependencies = [
  "calloop 0.14.5",
  "calloop-wayland-source 0.4.1",

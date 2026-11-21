@@ -338,20 +338,79 @@ pub fn parse_source(src: &str) -> Vec<SourceBind> {
     out
 }
 
-/// Raccourcis de hyprland.lua et de binds.lua (dossier de la config de
-/// hyprdesk ; MLG-111).
+/// Modules chargés par `require("…")` dans un fichier Lua (lignes non
+/// commentées), dans l'ordre : `ui/init`, `binds`.
+fn requires(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in src.lines() {
+        // Sans le commentaire de fin de ligne.
+        let mut l = line.split("--").next().unwrap_or("").trim();
+        while let Some(i) = l.find("require") {
+            l = l[i + "require".len()..].trim_start();
+            let l2 = l.strip_prefix('(').map(str::trim_start).unwrap_or(l);
+            let Some(q) = l2.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+                continue;
+            };
+            let rest = &l2[1..];
+            if let Some(end) = rest.find(q) {
+                let name = &rest[..end];
+                if !name.is_empty() && !out.iter().any(|o| o == name) {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Fichier d'un module Lua (`ui/init`, `ui.binds`) : `<dir>/ui/init.lua`,
+/// sinon `<dir>/ui/init/init.lua`. Chemin relatif à `dir`.
+fn module_file(dir: &Path, name: &str) -> Option<String> {
+    let base = name.replace('.', "/");
+    [format!("{base}.lua"), format!("{base}/init.lua")]
+        .into_iter()
+        .find(|f| dir.join(f).is_file())
+}
+
+/// Raccourcis de hyprland.lua, de binds.lua et des modules que hyprland.lua
+/// charge par `require` (`ui/binds.lua` d'un outil tiers : MLG-209), dans
+/// l'ordre de chargement (dossier de la config de hyprdesk ; MLG-111).
 pub fn load_source(config_path: &Path) -> Vec<SourceBind> {
     let dir = config_path
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
     let mut out = Vec::new();
-    for file in ["hyprland.lua", crate::binds_file::FILE] {
-        if let Ok(src) = std::fs::read_to_string(dir.join(file)) {
-            out.extend(parse_source(&src).into_iter().map(|mut b| {
-                b.file = file.to_string();
-                b
-            }));
+    let mut seen: Vec<String> = Vec::new();
+    let mut todo: Vec<String> = vec!["hyprland.lua".into()];
+    // binds.lua est lu même si hyprland.lua ne le charge pas (encore).
+    let mut binds_pending = true;
+    while let Some(file) = todo.pop() {
+        if seen.contains(&file) || seen.len() > 64 {
+            continue;
+        }
+        seen.push(file.clone());
+        if file == crate::binds_file::FILE {
+            binds_pending = false;
+        }
+        let Ok(src) = std::fs::read_to_string(dir.join(&file)) else {
+            continue;
+        };
+        out.extend(parse_source(&src).into_iter().map(|mut b| {
+            b.file = file.clone();
+            b
+        }));
+        // En pile : le premier require est lu juste après ce fichier.
+        let mut next: Vec<String> = requires(&src)
+            .iter()
+            .filter_map(|m| module_file(&dir, m))
+            .filter(|f| !seen.contains(f))
+            .collect();
+        next.reverse();
+        todo.extend(next);
+        if todo.is_empty() && binds_pending {
+            binds_pending = false;
+            todo.push(crate::binds_file::FILE.to_string());
         }
     }
     out
@@ -874,5 +933,31 @@ hl.bind(mainMod .. " + Tab", function()
             file: "binds.lua".into(),
         };
         assert!(h.describe().contains("binds.lua"));
+    }
+
+    #[test]
+    fn modules_charges_par_require() {
+        // ui/binds.lua d'un outil tiers, chargé par require("ui/init") (MLG-209).
+        let dir = std::env::temp_dir().join(format!("hyprdesk-req-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("ui")).unwrap();
+        std::fs::write(
+            dir.join("hyprland.lua"),
+            "require(\"binds\") -- raccourcis\n-- require(\"absent\")\nrequire('ui/init')\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("binds.lua"), "hl.bind(\"SUPER + Q\", hl.dsp.window.close())\n").unwrap();
+        std::fs::write(dir.join("ui/init.lua"), "require(\"ui/binds\")\nrequire(\"ui/init\")\n").unwrap();
+        std::fs::write(
+            dir.join("ui/binds.lua"),
+            "-- x\nhl.bind(\"SUPER + D\", hl.dsp.exec_cmd(\"wofi --show drun\"))\n",
+        )
+        .unwrap();
+        let src = load_source(&dir.join("hyprdesk.lua"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let d = src.iter().find(|b| b.combo == norm("SUPER + D").unwrap()).expect("SUPER + D lu");
+        assert_eq!((d.file.as_str(), d.line), ("ui/binds.lua", 2));
+        assert_eq!(d.action, "wofi --show drun");
+        assert!(src.iter().any(|b| b.file == "binds.lua"));
+        assert_eq!(requires("require(\"a\") require 'b' -- require(\"c\")"), vec!["a", "b"]);
     }
 }

@@ -12,6 +12,16 @@
 #   --lyra         désinstalle aussi LYRA, l'assistante IA (hyprpanel)
 #   --mymfa        désinstalle aussi myMFA, le trousseau ; gnome-keyring
 #                  reprend la main (vos secrets restent dans le coffre myMFA)
+#   --restore      remet tout comme avant hyprdesk, d'après l'état d'origine
+#                  gardé par install.sh (~/.local/state/hyprdesk/origine) :
+#                  fichiers de ~/.config/hypr, kitty, GTK, applications par
+#                  défaut, services --user (activés, masqués, lancés), fichiers
+#                  système (écran de connexion, PAM, clavier, polkit, GPU) ;
+#                  ce qui est apparu depuis est rangé, jamais effacé, dans
+#                  ~/hyprdesk-avant-restauration-<date>/. Implique --purge,
+#                  et --lyra / --mymfa s'ils n'étaient pas là avant
+#   --remove-packages  avec --restore : retire aussi, sans question, les
+#                  paquets installés pour hyprdesk (sinon : demandé)
 #   --yes          sans confirmation (obligatoire sans terminal)
 #   --dry-run      liste les actions sans rien modifier
 #   --lang fr|en   langue des messages (sans : celle du système)
@@ -34,15 +44,19 @@ LYRA=0
 MYMFA=0
 YES=0
 DRY=0
+RESTORE=0
+REMOVE_PKGS=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --purge) PURGE=1 ;;
         --lyra) LYRA=1 ;;
         --mymfa) MYMFA=1 ;;
+        --restore) RESTORE=1 ;;
+        --remove-packages) REMOVE_PKGS=1 ;;
         --yes|-y) YES=1 ;;
         --dry-run|-n) DRY=1 ;;
         --lang) case "${2:-}" in fr|en) UI="$2" ;; *) echo "--lang fr|en" >&2; exit 2 ;; esac; shift ;;
-        -h|--help) sed -n '4,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '4,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
     esac
     shift
@@ -56,6 +70,8 @@ HYPRDESK_ROOT="$PWD"
 # shellcheck source=deps.sh disable=SC1091
 source scripts/deps.sh
 t() { hyprdesk_t "$@"; }
+# shellcheck source=origine.sh disable=SC1091
+source scripts/origine.sh
 
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -69,6 +85,18 @@ BAK_SUFFIX=".avant-desinstallation-hyprdesk.bak"
 BIN="$(command -v hyprdesk 2>/dev/null || echo "$BIN_DIR/hyprdesk")"
 IN_SESSION=0
 [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && command -v hyprctl >/dev/null 2>&1 && IN_SESSION=1
+
+if [[ "$RESTORE" == 1 ]]; then
+    if ! origine_exists; then
+        hd_die_line "$(t "aucun état d'origine (${ORIGINE_DIR/#$HOME/\~}) : hyprdesk a été installé avant cette option. Désinstallation ordinaire : sans --restore" "no original state (${ORIGINE_DIR/#$HOME/\~}): hyprdesk was installed before this option existed. Regular uninstall: without --restore")"
+        exit 1
+    fi
+    PURGE=1
+    origine_cmd_was hyprpanel-chat || LYRA=1
+    origine_cmd_was mymfa || MYMFA=1
+    KEEP="$HOME/hyprdesk-avant-restauration-$(date +%Y-%m-%d_%H-%M-%S)"
+fi
+[[ "$REMOVE_PKGS" == 1 && "$RESTORE" == 0 ]] && { echo "--remove-packages : avec / with --restore" >&2; exit 2; }
 
 TODO=()
 # do_ <description> <commande…> : affichée, exécutée hors --dry-run.
@@ -115,8 +143,14 @@ hd_banner "hyprdesk · $(t "désinstallation" "uninstall")" "${BANNER[@]}"
 hd_section "📋" "Ce qui sera fait" "What will happen"
 greeter_ours && hd_info "$(t "écran de connexion : retour au gestionnaire d'avant (sudo)" "login screen: back to the previous display manager (sudo)")"
 hd_info "$(t "service hyprdesk arrêté et retiré ; binaire et police supprimés" "hyprdesk service stopped and removed; binary and font deleted")"
-hd_info "$(t "hyprland.lua et binds.lua nettoyés (copie de sauvegarde d'abord)" "hyprland.lua and binds.lua cleaned up (backup copy first)")"
-hd_info "$(t "thème des applications retiré (kitty, Thunar)" "application theme removed (kitty, Thunar)")"
+[[ "$RESTORE" == 1 ]] || hd_info "$(t "hyprland.lua et binds.lua nettoyés (copie de sauvegarde d'abord)" "hyprland.lua and binds.lua cleaned up (backup copy first)")"
+[[ "$RESTORE" == 1 ]] || hd_info "$(t "thème des applications retiré (kitty, Thunar)" "application theme removed (kitty, Thunar)")"
+if [[ "$RESTORE" == 1 ]]; then
+    hd_info "$(t "tout remis comme avant hyprdesk (--restore), état d'origine du" "everything put back as before hyprdesk (--restore), original state from") $(sed -n 's/^date //p' "$ORIGINE_DIR/manifest")"
+    hd_note "$(t "ce qui a changé depuis (vos retouches comprises) est rangé dans" "what changed since (your own edits included) is moved to") ${KEEP/#$HOME/\~}/"
+    grep -q '^partielle' "$ORIGINE_DIR/manifest" \
+        && hd_warn "$(t "état d'origine pris alors que hyprdesk était déjà là : retour à ce moment-là" "original state taken while hyprdesk was already there: back to that moment")"
+fi
 if [[ "$PURGE" == 1 ]]; then
     hd_info "$(t "configuration de hyprdesk effacée (--purge)" "hyprdesk configuration deleted (--purge)")"
 else
@@ -244,7 +278,10 @@ clean_lua() {
 config_errors() { [[ "$IN_SESSION" == 1 ]] && hyprctl configerrors 2>/dev/null | grep -v '^[[:space:]]*$' || true; }
 EDITED=()
 ERRORS_BEFORE="$(config_errors)"
-for f in "$HYPR_CONF" "$HYPR_DIR/binds.lua" "$HYPR_DIR/autostart.lua"; do
+# --restore : ces fichiers reviennent tels qu'avant hyprdesk (plus bas).
+CLEAN_FILES=("$HYPR_CONF" "$HYPR_DIR/binds.lua" "$HYPR_DIR/autostart.lua")
+[[ "$RESTORE" == 1 ]] && CLEAN_FILES=() && hd_ok "$(t "remis comme avant plus bas (--restore)" "put back as before further down (--restore)")"
+for f in "${CLEAN_FILES[@]}"; do
     [[ -f "$f" ]] || continue
     new="$(clean_lua "$f")"
     if [[ "$new" == "$(cat "$f")" ]]; then
@@ -280,6 +317,9 @@ fi
 
 # -- 5. Thème des applications ------------------------------------------------------------
 hd_section "🎨" "Thème des applications" "Application theme"
+if [[ "$RESTORE" == 1 ]]; then
+    hd_ok "$(t "remis comme avant plus bas (--restore)" "put back as before further down (--restore)")"
+else
 strip_lines() { # strip_lines <fichier> <motif awk> : lignes de hyprdesk retirées
     local f="$1" re="$2"
     [[ -f "$f" ]] && grep -Eq "$re" "$f" || return 0
@@ -292,10 +332,29 @@ strip_lines() { # strip_lines <fichier> <motif awk> : lignes de hyprdesk retiré
 strip_lines "$CFG/kitty/kitty.conf" '^# Thème de hyprdesk \(|^include .*hyprdesk-theme\.conf'
 strip_lines "$CFG/gtk-3.0/gtk.css" '^/\* Thème de Thunar par hyprdesk|^@import url\(".*hyprdesk-thunar\.css"\);'
 rm_path "$CFG/kitty/hyprdesk-theme.conf" "$CFG/gtk-3.0/hyprdesk-thunar.css"
+fi
+
+# -- 5 bis. Comme avant (--restore) --------------------------------------------------------
+if [[ "$RESTORE" == 1 ]]; then
+    hd_section "⏪" "Comme avant hyprdesk" "As before hyprdesk"
+    [[ "$DRY" == 1 ]] || mkdir -p "$KEEP"
+    origine_restore "$KEEP"
+    if [[ "$DRY" == 0 ]]; then
+        # L'état d'origine part avec la config (--purge) : une copie reste.
+        cp -a "$ORIGINE_DIR" "$KEEP/origine"
+        if [[ "$IN_SESSION" == 1 ]]; then
+            hyprctl reload >/dev/null 2>&1 || true
+            hd_ok "$(t "Hyprland rechargé" "Hyprland reloaded")"
+        fi
+        TODO+=("$(t "état d'avant la restauration, et l'état d'origine :" "state before the restore, and the original state:") ${KEEP/#$HOME/\~}/")
+        TODO+=("$(t "se reconnecter pour repartir d'une session propre" "log out and back in to start from a clean session")")
+    fi
+fi
 
 # -- 6. Fichiers ---------------------------------------------------------------------------
 hd_section "🗑" "Fichiers" "Files"
 rm_path "$BIN_DIR/hyprdesk" "$DATA/fonts/hyprdesk" "$CFG/hyprpanel/context.d/hyprdesk.md"
+for b in "${HYPRDESK_COMPANIONS[@]}"; do rm_path "$BIN_DIR/$b"; done
 [[ "$DRY" == 1 ]] || { command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1; } || true
 if [[ "$PURGE" == 1 ]]; then
     rm_path "$HYPR_DIR/hyprdesk.lua" "$HYPR_DIR/hyprdesk.meta.lua" "$HYPR_DIR/hyprdesk" \
@@ -307,7 +366,7 @@ fi
 
 # -- Bilan ---------------------------------------------------------------------------------
 hd_section "📝" "Ce qu'il reste à faire" "What is left to do"
-TODO+=("$(t "restent à vous, chargés par hyprland.lua : inputs.lua, monitors.lua, binds.lua, autostart.lua" "yours to keep, loaded by hyprland.lua: inputs.lua, monitors.lua, binds.lua, autostart.lua")")
+[[ "$RESTORE" == 1 ]] || TODO+=("$(t "restent à vous, chargés par hyprland.lua : inputs.lua, monitors.lua, binds.lua, autostart.lua (--restore : tout comme avant)" "yours to keep, loaded by hyprland.lua: inputs.lua, monitors.lua, binds.lua, autostart.lua (--restore: everything as before)")")
 i=1
 for item in "${TODO[@]}"; do
     printf '  %s%d.%s %s\n' "$C_ACCENT$C_BOLD" "$i" "$C_RESET" "$item"

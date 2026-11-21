@@ -198,7 +198,9 @@ fi
 greeter_stale() {
     [[ -x /usr/local/bin/hyprdesk ]] && [[ -x "$BIN_DIR/hyprdesk" ]] \
         && "$BIN_DIR/hyprdesk" greeter setup status 2>/dev/null | grep -q hyprdesk \
-        && ! cmp -s /usr/local/bin/hyprdesk "$BIN_DIR/hyprdesk"
+        && { ! cmp -s /usr/local/bin/hyprdesk "$BIN_DIR/hyprdesk" \
+            || { [[ -x "$BIN_DIR/hyprdesk-greeter" ]] \
+                && ! cmp -s /usr/local/bin/hyprdesk-greeter "$BIN_DIR/hyprdesk-greeter"; }; }
 }
 if greeter_stale; then
     hd_info "$(t "écran de connexion : sa copie de hyprdesk est en retard" "login screen: its copy of hyprdesk is behind")"

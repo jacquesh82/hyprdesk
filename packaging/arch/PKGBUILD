@@ -107,6 +107,10 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
+  # Binaires dédiés (à partir de la 0.1.9) : verrouillage, connexion, polkit.
+  for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit; do
+    [[ ! -x "target/release/$b" ]] || install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$b"
+  done
 
   # Unit systemd utilisateur : celle du dépôt vise ~/.local/bin (scripts/install.sh).
   sed -e 's#%h/\.local/bin/hyprdesk#/usr/bin/hyprdesk#' \

@@ -1126,6 +1126,7 @@ impl App {
             ]
             .spacing(18)
             .align_y(Alignment::Center),
+            self.wz_backup_note(),
             self.wz_section("Langue de l'interface"),
             self.wz_wrap(vec![
                 card(
@@ -1149,6 +1150,48 @@ impl App {
             ]),
         ]
         .spacing(18)
+        .into()
+    }
+
+    /// Sauvegarde et marche arrière (MLG-210) : ce qui a été gardé avant
+    /// hyprdesk, et comment revenir en arrière.
+    fn wz_backup_note<'a>(&self) -> Element<'a, Msg> {
+        let p = self.wizard_pal();
+        let saved = match origine_date() {
+            Some(d) => crate::tr!(
+                "Votre configuration d'avant hyprdesk a été sauvegardée le {d} : rien n'est perdu.",
+                d = d
+            ),
+            None => crate::i18n::tr(
+                "Chaque modification de la configuration est d'abord sauvegardée (Réglages → Historique) : rien n'est perdu.",
+            )
+            .to_string(),
+        };
+        container(
+            column![
+                text(crate::i18n::tr("Sauvegarde et marche arrière"))
+                    .font(self.font)
+                    .size(14)
+                    .color(p.fg),
+                self.wz_note(saved),
+                self.wz_note(crate::i18n::tr(
+                    "Chaque choix s'applique aussitôt ; « Annuler l'assistant » remet la \
+                     configuration d'avant son ouverture."
+                )),
+                self.wz_note(crate::i18n::tr(
+                    "Pour tout remettre comme avant hyprdesk, à tout moment : \
+                     ./scripts/uninstall.sh --restore (essai à blanc : --dry-run)."
+                )),
+            ]
+            .spacing(4),
+        )
+        .padding([10, 14])
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.06, ..p.fg }.into()),
+            border: Border::default().rounded(12),
+            ..Default::default()
+        })
         .into()
     }
 
@@ -2528,7 +2571,8 @@ impl App {
             row![
                 self.wz_note(crate::i18n::tr(
                     "« Annuler l'assistant » rétablit la configuration d'avant son ouverture \
-                     (historique : « Assistant de configuration »)."
+                     (historique : « Assistant de configuration ») ; tout remettre comme avant \
+                     hyprdesk : ./scripts/uninstall.sh --restore."
                 )),
                 button(
                     text("Terminer et visiter les Réglages")
@@ -2544,6 +2588,22 @@ impl App {
         )
         .into()
     }
+}
+
+/// Date (AAAA-MM-JJ) de l'état d'origine gardé par install.sh (MLG-210),
+/// lue une fois.
+fn origine_date() -> Option<String> {
+    static DATE: OnceLock<Option<String>> = OnceLock::new();
+    DATE.get_or_init(|| {
+        let base = std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
+        let m = std::fs::read_to_string(base.join("hyprdesk/origine/manifest")).ok()?;
+        m.lines()
+            .find_map(|l| l.strip_prefix("date "))
+            .map(|d| d.chars().take(10).collect())
+    })
+    .clone()
 }
 
 #[cfg(test)]

@@ -678,9 +678,10 @@ impl App {
                     .into(),
             ))
             .push(self.screen_zones_view(s));
-        // Zone Panorama : seulement quand le paquet Panorama est actif.
+        // Zone Panorama : seulement quand le paquet Panorama est actif ;
+        // découpe peu courante d'un écran ordinaire : avancé.
         if self.cfg.plugin_on("panorama") {
-            col = col.push(self.screen_panorama_zone_view(s));
+            col = col.push(self.adv(self.screen_panorama_zone_view(s)));
         }
         col.into()
     }

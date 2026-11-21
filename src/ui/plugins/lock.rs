@@ -437,11 +437,11 @@ impl App {
             ),
             // Veille des écrans (Panorama → Système, `hyprdesk screens-off`) :
             // indépendante de hypridle.
-            self.field(
+            self.adv(self.field(
                 "Veille des écrans : un changement de volume rallume les écrans",
                 "idle_wake_volume",
                 toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v))),
-            ),
+            )),
             text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
                 .font(self.font)
                 .size(12)

@@ -192,8 +192,11 @@ impl App {
         }
         col=col.push(self.section("Mesures système"))
             .push(self.panorama_design_choice("Présentation des mesures","system_style",crate::panorama::design::SYSTEMS))
-            .push(self.panorama_design_input("Mesures (cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp)","metrics"))
-            .push(self.panorama_design_slider("Historique des courbes (secondes)","history_seconds",15.0,600.0,1.0))
+            // Identifiants tapés à la main et durée en secondes : avancé.
+            .push(self.adv(column![
+                self.panorama_design_input("Mesures (cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp)","metrics"),
+                self.panorama_design_slider("Historique des courbes (secondes)","history_seconds",15.0,600.0,1.0),
+            ].spacing(10)))
             .push(text("Les capteurs absents affichent —. Les courbes enregistrent les relevés réels pendant l'affichage.").size(12))
             .push(self.section("Lecteur et effets"))
             .push(self.panorama_design_choice("Présentation du lecteur","media_style",crate::panorama::design::MEDIA));

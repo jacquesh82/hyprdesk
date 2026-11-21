@@ -1034,11 +1034,25 @@ impl App {
             .color(ink.dim)
         ]
         .spacing(4);
+        // Pages et onglets : une ligne. Réglages : le bloc qui les contient
+        // (la section de la page, sinon les voisins), le réglage trouvé en
+        // surbrillance — pour le voir dans son contexte.
+        let accent = color(self.cfg.general.theme.accent, 1.0);
         let mut last = "";
+        let mut shown_blocks: Vec<(&str, Option<&str>, usize, Option<&str>)> = Vec::new();
+        let mut blocks = 0usize;
         for e in found.iter().take(120) {
             let Some(info) = plugins::BUILTIN.iter().find(|i| i.id == e.page) else {
                 continue;
             };
+            let in_block = matches!(
+                e.kind,
+                super::settings_search::Kind::Label | super::settings_search::Kind::Help
+            ) && e.at.0 > 0;
+            let key = (e.page, e.tab, e.at.0, e.section.as_deref());
+            if in_block && e.section.is_some() && shown_blocks.contains(&key) {
+                continue;
+            }
             if e.page != last {
                 col = col.push(self.section(info.label));
                 last = e.page;
@@ -1047,41 +1061,107 @@ impl App {
                 .tab
                 .and_then(|t| plugins::tabs(e.page).iter().find(|x| x.0 == t))
                 .map(|x| crate::i18n::tr(x.1));
-            let place = match tab_label {
+            let mut place = match tab_label {
                 Some(t) => format!("{} › {t}", crate::i18n::tr(info.label)),
                 None => crate::i18n::tr(info.label).to_string(),
             };
-            let size = if e.kind == super::settings_search::Kind::Help {
-                12
-            } else {
-                14
+            let open = Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab));
+            let hover = move |_: &iced::Theme, st: button::Status| button::Style {
+                background: Some(
+                    Color {
+                        a: if matches!(st, button::Status::Hovered | button::Status::Pressed) {
+                            0.09
+                        } else {
+                            0.04
+                        },
+                        ..fg
+                    }
+                    .into(),
+                ),
+                text_color: fg,
+                border: Border::default().rounded(10),
+                ..Default::default()
             };
-            let label_color = if e.kind == super::settings_search::Kind::Help {
-                ink.dim
-            } else {
-                fg
-            };
+            if !in_block {
+                col = col.push(
+                    button(
+                        column![
+                            self.marked(crate::i18n::tr(&e.text), 14, fg, self.font),
+                            iced::widget::text(place)
+                                .font(self.font)
+                                .size(11)
+                                .color(ink.dim),
+                        ]
+                        .spacing(2),
+                    )
+                    .width(Length::Fill)
+                    .padding([6, 10])
+                    .on_press(open)
+                    .style(hover),
+                );
+                continue;
+            }
+            if blocks >= 40 {
+                continue;
+            }
+            blocks += 1;
+            shown_blocks.push(key);
+            if let Some(sec) = &e.section {
+                place = format!("{place} › {}", crate::i18n::tr(sec));
+            }
+            let mut lines = column![
+                iced::widget::text(place)
+                    .font(self.title_font())
+                    .size(11)
+                    .color(ink.dim)
+            ]
+            .spacing(3);
+            let members = super::settings_search::block(e);
+            let total = members.len();
+            for m in members.iter().filter(|m| m.section.as_deref() != Some(m.text.as_str())).take(12) {
+                let tr = crate::i18n::tr(&m.text);
+                let hit = super::settings_search::matches(&m.text, query)
+                    || super::settings_search::matches(tr, query);
+                let help = m.kind == super::settings_search::Kind::Help;
+                let line = self.marked(
+                    tr,
+                    if help { 12 } else { 13 },
+                    if hit { fg } else { ink.dim },
+                    self.font,
+                );
+                // Le réglage trouvé : liseré et fond d'accent.
+                lines = lines.push(
+                    container(line)
+                        .padding([2, 8])
+                        .width(Length::Fill)
+                        .style(move |_| container::Style {
+                            background: hit.then(|| Color { a: 0.12, ..accent }.into()),
+                            border: if hit {
+                                Border::default()
+                                    .rounded(6)
+                                    .width(1)
+                                    .color(Color { a: 0.55, ..accent })
+                            } else {
+                                Border::default()
+                            },
+                            ..Default::default()
+                        }),
+                );
+            }
+            if total > 12 {
+                lines = lines.push(
+                    iced::widget::text(crate::tr!("… {n} de plus dans ce bloc", n = total - 12))
+                        .font(self.font)
+                        .size(11)
+                        .color(ink.dim),
+                );
+            }
             col = col.push(
-                button(
-                    column![
-                        self.marked(crate::i18n::tr(&e.text), size, label_color, self.font),
-                        iced::widget::text(place)
-                            .font(self.font)
-                            .size(11)
-                            .color(ink.dim),
-                    ]
-                    .spacing(2),
-                )
-                .width(Length::Fill)
-                .padding([6, 10])
-                .on_press(Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)))
-                .style(move |_, st| button::Style {
-                    background: matches!(st, button::Status::Hovered | button::Status::Pressed)
-                        .then(|| Color { a: 0.07, ..fg }.into()),
-                    text_color: fg,
-                    border: Border::default().rounded(10),
-                    ..Default::default()
-                }),
+                button(lines)
+                    .width(Length::Fill)
+                    .padding([8, 10])
+                    .on_press(open)
+                    .style(hover),
             );
         }
         if found.len() > 120 {

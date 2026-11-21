@@ -276,8 +276,9 @@ impl App {
                 .on_press(wrap(Msg::Detect)),
         );
         col = col.push(self.panorama_sleep_section());
-        col = col.push(self.section("Aperçu"));
-        col = col.push(
+        // Aperçu : un outil d'essai sans écran bandeau (avancé).
+        let mut preview = column![self.section("Aperçu")].spacing(10);
+        preview = preview.push(
             text(
                 "Le Panorama dans une fenêtre flottante, avec le lecteur et le système en \
                  direct : pour l'essayer sans écran bandeau. Pages au glisser de la souris ; \
@@ -304,7 +305,8 @@ impl App {
                     .on_press(wrap(Msg::Preview(*size))),
             );
         }
-        col = col.push(formats);
+        preview = preview.push(formats);
+        col = col.push(self.adv(preview));
         col.into()
     }
 
@@ -573,7 +575,7 @@ impl App {
         };
         let mut col = column![tabs].spacing(14);
         if view == "video" {
-            col = col.push(
+            col = col.push(self.adv(
                 column![
                     self.section("Sortie du plein écran"),
                     toggler(self.panorama_cfg().restore_on_fullscreen_exit)
@@ -587,7 +589,7 @@ impl App {
                         .color(self.ink().dim),
                 ]
                 .spacing(8),
-            );
+            ));
             col = col.push(self.panorama_veil_section());
         }
         col.push(self.panorama_sources_section(view))
@@ -671,7 +673,7 @@ impl App {
                 .text_size(13)
                 .on_toggle(|b| wrap(Msg::DimPaused(b))),
         );
-        col = col.push(
+        col.push(self.adv(column![
             self.field(
                 "Durée du fondu",
                 "",
@@ -693,8 +695,6 @@ impl App {
                 .spacing(12)
                 .align_y(Alignment::Center),
             ),
-        );
-        col = col.push(
             self.field(
                 "Souris sur le Panorama",
                 "",
@@ -712,13 +712,12 @@ impl App {
                 .spacing(12)
                 .align_y(Alignment::Center),
             ),
-        );
-        col.push(
             text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
                 .font(self.font)
                 .size(12)
                 .color(dim),
-        )
+        ]
+        .spacing(10)))
         .into()
     }
 
@@ -1242,7 +1241,9 @@ impl App {
         let c = self.panorama_cfg();
         let mut col = column![self.section("Navigateur")].spacing(8);
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
-        col = col.push(
+        // La commande du navigateur : avancé (vide : détection automatique) ;
+        // le navigateur trouvé, ou son absence, reste dit à tous.
+        col = col.push(self.adv(
             self.field(
                 "Navigateur",
                 "panorama",
@@ -1261,7 +1262,7 @@ impl App {
                 .size(13)
                 .width(320),
             ),
-        );
+        ));
         col = col.push(
             text(match found {
                 Some(cmd) => crate::tr!(

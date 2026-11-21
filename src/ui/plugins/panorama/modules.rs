@@ -242,7 +242,8 @@ impl App {
             .size(12)
             .color(dim),
         );
-        col = col.push(
+        // La commande lancée : avancé (par défaut, un éditeur détecté).
+        col = col.push(self.adv(
             row![
                 text_input("gnome-text-editor", &shown)
                     .font(self.font)
@@ -257,7 +258,7 @@ impl App {
             ]
             .spacing(8)
             .align_y(Alignment::Center),
-        );
+        ));
         let mut screens = row![].spacing(8);
         let mut names: Vec<&str> = vec![""];
         names.extend(self.monitors.iter().map(|m| m.name.as_str()));

@@ -9,7 +9,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, radio, row};
+use iced::widget::{Space, button, column, radio, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -43,6 +43,8 @@ pub struct State {
     /// Carte de rendu de la session Hyprland en cours (adresse PCI).
     pub current: Option<String>,
     pub loaded: bool,
+    /// « Fermer la session pour appliquer » cliqué : confirmation affichée.
+    pub confirm_exit: bool,
 }
 
 /// Relève les cartes et la carte de rendu de Hyprland (hors du fil de l'interface).
@@ -53,6 +55,7 @@ pub fn load() -> Task<UiMsg> {
                 cards: crate::render_gpu::cards(),
                 current: crate::render_gpu::hyprland_current(),
                 loaded: true,
+                confirm_exit: false,
             })
             .await
             .unwrap_or_default()
@@ -84,6 +87,12 @@ pub enum Msg {
     Cards(State),
     /// Carte de rendu de Hyprland (adresse PCI ; vide : son choix).
     HyprlandGpu(String),
+    /// Appliquer la carte de Hyprland : demander à fermer la session…
+    AskExit,
+    /// … y renoncer…
+    CancelExit,
+    /// … ou fermer la session (Hyprland relit env.lua au démarrage).
+    Exit,
 }
 
 /// Valeur lisible d'un profil pour une option (`None` : hyprland.lua).
@@ -416,19 +425,11 @@ impl App {
                 warn,
             ));
         }
-        if st
+        // Carte choisie, pas celle de la session : Hyprland ne la lit qu'au démarrage.
+        let hypr_pending = st
             .current
             .as_deref()
-            .is_some_and(|c| !chosen.is_empty() && c != chosen)
-        {
-            col = col.push(small(
-                crate::i18n::tr(
-                    "Pris en compte au prochain démarrage de Hyprland : fermer puis rouvrir la session.",
-                )
-                .into(),
-                warn,
-            ));
-        }
+            .is_some_and(|c| !chosen.is_empty() && c != chosen);
         col = col.push(small(
             crate::i18n::tr(
                 "Écrit dans env.lua (AQ_DRM_DEVICES) : la carte est retrouvée par son adresse \
@@ -452,16 +453,68 @@ impl App {
                 .spacing(8),
             ),
         );
-        if render::restart_pending(g.renderer, g.gpu, g.worker_threads) {
+        // Un seul bouton pour appliquer : ce que demande le réglage changé.
+        // La carte de Hyprland demande une nouvelle session (Hyprland ne se
+        // relance pas sans fermer les fenêtres) ; hyprdesk y repart avec ses
+        // propres réglages. Sinon, relancer hyprdesk suffit.
+        let desk_pending = render::restart_pending(g.renderer, g.gpu, g.worker_threads);
+        if hypr_pending && st.confirm_exit {
+            col = col.push(
+                column![
+                    small(
+                        crate::i18n::tr(
+                            "Les fenêtres ouvertes vont être fermées : enregistrez votre travail. \
+                             À la reconnexion, Hyprland et hyprdesk démarrent sur les cartes choisies.",
+                        )
+                        .into(),
+                        warn
+                    ),
+                    row![
+                        Space::new().width(Length::Fill),
+                        button(text("Annuler").font(self.font).size(12))
+                            .padding([4, 10])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::CancelExit)),
+                        button(text("Fermer la session").font(self.font).size(12))
+                            .padding([4, 10])
+                            .style(button::danger)
+                            .on_press(wrap(Msg::Exit)),
+                    ]
+                    .spacing(8),
+                ]
+                .spacing(8),
+            );
+        } else if hypr_pending {
             col = col.push(
                 row![
                     small(
-                        crate::i18n::tr("Réglages modifiés : ils prennent effet à la relance.")
-                            .into(),
+                        crate::i18n::tr(
+                            "Pour appliquer : fermer puis rouvrir la session (Hyprland ne lit sa \
+                             carte qu'au démarrage ; hyprdesk repart avec la sienne).",
+                        )
+                        .into(),
                         warn
                     )
                     .width(Length::Fill),
-                    button(text("Relancer hyprdesk").font(self.font).size(12))
+                    button(text("Fermer la session pour appliquer…").font(self.font).size(12))
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::AskExit)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        } else if desk_pending {
+            col = col.push(
+                row![
+                    small(
+                        crate::i18n::tr(
+                            "Pour appliquer : relancer hyprdesk (quelques secondes, les fenêtres restent ouvertes)."
+                        )
+                        .into(),
+                        warn
+                    )
+                    .width(Length::Fill),
+                    button(text("Relancer hyprdesk pour appliquer").font(self.font).size(12))
                         .padding([4, 10])
                         .on_press(wrap(Msg::Restart)),
                 ]
@@ -599,9 +652,39 @@ impl App {
             }
             Msg::Cards(s) => {
                 if let Some(p) = self.panel.as_mut() {
+                    let confirm = p.performance.confirm_exit;
                     p.performance = s;
+                    p.performance.confirm_exit = confirm;
                 }
                 Task::none()
+            }
+            Msg::AskExit | Msg::CancelExit => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.performance.confirm_exit = matches!(msg, Msg::AskExit);
+                }
+                Task::none()
+            }
+            Msg::Exit => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.performance.confirm_exit = false;
+                }
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::hypr::exit_session)
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| {
+                        if let Err(e) = r {
+                            crate::hypr::notify(
+                                0,
+                                8000,
+                                &crate::tr!("hyprdesk : fermeture de session impossible ({e})", e = e),
+                            );
+                        }
+                        UiMsg::Noop
+                    },
+                )
             }
             Msg::HyprlandGpu(slot) => {
                 self.settings.hyprland_gpu = Some(slot);

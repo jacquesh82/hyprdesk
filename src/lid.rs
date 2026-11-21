@@ -177,7 +177,7 @@ fn exe() -> String {
 
 /// Verrouille (écran de verrouillage de hyprdesk, une seule instance).
 fn lock() {
-    let _ = crate::hypr::exec(&format!("{} lock", crate::launch::sh_quote(&exe())));
+    let _ = crate::hypr::exec(&crate::companion::command(crate::companion::LOCK, "lock"));
 }
 
 fn systemctl(verb: &str) -> Result<(), String> {

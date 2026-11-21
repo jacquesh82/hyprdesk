@@ -300,6 +300,11 @@ impl Index {
         self.alive.len() - self.tombstones
     }
 
+    /// Aucune entrée vivante.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Faut-il compacter ?
     pub fn needs_compaction(&self) -> bool {
         self.tombstones > COMPACT_MIN && self.tombstones * COMPACT_RATIO > self.alive.len()

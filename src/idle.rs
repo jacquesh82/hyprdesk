@@ -49,19 +49,19 @@ fn dpms(action: &str) -> String {
     format!("hyprctl dispatch 'hl.dsp.dpms({{ action = \"{action}\" }})'")
 }
 
-/// Configuration hypridle pour ces délais (secondes, 0 = étape coupée).
-pub fn conf(c: &IdleCfg, exe: &str) -> String {
+/// Configuration hypridle pour ces délais (secondes, 0 = étape coupée) ;
+/// `lock` : commande shell du verrouillage (voir `companion::command`).
+pub fn conf(c: &IdleCfg, lock: &str) -> String {
     let mut out = format!(
         "# Généré par hyprdesk (Réglages → Verrouillage → Veille) : ne pas éditer.\n\
          general {{\n    \
-         lock_cmd = {exe} lock\n    \
+         lock_cmd = {lock}\n    \
          before_sleep_cmd = loginctl lock-session\n    \
          after_sleep_cmd = {on}\n    \
          inhibit_sleep = 3\n    \
          ignore_dbus_inhibit = false\n    \
          ignore_systemd_inhibit = false\n\
          }}\n",
-        exe = crate::launch::sh_quote(exe),
         on = dpms("enable"),
     );
     let mut listener = |timeout: u32, on_timeout: String, on_resume: Option<String>| {
@@ -119,11 +119,10 @@ pub fn write(c: &IdleCfg) -> std::io::Result<()> {
     if !c.manage {
         return Ok(());
     }
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "hyprdesk".into());
+    // `hyprdesk-lock` s'il est installé à côté, sinon `hyprdesk lock`.
+    let lock = crate::companion::command(crate::companion::LOCK, "lock");
     let path = conf_path().map_err(std::io::Error::other)?;
-    std::fs::write(path, conf(&c, &exe))
+    std::fs::write(path, conf(&c, &lock))
 }
 
 /// `foreign_hypridle`, relevé récent (l'écran Réglages se redessine souvent).
@@ -178,8 +177,8 @@ mod tests {
             suspend: 0,
             ..Default::default()
         };
-        let s = conf(&c, "/opt/hyprdesk bin/hyprdesk");
-        assert!(s.contains("lock_cmd = '/opt/hyprdesk bin/hyprdesk' lock"));
+        let s = conf(&c, "'/opt/hyprdesk bin/hyprdesk-lock'");
+        assert!(s.contains("lock_cmd = '/opt/hyprdesk bin/hyprdesk-lock'\n"));
         assert!(s.contains("before_sleep_cmd = loginctl lock-session"));
         // La veille attend que le verrou soit affiché sur chaque écran.
         assert!(s.contains("inhibit_sleep = 3"));

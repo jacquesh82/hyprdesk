@@ -330,7 +330,22 @@ pub fn parse_config(src: &str) -> (Option<String>, Option<i64>) {
 
 /// La commande lance l'écran de hyprdesk.
 pub fn is_ours(command: &str) -> bool {
-    command.contains("hyprdesk greeter") || command.contains(HYPRLAND_CONFIG)
+    command.contains("hyprdesk greeter")
+        || command.contains(crate::companion::GREETER)
+        || command.contains(HYPRLAND_CONFIG)
+}
+
+/// Commande de l'écran de connexion pour le binaire root `bin` : le binaire
+/// dédié posé à côté (`hyprdesk-greeter`), sinon `hyprdesk greeter`. Le
+/// binaire dédié passe le même contrôle que `bin` (à root, ni lui ni son
+/// dossier modifiables par d'autres) : greetd le lance avant toute connexion.
+pub fn greeter_run(bin: &str) -> String {
+    match crate::companion::beside(Path::new(bin), crate::companion::GREETER)
+        .filter(|p| root_owned(p))
+    {
+        Some(p) => p.display().to_string(),
+        None => format!("{bin} greeter"),
+    }
 }
 
 /// Compositeur qui porte l'écran de connexion.
@@ -348,7 +363,8 @@ pub enum Compositor {
 /// greeter (le sien, « / », n'est pas inscriptible), la langue de la
 /// session ; sous cage, la disposition du clavier (XKB_DEFAULT_*), sous
 /// Hyprland elle est dans sa configuration.
-pub fn greeter_command(bin: &str, p: &Profile, comp: Compositor) -> String {
+/// `run` : commande de l'écran de connexion (voir [`greeter_run`]).
+pub fn greeter_command(run: &str, p: &Profile, comp: Compositor) -> String {
     let mut env = vec![format!("HOME={STATE_DIR}")];
     if !p.lang.is_empty() && lang_ok(&p.lang) {
         env.push(format!("LANG={}", p.lang));
@@ -373,7 +389,7 @@ pub fn greeter_command(bin: &str, p: &Profile, comp: Compositor) -> String {
                 }
             }
             // cage n'offre pas layer-shell : fenêtre ordinaire, qu'il met en plein écran.
-            format!("cage -s -- {bin} greeter --window")
+            format!("cage -s -- {run} --window")
         }
     };
     format!("env {} {run}", env.join(" "))
@@ -384,7 +400,7 @@ pub fn greeter_command(bin: &str, p: &Profile, comp: Compositor) -> String {
 /// restent noirs) ; au démarrage, focus sur l'écran de connexion puis
 /// l'écran lui-même ; quand il se ferme (session ouverte), Hyprland quitte
 /// et greetd lance la session.
-pub fn hyprland_lua(bin: &str, p: &Profile) -> String {
+pub fn hyprland_lua(run: &str, p: &Profile) -> String {
     let q = |v: &str, ok: bool| if ok { v.to_string() } else { String::new() };
     let mut out = format!(
         "-- {}\n-- Hyprland de l'écran de connexion (greetd) ; réécrit à chaque enregistrement.\n\n",
@@ -412,19 +428,19 @@ pub fn hyprland_lua(bin: &str, p: &Profile) -> String {
         ));
     }
     out.push_str(&format!(
-        "    hl.exec_cmd(\"sh -c '{bin} greeter; hyprctl dispatch \\\"hl.dsp.exit()\\\"'\")\n"
+        "    hl.exec_cmd(\"sh -c '{run}; hyprctl dispatch \\\"hl.dsp.exit()\\\"'\")\n"
     ));
     out.push_str("end)\n");
     out
 }
 
 /// /etc/greetd/config.toml de hyprdesk (`vt` repris de l'ancien fichier).
-pub fn config_toml(bin: &str, vt: i64, p: &Profile, comp: Compositor) -> String {
+pub fn config_toml(run: &str, vt: i64, p: &Profile, comp: Compositor) -> String {
     format!(
         "{HEADER}\n# Revenir en arrière : sudo hyprdesk greeter setup restore\n\n\
          [terminal]\nvt = {vt}\n\n\
          [default_session]\ncommand = \"{}\"\nuser = \"greeter\"\n",
-        greeter_command(bin, p, comp)
+        greeter_command(run, p, comp)
     )
 }
 
@@ -945,8 +961,13 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         crate::i18n::tr("Ni Hyprland ni cage : rien pour afficher l'écran de connexion.")
             .to_string()
     })?;
+    let run = greeter_run(bin);
     if matches!(comp, Compositor::Hyprland(_)) {
-        write_atomic(Path::new(HYPRLAND_CONFIG), hyprland_lua(bin, &p).as_bytes()).map_err(io)?;
+        write_atomic(
+            Path::new(HYPRLAND_CONFIG),
+            hyprland_lua(&run, &p).as_bytes(),
+        )
+        .map_err(io)?;
     }
     write_atomic(
         Path::new(PROFILE),
@@ -961,7 +982,11 @@ fn install(profile: Option<&str>) -> Result<(), String> {
         std::fs::write(&bak, &old).map_err(io)?;
     }
     let vt = parse_config(&old).1.unwrap_or(1);
-    write_atomic(Path::new(CONFIG), config_toml(bin, vt, &p, comp).as_bytes()).map_err(io)?;
+    write_atomic(
+        Path::new(CONFIG),
+        config_toml(&run, vt, &p, comp).as_bytes(),
+    )
+    .map_err(io)?;
     // PAM : seulement si le paquet greetd a posé son fichier (sinon greetd
     // n'est pas installé, et un fichier inventé ici serait faux).
     if let Ok(src) = std::fs::read_to_string(PAM) {
@@ -1269,7 +1294,12 @@ mod tests {
             lang: "fr_FR.UTF-8".into(),
             ..Default::default()
         };
-        let src = config_toml(SYSTEM_BIN, 1, &p, Compositor::Hyprland("start-hyprland"));
+        let src = config_toml(
+            &format!("{SYSTEM_BIN} greeter"),
+            1,
+            &p,
+            Compositor::Hyprland("start-hyprland"),
+        );
         assert!(src.starts_with(HEADER));
         let (cmd, vt) = parse_config(&src);
         assert_eq!(
@@ -1286,7 +1316,12 @@ mod tests {
 
     #[test]
     fn clavier_passe_a_cage() {
-        let (cmd, _) = parse_config(&config_toml(SYSTEM_BIN, 1, &fr(), Compositor::Cage));
+        let (cmd, _) = parse_config(&config_toml(
+            &format!("{SYSTEM_BIN} greeter"),
+            1,
+            &fr(),
+            Compositor::Cage,
+        ));
         assert_eq!(
             cmd.as_deref(),
             Some(
@@ -1299,12 +1334,21 @@ mod tests {
             layout: "fr; rm -rf /".into(),
             ..Default::default()
         };
-        assert!(!greeter_command(SYSTEM_BIN, &p, Compositor::Cage).contains("rm"));
+        assert!(
+            !greeter_command(&format!("{SYSTEM_BIN} greeter"), &p, Compositor::Cage).contains("rm")
+        );
         let p = Profile {
             lang: "fr; rm".into(),
             ..Default::default()
         };
-        assert!(!greeter_command(SYSTEM_BIN, &p, Compositor::Hyprland("Hyprland")).contains("rm"));
+        assert!(
+            !greeter_command(
+                &format!("{SYSTEM_BIN} greeter"),
+                &p,
+                Compositor::Hyprland("Hyprland")
+            )
+            .contains("rm")
+        );
         assert!(xkb_ok("grp:alt_shift_toggle,caps:escape"));
     }
 
@@ -1389,7 +1433,7 @@ mod tests {
             login_monitor: "HDMI-A-2".into(),
             ..fr()
         };
-        let lua = hyprland_lua(SYSTEM_BIN, &p);
+        let lua = hyprland_lua(&format!("{SYSTEM_BIN} greeter"), &p);
         assert!(lua.contains(
             "hl.monitor({ output = \"HDMI-A-2\", mode = \"2560x1440@144.00\", position = \"2560x-560\", scale = 1, transform = 1 })"
         ));
@@ -1404,7 +1448,7 @@ mod tests {
         assert_eq!(login_monitor(&p).unwrap().name, "DP-1");
         // Nom douteux : écarté de la configuration.
         p.monitors.push(ecran("X\"); os.exit(", 0, 0, 0));
-        assert!(!hyprland_lua(SYSTEM_BIN, &p).contains("os.exit"));
+        assert!(!hyprland_lua(&format!("{SYSTEM_BIN} greeter"), &p).contains("os.exit"));
     }
 
     #[test]

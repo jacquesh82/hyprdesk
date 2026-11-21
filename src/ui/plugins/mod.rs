@@ -182,6 +182,8 @@ pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("layouts", "custom"),
     ("windows", "comportement"),
     ("hyprconfig", "avance"),
+    // Carte graphique de rendu (Hyprland, hyprdesk) : MLG-211.
+    ("performance", "gpu"),
 ];
 
 /// Options avancées de Hyprland (registre `hyprset`) rangées sous une page
@@ -709,7 +711,12 @@ mod tests {
         all.extend(
             crate::ui::tour::STEPS
                 .iter()
-                .flat_map(|s| [s.title, s.body]),
+                .flat_map(|s| [s.title, s.intro]),
+        );
+        all.extend(
+            crate::ui::tour::STEPS
+                .iter()
+                .flat_map(|s| s.items.iter().flat_map(|i| [i.title, i.body])),
         );
         for p in BUILTIN {
             all.extend([p.label, p.summary]);

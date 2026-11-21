@@ -56,6 +56,9 @@
 #                            ou non (sans l'un ni l'autre : gardé si déjà là ; dépôt
 #                            public, à la release de scripts/versions.sh :
 #                            HYPRDESK_MYMFA_REPO, _REF, _SRC)
+#   --fingerprint | --no-fingerprint  lecteur d'empreintes détecté : installer
+#                            fprintd, déverrouiller au doigt, proposer d'enregistrer
+#                            un doigt (par défaut quand un lecteur est là), ou non
 #   --no-hyprbars            ne pas installer Hyprbars, les barres de titre du plein
 #                            bureau (plugin Hyprland compilé par hyprpm ; installé
 #                            par défaut, refait par update.sh quand Hyprland change)
@@ -89,6 +92,7 @@ OPT_DEPS=""
 LYRA=auto
 MYMFA=auto
 HYPRBARS=1
+FINGERPRINT=auto
 ARGC=$#
 ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -110,6 +114,8 @@ while [ $# -gt 0 ]; do
         --mymfa) MYMFA=1 ;;
         --no-mymfa) MYMFA=0 ;;
         --no-hyprbars) HYPRBARS=0 ;;
+        --fingerprint) FINGERPRINT=1 ;;
+        --no-fingerprint) FINGERPRINT=0 ;;
         --verbose) export HYPRDESK_VERBOSE=1 ;;
         -h|--help) sed -n '7,65p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "argument inconnu / unknown argument : $1 (--help)" >&2; exit 2 ;;
@@ -177,6 +183,11 @@ HD_STEP_TOTAL=10
 [[ "$LYRA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$MYMFA" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 [[ "$HYPRBARS" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
+# Empreinte : seulement si un lecteur est là (auto : oui).
+FP_READER="$(hyprdesk_fingerprint_reader 2>/dev/null || true)"
+[[ "$FINGERPRINT" == auto ]] && { [[ -n "$FP_READER" ]] && FINGERPRINT=1 || FINGERPRINT=0; }
+[[ "$FINGERPRINT" == 1 && -z "$FP_READER" ]] && FINGERPRINT=0
+[[ "$FINGERPRINT" == 1 ]] && HD_STEP_TOTAL=$((HD_STEP_TOTAL + 1))
 
 # LYRA : sources, et place à prévoir pour la compiler si elle manque.
 LYRA_REPO="${HYPRDESK_LYRA_REPO:-https://github.com/jacquesh82/mindlog.hyprland_tools}"
@@ -193,6 +204,12 @@ hd_log_init
 hd_banner "hyprdesk ${VERSION:+$VERSION }· $(t "installation" "installation")" \
     "$(t "$HD_STEP_TOTAL étapes, puis un bilan et ce qu'il reste à faire." "$HD_STEP_TOTAL steps, then a report and what is left to do.")" \
     "$(t "Journal complet : $HD_LOG" "Full log: $HD_LOG")"
+
+# État d'origine (MLG-210) : avant toute modification, de quoi tout remettre
+# comme avant (./scripts/uninstall.sh --restore).
+# shellcheck source=origine.sh disable=SC1091
+source scripts/origine.sh
+origine_capture || hd_warn "$(t "sans état d'origine, « uninstall.sh --restore » ne pourra pas tout remettre" "without the original state, “uninstall.sh --restore” will not be able to put everything back")"
 
 # Arrêt sur erreur : quelle étape, pourquoi, que faire.
 # Appelée par « trap 'on_error $LINENO' ERR » plus bas.
@@ -303,11 +320,16 @@ hd_step "📥" "Binaire" "Binary" "$BIN" "$BIN"
 HD_HINT="$(t "vérifiez que $BIN_DIR est accessible en écriture" "check that $BIN_DIR is writable")"
 mkdir -p "$BIN_DIR"
 if [[ "${FROM_SOURCE:-0}" == 1 ]]; then
-    HYPRDESK_INSTALL_STAGE=$(mktemp "$BIN_DIR/.hyprdesk-install.XXXXXX")
-    trap 'rm -f -- "$HYPRDESK_INSTALL_STAGE"' EXIT
-    install -m755 target/release/hyprdesk "$HYPRDESK_INSTALL_STAGE"
-    mv -f -- "$HYPRDESK_INSTALL_STAGE" "$BIN"
-    trap - EXIT
+    # Binaires dédiés d'abord (verrouillage, connexion, polkit), hyprdesk en
+    # dernier : il ne les lance que s'ils sont là. Chaque copie remplace
+    # l'ancienne d'un coup (mv), jamais un binaire à moitié écrit.
+    for HYPRDESK_INSTALL_NAME in "${HYPRDESK_COMPANIONS[@]}" hyprdesk; do
+        HYPRDESK_INSTALL_STAGE=$(mktemp "$BIN_DIR/.hyprdesk-install.XXXXXX")
+        trap 'rm -f -- "$HYPRDESK_INSTALL_STAGE"' EXIT
+        install -m755 "target/release/$HYPRDESK_INSTALL_NAME" "$HYPRDESK_INSTALL_STAGE"
+        mv -f -- "$HYPRDESK_INSTALL_STAGE" "$BIN_DIR/$HYPRDESK_INSTALL_NAME"
+        trap - EXIT
+    done
 else
     # Une ancienne copie dans ~/.local/bin (installations d'avant, ou une
     # compilation) passerait devant /usr/bin dans le PATH : retirée.
@@ -315,6 +337,9 @@ else
         rm -f -- "$BIN_DIR/hyprdesk"
         hd_note "$(t "ancienne copie retirée : $BIN_DIR/hyprdesk (le paquet fait foi)" "old copy removed: $BIN_DIR/hyprdesk (the package is the reference)")"
     fi
+    for HYPRDESK_INSTALL_NAME in "${HYPRDESK_COMPANIONS[@]}"; do
+        rm -f -- "${BIN_DIR:?}/$HYPRDESK_INSTALL_NAME"
+    done
 fi
 hd_ok "$("$BIN" --version 2>/dev/null || echo hyprdesk) → $BIN"
 
@@ -963,6 +988,51 @@ if [[ "$GREETER" == yes ]]; then
     rm -f "$PROFILE"
 fi
 
+# -- Empreinte digitale (MLG-214) ------------------------------------------------------
+FP_TODO=""
+if [[ "$FINGERPRINT" == 1 ]]; then
+    hd_step "👆" "Empreinte digitale" "Fingerprint" \
+        "Lecteur détecté : fprintd installé, déverrouillage au doigt (le mot de passe marche toujours)." \
+        "Reader detected: fprintd installed, unlock with a finger (the password still works)."
+    hd_ok "$(t "lecteur :" "reader:") $FP_READER"
+    FP_OK=1
+    if ! command -v fprintd-list >/dev/null 2>&1; then
+        FP_PM="$(hyprdesk_pm)"
+        if [[ -n "$FP_PM" ]] && hd_sudo_ready "$(t "installer fprintd" "install fprintd")" \
+            && hd_run "$(t "paquet fprintd" "fprintd package")" hyprdesk_install_packages "$FP_PM" fprintd; then
+            :
+        else
+            FP_OK=0
+            hd_warn "$(t "fprintd non installé : empreinte laissée de côté" "fprintd not installed: fingerprint skipped")"
+            FP_TODO="$(t "empreinte : installer fprintd" "fingerprint: install fprintd")|$(hyprdesk_install_hint "${FP_PM:-}") fprintd"
+        fi
+    else
+        hd_ok "$(t "fprintd déjà présent" "fprintd already present")"
+    fi
+    if [[ "$FP_OK" == 1 ]]; then
+        hd_run "$(t "déverrouillage au doigt activé" "fingerprint unlock enabled")" "$BIN" config set lock_fingerprint on || true
+        # Aucun doigt enregistré : proposé tout de suite, sinon dans les Réglages.
+        if fprintd-list "$USER" 2>/dev/null | grep -q -- ' - #'; then
+            hd_ok "$(t "empreinte déjà enregistrée" "fingerprint already enrolled")"
+        elif [[ -t 0 && -t 1 ]]; then
+            printf '\n  %s?%s ' "$C_ACCENT$C_BOLD" "$C_RESET"
+            read -r -p "$(t "Enregistrer un doigt maintenant (index droit, une dizaine de passages) ? [O/n] " "Enroll a finger now (right index, about ten swipes)? [Y/n] ")" FP_REPLY || FP_REPLY=n
+            if [[ ! "$FP_REPLY" =~ ^[nN] ]]; then
+                if fprintd-enroll; then
+                    hd_ok "$(t "empreinte enregistrée" "fingerprint enrolled")"
+                else
+                    hd_warn "$(t "enregistrement interrompu" "enrollment interrupted")"
+                    FP_TODO="$(t "empreinte : enregistrer un doigt (Réglages → Verrouillage → Empreintes digitales)" "fingerprint: enroll a finger (Settings → Lock → Fingerprints)")|fprintd-enroll"
+                fi
+            else
+                FP_TODO="$(t "empreinte : enregistrer un doigt (Réglages → Verrouillage → Empreintes digitales)" "fingerprint: enroll a finger (Settings → Lock → Fingerprints)")|fprintd-enroll"
+            fi
+        else
+            FP_TODO="$(t "empreinte : enregistrer un doigt (Réglages → Verrouillage → Empreintes digitales)" "fingerprint: enroll a finger (Settings → Lock → Fingerprints)")|fprintd-enroll"
+        fi
+    fi
+fi
+
 # == Bilan vérifié et ce qu'il reste à faire ==========================================
 trap - ERR
 set +e
@@ -971,6 +1041,7 @@ TODO=()     # « texte|commande »
 OPTIONAL=() # idem, facultatif
 todo() { TODO+=("$1|${2:-}"); }
 optional() { OPTIONAL+=("$1|${2:-}"); }
+[[ -n "$FP_TODO" ]] && optional "${FP_TODO%%|*}" "${FP_TODO#*|}"
 
 hd_section "📋" "Bilan" "Report"
 # check <essentiel 0|1> <libellé fr> <libellé en> <correction fr> <correction en> <commande…>

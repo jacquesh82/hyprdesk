@@ -16,9 +16,9 @@
 //! Anti-marquage : le contenu dérive lentement, et s'estompe après un moment
 //! sans saisie (l'extinction de l'écran reste l'affaire de hypridle).
 
-pub mod enroll;
-pub mod fprint;
-pub mod pam;
+// Authentification : crate `hyprdesk-auth` (crates/), chemins inchangés.
+pub use hyprdesk_auth::{enroll, fprint, pam};
+mod scope;
 pub mod state;
 
 use std::os::fd::AsRawFd;
@@ -985,6 +985,16 @@ fn holds_flock(locks: &str, major: u32, minor: u32, ino: u64) -> bool {
 
 /// Point d'entrée de `hyprdesk lock`.
 pub fn run() -> ExitCode {
+    // Hors du service de hyprdesk avant tout : son redémarrage ne doit plus
+    // emporter l'écran de verrouillage (voir `scope`).
+    if let Err(e) = scope::detach_from_service() {
+        let msg = crate::tr!(
+            "hyprdesk lock : verrou laissé dans le service de hyprdesk ({e})",
+            e = e
+        );
+        eprintln!("{msg}");
+        pam::journal(&msg);
+    }
     let _guard = match single_instance() {
         Instance::Held(f) => Some(f),
         // Déjà verrouillé : rien à faire (hypridle peut appeler plusieurs fois).
@@ -1011,6 +1021,17 @@ pub fn run() -> ExitCode {
     }
     match app.run() {
         Ok(()) => ExitCode::SUCCESS,
+        // Refusé par Hyprland (session déjà verrouillée par un écran disparu,
+        // autre verrou) : sortir libère le verrou d'instance ; attendre le
+        // gardait, et plus rien ne pouvait reverrouiller la session.
+        Err(iced_sessionlock::Error::WaylandDispatchFailed(
+            sessionlockev::SessionLockEventError::LockFinished,
+        )) => {
+            let msg = crate::tr!("hyprdesk lock : verrouillage refusé ou interrompu par Hyprland");
+            eprintln!("{msg}");
+            pam::journal(msg);
+            ExitCode::FAILURE
+        }
         Err(e) => {
             eprintln!("{}", crate::tr!("hyprdesk lock : {e}", e = e));
             ExitCode::FAILURE

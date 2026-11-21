@@ -148,6 +148,7 @@ The installer can install missing build dependencies and use rustup in
 | `--lyra` / `--no-lyra` | Install the LYRA assistant, or not (off unless asked; kept if already installed) |
 | `--mymfa` / `--no-mymfa` | Install the myMFA keyring, its Secret Service integration, and PAM module, or not (off unless asked; kept if already installed) |
 | `--no-hyprbars` | Skip the Hyprbars title-bar plugin |
+| `--fingerprint` / `--no-fingerprint` | With a fingerprint reader detected (default: on): install fprintd, unlock with a finger, offer to enroll one |
 | `--from-source` | Build hyprdesk from this repository instead of installing the release (what `scripts/install_nightly_build.sh` does) |
 | `--no-deps` | Manage prerequisites yourself. Check them with `scripts/deps.sh --dry-run` |
 | `--no-autostart` | Skip the Hyprland startup entry |
@@ -170,7 +171,18 @@ selects ASCII icons.
 ```bash
 ./scripts/uninstall.sh --dry-run   # see what would change, touch nothing
 ./scripts/uninstall.sh             # summary, confirmation, then uninstall
+./scripts/uninstall.sh --restore   # put everything back exactly as before hyprdesk
 ```
+
+**Trying hyprdesk is risk-free.** Before changing anything, `install.sh`
+keeps the original state once in `~/.local/state/hyprdesk/origine/`: the
+files it may touch (`~/.config/hypr`, kitty, GTK, default applications,
+user services enabled, masked, or running), the system files (login screen,
+PAM, keyboard, polkit, GPU), and the packages it installs. `--restore` puts
+all of it back; whatever appeared since is moved to
+`~/hyprdesk-avant-restauration-<date>/`, never deleted. Packages installed for
+hyprdesk are offered for removal (`--remove-packages` to skip the question). A
+Hyprland upgrade done at install time is not rolled back.
 
 The script restores your previous login screen if hyprdesk replaced it,
 removes the service, binary, and font, and takes its lines out of

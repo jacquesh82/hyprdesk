@@ -61,7 +61,19 @@ pub fn write_starter_settings(path: &Path) -> std::io::Result<PathBuf> {
     )
     .map_err(std::io::Error::other)?
     .config;
-    crate::settings::Settings::from_config(&cfg).save(path)
+    let saved = crate::settings::Settings::from_config(&cfg).save(path)?;
+    // Installation ou remise à zéro : les réponses aux conflits de raccourcis
+    // s'effacent, la question se pose de nouveau (MLG-209).
+    let _ = std::fs::remove_file(keys_answers_path(path));
+    let _ = std::fs::remove_file(lua::settings_path(path).with_file_name(".raccourcis-a-revoir"));
+    Ok(saved)
+}
+
+/// Réponses aux conflits de raccourcis (une ligne par conflit répondu :
+/// clé, combinaison, commande qui la tient) : ce qui est répondu n'est plus
+/// demandé ; effacé à l'installation et à la remise à zéro (MLG-209).
+pub fn keys_answers_path(path: &Path) -> PathBuf {
+    lua::settings_path(path).with_file_name(".raccourcis-repondus")
 }
 
 /// Remet la configuration par défaut : `hyprdesk.lua` (l'exemple, tout en

@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo build --locked --workspace
 if command -v dbus-run-session >/dev/null && [[ "${HYPRDESK_SKIP_DBUS:-0}" != "1" ]]; then
     dbus-run-session -- cargo test --locked tray::tests::native_watcher_lifecycle -- --ignored --test-threads=1
     dbus-run-session -- cargo test --locked notifications::tests::serveur_sur_le_bus -- --ignored --test-threads=1

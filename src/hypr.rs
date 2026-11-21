@@ -1620,6 +1620,16 @@ pub fn remove_rules() {
 }
 
 /// Entre dans la submap du bureau, ou en sort (`None`).
+/// Ferme la session Hyprland (les fenêtres avec) : pour qu'un réglage lu au
+/// démarrage seulement (carte de rendu, `AQ_DRM_DEVICES`) prenne effet.
+pub fn exit_session() -> Result<(), String> {
+    let r = ipc::dispatch("hl.dsp.exit()").map_err(|e| e.to_string())?;
+    match r.trim() {
+        "ok" | "" => Ok(()),
+        other => Err(other.to_string()),
+    }
+}
+
 pub fn set_submap(name: Option<&str>) {
     let target = format!(
         "hl.dsp.submap(\"{}\")",

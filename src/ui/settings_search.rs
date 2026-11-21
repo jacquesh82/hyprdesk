@@ -68,6 +68,11 @@ pub struct Entry {
     /// Libellé tel qu'écrit (français) ; traduit à l'affichage.
     pub text: String,
     pub kind: Kind,
+    /// Section de la page qui le montre (`self.section("…")` qui le
+    /// précède dans la même fonction) : le bloc affiché en résultat.
+    pub section: Option<String>,
+    /// Place dans le source (fichier, position) : l'ordre du bloc.
+    pub at: (usize, usize),
 }
 
 /// Lit une chaîne Rust à partir du guillemet ouvrant ; rend (texte, fin).
@@ -145,12 +150,16 @@ fn build() -> Vec<Entry> {
             tab: None,
             text: info.label.to_string(),
             kind: Kind::Page,
+            section: None,
+            at: (0, 0),
         });
         v.push(Entry {
             page: info.id,
             tab: None,
             text: info.summary.to_string(),
             kind: Kind::Help,
+            section: None,
+            at: (0, 0),
         });
         for (t, l) in plugins::tabs(info.id) {
             v.push(Entry {
@@ -158,10 +167,12 @@ fn build() -> Vec<Entry> {
                 tab: Some(t),
                 text: l.to_string(),
                 kind: Kind::Tab,
+                section: None,
+                at: (0, 0),
             });
         }
     }
-    for (page, src) in SOURCES {
+    for (file, (page, src)) in SOURCES.iter().enumerate() {
         let tabs = plugins::tabs(page);
         let funcs = tab_functions(src, tabs);
         // Début de chaque fonction : (position, onglet).
@@ -175,6 +186,25 @@ fn build() -> Vec<Entry> {
         }
         // Les essais ne sont pas des pages.
         let end = src.find("#[cfg(test)]").unwrap_or(src.len());
+        // Titres de section : (position, titre).
+        let mut sections: Vec<(usize, String)> = Vec::new();
+        for pat in ["self.section(\"", "section(crate::i18n::tr(\""] {
+            for (pos, _) in src[..end].match_indices(pat) {
+                if let Some((t, _)) = literal(src, pos + pat.len() - 1) {
+                    sections.push((pos, t.trim().to_string()));
+                }
+            }
+        }
+        sections.sort_by_key(|x| x.0);
+        // Section d'un libellé : la dernière ouverte avant lui, dans sa fonction.
+        let section_at = |pos: usize| -> Option<String> {
+            let f = starts.iter().rev().find(|(p, _)| *p < pos).map_or(0, |x| x.0);
+            sections
+                .iter()
+                .rev()
+                .find(|(p, _)| *p <= pos && *p >= f)
+                .map(|x| x.1.clone())
+        };
         // Tables de choix et de curseurs : `("id", "Libellé"…)`.
         for (pos, _) in src[..end].match_indices("(\"") {
             let Some((id, after)) = literal(src, pos + 1) else {
@@ -206,6 +236,8 @@ fn build() -> Vec<Entry> {
                     tab,
                     text: s,
                     kind: Kind::Label,
+                    section: section_at(pos),
+                    at: (file + 1, pos),
                 });
             }
         }
@@ -235,6 +267,8 @@ fn build() -> Vec<Entry> {
                         tab,
                         text: s,
                         kind,
+                        section: section_at(pos),
+                        at: (file + 1, pos),
                     });
                 }
             }
@@ -346,6 +380,30 @@ pub fn search(query: &str, visible: impl Fn(&str) -> bool) -> Vec<&'static Entry
     r
 }
 
+/// Bloc d'un résultat : les entrées de la même section (même paquet, même
+/// onglet), dans l'ordre de la page. Sans section : les voisines proches.
+pub fn block(e: &Entry) -> Vec<&'static Entry> {
+    let mut v: Vec<&'static Entry> = INDEX
+        .iter()
+        .filter(|x| {
+            x.page == e.page
+                && x.tab == e.tab
+                && x.at.0 == e.at.0
+                && matches!(x.kind, Kind::Label | Kind::Help)
+                && x.section == e.section
+        })
+        .collect();
+    v.sort_by_key(|x| x.at);
+    if e.section.is_none() || e.at.0 == 0 {
+        // Pas de section : trois voisines de part et d'autre.
+        let i = v.iter().position(|x| std::ptr::eq(*x, e)).unwrap_or(0);
+        let lo = i.saturating_sub(3);
+        let hi = (i + 4).min(v.len());
+        v = v[lo..hi].to_vec();
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +434,20 @@ mod tests {
                 .all(|e| e.page != "colors")
         );
         assert!(INDEX.len() > 300, "{}", INDEX.len());
+    }
+
+    /// Un réglage trouvé vient avec son bloc : la section qui le montre.
+    #[test]
+    fn bloc_de_contexte() {
+        let with = INDEX.iter().filter(|e| e.section.is_some()).count();
+        assert!(with > 100, "{with} libellés rattachés à une section");
+        let r = search("hauteur", |_| true);
+        let e = r
+            .iter()
+            .find(|e| e.kind == Kind::Label && e.section.is_some())
+            .expect("un libellé de section");
+        let b = block(e);
+        assert!(b.iter().any(|x| std::ptr::eq(*x, *e)));
+        assert!(b.iter().all(|x| x.page == e.page && x.section == e.section));
     }
 }
