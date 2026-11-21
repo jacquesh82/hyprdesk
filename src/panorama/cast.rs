@@ -84,7 +84,7 @@ pub fn tv_browser_args() -> Vec<String> {
                 .join(".local/share")
         })
         .join("hyprdesk/youtube-tv");
-    vec![
+    let mut args = vec![
         format!("--user-data-dir={}", dir.display()),
         format!("--user-agent={TV_AGENT}"),
         "--autoplay-policy=no-user-gesture-required".into(),
@@ -94,7 +94,14 @@ pub fn tv_browser_args() -> Vec<String> {
         // Sans composants téléchargés : à l'arrivée de Widevine, Brave se
         // relançait seul et perdait la page (« New Tab » hors de la zone).
         "--disable-component-update".into(),
-    ]
+    ];
+    // Wayland imposé : le service de hyprdesk n'a pas XDG_SESSION_TYPE, et
+    // sans lui Brave s'ouvrait en X11 (classe « Brave-browser ») ; la
+    // fenêtre, méconnue, restait hors de la zone.
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        args.push("--ozone-platform=wayland".into());
+    }
+    args
 }
 
 /// Jeton secret de la page du téléphone (`$XDG_STATE_HOME/hyprdesk/cast-token`),
@@ -838,6 +845,33 @@ async fn ssdp(uuid: String) {
     }
 }
 
+/// Tâches du serveur, arrêtées avec l'abonnement : sinon elles gardaient
+/// le port et envoyaient leurs commandes dans le vide.
+struct Tasks(Vec<tokio::task::JoinHandle<()>>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for t in &self.0 {
+            t.abort();
+        }
+    }
+}
+
+/// Écoute sur le port du cast ; le serveur d'un abonnement qui vient de
+/// s'arrêter peut le tenir encore un instant.
+async fn bind() -> std::io::Result<TcpListener> {
+    let mut tries = 0;
+    loop {
+        match TcpListener::bind((Ipv4Addr::UNSPECIFIED, PORT)).await {
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && tries < 20 => {
+                tries += 1;
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            r => return r,
+        }
+    }
+}
+
 /// Serveur du cast, tant que l'abonnement vit : commandes du Panorama
 /// (`open <adresse>`, `video close`).
 pub fn stream() -> impl Stream<Item = Command> {
@@ -849,13 +883,13 @@ pub fn stream() -> impl Stream<Item = Command> {
             let name = device_name();
             let uuid = device_uuid();
             set_problem(None);
-            match TcpListener::bind((Ipv4Addr::UNSPECIFIED, PORT)).await {
+            let mut tasks = Tasks(Vec::new());
+            match bind().await {
                 Ok(listener) => {
                     tracing::info!("cast : page du téléphone et DIAL sur le port {PORT}");
-                    tokio::spawn(ssdp(uuid.clone()));
-                    let (key, name, uuid) = (key.clone(), name.clone(), uuid.clone());
+                    tasks.0.push(tokio::spawn(ssdp(uuid.clone())));
                     let tx = tx.clone();
-                    tokio::spawn(async move {
+                    tasks.0.push(tokio::spawn(async move {
                         let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
                         loop {
                             let Ok((s, peer)) = listener.accept().await else {
@@ -872,7 +906,7 @@ pub fn stream() -> impl Stream<Item = Command> {
                                 handle(s, peer, &key, &name, &uuid, &tx).await;
                             });
                         }
-                    });
+                    }));
                 }
                 Err(e) => {
                     tracing::warn!("cast : port {PORT} : {e}");
@@ -883,9 +917,12 @@ pub fn stream() -> impl Stream<Item = Command> {
                     )));
                 }
             }
+            drop(tx);
             while let Some(c) = rx.recv().await {
                 let _ = out.send(c).await;
             }
+            // Sans serveur (port pris) : l'abonnement reste, sans rien faire.
+            let _tasks = tasks;
             std::future::pending::<()>().await;
         },
     )
