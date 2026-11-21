@@ -2,15 +2,32 @@
 //!
 //! Deux portées (`Scope`) :
 //!
-//! - **tout le setup** : `hyprdesk.lua`, `hyprdesk/settings.lua`, les plugins
-//!   tiers (`hyprdesk/widgets/`), les fonds d'écran utilisés (`wallpapers/`)
-//!   et, sur demande, `monitors.lua` (propre aux écrans de la machine) ;
+//! - **tout le setup** : tout ce que tiennent hyprdesk et Hyprland (MLG-203) :
+//!   - `hyprdesk.lua`, `hyprdesk/settings.lua`, les plugins tiers
+//!     (`hyprdesk/widgets/`), « Mes thèmes » (`hyprdesk/themes/`), les
+//!     calibrations d'écran (`hyprdesk/calibration/`) ;
+//!   - la configuration de Hyprland (`hypr/`) : `hyprland.lua`, chacun de ses
+//!     `require` locaux (suivis dans le texte, sans rien exécuter), les
+//!     fichiers que tient hyprdesk (`binds.lua`, `inputs.lua`, `monitors.lua`,
+//!     `autostart.lua`, `appearance.lua`…) et les fichiers du dossier de
+//!     configuration qu'ils citent (scripts…) ;
+//!   - l'état mémorisé (`state/layout.toml` : positions des icônes, mode du
+//!     bureau de chaque workspace) ;
+//!   - les fonds d'écran utilisés (`wallpapers/`) et les autres fichiers
+//!     cités par chemin dans les réglages (`files/`, relatifs au dossier
+//!     personnel : icônes, image du verrouillage…).
+//!
+//!   Les services d'IA et leurs clés, les mots de passe, l'appairage des
+//!   lumières et les réglages du système (son, réseau, connexion…) n'en font
+//!   pas partie.
 //! - **le thème seul** (`crate::theme`) : couleurs, effets, fonds d'écran,
-//!   mode du bureau, voile du verrouillage, transitions — écrits dans un
+//!   mode du bureau, voile et image du verrouillage, transitions, police,
+//!   thème d'icônes, thème des applications — écrits dans un
 //!   `hyprdesk/settings.lua` qui ne contient que cela.
 //!
 //! Un `manifest.json` décrit le contenu, sa portée (`kind`), le résumé du
-//! thème et la correspondance des fonds.
+//! thème, la correspondance des fonds et le dossier personnel d'origine (les
+//! chemins qui y mènent sont réécrits vers celui de la machine qui importe).
 //!
 //! Une archive vient d'ailleurs : son Lua n'est jamais exécuté avec les
 //! droits de l'utilisateur pendant l'import. La vérification (`dry_run`) ne
@@ -18,18 +35,22 @@
 //! l'import lit les réglages de l'archive dans un bac à sable
 //! (`config::lua::load_file_sandboxed` : ni fichiers, ni commandes). Le thème
 //! seul n'emporte aucun code : ses valeurs sont réécrites dans
-//! `settings.lua`. Tout le setup recopie `hyprdesk.lua` et les plugins, qui
-//! s'exécuteront ensuite comme la configuration de l'utilisateur : l'import
-//! exige alors `trust_code`, accordé après avertissement. Les services d'IA
+//! `settings.lua`. Tout le setup recopie `hyprdesk.lua`, les plugins et la
+//! configuration de Hyprland (raccourcis, démarrage, scripts), qui
+//! s'exécuteront ensuite avec les droits de l'utilisateur : l'import exige
+//! alors `trust_code`, accordé après avertissement. Les services d'IA
 //! (`ai_services`, `ai_use`) d'une archive sont ignorés : la configuration en
 //! place garde les siens, et leurs clés.
 //!
 //! L'import sauvegarde d'abord la configuration en place
 //! (`hyprdesk/backups/`), recopie les fonds dans
 //! `~/.local/share/hyprdesk/wallpapers/<archive>/` et réécrit leurs chemins.
-//! Tout le setup : remplace les réglages, ajoute les plugins sans écraser
-//! ceux déjà là. Le thème seul (archive de thème, ou thème d'une archive
-//! complète) : remplace le thème des réglages, rien d'autre.
+//! Tout le setup : remplace les réglages, la configuration de Hyprland
+//! (vérifiée par Hyprland, rendue telle quelle sur erreur ; `monitors.lua`
+//! seulement sur demande, propre aux écrans) et l'état ; ajoute les plugins,
+//! les thèmes, les calibrations et les fichiers cités sans écraser ceux déjà
+//! là. Le thème seul (archive de thème, ou thème d'une archive complète) :
+//! remplace le thème des réglages, rien d'autre.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -74,6 +95,18 @@ pub struct Manifest {
     pub wallpapers: BTreeMap<String, String>,
     pub plugins: Vec<String>,
     pub screens: bool,
+    /// Dossier personnel de la machine d'origine (chemins réécrits à l'import).
+    #[serde(default)]
+    pub home: String,
+    /// Configuration de Hyprland : chemins relatifs à son dossier (`hypr/`).
+    #[serde(default)]
+    pub hypr: Vec<String>,
+    /// État mémorisé (`state/`).
+    #[serde(default)]
+    pub state: Vec<String>,
+    /// Fichiers cités par les réglages, relatifs au dossier personnel (`files/`).
+    #[serde(default)]
+    pub assets: Vec<String>,
 }
 
 impl Manifest {
@@ -83,6 +116,7 @@ impl Manifest {
             created: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
             kind: scope.as_str().into(),
             screens,
+            home: home().display().to_string(),
             ..Default::default()
         }
     }
@@ -123,6 +157,269 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     st.success()
         .then_some(())
         .ok_or_else(|| crate::tr!("copie de {p0} impossible", p0 = from.display()))
+}
+
+/// Dossier personnel de cette machine (pendant les tests, un dossier
+/// temporaire : un import d'essai n'écrit rien chez l'utilisateur).
+fn home() -> PathBuf {
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("hyprdesk-test-home-{}", std::process::id()));
+    }
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+}
+
+/// Plafonds d'un dossier cité (scripts…) : nombre de fichiers et octets.
+const TREE_MAX_FILES: usize = 400;
+const TREE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Fichiers ordinaires sous `root` (chemins relatifs), sans les cachés.
+fn files_under(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut bytes = 0u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let Ok(t) = e.file_type() else { continue };
+            if t.is_dir() {
+                stack.push(e.path());
+            } else if t.is_file() {
+                bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                if out.len() >= TREE_MAX_FILES || bytes > TREE_MAX_BYTES {
+                    return out;
+                }
+                if let Ok(rel) = e.path().strip_prefix(root) {
+                    out.push(rel.to_path_buf());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Noms des `require("…")` d'une source Lua (lecture du texte).
+fn requires(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("require") {
+        let before = rest[..i].chars().next_back();
+        rest = &rest[i + "require".len()..];
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+            continue;
+        }
+        // Ligne commentée : pas chargée.
+        let line_start = src.len() - rest.len() - "require".len();
+        let line = src[..line_start].rsplit('\n').next().unwrap_or("");
+        if line.contains("--") {
+            continue;
+        }
+        let r = rest.trim_start();
+        let r = r.strip_prefix('(').map(str::trim_start).unwrap_or(r);
+        let Some(q) = r.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            continue;
+        };
+        if let Some(end) = r[1..].find(q) {
+            out.push(r[1..1 + end].to_string());
+        }
+    }
+    out
+}
+
+/// Chemins `…/.config/hypr/<chemin>` cités dans une source (scripts…).
+fn cited_in_config(src: &str) -> Vec<String> {
+    const MARK: &str = "/.config/hypr/";
+    let mut out = Vec::new();
+    for (i, _) in src.match_indices(MARK) {
+        let tail: String = src[i + MARK.len()..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+            .collect();
+        let tail = tail.trim_end_matches(['/', '.']);
+        if !tail.is_empty() {
+            out.push(tail.to_string());
+        }
+    }
+    out
+}
+
+/// Chemin relatif sûr (que des composants normaux).
+fn plain_rel(rel: &Path) -> bool {
+    !rel.as_os_str().is_empty()
+        && rel
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
+/// Configuration de Hyprland emportée, relative à son dossier `dir` :
+/// `hyprland.lua`, ses `require` locaux (de proche en proche), les fichiers
+/// que tient hyprdesk, et les fichiers du dossier cités par tout cela.
+/// `hyprdesk.lua` et `hyprdesk/` sont emportés à part.
+pub fn hypr_files(dir: &Path) -> Vec<String> {
+    let mut seen: std::collections::BTreeSet<String> = Default::default();
+    let mut queue: Vec<String> = vec!["hyprland.lua".into()];
+    queue.extend(
+        crate::history::TRACKED
+            .iter()
+            .filter(|f| !f.starts_with("hyprdesk"))
+            .map(|f| f.to_string()),
+    );
+    let mut lua: Vec<String> = Vec::new();
+    while let Some(rel) = queue.pop() {
+        if rel == "hyprdesk.lua" || rel.starts_with("hyprdesk/") || seen.contains(&rel) {
+            continue;
+        }
+        let p = dir.join(&rel);
+        if !plain_rel(Path::new(&rel)) || !p.is_file() {
+            continue;
+        }
+        seen.insert(rel.clone());
+        let Ok(src) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        lua.push(src.clone());
+        for name in requires(&src) {
+            queue.push(format!("{}.lua", name.replace('.', "/")));
+        }
+    }
+    for src in &lua {
+        for rel in cited_in_config(src) {
+            if rel == "hyprdesk.lua" || rel.starts_with("hyprdesk/") || !plain_rel(Path::new(&rel))
+            {
+                continue;
+            }
+            let p = dir.join(&rel);
+            if p.is_file() {
+                seen.insert(rel);
+            } else if p.is_dir() {
+                for f in files_under(&p) {
+                    seen.insert(Path::new(&rel).join(f).display().to_string());
+                }
+            }
+        }
+    }
+    seen.into_iter().filter(|f| !f.ends_with(".bak")).collect()
+}
+
+/// Fichiers cités par chemin (`"~/…"`, `"/home/moi/…"`) dans des sources de
+/// réglages : icônes, images, calibrations… hors fonds (`skip`). Relatifs au
+/// dossier personnel. Une icône du thème SmartUI emporte tout le thème.
+fn cited_assets(texts: &[String], home: &Path, skip: &[PathBuf]) -> Vec<String> {
+    const EXT: &[&str] = &[
+        "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico", "xpm", "avif", "icc", "icm",
+        "cal",
+    ];
+    let prefix = format!("{}/", home.display());
+    let mut out: std::collections::BTreeSet<String> = Default::default();
+    let smartui = crate::smartui::theme_dir();
+    let mut with_smartui = false;
+    for t in texts {
+        for (i, quoted) in t.split('"').enumerate() {
+            if i % 2 == 0 {
+                continue;
+            }
+            let path = if let Some(r) = quoted.strip_prefix("~/") {
+                home.join(r)
+            } else if quoted.starts_with(&prefix) {
+                PathBuf::from(quoted)
+            } else {
+                continue;
+            };
+            let ext_ok = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| EXT.contains(&e.to_lowercase().as_str()));
+            if !ext_ok || skip.contains(&path) || !path.is_file() {
+                continue;
+            }
+            if path.starts_with(&smartui) {
+                with_smartui = true;
+            }
+            if let Ok(rel) = path.strip_prefix(home)
+                && plain_rel(rel)
+            {
+                out.insert(rel.display().to_string());
+            }
+        }
+    }
+    if with_smartui && let Ok(base) = smartui.strip_prefix(home) {
+        for f in files_under(&smartui) {
+            out.insert(base.join(f).display().to_string());
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// Copie dans l'archive (`files/`) les fichiers cités par ces sources.
+fn stage_assets(texts: &[String], stage: &Path, m: &mut Manifest) -> Result<(), String> {
+    let home = home();
+    let skip: Vec<PathBuf> = m.wallpapers.keys().map(PathBuf::from).collect();
+    for rel in cited_assets(texts, &home, &skip) {
+        let dst = stage.join("files").join(&rel);
+        if let Some(d) = dst.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        std::fs::copy(home.join(&rel), &dst).map_err(|e| format!("{rel} : {e}"))?;
+        m.assets.push(rel);
+    }
+    Ok(())
+}
+
+/// Chemins de `old` (dossier personnel d'origine) réécrits vers `new`.
+fn rehome(text: &str, old: &str, new: &str) -> String {
+    if old.is_empty() || old == new {
+        return text.to_string();
+    }
+    text.replace(&format!("\"{old}/"), &format!("\"{new}/"))
+        .replace(&format!("'{old}/"), &format!("'{new}/"))
+}
+
+/// Sources texte de l'archive réécrites vers le dossier personnel d'ici.
+fn rehome_stage(stage: &Path, old: &str, new: &str) {
+    if old.is_empty() || old == new {
+        return;
+    }
+    let mut files = vec![
+        stage.join("hyprdesk.lua"),
+        stage.join("hyprdesk/settings.lua"),
+    ];
+    files.extend(
+        files_under(&stage.join("hypr"))
+            .into_iter()
+            .map(|f| stage.join("hypr").join(f)),
+    );
+    for f in files {
+        if let Ok(t) = std::fs::read_to_string(&f) {
+            let n = rehome(&t, old, new);
+            if n != t {
+                let _ = std::fs::write(&f, n);
+            }
+        }
+    }
+}
+
+/// Recopie les fichiers de `from` (arbre de l'archive) sous `to`, sans
+/// écraser ceux déjà là. Rend ceux ajoutés.
+fn add_tree(from: &Path, to: &Path) -> Result<Vec<String>, String> {
+    let mut added = Vec::new();
+    for rel in files_under(from) {
+        let dst = to.join(&rel);
+        if !plain_rel(&rel) || std::fs::symlink_metadata(&dst).is_ok() {
+            continue;
+        }
+        if let Some(d) = dst.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        std::fs::copy(from.join(&rel), &dst).map_err(|e| format!("{} : {e}", dst.display()))?;
+        added.push(rel.display().to_string());
+    }
+    Ok(added)
 }
 
 fn is_image(p: &Path) -> bool {
@@ -220,16 +517,10 @@ pub fn read_manifest(bundle: &Path) -> Result<Manifest, String> {
     ))
 }
 
-/// Exporte dans `out` tout le setup ou le thème seul. `screens` (tout le
-/// setup) : inclure `monitors.lua`.
-pub fn export(
-    config_path: &Path,
-    out: &Path,
-    scope: Scope,
-    screens: bool,
-) -> Result<Manifest, String> {
+/// Exporte dans `out` tout le setup ou le thème seul.
+pub fn export(config_path: &Path, out: &Path, scope: Scope) -> Result<Manifest, String> {
     match scope {
-        Scope::All => export_all(config_path, out, screens),
+        Scope::All => export_all(config_path, out),
         Scope::Theme => export_theme(config_path, out, None),
     }
 }
@@ -268,6 +559,7 @@ pub fn pack_theme(theme: &Settings, out: &Path) -> Result<Manifest, String> {
             .map_err(|e| e.to_string())?;
         m.files.push("hyprdesk/settings.lua".into());
         stage_wallpapers(&theme.wallpapers, &stage, &mut m)?;
+        stage_assets(&[theme.to_lua()], &stage, &mut m)?;
         pack(&stage, out, &m)?;
         Ok(m)
     })();
@@ -275,25 +567,28 @@ pub fn pack_theme(theme: &Settings, out: &Path) -> Result<Manifest, String> {
     result
 }
 
-fn export_all(config_path: &Path, out: &Path, screens: bool) -> Result<Manifest, String> {
+fn export_all(config_path: &Path, out: &Path) -> Result<Manifest, String> {
     let dir = config_path.parent().unwrap_or(Path::new("."));
     let stage = tmp_dir("export")?;
     let result = (|| {
-        let mut m = Manifest::new(Scope::All, screens);
+        let mut m = Manifest::new(Scope::All, true);
         // Thème effectif (résumé) et fonds de toute la config ; une config en
         // erreur s'exporte quand même, telle quelle.
         let effective = crate::theme::effective(config_path).ok();
         m.theme = effective.as_ref().map(|c| Summary::of(&c.general.theme));
         std::fs::create_dir_all(stage.join("hyprdesk")).map_err(|e| e.to_string())?;
+        let mut texts = Vec::new();
         if config_path.is_file() {
             std::fs::copy(config_path, stage.join("hyprdesk.lua")).map_err(|e| e.to_string())?;
             m.files.push("hyprdesk.lua".into());
+            texts.push(std::fs::read_to_string(config_path).unwrap_or_default());
         }
         let settings = crate::config::lua::settings_path(config_path);
         if settings.is_file() {
             std::fs::copy(&settings, stage.join("hyprdesk/settings.lua"))
                 .map_err(|e| e.to_string())?;
             m.files.push("hyprdesk/settings.lua".into());
+            texts.push(std::fs::read_to_string(&settings).unwrap_or_default());
             let cfg = crate::config::lua::load_settings_only(config_path)?;
             stage_wallpapers(&cfg.wallpapers, &stage, &mut m)?;
         }
@@ -313,13 +608,36 @@ fn export_all(config_path: &Path, out: &Path, screens: bool) -> Result<Manifest,
                 m.plugins.push(name);
             }
         }
-        if screens {
-            let mon = crate::screens::monitors_path(config_path);
-            if mon.is_file() {
-                std::fs::copy(&mon, stage.join("monitors.lua")).map_err(|e| e.to_string())?;
-                m.files.push("monitors.lua".into());
+        // « Mes thèmes » et calibrations d'écran.
+        for sub in ["themes", "calibration"] {
+            let from = dir.join("hyprdesk").join(sub);
+            for rel in files_under(&from) {
+                let dst = stage.join("hyprdesk").join(sub).join(&rel);
+                if let Some(d) = dst.parent() {
+                    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+                }
+                std::fs::copy(from.join(&rel), &dst).map_err(|e| e.to_string())?;
+                m.files.push(format!("hyprdesk/{sub}/{}", rel.display()));
             }
         }
+        // Configuration de Hyprland et ses dépendances.
+        for rel in hypr_files(dir) {
+            let dst = stage.join("hypr").join(&rel);
+            if let Some(d) = dst.parent() {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(dir.join(&rel), &dst).map_err(|e| format!("{rel} : {e}"))?;
+            m.hypr.push(rel);
+        }
+        // État mémorisé.
+        let layout = crate::layout::path();
+        if layout.is_file() {
+            std::fs::create_dir_all(stage.join("state")).map_err(|e| e.to_string())?;
+            std::fs::copy(&layout, stage.join("state/layout.toml")).map_err(|e| e.to_string())?;
+            m.state.push("layout.toml".into());
+        }
+        // Fichiers cités par les réglages (icônes, image du verrou…).
+        stage_assets(&texts, &stage, &mut m)?;
         pack(&stage, out, &m)?;
         Ok(m)
     })();
@@ -332,7 +650,8 @@ fn export_all(config_path: &Path, out: &Path, screens: bool) -> Result<Manifest,
 pub struct ImportOpts {
     /// Portée demandée ; une archive de thème s'importe toujours en thème seul.
     pub scope: Scope,
-    /// Tout le setup : appliquer aussi `monitors.lua`.
+    /// Tout le setup : appliquer aussi `monitors.lua` (disposition des
+    /// écrans de la machine d'origine).
     pub screens: bool,
     /// Simulation : rien n'est modifié.
     pub dry_run: bool,
@@ -360,6 +679,10 @@ pub struct Report {
     pub code: Vec<String>,
     /// Services d'IA déclarés par l'archive, ignorés.
     pub ai_ignored: bool,
+    /// Configuration de Hyprland posée (ou qui le serait).
+    pub hypr: Vec<String>,
+    /// Fichiers ajoutés sans écraser (thèmes, calibrations, fichiers cités).
+    pub added: Vec<String>,
 }
 
 impl Report {
@@ -433,6 +756,59 @@ impl std::fmt::Display for Report {
                 crate::tr!(
                     "  plugins déjà présents (gardés) : {list}",
                     list = self.plugins_kept.join(", ")
+                )
+            )?;
+        }
+        if !self.hypr.is_empty() {
+            writeln!(
+                f,
+                "{}",
+                crate::tr!(
+                    "  configuration de Hyprland : {list}",
+                    list = self.hypr.join(", ")
+                )
+            )?;
+        }
+        if self.scope == Scope::All {
+            let m = &self.manifest;
+            if !m.state.is_empty() {
+                writeln!(
+                    f,
+                    "{}",
+                    crate::i18n::tr(
+                        "  état : positions des icônes, mode du bureau de chaque workspace"
+                    )
+                )?;
+            }
+            if !m.assets.is_empty() {
+                writeln!(
+                    f,
+                    "{}",
+                    crate::tr!(
+                        "  fichiers cités par les réglages (icônes, images…) : {n}",
+                        n = m.assets.len()
+                    )
+                )?;
+            }
+            if m.hypr.iter().any(|h| h == "monitors.lua")
+                && !self.hypr.iter().any(|h| h == "monitors.lua")
+            {
+                writeln!(
+                    f,
+                    "{}",
+                    crate::i18n::tr(
+                        "  disposition des écrans (monitors.lua) de l'archive laissée de côté"
+                    )
+                )?;
+            }
+        }
+        if !self.added.is_empty() {
+            writeln!(
+                f,
+                "{}",
+                crate::tr!(
+                    "  ajoutés sans rien écraser : {n} fichier(s)",
+                    n = self.added.len()
                 )
             )?;
         }
@@ -588,7 +964,22 @@ fn import_from(
                 .iter()
                 .map(|p| crate::tr!("plugin {p}", p = p)),
         );
+        // Configuration de Hyprland : raccourcis, démarrage, scripts lancent
+        // des commandes. Les noms viennent de l'arbre extrait, pas du manifeste.
+        report.hypr = files_under(&stage.join("hypr"))
+            .into_iter()
+            .map(|f| f.display().to_string())
+            .filter(|f| opts.screens || f != "monitors.lua")
+            .collect();
+        if !report.hypr.is_empty() {
+            report.code.push(crate::tr!(
+                "configuration de Hyprland ({n} fichier(s))",
+                n = report.hypr.len()
+            ));
+        }
     }
+    // Chemins du dossier personnel d'origine : vers celui d'ici.
+    rehome_stage(stage, &manifest.home, &home().display().to_string());
     // Vérification : les sources sont compilées, jamais exécutées.
     syntax_check_stage(stage)?;
     if opts.dry_run {
@@ -630,7 +1021,7 @@ fn import_from(
             "hyprdesk/backups/avant-import-{p0}.tar.gz",
             p0 = chrono::Local::now().format("%Y%m%d-%H%M%S")
         ));
-        export_all(config_path, &backup, true)?;
+        export_all(config_path, &backup)?;
         report.backup = Some(backup);
     }
     // 2. Fonds d'écran, puis réglages aux chemins réécrits.
@@ -655,6 +1046,8 @@ fn import_from(
         s.set_theme(&theme);
         s.save_versioned(config_path, crate::storage::revision())
             .map_err(|e| crate::tr!("settings.lua : {e}", e = e))?;
+        // Image du verrouillage : à son chemin d'origine, sans rien écraser.
+        report.added = add_tree(&stage.join("files"), &home())?;
         return Ok(report);
     }
     if stage.join("hyprdesk/settings.lua").is_file() {
@@ -686,10 +1079,57 @@ fn import_from(
             &user_widgets.join(p),
         )?;
     }
+    // Ancienne archive : monitors.lua à la racine.
     if opts.screens && stage.join("monitors.lua").is_file() {
         let monitors = crate::screens::monitors_path(config_path);
         std::fs::copy(stage.join("monitors.lua"), &monitors).map_err(|e| e.to_string())?;
         crate::history::note(&monitors);
+    }
+    // 4. Thèmes, calibrations, fichiers cités : ajoutés sans écraser.
+    for sub in ["themes", "calibration"] {
+        let added = add_tree(
+            &stage.join("hyprdesk").join(sub),
+            &dir.join("hyprdesk").join(sub),
+        )?;
+        report
+            .added
+            .extend(added.into_iter().map(|f| format!("hyprdesk/{sub}/{f}")));
+    }
+    report
+        .added
+        .extend(add_tree(&stage.join("files"), &home())?);
+    // 5. Configuration de Hyprland : les sources Lua d'un bloc, vérifiées par
+    // Hyprland (rendues telles quelles sur erreur) ; les autres fichiers
+    // (scripts…) recopiés avec leurs droits.
+    let mut changes = Vec::new();
+    for rel in &report.hypr {
+        let (src, dst) = (stage.join("hypr").join(rel), dir.join(rel));
+        if rel.ends_with(".lua") {
+            let text = std::fs::read_to_string(&src).map_err(|e| format!("{rel} : {e}"))?;
+            changes.push(crate::hyprwrite::Change {
+                path: dst,
+                content: Some(text),
+            });
+        } else {
+            if let Some(d) = dst.parent() {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(&src, &dst).map_err(|e| format!("{rel} : {e}"))?;
+        }
+    }
+    if !changes.is_empty() {
+        crate::hyprwrite::write_checked(&changes)?;
+    }
+    // 6. État mémorisé, puis le démon le relit.
+    if stage.join("state/layout.toml").is_file() {
+        let to = crate::layout::path();
+        if let Some(d) = to.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        std::fs::copy(stage.join("state/layout.toml"), &to).map_err(|e| e.to_string())?;
+        if !cfg!(test) {
+            let _ = crate::control::send(crate::control::Command::Defaults("import".into()));
+        }
     }
     Ok(report)
 }
@@ -759,7 +1199,7 @@ fn syntax_check_stage(stage: &Path) -> Result<(), String> {
         stage.join("hyprdesk.lua"),
         stage.join("hyprdesk/settings.lua"),
     ];
-    let mut stack = vec![stage.join("hyprdesk/widgets")];
+    let mut stack = vec![stage.join("hyprdesk/widgets"), stage.join("hypr")];
     while let Some(d) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&d) else {
             continue;
@@ -797,6 +1237,134 @@ mod tests {
     }
 
     #[test]
+    fn lecture_des_require_et_des_chemins_cites() {
+        let src = "require(\"binds\")\nrequire 'sub.mod'\n-- require(\"vieux\")\nlocal x = myrequire(\"non\")\n\
+                   hl.bind(\"A\", hl.dsp.exec_cmd(HOME .. \"/.config/hypr/scripts/clip\"))\n\
+                   local s = os.getenv(\"HOME\") .. \"/.config/hypr/scripts\"\n";
+        assert_eq!(
+            requires(src),
+            vec!["binds".to_string(), "sub.mod".to_string()]
+        );
+        assert_eq!(
+            cited_in_config(src),
+            vec!["scripts/clip".to_string(), "scripts".to_string()]
+        );
+        assert_eq!(
+            rehome(
+                "icon = \"/home/a/x.png\", p = '/home/a/y', q = \"/home/ab/z\"",
+                "/home/a",
+                "/home/b"
+            ),
+            "icon = \"/home/b/x.png\", p = '/home/b/y', q = \"/home/ab/z\""
+        );
+    }
+
+    /// Tout le périmètre : hyprland.lua et ce qu'il charge, scripts cités,
+    /// thèmes, calibrations, état, fichiers cités ; à l'import, Hyprland
+    /// posé (sans monitors.lua sauf demande), rien d'existant écrasé.
+    #[test]
+    fn tout_le_perimetre_voyage() {
+        let base = std::env::temp_dir().join(format!("hyprdesk-perimetre-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (a, b) = (base.join("a"), base.join("b"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d.join("hyprdesk")).unwrap();
+        }
+        std::fs::create_dir_all(a.join("conf")).unwrap();
+        std::fs::create_dir_all(a.join("scripts")).unwrap();
+        std::fs::create_dir_all(a.join("hyprdesk/themes")).unwrap();
+        std::fs::create_dir_all(a.join("hyprdesk/calibration")).unwrap();
+        std::fs::write(
+            a.join("hyprland.lua"),
+            "require(\"monitors\")\nrequire(\"binds\")\nrequire(\"conf.extra\")\n",
+        )
+        .unwrap();
+        std::fs::write(a.join("monitors.lua"), "-- Généré par hyprdesk\n").unwrap();
+        std::fs::write(
+            a.join("binds.lua"),
+            "hl.bind(\"SUPER + V\", hl.dsp.exec_cmd(os.getenv(\"HOME\") .. \"/.config/hypr/scripts/clip\"))\n",
+        )
+        .unwrap();
+        std::fs::write(
+            a.join("conf/extra.lua"),
+            "hl.config({ general = { gaps_in = 3 } })\n",
+        )
+        .unwrap();
+        std::fs::write(a.join("scripts/clip"), "#!/bin/sh\n").unwrap();
+        std::fs::write(a.join("hyprland.lua.bak"), "vieux").unwrap();
+        std::fs::write(a.join("hyprdesk/themes/nuit.tar.gz"), "t").unwrap();
+        std::fs::write(a.join("hyprdesk/calibration/dp1.icc"), "c").unwrap();
+        let home = home();
+        std::fs::create_dir_all(home.join("img")).unwrap();
+        std::fs::write(home.join("img/lock.png"), "png").unwrap();
+        std::fs::write(
+            a.join("hyprdesk/settings.lua"),
+            "hd.config({ lock_image = \"~/img/lock.png\" })\n",
+        )
+        .unwrap();
+        std::fs::write(a.join("hyprdesk.lua"), "").unwrap();
+        let layout = crate::layout::path();
+        std::fs::create_dir_all(layout.parent().unwrap()).unwrap();
+        std::fs::write(&layout, "[modes]\n2 = \"full-desktop\"\n").unwrap();
+
+        let bundle = base.join("setup.tar.gz");
+        let m = export(&a.join("hyprdesk.lua"), &bundle, Scope::All).unwrap();
+        for f in [
+            "hyprland.lua",
+            "monitors.lua",
+            "binds.lua",
+            "conf/extra.lua",
+            "scripts/clip",
+        ] {
+            assert!(m.hypr.contains(&f.to_string()), "{f} : {:?}", m.hypr);
+        }
+        assert!(!m.hypr.iter().any(|f| f.ends_with(".bak")));
+        assert!(m.files.contains(&"hyprdesk/themes/nuit.tar.gz".to_string()));
+        assert!(
+            m.files
+                .contains(&"hyprdesk/calibration/dp1.icc".to_string())
+        );
+        assert_eq!(m.state, vec!["layout.toml".to_string()]);
+        assert_eq!(m.assets, vec!["img/lock.png".to_string()]);
+
+        // Machine B : l'image citée n'existe plus ici, l'état est autre.
+        std::fs::remove_file(home.join("img/lock.png")).unwrap();
+        std::fs::write(&layout, "").unwrap();
+        std::fs::write(b.join("hyprdesk.lua"), "").unwrap();
+        let check = import(
+            &bundle,
+            &b.join("hyprdesk.lua"),
+            ImportOpts {
+                dry_run: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(check.has_code(), "raccourcis et scripts : du code");
+        assert!(!check.hypr.contains(&"monitors.lua".to_string()));
+        let r = import(
+            &bundle,
+            &b.join("hyprdesk.lua"),
+            ImportOpts {
+                trust_code: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(b.join("conf/extra.lua").is_file() && b.join("scripts/clip").is_file());
+        assert!(b.join("binds.lua").is_file() && !b.join("monitors.lua").exists());
+        assert!(b.join("hyprdesk/themes/nuit.tar.gz").is_file());
+        assert!(b.join("hyprdesk/calibration/dp1.icc").is_file());
+        assert!(home.join("img/lock.png").is_file(), "{:?}", r.added);
+        assert!(
+            std::fs::read_to_string(&layout)
+                .unwrap()
+                .contains("full-desktop")
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn exporter_puis_importer_ailleurs() {
         let base = std::env::temp_dir().join(format!("hyprdesk-share-{}", std::process::id()));
         let (a, b) = (base.join("a"), base.join("b"));
@@ -821,7 +1389,7 @@ mod tests {
         )
         .unwrap();
         let bundle = base.join("setup.tar.gz");
-        let m = export(&a.join("hyprdesk.lua"), &bundle, Scope::All, false).unwrap();
+        let m = export(&a.join("hyprdesk.lua"), &bundle, Scope::All).unwrap();
         assert_eq!(m.plugins, ["meteo.lua"]);
         assert_eq!(m.wallpapers.len(), 1);
         // Simulation sur B : rien ne bouge.
@@ -889,7 +1457,7 @@ mod tests {
         )
         .unwrap();
         let bundle = base.join("nuit.tar.gz");
-        let m = export(&a.join("hyprdesk.lua"), &bundle, Scope::Theme, false).unwrap();
+        let m = export(&a.join("hyprdesk.lua"), &bundle, Scope::Theme).unwrap();
         assert_eq!(m.scope(), Scope::Theme);
         assert_eq!(m.theme.as_ref().unwrap().name, "Nuit");
         assert_eq!(m.wallpapers.len(), 1);
@@ -923,7 +1491,7 @@ mod tests {
         assert!(p.starts_with(data.join("hyprdesk/wallpapers")) && p.is_file());
         // Le thème d'une archive complète s'importe seul aussi.
         let full = base.join("complet.tar.gz");
-        export(&a.join("hyprdesk.lua"), &full, Scope::All, false).unwrap();
+        export(&a.join("hyprdesk.lua"), &full, Scope::All).unwrap();
         std::fs::write(
             b.join("hyprdesk/settings.lua"),
             "hd.config({ workspaces = 5 })\n",

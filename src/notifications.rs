@@ -86,14 +86,7 @@ pub fn state_path() -> std::path::PathBuf {
 
 /// « Ne pas déranger » gardé d'une session à l'autre.
 pub fn dnd_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                .join(".local/state")
-        })
-        .join("hyprdesk")
-        .join("dnd")
+    crate::layout::state_dir().join("dnd")
 }
 
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.

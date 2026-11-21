@@ -505,34 +505,55 @@ confirmation if the message mentions “gaps”, a choice if it mentions
 
 ## 8. Sharing a setup
 
-`hyprdesk export [fichier] [--theme] [--screens]` and `hyprdesk import
+`hyprdesk export [file] [--theme]` and `hyprdesk import
 <archive> [--theme] [--dry-run] [--screens] [--trust-code]`, or the **Sharing** package, which
 offers two scopes: **the entire setup**, or **the theme only**.
 
-- **The archive** contains `hyprdesk.lua`, `settings.lua`, third-party plugins,
-  the wallpaper **images**, a `manifest.json`, and `monitors.lua`
-  on request (it describes the machine's screens).
+- **The archive** (entire setup) holds everything hyprdesk and Hyprland keep
+  (MLG-203), with a `manifest.json`:
+  - `hyprdesk.lua`, `settings.lua`, third-party plugins, “My themes”
+    (`hyprdesk/themes/`), screen calibrations (`hyprdesk/calibration/`);
+  - `hypr/`: `hyprland.lua` and every local `require` it loads. Requires are
+    followed step by step in the text, without running anything. This
+    covers `binds.lua`, `inputs.lua`, `monitors.lua`, `autostart.lua`, the
+    generated files and your own. The files of the folder they reference
+    are included too (`~/.config/hypr/scripts/…`);
+  - `state/layout.toml`: icon positions, desktop mode of each workspace;
+  - the wallpaper **images** (`wallpapers/`) and the other files referenced
+    by path in the settings (`files/`: icons, lock screen image, SmartUI
+    icon theme…).
+
+  AI services and their keys, passwords, light pairing and system settings
+  (sound, network, login) are not included.
 - **On import**:
   - the imported configuration is checked before any change: the check
     (`--dry-run`, **Check** button) compiles the Lua without ever running it;
   - the archive's Lua is only read in a sandbox (no files, no commands); the
     theme alone carries no code;
-  - the entire setup copies `hyprdesk.lua` and the plugins, which will then
-    run with your rights: the import says so and asks for your consent
+  - the entire setup copies `hyprdesk.lua`, the plugins and the Hyprland
+    configuration (shortcuts, startup, scripts), which will then run with
+    your rights: the import says so and asks for your consent
     (`--trust-code`, or the toggle in the **Sharing** package);
+  - the Hyprland configuration is written in one go and checked by Hyprland,
+    which puts it back as it was on error. `monitors.lua` is applied only
+    with `--screens` (the “Also apply the screen layout” toggle);
+  - paths under the original home folder are rewritten to yours;
+  - the state (icon positions, desktop modes) replaces yours;
   - AI services from the archive are ignored: yours stay in place;
   - the current configuration is backed up into `hyprdesk/backups/`;
   - wallpapers are copied into `~/.local/share/hyprdesk/wallpapers/<archive>/`,
     and their paths rewritten;
-  - plugins already present are kept.
+  - plugins, themes, calibrations and referenced files already present are
+    kept (nothing is overwritten).
 
 ### The theme only
 
 A **theme** (`theme.rs`) gathers what can be seen: name, colors (text,
 surfaces, accent, background without image), wallpapers, effect of each place
 (background opacity and Hyprland blur for the bar, menus, launcher and
-settings; widget opacity), desktop mode and glass veil, lock screen veil and
-blur, transitions.
+settings; widget opacity), desktop mode and glass veil, lock screen veil,
+blur and image, transitions, font and size, icon theme, app theming (targets
+and options).
 
 - **Export** (`--theme`, or “Theme only”): the **effective** theme (settings
   and `hyprdesk.lua` combined), written to a `settings.lua` that contains

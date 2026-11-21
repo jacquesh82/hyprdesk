@@ -45,6 +45,10 @@ pub enum PanelMsg {
     /// Retour à la liste des résultats.
     SearchBack,
     SearchClear,
+    /// « Par défaut… » d'une page : demande, puis confirmation (MLG-202).
+    Defaults(Tab),
+    DefaultsCancel,
+    DefaultsDone(Tab, Result<String, String>),
 }
 
 pub struct Panel {
@@ -94,6 +98,10 @@ pub struct Panel {
     pub theme: plugins::theme::State,
     pub apptheme: plugins::apptheme::State,
     pub about: plugins::about::State,
+    /// Page dont la remise par défaut attend confirmation.
+    pub defaults_ask: Option<Tab>,
+    /// Résultat de la dernière remise par défaut d'une page.
+    pub defaults_done: Option<(Tab, Result<String, String>)>,
 }
 
 /// Couleurs proposées (palette Dracula PRO), partagées par les paquets.
@@ -161,6 +169,8 @@ impl Panel {
             theme: Default::default(),
             apptheme: Default::default(),
             about: Default::default(),
+            defaults_ask: None,
+            defaults_done: None,
         }
     }
 
@@ -458,6 +468,105 @@ impl App {
             PanelMsg::Close => self.close_panel(),
             PanelMsg::Commit => self.commit(),
             PanelMsg::Plugin(m) => plugins::update(self, m),
+            PanelMsg::Defaults(tab) => {
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                if p.defaults_ask != Some(tab) {
+                    p.defaults_ask = Some(tab);
+                    p.defaults_done = None;
+                    return Task::none();
+                }
+                p.defaults_ask = None;
+                Task::perform(
+                    defaults_job(self.config_path.clone(), Some(tab)),
+                    move |r| Msg::Panel(PanelMsg::DefaultsDone(tab, r)),
+                )
+            }
+            PanelMsg::DefaultsCancel => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.defaults_ask = None;
+                }
+                Task::none()
+            }
+            PanelMsg::DefaultsDone(tab, r) => {
+                let ok = r.is_ok();
+                if let Some(p) = self.panel.as_mut() {
+                    p.defaults_done = Some((tab, r));
+                }
+                if ok {
+                    self.after_defaults(tab)
+                } else {
+                    // Remise faite en partie : ce qui est écrit est relu.
+                    self.load_config()
+                }
+            }
+        }
+    }
+
+    /// Bouton « Par défaut… » d'une page qui a une configuration par défaut.
+    fn defaults_button(&self, p: &Panel) -> Element<'_, Msg> {
+        if !crate::defaults::holds_something(p.tab) || p.defaults_ask == Some(p.tab) {
+            return Space::new().into();
+        }
+        tooltip(
+            button(text("Par défaut…").font(self.font).size(12))
+                .padding([3, 10])
+                .style(button::text)
+                .on_press(Msg::Panel(PanelMsg::Defaults(p.tab))),
+            text("Remettre cette page à sa configuration par défaut").font(self.font),
+            iced::widget::tooltip::Position::Left,
+        )
+        .into()
+    }
+
+    /// Sous l'en-tête : confirmation de la remise (ce qu'elle touche), ou
+    /// son résultat ; rien sinon.
+    fn defaults_status(&self, p: &Panel) -> Option<Element<'_, Msg>> {
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let tab = p.tab;
+        if p.defaults_ask == Some(tab) {
+            let mut what = vec![crate::i18n::tr("ses réglages").to_string()];
+            what.extend(
+                crate::defaults::held(tab)
+                    .iter()
+                    .map(|h| crate::i18n::tr(h.label()).to_string()),
+            );
+            return Some(
+                column![
+                    text(crate::tr!(
+                        "Remettre « {l} » par défaut : {w}. hyprdesk.lua n'est pas touché ; une copie est gardée.",
+                        l = crate::i18n::tr(plugins::find(tab).map_or("", |i| i.label)),
+                        w = what.join(", ")
+                    ))
+                    .font(self.font)
+                    .size(12)
+                    .color(Color { a: 0.8, ..fg }),
+                    row![
+                        button(text("Confirmer").font(self.font).size(12))
+                            .padding([4, 12])
+                            .style(button::danger)
+                            .on_press(Msg::Panel(PanelMsg::Defaults(tab))),
+                        button(text("Annuler").font(self.font).size(12))
+                            .padding([4, 12])
+                            .style(button::secondary)
+                            .on_press(Msg::Panel(PanelMsg::DefaultsCancel)),
+                    ]
+                    .spacing(8),
+                ]
+                .spacing(8)
+                .into(),
+            );
+        }
+        match &p.defaults_done {
+            Some((t, r)) if *t == tab => {
+                let (msg, c) = match r {
+                    Ok(m) => (m.clone(), Color { a: 0.75, ..fg }),
+                    Err(e) => (e.clone(), Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                };
+                Some(text(msg).font(self.font).size(12).color(c).into())
+            }
+            _ => None,
         }
     }
 
@@ -801,11 +910,14 @@ impl App {
                 text("Modifications enregistrées automatiquement")
                     .font(self.font)
                     .size(12)
-                    .color(Color { a: 0.6, ..fg })
+                    .color(Color { a: 0.6, ..fg }),
+                Space::new().width(Length::Fill),
+                self.defaults_button(p),
             ]
             .spacing(7)
             .align_y(Alignment::Center),
             self.tour_card(),
+            self.defaults_status(p),
             self.subtab_bar(p.tab),
             scrollable(container(content).padding(iced::Padding {
                 right: 14.0,
@@ -1188,4 +1300,42 @@ pub(in crate::ui) struct Ink {
     pub dim: Color,
     /// Accent lisible en texte (onglet choisi, liens).
     pub accent: Color,
+}
+
+/// Remise par défaut de `target` (`None` : tout), hors du fil de
+/// l'interface : plan, copie, écriture, fichiers de Hyprland appliqués.
+pub(in crate::ui) async fn defaults_job(
+    path: std::path::PathBuf,
+    target: Option<Tab>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let _reason = crate::history::reason("reglages");
+        let target = match target {
+            Some(t) => crate::defaults::resolve(t)?,
+            None => None,
+        };
+        let plan = crate::defaults::plan(&path, target)?;
+        let live = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some();
+        let backup = crate::defaults::apply(&path, &plan, crate::defaults::Apply { live })?;
+        let home = std::env::var("HOME").unwrap_or_default();
+        let b = backup.display().to_string();
+        let b = match b.strip_prefix(&home) {
+            Some(rest) if !home.is_empty() => format!("~{rest}"),
+            _ => b,
+        };
+        let mut msg = crate::tr!(
+            "Configuration par défaut remise ; copie de l'ancienne : {b}",
+            b = b
+        );
+        if !plan.overridden.is_empty() {
+            msg += " — ";
+            msg += &crate::tr!(
+                "fixé dans hyprdesk.lua, non touché : {k}",
+                k = plan.overridden.join(", ")
+            );
+        }
+        Ok(msg)
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.to_string()))
 }

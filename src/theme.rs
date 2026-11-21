@@ -264,6 +264,15 @@ impl Settings {
             crossfade_ms: Some(g.crossfade_ms),
             lock_blur: Some(g.lock.blur),
             lock_dim: Some(g.lock.dim),
+            lock_image: g.lock.image.clone(),
+            font: g.font.clone(),
+            font_size: Some(g.font_size),
+            icon_theme: g.icon_theme.clone(),
+            app_themes: (!g.app_themes.is_empty()).then(|| g.app_themes.clone()),
+            plugin_options: g
+                .plugin_options
+                .get(crate::apptheme::PLUGIN)
+                .map(|o| [(crate::apptheme::PLUGIN.to_string(), o.clone())].into()),
             wallpapers: cfg
                 .wallpapers
                 .iter()
@@ -293,9 +302,26 @@ impl Settings {
             crossfade_ms: self.crossfade_ms,
             lock_blur: self.lock_blur,
             lock_dim: self.lock_dim,
+            lock_image: self.lock_image.clone(),
+            font: self.font.clone(),
+            font_size: self.font_size,
+            icon_theme: self.icon_theme.clone(),
+            app_themes: self.app_themes.clone(),
+            plugin_options: self
+                .app_theme_options()
+                .map(|o| [(crate::apptheme::PLUGIN.to_string(), o.clone())].into()),
             wallpapers: self.wallpapers.clone(),
             ..Default::default()
         }
+    }
+
+    /// Options du thème des applications (`plugin_options.apptheme`).
+    fn app_theme_options(
+        &self,
+    ) -> Option<&std::collections::BTreeMap<String, crate::tiling::OptValue>> {
+        self.plugin_options
+            .as_ref()
+            .and_then(|m| m.get(crate::apptheme::PLUGIN))
     }
 
     /// Remplace le thème de ces réglages par celui de `t` (fonds compris) ;
@@ -315,6 +341,29 @@ impl Settings {
         self.crossfade_ms = t.crossfade_ms;
         self.lock_blur = t.lock_blur;
         self.lock_dim = t.lock_dim;
+        // Thème d'avant MLG-203 (sans police ni thème des applications) : les
+        // réglages en place restent.
+        let full = t.font_size.is_some();
+        if full {
+            self.lock_image = t.lock_image;
+            self.font = t.font;
+            self.font_size = t.font_size;
+            self.icon_theme = t.icon_theme;
+            self.app_themes = t.app_themes;
+            let opts = t
+                .plugin_options
+                .and_then(|mut m| m.remove(crate::apptheme::PLUGIN));
+            let mut all = self.plugin_options.take().unwrap_or_default();
+            match opts {
+                Some(o) => {
+                    all.insert(crate::apptheme::PLUGIN.to_string(), o);
+                }
+                None => {
+                    all.remove(crate::apptheme::PLUGIN);
+                }
+            }
+            self.plugin_options = (!all.is_empty()).then_some(all);
+        }
         self.wallpapers = t.wallpapers;
     }
 

@@ -27,6 +27,9 @@ pub enum Command {
     Status,
     /// Oublie les places de fenêtres choisies (plein bureau).
     ForgetWindowPlaces,
+    /// Une remise par défaut vient d'avoir lieu (`defaults <composant|all>`) :
+    /// état mémorisé et configuration relus.
+    Defaults(String),
     /// Mire plein écran des couleurs sur tous les écrans (ouvre ou ferme).
     ColorTest,
     /// Éteint tous les écrans, la machine reste allumée ; un changement de
@@ -120,6 +123,7 @@ impl Command {
                 Command::Notifications(m[14..].trim().to_string())
             }
             m if m.starts_with("mymfa ") => Command::Mymfa(m[6..].trim().to_string()),
+            m if m.starts_with("defaults ") => Command::Defaults(m[9..].trim().to_string()),
             "panorama" => Command::Panorama("toggle".into()),
             m if m.starts_with("panorama ") => Command::Panorama(m[9..].trim().to_string()),
             m if m.starts_with("problem-show ") => {
@@ -140,6 +144,7 @@ impl Command {
             ),
             Command::Notifications(a) => format!("notifications {a}"),
             Command::Mymfa(a) => format!("mymfa {a}"),
+            Command::Defaults(a) => format!("defaults {a}"),
             Command::Panorama(a) => format!("panorama {a}"),
             Command::Ask(o, t) => format!(
                 "ask {}",
@@ -164,6 +169,7 @@ impl Command {
             Command::Reload => "reload",
             Command::Status => "status",
             Command::ForgetWindowPlaces => "forget-window-places",
+            Command::Defaults(_) => "defaults",
             Command::ColorTest => "color-test",
             Command::ScreensOff => "screens-off",
             Command::Quit => "quit",

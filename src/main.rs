@@ -785,7 +785,6 @@ fn main() -> ExitCode {
         }
         // Partage du setup : archive .tar.gz (configs, plugins, fonds d'écran).
         "export" => {
-            let screens = args.iter().any(|a| a == "--screens");
             let scope = if args.iter().any(|a| a == "--theme") {
                 share::Scope::Theme
             } else {
@@ -806,7 +805,7 @@ fn main() -> ExitCode {
                         chrono::Local::now().format("%Y%m%d")
                     ))
                 });
-            match share::export(&config_path, &out, scope, screens) {
+            match share::export(&config_path, &out, scope) {
                 Ok(m) if scope == share::Scope::Theme => {
                     println!(
                         "{}",
@@ -823,16 +822,13 @@ fn main() -> ExitCode {
                     println!(
                         "{}",
                         hyprdesk::tr!(
-                            "{p0} — {p1} fichier(s), {p2} fond(s), {p3} plugin(s){p4}",
+                            "{p0} — {p1} fichier(s) hyprdesk, {p2} de Hyprland, {p3} fond(s), {p4} plugin(s), {p5} image(s)",
                             p0 = out.display(),
                             p1 = m.files.len(),
-                            p2 = m.wallpapers.len(),
-                            p3 = m.plugins.len(),
-                            p4 = if screens {
-                                hyprdesk::i18n::tr(", écrans compris")
-                            } else {
-                                ""
-                            }
+                            p2 = m.hypr.len(),
+                            p3 = m.wallpapers.len(),
+                            p4 = m.plugins.len(),
+                            p5 = m.assets.len()
                         )
                     );
                     ExitCode::SUCCESS

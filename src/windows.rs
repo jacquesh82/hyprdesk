@@ -44,14 +44,7 @@ enum Request {
 
 /// Fichier des places choisies par l'utilisateur en plein bureau.
 pub fn places_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                .join(".local/state")
-        })
-        .join("hyprdesk")
-        .join("window-places.json")
+    crate::layout::state_dir().join("window-places.json")
 }
 
 /// Places choisies : « workspace|classe » → (x, y, largeur, hauteur).

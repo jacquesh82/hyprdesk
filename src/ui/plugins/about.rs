@@ -357,7 +357,7 @@ impl App {
             self.section("Nouveautés"),
             self.about_news(),
             self.section("Configuration par défaut"),
-            text("Remet hyprdesk.lua (configuration d'exemple) et tous les réglages faits ici par défaut. Une copie est gardée dans ~/.config/hypr/hyprdesk/sauvegardes ; les fichiers de Hyprland (clavier, écrans, démarrage), vos thèmes et widgets ne bougent pas.")
+            text("Remet chaque composant à sa configuration par défaut : les réglages faits ici (bureau de départ), les fichiers de Hyprland que tient hyprdesk (raccourcis réactivés, clavier et souris aux valeurs de Hyprland en gardant la disposition, écrans en mode préféré, démarrage vide), l'état mémorisé (positions des icônes, places des fenêtres, lancements, notifications). Vos thèmes et widgets perso sont mis de côté. hyprdesk.lua n'est pas touché. Une copie est gardée dans ~/.config/hypr/hyprdesk/sauvegardes. Chaque page a aussi son bouton « Par défaut… ».")
                 .font(self.font)
                 .size(12)
                 .color(dim),
@@ -522,22 +522,8 @@ impl App {
                     return Task::none();
                 }
                 p.about.confirm_reset = false;
-                let path = self.config_path.clone();
                 Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            crate::config::reset_to_defaults(&path)
-                                .map(|b| {
-                                    crate::tr!(
-                                        "Configuration par défaut remise ; copie de l'ancienne : {b}",
-                                        b = tilde(&b)
-                                    )
-                                })
-                                .map_err(|e| e.to_string())
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                    },
+                    crate::ui::panel::defaults_job(self.config_path.clone(), None),
                     |r| wrap(Msg::ResetDone(r)),
                 )
             }
@@ -552,11 +538,11 @@ impl App {
                 if let Some(p) = self.panel.as_mut() {
                     p.about.reset = Some(r);
                 }
-                // Configuration et réglages relus : l'interface repart des défauts.
+                // État et configuration relus : l'interface repart des défauts.
                 if ok {
-                    Task::done(UiMsg::ConfigChanged)
+                    self.after_defaults("all")
                 } else {
-                    Task::none()
+                    Task::done(UiMsg::ConfigChanged)
                 }
             }
             Msg::OpenRepo => {

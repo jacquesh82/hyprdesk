@@ -1114,6 +1114,28 @@ fn write_checked(file: &Path, old: &str, new: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Configuration par défaut des raccourcis (MLG-202) : plus aucun raccourci
+/// coupé depuis les Réglages. Rend le nombre de raccourcis réactivés.
+/// `live` : Hyprland recharge et vérifie (retour arrière sur erreur).
+pub fn enable_all(config_path: &Path, live: bool) -> Result<usize, String> {
+    let file = path(config_path);
+    let Ok(src) = std::fs::read_to_string(&file) else {
+        return Ok(0);
+    };
+    let (text, marked) = unmasked(&src);
+    let n = marked.iter().filter(|m| **m).count();
+    if n == 0 {
+        return Ok(0);
+    }
+    let new = generate(&(text + "\n"));
+    if live {
+        write_checked(&file, &src, &new)?;
+    } else {
+        std::fs::write(&file, new).map_err(|e| e.to_string())?;
+    }
+    Ok(n)
+}
+
 /// Modifie un raccourci de binds.lua, puis recharge Hyprland.
 pub fn edit(
     config_path: &Path,

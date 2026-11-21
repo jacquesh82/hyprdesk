@@ -8,6 +8,31 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **The export carries the whole hyprdesk and Hyprland setup** (MLG-203).
+  `hyprdesk export` and Settings → Sharing now include `hyprland.lua`, every
+  local file it `require`s and the scripts those files reference. They also
+  include My themes, screen calibrations, icon positions and desktop modes,
+  and every image the settings point to (icons, lock image, SmartUI icons).
+  - On import, the Hyprland files are checked by Hyprland and count as code
+    needing consent. `monitors.lua` stays opt-in (`--screens`), and home-folder
+    paths are rewritten for the new machine.
+  - The theme-only export adds the font, icon theme, app theming and lock
+    image.
+
+- **Default configuration for each component** (MLG-202). Every Settings
+  page that keeps something in hyprdesk has a **Defaults…** button. On the
+  command line, `hyprdesk config reset <component>|all [--yes]` previews the
+  reset without `--yes`. A reset does three things:
+  - settings go back to the starting desktop;
+  - the Hyprland files the component holds are rewritten: `binds.lua`,
+    `inputs.lua` (keyboard layout kept), `monitors.lua` and `autostart.lua`;
+  - remembered state is forgotten.
+
+  The full reset also clears kept notifications and sets custom themes and
+  widgets aside. The reset no longer replaces `hyprdesk.lua`.
+
 ### Changed
 
 - **Dedicated binaries for authentication.** The lock screen

@@ -77,13 +77,24 @@ pub fn key(monitor: &str, workspace: &str, icon: &str) -> String {
     format!("{monitor}|{workspace}|{icon}")
 }
 
-fn path() -> PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
+/// `$XDG_STATE_HOME/hyprdesk` : état mémorisé (positions, places des
+/// fenêtres, lancements…). Pendant les tests, un dossier temporaire : aucun
+/// test ne touche à l'état de la session qui les lance.
+pub fn state_dir() -> PathBuf {
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("hyprdesk-test-state-{}", std::process::id()));
+    }
+    std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
-        });
-    base.join("hyprdesk").join("layout.toml")
+        })
+        .join("hyprdesk")
+}
+
+/// `$XDG_STATE_HOME/hyprdesk/layout.toml`.
+pub fn path() -> PathBuf {
+    state_dir().join("layout.toml")
 }
 
 impl Layout {
@@ -143,6 +154,11 @@ impl Layout {
     pub fn clear_desktop(&mut self, monitor: &str, workspace: &str) {
         let prefix = format!("{monitor}|{workspace}|");
         self.positions.retain(|k, _| !k.starts_with(&prefix));
+    }
+
+    /// Oublie toutes les positions posées à la souris.
+    pub fn clear_positions(&mut self) {
+        self.positions.clear();
     }
 
     pub fn set(&mut self, key: String, c: Cell) {

@@ -22,6 +22,7 @@ pub mod clipboard;
 pub mod colors;
 pub mod config;
 pub mod control;
+pub mod defaults;
 pub mod desktop_files;
 pub mod doctor;
 pub mod essentials;

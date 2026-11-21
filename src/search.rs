@@ -95,14 +95,7 @@ pub fn rank_with(query: &str, names: &[&str], bonus: &[i32], limit: usize) -> Ve
 /// Lancements depuis la recherche : `id nombre dernier(unix)` par ligne,
 /// dans `$XDG_STATE_HOME/hyprdesk/launches`.
 pub fn usage_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                .join(".local/state")
-        })
-        .join("hyprdesk")
-        .join("launches")
+    crate::layout::state_dir().join("launches")
 }
 
 pub type Usage = std::collections::HashMap<String, (u32, u64)>;

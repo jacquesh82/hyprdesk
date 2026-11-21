@@ -53,6 +53,14 @@ hd.bar({{
 /// Écrit le bureau de départ dans `settings.lua`, sous la forme qu'écrivent
 /// les Réglages.
 pub fn write_starter_settings(path: &Path) -> std::io::Result<PathBuf> {
+    let saved = starter_settings(path)?.save(path)?;
+    forget_key_answers(path);
+    Ok(saved)
+}
+
+/// Réglages du bureau de départ : la configuration par défaut de chaque
+/// composant (`crate::defaults`).
+pub fn starter_settings(path: &Path) -> std::io::Result<crate::settings::Settings> {
     let sp = lua::settings_path(path);
     let base = path.parent().unwrap_or(Path::new("."));
     let cfg = lua::load_chunks(
@@ -61,12 +69,7 @@ pub fn write_starter_settings(path: &Path) -> std::io::Result<PathBuf> {
     )
     .map_err(std::io::Error::other)?
     .config;
-    let saved = crate::settings::Settings::from_config(&cfg).save(path)?;
-    // Installation ou remise à zéro : les réponses aux conflits de raccourcis
-    // s'effacent, la question se pose de nouveau (MLG-209).
-    let _ = std::fs::remove_file(keys_answers_path(path));
-    let _ = std::fs::remove_file(lua::settings_path(path).with_file_name(".raccourcis-a-revoir"));
-    Ok(saved)
+    Ok(crate::settings::Settings::from_config(&cfg))
 }
 
 /// Réponses aux conflits de raccourcis (une ligne par conflit répondu :
@@ -76,30 +79,11 @@ pub fn keys_answers_path(path: &Path) -> PathBuf {
     lua::settings_path(path).with_file_name(".raccourcis-repondus")
 }
 
-/// Remet la configuration par défaut : `hyprdesk.lua` (l'exemple, tout en
-/// commentaires) et `hyprdesk/settings.lua` (le bureau de départ : plus aucun
-/// réglage fait à la souris), après une copie des deux dans
-/// `hyprdesk/sauvegardes/<date>/`.
-/// Les fichiers de Hyprland (inputs.lua, monitors.lua, autostart.lua), les
-/// thèmes et les widgets ne bougent pas. Rend le dossier de la copie.
-pub fn reset_to_defaults(path: &Path) -> std::io::Result<PathBuf> {
-    crate::history::before(path, "reinitialisation");
-    let settings = lua::settings_path(path);
-    let dir = path.parent().unwrap_or(Path::new("."));
-    let backup = dir
-        .join("hyprdesk")
-        .join("sauvegardes")
-        .join(chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string());
-    std::fs::create_dir_all(&backup)?;
-    for f in [path, settings.as_path()] {
-        if f.is_file() {
-            std::fs::copy(f, backup.join(f.file_name().unwrap_or_default()))?;
-        }
-    }
-    crate::history::write_file(path, example(), "reinitialisation")?;
-    write_starter_settings(path)?;
-    crate::history::note(&settings);
-    Ok(backup)
+/// Installation ou remise à zéro des raccourcis : les réponses aux conflits
+/// s'effacent, la question se pose de nouveau.
+pub fn forget_key_answers(path: &Path) {
+    let _ = std::fs::remove_file(keys_answers_path(path));
+    let _ = std::fs::remove_file(lua::settings_path(path).with_file_name(".raccourcis-a-revoir"));
 }
 
 pub fn example() -> &'static str {
@@ -172,36 +156,6 @@ mod reset_tests {
         // Ni l'un ni l'autre : pas de configuration.
         std::fs::remove_file(lua::settings_path(&cfg)).unwrap();
         assert!(lua::load_file(&cfg).is_err());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn remise_par_defaut_avec_copie() {
-        let dir = std::env::temp_dir().join(format!("hyprdesk-reset-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("hyprdesk")).unwrap();
-        let cfg = dir.join("hyprdesk.lua");
-        std::fs::write(&cfg, "-- ma config").unwrap();
-        std::fs::write(
-            dir.join("hyprdesk/settings.lua"),
-            "hd.config({ show_on = \"focused\" })",
-        )
-        .unwrap();
-        std::fs::write(dir.join("monitors.lua"), "-- écrans").unwrap();
-        let backup = reset_to_defaults(&cfg).unwrap();
-        assert_eq!(std::fs::read_to_string(&cfg).unwrap(), example());
-        // Réglages : le bureau de départ, plus le réglage fait à la souris.
-        let settings = std::fs::read_to_string(dir.join("hyprdesk/settings.lua")).unwrap();
-        assert!(!settings.contains("focused"));
-        assert!(settings.contains("hd.widget(\"clock\""));
-        assert_eq!(
-            std::fs::read_to_string(backup.join("hyprdesk.lua")).unwrap(),
-            "-- ma config"
-        );
-        assert!(backup.join("settings.lua").is_file());
-        assert_eq!(
-            std::fs::read_to_string(dir.join("monitors.lua")).unwrap(),
-            "-- écrans"
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

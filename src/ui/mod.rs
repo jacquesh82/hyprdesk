@@ -1108,6 +1108,34 @@ impl App {
         (app, t)
     }
 
+    /// Après une remise par défaut (`crate::defaults`) : état mémorisé relu
+    /// (positions d'icônes, modes de bureau), places des fenêtres et
+    /// notifications oubliées si la remise les visait, configuration relue.
+    pub(in crate::ui) fn after_defaults(&mut self, target: &str) -> Task<Msg> {
+        let all = target == "all";
+        if !self.preview {
+            self.layout = Layout::load();
+            if all || matches!(target, "desktop" | "import") {
+                self.ws_modes = self
+                    .layout
+                    .modes()
+                    .iter()
+                    .filter_map(|(w, m)| Some((w.clone(), DesktopMode::parse(m)?)))
+                    .collect();
+            }
+        }
+        if all {
+            self.toasts.command("clear");
+            self.toasts.command("dnd off");
+        }
+        let forget = if all || target == "windows" {
+            Self::window_result(self.windows.forget())
+        } else {
+            Task::none()
+        };
+        Task::batch([forget, self.load_config()])
+    }
+
     fn load_config(&self) -> Task<Msg> {
         let (lua, path) = (self.lua.clone(), self.config_path.clone());
         let p2 = path.clone();
@@ -3825,6 +3853,7 @@ impl App {
                     })
                 }
                 control::Command::ForgetWindowPlaces => Self::window_result(self.windows.forget()),
+                control::Command::Defaults(t) => self.after_defaults(&t),
                 control::Command::Problem(t) => self.show_problem(t, false),
                 control::Command::ProblemShow(t) => self.show_problem(t, true),
                 control::Command::Osd(line) => match osd::parse(&line) {

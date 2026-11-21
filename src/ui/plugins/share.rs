@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, radio, row, text_input, toggler};
+use iced::widget::{Space, button, column, radio, row, text_input, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -120,13 +120,18 @@ impl App {
         let theme_name = &self.cfg.general.theme.name;
         let export_help = match s.export_scope {
             Scope::All => crate::i18n::tr(
-                "Une archive avec hyprdesk.lua, les réglages, les plugins tiers et les \
-                           fonds d'écran utilisés — à donner à quelqu'un, ou à garder.",
+                "Une archive avec toute la configuration : hyprdesk.lua, les réglages, \
+                           hyprland.lua et chaque fichier qu'il charge (raccourcis, clavier, \
+                           écrans, démarrage, scripts cités), les plugins tiers, Mes thèmes, \
+                           les calibrations, la place des icônes, les fonds et les images \
+                           utilisés — à donner à quelqu'un, ou à garder. Les services d'IA et \
+                           leurs clés n'y sont pas.",
             )
             .to_string(),
             Scope::Theme => crate::tr!(
                 "Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque \
-                 endroit, mode du bureau, voile du verrouillage, transitions.",
+                 endroit, mode du bureau, voile et image du verrouillage, transitions, \
+                 police, thème d'icônes, thème des applications.",
                 theme_name = theme_name
             ),
         };
@@ -142,7 +147,7 @@ impl App {
                              configuration actuelle est sauvegardée d'abord.",
             ),
         };
-        let mut export_box = column![
+        let export_box = column![
             scope_radios(s.export_scope, Msg::ExportScope),
             text(export_help).font(self.font).size(12).color(dim),
             row![
@@ -159,21 +164,23 @@ impl App {
             .align_y(Alignment::Center),
         ]
         .spacing(12);
-        if s.export_scope == Scope::All {
-            export_box = export_box.push(
-                toggler(s.screens)
-                    .label(crate::i18n::tr(
-                        "Inclure la disposition des écrans (monitors.lua, propre à cette machine)",
-                    ))
-                    .on_toggle(|v| wrap(Msg::Screens(v))),
-            );
-        }
         let mut col = column![
             self.section("Exporter"),
             export_box,
             self.section("Importer"),
             scope_radios(s.import_scope, Msg::ImportScope),
             text(import_help).font(self.font).size(12).color(dim),
+            if s.import_scope == Scope::All {
+                Element::from(
+                    toggler(s.screens)
+                        .label(crate::i18n::tr(
+                            "Appliquer aussi la disposition des écrans de l'archive (monitors.lua, propre à sa machine)",
+                        ))
+                        .on_toggle(|v| wrap(Msg::Screens(v))),
+                )
+            } else {
+                Space::new().into()
+            },
             row![
                 text_input(crate::i18n::tr("archive .tar.gz"), &s.import_from)
                     .font(self.font)
@@ -250,16 +257,15 @@ impl App {
                 Task::none()
             }
             Msg::Export => {
-                let (out, scope, screens, cfg) = (
+                let (out, scope, cfg) = (
                     path(&st.export_to),
                     st.export_scope,
-                    st.screens,
                     self.config_path.clone(),
                 );
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            crate::share::export(&cfg, &out, scope, screens).map(|m| match scope {
+                            crate::share::export(&cfg, &out, scope).map(|m| match scope {
                                 Scope::Theme => crate::tr!(
                                     "Thème « {name} » exporté : {out} — {n} fond(s).",
                                     name = m.theme.map(|t| t.name).unwrap_or_default(),
@@ -267,10 +273,12 @@ impl App {
                                     n = m.wallpapers.len()
                                 ),
                                 Scope::All => crate::tr!(
-                                    "Exporté : {out} — {n} fond(s), {p} plugin(s).",
+                                    "Exporté : {out} — {h} fichier(s) de Hyprland, {n} fond(s), {p} plugin(s), {i} image(s).",
                                     out = out.display(),
+                                    h = m.hypr.len(),
                                     n = m.wallpapers.len(),
-                                    p = m.plugins.len()
+                                    p = m.plugins.len(),
+                                    i = m.assets.len()
                                 ),
                             })
                         })

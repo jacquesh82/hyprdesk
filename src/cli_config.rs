@@ -27,6 +27,37 @@ pub struct Key {
     unset: fn(&mut Settings),
 }
 
+impl Key {
+    /// Valeur de la clé dans `c`, telle que `hyprdesk config get` l'écrit.
+    pub fn value(&self, c: &Config) -> String {
+        (self.get)(c)
+    }
+}
+
+/// `hyprdesk config reset` sans composant : ce que veut dire « par défaut »
+/// pour chacun.
+fn defaults_help() -> String {
+    let mut out = crate::i18n::tr(
+        "hyprdesk config reset <composant|all> [--yes] : remet un composant (ou tout) à sa configuration par défaut.\nPar défaut : ses réglages de settings.lua rendus à ceux du bureau de départ, les fichiers de Hyprland qu'il tient réécrits, son état mémorisé oublié. hyprdesk.lua n'est jamais touché.\n",
+    )
+    .to_string();
+    for p in crate::defaults::components() {
+        out += &format!("\n  {:<12} {}", p.id, crate::i18n::tr(p.label));
+        let held: Vec<&str> = crate::defaults::held(p.id)
+            .iter()
+            .map(|h| crate::i18n::tr(h.label()))
+            .collect();
+        if !held.is_empty() {
+            out += &format!(" — {}", held.join(", "));
+        }
+    }
+    out += "\n  all          ";
+    out += crate::i18n::tr(
+        "tout : en plus, notifications gardées effacées, thèmes et widgets perso mis de côté",
+    );
+    out
+}
+
 fn on_off(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
@@ -1969,7 +2000,7 @@ fn usage() -> String {
 }
 
 const USAGE: &str =
-    "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé> | reset --yes
+    "Usage : hyprdesk config [list [paquet]] | get <clé> | set <clé> <valeur> | unset <clé> | reset [<composant>|all] [--yes]
 Clés dynamiques : assign.<app> <workspace> [silent] | none ; widget.<type> on | off ;
 bar.color.<text|background|accent|warning|critical> #rrggbb | theme ; bar.module_color.<module> #rrggbb | theme ;
 fx.<section.option> <valeur> | hyprland ; fx.anim.<élément> on | off | <vitesse> [courbe] [style] | hyprland ;
@@ -2088,18 +2119,41 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
             );
             Ok(out)
         }
-        // Configuration par défaut (copie des fichiers d'abord) ; --yes exigé.
-        "reset" => {
-            if args.get(1).map(String::as_str) != Some("--yes") {
-                return Err(crate::i18n::tr(
-                    "hyprdesk config reset --yes : remet hyprdesk.lua et les réglages par défaut (une copie est gardée)",
-                )
-                .to_string());
+        // Configuration par défaut, d'un composant ou de tout (MLG-202) :
+        // sans --yes, ce qui changerait ; avec, la remise (copie d'abord).
+        "reset" | "defaults" => {
+            let yes = args.iter().any(|a| a == "--yes");
+            let name = args[1..].iter().find(|a| *a != "--yes");
+            let target = match (name, yes) {
+                (Some(n), _) => crate::defaults::resolve(n)?,
+                // Ancienne forme : `hyprdesk config reset --yes` remet tout.
+                (None, true) => None,
+                (None, false) => return Ok(defaults_help()),
+            };
+            let before = full()?;
+            let plan = crate::defaults::plan(config_path, target)?;
+            let what = match target {
+                Some(id) => crate::tr!("{l} par défaut", l = plugin_label(id)),
+                None => crate::i18n::tr("toute la configuration par défaut").to_string(),
+            };
+            let detail = crate::defaults::describe(&plan, &before);
+            if !yes {
+                let arg = target.unwrap_or("all");
+                return Ok(crate::tr!(
+                    "{what} :{detail}\nhyprdesk config reset {arg} --yes pour le faire (une copie est gardée)",
+                    what = what,
+                    detail = detail,
+                    arg = arg
+                ));
             }
+            let live = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some();
             let backup =
-                crate::config::reset_to_defaults(config_path).map_err(|e| e.to_string())?;
+                crate::defaults::apply(config_path, &plan, crate::defaults::Apply { live })?;
+            crate::defaults::notify_daemon(target);
             Ok(crate::tr!(
-                "configuration par défaut remise ; copie de l'ancienne : {b}",
+                "{what} : fait.{detail}\ncopie de l'ancienne configuration : {b}",
+                what = what,
+                detail = detail,
                 b = backup.display()
             ))
         }
