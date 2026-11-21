@@ -38,6 +38,7 @@ pub mod history;
 pub mod hypr;
 pub mod hyprbars;
 pub mod hyprcheck;
+pub mod hyprpm;
 pub mod hyprset;
 pub mod hyprsrc;
 pub mod hyprwrite;

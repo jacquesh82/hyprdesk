@@ -862,12 +862,20 @@ pub const GROUPS: &[(&str, &str, &[&str])] = &[
         &[
             "ecosystem.no_update_news",
             "ecosystem.no_donation_nag",
-            "ecosystem.enforce_permissions",
             "debug.disable_logs",
             "debug.overlay",
         ],
     ),
+    (
+        "permissions",
+        "Contrôle des accès",
+        &["ecosystem.enforce_permissions"],
+    ),
 ];
+
+/// Groupes d'options affichés en configuration de base (le reste du
+/// registre est réservé à la configuration avancée).
+pub const BASIC_GROUPS: &[&str] = &["fenetres"];
 
 /// Option du registre par chemin pointé.
 pub fn opt(path: &str) -> Option<&'static Opt> {
@@ -939,7 +947,50 @@ pub struct Hypr {
     /// Bordures aux couleurs du thème de hyprdesk (accent pour la fenêtre
     /// active, fond pour les autres) ; gagne sur les couleurs réglées.
     pub theme_borders: bool,
+    /// Gestes du pavé tactile (`hl.gesture`), dans l'ordre : leurs champs
+    /// tels quels (`{ fingers = 3, direction = "horizontal", action = "workspace" }`).
+    pub gestures: Vec<serde_json::Value>,
+    /// Réglages par périphérique (`hl.device`) : `{ name = "…", sensitivity = … }`.
+    pub devices: Vec<serde_json::Value>,
+    /// Permissions (`hl.permission`), lues au démarrage de Hyprland seulement.
+    pub permissions: Vec<Permission>,
 }
+
+/// Permission de Hyprland : un programme (regex de son chemin) ou un
+/// clavier (regex de son nom), une sorte d'accès, une décision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Permission {
+    pub target: String,
+    pub kind: String,
+    pub mode: String,
+}
+
+/// Sortes de permission de Hyprland : (valeur, libellé).
+pub const PERMISSION_KINDS: &[(&str, &str)] = &[
+    ("screencopy", "Capture de l'écran"),
+    ("plugin", "Chargement de plugins"),
+    ("keyboard", "Clavier (nom du périphérique)"),
+];
+
+/// Décisions d'une permission : (valeur, libellé).
+pub const PERMISSION_MODES: &[(&str, &str)] = &[
+    ("allow", "Autoriser"),
+    ("ask", "Demander"),
+    ("deny", "Refuser"),
+];
+
+/// Permissions conseillées quand `ecosystem.enforce_permissions` est actif :
+/// captures (grim, portail, hyprdesk) et plugins (hyprpm).
+pub const PERMISSION_PRESETS: &[(&str, &str, &str)] = &[
+    ("/usr/(bin|local/bin)/grim", "screencopy", "allow"),
+    (
+        "/usr/(lib|libexec|lib64)/xdg-desktop-portal-hyprland",
+        "screencopy",
+        "allow",
+    ),
+    ("/usr/(bin|local/bin)/hyprdesk", "screencopy", "allow"),
+    ("/usr/(bin|local/bin)/hyprpm", "plugin", "allow"),
+];
 
 /// Valeur JSON en littéral Lua (tables, chaînes échappées).
 pub fn json_lua(v: &serde_json::Value) -> String {
@@ -978,6 +1029,9 @@ impl Hypr {
             && self.env.is_empty()
             && self.rules.is_empty()
             && !self.theme_borders
+            && self.gestures.is_empty()
+            && self.devices.is_empty()
+            && self.permissions.is_empty()
     }
 
     /// Forme de settings.lua : `{ ["general.gaps_in"] = 5, env = {…}, rules = {…} }`.
@@ -1018,6 +1072,27 @@ impl Hypr {
                 .collect();
             items.push(format!("rules = {{ {} }}", r.join(", ")));
         }
+        for (key, list) in [("gestures", &self.gestures), ("devices", &self.devices)] {
+            if !list.is_empty() {
+                let l: Vec<String> = list.iter().map(json_lua).collect();
+                items.push(format!("{key} = {{ {} }}", l.join(", ")));
+            }
+        }
+        if !self.permissions.is_empty() {
+            let l: Vec<String> = self
+                .permissions
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{{ \"{}\", \"{}\", \"{}\" }}",
+                        hyprpanel_core::ipc::lua_escape(&p.target),
+                        hyprpanel_core::ipc::lua_escape(&p.kind),
+                        hyprpanel_core::ipc::lua_escape(&p.mode)
+                    )
+                })
+                .collect();
+            items.push(format!("permissions = {{ {} }}", l.join(", ")));
+        }
         format!("{{ {} }}", items.join(", "))
     }
 }
@@ -1052,13 +1127,41 @@ pub fn parse(t: &mlua::Table) -> Result<Hypr, String> {
             });
         }
     }
+    for (key, list) in [("gestures", &mut h.gestures), ("devices", &mut h.devices)] {
+        if let Some(t) = t
+            .get::<Option<mlua::Table>>(key)
+            .map_err(|e| e.to_string())?
+        {
+            for g in t.sequence_values::<mlua::Value>() {
+                let g = g.map_err(|e| e.to_string())?;
+                list.push(lua_to_json(&g));
+            }
+        }
+    }
+    if let Some(perms) = t
+        .get::<Option<mlua::Table>>("permissions")
+        .map_err(|e| e.to_string())?
+    {
+        for p in perms.sequence_values::<mlua::Table>() {
+            let p = p.map_err(|e| e.to_string())?;
+            let field = |i: i64| -> Result<String, String> { p.get(i).map_err(|e| e.to_string()) };
+            h.permissions.push(Permission {
+                target: field(1)?,
+                kind: field(2)?,
+                mode: field(3)?,
+            });
+        }
+    }
     for pair in t.clone().pairs::<String, mlua::Value>() {
         let (k, v) = pair.map_err(|e| e.to_string())?;
         if k == "theme_borders" {
             h.theme_borders = matches!(v, mlua::Value::Boolean(true));
             continue;
         }
-        if k == "env" || k == "rules" {
+        if matches!(
+            k.as_str(),
+            "env" | "rules" | "gestures" | "devices" | "permissions"
+        ) {
             continue;
         }
         let Some(o) = opt(&k) else {
@@ -1070,6 +1173,66 @@ pub fn parse(t: &mlua::Table) -> Result<Hypr, String> {
         h.options.insert(k, value);
     }
     Ok(h)
+}
+
+/// Chaîne non vide à `path` (pointé) dans `v`.
+fn filled(v: &serde_json::Value, path: &str) -> bool {
+    path.split('.')
+        .try_fold(v, |acc, k| acc.get(k))
+        .and_then(|x| x.as_str())
+        .is_some_and(|s| !s.trim().is_empty())
+}
+
+/// Élément assez rempli pour être écrit : une règle sans cible, un geste
+/// sans action, un périphérique sans nom restent dans les Réglages sans
+/// aller dans les fichiers de Hyprland (qui les refuseraient).
+pub fn rule_complete(r: &Rule) -> bool {
+    match r.kind {
+        RuleKind::Window => r
+            .body
+            .get("match")
+            .and_then(|m| m.as_object())
+            .is_some_and(|m| {
+                m.values()
+                    .any(|v| v.as_str().is_none_or(|s| !s.trim().is_empty()))
+            }),
+        RuleKind::Layer => filled(&r.body, "match.namespace"),
+        RuleKind::Workspace => filled(&r.body, "workspace"),
+    }
+}
+
+/// Geste complet : doigts, sens, action.
+pub fn gesture_complete(g: &serde_json::Value) -> bool {
+    g.get("fingers").and_then(|v| v.as_i64()).is_some()
+        && filled(g, "direction")
+        && filled(g, "action")
+}
+
+/// `hl.gesture(…)` ou `hl.device(…)` des éléments complets, une ligne
+/// chacun, dans l'ordre.
+pub fn calls_lua(func: &str, list: &[serde_json::Value]) -> String {
+    list.iter()
+        .filter(|v| match func {
+            "gesture" => gesture_complete(v),
+            _ => filled(v, "name"),
+        })
+        .map(|v| format!("hl.{func}({})\n", json_lua(v)))
+        .collect()
+}
+
+/// `hl.permission("cible", "sorte", "décision")`, une ligne chacune.
+pub fn permissions_lua(list: &[Permission]) -> String {
+    list.iter()
+        .filter(|p| !p.target.trim().is_empty())
+        .map(|p| {
+            format!(
+                "hl.permission(\"{}\", \"{}\", \"{}\")\n",
+                hyprpanel_core::ipc::lua_escape(&p.target),
+                hyprpanel_core::ipc::lua_escape(&p.kind),
+                hyprpanel_core::ipc::lua_escape(&p.mode)
+            )
+        })
+        .collect()
 }
 
 fn lua_to_json(v: &mlua::Value) -> serde_json::Value {

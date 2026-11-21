@@ -32,7 +32,7 @@ pub const TABS: &[super::SubTab] = &[
     ("themes", "Thèmes"),
     ("couleurs", "Couleurs"),
     ("texte", "Texte"),
-    ("effets", "Effets"),
+    ("transparence", "Transparence"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -511,9 +511,9 @@ impl App {
                     .into();
             }
             "texte" => return self.typography(),
-            "effets" => {
+            "transparence" => {
                 return column![
-                    self.section("Effets"),
+                    self.section("Transparence"),
                     text(
                         "Opacité du fond de chaque endroit et flou de ce qu'il y a derrière \
                          (fourni par Hyprland)."

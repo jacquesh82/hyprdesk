@@ -9,7 +9,8 @@
 //! - `rules.lua` : règles de fenêtres, de couches et de workspaces ;
 //! - `env.lua` : variables d'environnement (curseur compris) ;
 //! - `system.lua` : comportement, curseur, raccourcis, XWayland, rendu… ;
-//! - `inputs.lua` (existant) gagne un bloc « avancé » (entrées, gestes).
+//! - `inputs.lua` (existant) gagne un bloc « avancé » (entrées, gestes,
+//!   réglages par périphérique) ; `system.lua` porte aussi les permissions.
 //!
 //! Fichiers creux (seules les valeurs réglées ici), présentés en sections,
 //! sans marqueur d'état ; un fichier vide garde son en-tête (le `require`
@@ -32,13 +33,16 @@ pub const MODULES: &[(&str, &str)] = &[
     ("rules", "Réglages → Fenêtres → Règles"),
     (
         "system",
-        "Réglages → Configuration, Clavier et souris → Curseur",
+        "Réglages → Configuration de Hyprland, Clavier et souris → Curseur",
     ),
 ];
 
 /// Repère du bloc avancé de `inputs.lua`.
-pub const INPUTS_BLOCK: &str =
-    "-- Avancé (Réglages → Clavier et souris → Avancé, Gestes) — généré par hyprdesk";
+pub const INPUTS_BLOCK: &str = "-- Avancé (Réglages → Clavier et souris : Souris, Pavé tactile, Gestes, Périphériques) — généré par hyprdesk";
+
+/// Repères des versions précédentes, encore reconnus à la réécriture.
+const INPUTS_BLOCK_OLD: &[&str] =
+    &["-- Avancé (Réglages → Clavier et souris → Avancé, Gestes) — généré par hyprdesk"];
 
 fn header(module: &str, page: &str) -> String {
     format!(
@@ -164,9 +168,13 @@ pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
                 }
             }
             "rules" => {
-                if !hypr.rules.is_empty() {
+                if hypr.rules.iter().any(crate::hyprset::rule_complete) {
                     body += &format!("\n-- {}\n", crate::i18n::tr("Règles, dans l'ordre"));
-                    for r in &hypr.rules {
+                    for r in hypr
+                        .rules
+                        .iter()
+                        .filter(|r| crate::hyprset::rule_complete(r))
+                    {
                         body +=
                             &format!("{}({})\n", r.kind.func(), crate::hyprset::json_lua(&r.body));
                     }
@@ -186,6 +194,13 @@ pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
                         .map(|(k, v)| (k.clone(), v.clone())),
                 );
                 body += &config_block("Comportement, curseur, raccourcis, rendu", &opts);
+                if hypr.permissions.iter().any(|p| !p.target.trim().is_empty()) {
+                    body += &format!(
+                        "\n-- {}\n{}",
+                        crate::i18n::tr("Permissions (lues au démarrage de Hyprland seulement)"),
+                        crate::hyprset::permissions_lua(&hypr.permissions)
+                    );
+                }
             }
             _ => {}
         }
@@ -222,33 +237,51 @@ fn layouts_lua(t: &crate::tiling::Tiling) -> String {
     }
 }
 
-/// Bloc avancé de `inputs.lua` (entrées et gestes).
+/// Bloc avancé de `inputs.lua` (entrées, gestes, périphériques).
 pub fn inputs_block(cfg: &Config) -> String {
-    let opts: BTreeMap<String, OptValue> = cfg
-        .general
-        .hypr
+    let hypr = &cfg.general.hypr;
+    let opts: BTreeMap<String, OptValue> = hypr
         .options
         .iter()
         .filter(|(k, _)| crate::hyprset::domain(k) == Domain::Inputs)
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    if opts.is_empty() {
+    let gestures = crate::hyprset::calls_lua("gesture", &hypr.gestures);
+    let devices = crate::hyprset::calls_lua("device", &hypr.devices);
+    if opts.is_empty() && gestures.is_empty() && devices.is_empty() {
         return String::new();
     }
-    format!(
-        "\n{}\nhl.config({})\n",
-        crate::i18n::tr(INPUTS_BLOCK),
-        crate::hyprset::nested(&opts)
-    )
+    let mut out = format!("\n{}\n", crate::i18n::tr(INPUTS_BLOCK));
+    if !opts.is_empty() {
+        out += &format!("hl.config({})\n", crate::hyprset::nested(&opts));
+    }
+    if !gestures.is_empty() {
+        out += &format!(
+            "-- {}\n{gestures}",
+            crate::i18n::tr("Gestes du pavé tactile")
+        );
+    }
+    if !devices.is_empty() {
+        out += &format!(
+            "-- {}\n{devices}",
+            crate::i18n::tr("Réglages par périphérique")
+        );
+    }
+    out
 }
 
 /// `inputs.lua` avec le bloc avancé remplacé (le reste, écrit par la page
 /// Clavier et souris, ne bouge pas). Repère reconnu en français et anglais.
 pub fn with_inputs_block(current: &str, block: &str) -> String {
-    let marks = [
-        INPUTS_BLOCK.to_string(),
-        crate::i18n::tr_in(crate::i18n::Lang::En, INPUTS_BLOCK).to_string(),
-    ];
+    let marks: Vec<String> = std::iter::once(INPUTS_BLOCK)
+        .chain(INPUTS_BLOCK_OLD.iter().copied())
+        .flat_map(|m| {
+            [
+                m.to_string(),
+                crate::i18n::tr_in(crate::i18n::Lang::En, m).to_string(),
+            ]
+        })
+        .collect();
     let mut base: Vec<&str> = Vec::new();
     for l in current.lines() {
         if marks.iter().any(|m| l.trim() == m) {
@@ -395,5 +428,60 @@ mod tests {
         assert!(s.error.is_none(), "{:?}", s.error);
         let v = &s.options["general.col.active_border"].value;
         assert_eq!(v["angle"], serde_json::json!(45));
+    }
+
+    #[test]
+    fn gestes_peripheriques_permissions_ecrits() {
+        let mut cfg = Config::default();
+        let h = &mut cfg.general.hypr;
+        h.gestures.push(
+            serde_json::json!({ "fingers": 3, "direction": "horizontal", "action": "workspace" }),
+        );
+        h.gestures.push(serde_json::json!({ "fingers": 4 }));
+        h.devices
+            .push(serde_json::json!({ "name": "epic-mouse-v1", "sensitivity": -0.5 }));
+        h.devices.push(serde_json::json!({ "name": "" }));
+        h.permissions.push(crate::hyprset::Permission {
+            target: "/usr/bin/grim".into(),
+            kind: "screencopy".into(),
+            mode: "allow".into(),
+        });
+        h.rules.push(crate::hyprset::Rule {
+            kind: crate::hyprset::RuleKind::Workspace,
+            body: serde_json::json!({ "workspace": "" }),
+        });
+        h.rules.push(crate::hyprset::Rule {
+            kind: crate::hyprset::RuleKind::Layer,
+            body: serde_json::json!({ "match": { "namespace": "^waybar$" }, "blur": true }),
+        });
+        let block = inputs_block(&cfg);
+        assert_eq!(
+            block.matches("hl.gesture(").count(),
+            1,
+            "geste incomplet écarté"
+        );
+        assert_eq!(
+            block.matches("hl.device(").count(),
+            1,
+            "périphérique sans nom écarté"
+        );
+        assert!(block.contains("sensitivity = -0.5"));
+        let files: BTreeMap<_, _> = render(&cfg).into_iter().collect();
+        assert!(
+            files["system"].contains("hl.permission(\"/usr/bin/grim\", \"screencopy\", \"allow\")")
+        );
+        assert!(files["rules"].contains("hl.layer_rule("));
+        assert!(
+            !files["rules"].contains("hl.workspace_rule("),
+            "règle sans workspace écartée"
+        );
+        // Ancien repère du bloc reconnu : remplacé, pas doublé.
+        let old = format!(
+            "hl.config({{}})\n\n{}\nhl.config({{ input = {{}} }})\n",
+            INPUTS_BLOCK_OLD[0]
+        );
+        let new = with_inputs_block(&old, &block);
+        assert!(!new.contains(INPUTS_BLOCK_OLD[0]));
+        assert_eq!(new.matches(INPUTS_BLOCK).count(), 1);
     }
 }

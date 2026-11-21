@@ -143,7 +143,7 @@ Clés par paquet :
 | `workspaces` | `workspaces`, `workspace.<n>` (écran : connecteur, `primary`, `auto`), `assign.<app>`, `workspace_selector` (`relief`, `rail`, `miniatures`, `icones`) |
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
 | `apptheme` | `app_themes` (`kitty`, `thunar`, `none` ; toutes par défaut) |
-| `effects` | `transition`, `fade_ms`, `crossfade_ms` |
+| `animations` (onglet Bureau) | `transition`, `fade_ms`, `crossfade_ms` |
 | `theme` | `theme.preset` (thème livré), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (endroits : `bar`, `menus`, `launcher`, `settings`, `widgets` — sans flou) |
 | `launcher` (apparence) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<rôle>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
@@ -171,12 +171,24 @@ tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
 entoure de `self.adv(…)`. Rien ne disparaît de la configuration : seul
 l'affichage change.
 
+Marquage, partout (tiroir large ou étroit) : point cyan à côté d'un paquet ou
+d'un onglet avancé, pastille « Avancé » en tête de page, cadre cyan autour
+d'une section avancée. Règle : un onglet fait seulement d'options brutes de
+Hyprland, de fichiers ou de réglages d'expert est avancé (● ci-dessous) ;
+sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
+`BASIC_GROUPS`) sont encadrées par `App::hyprset_tab`. Le test
+`options_brutes_marquees_avancees` le vérifie.
+
 ### Onglets des paquets chargés
 
 | Paquet | Onglets |
 |---|---|
 | Bureau | Affichage · Raccourcis · Session |
-| Thème | Thèmes · Couleurs · Texte (police, taille) · Effets |
+| Thème | Thèmes · Couleurs · Texte (police, taille) · Transparence ● |
+| Animations | Animations · Courbes ● · Effets · Bureau ● (transitions du bureau, fondu entre fonds) |
+| Fenêtres | Apparence · Comportement ● · Règles (fenêtres ; couches et workspaces en avancé) · Groupes ● |
+| Clavier et souris | Clavier · Souris · Pavé tactile · Curseur · Gestes · Périphériques ● |
+| Configuration de Hyprland | Ménage · Environnement ● · Plugins Hyprland ● · Permissions ● · Avancé ● |
 | Lanceur | Contenu · Apparence · Épinglées |
 | Barre | Général · Modules |
 | Écrans | Disposition · Écran (un clic sur le plan y mène) |
@@ -224,7 +236,6 @@ chaque clé CLI pointe vers un paquet existant.
 | `screens` | Écrans | détection, disposition, orientation, mode, écran principal | `screens.rs` → `monitors.lua` |
 | `workspaces` | Workspaces | workspaces permanents, affectation des applications, style du sélecteur de la barre, écran « Espaces de travail » | `hypr.rs` (règles Hyprland), `ui/overview.rs` |
 | `layouts` | Layouts | layout par défaut et par workspace, options de Dwindle, Master, Scrolling, layouts personnalisés (`lua:<nom>`), raccourcis de chaque layout | `tiling.rs` |
-| `effects` | Effets | transitions, fondu entre fonds | `config::General` |
 | `apps` | Applications | applications par défaut (navigateur, terminal, fichiers, éditeur, images, vidéo, audio, PDF, mail, IA), appliquées au système (`xdg-mime`) ; seules les applications installées sont proposées (programme de `TryExec` / `Exec` présent), reconnues au type de fichier du rôle ou à leur catégorie freedesktop (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`), un choix devenu absent est signalé « non installée » | `apps.rs` |
 | `assistant` | IA | onglets Assistant (LYRA, mindlog.hyprland_tools, avec Claude Code, Codex ou Zcode, et le contexte de hyprdesk), Autres services IA (fournisseurs, fournisseur de chaque fonction, clés au trousseau) et SmartUI design (icônes redessinées par l'IA, thème `hyprdesk-smartui`, génération automatique) | `assistant.rs`, `ai_services.rs`, `smartui.rs` |
 | `share` | Partage | export / import d'un setup ou du thème seul (archive) | `share.rs` |
@@ -415,7 +426,7 @@ Le paquet **Plugins** montre tout ce qui est installé :
   d'écran bandeau, lecture (vidéo, radio) arrêtée, commandes `hyprdesk
   panorama …` sans effet, et LYRA vocale n'écoute plus — sauf si le module de
   barre `voice` est posé, qui la montre et la commande sans le Panorama. `Config::plugin_on(id)` est le seul test, posé
-  au point où chaque fonction agit. Bureau, Effets, Thème et Plugins forment
+  au point où chaque fonction agit. Bureau, Modules, Thème et Plugins forment
   le cœur et restent toujours actifs (`CORE_PLUGINS`).
 - **Plugins Lua.** Chacun indique s'il est actif et d'où il vient : intégré,
   livré, ou tiers (avec son chemin). Un plugin tiers s'installe depuis un

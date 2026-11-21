@@ -612,37 +612,44 @@ impl App {
         let on = self.subtab(pkg);
         row(tabs.into_iter().map(|(id, label)| {
             let active = id == on;
-            button(
+            let mut content = row![
                 text(label)
                     .font(if active { self.title_font() } else { self.font })
                     .size(13)
-                    .color(if active { fg } else { self.ink().dim }),
-            )
-            .padding([6, 14])
-            .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
-            .style(move |_, status| {
-                let hover = matches!(status, button::Status::Hovered);
-                button::Style {
-                    background: Some(
-                        if active {
-                            Color { a: 0.28, ..accent }
-                        } else if hover {
-                            Color { a: 0.08, ..fg }
+                    .color(if active { fg } else { self.ink().dim })
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center);
+            // Onglet de la configuration avancée : point cyan.
+            if plugins::is_advanced(pkg, Some(id)) {
+                content = content.push(text("●").size(8).color(plugins::ADV_COLOR));
+            }
+            button(content)
+                .padding([6, 14])
+                .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
+                .style(move |_, status| {
+                    let hover = matches!(status, button::Status::Hovered);
+                    button::Style {
+                        background: Some(
+                            if active {
+                                Color { a: 0.28, ..accent }
+                            } else if hover {
+                                Color { a: 0.08, ..fg }
+                            } else {
+                                Color::TRANSPARENT
+                            }
+                            .into(),
+                        ),
+                        text_color: fg,
+                        border: Border::default().rounded(999).width(1).color(if active {
+                            Color { a: 0.7, ..accent }
                         } else {
-                            Color::TRANSPARENT
-                        }
-                        .into(),
-                    ),
-                    text_color: fg,
-                    border: Border::default().rounded(999).width(1).color(if active {
-                        Color { a: 0.7, ..accent }
-                    } else {
-                        Color { a: 0.14, ..fg }
-                    }),
-                    ..Default::default()
-                }
-            })
-            .into()
+                            Color { a: 0.14, ..fg }
+                        }),
+                        ..Default::default()
+                    }
+                })
+                .into()
         }))
         .spacing(8)
         .wrap()
@@ -688,6 +695,10 @@ impl App {
                 })
                 .unwrap_or_else(|| Space::new().into());
             let mut content = row![glyph].spacing(10).align_y(Alignment::Center);
+            // Tiroir étroit (icônes seules) : le point cyan suit l'icône.
+            if !wide && plugins::is_advanced(tab, None) {
+                content = content.push(text("●").size(8).color(plugins::ADV_COLOR));
+            }
             if wide {
                 content = content.push(
                     text(label)

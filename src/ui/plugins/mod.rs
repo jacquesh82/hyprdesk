@@ -89,7 +89,6 @@ pub const BUILTIN: &[PluginInfo] = &[
     workspaces::INFO,
     windows::INFO,
     layouts::INFO,
-    effects::INFO,
     animations::INFO,
     performance::INFO,
     sound::INFO,
@@ -133,7 +132,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         label: "Apparence",
-        ids: &["theme", "apptheme", "animations", "effects"],
+        ids: &["theme", "apptheme", "animations"],
     },
     Group {
         label: "Fenêtres",
@@ -173,14 +172,25 @@ pub const GROUPS: &[Group] = &[
 ];
 
 /// Paquets affichés seulement en configuration avancée.
-pub const ADVANCED_ONLY: &[&str] = &["effects", "share"];
+pub const ADVANCED_ONLY: &[&str] = &["share"];
 
 /// Onglets affichés seulement en configuration avancée : (paquet, onglet).
+///
+/// Règle : un onglet fait seulement d'options brutes de Hyprland, de
+/// fichiers ou de réglages d'expert est avancé ; sur une page de base, les
+/// options brutes de Hyprland sont encadrées (`App::hyprset_tab`).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "session"),
-    ("theme", "effets"),
+    ("theme", "transparence"),
+    ("animations", "courbes"),
+    ("animations", "bureau"),
     ("layouts", "custom"),
     ("windows", "comportement"),
+    ("windows", "groupes"),
+    ("input", "peripheriques"),
+    ("hyprconfig", "environnement"),
+    ("hyprconfig", "plugins"),
+    ("hyprconfig", "permissions"),
     ("hyprconfig", "avance"),
     // Carte graphique de rendu (Hyprland, hyprdesk) : MLG-211.
     ("performance", "gpu"),
@@ -315,6 +325,11 @@ pub fn find_tab(pkg: &str, name: &str) -> Option<&'static str> {
             .collect::<String>()
     };
     let want = fold(name.trim());
+    // Onglets renommés : l'ancien nom mène au nouveau.
+    let want = match (pkg, want.as_str()) {
+        ("theme", "effets" | "effects") => "transparence".to_string(),
+        _ => want,
+    };
     tabs(pkg)
         .iter()
         .find(|(id, label)| {
@@ -404,7 +419,8 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "fond" => "wallpaper",
         "barre" => "bar",
         "bandeau" | "edge" | "tactile" | "touch" | "ecran-tactile" | "écran-tactile" => "panorama",
-        "effets" => "effects",
+        // Ancien paquet Effets : onglet Animations → Bureau.
+        "effets" | "effects" | "transitions" => "animations",
         "thème" | "themes" | "thèmes" | "couleurs" | "apparence" => "theme",
         "kitty" | "theme-apps" | "thème-applications" => "apptheme",
         "ecrans" | "écrans" => "screens",
@@ -548,7 +564,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
     }
     let mut col = iced::widget::column![page].spacing(14);
     for k in extra {
-        col = col.push(adv_frame(app.hyprset_tab(k)));
+        col = col.push(adv_frame(app.hyprset_groups(k)));
     }
     col.into()
 }
@@ -588,7 +604,6 @@ fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
         "colors" => app.colors_page(),
         "login" => app.login_page(),
         "passwords" => app.passwords_page(),
-        "effects" => app.tab_effects(),
         "theme" => app.theme_page(),
         "apptheme" => app.apptheme_page(),
         _ => {
@@ -627,7 +642,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "datetime" => datetime::load(),
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
-        "hyprconfig" => hyprconfig::load(app),
+        "hyprconfig" => Task::batch([hyprconfig::load(app), hyprconfig::load_hyprpm(app)]),
         "history" => hyprconfig::load_history(app),
         "colors" => colors::load(),
         "workspaces" => workspaces::load_foreign(app.config_path.clone()),
@@ -660,6 +675,7 @@ mod tests {
             "curseur",
             "gestes",
             "avance",
+            "permissions",
         ];
         for (k, title, _) in crate::hyprset::GROUPS {
             assert!(
@@ -674,6 +690,55 @@ mod tests {
                 "onglet {pkg}/{tab}"
             );
         }
+    }
+
+    /// Options brutes de Hyprland : sur un onglet avancé, ou encadrées sur
+    /// un onglet de base ; seuls les groupes de base restent visibles sans
+    /// la configuration avancée.
+    #[test]
+    fn options_brutes_marquees_avancees() {
+        // Groupe du registre → onglet qui l'affiche, et s'il y est encadré.
+        let places: &[(&str, &str, &str, bool)] = &[
+            ("fenetres", "windows", "apparence", false),
+            ("comportement-fenetres", "windows", "comportement", false),
+            ("groupes", "windows", "groupes", false),
+            ("curseur", "input", "curseur", true),
+            ("gestes", "input", "gestes", true),
+            ("avance", "hyprconfig", "avance", false),
+            ("permissions", "hyprconfig", "permissions", false),
+        ];
+        for (k, title, _) in crate::hyprset::GROUPS {
+            if ADVANCED_PLACES.iter().any(|(_, _, p)| p == k) {
+                continue;
+            }
+            let (_, pkg, tab, framed) = places
+                .iter()
+                .find(|(g, ..)| g == k)
+                .unwrap_or_else(|| panic!("groupe « {title} » ({k}) sans onglet"));
+            assert!(tabs(pkg).iter().any(|(t, _)| t == tab), "{pkg}/{tab}");
+            let basic = crate::hyprset::BASIC_GROUPS.contains(k);
+            assert!(
+                basic || *framed || is_advanced(pkg, Some(tab)),
+                "{k} : options brutes sur {pkg}/{tab}, ni avancé ni encadré"
+            );
+            assert!(!(basic && *framed), "{k} : groupe de base encadré");
+        }
+        // Onglets nouveaux de Hyprland : marqués.
+        for (p, t) in [
+            ("input", "peripheriques"),
+            ("hyprconfig", "plugins"),
+            ("hyprconfig", "permissions"),
+            ("hyprconfig", "environnement"),
+            ("animations", "courbes"),
+            ("animations", "bureau"),
+            ("theme", "transparence"),
+        ] {
+            assert!(is_advanced(p, Some(t)), "{p}/{t}");
+        }
+        // Ancien paquet Effets : Animations → Bureau ; ancien onglet Thème → Effets.
+        assert_eq!(find("effets").map(|p| p.id), Some("animations"));
+        assert_eq!(find_tab("theme", "effets"), Some("transparence"));
+        assert!(BUILTIN.iter().all(|p| p.id != "effects"));
     }
 
     #[test]
@@ -725,6 +790,7 @@ mod tests {
         for w in crate::widgets::BUILTINS {
             all.extend([w.name, w.description]);
         }
+        all.extend(crate::ui::hyprlists::texts());
         all.extend(crate::config::BAR_ITEMS.iter().map(|(_, l)| *l));
         all.extend(crate::config::BAR_COLOR_SLOTS.iter().map(|(_, l)| *l));
         all.extend(crate::tiling::ACTIONS.iter().map(|a| a.label));

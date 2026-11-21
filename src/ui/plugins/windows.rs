@@ -30,7 +30,7 @@ impl App {
     pub(in crate::ui) fn windows_page(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         if self.on_subtab(INFO.id, "regles") {
-            return self.rules_editor();
+            return self.rules_page();
         }
         if self.on_subtab(INFO.id, "comportement") {
             return self.hyprset_tab("comportement-fenetres");

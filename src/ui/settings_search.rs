@@ -23,7 +23,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("colors", include_str!("../colors.rs")),
     ("datetime", include_str!("plugins/datetime.rs")),
     ("desktop", include_str!("plugins/desktop.rs")),
-    ("effects", include_str!("plugins/effects.rs")),
+    ("animations", include_str!("plugins/effects.rs")),
     ("energy", include_str!("plugins/energy.rs")),
     ("hyprconfig", include_str!("plugins/hyprconfig.rs")),
     ("history", include_str!("plugins/history.rs")),

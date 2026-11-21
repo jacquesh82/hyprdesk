@@ -1267,15 +1267,15 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.workspace_dedicated = None;
-    "transition", "effects", "fade | slide | none — apparition du bureau",
+    "transition", "animations", "fade | slide | none — apparition du bureau",
         |c| c.general.transition.as_str().into(),
         |s, v, c| { s.transition = Some(choice(v, Transition::parse, "fade, slide, none")?); Ok(()) },
         |s| s.transition = None;
-    "fade_ms", "effects", "0..5000 — durée de la transition",
+    "fade_ms", "animations", "0..5000 — durée de la transition",
         |c| c.general.fade_ms.to_string(),
         |s, v, c| { s.fade_ms = Some(number(v, 0u64, 5000)?); Ok(()) },
         |s| s.fade_ms = None;
-    "crossfade_ms", "effects", "0..10000 — fondu entre deux fonds",
+    "crossfade_ms", "animations", "0..10000 — fondu entre deux fonds",
         |c| c.general.crossfade_ms.to_string(),
         |s, v, c| { s.crossfade_ms = Some(number(v, 0u64, 10000)?); Ok(()) },
         |s| s.crossfade_ms = None;

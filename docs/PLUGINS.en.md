@@ -144,7 +144,7 @@ Keys per package:
 | `workspaces` | `workspaces`, `workspace.<n>` (screen: connector, `primary`, `auto`), `assign.<app>`, `workspace_selector` (`relief`, `rail`, `miniatures`, `icones`) |
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
 | `apptheme` | `app_themes` (`kitty`, `thunar`, `none`; all by default) |
-| `effects` | `transition`, `fade_ms`, `crossfade_ms` |
+| `animations` (Desktop tab) | `transition`, `fade_ms`, `crossfade_ms` |
 | `theme` | `theme.preset` (shipped theme), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<place>.opacity` (0..1), `theme.effects.<place>.blur` (places: `bar`, `menus`, `launcher`, `settings`, `widgets` — no blur) |
 | `launcher` (appearance) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<role>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
@@ -170,12 +170,23 @@ is shown; unchecked, only the essentials. Hidden then: the packages of
 `self.adv(…)`. Nothing is removed from the configuration: only the display
 changes.
 
+Marking, everywhere (wide or narrow drawer): a cyan dot next to an advanced
+package or tab, an “Advanced” badge at the top of the page, a cyan frame
+around an advanced section. Rule: a tab made only of raw Hyprland options,
+files or expert settings is advanced (● below); on a basic page, raw
+Hyprland options (`hyprset::GROUPS` outside `BASIC_GROUPS`) are framed by
+`App::hyprset_tab`. The `options_brutes_marquees_avancees` test checks it.
+
 ### Tabs of the loaded packages
 
 | Package | Tabs |
 |---|---|
 | Desktop | Display · Shortcuts · Session |
-| Theme | Themes · Colors · Text (font, size) · Effects |
+| Theme | Themes · Colors · Text (font, size) · Transparency ● |
+| Animations | Animations · Curves ● · Effects · Desktop ● (desktop transitions, wallpaper crossfade) |
+| Windows | Appearance · Behaviour ● · Rules (windows; layers and workspaces when advanced) · Groups ● |
+| Keyboard and mouse | Keyboard · Mouse · Touchpad · Cursor · Gestures · Devices ● |
+| Hyprland configuration | Cleanup · Environment ● · Hyprland plugins ● · Permissions ● · Advanced ● |
 | Launcher | Content · Appearance · Pinned |
 | Bar | General · Modules |
 | Screens | Layout · Screen (clicking on the map leads there) |
@@ -223,7 +234,6 @@ each CLI key points to an existing package.
 | `screens` | Screens | detection, layout, orientation, mode, primary screen | `screens.rs` → `monitors.lua` |
 | `workspaces` | Workspaces | persistent workspaces, application assignment, bar selector style, the “Workspaces” organising screen | `hypr.rs` (Hyprland rules), `ui/overview.rs` |
 | `layouts` | Layouts | default and per-workspace layout, Dwindle, Master, Scrolling options, custom layouts (`lua:<name>`), each layout's shortcuts | `tiling.rs` |
-| `effects` | Effects | transitions, crossfade between wallpapers | `config::General` |
 | `apps` | Applications | default applications (browser, terminal, files, editor, images, video, audio, PDF, mail, AI), applied to the system (`xdg-mime`); only installed applications are offered (`TryExec` / `Exec` program present), recognized by the role's file type or by their freedesktop category (`WebBrowser`, `TextEditor`, `FileManager`, `Email`, `TerminalEmulator`); a choice that has gone missing is flagged “not installed” | `apps.rs` |
 | `assistant` | AI | tabs Assistant (LYRA, mindlog.hyprland_tools, with Claude Code, Codex or Zcode, and hyprdesk's context), Other AI services (providers, the provider of each feature, keys in the keyring) and SmartUI design (icons redrawn by AI, `hyprdesk-smartui` theme, automatic generation) | `assistant.rs`, `ai_services.rs`, `smartui.rs` |
 | `share` | Sharing | export / import of a setup or of the theme alone (archive) | `share.rs` |
@@ -411,7 +421,7 @@ The **Plugins** package shows everything that is installed:
   playback (video, radio) stopped, `hyprdesk panorama …` commands ignored,
   and LYRA voice stops listening — unless the `voice` bar module is placed,
   which shows and drives it without the Panorama. `Config::plugin_on(id)` is the only check, placed
-  at the point where each feature acts. Desktop, Effects, Theme and Plugins form
+  at the point where each feature acts. Desktop, Modules, Theme and Plugins form
   the core and always stay enabled (`CORE_PLUGINS`).
 - **Lua plugins.** Each one shows whether it is active and where it comes from:
   built-in, shipped, or third-party (with its path). A third-party plugin is

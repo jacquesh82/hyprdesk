@@ -158,8 +158,7 @@ components! {
     ];
     "windows" => [] + [WindowPlaces];
     "layouts" => [tiling];
-    "effects" => [fade_ms, transition, crossfade_ms];
-    "animations" => [fx];
+    "animations" => [fx, fade_ms, transition, crossfade_ms];
     "performance" => [renderer, gpu, hyprland_gpu, worker_threads];
     "input" => [] + [Inputs];
     "lock" => [
@@ -190,7 +189,7 @@ const HYPR_GROUPS: &[(&str, &[&str])] = &[
     ("lock", &["veille"]),
     ("wallpaper", &["fond"]),
     ("animations", &["flou"]),
-    ("hyprconfig", &["avance"]),
+    ("hyprconfig", &["avance", "permissions"]),
 ];
 
 /// Composant d'une option de Hyprland (`general.gaps_in` → `windows`).
@@ -229,8 +228,13 @@ fn split_fields(id: &str, s: &mut Settings, changed: &mut Vec<String>) {
             h.rules.clear();
             h.theme_borders = false;
         }
+        if id == "input" {
+            h.gestures.clear();
+            h.devices.clear();
+        }
         if id == "hyprconfig" {
             h.env.clear();
+            h.permissions.clear();
         }
         if *h != before {
             changed.push("hypr".into());

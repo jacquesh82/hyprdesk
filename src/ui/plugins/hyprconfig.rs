@@ -20,7 +20,7 @@ pub const INFO: PluginInfo = PluginInfo {
     id: "hyprconfig",
     label: "Configuration de Hyprland",
     icon: "preferences-system",
-    summary: "Ménage de hyprland.lua (erreurs, doublons, programmes faits par hyprdesk, fichiers plus lus), variables d'environnement, comportement et options avancées de Hyprland.",
+    summary: "Ménage de hyprland.lua (erreurs, doublons, programmes faits par hyprdesk, fichiers plus lus), variables d'environnement, plugins Hyprland (hyprpm), permissions et options avancées de Hyprland.",
     builtin: true,
 };
 
@@ -29,6 +29,8 @@ pub const INFO: PluginInfo = PluginInfo {
 pub const TABS: &[super::SubTab] = &[
     ("menage", "Ménage"),
     ("environnement", "Environnement"),
+    ("plugins", "Plugins Hyprland"),
+    ("permissions", "Permissions"),
     ("avance", "Avancé"),
 ];
 
@@ -58,6 +60,13 @@ pub struct State {
     /// Compte rendu du dernier retour arrière.
     pub history_info: Option<String>,
     pub history_error: Option<String>,
+    /// Plugins Hyprland (`None` : en lecture).
+    pub hyprpm: Option<crate::hyprpm::State>,
+    /// Plugin en cours d'activation ou de coupure.
+    pub hyprpm_busy: Option<String>,
+    pub hyprpm_error: Option<String>,
+    /// Adresse de dépôt saisie (Ajouter un dépôt).
+    pub hyprpm_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +86,49 @@ pub enum Msg {
     /// Arme, puis confirme, le retour à un instantané.
     Rollback(String),
     RolledBack(Result<Restored, String>),
+    HyprpmLoaded(Box<crate::hyprpm::State>),
+    HyprpmRefresh,
+    /// Active ou coupe un plugin.
+    HyprpmToggle(String, bool),
+    HyprpmDone(Result<(), String>),
+    /// `hyprpm update` dans un terminal.
+    HyprpmUpdate,
+    HyprpmUrl(String),
+    /// `hyprpm add <url>` dans un terminal.
+    HyprpmAdd,
+    /// `hyprpm reload` ajouté au démarrage de la session.
+    HyprpmAtStart,
+}
+
+/// Plugins Hyprland relus hors du fil de l'interface.
+pub fn load_hyprpm(app: &App) -> Task<UiMsg> {
+    let path = app.config_path.clone();
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || crate::hyprpm::read(&path))
+                .await
+                .unwrap_or_default()
+        },
+        |s| wrap(Msg::HyprpmLoaded(Box::new(s))),
+    )
+}
+
+/// Commande hyprpm dans un terminal qui reste ouvert sur son compte rendu.
+fn hyprpm_in_terminal(app: &App, args: &str) {
+    if app.preview {
+        return;
+    }
+    let script = format!(
+        "hyprpm {args}; echo; printf '%s' {}; read -r _",
+        crate::launch::sh_quote(crate::i18n::tr("Entrée pour fermer…"))
+    );
+    let cmd = crate::launch::in_terminal(
+        &app.cfg.general.terminal,
+        &format!("sh -c {}", crate::launch::sh_quote(&script)),
+    );
+    if let Err(e) = crate::hypr::exec(&cmd) {
+        tracing::warn!("hyprpm : {e}");
+    }
 }
 
 /// Historique lu hors du fil de l'interface.
@@ -166,6 +218,12 @@ impl App {
         }
         if self.on_subtab(INFO.id, "avance") {
             return self.hyprset_tab("avance");
+        }
+        if self.on_subtab(INFO.id, "permissions") {
+            return self.permissions_page();
+        }
+        if self.on_subtab(INFO.id, "plugins") {
+            return self.hyprpm_page();
         }
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
@@ -527,8 +585,250 @@ impl App {
         col.into()
     }
 
+    /// Configuration de Hyprland → Plugins Hyprland (hyprpm).
+    fn hyprpm_page(&self) -> Element<'_, UiMsg> {
+        use iced::widget::{text_input, toggler};
+        let ink = self.ink();
+        let (dim, accent) = (ink.dim, ink.accent);
+        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let Some(p) = self.panel.as_ref().map(|p| &p.hyprconfig) else {
+            return column![].into();
+        };
+        let mut col = column![
+            self.section("Plugins Hyprland"),
+            text(
+                "Extensions de Hyprland compilées et tenues par hyprpm. Activer ou couper un \
+                 plugin le charge ou le décharge aussitôt."
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        ]
+        .spacing(12);
+        let Some(st) = &p.hyprpm else {
+            return col
+                .push(text("Lecture…").font(self.font).size(13).color(dim))
+                .into();
+        };
+        match &st.repos {
+            None => {
+                col = col.push(
+                    text("hyprpm est absent (paquet hyprland) : aucun plugin à gérer.")
+                        .font(self.font)
+                        .size(13)
+                        .color(warn),
+                );
+                return col.into();
+            }
+            Some(Err(e)) => {
+                col = col.push(
+                    iced::widget::text(crate::tr!("hyprpm : {e}", e = e))
+                        .font(self.font)
+                        .size(13)
+                        .color(warn),
+                );
+            }
+            Some(Ok(repos)) if repos.is_empty() => {
+                col = col.push(
+                    text("Aucun dépôt installé : ajoutez-en un ci-dessous.")
+                        .font(self.font)
+                        .size(13)
+                        .color(dim),
+                );
+            }
+            Some(Ok(repos)) => {
+                for r in repos {
+                    let head = if r.author.is_empty() {
+                        r.name.clone()
+                    } else {
+                        crate::tr!("{n} (par {a})", n = r.name, a = r.author)
+                    };
+                    col = col.push(iced::widget::text(head).font(self.title_font()).size(14));
+                    for pl in &r.plugins {
+                        let name = pl.name.clone();
+                        let busy = p.hyprpm_busy.as_deref() == Some(pl.name.as_str());
+                        let loaded = st.loaded.iter().any(|l| l == &pl.name);
+                        let mut line = row![
+                            iced::widget::text(pl.name.clone())
+                                .font(self.font)
+                                .size(13)
+                                .width(Length::Fill),
+                        ]
+                        .spacing(10)
+                        .align_y(Alignment::Center);
+                        if pl.name == "hyprbars" {
+                            line = line.push(
+                                text("tenu par hyprdesk (Bureau → Session)")
+                                    .font(self.font)
+                                    .size(12)
+                                    .color(dim),
+                            );
+                        }
+                        if loaded {
+                            line = line.push(text("chargé").font(self.font).size(12).color(accent));
+                        }
+                        if busy {
+                            line = line.push(text("…").font(self.font).size(13).color(dim));
+                        }
+                        let t = toggler(pl.enabled);
+                        line = line.push(if p.hyprpm_busy.is_some() {
+                            t
+                        } else {
+                            t.on_toggle(move |v| wrap(Msg::HyprpmToggle(name.clone(), v)))
+                        });
+                        col = col.push(line);
+                    }
+                }
+            }
+        }
+        if let Some(e) = &p.hyprpm_error {
+            col = col.push(
+                iced::widget::text(e.clone())
+                    .font(self.font)
+                    .size(12)
+                    .color(warn),
+            );
+        }
+        let any_enabled = matches!(&st.repos, Some(Ok(r)) if r.iter().any(|r| r.plugins.iter().any(|p| p.enabled)));
+        if any_enabled && !st.at_start {
+            col = col.push(
+                row![
+                    text(
+                        "Les plugins activés ne se rechargent pas à l'ouverture de session \
+                         (hyprpm reload absent du démarrage)."
+                    )
+                    .font(self.font)
+                    .size(12)
+                    .color(warn)
+                    .width(Length::Fill),
+                    button(text("Recharger au démarrage").font(self.font).size(13))
+                        .padding([4, 12])
+                        .on_press(wrap(Msg::HyprpmAtStart)),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        }
+        let url = p.hyprpm_url.trim().to_string();
+        col.push(
+            row![
+                button(text("Actualiser").font(self.font).size(13))
+                    .padding([4, 12])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::HyprpmRefresh)),
+                button(text("Mettre à jour…").font(self.font).size(13))
+                    .padding([4, 12])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::HyprpmUpdate)),
+            ]
+            .spacing(10),
+        )
+        .push(self.section("Ajouter un dépôt"))
+        .push(
+            row![
+                text_input("https://github.com/hyprwm/hyprland-plugins", &p.hyprpm_url)
+                    .on_input(|s| wrap(Msg::HyprpmUrl(s)))
+                    .on_submit(wrap(Msg::HyprpmAdd))
+                    .font(self.font)
+                    .size(13)
+                    .width(Length::Fill),
+                button(text("Ajouter…").font(self.font).size(13))
+                    .padding([4, 12])
+                    .on_press_maybe((!url.is_empty()).then(|| wrap(Msg::HyprpmAdd))),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .push(
+            text(
+                "Ajouter un dépôt et mettre à jour compilent les en-têtes de Hyprland et \
+                 demandent les droits d'administration : ils s'ouvrent dans un terminal. \
+                 Actualiser ensuite.",
+            )
+            .font(self.font)
+            .size(12)
+            .color(dim),
+        )
+        .into()
+    }
+
     pub(in crate::ui) fn hyprconfig_update(&mut self, m: Msg) -> Task<UiMsg> {
         match m {
+            Msg::HyprpmLoaded(st) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.hyprconfig.hyprpm = Some(*st);
+                    p.hyprconfig.hyprpm_busy = None;
+                }
+                Task::none()
+            }
+            Msg::HyprpmRefresh => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.hyprconfig.hyprpm = None;
+                    p.hyprconfig.hyprpm_error = None;
+                }
+                load_hyprpm(self)
+            }
+            Msg::HyprpmToggle(name, on) => {
+                if self.preview {
+                    return Task::none();
+                }
+                if let Some(p) = self.panel.as_mut() {
+                    p.hyprconfig.hyprpm_busy = Some(name.clone());
+                    p.hyprconfig.hyprpm_error = None;
+                }
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::hyprpm::set_enabled(&name, on))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::HyprpmDone(r)),
+                )
+            }
+            Msg::HyprpmDone(r) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.hyprconfig.hyprpm_error = r.err().map(|e| crate::tr!("hyprpm : {e}", e = e));
+                }
+                load_hyprpm(self)
+            }
+            Msg::HyprpmUpdate => {
+                hyprpm_in_terminal(self, "update");
+                Task::none()
+            }
+            Msg::HyprpmUrl(s) => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.hyprconfig.hyprpm_url = s;
+                }
+                Task::none()
+            }
+            Msg::HyprpmAdd => {
+                let url = self
+                    .panel
+                    .as_ref()
+                    .map(|p| p.hyprconfig.hyprpm_url.trim().to_string())
+                    .unwrap_or_default();
+                if !url.is_empty() {
+                    hyprpm_in_terminal(self, &format!("add {}", crate::launch::sh_quote(&url)));
+                    if let Some(p) = self.panel.as_mut() {
+                        p.hyprconfig.hyprpm_url.clear();
+                    }
+                }
+                Task::none()
+            }
+            Msg::HyprpmAtStart => {
+                if self.preview {
+                    return Task::none();
+                }
+                let path = self.config_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::hyprpm::add_at_start(&path))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    |r| wrap(Msg::HyprpmDone(r)),
+                )
+            }
             Msg::HistoryLoaded(list) => {
                 if let Some(p) = self.panel.as_mut() {
                     let s = &mut p.hyprconfig;

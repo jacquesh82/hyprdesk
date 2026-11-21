@@ -18,7 +18,8 @@ pub const INFO: PluginInfo = PluginInfo {
     id: "input",
     label: "Clavier et souris",
     icon: "input-keyboard",
-    summary: "Dispositions et répétition du clavier, vitesse de la souris, pavé tactile.",
+    summary: "Dispositions et répétition du clavier, vitesse de la souris, pavé tactile, \
+              curseur, gestes et réglages par périphérique.",
     builtin: true,
 };
 
@@ -28,6 +29,7 @@ pub const TABS: &[super::SubTab] = &[
     ("pave", "Pavé tactile"),
     ("curseur", "Curseur"),
     ("gestes", "Gestes"),
+    ("peripheriques", "Périphériques"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -41,6 +43,8 @@ pub struct State {
     pub layouts: Vec<(String, String)>,
     pub variants: Vec<(String, String, String)>,
     pub touchpad: bool,
+    /// Périphériques branchés : (nom, sorte), pour l'onglet Périphériques.
+    pub devices: Vec<(String, String)>,
     /// Saisies en cours (dispositions, options xkb), validées par Entrée.
     pub layout_draft: Option<String>,
     pub options_draft: Option<String>,
@@ -87,6 +91,7 @@ pub fn load() -> Task<UiMsg> {
                     layouts,
                     variants,
                     touchpad: crate::inputs::has_touchpad(),
+                    devices: crate::inputs::devices(),
                     ..Default::default()
                 }
             })
@@ -135,7 +140,10 @@ impl App {
                 .into();
         }
         if self.on_subtab(INFO.id, "gestes") {
-            return self.hyprset_tab("gestes");
+            return self.gestures_page();
+        }
+        if self.on_subtab(INFO.id, "peripheriques") {
+            return self.devices_page();
         }
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
@@ -157,8 +165,8 @@ impl App {
             {
                 col = col.push(
                     text(
-                        "« Sans accélération » (onglet Avancé) est actif : le profil d'accélération \
-                         ci-dessous n'a pas d'effet.",
+                        "« Sans accélération » (configuration avancée, plus bas) est actif : le \
+                         profil d'accélération ci-dessous n'a pas d'effet.",
                     )
                     .font(self.font)
                     .size(12)

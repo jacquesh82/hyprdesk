@@ -246,8 +246,22 @@ application : `hyprdesk binds generate --write`.
   couvre que cette zone. `SUPER + CTRL + SHIFT + flèche` envoie une fenêtre
   dans la zone voisine.
 - **Apparence et comportement.** Animations, bordures, marges, règles de
-  fenêtres, groupes, curseur, gestes, environnement et délais de veille.
-  hyprdesk les écrit dans des fichiers générés chargés par `hyprland.lua`.
+  fenêtres, groupes, curseur, gestes du pavé tactile (doigts et sens →
+  workspace, déplacer, redimensionner, plein écran…), environnement et
+  délais de veille. hyprdesk les écrit dans des fichiers générés chargés
+  par `hyprland.lua`.
+- **Configuration avancée** (interrupteur en tête des Réglages) : ce qui ne
+  sert qu'à l'expert, marqué en cyan — un point à côté du paquet ou de
+  l'onglet, une pastille « Avancé » en tête de page, un cadre cyan autour
+  des sections avancées. On y trouve les courbes d'animation, les
+  transitions du bureau, le comportement et les groupes de fenêtres, les
+  règles de couches et de workspaces, les réglages par périphérique
+  (vitesse, accélération, défilement, disposition d'un seul clavier ou
+  d'une seule souris), les variables d'environnement, les **plugins
+  Hyprland** (hyprpm : activer ou couper chaque plugin, mettre à jour,
+  ajouter un dépôt, recharger au démarrage) et les **permissions**
+  (autoriser, refuser ou demander pour la capture d'écran, le chargement de
+  plugins et les claviers, les conseillées en un clic).
 - **Performance.** Un profil de rendu (Performance, Équilibré ou Rendu
   graphique) échange les effets contre la charge du processeur et de la
   carte graphique. **Réglages → Performance → Carte graphique** montre la

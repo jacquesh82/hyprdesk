@@ -240,8 +240,19 @@ and disabled bindings are kept. A hand-written file is copied
   maximizing only covers that zone. `SUPER + CTRL + SHIFT + arrow` sends a
   window to the next zone.
 - **Look and behaviour.** Adjust animations, borders, gaps, window rules,
-  groups, cursor, gestures, environment, and idle delays. hyprdesk writes
+  groups, cursor, touchpad gestures (fingers and direction → workspace,
+  move, resize, fullscreen…), environment, and idle delays. hyprdesk writes
   them to generated files loaded by `hyprland.lua`.
+- **Advanced settings** (switch in the Settings header) show what only an
+  expert needs, marked in cyan: a dot next to the package or tab, an
+  *Advanced* badge on the page, a cyan frame around advanced sections.
+  Behind it: animation curves, desktop transitions, window behaviour and
+  groups, layer and workspace rules, per-device settings (speed,
+  acceleration, scrolling, layout for one keyboard or mouse), environment
+  variables, **Hyprland plugins** (hyprpm: enable or disable each plugin,
+  update, add a repository, reload at startup) and **permissions** (allow,
+  deny or ask for screen capture, plugin loading and keyboards, with the
+  recommended ones in one click).
 - **Performance.** Pick a rendering profile (Performance, Balanced, or
   Visual quality) to trade effects for CPU and GPU load. **Settings →
   Performance → Graphics card** shows which card Hyprland renders on and

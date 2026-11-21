@@ -417,6 +417,93 @@ pub fn plan(
                     &mut commented,
                 );
             }
+            "gesture" | "device" => {
+                let Some(body) = c.args.first().filter(|b| b.is_object()).cloned() else {
+                    continue;
+                };
+                // Action en fonction Lua : rien à écrire dans un fichier
+                // généré, la ligne reste dans hyprland.lua.
+                if c.computed || has_function(&body) {
+                    plan.left.push(crate::tr!(
+                        "{f} ({w}) : valeur calculée",
+                        f = c.func,
+                        w = where_
+                    ));
+                    continue;
+                }
+                let (list, what) = if c.func == "gesture" {
+                    (&mut hypr.gestures, crate::i18n::tr("geste").to_string())
+                } else {
+                    let n = body
+                        .get("name")
+                        .and_then(Json::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    (&mut hypr.devices, crate::tr!("périphérique {n}", n = n))
+                };
+                let same = |g: &Json| match c.func.as_str() {
+                    "device" => g.get("name") == body.get("name"),
+                    _ => {
+                        g.get("fingers") == body.get("fingers")
+                            && g.get("direction") == body.get("direction")
+                            && g.get("mods") == body.get("mods")
+                    }
+                };
+                match list.iter().position(same) {
+                    Some(i) if !first => list[i] = body,
+                    Some(_) => {}
+                    None => list.push(body),
+                }
+                adopt(what, &mut plan, &mut commented);
+            }
+            "permission" => {
+                // `hl.permission("cible", "sorte", "décision")` ou une table
+                // `{ binary, type, mode }`.
+                let arg = |i: usize, key: &str| {
+                    c.args
+                        .get(i)
+                        .and_then(Json::as_str)
+                        .or_else(|| {
+                            c.args
+                                .first()
+                                .and_then(|t| t.get(key))
+                                .and_then(Json::as_str)
+                        })
+                        .map(str::to_string)
+                };
+                let (Some(target), Some(kind), Some(mode)) =
+                    (arg(0, "binary"), arg(1, "type"), arg(2, "mode"))
+                else {
+                    continue;
+                };
+                if c.computed {
+                    plan.left.push(crate::tr!(
+                        "{f} ({w}) : valeur calculée",
+                        f = c.func,
+                        w = where_
+                    ));
+                    continue;
+                }
+                let p = crate::hyprset::Permission {
+                    target: target.clone(),
+                    kind: kind.clone(),
+                    mode,
+                };
+                match hypr
+                    .permissions
+                    .iter()
+                    .position(|q| q.target == p.target && q.kind == p.kind)
+                {
+                    Some(i) if !first => hypr.permissions[i] = p,
+                    Some(_) => {}
+                    None => hypr.permissions.push(p),
+                }
+                adopt(
+                    crate::tr!("permission {k} de {t}", k = kind, t = target),
+                    &mut plan,
+                    &mut commented,
+                );
+            }
             _ => {}
         }
     }
@@ -435,6 +522,16 @@ pub fn plan(
     }
     plan.settings = s;
     plan
+}
+
+/// Une valeur contient une fonction Lua (marqueur de `hyprsrc`).
+fn has_function(v: &Json) -> bool {
+    match v {
+        Json::String(s) => s == "<fonction>",
+        Json::Array(a) => a.iter().any(has_function),
+        Json::Object(m) => m.values().any(has_function),
+        _ => false,
+    }
 }
 
 /// Résultat d'une adoption.
@@ -634,5 +731,44 @@ end
             p.settings.fx.unwrap().options["decoration.blur.enabled"],
             OptValue::Bool(true)
         );
+    }
+
+    #[test]
+    fn gestes_peripheriques_permissions_repris() {
+        let text = r#"hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+hl.gesture({ fingers = 4, direction = "up", action = function() end })
+hl.device({ name = "epic-mouse-v1", sensitivity = -0.5 })
+hl.permission("/usr/bin/grim", "screencopy", "allow")
+"#;
+        let (_d, h) = setup("gestures");
+        std::fs::write(&h, text).unwrap();
+        let src = crate::hyprsrc::read_file(&h);
+        assert!(src.error.is_none(), "{:?}", src.error);
+        let p = plan(&h, text, &src, &Settings::default(), &Config::default());
+        let hypr = p.settings.hypr.as_ref().unwrap();
+        assert_eq!(hypr.gestures.len(), 1, "action en fonction : laissée");
+        assert_eq!(hypr.gestures[0]["action"], "workspace");
+        assert_eq!(hypr.devices[0]["name"], "epic-mouse-v1");
+        assert_eq!(
+            hypr.permissions,
+            vec![crate::hyprset::Permission {
+                target: "/usr/bin/grim".into(),
+                kind: "screencopy".into(),
+                mode: "allow".into(),
+            }]
+        );
+        assert!(p.left.iter().any(|l| l.contains("gesture")));
+        // Lignes reprises commentées, celle à la fonction gardée.
+        let lines: Vec<&str> = p.hyprland.lines().collect();
+        assert!(lines[0].trim_start().starts_with("--"));
+        assert!(!lines[1].trim_start().starts_with("--"));
+        assert!(lines[3].trim_start().starts_with("--"));
+        // settings.lua se relit.
+        let lua = mlua::Lua::new();
+        let t: mlua::Table = lua
+            .load(format!("return {}", hypr.to_lua()))
+            .eval()
+            .unwrap();
+        assert_eq!(&crate::hyprset::parse(&t).unwrap(), hypr);
     }
 }

@@ -325,6 +325,29 @@ pub fn layouts() -> Layouts {
 }
 
 /// Un pavé tactile est branché (Hyprland : `devices`).
+/// Périphériques d'entrée branchés : (nom, sorte), sans doublon.
+pub fn devices() -> Vec<(String, String)> {
+    let Ok(v) = ipc::query_json("devices") else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (key, kind) in [
+        ("keyboards", "keyboard"),
+        ("mice", "pointer"),
+        ("touch", "touch"),
+        ("tablets", "tablet"),
+    ] {
+        for d in v[key].as_array().into_iter().flatten() {
+            if let Some(n) = d["name"].as_str()
+                && !out.iter().any(|(x, _)| x == n)
+            {
+                out.push((n.to_string(), kind.to_string()));
+            }
+        }
+    }
+    out
+}
+
 pub fn has_touchpad() -> bool {
     ipc::query_json("devices")
         .ok()

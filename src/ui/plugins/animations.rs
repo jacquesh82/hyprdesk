@@ -23,7 +23,7 @@ pub const INFO: PluginInfo = PluginInfo {
     label: "Animations",
     icon: "preferences-desktop-animation",
     summary: "Animations et effets de Hyprland : fenêtres, workspaces, fondus, flou et ses \
-              variantes, ombre, lueur, ondulation.",
+              variantes, ombre, lueur, ondulation ; transitions du bureau de hyprdesk.",
     builtin: true,
 };
 
@@ -32,6 +32,7 @@ pub const TABS: &[super::SubTab] = &[
     ("animations", "Animations"),
     ("courbes", "Courbes"),
     ("effets", "Effets"),
+    ("bureau", "Bureau"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -135,6 +136,8 @@ impl App {
         match self.subtab(INFO.id) {
             "effets" => self.fx_effects(),
             "courbes" => self.curves_page(),
+            // Transitions de hyprdesk lui-même (ancien paquet Effets).
+            "bureau" => self.tab_effects(),
             _ => self.fx_animations(),
         }
     }

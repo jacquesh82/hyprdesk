@@ -247,10 +247,28 @@ to return to. The Alt+Tab switcher filters it out too.
   `require` at its end so they win over what comes before: `env.lua`,
   `appearance.lua` (gaps, borders, decoration, blur, groups),
   `animations.lua`, `layouts.lua`, `rules.lua` (window, layer and workspace
-  rules) and `system.lua`, plus `binds.lua`, `inputs.lua`, `monitors.lua`
-  and `autostart.lua`. They only contain the values set in hyprdesk. Every
-  write goes through Hyprland's check: a new config error puts everything
-  back.
+  rules) and `system.lua` (behaviour, XWayland, rendering, and the
+  `hl.permission` lines, read by Hyprland at startup only), plus
+  `binds.lua`, `inputs.lua` (its generated *Advanced* block holds the raw
+  `input`/`gestures` options, the `hl.gesture` bindings and the per-device
+  `hl.device` blocks), `monitors.lua` and `autostart.lua`. They only contain
+  the values set in hyprdesk; an incomplete entry (a rule without a target,
+  a device without a name, a gesture without an action) stays in Settings
+  but is not written. Every write goes through Hyprland's check: a new
+  config error puts everything back.
+- **Taking over `hyprland.lua`.** Options, curves, animations, `hl.env`,
+  window and layer rules, `hl.gesture`, `hl.device` and `hl.permission`
+  calls found in `hyprland.lua` are imported into hyprdesk and commented out
+  there. Computed values (a gesture whose action is a Lua function, an
+  `os.getenv` path…) stay in `hyprland.lua` and the matching Settings page
+  says on which lines.
+- **Hyprland plugins.** Settings → Hyprland configuration → Hyprland
+  plugins reads `hyprpm list` and `hyprctl plugin list`, enables or disables
+  a plugin (`hyprpm enable|disable`, then `hyprpm reload -n`), and adds
+  `hyprpm reload -n` to `autostart.lua` when enabled plugins would not be
+  reloaded at login. Updating and adding a repository build Hyprland's
+  headers with administrator rights, so they open in a terminal. Hyprbars
+  stays loaded by hyprdesk itself (Desktop → Session).
 - **Default configuration.** Each Settings component (one settings package)
   can go back to its default with **Defaults…** or `hyprdesk config reset
   <component> [--yes]` (without `--yes`, it only prints the plan). Its

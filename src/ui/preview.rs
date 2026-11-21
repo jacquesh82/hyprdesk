@@ -763,7 +763,7 @@ impl Preview {
             3 => Some("wallpaper"),
             4 => Some("widgets"),
             5 => Some("bar"),
-            6 => Some("effects"),
+            6 => Some("animations"),
             9 => Some("workspaces"),
             10 => Some("screens"),
             11 => Some("launcher"),
@@ -802,7 +802,7 @@ impl Preview {
             _ => None,
         });
         // Onglet de chaque paquet : le premier, sauf « typography » (Thème → Texte)
-        // et HYPRDESK_PREVIEW_SUBTAB (ex. `bar=modules,theme=effets`) pour les essais.
+        // et HYPRDESK_PREVIEW_SUBTAB (ex. `bar=modules,theme=transparence`) pour les essais.
         self.app.subtabs.clear();
         // Configuration avancée par défaut (toutes les vues) ; HYPRDESK_PREVIEW_BASIC : l'essentiel.
         Arc::make_mut(&mut self.app.cfg).general.advanced_settings =
@@ -811,6 +811,10 @@ impl Preview {
         Arc::make_mut(&mut self.app.cfg).general.tour_seen = SCENES[self.scene] != "tour";
         if self.scene == 1 {
             self.app.subtabs.insert("theme", "texte");
+        }
+        // Ancien paquet Effets : Animations → Bureau.
+        if SCENES[self.scene] == "effects" {
+            self.app.subtabs.insert("animations", "bureau");
         }
         // Bureau → Raccourcis : des conflits d'exemple, et SUPER + R pris à rofi.
         self.app.key_report = if SCENES[self.scene] == "bureau" {

@@ -46,14 +46,30 @@ pub enum Msg {
     /// Variable d'environnement : (indice, Some((nom, valeur))) ou retrait.
     Env(usize, Option<(String, String)>),
     EnvAdd,
-    /// Champ d'une règle : (indice, chemin pointé, valeur ; `None` : retiré).
-    RuleField(usize, String, Option<serde_json::Value>),
-    /// Saisie d'un champ texte d'une règle (enregistrée à Entrée).
-    RuleText(usize, String, Option<serde_json::Value>),
-    RuleAdd,
-    RuleDel(usize),
-    /// Déplace une règle (−1 : vers le haut, +1 : vers le bas).
-    RuleMove(usize, i32),
+    /// Champ d'un élément de liste (règle, geste, périphérique) : (liste,
+    /// indice, chemin pointé, valeur ; `None` : retiré), enregistré.
+    Spec(
+        super::hyprlists::List,
+        usize,
+        String,
+        Option<serde_json::Value>,
+    ),
+    /// Saisie d'un champ texte d'un élément (enregistrée à Entrée).
+    SpecText(
+        super::hyprlists::List,
+        usize,
+        String,
+        Option<serde_json::Value>,
+    ),
+    SpecAdd(super::hyprlists::List),
+    SpecDel(super::hyprlists::List, usize),
+    /// Déplace un élément (−1 : vers le haut, +1 : vers le bas).
+    SpecMove(super::hyprlists::List, usize, i32),
+    /// Permission modifiée ou retirée (`None`) ; enregistrée si `true`.
+    Perm(usize, Option<crate::hyprset::Permission>, bool),
+    PermAdd,
+    /// Ajoute les permissions conseillées absentes.
+    PermPresets,
     /// Bordures aux couleurs du thème.
     ThemeBorders(bool),
     /// Thème de curseur (XCursor et hyprcursor du même nom si présent).
@@ -490,70 +506,6 @@ pub fn cursor_themes() -> Vec<String> {
     out
 }
 
-/// Valeur pointée d'un objet JSON (`match.class`).
-fn json_get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
-    path.split('.').try_fold(v, |acc, k| acc.get(k))
-}
-
-/// Pose (ou retire) une valeur pointée dans un objet JSON.
-fn json_set(v: &mut serde_json::Value, path: &str, val: Option<serde_json::Value>) {
-    let parts: Vec<&str> = path.split('.').collect();
-    let mut cur = v;
-    for (i, k) in parts.iter().enumerate() {
-        if !cur.is_object() {
-            *cur = serde_json::json!({});
-        }
-        let obj = cur.as_object_mut().expect("objet");
-        if i + 1 == parts.len() {
-            match val {
-                Some(x) => {
-                    obj.insert(k.to_string(), x);
-                }
-                None => {
-                    obj.remove(*k);
-                }
-            }
-            return;
-        }
-        cur = obj
-            .entry(k.to_string())
-            .or_insert_with(|| serde_json::json!({}));
-    }
-}
-
-/// Champs d'une règle de fenêtre proposés dans l'éditeur : (chemin, libellé,
-/// nature) ; les autres champs d'une règle sont gardés tels quels.
-const RULE_FIELDS: &[(&str, &str, RuleField)] = &[
-    ("match.class", "Classe (regex)", RuleField::Text),
-    ("match.title", "Titre (regex)", RuleField::Text),
-    ("float", "Flottante", RuleField::Bool),
-    ("pin", "Épinglée sur tous les workspaces", RuleField::Bool),
-    ("no_blur", "Sans flou", RuleField::Bool),
-    (
-        "opacity",
-        "Opacité (0 à 1, ou « active inactive »)",
-        RuleField::Text,
-    ),
-    ("border_color", "Couleur de bordure", RuleField::Text),
-    ("size", "Taille (« 800 600 »)", RuleField::Text),
-    ("idle_inhibit", "Empêche la veille", RuleField::Idle),
-    ("workspace", "Workspace", RuleField::Text),
-];
-
-#[derive(Clone, Copy)]
-enum RuleField {
-    Text,
-    Bool,
-    Idle,
-}
-
-const IDLE: &[(&str, &str)] = &[
-    ("", "Non"),
-    ("focus", "Quand elle est active"),
-    ("fullscreen", "En plein écran"),
-    ("always", "Toujours"),
-];
-
 impl App {
     fn small(&self, s: String) -> Element<'_, UiMsg> {
         text(s)
@@ -564,8 +516,24 @@ impl App {
     }
 
     /// Sections du registre `hyprset` rangées sous `key` (`fenetres`,
-    /// `groupes`, `curseur`, `gestes`, `entrees`, `comportement`, `avance`).
+    /// `groupes`, `curseur`, `gestes`, `comportement-fenetres`, `avance`,
+    /// `permissions`). Options brutes de Hyprland : affichées seulement en
+    /// configuration avancée, encadrées en cyan, sauf sur une page avancée
+    /// ou pour un groupe de base (`hyprset::BASIC_GROUPS`).
     pub(in crate::ui) fn hyprset_tab(&self, key: &str) -> Element<'_, UiMsg> {
+        let on_advanced_page = self
+            .panel
+            .as_ref()
+            .is_some_and(|p| super::plugins::is_advanced(p.tab, Some(self.subtab(p.tab))));
+        if crate::hyprset::BASIC_GROUPS.contains(&key) || on_advanced_page {
+            self.hyprset_groups(key)
+        } else {
+            self.adv(self.hyprset_groups(key))
+        }
+    }
+
+    /// Sections du registre rangées sous `key`, sans cadre.
+    pub(in crate::ui) fn hyprset_groups(&self, key: &str) -> Element<'_, UiMsg> {
         let mut col = column![].spacing(14);
         for (k, title, paths) in crate::hyprset::GROUPS {
             if *k != key {
@@ -583,7 +551,7 @@ impl App {
         &self.cfg.general.hypr
     }
 
-    fn edit_hypr(&mut self, f: impl FnOnce(&mut crate::hyprset::Hypr)) {
+    pub(in crate::ui) fn edit_hypr(&mut self, f: impl FnOnce(&mut crate::hyprset::Hypr)) {
         let mut h = self
             .settings
             .hypr
@@ -724,154 +692,12 @@ impl App {
         .into()
     }
 
-    /// Éditeur des règles de fenêtres (rules.lua), dans l'ordre.
-    pub(in crate::ui) fn rules_editor(&self) -> Element<'_, UiMsg> {
-        let mut col = column![
-            self.section("Règles de fenêtres"),
-            self.small(
-                crate::i18n::tr(
-                    "Appliquées dans l'ordre aux fenêtres dont la classe ou le titre \
-                     correspond. Les champs non proposés ici sont gardés tels quels.",
-                )
-                .to_string()
-            ),
-        ]
-        .spacing(12);
-        let rules = &self.hypr_cfg().rules;
-        let n = rules.len();
-        for (i, r) in rules.iter().enumerate() {
-            if r.kind != crate::hyprset::RuleKind::Window {
-                continue;
-            }
-            let name = json_get(&r.body, "name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let mut card = column![
-                row![
-                    text(if name.is_empty() {
-                        crate::tr!("Règle {n}", n = i + 1)
-                    } else {
-                        name.clone()
-                    })
-                    .font(self.title_font())
-                    .size(14)
-                    .width(Length::Fill),
-                    button(text("↑").font(self.font).size(13))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe((i > 0).then(|| wrap(Msg::RuleMove(i, -1)))),
-                    button(text("↓").font(self.font).size(13))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe((i + 1 < n).then(|| wrap(Msg::RuleMove(i, 1)))),
-                    button(text("×").font(self.font).size(14))
-                        .padding([2, 10])
-                        .style(button::text)
-                        .on_press(wrap(Msg::RuleDel(i))),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            ]
-            .spacing(6);
-            for (path, label, kind) in RULE_FIELDS {
-                let cur = json_get(&r.body, path);
-                let p = path.to_string();
-                let control: Element<'_, UiMsg> = match kind {
-                    RuleField::Bool => toggler(cur.and_then(|v| v.as_bool()).unwrap_or(false))
-                        .on_toggle(move |v| {
-                            wrap(Msg::RuleField(
-                                i,
-                                p.clone(),
-                                v.then_some(serde_json::Value::Bool(true)),
-                            ))
-                        })
-                        .into(),
-                    RuleField::Idle => {
-                        let opts: Vec<String> = IDLE
-                            .iter()
-                            .map(|(_, l)| crate::i18n::tr(l).to_string())
-                            .collect();
-                        let now = cur.and_then(|v| v.as_str()).unwrap_or("");
-                        let sel = IDLE
-                            .iter()
-                            .position(|(v, _)| *v == now)
-                            .map(|j| opts[j].clone());
-                        let opts2 = opts.clone();
-                        pick_list(opts, sel, move |l: String| {
-                            let j = opts2.iter().position(|o| *o == l).unwrap_or(0);
-                            let v = IDLE[j].0;
-                            wrap(Msg::RuleField(
-                                i,
-                                p.clone(),
-                                (!v.is_empty()).then(|| serde_json::Value::String(v.into())),
-                            ))
-                        })
-                        .font(self.font)
-                        .width(240)
-                        .into()
-                    }
-                    RuleField::Text => {
-                        let shown = match cur {
-                            Some(serde_json::Value::String(s)) => s.clone(),
-                            Some(serde_json::Value::Null) | None => String::new(),
-                            Some(v) => v.to_string(),
-                        };
-                        text_input("", &shown)
-                            .on_input(move |s| {
-                                let v = if s.is_empty() {
-                                    None
-                                } else if let Ok(n) = s.parse::<f64>() {
-                                    serde_json::Number::from_f64(n).map(serde_json::Value::Number)
-                                } else {
-                                    Some(serde_json::Value::String(s))
-                                };
-                                wrap(Msg::RuleText(i, p.clone(), v))
-                            })
-                            .on_submit(wrap(Msg::Commit))
-                            .font(self.font)
-                            .size(13)
-                            .width(320)
-                            .into()
-                    }
-                };
-                card = card.push(
-                    row![
-                        text(crate::i18n::tr(label))
-                            .font(self.font)
-                            .size(13)
-                            .width(260),
-                        control
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
-                );
-            }
-            let accent = color(self.cfg.general.theme.accent, 1.0);
-            col = col.push(container(card).padding(12).style(move |_| {
-                container::Style {
-                    border: iced::Border::default()
-                        .rounded(10)
-                        .width(1)
-                        .color(Color { a: 0.35, ..accent }),
-                    ..Default::default()
-                }
-            }));
-        }
-        col = col.push(
-            button(
-                text(crate::i18n::tr("Ajouter une règle"))
-                    .font(self.font)
-                    .size(13),
-            )
-            .padding([4, 12])
-            .on_press(wrap(Msg::RuleAdd)),
-        );
-        col.into()
-    }
-
-    /// Messages des éditeurs (variables, règles, bordures, curseur).
+    /// Messages des éditeurs (variables, listes, bordures, curseur).
     fn hyprset_edit(&mut self, msg: Msg) -> Task<UiMsg> {
+        let msg = match self.hyprlists_update(msg) {
+            Ok(task) => return task,
+            Err(msg) => msg,
+        };
         match msg {
             Msg::Env(i, v) => {
                 // Saisie : appliquée en mémoire, enregistrée à Entrée ;
@@ -886,51 +712,8 @@ impl App {
                 });
                 if removed { self.commit() } else { self.apply() }
             }
-            Msg::RuleText(i, path, v) => {
-                self.edit_hypr(|h| {
-                    if let Some(r) = h.rules.get_mut(i) {
-                        json_set(&mut r.body, &path, v);
-                    }
-                });
-                self.apply()
-            }
             Msg::EnvAdd => {
                 self.edit_hypr(|h| h.env.push(("NOM".into(), String::new())));
-                self.commit()
-            }
-            Msg::RuleField(i, path, v) => {
-                self.edit_hypr(|h| {
-                    if let Some(r) = h.rules.get_mut(i) {
-                        json_set(&mut r.body, &path, v);
-                    }
-                });
-                self.commit()
-            }
-            Msg::RuleAdd => {
-                self.edit_hypr(|h| {
-                    let n = h.rules.len() + 1;
-                    h.rules.push(crate::hyprset::Rule {
-                        kind: crate::hyprset::RuleKind::Window,
-                        body: serde_json::json!({ "name": format!("hyprdesk-{n}"), "match": { "class": "" } }),
-                    })
-                });
-                self.commit()
-            }
-            Msg::RuleDel(i) => {
-                self.edit_hypr(|h| {
-                    if i < h.rules.len() {
-                        h.rules.remove(i);
-                    }
-                });
-                self.commit()
-            }
-            Msg::RuleMove(i, d) => {
-                self.edit_hypr(|h| {
-                    let j = i as i64 + d as i64;
-                    if j >= 0 && (j as usize) < h.rules.len() {
-                        h.rules.swap(i, j as usize);
-                    }
-                });
                 self.commit()
             }
             Msg::ThemeBorders(v) => {

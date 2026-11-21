@@ -8,6 +8,45 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Touchpad gestures** (MLG-142, Settings → Keyboard and mouse → Gestures): fingers
+  and direction bound to an action (switch workspace, special workspace,
+  move, resize, close, fullscreen, floating, cursor zoom), written as
+  `hl.gesture` in `inputs.lua`; the raw `gestures.*` options follow under
+  advanced settings.
+- **Per-device settings** (MLG-142, Keyboard and mouse → Devices, advanced): speed,
+  acceleration, natural scrolling, left-handed, tap to click, keyboard layout
+  or bound screen for one keyboard, mouse, touchpad or tablet (`hl.device`),
+  chosen from the connected devices.
+- **Layer and workspace rules** (MLG-144, Windows → Rules, advanced) next to window
+  rules: the layer rules taken over from `hyprland.lua` were kept but could
+  not be seen.
+- **Hyprland plugins** (MLG-144, Hyprland configuration → Hyprland plugins,
+  advanced): `hyprpm` repositories and plugins, on/off switch, loaded state,
+  update and add a repository in a terminal, `hyprpm reload` added to
+  startup when missing.
+- **Permissions** (MLG-144, Hyprland configuration → Permissions, advanced):
+  `ecosystem.enforce_permissions` with its `hl.permission` rules, the
+  recommended ones (grim, the portal, hyprdesk, hyprpm) in one click, and a
+  warning when enforcement would block every screen capture.
+- `hl.gesture`, `hl.device` and `hl.permission` in `hyprland.lua` are taken
+  over like options and rules; a gesture whose action is a Lua function stays
+  there, and the page names its lines.
+
+### Changed
+
+- **Advanced settings reorganised and marked everywhere** (MLG-212). The *Effects*
+  package becomes Animations → Desktop (desktop transitions, wallpaper
+  crossfade; `hyprdesk settings effets` still leads there), Theme → Effects
+  becomes Theme → Transparency, so only Animations → Effects keeps the name.
+  Curves, Desktop, Transparency, window Groups, Environment, Hyprland plugins,
+  Permissions and Devices are advanced tabs. Raw Hyprland options on a basic
+  page (cursor, gestures) only show with advanced settings, in a cyan frame;
+  the cyan dot also marks tabs and packages in the narrow drawer.
+- Mouse page: the “No acceleration” warning pointed to an Advanced tab that
+  no longer exists.
+
 ## [0.1.9] - 2026-11-21
 
 Safe to try and easy to undo: original state restored in one command, the

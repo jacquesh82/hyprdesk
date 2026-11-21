@@ -20,6 +20,7 @@ mod convex;
 mod curves;
 mod design;
 mod desk_layout;
+mod hyprlists;
 mod hyprset;
 mod icons;
 mod kinetic;

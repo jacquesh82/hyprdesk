@@ -1,5 +1,6 @@
-//! Paquet intégré « Effets » : transitions du bureau, fondu entre fonds.
-//! Couleurs et effets de surface : paquet « Thème ».
+//! Onglet « Bureau » du paquet Animations (ancien paquet « Effets ») :
+//! transitions du bureau de hyprdesk, fondu entre fonds. Opacité et flou
+//! des surfaces : Thème → Transparence.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
@@ -9,16 +10,8 @@ use iced::{Color, Element, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
-use super::{PluginInfo, PluginMsg};
+use super::PluginMsg;
 use crate::config::Transition;
-
-pub const INFO: PluginInfo = PluginInfo {
-    id: "effects",
-    label: "Effets",
-    icon: "preferences-system",
-    summary: "Transitions du bureau et fondu entre fonds d'écran.",
-    builtin: true,
-};
 
 /// Message de ce paquet, enveloppé pour l'application.
 pub fn wrap(m: Msg) -> UiMsg {
