@@ -75,6 +75,7 @@ pub mod storage;
 pub mod switcher;
 pub mod takeover;
 pub mod theme;
+pub mod theme_engine;
 pub mod tiling;
 pub mod tray;
 pub mod ui;
