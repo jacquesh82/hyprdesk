@@ -494,7 +494,13 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         // Ancien paquet Effets : onglet Animations → Bureau.
         "effets" | "effects" | "transitions" => "animations",
         "thème" | "themes" | "thèmes" | "couleurs" | "apparence" => "theme",
-        "kitty" | "theme-apps" | "thème-applications" => "apptheme",
+        "kitty"
+        | "theme-apps"
+        | "thème-applications"
+        | "modules"
+        | "modules-theme"
+        | "modules-thème"
+        | "theme-modules" => "apptheme",
         "ecrans" | "écrans" => "screens",
         "couleurs-ecrans" | "couleurs-écrans" | "calibration" | "gamma" | "icc" | "mire" => {
             "colors"

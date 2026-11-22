@@ -1,5 +1,5 @@
-//! Paquet intégré « Thème des applications » : le thème de hyprdesk appliqué
-//! à d'autres logiciels (kitty, GTK, Qt), réappliqué à chaque changement de
+//! Paquet intégré « Modules du thème » : les modules du moteur de thème
+//! (hyprdesk-theme-engine) qui portent le thème de hyprdesk jusqu'à d'autres logiciels (kitty, GTK, Qt), réappliqué à chaque changement de
 //! thème. Les applications iced suivent d'elles-mêmes la palette publiée par
 //! le moteur : une carte sans interrupteur le montre. Plugin configurable : chaque application a ses
 //! réglages (fichiers, rechargement), ici ou dans Réglages → Plugins →
@@ -20,10 +20,10 @@ use crate::config::Config;
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "apptheme",
-    label: "Thème des applications",
+    label: "Modules du thème",
     icon: "preferences-desktop-theme",
-    summary: "Le thème de hyprdesk appliqué à d'autres logiciels : kitty, GTK, Qt et les \
-              applications iced.",
+    summary: "Les modules du moteur de thème qui portent le thème jusqu'aux applications : \
+              kitty, GTK, Qt et iced.",
     builtin: true,
 };
 
@@ -114,10 +114,11 @@ impl App {
             .clone()
             .unwrap_or_else(|| g.app_themes.clone());
         let mut col = column![
-            self.section("Applications"),
+            self.section("Modules"),
             text(crate::i18n::tr(
-                "Chaque application cochée prend les couleurs du thème en place, et les reprend \
-                 à chaque changement de thème. Décochée, elle retrouve son propre thème."
+                "Chaque module du moteur de thème porte les couleurs du thème en place jusqu'à \
+                 une application, et les repose à chaque changement de thème. Coupé, \
+                 l'application retrouve son propre thème."
             ))
             .font(self.font)
             .size(12)
@@ -241,7 +242,7 @@ impl App {
                         let ask = crate::apptheme::target(id)
                             .map(|t| crate::apptheme::lyra_prompt(t, &opts, e))
                             .map(|prompt| {
-                                self.lyra_button(crate::i18n::tr("Thème des applications"), prompt)
+                                self.lyra_button(crate::i18n::tr("Modules du thème"), prompt)
                             });
                         let mut line = row![
                             text(crate::tr!("{id} : {e}", id = id, e = e))
@@ -288,9 +289,9 @@ impl App {
                 .spacing(8)
                 .align_y(Alignment::Center),
                 text(crate::i18n::tr(
-                    "hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la \
-                     palette du thème et la suivent à chaud. Toujours actif : rien à cocher, \
-                     chaque application suit d'elle-même."
+                    "Module toujours actif : hyprdesk et les applications iced liées à \
+                     hyprdesk-theme-client lisent la palette publiée par le moteur et la suivent \
+                     à chaud. Rien à couper, chaque application suit d'elle-même."
                 ))
                 .font(self.font)
                 .size(12)

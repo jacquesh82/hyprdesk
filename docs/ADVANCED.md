@@ -646,7 +646,7 @@ other file the settings point to (icons, lock image…). AI services and
 their keys, passwords, light pairing and system settings (sound, network…)
 are left out. `--theme` exports only what you see: colors, effects,
 wallpapers, desktop mode, lock veil and image, transitions, font, icon theme
-and app theming. `hyprdesk import` backs up the current setup first, and
+and theme modules. `hyprdesk import` backs up the current setup first, and
 `--dry-run` shows what would change. Imported Hyprland files are checked by
 Hyprland and count as code that needs your consent; `monitors.lua` is only
 applied with `--screens`, and paths into the home folder are rewritten for

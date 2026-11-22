@@ -230,7 +230,7 @@ and disabled bindings are kept. A hand-written file is copied
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by
-  app. App theming carries the theme to kitty and to GTK and Qt apps.
+  app. Theme modules carry the theme to kitty and to GTK, Qt and iced apps.
 - **Screens and input.** Arrange monitors and set the keyboard and
   touchpad. Display layout changes revert after 12 seconds unless you keep
   them.
@@ -334,7 +334,7 @@ files reference; and every image the settings point to. `hyprdesk import
 <archive>` restores it. Hyprland checks the imported Hyprland files, and
 they count as code needing your consent. `monitors.lua` is only applied
 with `--screens`, and home-folder paths are rewritten for the new machine.
-`--theme` exports the theme alone: colours, font, icon theme, app theming,
+`--theme` exports the theme alone: colours, font, icon theme, theme modules,
 and lock image.
 
 ## File search

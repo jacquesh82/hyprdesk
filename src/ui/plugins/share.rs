@@ -131,7 +131,7 @@ impl App {
             Scope::Theme => crate::tr!(
                 "Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque \
                  endroit, mode du bureau, voile et image du verrouillage, transitions, \
-                 police, thème d'icônes, thème des applications.",
+                 police, thème d'icônes, modules du thème.",
                 theme_name = theme_name
             ),
         };

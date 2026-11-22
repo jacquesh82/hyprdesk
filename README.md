@@ -257,7 +257,7 @@ set from the command line shows up in Settings, and the other way round.
 | Fonts, icons, cursors, sounds | The GNOME settings and the hyprdesk keys | At once; cursors at the next session |
 | Any other app | A file declared by the pack (`[targets.<name>]`) | Through a bounded reload: signal, socket, gsettings |
 
-You choose which apps take the theme in **Settings → App theming**.
+You choose which apps take the theme in **Settings → Theme modules**.
 Uninstalling removes everything the engine wrote and puts your base GTK
 theme back.
 

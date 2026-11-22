@@ -273,7 +273,7 @@ Réglages, et inversement.
 | Toute autre application | Un fichier déclaré par le pack (`[targets.<nom>]`) | Par un rechargement borné : signal, socket, gsettings |
 
 Les applications qui prennent le thème se choisissent dans **Réglages →
-Thème des applications**. La désinstallation retire tout ce que le moteur a
+Modules du thème**. La désinstallation retire tout ce que le moteur a
 écrit et remet votre thème GTK de base.
 
 ### Les packs

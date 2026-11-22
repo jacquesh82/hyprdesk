@@ -1,4 +1,4 @@
-//! Thème des applications (paquet « Thème des applications ») : le thème de
+//! Modules du thème (paquet « Modules du thème », ex-« Thème des applications ») : le thème de
 //! hyprdesk appliqué à d'autres logiciels, en architecture « plug-n-play »
 //! comme les widgets :
 //!
@@ -15,7 +15,7 @@
 //! reste valide) : le thème d'avant reprend la main.
 //!
 //! Chaque cible déclare ses options (fichiers, rechargement) : le paquet est
-//! un plugin configurable, réglé dans Réglages → Thème des applications ou
+//! un plugin configurable, réglé dans Réglages → Modules du thème ou
 //! Réglages → Plugins → Configurer ; les valeurs vivent dans
 //! `plugin_options["apptheme"]` (clés `<cible>.<option>`).
 //!
@@ -244,7 +244,7 @@ pub fn lyra_prompt(t: &Target, opts: &Opts, error: &str) -> String {
         })
         .collect();
     crate::tr!(
-        "Dans Réglages → Thème des applications, hyprdesk n'arrive pas à appliquer son thème à {app} :\n{error}\n\nFichiers en jeu :\n{files}\n\nRegarde ces fichiers (liens symboliques et leurs cibles compris), explique-moi la cause, puis propose la correction la plus simple : rétablir la cible d'un lien, remplacer le lien par un fichier, ou indiquer d'autres chemins dans Réglages → Thème des applications → Réglages de {app}. Demande-moi avant de modifier quoi que ce soit.",
+        "Dans Réglages → Modules du thème, hyprdesk n'arrive pas à appliquer son thème à {app} :\n{error}\n\nFichiers en jeu :\n{files}\n\nRegarde ces fichiers (liens symboliques et leurs cibles compris), explique-moi la cause, puis propose la correction la plus simple : rétablir la cible d'un lien, remplacer le lien par un fichier, ou indiquer d'autres chemins dans Réglages → Modules du thème → Réglages de {app}. Demande-moi avant de modifier quoi que ce soit.",
         app = t.label,
         error = error,
         files = files.join("\n")

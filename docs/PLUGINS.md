@@ -232,7 +232,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
 | `launcher` | Lanceur | fenêtres affichées, regroupement | — (widget, § 3) |
 | `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
-| `apptheme` | Thème des applications | le thème appliqué à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
+| `apptheme` | Modules du thème | les modules du moteur de thème qui portent le thème jusqu'à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
 | `bar` | Barre | position, hauteur, écrans, modules | `bar_offer.rs` (surface : `ui/plugins/bar/`) |
@@ -572,7 +572,7 @@ surfaces, accent, fond sans image), fonds d'écran, effet de chaque endroit
 (opacité du fond et flou Hyprland de la barre, des menus, du lanceur, des
 réglages ; opacité des widgets), mode du bureau et voile du verre, voile,
 flou et image du verrouillage, transitions, police et taille, thème
-d'icônes, thème des applications (cibles et options).
+d'icônes, modules du thème (cibles et options).
 
 - **Export** (`--theme`, ou « Thème seul ») : le thème **effectif** (réglages
   et `hyprdesk.lua` confondus), écrit dans un `settings.lua` qui ne contient

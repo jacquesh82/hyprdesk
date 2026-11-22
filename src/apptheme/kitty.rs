@@ -113,7 +113,7 @@ fn clear(o: &Opts) -> Result<(), String> {
     if !file.is_file() {
         return Ok(());
     }
-    let empty = "# Thème de hyprdesk coupé (Réglages → Thème des applications).\n";
+    let empty = "# Thème de hyprdesk coupé (Réglages → Modules du thème).\n";
     if write_if_changed(&file, empty)? {
         run_reload(&opt(o, "kitty", &OPTIONS[2]));
     }

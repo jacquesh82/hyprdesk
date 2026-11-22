@@ -235,8 +235,8 @@ application : `hyprdesk binds generate --write`.
 - **Faites le bureau vôtre.** Fonds d'écran et diaporamas par écran ou par
   workspace, raccourcis d'applications et de fichiers, thème tiré d'une
   image. Les modules de la barre se réorganisent au glisser, le dock
-  regroupe les fenêtres par application. Le thème des applications porte le
-  thème jusqu'à kitty, aux applications GTK et Qt.
+  regroupe les fenêtres par application. Les modules du thème portent le
+  thème jusqu'à kitty et aux applications GTK, Qt et iced.
 - **Écrans et saisie.** Disposez les écrans, réglez clavier et pavé
   tactile. Un changement de disposition des écrans revient seul au bout de
   12 secondes si vous ne le gardez pas.
@@ -348,7 +348,7 @@ désignent. `hyprdesk import <archive>` le restaure. Les fichiers de Hyprland
 importés sont vérifiés par Hyprland et comptent comme du code à accepter.
 `monitors.lua` ne s'applique qu'avec `--screens`, et les chemins du dossier
 personnel sont réécrits pour la nouvelle machine. `--theme` n'exporte que le
-thème : couleurs, police, thème d'icônes, thème des applications et image du
+thème : couleurs, police, thème d'icônes, modules du thème et image du
 verrouillage.
 
 ## Recherche de fichiers

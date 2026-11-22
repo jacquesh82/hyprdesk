@@ -230,7 +230,7 @@ each CLI key points to an existing package.
 | `icons` | Icons | application shortcuts, size, theme | `launch.rs`, `layout.rs` |
 | `launcher` | Launcher | windows shown, grouping | — (widget, § 3) |
 | `theme` | Theme | colors, backgrounds, effect of each place (opacity, blur), desktop mode, lock screen veil; shipped themes and “My themes” | `theme.rs`, `config::Theme` |
-| `apptheme` | App theming | the theme applied to other software (kitty: `~/.config/kitty/hyprdesk-theme.conf`, included at the end of kitty.conf, reloaded with SIGUSR1) | `apptheme.rs` |
+| `apptheme` | Theme modules | the theme engine modules that carry the theme to other software (kitty: `~/.config/kitty/hyprdesk-theme.conf`, included at the end of kitty.conf, reloaded with SIGUSR1) | `apptheme.rs` |
 | `wallpaper` | Wallpaper | image, slideshow, color; scope | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
 | `bar` | Bar | position, height, screens, modules | `bar_offer.rs` (surface: `ui/plugins/bar/`) |
@@ -565,7 +565,7 @@ A **theme** (`theme.rs`) gathers what can be seen: name, colors (text,
 surfaces, accent, background without image), wallpapers, effect of each place
 (background opacity and Hyprland blur for the bar, menus, launcher and
 settings; widget opacity), desktop mode and glass veil, lock screen veil,
-blur and image, transitions, font and size, icon theme, app theming (targets
+blur and image, transitions, font and size, icon theme, theme modules (targets
 and options).
 
 - **Export** (`--theme`, or “Theme only”): the **effective** theme (settings

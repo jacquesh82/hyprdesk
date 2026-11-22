@@ -324,7 +324,7 @@
 "Changer de fenêtre à gauche ou à droite passe d'une colonne à l'autre ; déplacer la fenêtre à gauche ou à droite la change de colonne." = "Focusing left or right moves between columns; moving the window left or right changes its column."
 "Changer la place du maître" = "Change the master's position"
 "Changer toutes les" = "Change every"
-"Chaque application cochée prend les couleurs du thème en place, et les reprend à chaque changement de thème. Décochée, elle retrouve son propre thème." = "Each checked application takes the current theme's colors, and takes them again whenever the theme changes. Unchecked, it gets its own theme back."
+"Chaque module du moteur de thème porte les couleurs du thème en place jusqu'à une application, et les repose à chaque changement de thème. Coupé, l'application retrouve son propre thème." = "Each theme engine module carries the current theme's colours to an application, and sets them again whenever the theme changes. Turned off, the application gets its own theme back."
 "Chaque changement s'applique tout de suite ; gardez-le, sinon l'affichage d'avant revient de lui-même. La disposition est écrite dans monitors.lua." = "Each change applies right away; keep it, or the previous display comes back on its own. The layout is written to monitors.lua."
 "Chaque nouvelle fenêtre partage en deux la place de la fenêtre active, en alternant le sens." = "Each new window splits the active window's space in two, alternating direction."
 "Charge" = "Load"
@@ -688,7 +688,7 @@
 "le plus grand écran" = "the largest screen"
 "Le premier workspace d'un écran est celui qu'il affiche par défaut. Un workspace permanent change d'écran aussitôt ; les autres, à leur création." = "A screen's first workspace is the one it shows by default. A permanent workspace moves to its screen immediately; the others, when they're created."
 "Le thème" = "The theme"
-"Le thème de hyprdesk appliqué à d'autres logiciels : kitty, GTK, Qt et les applications iced." = "hyprdesk's theme applied to other software: kitty, GTK, Qt and iced applications."
+"Les modules du moteur de thème qui portent le thème jusqu'aux applications : kitty, GTK, Qt et iced." = "The theme engine modules that carry the theme to applications: kitty, GTK, Qt and iced."
 "Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque endroit, mode du bureau, voile du verrouillage, transitions." = "The “{theme_name}” theme only: colors, wallpapers, effects of each place, desktop mode, lock screen veil, transitions."
 "Le verrouillage" = "The lock screen"
 "Le vôtre" = "Your own"
@@ -1019,7 +1019,7 @@
 "Thème créé : {out} — à appliquer d'un clic dans Mes thèmes." = "Theme created: {out} — apply it in one click from My themes."
 "Thème d'icônes" = "Icon theme"
 "thème de {id} : {e}" = "{id} theme: {e}"
-"Thème des applications" = "App theming"
+"Modules du thème" = "Theme modules"
 "Thème du système" = "System theme"
 "Thème en place" = "Current theme"
 "Thème retiré, gardé dans {dir}." = "Theme removed, kept in {dir}."
@@ -2449,7 +2449,7 @@
 "Supprimer" = "Remove"
 "{p} est un lien vers {t}, qui n'existe pas : rétablissez la cible ou retirez le lien" = "{p} is a link to {t}, which does not exist: restore the target or remove the link"
 
-# Thème des applications : options et LYRA.
+# Modules du thème : options et LYRA.
 "Commande de rechargement" = "Reload command"
 "Configuration qui l'inclut" = "Configuration that includes it"
 "Fichier de couleurs" = "Colour file"
@@ -2459,7 +2459,7 @@
 "kitty : thème « {name} » appliqué ; {c} l'inclut désormais (copie : {c}.avant-hyprdesk.bak)." = "kitty: theme “{name}” applied; {c} now includes it (copy: {c}.avant-hyprdesk.bak)."
 "kitty : thème « {name} » écrit dans {f} ; à inclure dans votre configuration ({line})." = "kitty: theme “{name}” written to {f}; include it in your configuration ({line})."
 " (lien vers {t})" = " (link to {t})"
-"Dans Réglages → Thème des applications, hyprdesk n'arrive pas à appliquer son thème à {app} :\n{error}\n\nFichiers en jeu :\n{files}\n\nRegarde ces fichiers (liens symboliques et leurs cibles compris), explique-moi la cause, puis propose la correction la plus simple : rétablir la cible d'un lien, remplacer le lien par un fichier, ou indiquer d'autres chemins dans Réglages → Thème des applications → Réglages de {app}. Demande-moi avant de modifier quoi que ce soit." = "In Settings → Application theme, hyprdesk cannot apply its theme to {app}:\n{error}\n\nFiles involved:\n{files}\n\nLook at these files (symbolic links and their targets included), explain the cause, then suggest the simplest fix: restore a link's target, replace the link with a file, or set other paths in Settings → Application theme → {app} settings. Ask me before changing anything."
+"Dans Réglages → Modules du thème, hyprdesk n'arrive pas à appliquer son thème à {app} :\n{error}\n\nFichiers en jeu :\n{files}\n\nRegarde ces fichiers (liens symboliques et leurs cibles compris), explique-moi la cause, puis propose la correction la plus simple : rétablir la cible d'un lien, remplacer le lien par un fichier, ou indiquer d'autres chemins dans Réglages → Modules du thème → Réglages de {app}. Demande-moi avant de modifier quoi que ce soit." = "In Settings → Theme modules, hyprdesk cannot apply its theme to {app}:\n{error}\n\nFiles involved:\n{files}\n\nLook at these files (symbolic links and their targets included), explain the cause, then suggest the simplest fix: restore a link's target, replace the link with a file, or set other paths in Settings → Theme modules → {app} settings. Ask me before changing anything."
 "Valeurs par défaut" = "Defaults"
 "Valider un champ avec Entrée ; le thème est réappliqué aussitôt." = "Confirm a field with Enter; the theme is applied again right away."
 
@@ -4295,7 +4295,7 @@
 "Le dock" = "The dock"
 "Le lanceur trouve aussi vos fichiers : tapez « :f » suivi d'un nom." = "The launcher finds your files too: type “:f” followed by a name."
 "Le système" = "The system"
-"Le thème s'étend à kitty et aux applications GTK et Qt, pour que tout se ressemble." = "The theme extends to kitty and to GTK and Qt applications, so everything matches."
+"Les modules du moteur de thème portent le thème jusqu'à kitty et aux applications GTK, Qt et iced, pour que tout se ressemble." = "The theme engine modules carry the theme to kitty and to GTK, Qt and iced applications, so everything matches."
 "Les applications" = "Applications"
 "Les autres touches à connaître" = "Other keys worth knowing"
 "Les fenêtres" = "Windows"
@@ -4377,7 +4377,7 @@
 "configuration de Hyprland ({n} fichier(s))" = "Hyprland configuration ({n} file(s))"
 "Appliquer aussi la disposition des écrans de l'archive (monitors.lua, propre à sa machine)" = "Also apply the archive's screen layout (monitors.lua, specific to its machine)"
 "Exporté : {out} — {h} fichier(s) de Hyprland, {n} fond(s), {p} plugin(s), {i} image(s)." = "Exported: {out} — {h} Hyprland file(s), {n} wallpaper(s), {p} plugin(s), {i} image(s)."
-"Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque endroit, mode du bureau, voile et image du verrouillage, transitions, police, thème d'icônes, thème des applications." = "The \"{theme_name}\" theme only: colours, wallpapers, effects of each place, desktop mode, lock screen veil and image, transitions, font, icon theme, app theming."
+"Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque endroit, mode du bureau, voile et image du verrouillage, transitions, police, thème d'icônes, modules du thème." = "The \"{theme_name}\" theme only: colours, wallpapers, effects of each place, desktop mode, lock screen veil and image, transitions, font, icon theme, theme modules."
 "Une archive avec toute la configuration : hyprdesk.lua, les réglages, hyprland.lua et chaque fichier qu'il charge (raccourcis, clavier, écrans, démarrage, scripts cités), les plugins tiers, Mes thèmes, les calibrations, la place des icônes, les fonds et les images utilisés — à donner à quelqu'un, ou à garder. Les services d'IA et leurs clés n'y sont pas." = "An archive with the whole configuration: hyprdesk.lua, the settings, hyprland.lua and every file it loads (shortcuts, keyboard, screens, startup, referenced scripts), third-party plugins, My themes, calibrations, icon positions, the wallpapers and images in use — to give to someone, or to keep. AI services and their keys are not included."
 
 # Réglages avancés : gestes, périphériques, règles de couches et de workspaces,
@@ -4562,7 +4562,7 @@
 "Qt" = "Qt"
 "Schéma de couleurs qt5/6ct (QPalette en #aarrggbb) ; vaut au relancement." = "qt5/6ct colour scheme (QPalette as #aarrggbb); applies on relaunch."
 
-# Moteur de thème (paquet « Thème des applications » du démon).
+# Moteur de thème (paquet « Modules du thème » du démon).
 "GTK 3 et 4" = "GTK 3 and 4"
 "Qt : schéma de couleurs qt5/6ct posé ; vaut au relancement des applications." = "Qt: qt5/6ct colour scheme set; applies on relaunch."
 "Schéma de couleurs qt5/6ct (QPalette) ; vaut pour les applications lancées ensuite." = "qt5/6ct colour scheme (QPalette); applies to apps launched afterwards."
@@ -4596,8 +4596,8 @@
 "GTK : thème de base recoloré et sélectionné, couleurs nommées posées ; schéma clair/sombre réglé." = "GTK: base theme recoloured and selected, named colours set; light/dark scheme set."
 "veille retenue pour la vidéo : {e}" = "keeping the screen awake for the video: {e}"
 
-# Thème des applications : carte iced (MLG-252).
+# Modules du thème : carte iced (MLG-252).
 "Applications iced" = "iced applications"
 "en direct" = "live"
 "palette pas encore publiée" = "palette not published yet"
-"hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la palette du thème et la suivent à chaud. Toujours actif : rien à cocher, chaque application suit d'elle-même." = "hyprdesk and iced applications linked to hyprdesk-theme-client read the theme palette and follow it live. Always on: nothing to tick, each application follows on its own."
+"Module toujours actif : hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la palette publiée par le moteur et la suivent à chaud. Rien à couper, chaque application suit d'elle-même." = "Always-on module: hyprdesk and iced applications linked to hyprdesk-theme-client read the palette the engine publishes and follow it live. Nothing to turn off, each application follows on its own."

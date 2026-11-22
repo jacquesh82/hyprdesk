@@ -43,6 +43,11 @@ and this project adheres to
 
 ### Changed
 
+- **App theming becomes Theme modules** (MLG-253): the Settings menu entry,
+  the page and its texts now name what each card is, a module of the theme
+  engine (`hyprdesk-theme-engine`) that carries the theme to an
+  application. `hyprdesk settings modules` opens the page; the old names
+  still work.
 - **Advanced settings reorganised and marked everywhere** (MLG-212). The *Effects*
   package becomes Animations → Desktop (desktop transitions, wallpaper
   crossfade; `hyprdesk settings effets` still leads there), Theme → Effects
