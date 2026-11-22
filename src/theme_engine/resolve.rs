@@ -63,6 +63,9 @@ pub struct Resolved {
     pub design: Design,
     /// Fond d'écran du pack, variante comprise (MLG-266).
     pub wallpaper: Option<PackWallpaper>,
+    /// Forme et disposition (MLG-276) : `<section>.<clé>` → valeur, la
+    /// plus proche déclarée gagnant.
+    pub shape: BTreeMap<String, String>,
     /// Avertissements non bloquants (parents manquants, clés d'effet
     /// inconnues).
     pub warnings: Vec<String>,
@@ -168,6 +171,10 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
     let cursors = chain.iter().rev().find_map(|p| p.manifest.cursors.clone());
     let sounds = chain.iter().rev().find_map(|p| p.manifest.sounds.clone());
     let wallpaper = wallpaper(chain, variant, &mut warnings);
+    let shape = chain
+        .iter()
+        .flat_map(|p| p.manifest.shape.clone())
+        .collect();
 
     // Cibles déclarées : fusion de la chaîne champ par champ (le dernier
     // pack gagne). Un gabarit garde le dossier du pack qui l'a déclaré : un
@@ -209,6 +216,7 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         template_dirs,
         design,
         wallpaper,
+        shape,
         warnings,
     })
 }
@@ -381,6 +389,7 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
         template_dirs: Vec::new(),
         design: Design::default(),
         wallpaper: None,
+        shape: BTreeMap::new(),
         warnings: Vec::new(),
     }
 }

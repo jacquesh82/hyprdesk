@@ -141,6 +141,15 @@ fn pack_wallpaper(moment: Moment, r: &resolve::Resolved, config_path: &Path) {
     {
         tracing::warn!("{}", crate::tr!("fond d'écran du thème : {e}", e = e));
     }
+    // Forme et disposition du pack (MLG-276).
+    match crate::theme::apply_pack_shape(config_path, &r.shape) {
+        Ok(refused) => {
+            for r in refused {
+                tracing::warn!("{}", crate::tr!("forme du thème : {e}", e = r));
+            }
+        }
+        Err(e) => tracing::warn!("{}", crate::tr!("forme du thème : {e}", e = e)),
+    }
 }
 
 fn resolution(

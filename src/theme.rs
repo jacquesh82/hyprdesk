@@ -431,6 +431,32 @@ pub fn apply_pack_wallpaper(
     Ok(true)
 }
 
+/// Pose la forme d'un pack (MLG-276) dans `settings.lua` : chaque valeur
+/// passe par la clé de `hyprdesk config` qui lui correspond (liste blanche,
+/// même validation). Renvoie les valeurs refusées, à journaliser.
+pub fn apply_pack_shape(
+    config_path: &Path,
+    shape: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<String>, String> {
+    if shape.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cfg = crate::config::lua::load_settings_only(config_path)?;
+    let mut s = Settings::from_config(&cfg);
+    let avant = s.to_lua();
+    let mut refused = Vec::new();
+    for (key, value) in shape {
+        if let Err(e) = crate::cli_config::apply_pack_value(&mut s, key, value, &cfg) {
+            refused.push(format!("{key} = {value} : {e}"));
+        }
+    }
+    if s.to_lua() != avant {
+        s.save_versioned(config_path, crate::storage::revision())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(refused)
+}
+
 /// Dossier de « Mes thèmes ».
 pub fn themes_dir(config_path: &Path) -> PathBuf {
     config_path

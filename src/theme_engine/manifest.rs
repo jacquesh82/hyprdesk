@@ -32,6 +32,30 @@ const KNOWN_TOP: &[&str] = &[
     "states",
     "motion",
     "screens",
+    "bar",
+    "dock",
+    "launcher",
+    "workspaces",
+    "notifications",
+    "widgets",
+    "lock",
+    "desktop",
+    "controls",
+];
+
+/// Sections de forme et de disposition (MLG-276) : chaque clé
+/// `<section>.<clé>` désigne un réglage de hyprdesk, posé quand le pack est
+/// choisi (le démon garde la liste blanche et la validation).
+pub const SHAPE_SECTIONS: [&str; 9] = [
+    "bar",
+    "dock",
+    "launcher",
+    "workspaces",
+    "notifications",
+    "widgets",
+    "lock",
+    "desktop",
+    "controls",
 ];
 
 /// Cartouche du pack.
@@ -109,6 +133,9 @@ pub struct Manifest {
     /// (`2570x720`) → effets et échelle du texte (MLG-272).
     #[serde(default)]
     pub screens: BTreeMap<String, ScreenSpec>,
+    /// Forme et disposition (MLG-276) : section → clé → valeur.
+    #[serde(skip)]
+    pub shape: BTreeMap<String, String>,
 }
 
 /// `[inherits] themes = [...]`.
@@ -450,8 +477,27 @@ impl Manifest {
                 }
             }
         }
-        let manifest: Manifest = Manifest::deserialize(value)
+        let mut manifest: Manifest = Manifest::deserialize(value.clone())
             .map_err(|e| Error::Manifest(id.to_string(), e.to_string()))?;
+        // Forme : valeurs simples (texte, nombre, booléen, liste de textes)
+        // à plat, `<section>.<clé>`.
+        if let Some(table) = value.as_table() {
+            for section in SHAPE_SECTIONS {
+                let Some(t) = table.get(section).and_then(|v| v.as_table()) else {
+                    continue;
+                };
+                for (key, v) in t {
+                    match shape_value(v) {
+                        Some(text) => {
+                            manifest.shape.insert(format!("{section}.{key}"), text);
+                        }
+                        None => warnings.push(format!(
+                            "valeur de forme ignorée : {section}.{key} (texte, nombre, booléen ou liste de textes attendu)"
+                        )),
+                    }
+                }
+            }
+        }
         manifest.validate(id)?;
         Ok((manifest, warnings))
     }
@@ -631,6 +677,22 @@ impl Manifest {
             },
         }
     }
+}
+
+/// Valeur de forme écrite comme le CLI `hyprdesk config set` l'attend.
+fn shape_value(v: &toml::Value) -> Option<String> {
+    Some(match v {
+        toml::Value::String(s) if s.chars().all(|c| !c.is_control()) && s.len() <= 256 => s.clone(),
+        toml::Value::Integer(n) => n.to_string(),
+        toml::Value::Float(f) if f.is_finite() => f.to_string(),
+        toml::Value::Boolean(b) => if *b { "on" } else { "off" }.to_string(),
+        toml::Value::Array(a) => a
+            .iter()
+            .map(|x| x.as_str().map(str::to_string))
+            .collect::<Option<Vec<_>>>()?
+            .join(","),
+        _ => return None,
+    })
 }
 
 /// Rôles de texte de `[fonts.sizes]`.
@@ -873,5 +935,19 @@ blur = true
         assert!(!allowed_hyprland_key("misc:x\nexec"));
         assert!(!allowed_hyprland_key("decoration:rounding = 1"));
         assert!(allowed_hyprland_key("decoration:blur:size"));
+    }
+
+    #[test]
+    fn sections_de_forme_à_plat() {
+        let text = "[meta]\nid = \"forme\"\nname = \"F\"\nversion = \"1\"\n\
+                    [bar]\nthickness = 42\nfloating = true\nedge = \"top\"\n\
+                    [dock]\npinned = [\"firefox\", \"kitty\"]\n[launcher]\nbad = { a = 1 }\n";
+        let (m, w) = Manifest::parse("forme", text).unwrap();
+        assert_eq!(m.shape["bar.thickness"], "42");
+        assert_eq!(m.shape["bar.floating"], "on");
+        assert_eq!(m.shape["bar.edge"], "top");
+        assert_eq!(m.shape["dock.pinned"], "firefox,kitty");
+        assert!(!m.shape.contains_key("launcher.bad"));
+        assert_eq!(w.len(), 1, "{w:?}");
     }
 }

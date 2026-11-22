@@ -62,6 +62,95 @@ fn on_off(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
+/// Clé de réglage d'une valeur de forme d'un pack (MLG-276) :
+/// `<section>.<clé>` du manifeste → clé de `hyprdesk config`. Seules les
+/// clés d'apparence et de disposition sont admises : un pack ne touche ni
+/// aux raccourcis, ni aux commandes, ni aux applications.
+pub fn pack_key(shape: &str) -> Option<&'static Key> {
+    let (section, key) = shape.split_once('.')?;
+    let alias = match (section, key) {
+        ("dock", "position") => "launcher_position",
+        ("dock", "size" | "icon_size") => "launcher_size",
+        ("dock", "running_apps") => "running_apps",
+        ("dock", "group") => "launcher_group",
+        ("dock", "show_settings") => "launcher_show_settings",
+        ("dock", "show_assistant") => "launcher_show_assistant",
+        ("launcher", "style" | "view") => "apps_style",
+        ("launcher", "suggestions" | "show_recent") => "apps_suggestions",
+        ("launcher", "categories") => "apps_categories",
+        ("launcher", "unified") => "apps_unified",
+        ("workspaces", "selector" | "representation") => "workspace_selector",
+        ("lock", k) => return find_allowed(&format!("lock_{k}")),
+        ("desktop", "mode") => "mode",
+        ("desktop", "glass_opacity") => "glass_opacity",
+        ("desktop", "icon_size") => "grid.icon_size",
+        ("desktop", "cell") => "grid.cell",
+        ("desktop", "transition") => "transition",
+        ("desktop", "fade_ms") => "fade_ms",
+        ("bar", "edge") => "bar.position",
+        ("bar", "thickness") => "bar.height",
+        ("bar", "edge_offset") => "bar.margin",
+        _ => return find_allowed(shape),
+    };
+    find_allowed(alias)
+}
+
+/// Préfixes des clés qu'un pack peut poser.
+const PACK_KEYS: &[&str] = &[
+    "bar.",
+    "launcher_position",
+    "launcher_size",
+    "launcher_group",
+    "launcher_show_",
+    "running_apps",
+    "apps_style",
+    "apps_suggestions",
+    "apps_categories",
+    "apps_unified",
+    "workspace_selector",
+    "lock_blur",
+    "lock_dim",
+    "lock_show_",
+    "mode",
+    "glass_opacity",
+    "grid.",
+    "transition",
+    "fade_ms",
+    "crossfade_ms",
+    "dock.",
+    "launcher.",
+    "workspaces.",
+    "notifications.",
+    "widgets.",
+    "controls.",
+    "lock.",
+    "wallpaper.fit",
+];
+
+fn find_allowed(name: &str) -> Option<&'static Key> {
+    if !PACK_KEYS
+        .iter()
+        .any(|p| name == *p || (p.ends_with(['.', '_']) && name.starts_with(p)))
+        || name == "bar.monitor"
+    {
+        return None;
+    }
+    KEYS.iter().find(|k| k.name == name)
+}
+
+/// Pose une valeur de forme d'un pack dans `s` (même validation que
+/// `hyprdesk config set`).
+pub fn apply_pack_value(
+    s: &mut Settings,
+    shape: &str,
+    value: &str,
+    cfg: &Config,
+) -> Result<(), String> {
+    let key = pack_key(shape)
+        .ok_or_else(|| crate::tr!("clé de forme non admise pour un pack : {k}", k = shape))?;
+    (key.set)(s, value, cfg)
+}
+
 pub fn parse_bool(v: &str) -> Result<bool, String> {
     match v.to_lowercase().as_str() {
         "on" | "true" | "yes" | "oui" | "1" => Ok(true),
@@ -2758,6 +2847,46 @@ mod tests {
         run_s(&p, &["unset", "bar.convex.radius"]).unwrap();
         assert_eq!(run_s(&p, &["get", "bar.convex.radius"]).unwrap(), "44");
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Forme d'un pack (MLG-276) : clés d'apparence admises, posées avec la
+    /// validation du CLI ; raccourcis et commandes refusés.
+    #[test]
+    fn forme_des_packs() {
+        assert_eq!(
+            pack_key("bar.thickness").map(|k| k.name),
+            Some("bar.height")
+        );
+        assert_eq!(
+            pack_key("dock.position").map(|k| k.name),
+            Some("launcher_position")
+        );
+        assert_eq!(pack_key("lock.dim").map(|k| k.name), Some("lock_dim"));
+        assert_eq!(
+            pack_key("workspaces.selector").map(|k| k.name),
+            Some("workspace_selector")
+        );
+        assert!(pack_key("bar.monitor").is_none());
+        assert!(pack_key("keys.launcher").is_none());
+        assert!(pack_key("desktop.terminal").is_none());
+        assert!(pack_key("lock.image").is_none());
+        let p = tmp();
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        let shape: std::collections::BTreeMap<String, String> = [
+            ("bar.thickness", "42"),
+            ("dock.position", "left"),
+            ("workspaces.selector", "relief"),
+            ("bar.style", "tordu"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let refused = crate::theme::apply_pack_shape(&p, &shape).unwrap();
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refused[0].starts_with("bar.style"));
+        assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "42");
+        assert_eq!(run_s(&p, &["get", "launcher_position"]).unwrap(), "left");
+        assert_eq!(run_s(&p, &["get", "workspace_selector"]).unwrap(), "relief");
     }
 
     /// Transparence adaptative d'une surface (MLG-261).

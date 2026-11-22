@@ -280,6 +280,26 @@ L'aliasing vers les clés de réglage existantes est bijectif : `theme.fg` ↔ `
 - **Polices, icônes, curseurs, sons** : le pack le plus proche gagne ; `[fonts]` fusionne champ par champ (un enfant qui ne donne que `size` garde la famille du parent). Un effet qui ne donne que `blur` garde l'opacité héritée (MLG-266).
 - **Fond d'écran** : `[wallpaper]` du pack le plus proche, `[variant.<v>.wallpaper]` l'emporte ; chemin relatif au dossier du pack qui le déclare (sans `..`), absent → avertissement. Le démon le pose comme fond de tous les écrans quand le pack ou sa variante change (pas au démarrage) ; les fonds réglés par écran restent (MLG-266).
 
+### 6.0 Forme et disposition (MLG-276)
+
+Sections `[bar]`, `[dock]`, `[launcher]`, `[workspaces]`, `[notifications]`, `[widgets]`, `[lock]`, `[desktop]`, `[controls]` : chaque clé `<section>.<clé>` désigne un réglage de hyprdesk, écrit dans `settings.lua` quand le pack (ou sa variante) est choisi, comme son fond d'écran ; l'utilisateur peut tout retoucher ensuite. Les valeurs sont des textes, nombres, booléens (`on`/`off`) ou listes de textes, et passent par la clé de `hyprdesk config` correspondante, avec sa validation (`cli_config::pack_key`) : `bar.thickness` → `bar.height`, `bar.edge` → `bar.position`, `bar.edge_offset` → `bar.margin`, `dock.position`/`dock.size` → `launcher_position`/`launcher_size`, `launcher.style` → `apps_style`, `workspaces.selector` → `workspace_selector`, `lock.<clé>` → `lock_<clé>`, `desktop.mode`/`icon_size`/`cell`, sinon la clé de même nom. Liste blanche : apparence et disposition seulement — jamais de raccourci, de commande, d'application ni d'écran nommé ; une clé refusée est journalisée. La forme ne dépend pas de la variante.
+
+```toml
+[bar]
+thickness = 42
+edge = "top"
+style = "continuity"
+[dock]
+position = "bottom"
+size = 48
+[launcher]
+style = "spotlight"
+[workspaces]
+selector = "rail"
+[lock]
+dim = 0.4
+```
+
 ### 6.1 Jetons de conception (MLG-267 à 273)
 
 Résolus avec la palette dans le même ordre (variante > pack > ancêtres > défauts du moteur), publiés dans `palette.json` (`design`) et suivis par les surfaces de hyprdesk. Les défauts sont les valeurs de hyprdesk sans thème : un pack qui ne les déclare pas ne change rien.

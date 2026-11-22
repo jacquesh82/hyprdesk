@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- **Theme packs carry shape and layout** (MLG-276). `[bar]`, `[dock]`,
+  `[launcher]`, `[workspaces]`, `[lock]`, `[desktop]`, `[notifications]`,
+  `[widgets]`, `[controls]` sections set hyprdesk settings (bar thickness and
+  edge, dock position and size, launcher style, workspace selector…) when
+  the pack is chosen, through the same validated keys as `hyprdesk config`
+  and an appearance-only allowlist (never shortcuts, commands or apps).
 - **Surface roles and accessibility preferences** (MLG-282, from Apple's
   Human Interface Guidelines). Theme packs give each surface a role —
   `transparent`, `glass_clear`, `glass_regular`, `content_surface` — and a

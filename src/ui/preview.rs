@@ -523,6 +523,14 @@ impl Preview {
                 Ok((r, _)) => {
                     app.settings
                         .apply_theme(&crate::theme_engine::bridge::to_theme(&r));
+                    // Forme du pack (MLG-276).
+                    for (k, v) in &r.shape {
+                        if let Err(e) =
+                            crate::cli_config::apply_pack_value(&mut app.settings, k, v, &cfg)
+                        {
+                            eprintln!("{k} = {v} : {e}");
+                        }
+                    }
                     super::tokens::set_palette(r.palette);
                     super::tokens::set(r.design);
                 }

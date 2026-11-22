@@ -4658,3 +4658,5 @@
 "on | off — contraste renforcé : texte à 7:1, repères à 4,5:1, surfaces plus denses" = "on | off — increased contrast: text at 7:1, markers at 4.5:1, denser surfaces"
 "0.75..2 — échelle du texte de l'interface (1 : celle du thème)" = "0.75..2 — interface text scale (1: the theme's)"
 "échelle du texte attendue entre 0,75 et 2" = "text scale expected between 0.75 and 2"
+"clé de forme non admise pour un pack : {k}" = "shape key not allowed in a pack: {k}"
+"forme du thème : {e}" = "theme shape: {e}"
