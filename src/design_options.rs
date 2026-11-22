@@ -343,6 +343,58 @@ pub static OPTIONS: &[Opt] = &[
     ),
 ];
 
+/// Réglages surchargeables par écran (MLG-281) : `screen.<écran>.<clé>`,
+/// l'écran désigné par son nom (`DP-1`) ou sa définition (`2570x720`).
+pub static SCREEN_KEYS: &[Opt] = &[
+    opt(
+        "screen",
+        "bar_height",
+        Kind::Int(24, 64),
+        Def::Num(0.0),
+        "Hauteur de la barre",
+        "24..64 — hauteur de la barre sur cet écran",
+    ),
+    opt(
+        "screen",
+        "text_scale",
+        Kind::Float(0.5, 2.0),
+        Def::Num(1.0),
+        "Échelle du texte",
+        "0.5..2 — échelle du texte des surfaces de cet écran",
+    ),
+];
+
+/// Option par écran : (écran, option).
+pub fn screen_find(name: &str) -> Option<(&str, &'static Opt)> {
+    let rest = name.strip_prefix("screen.")?;
+    let (sel, key) = rest.rsplit_once('.')?;
+    if sel.is_empty() || sel.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    SCREEN_KEYS.iter().find(|o| o.key == key).map(|o| (sel, o))
+}
+
+/// Valeur d'une option par écran pour l'écran `monitor` (définition
+/// logique `size`), la plus précise d'abord : nom, puis définition.
+pub fn screen_num(g: &General, monitor: &str, size: (u32, u32), key: &str) -> Option<f64> {
+    let get = |sel: &str| {
+        g.plugin_options
+            .get(&format!("ui.screen.{sel}"))
+            .and_then(|m| m.get(key))
+            .and_then(|v| match v {
+                OptValue::Num(n) => Some(*n),
+                _ => None,
+            })
+    };
+    get(monitor).or_else(|| {
+        g.plugin_options
+            .keys()
+            .filter_map(|k| k.strip_prefix("ui.screen."))
+            .find(|sel| crate::theme_engine::design::Screen::matches(sel, monitor, Some(size)))
+            .and_then(get)
+    })
+}
+
 /// Clé de `plugin_options` qui porte un composant.
 pub fn store(component: &str) -> String {
     format!("ui.{component}")
@@ -499,6 +551,16 @@ pub fn set(
     name: &str,
     text: &str,
 ) -> Result<(), String> {
+    if let Some((sel, o)) = screen_find(name) {
+        let v = o.parse(text)?;
+        let all = s
+            .plugin_options
+            .get_or_insert_with(|| cfg.general.plugin_options.clone());
+        all.entry(format!("ui.screen.{sel}"))
+            .or_default()
+            .insert(o.key.to_string(), v);
+        return Ok(());
+    }
     let o = find(name).ok_or_else(|| crate::tr!("option inconnue : {k}", k = name))?;
     let v = o.parse(text)?;
     let all = s
@@ -512,6 +574,19 @@ pub fn set(
 
 /// Retire une option (retour au défaut).
 pub fn unset(s: &mut crate::settings::Settings, cfg: &Config, name: &str) {
+    if let Some((sel, o)) = screen_find(name) {
+        let all = s
+            .plugin_options
+            .get_or_insert_with(|| cfg.general.plugin_options.clone());
+        let store = format!("ui.screen.{sel}");
+        if let Some(m) = all.get_mut(&store) {
+            m.remove(o.key);
+            if m.is_empty() {
+                all.remove(&store);
+            }
+        }
+        return;
+    }
     let Some(o) = find(name) else { return };
     let all = s
         .plugin_options
@@ -548,6 +623,28 @@ mod tests {
                 .parse("milieu")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn surcharges_par_écran() {
+        let cfg = Config::default();
+        let mut s = crate::settings::Settings::default();
+        set(&mut s, &cfg, "screen.2570x720.bar_height", "36").unwrap();
+        set(&mut s, &cfg, "screen.DP-1.text_scale", "1.2").unwrap();
+        assert!(set(&mut s, &cfg, "screen.DP-1.inconnu", "1").is_err());
+        let mut g = cfg.general.clone();
+        g.plugin_options = s.plugin_options.clone().unwrap();
+        assert_eq!(
+            screen_num(&g, "HDMI-A-1", (2570, 720), "bar_height"),
+            Some(36.0)
+        );
+        assert_eq!(screen_num(&g, "HDMI-A-1", (1920, 1080), "bar_height"), None);
+        assert_eq!(
+            screen_num(&g, "DP-1", (2560, 1440), "text_scale"),
+            Some(1.2)
+        );
+        unset(&mut s, &cfg, "screen.2570x720.bar_height");
+        assert!(!s.plugin_options.unwrap().contains_key("ui.screen.2570x720"));
     }
 
     #[test]

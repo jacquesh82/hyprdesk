@@ -323,7 +323,7 @@ Résolus avec la palette dans le même ordre (variante > pack > ancêtres > déf
 - **Rôles de couleur** : `text_primary` (= `fg`), `text_secondary` (= `fg_muted`), `separator` (= `border`), `error` (= `danger`) et `focus` (anneau de focus clavier, l'accent par défaut, distinct de `selection`). Un pack peut écrire l'un ou l'autre nom ; la palette résolue porte les deux.
 - **Styles de texte** : rôles `label` (libellés des commandes, barre) et `metric` (horloges, monitoring) en plus de `caption`, `body`, `title`, `display`.
 - **Préférences indépendantes** : Réglages → Thème → Accessibilité — transparence réduite, mouvement réduit, contraste renforcé (`theme.increase_contrast` : texte à 7:1, repères à 4,5:1, filets marqués, surfaces à 90 % au moins) et taille du texte (`theme.text_scale`, 0,75 à 2), qui ne se gênent pas.
-- **Écrans** : `[screens."<sortie>"]` ou `[screens."<l>x<h>"]` (définition logique) : effets des surfaces et `text_scale` pour les surfaces de cet écran (barre, bureau, dock).
+- **Écrans** : `[screens."<sortie>"]` ou `[screens."<l>x<h>"]` (définition logique) : effets des surfaces, `text_scale` pour les surfaces de cet écran (barre, bureau, dock) et `bar_height` (MLG-281). L'utilisateur a les mêmes surcharges, qui l'emportent : `hyprdesk config set screen.2570x720.bar_height 36`, `screen.DP-1.text_scale 1.2`, et Réglages → Écrans → « Barre sur cet écran », « Texte sur cet écran ».
 
 - **`theme.variant`** : réglage utilisateur `dark | light | auto`. En `auto`, suit `org.freedesktop.appearance color-scheme` (portail), relu à chaque événement du portail. La variante effective fait partie du rapport d'application.
 

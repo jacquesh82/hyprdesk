@@ -567,19 +567,23 @@ impl App {
         let mut tasks = Vec::new();
         let mut changed = false;
         for (id, s) in self.bar_surfaces.clone() {
+            let height = spec.map(|(_, h, _, _)| self.bar_height_on(&s.monitor, h));
             if !(want.contains(&s.monitor)
-                && spec == Some((s.position, s.height, s.margin, s.shape)))
+                && spec.map(|(p, _, m, sh)| (p, height.unwrap_or(0), m, sh))
+                    == Some((s.position, s.height, s.margin, s.shape)))
             {
                 self.bar_surfaces.remove(&id);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
         }
-        if let Some((position, height, margin, shape)) = spec {
+        if let Some((position, base_height, margin, shape)) = spec {
             for mon in want {
                 if self.bar_surfaces.values().any(|s| s.monitor == mon) {
                     continue;
                 }
+                // Hauteur propre à cet écran (MLG-281).
+                let height = self.bar_height_on(&mon, base_height);
                 let id = Id::unique();
                 let vertical = position.vertical();
                 let edge = match position {
@@ -956,6 +960,24 @@ impl App {
         } else {
             el
         }
+    }
+
+    /// Hauteur de la barre sur un écran (MLG-281) : la sienne réglée, sinon
+    /// celle du pack pour cet écran, sinon `base`.
+    pub(in crate::ui) fn bar_height_on(&self, monitor: &str, base: u16) -> u16 {
+        let size = self
+            .monitors
+            .iter()
+            .find(|m| m.name == monitor)
+            .map_or((0, 0), |m| (m.width, m.height));
+        crate::design_options::screen_num(&self.cfg.general, monitor, size, "bar_height")
+            .map(|v| v.clamp(24.0, 64.0) as u16)
+            .or_else(|| {
+                crate::ui::tokens::design()
+                    .screen(monitor, Some(size))
+                    .and_then(|s| s.bar_height)
+            })
+            .unwrap_or(base)
     }
 
     /// Dock masqué hors survol (`dock.autohide`, MLG-279), hors mode convexe

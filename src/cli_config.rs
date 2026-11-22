@@ -150,7 +150,9 @@ pub fn apply_pack_value(
     cfg: &Config,
 ) -> Result<(), String> {
     // Options d'apparence des composants (MLG-279) : toutes admises.
-    if crate::design_options::find(shape).is_some() {
+    if crate::design_options::find(shape).is_some()
+        || crate::design_options::screen_find(shape).is_some()
+    {
         return crate::design_options::set(s, cfg, shape, value);
     }
     let key = pack_key(shape)
@@ -1636,6 +1638,17 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
     if let Some(o) = crate::design_options::find(key) {
         return Some(o.shown(c));
     }
+    // Surcharges par écran (MLG-281).
+    if let Some((sel, o)) = crate::design_options::screen_find(key) {
+        return Some(
+            c.general
+                .plugin_options
+                .get(&format!("ui.screen.{sel}"))
+                .and_then(|m| m.get(o.key))
+                .map(|v| v.display())
+                .unwrap_or_default(),
+        );
+    }
     if let Some(k) = bar_color_key(key) {
         let colors = c.bar.as_ref().map(|b| &b.colors);
         let v = match k {
@@ -1807,6 +1820,9 @@ fn dynamic_help(key: &str, c: &Config) -> String {
     if let Some(o) = crate::design_options::find(key) {
         return tr(o.help).to_string();
     }
+    if let Some((_, o)) = crate::design_options::screen_find(key) {
+        return tr(o.help).to_string();
+    }
     use crate::i18n::tr;
     if let Some(k) = bar_color_key(key) {
         return match k {
@@ -1926,7 +1942,9 @@ fn dynamic_set(
     s: &mut Settings,
     c: &Config,
 ) -> Option<Result<(), String>> {
-    if crate::design_options::find(key).is_some() {
+    if crate::design_options::find(key).is_some()
+        || crate::design_options::screen_find(key).is_some()
+    {
         return Some(match v {
             Some(v) => crate::design_options::set(s, c, key, v),
             None => {

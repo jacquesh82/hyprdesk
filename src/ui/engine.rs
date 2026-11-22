@@ -63,6 +63,21 @@ impl App {
             .find(|m| m.focused)
             .map_or(1080.0, |m| m.height as f32);
         super::apps_grid::set_shape(self.cfg.general.apps_launcher.shape, screen);
+        // Échelles du texte par écran (MLG-281).
+        super::tokens::set_user_screens(
+            self.cfg
+                .general
+                .plugin_options
+                .iter()
+                .filter_map(|(k, m)| {
+                    let sel = k.strip_prefix("ui.screen.")?;
+                    match m.get("text_scale")? {
+                        crate::tiling::OptValue::Num(n) => Some((sel.to_string(), *n as f32)),
+                        _ => None,
+                    }
+                })
+                .collect(),
+        );
         super::tokens::set_wall_tint(crate::design_options::num(
             &self.cfg.general,
             "wallpaper.glass_tint",

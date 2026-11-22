@@ -182,12 +182,35 @@ pub fn reduced_transparency() -> bool {
     USER_REDUCED_TRANSPARENCY.load(Ordering::Relaxed) || design().contrast.reduced_transparency
 }
 
+/// Échelles du texte réglées par écran par l'utilisateur (MLG-281) :
+/// sélecteur (nom ou définition) → échelle.
+static USER_SCREENS: RwLock<Vec<(String, f32)>> = RwLock::new(Vec::new());
+
+/// Pose les échelles du texte par écran de l'utilisateur.
+pub fn set_user_screens(list: Vec<(String, f32)>) {
+    if let Ok(mut w) = USER_SCREENS.write() {
+        *w = list;
+    }
+}
+
 /// Écran de la surface qui va se dessiner (`None` : surface sans écran
 /// propre, surcharges ignorées).
 pub fn enter_screen(screen: Option<(&str, (u32, u32))>) {
-    let scale = screen
+    let pack = screen
         .and_then(|(name, size)| design().screen(name, Some(size)).map(|s| s.text_scale))
         .unwrap_or(1.0);
+    // L'échelle réglée pour cet écran l'emporte sur celle du pack.
+    let user = screen.and_then(|(name, size)| {
+        let list = USER_SCREENS.read().ok()?;
+        list.iter()
+            .find(|(sel, _)| sel == name)
+            .or_else(|| {
+                list.iter()
+                    .find(|(sel, _)| design::Screen::matches(sel, name, Some(size)))
+            })
+            .map(|(_, s)| *s)
+    });
+    let scale = user.unwrap_or(pack);
     SCREEN_TEXT.with(|c| c.set(scale));
     SCREEN.with(|c| *c.borrow_mut() = screen.map(|(n, s)| (n.to_string(), s)));
 }
@@ -674,6 +697,7 @@ mod tests {
             design::Screen {
                 effects: Default::default(),
                 text_scale: 0.5,
+                bar_height: None,
             },
         );
         set(d);

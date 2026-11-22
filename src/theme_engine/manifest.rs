@@ -280,6 +280,8 @@ pub struct ScreenSpec {
     pub effects: BTreeMap<String, EffectSpec>,
     /// Échelle du texte sur cet écran (1 = celle du thème).
     pub text_scale: Option<f64>,
+    /// Hauteur de la barre sur cet écran (MLG-281).
+    pub bar_height: Option<u16>,
 }
 
 /// `[wallpaper]` : fond du pack, chemin relatif au dossier du pack.

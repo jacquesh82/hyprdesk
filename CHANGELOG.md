@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- **Per-screen overrides** (MLG-281): bar height and text scale for one
+  screen, chosen by output name or logical resolution (e.g. a 36 px bar on
+  a 2570×720 strip) — `screen.<screen>.bar_height` / `.text_scale` keys,
+  Settings → Screens, and `[screens."…"] bar_height` in theme packs (your
+  own setting wins).
 - **Wallpaper framing and treatment** (MLG-280): focal point and zoom for
   « fill », brightness, saturation, contrast and vignette applied when the
   image is decoded; speed and frame rate of video wallpapers; glass tinted

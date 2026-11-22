@@ -326,6 +326,9 @@ pub struct Screen {
     /// Surfaces surchargées (`bar`, `launcher`…).
     pub effects: BTreeMap<String, ScreenPlace>,
     pub text_scale: f32,
+    /// Hauteur de la barre sur cet écran (MLG-281).
+    #[serde(default)]
+    pub bar_height: Option<u16>,
 }
 
 impl Screen {
@@ -733,9 +736,13 @@ pub fn resolve(
             let screen = design.screens.entry(sel.clone()).or_insert(Screen {
                 effects: BTreeMap::new(),
                 text_scale: 1.0,
+                bar_height: None,
             });
             if let Some(v) = spec.text_scale {
                 screen.text_scale = v.clamp(0.5, 3.0) as f32;
+            }
+            if let Some(v) = spec.bar_height {
+                screen.bar_height = Some(v.clamp(24, 64));
             }
             for (key, e) in &spec.effects {
                 let Some(place) = Place::parse(key) else {
