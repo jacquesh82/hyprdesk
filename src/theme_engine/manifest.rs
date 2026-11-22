@@ -150,6 +150,11 @@ pub struct PackTarget {
     pub reload: Option<String>,
     /// Cible désactivée par le pack (défaut : active).
     pub enabled: Option<bool>,
+    /// Dossier du pack qui a déclaré `template` : posé à la résolution de la
+    /// chaîne, pour qu'un gabarit hérité se lise chez son parent et non dans
+    /// le dossier de l'enfant (jamais lu dans un manifeste).
+    #[serde(skip)]
+    pub template_base: Option<std::path::PathBuf>,
 }
 
 impl PackTarget {

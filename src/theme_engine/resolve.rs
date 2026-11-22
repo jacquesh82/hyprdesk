@@ -7,6 +7,7 @@
 //! calculés en dernier et ne remplacent jamais une valeur explicite.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use crate::config::{Effect, Place, Rgba};
 
@@ -43,6 +44,10 @@ pub struct Resolved {
     /// Cibles déclarées par la chaîne de packs : surcharges et cibles
     /// génériques tierces, fusionnées dans l'ordre (le pack gagne).
     pub pack_targets: BTreeMap<String, PackTarget>,
+    /// Dossiers des packs de la chaîne qui en ont un, le pack d'abord puis
+    /// ses ancêtres (le plus proche d'abord) : gabarits de convention
+    /// hérités (`templates/<id>.tmpl`).
+    pub template_dirs: Vec<PathBuf>,
     /// Avertissements non bloquants (parents manquants, clés d'effet
     /// inconnues).
     pub warnings: Vec<String>,
@@ -142,11 +147,29 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
     let cursors = chain.iter().find_map(|p| p.manifest.cursors.clone());
     let sounds = chain.iter().find_map(|p| p.manifest.sounds.clone());
 
-    // Cibles déclarées : fusion de la chaîne (le dernier pack gagne par id).
+    // Cibles déclarées : fusion de la chaîne champ par champ (le dernier
+    // pack gagne). Un gabarit garde le dossier du pack qui l'a déclaré : un
+    // enfant qui ne redéclare que `reload` lit toujours celui du parent.
     let mut pack_targets: BTreeMap<String, PackTarget> = BTreeMap::new();
     for pack in chain {
-        pack_targets.extend(pack.manifest.targets.clone());
+        for (id, decl) in &pack.manifest.targets {
+            let e = pack_targets.entry(id.clone()).or_default();
+            if let Some(t) = &decl.template {
+                e.template = Some(t.clone());
+                e.template_base = pack.dir.clone();
+            }
+            if decl.output.is_some() {
+                e.output = decl.output.clone();
+            }
+            if decl.reload.is_some() {
+                e.reload = decl.reload.clone();
+            }
+            if decl.enabled.is_some() {
+                e.enabled = decl.enabled;
+            }
+        }
     }
+    let template_dirs = chain.iter().rev().filter_map(|p| p.dir.clone()).collect();
 
     Ok(Resolved {
         id: top.manifest.meta.id.clone(),
@@ -161,6 +184,7 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         cursors,
         sounds,
         pack_targets,
+        template_dirs,
         warnings,
     })
 }
@@ -268,6 +292,7 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
         cursors: None,
         sounds: None,
         pack_targets: BTreeMap::new(),
+        template_dirs: Vec::new(),
         warnings: Vec::new(),
     }
 }

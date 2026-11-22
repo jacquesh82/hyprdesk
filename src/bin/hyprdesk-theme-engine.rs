@@ -315,16 +315,21 @@ fn use_pack(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure
     // Pack embarqué : lu depuis le binaire, jamais recopié (MLG-254 : une
     // copie figée masquait ses corrections).
     let (resolved, dir) = resolved_of(roots, flags, &id)?;
-    state::write_active(
-        roots,
-        &state::ActiveTheme {
-            pack: id.clone(),
-            variant: resolved.variant.clone(),
-            origin: flags.origin.clone().unwrap_or_else(|| "cli".to_string()),
-        },
-    )
-    .map_err(engine_err)?;
-    let report = apply::apply(&resolved, dir.as_deref(), roots, &options_of(flags)?);
+    let options = options_of(flags)?;
+    // dry-run : rien d'écrit, pas même le thème actif — la veille du démon
+    // réagit à active.json et aurait appliqué le pack pour de bon.
+    if options.mode != Mode::DryRun {
+        state::write_active(
+            roots,
+            &state::ActiveTheme {
+                pack: id.clone(),
+                variant: resolved.variant.clone(),
+                origin: flags.origin.clone().unwrap_or_else(|| "cli".to_string()),
+            },
+        )
+        .map_err(engine_err)?;
+    }
+    let report = apply::apply(&resolved, dir.as_deref(), roots, &options);
     print_report(&report, flags)?;
     Ok(if report.errors.is_empty() { 0 } else { 3 })
 }
@@ -346,16 +351,53 @@ fn apply_active(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
             }
         },
     };
-    let mut flags = flags.clone();
-    if let Some((_, v)) = env_theme()
-        && flags.variant.is_none()
-    {
-        flags.variant = v;
-    }
+    let flags = with_active_variant(flags, &active);
     let (resolved, dir) = resolved_of(roots, &flags, &active.pack)?;
     let report = apply::apply(&resolved, dir.as_deref(), roots, &options_of(&flags)?);
     print_report(&report, &flags)?;
     Ok(if report.errors.is_empty() { 0 } else { 3 })
+}
+
+/// Variante à résoudre pour le thème actif : `--variant`, puis la variante
+/// de `HYPRDESK_THEME`, puis celle du thème actif — pas le schéma du système,
+/// qui ne dit rien du choix fait dans les Réglages.
+fn with_active_variant(flags: &Flags, active: &state::ActiveTheme) -> Flags {
+    let mut flags = flags.clone();
+    if flags.variant.is_none() {
+        flags.variant = env_theme()
+            .and_then(|(_, v)| v)
+            .or_else(|| Some(active.variant.clone()).filter(|v| !v.trim().is_empty()));
+    }
+    flags
+}
+
+/// Nom à plat d'un fichier planifié sous les racines factices de
+/// `generate` : `.config--kitty--hyprdesk-theme.conf`,
+/// `.local--share--themes--…` ; le tronçon de racine dit où il irait.
+fn generated_name(path: &Path, root: &Path) -> String {
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    let mut parts: Vec<String> = rel
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+    if let Some(first) = parts.first_mut() {
+        let xdg = match first.as_str() {
+            "config" => Some(".config"),
+            "data" => Some(".local--share"),
+            "state" => Some(".local--state"),
+            "cache" => Some(".cache"),
+            _ => None,
+        };
+        if let Some(x) = xdg
+            && path.starts_with(root)
+        {
+            *first = x.to_string();
+        }
+    }
+    parts.join("--")
 }
 
 fn generate(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
@@ -369,29 +411,35 @@ fn generate(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
             "aucun thème actif : `hyprdesk-theme-engine use <id>` d'abord".to_string(),
         )
     })?;
-    let (resolved, dir) = resolved_of(roots, flags, &active.pack)?;
+    let flags = with_active_variant(flags, &active);
+    let (resolved, dir) = resolved_of(roots, &flags, &active.pack)?;
     std::fs::create_dir_all(&out).map_err(io_err)?;
     // Racines factices : generate écrit dans --out, pas aux emplacements
-    // réels ; les chemins planifiés ne servent qu'à nommer les fichiers.
-    let dummy = Roots::at(&std::env::temp_dir());
-    let cibles = hyprdesk::theme_engine::targets::all(&resolved);
-    for target in &cibles {
+    // réels ; les chemins planifiés ne servent qu'à nommer les fichiers
+    // (rien n'est créé sous ce dossier).
+    let root =
+        std::env::temp_dir().join(format!("hyprdesk-theme-engine-plan-{}", std::process::id()));
+    let dummy = Roots::at(&root);
+    let mut réglages = String::new();
+    for target in hyprdesk::theme_engine::targets::all(&resolved) {
         let planned =
-            hyprdesk::theme_engine::targets::plan(target, &resolved, dir.as_deref(), &dummy)
+            hyprdesk::theme_engine::targets::plan(&target, &resolved, dir.as_deref(), &dummy)
                 .map_err(|e| (2u8, e.to_string()))?;
         for p in planned {
-            let rel = p
-                .path
-                .strip_prefix(&dummy.config)
-                .unwrap_or(p.path.as_path());
-            let name = rel
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().to_string())
-                .collect::<Vec<_>>()
-                .join("--");
+            // Réglage de bureau (gsettings) : pas de fichier, une ligne.
+            if let Some((schema, key)) = &p.setting {
+                réglages.push_str(&format!("{} {schema} {key} {}\n", target.id, p.content));
+                continue;
+            }
+            let name = generated_name(&p.path, &root);
             std::fs::write(out.join(&name), &p.content).map_err(io_err)?;
             println!("{}", out.join(name).display());
         }
+    }
+    if !réglages.is_empty() {
+        let path = out.join("gsettings.txt");
+        std::fs::write(&path, réglages).map_err(io_err)?;
+        println!("{}", path.display());
     }
     Ok(0)
 }
@@ -933,6 +981,43 @@ mod tests {
         assert_eq!(env_theme(), None);
         unsafe { std::env::remove_var("HYPRDESK_THEME") };
         assert_eq!(env_theme(), None);
+        // Même fil (la variable d'environnement est partagée) : variante du
+        // thème actif quand rien ne la force.
+
+        let active = state::ActiveTheme {
+            pack: "nacre".to_string(),
+            variant: "light".to_string(),
+            origin: "user".to_string(),
+        };
+        let f = with_active_variant(&Flags::default(), &active);
+        assert_eq!(f.variant.as_deref(), Some("light"));
+        let forcée = Flags {
+            variant: Some("dark".to_string()),
+            ..Flags::default()
+        };
+        assert_eq!(
+            with_active_variant(&forcée, &active).variant.as_deref(),
+            Some("dark")
+        );
+    }
+
+    #[test]
+    fn noms_générés_hors_de_config() {
+        let root = Path::new("/tmp/plan");
+        assert_eq!(
+            generated_name(&root.join("config/kitty/hyprdesk-theme.conf"), root),
+            ".config--kitty--hyprdesk-theme.conf"
+        );
+        assert_eq!(
+            generated_name(&root.join("data/themes/hyprdesk/gtk-3.0/gtk.css"), root),
+            ".local--share--themes--hyprdesk--gtk-3.0--gtk.css"
+        );
+        // Chemin hors des racines (option de cible absolue) : jamais un nom
+        // absolu qui ferait écrire hors de --out.
+        assert_eq!(
+            generated_name(Path::new("/etc/x/y.conf"), root),
+            "etc--x--y.conf"
+        );
     }
 
     #[test]

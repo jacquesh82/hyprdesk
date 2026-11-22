@@ -8,6 +8,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`hyprdesk-theme-engine use --mode dry-run` no longer applies the theme**
+  (MLG-258): it wrote the active theme before the dry run, and the daemon's
+  watcher then applied the pack for real.
+- **Inherited templates are read from the parent pack** (MLG-259): a pack
+  with `[inherits]` looked for its parent's templates in its own folder (and
+  lost a parent's `template` when it only redeclared `reload`); templates are
+  now looked up from the pack to its ancestors, target declarations merge
+  field by field.
+- **`generate` covers every file and follows the active variant** (MLG-260):
+  files outside `~/.config` (installed GTK theme) and gsettings values made it
+  fail; it now names them after their XDG root and lists settings in
+  `gsettings.txt`. `generate` and `apply` resolve the active theme's variant
+  instead of the system colour scheme.
+
 ## [0.2.0] - 2026-11-22
 
 The theme engine at the centre: one pack drives Hyprland, hyprdesk, GTK,

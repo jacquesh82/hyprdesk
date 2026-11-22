@@ -34,6 +34,9 @@ pub struct Target {
     pub builtin_template: Option<&'static str>,
     /// Gabarit déclaré par le pack, chemin relatif au dossier du pack.
     pub pack_template: Option<String>,
+    /// Dossier du pack qui a déclaré ce gabarit (un parent, pour un gabarit
+    /// hérité) ; à défaut, le dossier du pack appliqué.
+    pub template_base: Option<PathBuf>,
     /// Sortie déclarée (cibles génériques seulement, en liste blanche).
     pub output: Option<String>,
     /// Rechargement borné déclaré par le pack (cibles génériques).
@@ -52,6 +55,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hypr,
             builtin_template: Some(include_str!("templates/hyprland.conf.tmpl")),
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("hyprctl"),
@@ -63,6 +67,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hypr,
             builtin_template: Some(include_str!("templates/hyprlock.conf.tmpl")),
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("hyprlock"),
@@ -75,6 +80,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: Some(include_str!("templates/kitty.conf.tmpl")),
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("kitty"),
@@ -87,6 +93,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Rgb,
             builtin_template: Some(include_str!("templates/gtk.css.tmpl")),
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("gsettings"),
@@ -98,6 +105,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: None,
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("gsettings"),
@@ -109,6 +117,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: None,
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("gsettings"),
@@ -120,6 +129,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: None,
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("gsettings"),
@@ -131,6 +141,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: None,
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || in_path("gsettings"),
@@ -143,6 +154,7 @@ fn builtin() -> Vec<Target> {
             default_fmt: Fmt::Argb,
             builtin_template: Some(include_str!("templates/qt6ct.conf.tmpl")),
             pack_template: None,
+            template_base: None,
             output: None,
             reload: None,
             installed: || {
@@ -172,6 +184,7 @@ pub fn all(resolved: &Resolved) -> Vec<Target> {
     for t in &mut out {
         if let Some(decl) = resolved.pack_targets.get(&t.id) {
             t.pack_template = decl.template.clone();
+            t.template_base = decl.template_base.clone();
             t.reload = decl.reload.clone();
         }
     }
@@ -196,6 +209,7 @@ pub fn all(resolved: &Resolved) -> Vec<Target> {
             default_fmt: Fmt::Hex,
             builtin_template: None,
             pack_template: decl.template.clone(),
+            template_base: decl.template_base.clone(),
             output: decl.output.clone(),
             reload: decl.reload.clone(),
             installed: || true,
@@ -278,25 +292,36 @@ const THUNAR_CSS: &str = "hyprdesk-thunar.css";
 pub const SOURCE_MARKER: &str = "# [hyprdesk-theme-engine] thème de hyprdesk";
 
 /// Rendu du gabarit de la cible, par priorité : gabarit déclaré dans le
-/// manifeste (`[targets.<id>].template`), fichier de convention
-/// `templates/<id>.tmpl`, puis gabarit intégré.
+/// manifeste (`[targets.<id>].template`, lu dans le dossier du pack qui l'a
+/// déclaré), fichier de convention `templates/<id>.tmpl` du pack puis de ses
+/// parents (le plus proche d'abord), puis gabarit intégré.
 pub fn render_for(target: &Target, resolved: &Resolved, pack_dir: Option<&Path>) -> Result<String> {
-    let source = pack_dir
-        .and_then(|dir| {
-            if let Some(rel) = &target.pack_template {
-                let p = dir.join(rel);
-                return Some(std::fs::read_to_string(p).map_err(|e| {
-                    Error::Template(format!(
-                        "cible {} : gabarit du pack illisible ({e})",
-                        target.id
-                    ))
-                }));
-            }
-            // Convention : templates/<id>.tmpl à côté du manifeste.
-            let p = dir.join("templates").join(format!("{}.tmpl", target.id));
-            std::fs::read_to_string(p).ok().map(Ok)
+    let declared = match (
+        &target.pack_template,
+        target.template_base.as_deref().or(pack_dir),
+    ) {
+        (Some(rel), Some(base)) => Some(std::fs::read_to_string(base.join(rel)).map_err(|e| {
+            Error::Template(format!(
+                "cible {} : gabarit du pack illisible ({e})",
+                target.id
+            ))
+        })?),
+        _ => None,
+    };
+    let source = declared
+        .or_else(|| {
+            // Convention : templates/<id>.tmpl à côté du manifeste, chez le
+            // pack puis chez ses ancêtres.
+            pack_dir
+                .into_iter()
+                .chain(resolved.template_dirs.iter().map(PathBuf::as_path))
+                .find_map(|dir| {
+                    std::fs::read_to_string(
+                        dir.join("templates").join(format!("{}.tmpl", target.id)),
+                    )
+                    .ok()
+                })
         })
-        .transpose()?
         .or_else(|| target.builtin_template.map(str::to_string))
         .ok_or_else(|| {
             Error::Template(format!(
@@ -1604,6 +1629,66 @@ mod tests {
     }
 
     #[test]
+    fn gabarits_hérités_lus_chez_le_parent() {
+        // Un pack qui hérite cherchait les gabarits du parent dans son propre
+        // dossier : nacre-opaque devait en embarquer une copie.
+        use super::super::packs::{self, Origin};
+        let root = std::env::temp_dir().join(format!("hd-tgt-herit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let parent = root.join("themes/parent");
+        let enfant = root.join("themes/enfant");
+        std::fs::create_dir_all(parent.join("templates")).unwrap();
+        std::fs::create_dir_all(&enfant).unwrap();
+        std::fs::write(
+            parent.join("theme.toml"),
+            "[meta]\nid = \"parent\"\nname = \"P\"\nversion = \"1.0.0\"\n\n[palette]\nbg = \"#101010\"\nfg = \"#f0f0f0\"\naccent = \"#3366ff\"\n\n[targets.waybar]\ntemplate = \"gabarits/waybar.tmpl\"\noutput = \"~/.config/waybar/hyprdesk.css\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(parent.join("gabarits")).unwrap();
+        std::fs::write(
+            parent.join("gabarits/waybar.tmpl"),
+            "/* parent {{palette.bg}} */\n",
+        )
+        .unwrap();
+        std::fs::write(
+            parent.join("templates/kitty.tmpl"),
+            "# kitty du parent {{palette.fg}}\n",
+        )
+        .unwrap();
+        // L'enfant ne redéclare que le rechargement de waybar.
+        std::fs::write(
+            enfant.join("theme.toml"),
+            "[meta]\nid = \"enfant\"\nname = \"E\"\nversion = \"1.0.0\"\n\n[inherits]\nthemes = [\"parent\"]\n\n[targets.waybar]\nreload = \"signal:waybar:USR2\"\n",
+        )
+        .unwrap();
+        let all_packs = vec![
+            packs::load_dir(&parent, Origin::User).unwrap(),
+            packs::load_dir(&enfant, Origin::User).unwrap(),
+        ];
+        let chain = packs::chain(&all_packs, "enfant").unwrap();
+        let r = super::super::resolve::resolve(&chain, "dark").unwrap();
+        let cibles = all(&r);
+        let waybar = cibles.iter().find(|t| t.id == "waybar").unwrap();
+        assert_eq!(waybar.reload.as_deref(), Some("signal:waybar:USR2"));
+        let rendu = render_for(waybar, &r, Some(&enfant)).unwrap();
+        assert!(rendu.contains("/* parent #101010 */"), "{rendu}");
+        let kitty = cibles.iter().find(|t| t.id == "kitty").unwrap();
+        let rendu = render_for(kitty, &r, Some(&enfant)).unwrap();
+        assert!(rendu.contains("kitty du parent"), "{rendu}");
+        // Un gabarit de l'enfant l'emporte sur celui du parent.
+        std::fs::create_dir_all(enfant.join("templates")).unwrap();
+        std::fs::write(enfant.join("templates/kitty.tmpl"), "# kitty de l'enfant\n").unwrap();
+        assert!(
+            render_for(kitty, &r, Some(&enfant))
+                .unwrap()
+                .contains("de l'enfant")
+        );
+        let _ = roots;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn mots_clés_hot_extraits() {
         let mut r = super::super::resolve::from_theme(&crate::config::Theme::default());
         r.hyprland_options
@@ -1640,6 +1725,7 @@ mod tests {
                 output: Some("~/.config/waybar/hyprdesk.css".to_string()),
                 reload: Some("signal:waybar:USR1".to_string()),
                 enabled: None,
+                template_base: None,
             },
         );
         let cibles = all(&r);
