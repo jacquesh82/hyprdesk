@@ -1,6 +1,7 @@
 //! Paquet intégré « Thème des applications » : le thème de hyprdesk appliqué
-//! à d'autres logiciels (kitty pour commencer), réappliqué à chaque
-//! changement de thème. Plugin configurable : chaque application a ses
+//! à d'autres logiciels (kitty, GTK, Qt), réappliqué à chaque changement de
+//! thème. Les applications iced suivent d'elles-mêmes la palette publiée par
+//! le moteur : une carte sans interrupteur le montre. Plugin configurable : chaque application a ses
 //! réglages (fichiers, rechargement), ici ou dans Réglages → Plugins →
 //! Configurer. Un échec se propose à LYRA. Domaine : `crate::apptheme`.
 //!
@@ -21,7 +22,8 @@ pub const INFO: PluginInfo = PluginInfo {
     id: "apptheme",
     label: "Thème des applications",
     icon: "preferences-desktop-theme",
-    summary: "Le thème de hyprdesk appliqué à d'autres logiciels : kitty pour commencer.",
+    summary: "Le thème de hyprdesk appliqué à d'autres logiciels : kitty, GTK, Qt et les \
+              applications iced.",
     builtin: true,
 };
 
@@ -192,6 +194,7 @@ impl App {
                 }),
             );
         }
+        col = col.push(self.apptheme_iced_card());
         // Aperçu : les couleurs que kitty recevra.
         let swatch = |c: crate::config::Rgba, label: &'static str| {
             let c = color(c, 1.0);
@@ -258,6 +261,60 @@ impl App {
             }
         }
         col.into()
+    }
+
+    /// Carte des applications iced : rien à cocher ni à écrire chez elles,
+    /// elles lisent la palette que le moteur publie à chaque changement de
+    /// thème (crate `hyprdesk-theme-client`, docs/THEME-CLIENT.md).
+    fn apptheme_iced_card(&self) -> Element<'_, UiMsg> {
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let palette = crate::theme_engine::paths::Roots::from_env()
+            .state_dir()
+            .join("palette.json");
+        let status = if palette.is_file() {
+            text(crate::i18n::tr("en direct")).color(dim)
+        } else {
+            text(crate::i18n::tr("palette pas encore publiée")).color(crate::ui::tone::warning())
+        };
+        container(
+            column![
+                row![
+                    text(crate::i18n::tr("Applications iced"))
+                        .font(self.title_font())
+                        .size(14),
+                    status.font(self.font).size(12),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+                text(crate::i18n::tr(
+                    "hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la \
+                     palette du thème et la suivent à chaud. Toujours actif : rien à cocher, \
+                     chaque application suit d'elle-même."
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+                text(crate::tr!(
+                    "Fichier : {path}",
+                    path = palette.display().to_string()
+                ))
+                .font(self.font)
+                .size(12)
+                .color(dim),
+            ]
+            .spacing(8),
+        )
+        .padding(12)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            border: Border::default()
+                .rounded(10)
+                .width(1)
+                .color(Color { a: 0.15, ..fg }),
+            ..Default::default()
+        })
+        .into()
     }
 
     /// Réglages d'une application (dépliés) : un champ par option, validé

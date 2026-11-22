@@ -688,7 +688,7 @@
 "le plus grand écran" = "the largest screen"
 "Le premier workspace d'un écran est celui qu'il affiche par défaut. Un workspace permanent change d'écran aussitôt ; les autres, à leur création." = "A screen's first workspace is the one it shows by default. A permanent workspace moves to its screen immediately; the others, when they're created."
 "Le thème" = "The theme"
-"Le thème de hyprdesk appliqué à d'autres logiciels : kitty pour commencer." = "hyprdesk's theme applied to other software: kitty to begin with."
+"Le thème de hyprdesk appliqué à d'autres logiciels : kitty, GTK, Qt et les applications iced." = "hyprdesk's theme applied to other software: kitty, GTK, Qt and iced applications."
 "Le thème « {theme_name} » seul : couleurs, fonds d'écran, effets de chaque endroit, mode du bureau, voile du verrouillage, transitions." = "The “{theme_name}” theme only: colors, wallpapers, effects of each place, desktop mode, lock screen veil, transitions."
 "Le verrouillage" = "The lock screen"
 "Le vôtre" = "Your own"
@@ -4595,3 +4595,9 @@
 "Thème GTK de base recoloré aux couleurs du pack (hyprdesk-<pack>, suivi à chaud par les applications ouvertes, Brave et Firefox compris), couleurs nommées gtk-3.0 et gtk-4.0 et schéma clair/sombre." = "Base GTK theme recoloured to the pack's colours (hyprdesk-<pack>, followed live by open applications, Brave and Firefox included), gtk-3.0 and gtk-4.0 named colours and light/dark scheme."
 "GTK : thème de base recoloré et sélectionné, couleurs nommées posées ; schéma clair/sombre réglé." = "GTK: base theme recoloured and selected, named colours set; light/dark scheme set."
 "veille retenue pour la vidéo : {e}" = "keeping the screen awake for the video: {e}"
+
+# Thème des applications : carte iced (MLG-252).
+"Applications iced" = "iced applications"
+"en direct" = "live"
+"palette pas encore publiée" = "palette not published yet"
+"hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la palette du thème et la suivent à chaud. Toujours actif : rien à cocher, chaque application suit d'elle-même." = "hyprdesk and iced applications linked to hyprdesk-theme-client read the theme palette and follow it live. Always on: nothing to tick, each application follows on its own."

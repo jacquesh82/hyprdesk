@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- **iced applications card** (MLG-252, Settings → App theming): hyprdesk
+  and iced apps linked to `hyprdesk-theme-client` follow the theme palette
+  live; the card shows it (and where `palette.json` lives), with no switch
+  since there is nothing to turn off.
 - **LYRA shortcut** (MLG-220): `SUPER + SHIFT + L` opens LYRA, the AI
   assistant, and closes it when shown, in every mode (`keys.assistant`,
   Settings → Shortcuts).
