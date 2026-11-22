@@ -32,6 +32,10 @@ path = "src/bin/hyprdesk-greeter.rs"
 name = "hyprdesk-polkit"
 path = "src/bin/hyprdesk-polkit.rs"
 
+[[bin]]
+name = "hyprdesk-theme-engine"
+path = "src/bin/hyprdesk-theme-engine.rs"
+
 [workspace]
 # Crates du dépôt ; vendor/ reste hors de l'espace de travail (copies
 # vérifiées de crates.io, branchées par [patch.crates-io]).

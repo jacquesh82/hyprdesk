@@ -1,0 +1,31 @@
+[meta]
+id = "foret"
+name = "Forêt"
+version = "1.0.0"
+description = "Verts profonds, accent menthe."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#16221b"
+fg = "#eef3ea"
+accent = "#8aff80"
+
+[effects.bar]
+opacity = 0.74
+blur = true
+
+[effects.menus]
+opacity = 0.92
+blur = true
+
+[effects.launcher]
+opacity = 0.88
+blur = true
+
+[effects.settings]
+opacity = 0.97
+blur = true
+
+[effects.widgets]
+opacity = 0.84
+blur = false

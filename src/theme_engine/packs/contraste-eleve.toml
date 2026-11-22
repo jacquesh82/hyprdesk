@@ -1,0 +1,31 @@
+[meta]
+id = "contraste-eleve"
+name = "Contraste élevé"
+version = "1.0.0"
+description = "Blanc sur noir, accent jaune, surfaces opaques et sans flou (accessibilité)."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#000000"
+fg = "#ffffff"
+accent = "#ffd400"
+
+[effects.bar]
+opacity = 1.0
+blur = false
+
+[effects.menus]
+opacity = 1.0
+blur = false
+
+[effects.launcher]
+opacity = 1.0
+blur = false
+
+[effects.settings]
+opacity = 1.0
+blur = false
+
+[effects.widgets]
+opacity = 1.0
+blur = false

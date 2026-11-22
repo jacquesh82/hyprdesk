@@ -21,6 +21,7 @@
 //! - [`paths`] : emplacements XDG, paramétrables pour les essais.
 
 pub mod apply;
+pub mod bundled;
 pub mod color;
 pub mod manifest;
 pub mod packs;

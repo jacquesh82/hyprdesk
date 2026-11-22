@@ -1,0 +1,31 @@
+[meta]
+id = "clair"
+name = "Clair"
+version = "1.0.0"
+description = "Palette claire, accent indigo."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#f3f4f8"
+fg = "#1f2330"
+accent = "#5b5bd6"
+
+[effects.bar]
+opacity = 0.82
+blur = true
+
+[effects.menus]
+opacity = 0.95
+blur = true
+
+[effects.launcher]
+opacity = 0.92
+blur = true
+
+[effects.settings]
+opacity = 0.98
+blur = true
+
+[effects.widgets]
+opacity = 0.9
+blur = false
