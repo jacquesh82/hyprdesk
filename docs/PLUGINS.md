@@ -142,7 +142,7 @@ Clés par paquet :
 | `screens` | `primary` |
 | `workspaces` | `workspaces`, `workspace.<n>` (écran : connecteur, `primary`, `auto`), `assign.<app>`, `workspace_selector` (`relief`, `rail`, `miniatures`, `icones`) |
 | `layouts` | `layout`, `layout.<n>`, `dwindle.<option>`, `master.<option>`, `scrolling.<option>` |
-| `apptheme` | `app_themes` (`kitty`, `thunar`, `none` ; toutes par défaut) |
+| `apptheme` | `app_themes` (`kitty`, `gtk`, `qt`, `none` ; toutes par défaut) |
 | `animations` (onglet Bureau) | `transition`, `fade_ms`, `crossfade_ms` |
 | `theme` | `theme.preset` (pack du moteur de thème : nom ou identifiant), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (endroits : `bar`, `menus`, `launcher`, `settings`, `widgets` — sans flou) |
 | `launcher` (apparence) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |

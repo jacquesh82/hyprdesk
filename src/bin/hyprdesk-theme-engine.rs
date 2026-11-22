@@ -505,7 +505,6 @@ fn doctor(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
         ("hyprctl", "cible hyprland"),
         ("hyprlock", "cible hyprlock"),
         ("kitty", "cible kitty"),
-        ("thunar", "cible thunar"),
         ("gsettings", "cible gtk (schéma clair/sombre)"),
     ];
     let mut missing = Vec::new();

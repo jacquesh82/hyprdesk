@@ -54,7 +54,7 @@ snapshots let you go back to any point.
 ### One theme, every app
 
 Pick a theme and Hyprland, hyprdesk, GTK 3 and 4 apps (Brave and Firefox
-included), Qt apps, kitty, and Thunar follow it live, down to fonts, icons,
+included), Qt apps, and kitty follow it live, down to fonts, icons,
 cursors, and sounds. Seven packs ship with hyprdesk (Ardoise, Clair, Verre,
 Ambre, Encre, Forêt, Contraste élevé), and any image can become a new one.
 Packs are plain data, never code, so a `.hyprtheme` archive from someone
@@ -253,7 +253,7 @@ set from the command line shows up in Settings, and the other way round.
 | hyprdesk, lock and login screens | Nothing: they read the published palette | At once |
 | GTK 3 and 4 | Your base GTK theme recoloured to the pack, installed as `hyprdesk-<pack>` | At once in open GTK 3 apps, Brave and Firefox included |
 | Qt | `qt6ct/colors/hyprdesk.conf` (and the qt5ct copy); pick it once in qt6ct | When the app restarts |
-| kitty, Thunar, hyprlock | An included file, a GTK stylesheet, a sourced fragment | At once, with GTK, at the next lock |
+| kitty, hyprlock | An included file, a sourced fragment | At once, at the next lock |
 | Fonts, icons, cursors, sounds | The GNOME settings and the hyprdesk keys | At once; cursors at the next session |
 | Any other app | A file declared by the pack (`[targets.<name>]`) | Through a bounded reload: signal, socket, gsettings |
 

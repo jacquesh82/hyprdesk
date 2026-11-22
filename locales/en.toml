@@ -2463,15 +2463,6 @@
 "Valeurs par défaut" = "Defaults"
 "Valider un champ avec Entrée ; le thème est réappliqué aussitôt." = "Confirm a field with Enter; the theme is applied again right away."
 
-# Thème des applications : Thunar.
-"Feuille GTK qui l'importe" = "GTK stylesheet that imports it"
-"Gestionnaire de fichiers : fond, texte, sélection, panneau latéral, barres, champs. Seul Thunar change, pas les autres applications GTK." = "File manager: background, text, selection, side pane, bars, fields. Only Thunar changes, not the other GTK applications."
-"Thunar : thème « {name} » appliqué (prochaines fenêtres de Thunar)." = "Thunar: theme “{name}” applied (next Thunar windows)."
-"Thunar : thème « {name} » appliqué ; {c} l'importe désormais (copie : {c}.avant-hyprdesk.bak). Il vaut pour les prochaines fenêtres de Thunar." = "Thunar: theme “{name}” applied; {c} now imports it (copy: {c}.avant-hyprdesk.bak). It applies to the next Thunar windows."
-"Thunar : thème « {name} » écrit dans {f} ; à importer dans votre gtk.css ({line})." = "Thunar: theme “{name}” written to {f}; import it in your gtk.css ({line})."
-"Thunar" = "Thunar"
-"hyprdesk y ajoute une fois la ligne @import, en tête. Vide : ne pas la modifier (à importer soi-même)." = "hyprdesk adds the @import line at its top, once. Empty: leave it alone (import it yourself)."
-"GTK ne relit pas ses feuilles à chaud : vide, le thème vaut pour les prochaines fenêtres ; « thunar -q » ferme Thunar pour qu'il reparte à jour." = "GTK does not re-read its stylesheets live: empty, the theme applies to the next windows; “thunar -q” closes Thunar so it starts up to date."
 
 # Icônes : portée, double clic, menu contextuel.
 "{CTX} : icon_scope « {s} » inconnu (global, screen, workspace)" = "{CTX}: unknown icon_scope “{s}” (global, screen, workspace)"
@@ -2576,7 +2567,7 @@
 "                    icônes du bureau" = "                    desktop icons"
 "                    ménage de hyprland.lua : erreurs, doublons, conflits avec hyprdesk" = "                    hyprland.lua tidy-up: errors, duplicates, conflicts with hyprdesk"
 "                    places des fenêtres choisies en plein bureau ; les oublier" = "                    window positions chosen in full desktop; forget them"
-"                    thème de hyprdesk appliqué aux applications (kitty, Thunar)" = "                    hyprdesk theme applied to applications (kitty, Thunar)"
+"                    thème de hyprdesk appliqué aux applications (kitty, GTK, Qt)" = "                    hyprdesk theme applied to applications (kitty, GTK, Qt)"
 "  app-theme [status | apply]" = "  app-theme [status | apply]"
 "  autostart [list | add | remove | on | off <commande>]" = "  autostart [list | add | remove | on | off <command>]"
 "  hyprland-check [--json]" = "  hyprland-check [--json]"
@@ -4304,7 +4295,7 @@
 "Le dock" = "The dock"
 "Le lanceur trouve aussi vos fichiers : tapez « :f » suivi d'un nom." = "The launcher finds your files too: type “:f” followed by a name."
 "Le système" = "The system"
-"Le thème s'étend à kitty, à Thunar et aux applications GTK, pour que tout se ressemble." = "The theme extends to kitty, Thunar and GTK applications, so everything matches."
+"Le thème s'étend à kitty et aux applications GTK et Qt, pour que tout se ressemble." = "The theme extends to kitty and to GTK and Qt applications, so everything matches."
 "Les applications" = "Applications"
 "Les autres touches à connaître" = "Other keys worth knowing"
 "Les fenêtres" = "Windows"
@@ -4564,7 +4555,6 @@
 "Variables $hd_* pour hyprlock.conf, inclus par source=." = "$hd_* variables for hyprlock.conf, included via source=."
 "Fichier de couleurs inclus en fin de kitty.conf, relu par SIGUSR1." = "Colour file appended at the end of kitty.conf, reloaded on SIGUSR1."
 "Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) + schéma clair/sombre." = "Named gtk-3.0 and gtk-4.0 colors (marked block) + light/dark scheme."
-"Feuille limitée à .thunar, importée en tête de gtk.css." = "Stylesheet scoped to .thunar, imported at the top of gtk.css."
 "GTK" = "GTK"
 "Hyprlock" = "Hyprlock"
 
@@ -4577,7 +4567,6 @@
 "Qt : schéma de couleurs qt5/6ct posé ; vaut au relancement des applications." = "Qt: qt5/6ct colour scheme set; applies on relaunch."
 "Schéma de couleurs qt5/6ct (QPalette) ; vaut pour les applications lancées ensuite." = "qt5/6ct colour scheme (QPalette); applies to apps launched afterwards."
 "kitty : thème « {name} » appliqué par le moteur de thème." = "kitty: theme \u201c{name}\u201d applied by the theme engine."
-"Thunar : thème « {name} » appliqué par le moteur de thème (prochaines fenêtres)." = "Thunar: theme \u201c{name}\u201d applied by the theme engine (next windows)."
 "aucun changement" = "no change"
 "thème « {n} » appliqué" = "theme \u201c{n}\u201d applied"
 "{a} : non installé" = "{a}: not installed"

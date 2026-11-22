@@ -90,6 +90,15 @@ and this project adheres to
 - The default theme is exactly the *Ardoise* pack: menus opacity 0.90
   (was 0.94).
 
+### Removed
+
+- **Thunar app theme** (MLG-251): the Thunar card in Settings → App
+  theming is gone. The GTK 3 and 4 card already recolours the base GTK
+  theme that Thunar follows, so the Thunar-only stylesheet only competed
+  with it. The `@import` it left at the top of `gtk-3.0/gtk.css` and
+  `hyprdesk-thunar.css` are removed on the next theme pass; `thunar` in
+  `app_themes` is still accepted and ignored.
+
 ### Fixed
 
 - **Install, uninstall and restore with the theme engine** (MLG-230,

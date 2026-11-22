@@ -152,7 +152,7 @@ pub const STEPS: &[Step] = &[
             it(
                 "apptheme",
                 "Applications",
-                "Le thème s'étend à kitty, à Thunar et aux applications GTK, pour que tout se \
+                "Le thème s'étend à kitty et aux applications GTK et Qt, pour que tout se \
                  ressemble.",
             ),
             it(

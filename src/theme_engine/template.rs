@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn gabarits_gtk_et_thunar_en_css_valide() {
+    fn gabarit_gtk_en_css_valide() {
         let r = ardoise();
         let ctx = Context {
             resolved: &r,
@@ -447,22 +447,6 @@ mod tests {
         let gtk = render(include_str!("templates/gtk.css.tmpl"), &ctx).unwrap();
         assert!(gtk.contains("@define-color hyprdesk_accent rgb("), "{gtk}");
         assert!(gtk.contains("@define-color window_bg_color"), "{gtk}");
-        let thunar = render(include_str!("templates/thunar.css.tmpl"), &ctx).unwrap();
-        // Chaque règle reste limitée à .thunar : rien d'autre ne change.
-        for line in thunar
-            .lines()
-            .filter(|l| l.contains('{') || l.trim_end().ends_with(','))
-        {
-            for sel in line.trim_end_matches(['{', ' ', ',']).split(',') {
-                assert!(
-                    sel.trim().starts_with(".thunar")
-                        || sel.trim().starts_with("background-color")
-                        || sel.trim().starts_with("color")
-                        || sel.trim().starts_with("caret-color"),
-                    "{line}"
-                );
-            }
-        }
     }
 
     #[test]

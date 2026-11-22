@@ -1118,7 +1118,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         && l.pairs::<Value, Value>().next().is_none()
     {
         g.app_themes.clear();
-    } else if let Some(list) = string_list(app_themes, "app_themes", CTX)? {
+    } else if let Some(mut list) = string_list(app_themes, "app_themes", CTX)? {
+        // Cible retirée (thunar, MLG-251) : admise, sans effet.
+        list.retain(|id| !crate::apptheme::RETIRED.contains(&id.as_str()));
         for id in &list {
             if crate::apptheme::target(id).is_none() {
                 let known: Vec<&str> = crate::apptheme::TARGETS.iter().map(|t| t.id).collect();
@@ -3306,11 +3308,14 @@ mod tests {
     fn theme_des_applications_actif_par_defaut() {
         // Rien de réglé : toutes les applications ; liste vide : aucune.
         let all = load("hd.config({})").unwrap().config.general.app_themes;
-        assert!(all.contains("kitty") && all.contains("thunar"), "{all:?}");
+        assert!(all.contains("kitty") && all.contains("gtk"), "{all:?}");
         let none = load("hd.config({ app_themes = {} })").unwrap();
         assert!(none.config.general.app_themes.is_empty());
         let one = load("hd.config({ app_themes = { 'kitty' } })").unwrap();
         assert_eq!(one.config.general.app_themes.len(), 1);
+        // Config d'avant MLG-251 : thunar admis, ignoré.
+        let old = load("hd.config({ app_themes = { 'kitty', 'thunar' } })").unwrap();
+        assert_eq!(old.config.general.app_themes.len(), 1);
     }
 
     #[test]

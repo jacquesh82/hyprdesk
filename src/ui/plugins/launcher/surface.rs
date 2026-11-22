@@ -641,9 +641,7 @@ impl App {
                         // état du démon d'index : accent quand prêt, ambre en scan
                         Some(Background::Color(match encre {
                             crate::ui::plugins::index::IndexInk::Ready => accent,
-                            crate::ui::plugins::index::IndexInk::Scan => {
-                                crate::ui::tone::warning()
-                            }
+                            crate::ui::plugins::index::IndexInk::Scan => crate::ui::tone::warning(),
                         }))
                     } else {
                         (badge > 0 && !command).then_some(Background::Color(if active {

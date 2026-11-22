@@ -91,17 +91,6 @@ fn builtin() -> Vec<Target> {
             installed: || in_path("gsettings"),
         },
         Target {
-            id: "thunar".to_string(),
-            label: "Thunar".to_string(),
-            summary: "Feuille limitée à .thunar, importée en tête de gtk.css.".to_string(),
-            default_fmt: Fmt::Rgb,
-            builtin_template: Some(include_str!("templates/thunar.css.tmpl")),
-            pack_template: None,
-            output: None,
-            reload: None,
-            installed: || in_path("thunar"),
-        },
-        Target {
             id: "fonts".to_string(),
             label: "Polices".to_string(),
             summary: "Police d'interface déclarée par le pack (gsettings).".to_string(),
@@ -166,9 +155,14 @@ fn builtin() -> Vec<Target> {
 }
 
 /// Identifiants des cibles intégrées.
-const BUILTIN_IDS: [&str; 10] = [
-    "hyprland", "hyprlock", "kitty", "gtk", "thunar", "qt", "fonts", "icons", "cursors", "sounds",
+const BUILTIN_IDS: [&str; 9] = [
+    "hyprland", "hyprlock", "kitty", "gtk", "qt", "fonts", "icons", "cursors", "sounds",
 ];
+
+/// Cibles retirées (MLG-251) : `thunar`, qui doublait le thème GTK de base
+/// que Thunar suit déjà. Un pack qui les déclare encore n'en fait pas des
+/// cibles génériques ; ce qu'elles avaient posé part avec [`retire_thunar`].
+pub const RETIRED_IDS: [&str; 1] = ["thunar"];
 
 /// Toutes les cibles à exécuter pour cette palette : les intégrées (avec
 /// leurs surcharges de pack), puis les génériques déclarées par le pack.
@@ -188,7 +182,7 @@ pub fn all(resolved: &Resolved) -> Vec<Target> {
             .unwrap_or(true)
     });
     for (id, decl) in &resolved.pack_targets {
-        if BUILTIN_IDS.contains(&id.as_str()) {
+        if BUILTIN_IDS.contains(&id.as_str()) || RETIRED_IDS.contains(&id.as_str()) {
             continue;
         }
         out.push(Target {
@@ -246,8 +240,6 @@ pub enum Op {
     /// Bloc marqué remplacé en fin de fichier (les règles de l'utilisateur
     /// restent devant).
     UpsertBlock,
-    /// Ligne ajoutée en tête (import CSS : GTK ignore un import tardif).
-    ImportFirst,
     /// Ligne ajoutée une fois en fin de fichier (`source =` hyprlang).
     AppendSource,
     /// Réglage gsettings posé (ancienne valeur relevée pour le retour
@@ -271,8 +263,15 @@ pub const BLOCK_BEGIN: &str =
     "/* [hyprdesk-theme-engine] début du bloc thème — ne pas modifier entre ces marques */";
 pub const BLOCK_END: &str = "/* [hyprdesk-theme-engine] fin du bloc thème */";
 
-/// Marqueur de l'import Thunar en tête de gtk.css.
+/// Marqueur de l'import Thunar en tête de gtk.css (cible retirée, MLG-251 :
+/// reconnu pour le retirer).
 pub const IMPORT_MARKER: &str = "/* [hyprdesk-theme-engine] import du thème de Thunar */";
+
+/// Marqueur du même import posé par hyprdesk avant le moteur de thème.
+const LEGACY_IMPORT_MARKER: &str = "/* Thème de Thunar par hyprdesk";
+
+/// Feuille Thunar par défaut (cible retirée).
+const THUNAR_CSS: &str = "hyprdesk-thunar.css";
 
 /// Marqueur des lignes `source =` ajoutées aux configurations hyprlang.
 pub const SOURCE_MARKER: &str = "# [hyprdesk-theme-engine] thème de hyprdesk";
@@ -566,40 +565,6 @@ fn plan_builtin(
                     "theme-name".to_string(),
                 )),
             }]
-        }
-        "thunar" => {
-            let thunar_css = match target_opt(target_opts, "thunar.file") {
-                Some(f) => PathBuf::from(f),
-                None => roots.config.join("gtk-3.0").join("hyprdesk-thunar.css"),
-            };
-            let gtk_css = match target_opt(target_opts, "thunar.conf") {
-                Some(c) if c != thunar_css.display().to_string() => PathBuf::from(c),
-                _ => roots.config.join("gtk-3.0").join("gtk.css"),
-            };
-            // Chemin relatif quand la feuille est à côté de gtk.css.
-            let target = if thunar_css.parent() == gtk_css.parent() {
-                thunar_css
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                thunar_css.display().to_string()
-            };
-            vec![
-                Planned {
-                    path: thunar_css,
-                    content: rendu().to_string(),
-                    op: Op::Write,
-                    ..Default::default()
-                },
-                Planned {
-                    path: gtk_css,
-                    content: format!("@import url(\"{target}\");"),
-                    op: Op::ImportFirst,
-                    setting: None,
-                },
-            ]
         }
         other => return Err(Error::Template(format!("cible inconnue : {other}"))),
     };
@@ -1011,7 +976,7 @@ pub fn validate_kitty(content: &str) -> Result<()> {
 /// Validation légère d'un rendu CSS : accolades équilibrées (les gabarits
 /// hyprlang sont de simples `clé = valeur` vérifiés à la planification).
 fn validate_css(id: &str, content: &str) -> Result<()> {
-    if id != "gtk" && id != "thunar" {
+    if id != "gtk" {
         return Ok(());
     }
     let (open, close) = (content.matches('{').count(), content.matches('}').count());
@@ -1209,14 +1174,6 @@ pub fn upsert_block(existing: &str, block: &str) -> String {
     out
 }
 
-/// Import en tête d'une feuille CSS (une seule fois).
-pub fn include_first(existing: &str, line: &str) -> String {
-    if existing.contains(line) {
-        return existing.to_string();
-    }
-    format!("{IMPORT_MARKER}\n{line}\n\n{existing}")
-}
-
 /// Retire le bloc marqué d'un contenu (clear GTK) : tout ce qui précède
 /// reste, ce qui suit (règles de l'utilisateur postérieures) aussi.
 pub fn remove_block(existing: &str) -> String {
@@ -1293,18 +1250,58 @@ pub fn remove_sources(existing: &str) -> String {
     text
 }
 
-/// Retire l'import de Thunar posé en tête de gtk.css ([`IMPORT_MARKER`]) et
-/// la ligne vide qui le suit.
+/// Retire l'import de Thunar posé dans gtk.css : la ligne de marque (celle
+/// du moteur ou celle d'avant), l'`@import` qui la suit, tout `@import` de
+/// `hyprdesk-thunar.css`, et la ligne vide qui les suit.
 pub fn remove_import(existing: &str) -> String {
-    let Some(rest) = existing.strip_prefix(IMPORT_MARKER) else {
-        return existing.to_string();
-    };
-    let rest = rest.strip_prefix('\n').unwrap_or(rest);
-    let rest = match rest.split_once('\n') {
-        Some((first, after)) if first.trim_start().starts_with("@import url(") => after,
-        _ => rest,
-    };
-    rest.strip_prefix('\n').unwrap_or(rest).to_string()
+    let mut out = String::with_capacity(existing.len());
+    let (mut after_marker, mut drop_blank) = (false, false);
+    for line in existing.split_inclusive('\n') {
+        let t = line.trim();
+        let marker = t == IMPORT_MARKER || t.starts_with(LEGACY_IMPORT_MARKER);
+        let import = t.starts_with("@import url(") && (after_marker || t.contains(THUNAR_CSS));
+        if marker || import {
+            (after_marker, drop_blank) = (marker, true);
+            continue;
+        }
+        if drop_blank && t.is_empty() {
+            (after_marker, drop_blank) = (false, false);
+            continue;
+        }
+        (after_marker, drop_blank) = (false, false);
+        out.push_str(line);
+    }
+    out
+}
+
+/// Retire ce que la cible thunar avait posé (MLG-251) : l'import de
+/// gtk.css et la feuille `hyprdesk-thunar.css`. `target_opts` : les anciens
+/// réglages `thunar.file` et `thunar.conf`, s'ils existent. Sans effet une
+/// fois fait ; rend les fichiers touchés.
+pub fn retire_thunar(roots: &Roots, target_opts: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    let gtk3 = roots.config.join("gtk-3.0");
+    let css = target_opt(target_opts, "thunar.file")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| gtk3.join(THUNAR_CSS));
+    let mut confs = vec![gtk3.join("gtk.css")];
+    if let Some(c) = target_opt(target_opts, "thunar.conf") {
+        confs.push(PathBuf::from(c));
+    }
+    confs.dedup();
+    let mut done = Vec::new();
+    for conf in confs {
+        let Ok(avant) = std::fs::read_to_string(&conf) else {
+            continue;
+        };
+        let après = remove_import(&avant);
+        if après != avant && super::state::atomic_write(&conf, &après).is_ok() {
+            done.push(conf);
+        }
+    }
+    if css.is_file() && std::fs::remove_file(&css).is_ok() {
+        done.push(css);
+    }
+    done
 }
 
 /// Tout ce que le moteur a posé chez l'utilisateur, retiré (désinstallation,
@@ -1370,10 +1367,7 @@ pub fn remove_all(
             "kitty.file",
             roots.config.join("kitty").join("hyprdesk-theme.conf"),
         ),
-        opt_path(
-            "thunar.file",
-            roots.config.join("gtk-3.0").join("hyprdesk-thunar.css"),
-        ),
+        opt_path("thunar.file", roots.config.join("gtk-3.0").join(THUNAR_CSS)),
         roots.hypr_theme_dir().join("hyprland.conf"),
         roots.hypr_theme_dir().join("hyprlock.conf"),
     ];
@@ -1441,12 +1435,49 @@ mod tests {
     }
 
     #[test]
-    fn import_unique_en_tête() {
-        let once = include_first("@define-color x #fff;\n", "@import url(\"a.css\");");
-        assert!(once.starts_with(IMPORT_MARKER), "{once}");
-        assert!(once.contains("@import url(\"a.css\");"));
-        let twice = include_first(&once, "@import url(\"a.css\");");
-        assert_eq!(once, twice);
+    fn import_thunar_retiré() {
+        // MLG-251 : les deux formes d'import posées par la cible thunar
+        // partent, les règles de l'utilisateur restent.
+        let moteur =
+            format!("{IMPORT_MARKER}\n@import url(\"ailleurs/t.css\");\n\n@define-color x #fff;\n");
+        assert_eq!(remove_import(&moteur), "@define-color x #fff;\n");
+        let avant = "/* Thème de Thunar par hyprdesk (Réglages → Thème des applications). */\n\
+                     @import url(\"hyprdesk-thunar.css\");\n\n/* Dracula */\n\
+                     @import url(\"mien.css\");\n";
+        assert_eq!(
+            remove_import(avant),
+            "/* Dracula */\n@import url(\"mien.css\");\n"
+        );
+        assert_eq!(
+            remove_import("@import url(\"mien.css\");\n"),
+            "@import url(\"mien.css\");\n"
+        );
+    }
+
+    #[test]
+    fn retrait_de_thunar() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-thunar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let gtk3 = roots.config.join("gtk-3.0");
+        std::fs::create_dir_all(&gtk3).unwrap();
+        std::fs::write(
+            gtk3.join("gtk.css"),
+            "/* Thème de Thunar par hyprdesk (Réglages → Thème des applications). */\n\
+             @import url(\"hyprdesk-thunar.css\");\n\n@define-color x #fff;\n",
+        )
+        .unwrap();
+        std::fs::write(gtk3.join(THUNAR_CSS), ".thunar { color: red; }\n").unwrap();
+        let fait = retire_thunar(&roots, &BTreeMap::new());
+        assert_eq!(fait.len(), 2, "{fait:?}");
+        assert_eq!(
+            read_or_empty(&gtk3.join("gtk.css")),
+            "@define-color x #fff;\n"
+        );
+        assert!(!gtk3.join(THUNAR_CSS).exists());
+        // Sans effet une fois fait.
+        assert!(retire_thunar(&roots, &BTreeMap::new()).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

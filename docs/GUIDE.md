@@ -230,7 +230,7 @@ and disabled bindings are kept. A hand-written file is copied
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by
-  app. App theming carries the theme to kitty and Thunar.
+  app. App theming carries the theme to kitty and to GTK and Qt apps.
 - **Screens and input.** Arrange monitors and set the keyboard and
   touchpad. Display layout changes revert after 12 seconds unless you keep
   them.

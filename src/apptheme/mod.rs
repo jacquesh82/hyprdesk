@@ -3,7 +3,7 @@
 //! comme les widgets :
 //!
 //! - chaque application est un module (une CIBLE) qui expose
-//!   `pub const TARGET: Target` : [`kitty`] ;
+//!   `pub const TARGET: Target` : [`kitty`], [`gtk`], [`qt`] ;
 //! - le registre [`TARGETS`] les liste ; la page de réglages, la config Lua et
 //!   `hyprdesk config` le parcourent, sans rien connaître de chaque cible ;
 //! - les outils communs (dossier de config, `PATH`, écriture idempotente,
@@ -20,14 +20,17 @@
 //! `plugin_options["apptheme"]` (clés `<cible>.<option>`).
 //!
 //! Ajouter une application : un fichier `<id>.rs` sur le modèle de
-//! [`kitty`] (ou [`thunar`] pour une feuille GTK), un `pub mod <id>;` ci-dessous, une ligne dans [`TARGETS`], les
+//! [`kitty`], un `pub mod <id>;` ci-dessous, une ligne dans [`TARGETS`], les
 //! textes dans `locales/en.toml`, et l'outil de rechargement éventuel dans
 //! `doctor::DEPS`.
+//!
+//! Cible retirée : `thunar` (MLG-251), que le thème GTK de base de la cible
+//! [`gtk`] couvre déjà. Son identifiant reste admis à la lecture de la config
+//! ([`RETIRED`]) et ce qu'elle avait posé est retiré au passage suivant.
 
 pub mod gtk;
 pub mod kitty;
 pub mod qt;
-pub mod thunar;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -112,7 +115,11 @@ pub fn engine_options(o: &Opts) -> (BTreeMap<String, String>, BTreeMap<String, S
 }
 
 /// Registre des applications qui peuvent prendre le thème.
-pub const TARGETS: &[Target] = &[kitty::TARGET, thunar::TARGET, gtk::TARGET, qt::TARGET];
+pub const TARGETS: &[Target] = &[kitty::TARGET, gtk::TARGET, qt::TARGET];
+
+/// Cibles retirées : encore admises dans `app_themes` (config d'avant), sans
+/// effet.
+pub const RETIRED: &[&str] = &crate::theme_engine::targets::RETIRED_IDS;
 
 pub fn target(id: &str) -> Option<&'static Target> {
     TARGETS.iter().find(|t| t.id == id)
@@ -132,6 +139,14 @@ pub fn sync(
     // moteur reste hors du démon : les couleurs de fenêtres sont portées
     // par appearance.lua.
     let mut out = Vec::new();
+    // Ce que la cible thunar avait posé (MLG-251) : sans effet une fois fait.
+    let roots = crate::theme_engine::paths::Roots::from_env();
+    let anciens: BTreeMap<String, String> = opts
+        .iter()
+        .filter(|(k, v)| k.starts_with("thunar.") && !v.trim().is_empty())
+        .map(|(k, v)| (k.clone(), expand_home(v.trim())))
+        .collect();
+    crate::theme_engine::targets::retire_thunar(&roots, &anciens);
     for t in TARGETS {
         if !enabled.contains(t.id)
             && let Err(e) = (t.clear)(opts)
@@ -155,7 +170,6 @@ pub fn sync(
     if activées.is_empty() {
         return out;
     }
-    let roots = crate::theme_engine::paths::Roots::from_env();
     let (resolved, pack_dir) = crate::theme_engine::bridge::resolution_for(&roots, theme);
     // Options effectives de chaque cible, `~/` développé et défauts compris
     // (le moteur ne connaît pas ces défauts : sans eux, l'inclusion dans

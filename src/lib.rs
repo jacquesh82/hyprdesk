@@ -210,7 +210,7 @@ Commandes :
   icons [list | add app|path|exec <valeur> | remove <id>]
                     icônes du bureau
   app-theme [status | apply]
-                    thème de hyprdesk appliqué aux applications (kitty, Thunar)
+                    thème de hyprdesk appliqué aux applications (kitty, GTK, Qt)
   color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)
   screens-off       éteint tous les écrans sans mettre la machine en veille ;
                     un changement de volume les rallume (idle_wake_volume)

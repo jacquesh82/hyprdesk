@@ -255,7 +255,7 @@ La cible généralise le contrat `apptheme::Target` (`src/apptheme/mod.rs`) : id
 | `hyprlock` | fragment sourcé par `~/.config/hypr/hyprlock.conf` (pattern `source=` déjà en place) | rien (rechargé au verrouillage) | hyprlock | 1 |
 | `kitty` | `~/.config/kitty/hyprdesk-theme.conf` (fichier actuel) | SIGUSR1, ou socket `kitty @ load_config` si contrôle distant | kitty | 1 |
 | `gtk` | thème GTK installé `~/.local/share/themes/hyprdesk-<pack>/` (gtk-3.0, gtk-4.0, index.theme) + override `~/.config/gtk-3.0/gtk.css` et `gtk-4.0/gtk.css` avec `@define-color` ; `gsettings` pour `gtk-theme` et `color-scheme` | gsettings → rechargement des apps GTK | gsettings | 1 |
-| `thunar` | `~/.config/gtk-3.0/hyprdesk-thunar.css` (fichier actuel) | inclus dans `gtk` | thunar | 1 |
+| ~~`thunar`~~ | retirée (MLG-251) : Thunar suit le thème GTK de base de la cible `gtk` ; l'import et `hyprdesk-thunar.css` déjà posés sont retirés au passage suivant | — | — | — |
 | `qt` | `~/.config/qt6ct/colors/hyprdesk.conf` (miroir qt5ct), Kvantum `.kvconfig` si installé, gabarit `.qss` optionnel | relance de l'application (`restart_required`) ; accent via portail | qt6ct, kvantum | 2 |
 | `fonts` | clés hyprdesk + `gsettings font-name`, gabarit kitty | selon cibles touchées | — | 2 |
 | `icons` | `gsettings icon-theme` + paquet icônes hyprdesk | événement démon | — | 2 |
@@ -268,7 +268,7 @@ La cible généralise le contrat `apptheme::Target` (`src/apptheme/mod.rs`) : id
 
 Valeurs autorisées pour `reload` : `none`, `signal:<nom_de_processus>:<SIGUSR1|SIGUSR2|SIGHUP>`, `socket:kitty`, `gsettings`, `hyprctl`, `daemon`. Tout le reste (commande shell arbitraire, script) est **refusé à la validation du pack** : un pack ne peut pas exécuter de code.
 
-Ordre de choix du rechargement d'une cible : commande configurée sur le poste (réglages `kitty.reload`, `thunar.reload` du démon, passée à `sh -c` — un réglage du poste, jamais un contenu de pack), puis rechargement déclaré par le pack, puis rechargement intégré. Les options de fichiers du démon (`kitty.file`, `kitty.conf`, `thunar.file`, `thunar.conf`) s'appliquent à chaque `apply`.
+Ordre de choix du rechargement d'une cible : commande configurée sur le poste (réglage `kitty.reload` du démon, passée à `sh -c` — un réglage du poste, jamais un contenu de pack), puis rechargement déclaré par le pack, puis rechargement intégré. Les options de fichiers du démon (`kitty.file`, `kitty.conf`) s'appliquent à chaque `apply`.
 
 Rechargement `gsettings` : un appel par clé — `color-scheme` (`prefer-dark` / `prefer-light`), puis `accent-color`, qui est une couleur nommée de GNOME (`blue`, `teal`, `green`, `yellow`, `orange`, `red`, `pink`, `purple`, `slate`) : la plus proche de l'accent du thème en teinte OKLCH, `slate` pour un accent presque neutre. Une clé `accent-color` absente (GNOME < 47) est signalée, pas un échec.
 
@@ -480,7 +480,7 @@ Variable d'environnement `HYPRDESK_THEME=<id>[:<variante>]` : surcharge globale 
 
 - **Réglages → moteur** (`bridge::adopt`) : un thème changé dans hyprdesk (Réglages → Thème, assistant, « Mes thèmes », `hyprdesk config set theme.*`, démon lancé ou non) est posé au moteur — le pack qui a exactement ces couleurs et ces effets dans l'une de ses variantes (même nom d'abord), sinon le pack utilisateur `perso` (`~/.local/share/hyprdesk/themes/perso/`), réécrit à chaque retouche. La palette est publiée à chaque fois, que des applications soient cochées ou non (MLG-232).
 - **Moteur → Réglages** : un thème posé hors du démon (`hyprdesk-theme-engine use`, LYRA, `watch`) réveille le démon (suivi de `active.json` et `palette.json`) et est recopié dans le miroir (`crate::theme::mirror_engine`) ; le rechargement de la config redessine les surfaces. Au démarrage, le moteur gagne ; sans thème actif, le thème des réglages est posé (migration). Le thème par défaut du démon est exactement le pack `ardoise`.
-- **Thème des applications** (kitty, GTK, Thunar, Qt) : résolution du pack actif et son dossier (gabarits du pack), plus de palette recalculée depuis les réglages.
+- **Thème des applications** (kitty, GTK, Qt) : résolution du pack actif et son dossier (gabarits du pack), plus de palette recalculée depuis les réglages.
 - **Couleurs d'état** des surfaces (attention, réussite, danger, couleurs par défaut de la barre et des états `warning` / `critical` des plugins) : slots `warning`, `success`, `danger` de la palette du pack actif (`src/ui/tone.rs`, MLG-234), dérivés lisibles sur le fond (4,5:1).
 - **Réglages → Thème** : les thèmes livrés sont les packs du moteur (embarqués, installés, `perso`), avec leur origine (MLG-233) ; `theme.preset` accepte le nom ou l'identifiant d'un pack.
 - Une valeur de `theme` fixée dans `hyprdesk.lua` reste prioritaire pour le démon (le moteur garde son pack actif) ; aucun aller-retour n'est forcé.
@@ -616,7 +616,7 @@ Workflow complet : demande (« un thème calme, vert sauge, sombre ») → inten
 - [ ] Publication `palette.json` (révision) et crate `crates/hyprdesk-theme-client` ; les surfaces iced du démon suivent la révision.
 - [ ] Préréglages `src/theme.rs` convertis en packs embarqués ; palette implicite « thème réglé ».
 - [ ] Démon : `hyprdesk config set theme.*` → apply debouncé ; fragment `hyprland` inclus par `hyprsrc.rs`.
-- Acceptance : `use ardoise --variant light` en session commute Hyprland, kitty, GTK et Thunar sans reconnexion ; une application iced tierce (liée à `hyprdesk-theme-client` seule) suit la variante à chaud ; `--mode hot` ne persiste rien ; `--mode dry-run` n'écrit rien ; retour arrière Historique fonctionnel.
+- Acceptance : `use ardoise --variant light` en session commute Hyprland, kitty et GTK sans reconnexion ; une application iced tierce (liée à `hyprdesk-theme-client` seule) suit la variante à chaud ; `--mode hot` ne persiste rien ; `--mode dry-run` n'écrit rien ; retour arrière Historique fonctionnel.
 
 ### Phase 2 — distribution et couverture
 

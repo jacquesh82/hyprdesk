@@ -57,7 +57,7 @@ configuration permettent de revenir à n'importe quel point.
 ### Un thème, toutes les applications
 
 Choisissez un thème : Hyprland, hyprdesk, les applications GTK 3 et 4
-(Brave et Firefox compris), les applications Qt, kitty et Thunar le suivent
+(Brave et Firefox compris), les applications Qt et kitty le suivent
 à chaud, jusqu'aux polices, icônes, curseurs et sons. Sept packs sont
 livrés (Ardoise, Clair, Verre, Ambre, Encre, Forêt, Contraste élevé), et
 n'importe quelle image peut en donner un nouveau. Un pack n'est que des
@@ -268,7 +268,7 @@ Réglages, et inversement.
 | hyprdesk, verrouillage et connexion | Rien : ils lisent la palette publiée | Aussitôt |
 | GTK 3 et 4 | Votre thème GTK de base recoloré au pack, installé sous `hyprdesk-<pack>` | Aussitôt dans les applications GTK 3 ouvertes, Brave et Firefox compris |
 | Qt | `qt6ct/colors/hyprdesk.conf` (et sa copie qt5ct) ; à choisir une fois dans qt6ct | Au relancement de l'application |
-| kitty, Thunar, hyprlock | Un fichier inclus, une feuille GTK, un fragment sourcé | Aussitôt, avec GTK, au prochain verrouillage |
+| kitty, hyprlock | Un fichier inclus, un fragment sourcé | Aussitôt, au prochain verrouillage |
 | Polices, icônes, curseurs, sons | Les réglages GNOME et les clés de hyprdesk | Aussitôt ; les curseurs à la session suivante |
 | Toute autre application | Un fichier déclaré par le pack (`[targets.<nom>]`) | Par un rechargement borné : signal, socket, gsettings |
 

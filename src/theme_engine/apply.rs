@@ -381,7 +381,6 @@ fn commit_target(
         let new_content: String = match p.op {
             Op::Write => p.content.clone(),
             Op::UpsertBlock => targets::upsert_block(&current, &p.content),
-            Op::ImportFirst => targets::include_first(&current, &p.content),
             Op::AppendSource => {
                 // Une ligne source par cible : reconnue par le tronçon
                 // « theme/<fragment> » de son chemin, stable partout.
@@ -410,7 +409,6 @@ fn commit_target(
             result: match p.op {
                 Op::Write => "écrit",
                 Op::UpsertBlock => "bloc mis à jour",
-                Op::ImportFirst => "import en tête",
                 Op::AppendSource => "source ajoutée",
                 Op::Setting => "réglage posé",
             }
@@ -668,7 +666,8 @@ mod tests {
         assert!(roots.config.join("kitty/hyprdesk-theme.conf").is_file());
         assert!(roots.config.join("gtk-3.0/gtk.css").is_file());
         assert!(roots.config.join("gtk-4.0/gtk.css").is_file());
-        assert!(roots.config.join("gtk-3.0/hyprdesk-thunar.css").is_file());
+        // Cible thunar retirée (MLG-251) : plus de feuille dédiée.
+        assert!(!roots.config.join("gtk-3.0/hyprdesk-thunar.css").exists());
         assert!(roots.hypr_theme_dir().join("hyprland.conf").is_file());
         assert!(roots.hypr_theme_dir().join("hyprlock.conf").is_file());
         let _ = std::fs::remove_dir_all(&root);
@@ -703,8 +702,8 @@ mod tests {
         let report = apply(&ardoise(), None, &roots, &opts(Mode::Persist));
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         let gtk = std::fs::read_to_string(roots.config.join("gtk-3.0/gtk.css")).unwrap();
-        // Les règles de l'utilisateur restent : l'import de Thunar devant,
-        // le bloc du thème à la fin.
+        // Les règles de l'utilisateur restent devant, le bloc du thème à la
+        // fin.
         assert!(gtk.contains("/* mes règles */"), "{gtk}");
         assert!(gtk.contains(targets::BLOCK_BEGIN));
         // Sauvegarde une fois, au premier passage.
@@ -726,32 +725,13 @@ mod tests {
     }
 
     #[test]
-    fn import_thunar_en_tête_de_gtk_css() {
-        let root = std::env::temp_dir().join(format!("hd-apply-4-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let roots = Roots::at(&root);
-        let report = apply(&ardoise(), None, &roots, &opts(Mode::Persist));
-        assert!(report.errors.is_empty(), "{:?}", report.errors);
-        let gtk = std::fs::read_to_string(roots.config.join("gtk-3.0/gtk.css")).unwrap();
-        let first_rule = gtk
-            .lines()
-            .find(|l| !l.trim().is_empty() && !l.starts_with("/*"))
-            .unwrap();
-        assert_eq!(first_rule, "@import url(\"hyprdesk-thunar.css\");", "{gtk}");
-        // Import relatif : le chemin ne porte pas le dossier.
-        assert!(!gtk.contains("gtk-3.0"));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
     fn échec_décriture_avec_retour_arrière_ciblé() {
         let root = std::env::temp_dir().join(format!("hd-apply-5-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let roots = Roots::at(&root);
         // gtk-4.0/gtk.css est un DOSSIER : l'écriture échoue, gtk-3.0 doit
-        // être remis en ordre. Seule la cible gtk : thunar s'exécute après et
-        // recréerait gtk-3.0/gtk.css (import en tête), ce qui masquerait
-        // l'annulation.
+        // être remis en ordre. Seule la cible gtk, pour que rien d'autre ne
+        // touche gtk-3.0/gtk.css.
         std::fs::create_dir_all(roots.config.join("gtk-4.0/gtk.css")).unwrap();
         let mut o = opts(Mode::Persist);
         o.only = vec!["gtk".to_string()];

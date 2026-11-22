@@ -236,7 +236,7 @@ application : `hyprdesk binds generate --write`.
   workspace, raccourcis d'applications et de fichiers, thème tiré d'une
   image. Les modules de la barre se réorganisent au glisser, le dock
   regroupe les fenêtres par application. Le thème des applications porte le
-  thème jusqu'à kitty et Thunar.
+  thème jusqu'à kitty, aux applications GTK et Qt.
 - **Écrans et saisie.** Disposez les écrans, réglez clavier et pavé
   tactile. Un changement de disposition des écrans revient seul au bout de
   12 secondes si vous ne le gardez pas.
