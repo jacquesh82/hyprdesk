@@ -1645,7 +1645,7 @@
 
 # Accessibilité : contraste élevé, clavier virtuel (MLG-20).
 "Contraste élevé" = "High contrast"
-"Contraste faible : {r}:1 (au moins 4,5:1 conseillé ; thème « Contraste élevé » : 21:1)." = "Low contrast: {r}:1 (at least 4.5:1 advised; “High contrast” theme: 21:1)."
+"Contraste faible : {r}:1 (au moins {t}:1 conseillé ; thème « Contraste élevé » : 21:1)." = "Low contrast: {r}:1 (at least {t}:1 advised; “High contrast” theme: 21:1)."
 "Contraste du texte : {r}:1." = "Text contrast: {r}:1."
 "Clavier virtuel" = "On-screen keyboard"
 "Affiche ou masque le clavier à l'écran (wvkbd)." = "Shows or hides the on-screen keyboard (wvkbd)."
@@ -4651,3 +4651,5 @@
 "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %." = "Theme glass: highlight {h} %, refraction {r} %, tint {t} %."
 "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement" = "on | off — reduced motion: short fades when opening, no scaling or sliding"
 "on | off — transparence réduite : surfaces presque opaques, sans reflet ni réfraction" = "on | off — reduced transparency: near-opaque surfaces, no highlight or refraction"
+"Accent peu visible sur le fond : {r}:1 (au moins {t}:1 conseillé pour les repères)." = "Accent hard to see on the background: {r}:1 (at least {t}:1 advised for markers)."
+"Vos couleurs sont gardées telles quelles ; un thème livré serait corrigé." = "Your colours are kept as chosen; a bundled theme would be corrected."

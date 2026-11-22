@@ -515,6 +515,18 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
                 },
                 skin.fill,
             );
+            // Verre du thème sur la capsule (MLG-274).
+            crate::ui::glass::paint(
+                renderer,
+                bounds,
+                h / 2.0,
+                &crate::ui::tokens::glass(crate::config::Place::Bar),
+                Color {
+                    a: 1.0,
+                    ..skin.border
+                },
+                cursor,
+            );
         }
         let visible = &state.visible;
         for (i, ((c, t), l)) in self

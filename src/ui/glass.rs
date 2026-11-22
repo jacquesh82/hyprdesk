@@ -12,6 +12,7 @@ use iced::advanced::{
     Layout, Widget, layout, mouse, renderer,
     widget::{Tree, tree},
 };
+use iced::border::Radius;
 use iced::{Background, Border, Color, Element, Length, Point, Rectangle, Size};
 
 use crate::config::Place;
@@ -21,7 +22,7 @@ use crate::theme_engine::design::Glass;
 pub struct Rim {
     glass: Glass,
     ink: Color,
-    radius: f32,
+    radius: Radius,
 }
 
 /// Pose le verre de `place` au-dessus de `content` : `radius` est celui du
@@ -29,9 +30,10 @@ pub struct Rim {
 pub fn over<'a, M: 'a>(
     content: impl Into<Element<'a, M, iced::Theme, iced::Renderer>>,
     place: Place,
-    radius: f32,
+    radius: impl Into<Radius>,
     ink: Color,
 ) -> Element<'a, M, iced::Theme, iced::Renderer> {
+    let radius = radius.into();
     let glass = super::tokens::glass(place);
     if !visible(&glass) {
         return content.into();
@@ -127,104 +129,147 @@ impl<M> Widget<M, iced::Theme, iced::Renderer> for Rim {
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
-        use iced::advanced::Renderer as _;
-        let b = layout.bounds();
-        if b.width < 2.0 || b.height < 2.0 {
-            return;
-        }
-        let g = &self.glass;
-        let r = self.radius.min(b.width / 2.0).min(b.height / 2.0);
-        let ink = self.ink;
-        let a = |k: f32| Color {
-            a: ink.a * k.clamp(0.0, 1.0),
-            ..ink
-        };
-        // La lumière est blanche, en thème clair comme sombre.
-        let light = |k: f32| Color::from_rgba(1.0, 1.0, 1.0, k.clamp(0.0, 1.0));
-        let clear = Color::TRANSPARENT;
+        paint(
+            renderer,
+            layout.bounds(),
+            self.radius,
+            &self.glass,
+            self.ink,
+            cursor,
+        );
+    }
+}
 
-        // Reflet : lumière venue d'en haut, sur la moitié supérieure.
-        if g.highlight > 0.0 {
-            let top = Rectangle {
-                height: b.height * 0.5,
-                ..b
-            };
-            let gradient = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, light(g.highlight * 0.55))
-                .add_stop(0.35, light(g.highlight * 0.18))
-                .add_stop(1.0, clear);
-            renderer.fill_quad(
-                quad(top, iced::border::Radius::new(0).top(r), (0.0, clear)),
-                Background::Gradient(gradient.into()),
-            );
-            // Lumière qui suit le pointeur : halo doux, en disques
-            // concentriques.
-            if g.pointer_response
-                && let Some(p) = cursor.position_over(b)
-            {
-                let size = (b.width.min(b.height) * 0.9).clamp(60.0, 320.0);
-                for i in 0..6 {
-                    let s = size * (1.0 - i as f32 / 7.0);
-                    let disc = Rectangle {
-                        x: p.x - s / 2.0,
-                        y: p.y - s / 2.0,
-                        width: s,
-                        height: s,
-                    };
-                    if let Some(clip) = disc.intersection(&b) {
-                        renderer.with_layer(clip, |renderer| {
-                            renderer.fill_quad(
-                                quad(disc, s / 2.0, (0.0, clear)),
-                                light(g.highlight * 0.05),
-                            );
-                        });
-                    }
+/// Rayons rétrécis de `d` (bande intérieure).
+fn inset(r: Radius, d: f32) -> Radius {
+    Radius {
+        top_left: (r.top_left - d).max(0.0),
+        top_right: (r.top_right - d).max(0.0),
+        bottom_right: (r.bottom_right - d).max(0.0),
+        bottom_left: (r.bottom_left - d).max(0.0),
+    }
+}
+
+/// Rayons bornés à la moitié de la surface.
+fn bounded(r: Radius, b: Rectangle) -> Radius {
+    let m = (b.width / 2.0).min(b.height / 2.0);
+    Radius {
+        top_left: r.top_left.min(m),
+        top_right: r.top_right.min(m),
+        bottom_right: r.bottom_right.min(m),
+        bottom_left: r.bottom_left.min(m),
+    }
+}
+
+/// Peint le verre sur `b` : reflet, halo du pointeur, réfraction, filet.
+/// Réutilisé par les surfaces qui dessinent leur propre forme (capsule
+/// d'Island).
+pub fn paint(
+    renderer: &mut iced::Renderer,
+    b: Rectangle,
+    radius: impl Into<Radius>,
+    g: &Glass,
+    ink: Color,
+    cursor: mouse::Cursor,
+) {
+    use iced::advanced::Renderer as _;
+    if b.width < 2.0 || b.height < 2.0 || !visible(g) {
+        return;
+    }
+    let r = bounded(radius.into(), b);
+    let a = |k: f32| Color {
+        a: ink.a * k.clamp(0.0, 1.0),
+        ..ink
+    };
+    // La lumière est blanche, en thème clair comme sombre.
+    let light = |k: f32| Color::from_rgba(1.0, 1.0, 1.0, k.clamp(0.0, 1.0));
+    let clear = Color::TRANSPARENT;
+
+    // Reflet : lumière venue d'en haut, sur la moitié supérieure.
+    if g.highlight > 0.0 {
+        let top = Rectangle {
+            height: b.height * 0.5,
+            ..b
+        };
+        let gradient = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+            .add_stop(0.0, light(g.highlight * 0.55))
+            .add_stop(0.35, light(g.highlight * 0.18))
+            .add_stop(1.0, clear);
+        let top_r = Radius {
+            bottom_left: 0.0,
+            bottom_right: 0.0,
+            ..bounded(r, top)
+        };
+        renderer.fill_quad(
+            quad(top, top_r, (0.0, clear)),
+            Background::Gradient(gradient.into()),
+        );
+        // Lumière qui suit le pointeur : halo doux, en disques concentriques.
+        if g.pointer_response
+            && let Some(p) = cursor.position_over(b)
+        {
+            let size = (b.width.min(b.height) * 0.9).clamp(60.0, 320.0);
+            for i in 0..6 {
+                let s = size * (1.0 - i as f32 / 7.0);
+                let disc = Rectangle {
+                    x: p.x - s / 2.0,
+                    y: p.y - s / 2.0,
+                    width: s,
+                    height: s,
+                };
+                if let Some(clip) = disc.intersection(&b) {
+                    renderer.with_layer(clip, |renderer| {
+                        renderer.fill_quad(
+                            quad(disc, s / 2.0, (0.0, clear)),
+                            light(g.highlight * 0.05),
+                        );
+                    });
                 }
             }
         }
+    }
 
-        // Réfraction : bande au bord où la lumière se concentre, puis
-        // liserés décomposés (froid dehors, chaud dedans).
-        if g.refraction > 0.0 && g.refraction_width > 0.5 {
-            let w = g.refraction_width.min(b.width / 3.0).min(b.height / 3.0);
-            let steps = 5;
-            for i in 0..steps {
-                let t = i as f32 / steps as f32;
-                let inset = w * t;
-                let band = Rectangle {
-                    x: b.x + inset,
-                    y: b.y + inset,
-                    width: b.width - 2.0 * inset,
-                    height: b.height - 2.0 * inset,
-                };
-                renderer.fill_quad(
-                    quad(
-                        band,
-                        (r - inset).max(0.0),
-                        (
-                            w / steps as f32 + 0.5,
-                            light(g.refraction * 0.16 * (1.0 - t) * (1.0 - t)),
-                        ),
-                    ),
-                    clear,
-                );
-            }
-            let cold = Color::from_rgba(0.55, 0.85, 1.0, 0.22 * g.refraction);
-            let warm = Color::from_rgba(1.0, 0.78, 0.55, 0.16 * g.refraction);
-            renderer.fill_quad(quad(b, r, (1.0, cold)), clear);
-            let inner = Rectangle {
-                x: b.x + 1.5,
-                y: b.y + 1.5,
-                width: b.width - 3.0,
-                height: b.height - 3.0,
+    // Réfraction : bande au bord où la lumière se concentre, puis liserés
+    // décomposés (froid dehors, chaud dedans).
+    if g.refraction > 0.0 && g.refraction_width > 0.5 {
+        let w = g.refraction_width.min(b.width / 3.0).min(b.height / 3.0);
+        let steps = 5;
+        for i in 0..steps {
+            let t = i as f32 / steps as f32;
+            let d = w * t;
+            let band = Rectangle {
+                x: b.x + d,
+                y: b.y + d,
+                width: b.width - 2.0 * d,
+                height: b.height - 2.0 * d,
             };
-            renderer.fill_quad(quad(inner, (r - 1.5).max(0.0), (1.0, warm)), clear);
+            renderer.fill_quad(
+                quad(
+                    band,
+                    inset(r, d),
+                    (
+                        w / steps as f32 + 0.5,
+                        light(g.refraction * 0.16 * (1.0 - t) * (1.0 - t)),
+                    ),
+                ),
+                clear,
+            );
         }
+        let cold = Color::from_rgba(0.55, 0.85, 1.0, 0.22 * g.refraction);
+        let warm = Color::from_rgba(1.0, 0.78, 0.55, 0.16 * g.refraction);
+        renderer.fill_quad(quad(b, r, (1.0, cold)), clear);
+        let inner = Rectangle {
+            x: b.x + 1.5,
+            y: b.y + 1.5,
+            width: b.width - 3.0,
+            height: b.height - 3.0,
+        };
+        renderer.fill_quad(quad(inner, inset(r, 1.5), (1.0, warm)), clear);
+    }
 
-        // Filet du verre.
-        if g.border > 0.0 {
-            renderer.fill_quad(quad(b, r, (1.0, a(g.border))), clear);
-        }
+    // Filet du verre.
+    if g.border > 0.0 {
+        renderer.fill_quad(quad(b, r, (1.0, a(g.border))), clear);
     }
 }
 

@@ -1083,7 +1083,13 @@ impl App {
             style,
             crate::config::BarStyle::Continuite | crate::config::BarStyle::Graphite
         ) {
-            crate::ui::glass::over(slab, crate::config::Place::Bar, 0.0, color(pal.fg, 1.0))
+            // Continuité arrondit les coins côté fenêtres.
+            let radius = match (style, top) {
+                (crate::config::BarStyle::Continuite, true) => iced::border::bottom(11),
+                (crate::config::BarStyle::Continuite, false) => iced::border::top(11),
+                _ => iced::border::radius(0),
+            };
+            crate::ui::glass::over(slab, crate::config::Place::Bar, radius, color(pal.fg, 1.0))
         } else {
             slab.into()
         };

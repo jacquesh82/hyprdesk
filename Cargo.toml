@@ -99,6 +99,9 @@ iced_layershell = { path = "vendor/iced_layershell" }
 # les polices du système pour chaque nouvelle surface (cache SVG par moteur
 # de rendu). Base de polices commune au processus (MLG-156).
 iced_wgpu = { path = "vendor/iced_wgpu" }
+# Chiffres tabulaires (MLG-274) : `to_attributes` active `tnum` pour une
+# famille suffixée de `TABULAR_SUFFIX`.
+iced_graphics = { path = "vendor/iced_graphics" }
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 # Écran de verrouillage noir au réveil : la surface n'était jamais
 # reconfigurée après un échec de présentation (MLG-175).

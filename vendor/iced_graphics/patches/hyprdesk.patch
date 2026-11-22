@@ -1,0 +1,38 @@
+--- a/src/text.rs
++++ b/src/text.rs
+@@ -255,13 +255,32 @@
+     min_bounds
+ }
+ 
++/// Suffixe de famille qui demande les chiffres tabulaires (hyprdesk,
++/// MLG-274) : `Font` d'iced ne porte pas de variantes OpenType, le nom de
++/// famille les transporte jusqu'ici.
++pub const TABULAR_SUFFIX: &str = "\u{1f}tnum";
++
+ /// Returns the attributes of the given [`Font`].
+ pub fn to_attributes(font: Font) -> cosmic_text::Attrs<'static> {
+-    cosmic_text::Attrs::new()
+-        .family(to_family(font.family))
++    let mut family = font.family;
++    let mut features = None;
++    if let font::Family::Name(name) = family
++        && let Some(base) = name.strip_suffix(TABULAR_SUFFIX)
++    {
++        family = font::Family::Name(base);
++        let mut f = cosmic_text::FontFeatures::new();
++        let _ = f.enable(cosmic_text::FeatureTag::new(b"tnum"));
++        features = Some(f);
++    }
++    let attrs = cosmic_text::Attrs::new()
++        .family(to_family(family))
+         .weight(to_weight(font.weight))
+         .stretch(to_stretch(font.stretch))
+-        .style(to_style(font.style))
++        .style(to_style(font.style));
++    match features {
++        Some(f) => attrs.font_features(f),
++        None => attrs,
++    }
+ }
+ 
+ fn to_family(family: font::Family) -> cosmic_text::Family<'static> {

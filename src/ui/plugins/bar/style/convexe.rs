@@ -102,9 +102,11 @@ pub(in crate::ui) fn drawer<'a>(pal: &BarPalette, edge: Edge, progress: f32) -> 
     )
 }
 fn paint<'a>(pal: &BarPalette, shape: Shape) -> Element<'a, Msg> {
+    let g = crate::ui::tokens::glass(crate::config::Place::Bar);
     canvas(Skin {
         fill: color(pal.bg, pal.opacity),
         shape,
+        light: (g.highlight, g.refraction),
     })
     .width(Length::Fill)
     .height(Length::Fill)
@@ -113,11 +115,38 @@ fn paint<'a>(pal: &BarPalette, shape: Shape) -> Element<'a, Msg> {
 struct Skin {
     fill: Color,
     shape: Shape,
+    /// Verre du thème (MLG-274) : reflet et réfraction.
+    light: (f32, f32),
 }
+
+/// Verre du thème sur une niche : reflet venu d'en haut dans la forme,
+/// liserés décomposés sur son contour.
+fn glass(frame: &mut canvas::Frame, path: &canvas::Path, light: (f32, f32)) {
+    let (highlight, refraction) = light;
+    let h = frame.size().height;
+    if highlight > 0.0 {
+        let gradient = canvas::gradient::Linear::new(Point::ORIGIN, Point::new(0.0, h * 0.5))
+            .add_stop(0.0, Color::from_rgba(1.0, 1.0, 1.0, highlight * 0.55))
+            .add_stop(0.35, Color::from_rgba(1.0, 1.0, 1.0, highlight * 0.18))
+            .add_stop(1.0, Color::TRANSPARENT);
+        frame.fill(path, canvas::Fill::from(canvas::Gradient::Linear(gradient)));
+    }
+    if refraction > 0.0 {
+        frame.stroke(
+            path,
+            canvas::Stroke::default()
+                .with_width(1.0)
+                .with_color(Color::from_rgba(0.55, 0.85, 1.0, 0.30 * refraction)),
+        );
+    }
+}
+/// Ce qui redessine la forme : couleur, géométrie, verre.
+type SkinKey = (Color, Shape, (f32, f32));
+
 #[derive(Default)]
 pub(in crate::ui) struct State {
     cache: canvas::Cache,
-    key: RefCell<Option<(Color, Shape)>>,
+    key: RefCell<Option<SkinKey>>,
 }
 impl canvas::Program<Msg> for Skin {
     type State = State;
@@ -129,7 +158,7 @@ impl canvas::Program<Msg> for Skin {
         bounds: Rectangle,
         _: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
-        let key = (self.fill, self.shape);
+        let key = (self.fill, self.shape, self.light);
         if *state.key.borrow() != Some(key) {
             state.cache.clear();
             *state.key.borrow_mut() = Some(key);
@@ -144,6 +173,7 @@ impl canvas::Program<Msg> for Skin {
                 } => {
                     let path = bar_path(size.width, height.min(size.height), extents, top);
                     frame.fill(&path, self.fill);
+                    glass(frame, &path, self.light);
                 }
                 Shape::Frame {
                     bezel,
@@ -183,7 +213,9 @@ impl canvas::Program<Msg> for Skin {
                     progress,
                     radius,
                 } => {
-                    frame.fill(&drawer_path(size, edge, progress, radius), self.fill);
+                    let path = drawer_path(size, edge, progress, radius);
+                    frame.fill(&path, self.fill);
+                    glass(frame, &path, self.light);
                 }
             }
         })]

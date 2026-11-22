@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- **Theme glass on every bar style, true tabular figures, contrast notice**
+  (MLG-274). Island's capsule and Convex's niches get the theme's highlight
+  and refraction rim; clocks and monitoring use the font's real `tnum`
+  figures (vendored iced_graphics passes the OpenType feature); Settings →
+  Theme → Colours flags text or accent colours below the contrast targets
+  (your own colours are never rewritten).
 - **Theme design tokens** (MLG-267 to 273). A theme pack now covers the whole
   look of the desktop, not just colours and opacities:
   - glass: `[glass]` tint, highlight (optionally following the pointer),

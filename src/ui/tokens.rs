@@ -326,21 +326,18 @@ pub fn disabled(c: Color) -> Color {
 }
 
 impl super::App {
-    /// Police des chiffres qui défilent (horloges, monitoring) : à chasse
-    /// fixe si le thème veut des chiffres tabulaires (MLG-270) — la police
-    /// à chasse fixe du pack, sinon celle du système.
+    /// Police des chiffres qui défilent (horloges, monitoring) : la police
+    /// de l'interface avec ses chiffres tabulaires si le thème les veut
+    /// (MLG-270, MLG-274 : variante OpenType `tnum`, transmise par la copie
+    /// embarquée d'iced_graphics).
     pub(super) fn numeric_font(&self, weight: iced::font::Weight) -> iced::Font {
-        let t = &design().typography;
-        if !t.tabular_numbers {
-            return self.ui_font(weight);
+        let font = self.ui_font(weight);
+        if !design().typography.tabular_numbers {
+            return font;
         }
         iced::Font {
-            family: match &t.mono_family {
-                Some(f) => iced::font::Family::Name(super::intern_font(f)),
-                None => iced::font::Family::Monospace,
-            },
-            weight,
-            ..iced::Font::DEFAULT
+            family: iced::font::Family::Name(super::intern_font(&tabular_name(self.ui_family))),
+            ..font
         }
     }
 
@@ -357,9 +354,31 @@ impl super::App {
     }
 }
 
+/// Nom de famille qui demande les chiffres tabulaires.
+pub fn tabular_name(family: &str) -> String {
+    format!("{family}{}", iced::advanced::graphics::text::TABULAR_SUFFIX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chiffres_tabulaires_transmis_au_moteur_de_texte() {
+        use iced::advanced::graphics::text::{cosmic_text, to_attributes};
+        let name: &'static str = Box::leak(tabular_name("Mindlog").into_boxed_str());
+        let attrs = to_attributes(iced::Font::with_name(name));
+        assert_eq!(attrs.family, cosmic_text::Family::Name("Mindlog"));
+        assert!(
+            attrs
+                .font_features
+                .features
+                .iter()
+                .any(|f| f.tag.as_bytes() == b"tnum" && f.value == 1)
+        );
+        let plain = to_attributes(iced::Font::with_name("Mindlog"));
+        assert!(plain.font_features.features.is_empty());
+    }
 
     /// Les jetons sont globaux : un seul essai les pose, dans l'ordre.
     #[test]

@@ -659,25 +659,60 @@ impl App {
 
         match self.subtab(INFO.id) {
             "couleurs" => {
-                // Accessibilité : contraste du texte sur les surfaces (WCAG AA : 4,5:1).
+                // Accessibilité : contraste du texte et des repères sur les
+                // surfaces, aux cibles du thème (MLG-269, MLG-274). Les
+                // couleurs choisies ici sont gardées telles quelles : on
+                // signale, on ne corrige pas.
+                let target = crate::ui::tokens::design().contrast.clone();
                 let ratio = crate::theme::contrast(th.fg, th.bg);
-                let note = if ratio < 4.5 {
-                    text(crate::tr!(
-                        "Contraste faible : {r}:1 (au moins 4,5:1 conseillé ; thème « Contraste élevé » : 21:1).",
-                        r = format!("{ratio:.1}")
-                    ))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(crate::ui::tone::warning())
+                let accent = crate::theme::contrast(th.accent, th.bg);
+                let mut lines = Vec::new();
+                if ratio + 1e-6 < f64::from(target.text) {
+                    lines.push((
+                        crate::tr!(
+                            "Contraste faible : {r}:1 (au moins {t}:1 conseillé ; thème « Contraste élevé » : 21:1).",
+                            r = format!("{ratio:.1}"),
+                            t = target.text
+                        ),
+                        true,
+                    ));
                 } else {
-                    text(crate::tr!(
-                        "Contraste du texte : {r}:1.",
-                        r = format!("{ratio:.1}")
-                    ))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim)
-                };
+                    lines.push((
+                        crate::tr!("Contraste du texte : {r}:1.", r = format!("{ratio:.1}")),
+                        false,
+                    ));
+                }
+                if accent + 1e-6 < f64::from(target.ui) {
+                    lines.push((
+                        crate::tr!(
+                            "Accent peu visible sur le fond : {r}:1 (au moins {t}:1 conseillé pour les repères).",
+                            r = format!("{accent:.1}"),
+                            t = target.ui
+                        ),
+                        true,
+                    ));
+                }
+                if lines.iter().any(|(_, w)| *w) {
+                    lines.push((
+                        crate::i18n::tr(
+                            "Vos couleurs sont gardées telles quelles ; un thème livré serait corrigé.",
+                        )
+                        .to_string(),
+                        false,
+                    ));
+                }
+                let note = column(lines.into_iter().map(|(l, warn)| {
+                    text(l)
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(if warn {
+                            crate::ui::tone::warning()
+                        } else {
+                            dim
+                        })
+                        .into()
+                }))
+                .spacing(4);
                 return column![self.section("Couleurs"), colors, note]
                     .spacing(14)
                     .into();
