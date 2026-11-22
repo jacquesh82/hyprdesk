@@ -223,6 +223,15 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
     }
 }
 
+/// Palette implicite depuis le thème courant du démon : mêmes couleurs et
+/// mêmes effets que l'interface, fond sans image dérivé du fond.
+pub fn from_theme(t: &crate::config::Theme) -> Resolved {
+    let mut r = from_adjusted(t.fg, t.bg, t.accent, super::color::darken(t.bg, 4.0));
+    r.name = t.name.clone();
+    r.effects = Place::ALL.iter().map(|p| (*p, t.effect(*p))).collect();
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::manifest::Manifest;

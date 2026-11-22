@@ -20,11 +20,14 @@
 //! - [`resolve`] : variante + héritage + slots dérivés → palette complète ;
 //! - [`paths`] : emplacements XDG, paramétrables pour les essais.
 
+pub mod apply;
 pub mod color;
 pub mod manifest;
 pub mod packs;
 pub mod paths;
 pub mod resolve;
+pub mod state;
+pub mod targets;
 pub mod template;
 
 use thiserror::Error;
@@ -51,6 +54,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("manifeste illisible : {0}")]
     Toml(#[from] toml::de::Error),
+    #[error("json : {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

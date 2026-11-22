@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Error, Result};
 
@@ -125,7 +125,7 @@ pub struct HyprlandSpec {
 }
 
 /// `[fonts]`.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Fonts {
     pub family: Option<String>,
