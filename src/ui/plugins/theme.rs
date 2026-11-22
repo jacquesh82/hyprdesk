@@ -190,6 +190,7 @@ fn shown_catalog(st: &State) -> Vec<crate::theme_engine::bridge::Entry> {
                 accent: p.accent,
                 effects: p.effects(),
             },
+            other: None,
         })
         .collect()
 }
@@ -313,17 +314,44 @@ impl App {
 
         // Thèmes livrés : les packs du moteur de thème, qui fait foi.
         let presets = row(shown_catalog(st).into_iter().map(|e| {
-            let on = crate::theme_engine::bridge::same_theme(th, &e.theme);
-            let name = match e.origin {
-                "bundled" => e.theme.name.clone(),
-                "user" => crate::tr!("{n} · à vous", n = e.theme.name),
-                _ => crate::tr!("{n} · installé", n = e.theme.name),
+            use crate::theme_engine::bridge::same_theme;
+            // Variante montrée : celle en place si c'est l'autre, sinon celle
+            // par défaut ; l'autre se choisit sous la tuile (MLG-254).
+            let (shown, alt) = match e.other {
+                Some((_, t)) if same_theme(th, &t) => (t, Some((e.variant, e.theme))),
+                other => (e.theme, other),
             };
-            card_button(
-                preview(name, e.theme.fg, e.theme.bg, e.theme.accent, on).into(),
-                wrap(Msg::Pack(Box::new(e.theme))),
-            )
-            .into()
+            let on = same_theme(th, &shown);
+            let name = match e.origin {
+                "bundled" => shown.name.clone(),
+                "user" => crate::tr!("{n} · à vous", n = shown.name),
+                _ => crate::tr!("{n} · installé", n = shown.name),
+            };
+            let card = card_button(
+                preview(name, shown.fg, shown.bg, shown.accent, on).into(),
+                wrap(Msg::Pack(Box::new(shown))),
+            );
+            match alt {
+                Some((v, t)) => column![
+                    card,
+                    button(
+                        text(crate::i18n::tr(if v == "light" {
+                            "Version claire"
+                        } else {
+                            "Version sombre"
+                        }))
+                        .font(font)
+                        .size(11),
+                    )
+                    .padding([2, 8])
+                    .style(button::text)
+                    .on_press(wrap(Msg::Pack(Box::new(t)))),
+                ]
+                .spacing(2)
+                .align_x(Alignment::Center)
+                .into(),
+                None => card.into(),
+            }
         }))
         .spacing(10)
         .wrap();

@@ -85,6 +85,12 @@ pub fn discover(roots: &Roots, bundled: &[Pack]) -> Result<(Vec<Pack>, Vec<Strin
                 if !path.is_dir() || !path.join(MANIFEST_FILE).exists() {
                     continue;
                 }
+                // Copie inchangée d'un pack livré, seule dans son dossier
+                // (recopiée par `use` avant MLG-254) : le pack livré, qui
+                // porte ses corrections, reste devant.
+                if copie_livrée(&path) {
+                    continue;
+                }
                 match load_dir(&path, origin) {
                     Ok(pack) => {
                         by_id.insert(pack.manifest.meta.id.clone(), pack);
@@ -98,6 +104,14 @@ pub fn discover(roots: &Roots, bundled: &[Pack]) -> Result<(Vec<Pack>, Vec<Strin
         }
     }
     Ok((by_id.into_values().collect(), warnings))
+}
+
+/// Dossier qui ne contient que le manifeste, inchangé, d'un pack livré.
+fn copie_livrée(dir: &Path) -> bool {
+    let id = dir.file_name().unwrap_or_default().to_string_lossy();
+    let seul = std::fs::read_dir(dir).is_ok_and(|rd| rd.flatten().count() == 1);
+    seul && std::fs::read_to_string(dir.join(MANIFEST_FILE))
+        .is_ok_and(|t| super::bundled::unmodified_copy(&id, &t))
 }
 
 /// Pack par identifiant dans une liste découverte.

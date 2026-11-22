@@ -367,6 +367,33 @@ pub fn plan_opts(
     }])
 }
 
+/// Cibles qui appartiennent au pack lui-même et non à une application
+/// cochée (MLG-254) : polices, icônes, curseurs et sons qu'il déclare, et
+/// ses cibles génériques actives. Le démon les applique avec le thème ; les
+/// packs qui n'en déclarent pas n'en ont aucune.
+pub fn pack_declared(resolved: &Resolved) -> Vec<String> {
+    let mut out = Vec::new();
+    if resolved.fonts.as_ref().is_some_and(|f| f.family.is_some()) {
+        out.push("fonts".to_string());
+    }
+    if resolved.icons.as_ref().is_some_and(|i| i.theme.is_some()) {
+        out.push("icons".to_string());
+    }
+    if resolved.cursors.is_some() {
+        out.push("cursors".to_string());
+    }
+    if resolved.sounds.as_ref().is_some_and(|s| s.theme.is_some()) {
+        out.push("sounds".to_string());
+    }
+    out.extend(
+        all(resolved)
+            .into_iter()
+            .map(|t| t.id)
+            .filter(|id| builtin_id(id).is_none()),
+    );
+    out
+}
+
 /// Identifiant de cible intégrée, pour router le plan.
 fn builtin_id(id: &str) -> Option<&'static str> {
     BUILTIN_IDS.iter().copied().find(|b| *b == id)
@@ -1432,6 +1459,28 @@ mod tests {
         // Idempotent.
         let third = upsert_block(&second, "@define-color accent rgb(9, 9, 9);\n");
         assert_eq!(second, third);
+    }
+
+    #[test]
+    fn cibles_déclarées_par_le_pack() {
+        // MLG-254 : un pack livré ne déclare rien pour lui-même ; un pack
+        // tiers avec polices et icônes les fait appliquer par le démon.
+        let livré = super::super::resolve::from_theme(&crate::config::Theme::default());
+        assert!(pack_declared(&livré).is_empty());
+        let texte = "[meta]\nid = \"tiers\"\nname = \"T\"\nversion = \"1\"\n\
+                     [palette]\nbg = \"#171b27\"\nfg = \"#f2f4fc\"\naccent = \"#a69cff\"\n\
+                     [fonts]\nfamily = \"Inter\"\n[icons]\ntheme = \"Papirus\"\n";
+        let (m, _) = super::super::manifest::Manifest::parse("tiers", texte).unwrap();
+        let pack = super::super::packs::Pack {
+            origin: super::super::packs::Origin::User,
+            dir: None,
+            manifest: m,
+        };
+        let r = super::super::resolve::resolve(&[pack], "dark").unwrap();
+        assert_eq!(
+            pack_declared(&r),
+            vec!["fonts".to_string(), "icons".to_string()]
+        );
     }
 
     #[test]

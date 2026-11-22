@@ -1,7 +1,9 @@
 //! Packs embarqués : les préréglages de `crate::theme`, convertis en packs
 //! (mêmes couleurs, mêmes effets de surface). Visibles par `list` avec
-//! `origin = "bundled"` ; installés dans le dossier utilisateur à la
-//! sélection (`use`), sans écraser une modification locale éventuelle.
+//! `origin = "bundled"`, lus depuis le binaire : ils ne sont plus recopiés
+//! dans le dossier utilisateur à la sélection (MLG-254), et une copie restée
+//! telle quelle d'une version livrée est ignorée ([`unmodified_copy`]) pour
+//! ne pas masquer les corrections suivantes.
 
 use super::manifest::Manifest;
 use super::packs::{Origin, Pack};
@@ -19,6 +21,31 @@ const PACKS: &[(&str, &str)] = &[
         include_str!("packs/contraste-eleve.toml"),
     ),
 ];
+
+/// Versions livrées précédentes de chaque pack : une copie qui leur est
+/// identique (recopiée par `use` avant MLG-254) n'est pas « à vous ».
+const ANCIENS: &[(&str, &str)] = &[
+    ("ardoise", include_str!("packs/anciens/ardoise-1.0.0.toml")),
+    ("verre", include_str!("packs/anciens/verre-1.0.0.toml")),
+    ("encre", include_str!("packs/anciens/encre-1.0.0.toml")),
+    ("foret", include_str!("packs/anciens/foret-1.0.0.toml")),
+    ("ambre", include_str!("packs/anciens/ambre-1.0.0.toml")),
+    ("clair", include_str!("packs/anciens/clair-1.0.0.toml")),
+    (
+        "contraste-eleve",
+        include_str!("packs/anciens/contraste-eleve-1.0.0.toml"),
+    ),
+];
+
+/// `text` est le manifeste livré du pack `id`, actuel ou d'une version
+/// précédente, sans modification (fins de ligne mises à part).
+pub fn unmodified_copy(id: &str, text: &str) -> bool {
+    let text = text.trim_end();
+    PACKS
+        .iter()
+        .chain(ANCIENS)
+        .any(|(i, t)| *i == id && t.trim_end() == text)
+}
 
 /// Packs embarqués chargés et validés (un manifeste invalide embarqué serait
 /// une erreur de programme : il est ignoré avec la trace en commentaire).
@@ -95,6 +122,47 @@ mod tests {
             .unwrap();
         assert_eq!(ardoise.manifest.effects["widgets"].blur, Some(false));
         assert_eq!(ardoise.manifest.effects["bar"].blur, Some(true));
+    }
+
+    #[test]
+    fn packs_livrés_complets_sans_avertissement() {
+        // MLG-254 : métadonnées complètes, variante déclarée et cohérente
+        // avec le fond, aucun champ inconnu.
+        for (id, text) in PACKS {
+            let (m, warnings) = Manifest::parse(id, text).unwrap();
+            assert!(warnings.is_empty(), "{id} : {warnings:?}");
+            assert!(!m.meta.authors.is_empty(), "{id}");
+            assert!(
+                m.meta.description.is_some() && m.meta.license.is_some(),
+                "{id}"
+            );
+            assert!(m.meta.min_engine.is_some(), "{id}");
+            let déclarée = m.meta.default_variant.clone().unwrap_or_default();
+            let bg = super::super::color::parse(&m.palette["bg"]).unwrap();
+            let déduite = if super::super::color::luminance(bg) > 0.5 {
+                "light"
+            } else {
+                "dark"
+            };
+            assert_eq!(déclarée, déduite, "{id}");
+            for surface in ["bar", "menus", "launcher", "settings", "widgets"] {
+                assert!(m.effects.contains_key(surface), "{id} : {surface}");
+            }
+        }
+    }
+
+    #[test]
+    fn copie_inchangée_reconnue() {
+        assert!(unmodified_copy(
+            "clair",
+            include_str!("packs/anciens/clair-1.0.0.toml")
+        ));
+        assert!(unmodified_copy("clair", manifest_text("clair").unwrap()));
+        let retouchée = manifest_text("clair")
+            .unwrap()
+            .replace("#5b5bd6", "#ff0000");
+        assert!(!unmodified_copy("clair", &retouchée));
+        assert!(!unmodified_copy("verre", manifest_text("clair").unwrap()));
     }
 
     #[test]

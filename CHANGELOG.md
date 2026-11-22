@@ -110,6 +110,15 @@ and this project adheres to
 
 ### Fixed
 
+- **Bundled themes follow the theme engine in full** (MLG-254). Clair now
+  sets GTK, Brave and Firefox to light mode instead of dark (the pack had no
+  `default_variant`; a pack that declares none now takes it from its
+  background). Picking a theme in Settings applies everything the pack
+  declares (fonts, icons, cursors, sounds, its own targets), a pack with a
+  different light or dark version offers it under its tile, and the seven
+  packs declare complete metadata. `hyprdesk-theme-engine use` no longer
+  copies a bundled pack to your folder; an unchanged copy left by an earlier
+  version is ignored, so it no longer hides fixes or shows as “yours”.
 - **Install, uninstall and restore with the theme engine** (MLG-230,
   MLG-243 to MLG-246):
   - `hyprdesk-theme-engine` is installed with the other dedicated binaries

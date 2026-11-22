@@ -1,0 +1,31 @@
+[meta]
+id = "encre"
+name = "Encre"
+version = "1.0.0"
+description = "Noir profond, accent aqua, surfaces opaques sans flou."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#000000"
+fg = "#e8e8ec"
+accent = "#80ffea"
+
+[effects.bar]
+opacity = 0.94
+blur = false
+
+[effects.menus]
+opacity = 0.97
+blur = false
+
+[effects.launcher]
+opacity = 0.95
+blur = false
+
+[effects.settings]
+opacity = 1.0
+blur = false
+
+[effects.widgets]
+opacity = 0.92
+blur = false

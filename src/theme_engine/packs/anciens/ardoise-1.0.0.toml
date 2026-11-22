@@ -1,0 +1,31 @@
+[meta]
+id = "ardoise"
+name = "Ardoise"
+version = "1.0.0"
+description = "Verre fumé, accent iris — le préréglage par défaut de hyprdesk."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#171b27"
+fg = "#f2f4fc"
+accent = "#a69cff"
+
+[effects.bar]
+opacity = 0.72
+blur = true
+
+[effects.menus]
+opacity = 0.9
+blur = true
+
+[effects.launcher]
+opacity = 0.88
+blur = true
+
+[effects.settings]
+opacity = 0.97
+blur = true
+
+[effects.widgets]
+opacity = 0.84
+blur = false

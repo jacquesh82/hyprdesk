@@ -1,9 +1,12 @@
 [meta]
 id = "foret"
 name = "Forêt"
-version = "1.0.0"
+version = "1.1.0"
 description = "Verts profonds, accent menthe."
 license = "GPL-3.0-or-later"
+authors = ["hyprdesk"]
+default_variant = "dark"
+min_engine = "0.1.9"
 
 [palette]
 bg = "#16221b"

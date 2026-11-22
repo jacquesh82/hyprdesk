@@ -135,8 +135,10 @@ pub fn sync(
     // Délégation au moteur de thème (docs/THEME-ENGINE.md §16) : une seule
     // application transactionnelle pour toutes les cibles activées, palette
     // implicite depuis le thème, options conservées (kitty.file…). Les
-    // cibles désactivées reprennent leur clear. Le fragment `hyprland` du
-    // moteur reste hors du démon : les couleurs de fenêtres sont portées
+    // cibles désactivées reprennent leur clear. Ce que le pack déclare pour
+    // lui-même (polices, icônes, curseurs, sons, cibles génériques) suit le
+    // thème, applications cochées ou non (MLG-254). Le fragment `hyprland`
+    // du moteur reste hors du démon : les couleurs de fenêtres sont portées
     // par appearance.lua.
     let mut out = Vec::new();
     // Ce que la cible thunar avait posé (MLG-251) : sans effet une fois fait.
@@ -167,10 +169,11 @@ pub fn sync(
             }
         }
     }
-    if activées.is_empty() {
+    let (resolved, pack_dir) = crate::theme_engine::bridge::resolution_for(&roots, theme);
+    let du_pack = crate::theme_engine::targets::pack_declared(&resolved);
+    if activées.is_empty() && du_pack.is_empty() {
         return out;
     }
-    let (resolved, pack_dir) = crate::theme_engine::bridge::resolution_for(&roots, theme);
     // Options effectives de chaque cible, `~/` développé et défauts compris
     // (le moteur ne connaît pas ces défauts : sans eux, l'inclusion dans
     // kitty.conf n'était plus posée). Une commande de rechargement vidée
@@ -178,7 +181,7 @@ pub fn sync(
     // réglage du poste, jamais un contenu de pack.
     let (target_opts, reload_commands) = engine_options(opts);
     let options = crate::theme_engine::apply::Options {
-        only: activées.clone(),
+        only: activées.iter().chain(&du_pack).cloned().collect(),
         origin: "daemon".to_string(),
         check_installed: false,
         reload: true,
@@ -188,7 +191,7 @@ pub fn sync(
     };
     let report =
         crate::theme_engine::apply::apply(&resolved, pack_dir.as_deref(), &roots, &options);
-    for id in &activées {
+    for id in activées.iter().chain(&du_pack) {
         match report.targets.iter().find(|tr| tr.id == *id) {
             Some(tr) if tr.status == "ok" => {
                 out.push((

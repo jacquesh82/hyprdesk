@@ -312,12 +312,9 @@ fn use_pack(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure
         .ok_or_else(|| (1u8, "usage : use <id>".to_string()))?;
     let origin = flags.origin.clone().unwrap_or_else(|| "cli".to_string());
     policy_gate(&origin, true)?;
+    // Pack embarqué : lu depuis le binaire, jamais recopié (MLG-254 : une
+    // copie figée masquait ses corrections).
     let (resolved, dir) = resolved_of(roots, flags, &id)?;
-    // Pack embarqué : installé dans le dossier utilisateur à la sélection.
-    let dir = match dir {
-        Some(d) => Some(d),
-        None => install_bundled(roots, &id).map(Some)?,
-    };
     state::write_active(
         roots,
         &state::ActiveTheme {
@@ -359,20 +356,6 @@ fn apply_active(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
     let report = apply::apply(&resolved, dir.as_deref(), roots, &options_of(&flags)?);
     print_report(&report, &flags)?;
     Ok(if report.errors.is_empty() { 0 } else { 3 })
-}
-
-/// Installe le manifeste d'un pack embarqué dans le dossier utilisateur.
-fn install_bundled(roots: &Roots, id: &str) -> Result<PathBuf, Failure> {
-    let Some(text) = bundled::manifest_text(id) else {
-        return Err((2, format!("pack embarqué introuvable : {id}")));
-    };
-    let dir = roots.themes_dir().join(id);
-    let path = dir.join("theme.toml");
-    if !path.is_file() {
-        std::fs::create_dir_all(&dir).map_err(io_err)?;
-        std::fs::write(&path, text).map_err(io_err)?;
-    }
-    Ok(dir)
 }
 
 fn generate(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {

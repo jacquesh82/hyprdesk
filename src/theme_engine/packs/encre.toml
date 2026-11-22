@@ -1,9 +1,12 @@
 [meta]
 id = "encre"
 name = "Encre"
-version = "1.0.0"
+version = "1.1.0"
 description = "Noir profond, accent aqua, surfaces opaques sans flou."
 license = "GPL-3.0-or-later"
+authors = ["hyprdesk"]
+default_variant = "dark"
+min_engine = "0.1.9"
 
 [palette]
 bg = "#000000"

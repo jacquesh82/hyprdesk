@@ -357,11 +357,18 @@ impl Manifest {
         Ok(())
     }
 
-    /// Variante par défaut effective du pack.
+    /// Variante par défaut effective du pack : celle qu'il déclare, sinon
+    /// déduite de son fond (`palette.bg` clair : `light`), sinon `dark`
+    /// (MLG-254 : un pack clair sans `default_variant` passait en sombre et
+    /// posait `prefer-dark`).
     pub fn default_variant(&self) -> &'static str {
         match self.meta.default_variant.as_deref() {
             Some("light") => "light",
-            _ => DEFAULT_VARIANT,
+            Some(_) => DEFAULT_VARIANT,
+            None => match self.palette.get("bg").and_then(|c| super::color::parse(c)) {
+                Some(bg) if super::color::luminance(bg) > 0.5 => "light",
+                _ => DEFAULT_VARIANT,
+            },
         }
     }
 }
@@ -448,6 +455,30 @@ blur = true
         assert_eq!(m.hyprland.options["decoration:rounding"], "10");
         assert!(warnings.is_empty());
         assert_eq!(m.default_variant(), "dark");
+    }
+
+    #[test]
+    fn variante_par_défaut_déduite_du_fond() {
+        let clair = "[meta]\nid = \"xx\"\nname = \"X\"\nversion = \"1\"\n\
+                     [palette]\nbg = \"#f3f4f8\"\nfg = \"#1f2330\"\naccent = \"#5b5bd6\"\n";
+        assert_eq!(
+            Manifest::parse("xx", clair).unwrap().0.default_variant(),
+            "light"
+        );
+        let sombre = clair.replace("#f3f4f8", "#171b27");
+        assert_eq!(
+            Manifest::parse("xx", &sombre).unwrap().0.default_variant(),
+            "dark"
+        );
+        // Déclarée : elle gagne sur le fond.
+        let déclarée = clair.replace(
+            "version = \"1\"\n",
+            "version = \"1\"\ndefault_variant = \"dark\"\n",
+        );
+        assert_eq!(
+            Manifest::parse("xx", &déclarée).unwrap().0.default_variant(),
+            "dark"
+        );
     }
 
     #[test]

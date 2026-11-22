@@ -1,0 +1,31 @@
+[meta]
+id = "ambre"
+name = "Ambre"
+version = "1.0.0"
+description = "Bruns chauds, accent ambre."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#241a14"
+fg = "#fbf3e6"
+accent = "#ffb86c"
+
+[effects.bar]
+opacity = 0.76
+blur = true
+
+[effects.menus]
+opacity = 0.92
+blur = true
+
+[effects.launcher]
+opacity = 0.88
+blur = true
+
+[effects.settings]
+opacity = 0.97
+blur = true
+
+[effects.widgets]
+opacity = 0.86
+blur = false

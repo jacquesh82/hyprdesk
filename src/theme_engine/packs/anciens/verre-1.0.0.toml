@@ -1,0 +1,31 @@
+[meta]
+id = "verre"
+name = "Verre"
+version = "1.0.0"
+description = "Surfaces très transparentes, accent rose."
+license = "GPL-3.0-or-later"
+
+[palette]
+bg = "#1b1f33"
+fg = "#f6f7ff"
+accent = "#ff80bf"
+
+[effects.bar]
+opacity = 0.42
+blur = true
+
+[effects.menus]
+opacity = 0.66
+blur = true
+
+[effects.launcher]
+opacity = 0.55
+blur = true
+
+[effects.settings]
+opacity = 0.82
+blur = true
+
+[effects.widgets]
+opacity = 0.55
+blur = false

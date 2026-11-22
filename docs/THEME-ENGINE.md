@@ -78,7 +78,7 @@ Emplacements de découverte, par priorité décroissante :
 
 1. `~/.local/share/hyprdesk/themes/<id>/`
 2. `$XDG_DATA_DIRS/hyprdesk/themes/<id>/`
-3. Packs embarqués (ressources `include_str!` du binaire, exposés par `list` avec `origin = "bundled"` ; installés dans le dossier utilisateur à la sélection, sans écraser une modification locale).
+3. Packs embarqués (ressources `include_str!` du binaire, exposés par `list` avec `origin = "bundled"`). Ils sont lus depuis le binaire et jamais recopiés à la sélection (MLG-254) : une copie figée masquait leurs corrections. Un dossier utilisateur ou système qui ne contient que le manifeste inchangé d'un pack livré (version actuelle ou précédente) est ignoré ; dès qu'il diffère, c'est un pack « à vous » qui gagne.
 
 Deux packs avec le même `id` : l'utilisateur gagne. Un pack local incomplet (manifeste invalide) est signalé par `doctor` et ignoré de la découverte.
 
@@ -101,7 +101,7 @@ description = "Verre fumé, accent iris."
 authors = ["Jacques Hullu"]
 license = "MIT"
 screenshot = "capture.png"
-default_variant = "dark"          # "dark" | "light" (défaut "dark")
+default_variant = "dark"          # "dark" | "light" (absent : déduit de palette.bg, clair → "light")
 min_engine = "0.2.0"              # version de hyprdesk-theme-engine requise
 
 [inherits]
@@ -172,6 +172,10 @@ enabled = true
 [targets.kitty]                   # surcharge du gabarit intégré de la cible
 template = "templates/kitty.conf.tmpl"
 ```
+
+Les packs livrés déclarent `authors`, `license`, `default_variant` (cohérente avec leur fond) et `min_engine`, et les effets des cinq surfaces ; un essai le vérifie (`packs_livrés_complets_sans_avertissement`).
+
+Choisir un pack dans Réglages → Thème l'applique en entier : palette et effets, modules du thème cochés, et ce que le pack déclare pour lui-même — `[fonts]`, `[icons]`, `[cursors]`, `[sounds]` et ses cibles génériques actives (`targets::pack_declared`). Seul le fragment `hyprland` reste au démon (`appearance.lua`). Un pack dont l'autre variante a une autre apparence propose « Version claire » ou « Version sombre » sous sa tuile.
 
 Champ `enabled` (défaut `true`) : une cible désactivée est ignorée, même si `general.app_themes` l'active — le pack a le dernier mot pour sa propre distribution.
 

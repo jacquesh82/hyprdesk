@@ -49,6 +49,12 @@ pub fn active(roots: &Roots) -> Option<Active> {
 fn resolve_pack(roots: &Roots, id: &str, variant: &str) -> Result<(Resolved, Option<PathBuf>)> {
     let (all, _) = packs::discover(roots, &bundled::packs())?;
     let chain = packs::chain(&all, id)?;
+    // Pack sans variantes : la sienne, quelle que soit celle notée dans
+    // active.json (Clair noté `dark` avant MLG-254).
+    let variant = match packs::find(&all, id) {
+        Some(p) if p.manifest.variant.is_empty() => p.manifest.default_variant(),
+        _ => variant,
+    };
     let resolved = resolve::resolve(&chain, variant)?;
     let dir = packs::find(&all, id).and_then(|p| p.dir.clone());
     Ok((resolved, dir))
@@ -101,6 +107,9 @@ pub struct Entry {
     pub origin: &'static str,
     pub variant: String,
     pub theme: Theme,
+    /// L'autre variante, quand le pack en déclare une d'apparence
+    /// différente (MLG-254) : nom (`light`/`dark`) et thème.
+    pub other: Option<(String, Theme)>,
 }
 
 /// Packs disponibles (embarqués, utilisateur, système) dans leur variante
@@ -116,11 +125,21 @@ pub fn catalog(roots: &Roots) -> Vec<Entry> {
             let variant = p.manifest.default_variant().to_string();
             let chain = packs::chain(&all, &id).ok()?;
             let resolved = resolve::resolve(&chain, &variant).ok()?;
+            let theme = to_theme(&resolved);
+            let autre = super::manifest::VARIANTS
+                .iter()
+                .find(|v| **v != variant)
+                .map(|v| v.to_string());
+            let other = autre.and_then(|v| {
+                let t = to_theme(&resolve::resolve(&chain, &v).ok()?);
+                (!same_look(&t, &theme)).then_some((v, t))
+            });
             Some(Entry {
                 id,
                 origin: p.origin.as_str(),
                 variant,
-                theme: to_theme(&resolved),
+                theme,
+                other,
             })
         })
         .collect()
@@ -149,7 +168,16 @@ pub fn adopt(roots: &Roots, theme: &Theme, origin: &str) -> Result<Active> {
         let Ok(chain) = packs::chain(&all, id) else {
             continue;
         };
-        for variant in super::manifest::VARIANTS {
+        // Variante par défaut du pack d'abord : un pack sans variantes a la
+        // même apparence dans les deux, et Clair doit rester `light`.
+        let défaut = p.manifest.default_variant();
+        let variantes = std::iter::once(défaut).chain(
+            super::manifest::VARIANTS
+                .iter()
+                .copied()
+                .filter(|v| *v != défaut),
+        );
+        for variant in variantes {
             let Ok(r) = resolve::resolve(&chain, variant) else {
                 continue;
             };
@@ -332,6 +360,82 @@ mod tests {
         assert_eq!(
             adopt(&roots, &ardoise(), "user").unwrap().active.pack,
             "ardoise"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clair_reste_clair_et_copies_figées_ignorées() {
+        // MLG-254 : Clair est posé en variante claire, même noté `dark`
+        // dans active.json, et une copie 1.0.0 recopiée par `use` ne le
+        // masque plus.
+        let (root, roots) = roots("clair");
+        let p = crate::theme::PRESETS
+            .iter()
+            .find(|p| p.name == "Clair")
+            .unwrap();
+        let t = Theme {
+            name: p.name.to_string(),
+            fg: p.fg,
+            bg: p.bg,
+            accent: p.accent,
+            effects: p.effects(),
+        };
+        let copie = roots.themes_dir().join("clair");
+        std::fs::create_dir_all(&copie).unwrap();
+        std::fs::write(
+            copie.join("theme.toml"),
+            include_str!("packs/anciens/clair-1.0.0.toml"),
+        )
+        .unwrap();
+        let a = adopt(&roots, &t, "user").unwrap();
+        assert_eq!(
+            (a.active.pack.as_str(), a.active.variant.as_str()),
+            ("clair", "light")
+        );
+        assert_eq!(a.resolved.variant, "light");
+        assert!(a.dir.is_none(), "le pack livré, pas la copie");
+        let e = catalog(&roots)
+            .into_iter()
+            .find(|e| e.id == "clair")
+            .unwrap();
+        assert_eq!((e.origin, e.variant.as_str()), ("bundled", "light"));
+        assert!(e.other.is_none());
+        // Noté `dark` par une version d'avant : résolu clair quand même.
+        state::write_active(
+            &roots,
+            &ActiveTheme {
+                pack: "clair".to_string(),
+                variant: "dark".to_string(),
+                origin: "cli".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(active(&roots).unwrap().resolved.variant, "light");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn autre_variante_au_catalogue() {
+        let (root, roots) = roots("variantes");
+        let dir = roots.themes_dir().join("duo");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("theme.toml"),
+            "[meta]\nid = \"duo\"\nname = \"Duo\"\nversion = \"1\"\n\
+             [palette]\nbg = \"#171b27\"\nfg = \"#f2f4fc\"\naccent = \"#a69cff\"\n\
+             [variant.light]\npalette.bg = \"#f2f4fc\"\npalette.fg = \"#171b27\"\n",
+        )
+        .unwrap();
+        let e = catalog(&roots).into_iter().find(|e| e.id == "duo").unwrap();
+        assert_eq!(e.variant, "dark");
+        let (v, clair) = e.other.clone().unwrap();
+        assert_eq!(v, "light");
+        // Choisir la version claire pose bien la variante claire.
+        let a = adopt(&roots, &clair, "user").unwrap();
+        assert_eq!(
+            (a.active.pack.as_str(), a.active.variant.as_str()),
+            ("duo", "light")
         );
         let _ = std::fs::remove_dir_all(&root);
     }
