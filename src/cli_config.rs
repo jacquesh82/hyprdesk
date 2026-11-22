@@ -1322,6 +1322,28 @@ fn color_value(v: &str) -> Result<Rgba, String> {
     Rgba::parse(v).ok_or_else(|| crate::tr!("« {v} » : couleur illisible (#rrggbb)", v = v))
 }
 
+/// Slots de la palette du thème : ceux du moteur (sémantiques et dérivés),
+/// plus les couleurs libres du pack actif publiées dans `palette.json`.
+fn palette_slots() -> Vec<String> {
+    let mut slots: Vec<String> =
+        crate::theme_engine::resolve::from_theme(&crate::config::Theme::default())
+            .palette
+            .into_keys()
+            .collect();
+    if let Some(doc) =
+        crate::theme_engine::state::read_palette(&crate::theme_engine::paths::Roots::from_env())
+    {
+        slots.extend(doc.colors.into_keys());
+    }
+    slots.sort();
+    slots.dedup();
+    slots
+}
+
+fn known_slot(slot: &str) -> bool {
+    palette_slots().iter().any(|s| s == slot)
+}
+
 /// Effet d'une clé `theme.effects.<endroit>.<opacity|blur>`.
 fn effect_key(key: &str) -> Option<(Place, &str)> {
     let rest = key.strip_prefix("theme.effects.")?;
@@ -1356,9 +1378,9 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
         let colors = c.bar.as_ref().map(|b| &b.colors);
         let v = match k {
             BarColorKey::Slot(s) => colors.and_then(|c| c.slot(s)),
-            BarColorKey::Module(m) => colors.and_then(|c| c.modules.get(m).copied()),
+            BarColorKey::Module(m) => colors.and_then(|c| c.modules.get(m)),
         };
-        return Some(v.map(hex).unwrap_or_else(|| "theme".into()));
+        return Some(v.map(|c| c.to_text()).unwrap_or_else(|| "theme".into()));
     }
     if let Some((place, field)) = effect_key(key) {
         let e = c.general.theme.effect(place);
@@ -1521,14 +1543,17 @@ fn dynamic_help(key: &str, c: &Config) -> String {
     if let Some(k) = bar_color_key(key) {
         return match k {
             BarColorKey::Slot(s) => crate::tr!(
-                "#rrggbb | theme — couleur de la barre : {label}",
+                "#rrggbb | #sombre/#clair | <slot du thème> | theme — couleur de la barre : {label}",
                 label = crate::config::BAR_COLOR_SLOTS
                     .iter()
                     .find(|(id, _)| *id == s)
                     .map_or(s, |(_, l)| tr(l))
             ),
             BarColorKey::Module(m) => {
-                crate::tr!("#rrggbb | theme — couleur du module « {m} »", m = m)
+                crate::tr!(
+                    "#rrggbb | #sombre/#clair | <slot du thème> | theme — couleur du module « {m} »",
+                    m = m
+                )
             }
         };
     }
@@ -1631,9 +1656,21 @@ fn dynamic_set(
     if let Some(k) = bar_color_key(key) {
         let value = match v.map(str::trim) {
             None | Some("theme" | "none" | "") => None,
-            Some(v) => match color_value(v) {
-                Ok(c) => Some(c),
-                Err(e) => return Some(Err(e)),
+            Some(v) => match crate::config::ColorRef::parse(v) {
+                Some(crate::config::ColorRef::Slot(slot)) if !known_slot(&slot) => {
+                    return Some(Err(crate::tr!(
+                        "« {v} » : ni une couleur, ni un slot de la palette du thème ({slots})",
+                        v = v,
+                        slots = palette_slots().join(", ")
+                    )));
+                }
+                Some(c) => Some(c),
+                None => {
+                    return Some(Err(crate::tr!(
+                        "« {v} » : couleur illisible (#rrggbb, #sombre/#clair ou slot du thème comme active)",
+                        v = v
+                    )));
+                }
             },
         };
         let colors = &mut bar(s, c).colors;
@@ -2712,6 +2749,18 @@ mod tests {
         assert!(run_s(&p, &["set", "bar.opacity", "2"]).is_err());
         assert!(run_s(&p, &["set", "bar.color.text", "rouge"]).is_err());
         assert!(run_s(&p, &["set", "bar.color.texte", "#ffffff"]).is_err());
+        // Couleurs qui suivent le mode (MLG-263) : paire sombre/clair, slot.
+        run_s(&p, &["set", "bar.color.accent", "#2dd4bf/#006B5F"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "bar.color.accent"]).unwrap(),
+            "#2dd4bf/#006b5f"
+        );
+        run_s(&p, &["set", "bar.module_color.clock", "success"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "bar.module_color.clock"]).unwrap(),
+            "success"
+        );
+        assert!(run_s(&p, &["set", "bar.color.accent", "#2dd4bf/vert"]).is_err());
         // Retour au thème.
         run_s(&p, &["set", "bar.color.accent", "theme"]).unwrap();
         run_s(&p, &["unset", "bar.module_color.clock"]).unwrap();

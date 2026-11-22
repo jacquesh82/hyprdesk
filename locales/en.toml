@@ -4201,8 +4201,8 @@
 "0..100 — part du voile gardée quand la souris est sur le Panorama, en % (100 : inchangé)" = "0..100 — share of the veil kept while the pointer is over the Panorama, in % (100: unchanged)"
 
 # Aide des clés dynamiques de « hyprdesk config list ».
-"#rrggbb | theme — couleur de la barre : {label}" = "#rrggbb | theme — bar colour: {label}"
-"#rrggbb | theme — couleur du module « {m} »" = "#rrggbb | theme — colour of the “{m}” module"
+"#rrggbb | #sombre/#clair | <slot du thème> | theme — couleur de la barre : {label}" = "#rrggbb | #dark/#light | <theme slot> | theme — bar colour: {label}"
+"#rrggbb | #sombre/#clair | <slot du thème> | theme — couleur du module « {m} »" = "#rrggbb | #dark/#light | <theme slot> | theme — colour of the “{m}” module"
 "on | off — flou derrière : {place}" = "on | off — blur behind: {place}"
 "0..1 — opacité du fond : {place}" = "0..1 — background opacity: {place}"
 "<layout> | none — layout du workspace {ws} (none : le layout par défaut)" = "<layout> | none — layout of workspace {ws} (none: the default layout)"
@@ -4611,3 +4611,11 @@
 # Options Hyprland d'un pack dans appearance.lua (MLG-255).
 "Options Hyprland du thème « {name} » (pack) ; vos réglages, plus bas, gagnent" = "Hyprland options of the “{name}” theme (pack); your settings, further down, win"
 "Animations du thème « {name} » (pack)" = "Animations of the “{name}” theme (pack)"
+
+# Couleurs de la barre qui suivent le mode clair/sombre (MLG-263).
+"{ctx} : couleur « {s} » illisible (#rrggbb, #sombre/#clair ou slot du thème comme active)" = "{ctx}: unreadable color “{s}” (#rrggbb, #dark/#light or a theme slot such as active)"
+"« {v} » : couleur illisible (#rrggbb, #sombre/#clair ou slot du thème comme active)" = "“{v}”: invalid color (#rrggbb, #dark/#light or a theme slot such as active)"
+"« {v} » : ni une couleur, ni un slot de la palette du thème ({slots})" = "“{v}”: neither a colour nor a slot of the theme palette ({slots})"
+"Selon le mode" = "By mode"
+"Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours." = "One colour in dark mode, another in light mode: “Choose…” sets the current mode’s."
+"Slot « {name} » du thème — suit le mode clair/sombre" = "Theme slot “{name}” — follows light/dark mode"

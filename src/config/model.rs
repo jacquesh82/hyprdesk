@@ -855,18 +855,89 @@ impl Default for ConvexDef {
     }
 }
 
+/// Couleur réglée qui peut suivre le mode clair/sombre (MLG-263) : fixe,
+/// slot de la palette du pack actif (`active`, qui change avec la variante),
+/// ou paire de couleurs fixes, sombre puis claire (`#2dd4bf/#006b5f`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ColorRef {
+    Fixed(Rgba),
+    /// Slot de la palette résolue du pack (`accent`, `active`, `focus`…).
+    Slot(String),
+    Pair {
+        dark: Rgba,
+        light: Rgba,
+    },
+}
+
+impl ColorRef {
+    /// `#rrggbb` (ou `rgb(…)`), `<sombre>/<clair>`, ou nom de slot
+    /// (`[a-z][a-z0-9_]*`).
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if let Some(c) = Rgba::parse(s) {
+            return Some(Self::Fixed(c));
+        }
+        if let Some((d, l)) = s.split_once('/') {
+            return Some(Self::Pair {
+                dark: Rgba::parse(d)?,
+                light: Rgba::parse(l)?,
+            });
+        }
+        let mut chars = s.chars();
+        let slot = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        slot.then(|| Self::Slot(s.to_string()))
+    }
+
+    /// Forme texte, relisible par [`ColorRef::parse`].
+    pub fn to_text(&self) -> String {
+        match self {
+            Self::Fixed(c) => c.to_hex(),
+            Self::Slot(s) => s.clone(),
+            Self::Pair { dark, light } => format!("{}/{}", dark.to_hex(), light.to_hex()),
+        }
+    }
+
+    /// Couleur à afficher dans le mode donné ; un slot absent de la palette
+    /// ne donne rien (la couleur du thème reprend la main).
+    pub fn resolve(&self, light: bool, slot: &dyn Fn(&str) -> Option<Rgba>) -> Option<Rgba> {
+        match self {
+            Self::Fixed(c) => Some(*c),
+            Self::Slot(s) => slot(s),
+            Self::Pair { dark, light: l } => Some(if light { *l } else { *dark }),
+        }
+    }
+
+    /// La couleur change-t-elle avec le mode ?
+    pub fn follows_mode(&self) -> bool {
+        !matches!(self, Self::Fixed(_))
+    }
+}
+
+impl Rgba {
+    /// `#rrggbb`, ou `#rrggbbaa` si la couleur n'est pas opaque.
+    pub fn to_hex(self) -> String {
+        if self.3 == 255 {
+            format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", self.0, self.1, self.2, self.3)
+        }
+    }
+}
+
 /// Couleurs de la barre : `None` = celle du thème ; et une couleur par
 /// module (`clock`, `workspaces`, `volume`…), pour son texte et ses icônes.
+/// Chacune peut suivre le mode clair/sombre ([`ColorRef`]).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BarColors {
-    pub text: Option<Rgba>,
-    pub background: Option<Rgba>,
-    pub accent: Option<Rgba>,
-    pub warning: Option<Rgba>,
-    pub critical: Option<Rgba>,
+    pub text: Option<ColorRef>,
+    pub background: Option<ColorRef>,
+    pub accent: Option<ColorRef>,
+    pub warning: Option<ColorRef>,
+    pub critical: Option<ColorRef>,
     /// Opacité du fond (0 transparent … 1 opaque) ; sinon l'effet « Barre » du thème.
     pub opacity: Option<f32>,
-    pub modules: std::collections::BTreeMap<String, Rgba>,
+    pub modules: std::collections::BTreeMap<String, ColorRef>,
 }
 
 /// Couleurs réglables de la barre : (clé Lua, libellé).
@@ -879,18 +950,18 @@ pub const BAR_COLOR_SLOTS: &[(&str, &str)] = &[
 ];
 
 impl BarColors {
-    pub fn slot(&self, key: &str) -> Option<Rgba> {
+    pub fn slot(&self, key: &str) -> Option<&ColorRef> {
         match key {
-            "text" => self.text,
-            "background" => self.background,
-            "accent" => self.accent,
-            "warning" => self.warning,
-            "critical" => self.critical,
+            "text" => self.text.as_ref(),
+            "background" => self.background.as_ref(),
+            "accent" => self.accent.as_ref(),
+            "warning" => self.warning.as_ref(),
+            "critical" => self.critical.as_ref(),
             _ => None,
         }
     }
 
-    pub fn set_slot(&mut self, key: &str, c: Option<Rgba>) {
+    pub fn set_slot(&mut self, key: &str, c: Option<ColorRef>) {
         match key {
             "text" => self.text = c,
             "background" => self.background = c,

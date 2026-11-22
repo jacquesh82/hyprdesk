@@ -533,6 +533,12 @@ hd.bar({ monitor = "primary", position = "top", compact = "auto", margin = 0,
          right = { "tray", "volume", "brightness", "network", "session", "controls" },
          portrait = { left = { "workspaces" }, right = { "clock" } } })
 
+-- Bar colours: a fixed colour, a "dark/light" pair, or the name of a slot of
+-- the active theme pack's palette (it follows light/dark mode on its own).
+-- CLI equivalent: hyprdesk config set bar.color.accent active
+hd.bar({ colors = { accent = "active", background = "#1c2028/#f5f7fa" },
+         module_colors = { clock = "#2dd4bf/#006b5f", volume = "focus" } })
+
 -- Window rules and session components.
 hd.assign({ app = "org.telegram.desktop", workspace = 9, silent = true })
 hd.component("applet", { exec = "nm-applet --indicator", restart = true })

@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Bar colours that follow light/dark mode** (MLG-263). A bar or module
+  colour can name a slot of the theme pack's palette (`active`, `focus`…),
+  which changes with the variant, or a fixed dark/light pair
+  (`#2dd4bf/#006b5f`): in `hd.bar({ colors = … })`, `hyprdesk config set
+  bar.color.accent active`, and Settings → Bar → Colours (theme slot chips,
+  **By mode** button; **Choose…** then sets the current mode's colour).
+
 ### Fixed
 
 - **`hyprdesk-theme-engine use --mode dry-run` no longer applies the theme**

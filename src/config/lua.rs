@@ -523,6 +523,21 @@ fn opt_color(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<Rgba>> {
     }
 }
 
+/// Couleur qui peut suivre le mode (MLG-263) : `#rrggbb`, `<sombre>/<clair>`
+/// ou nom de slot de la palette du pack.
+fn opt_color_ref(t: &Table, key: &str, ctx: &str) -> mlua::Result<Option<crate::config::ColorRef>> {
+    match opt_string(t, key, ctx)? {
+        None => Ok(None),
+        Some(s) => crate::config::ColorRef::parse(&s).map(Some).ok_or_else(|| {
+            err(crate::tr!(
+                "{ctx} : couleur « {s} » illisible (#rrggbb, #sombre/#clair ou slot du thème comme active)",
+                ctx = ctx,
+                s = s
+            ))
+        }),
+    }
+}
+
 /// Une chaîne, un nombre, ou une liste des deux ; `"*"` signifie « tous ».
 fn string_list(v: Value, key: &str, ctx: &str) -> mlua::Result<Option<Vec<String>>> {
     let one = |v: Value| -> mlua::Result<String> {
@@ -2130,7 +2145,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             .collect();
         check_keys(&c, &keys, C)?;
         for k in keys {
-            colors.set_slot(k, opt_color(&c, k, C)?);
+            colors.set_slot(k, opt_color_ref(&c, k, C)?);
         }
     }
     // Transparence du fond : 0 (transparent) à 1 (opaque).
@@ -2139,7 +2154,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         const C: &str = "hd.bar.module_colors";
         for pair in m.pairs::<String, Value>() {
             let (k, _) = pair?;
-            if let Some(c) = opt_color(&m, &k, C)? {
+            if let Some(c) = opt_color_ref(&m, &k, C)? {
                 colors
                     .modules
                     .insert(crate::widgets::plugins::canonical(&k).to_string(), c);

@@ -23,6 +23,33 @@ pub fn set(palette: BTreeMap<String, Rgba>) {
     }
 }
 
+/// Slot de la palette en place, s'il existe (couleurs libres du pack
+/// comprises) ; sinon celui de la palette dérivée du thème par défaut.
+pub fn get(slot: &str) -> Option<Rgba> {
+    if let Ok(p) = PALETTE.read()
+        && let Some(c) = p.as_ref().and_then(|p| p.get(slot))
+    {
+        return Some(*c);
+    }
+    crate::theme_engine::resolve::from_theme(&crate::config::Theme::default())
+        .palette
+        .get(slot)
+        .copied()
+}
+
+/// Slots de la palette en place (sémantiques, dérivés et libres du pack).
+pub fn slots() -> Vec<(String, Rgba)> {
+    PALETTE
+        .read()
+        .ok()
+        .and_then(|p| p.clone())
+        .unwrap_or_else(|| {
+            crate::theme_engine::resolve::from_theme(&crate::config::Theme::default()).palette
+        })
+        .into_iter()
+        .collect()
+}
+
 /// Slot de la palette en place ; à défaut, celui de la palette dérivée du
 /// thème par défaut (avant le premier chargement de la config).
 pub fn rgba(slot: &str) -> Rgba {

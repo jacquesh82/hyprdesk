@@ -83,7 +83,10 @@ pub enum Msg {
     PortraitReset,
     /// Couleur d'un emplacement (`text`, `background`…) ou d'un module
     /// (`mod:clock`) ; `None` : celle du thème.
-    SetColor(String, Option<Rgba>),
+    SetColor(String, Option<crate::config::ColorRef>),
+    /// Couleur différente en clair et en sombre (paire), ou de nouveau une
+    /// seule (celle du mode en cours).
+    ToggleByMode(String),
     /// Ouvre le sélecteur de couleur sous la ligne `clé` (le referme si déjà ouvert).
     OpenPicker(String),
     Picker(PickerMsg),
@@ -746,6 +749,22 @@ impl App {
                 self.set_bar_color(&key, c);
                 self.commit_reload()
             }
+            Msg::ToggleByMode(key) => {
+                use crate::config::ColorRef;
+                let shown = self.bar_color_shown(&key);
+                let next = match self.bar_color_spec(&key) {
+                    Some(ColorRef::Pair { .. }) => ColorRef::Fixed(shown),
+                    _ => ColorRef::Pair {
+                        dark: shown,
+                        light: shown,
+                    },
+                };
+                if let Some(p) = self.panel.as_mut() {
+                    p.bar.picker = None;
+                }
+                self.set_bar_color(&key, Some(next));
+                self.commit_reload()
+            }
             Msg::OpenPicker(key) => {
                 let open = self
                     .panel
@@ -774,7 +793,26 @@ impl App {
                 let Some((key, pk)) = self.panel.as_mut().and_then(|p| p.bar.picker.take()) else {
                     return Task::none();
                 };
-                self.set_bar_color(&key, Some(pk.color()));
+                // Paire sombre/clair : le sélecteur règle la moitié du mode
+                // en cours, l'autre reste.
+                let picked = pk.color();
+                let next = match self.bar_color_spec(&key) {
+                    Some(crate::config::ColorRef::Pair { dark, light }) => {
+                        if surface::light_theme(&self.cfg.general.theme) {
+                            crate::config::ColorRef::Pair {
+                                dark,
+                                light: picked,
+                            }
+                        } else {
+                            crate::config::ColorRef::Pair {
+                                dark: picked,
+                                light,
+                            }
+                        }
+                    }
+                    _ => crate::config::ColorRef::Fixed(picked),
+                };
+                self.set_bar_color(&key, Some(next));
                 self.commit_reload()
             }
             Msg::Opacity(o) => {
@@ -793,6 +831,19 @@ impl App {
         }
     }
 
+    /// Couleur réglée d'une ligne (`text`, `mod:clock`…), telle qu'écrite.
+    fn bar_color_spec(&self, key: &str) -> Option<crate::config::ColorRef> {
+        let b = self
+            .settings
+            .bar
+            .clone()
+            .unwrap_or_else(|| crate::settings::BarSettings::from_config(&self.cfg));
+        match key.strip_prefix("mod:") {
+            Some(m) => b.colors.modules.get(m).cloned(),
+            None => b.colors.slot(key).cloned(),
+        }
+    }
+
     /// Couleur affichée dans les réglages et valeur de départ du sélecteur.
     fn bar_color_shown(&self, key: &str) -> Rgba {
         let b = self
@@ -801,8 +852,14 @@ impl App {
             .clone()
             .unwrap_or_else(|| crate::settings::BarSettings::from_config(&self.cfg));
         let pal = surface::BarPalette::resolve(&self.cfg.general.theme, Some(&b.colors));
+        let light = surface::light_theme(&self.cfg.general.theme);
         match key.strip_prefix("mod:") {
-            Some(m) => b.colors.modules.get(m).copied().unwrap_or(pal.fg),
+            Some(m) => b
+                .colors
+                .modules
+                .get(m)
+                .and_then(|c| surface::resolve_color(c, light))
+                .unwrap_or(pal.fg),
             None => match key {
                 "background" => pal.bg,
                 "accent" => pal.accent,
@@ -813,7 +870,7 @@ impl App {
         }
     }
 
-    fn set_bar_color(&mut self, key: &str, c: Option<Rgba>) {
+    fn set_bar_color(&mut self, key: &str, c: Option<crate::config::ColorRef>) {
         let colors = &mut self
             .settings
             .bar
@@ -869,17 +926,38 @@ impl App {
                 proposals.push((c, l));
             }
         }
+        // Slots du pack qui suivent le mode (MLG-263) : l'accent et les
+        // couleurs libres du pack actif (`active`, `focus`…), absentes de la
+        // palette dérivée d'un thème simple.
+        let dérivés: Vec<String> =
+            crate::theme_engine::resolve::from_theme(&crate::config::Theme::default())
+                .palette
+                .into_keys()
+                .collect();
+        let slot_chips: Vec<(String, Rgba)> = crate::ui::tone::slots()
+            .into_iter()
+            .filter(|(k, _)| k == "accent" || !dérivés.contains(k))
+            .collect();
         let open = st.and_then(|s| s.picker.as_ref());
-        // Une ligne : couleurs du thème, couleur en place, sélecteur, retour au thème.
-        let line = |key: String, value: Option<Rgba>, default: Rgba| -> Element<'_, UiMsg> {
-            let shown = value.unwrap_or(default);
-            let chips = row(proposals.iter().map(|&(c, l)| {
+        let light = surface::light_theme(th);
+        // Une ligne : couleurs du thème, slots du pack, couleur en place,
+        // sélecteur, couleur par mode, retour au thème.
+        let line = |key: String,
+                    value: Option<crate::config::ColorRef>,
+                    default: Rgba|
+         -> Element<'_, UiMsg> {
+            use crate::config::ColorRef;
+            let shown = value
+                .as_ref()
+                .and_then(|c| surface::resolve_color(c, light))
+                .unwrap_or(default);
+            let mut chips = row(proposals.iter().map(|&(c, l)| {
                 let k = key.clone();
                 tooltip(
-                    button(dot(c, 20.0, value == Some(c)))
+                    button(dot(c, 20.0, value == Some(ColorRef::Fixed(c))))
                         .padding(0)
                         .style(|_, _| button::Style::default())
-                        .on_press(wrap(Msg::SetColor(k, Some(c)))),
+                        .on_press(wrap(Msg::SetColor(k, Some(ColorRef::Fixed(c))))),
                     container(
                         text(format!(
                             "{} — {}",
@@ -897,7 +975,74 @@ impl App {
                 .into()
             }))
             .spacing(6);
+            if !slot_chips.is_empty() {
+                chips = chips.push(text("·").font(font).size(12).color(dim));
+            }
+            for (name, c) in &slot_chips {
+                let selected = matches!(&value, Some(ColorRef::Slot(s)) if s == name);
+                chips = chips.push(
+                    tooltip(
+                        button(
+                            row![
+                                dot(*c, 16.0, selected),
+                                text(name.clone()).font(font).size(11).color(if selected {
+                                    fg
+                                } else {
+                                    dim
+                                }),
+                            ]
+                            .spacing(4)
+                            .align_y(Alignment::Center),
+                        )
+                        .padding([1, 4])
+                        .style(|_, _| button::Style::default())
+                        .on_press(wrap(Msg::SetColor(
+                            key.clone(),
+                            Some(ColorRef::Slot(name.clone())),
+                        ))),
+                        container(
+                            text(crate::tr!(
+                                "Slot « {name} » du thème — suit le mode clair/sombre",
+                                name = name
+                            ))
+                            .font(font)
+                            .size(12),
+                        )
+                        .padding([4, 8])
+                        .style(container::rounded_box),
+                        tooltip::Position::Top,
+                    )
+                    .delay(std::time::Duration::from_millis(400)),
+                );
+            }
             let is_open = open.is_some_and(|(k, _)| *k == key);
+            let by_mode = matches!(value, Some(ColorRef::Pair { .. }));
+            let mode_btn = tooltip(
+                button(text(crate::i18n::tr("Selon le mode")).font(font).size(12))
+                    .padding([3, 8])
+                    .style(if by_mode {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::ToggleByMode(key.clone()))),
+                container(
+                    text(crate::i18n::tr(
+                        "Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours.",
+                    ))
+                    .font(font)
+                    .size(12),
+                )
+                .padding([4, 8])
+                .style(container::rounded_box),
+                tooltip::Position::Top,
+            )
+            .delay(std::time::Duration::from_millis(400));
+            let label = match &value {
+                Some(ColorRef::Fixed(c)) => crate::settings::hex(*c),
+                Some(other) => other.to_text(),
+                None => crate::settings::hex(shown),
+            };
             let reset: Element<'_, UiMsg> = if value.is_some() {
                 button(text(crate::i18n::tr("Thème")).font(font).size(12))
                     .padding([3, 8])
@@ -916,11 +1061,11 @@ impl App {
                     chips,
                     Space::new().width(Length::Fill),
                     dot(shown, 22.0, false),
-                    text(crate::settings::hex(shown))
+                    text(label)
                         .font(font)
                         .size(12)
                         .color(if value.is_some() { fg } else { dim })
-                        .width(64),
+                        .width(if by_mode { 120 } else { 64 }),
                     button(
                         text(crate::i18n::tr(if is_open {
                             "Fermer"
@@ -937,6 +1082,7 @@ impl App {
                         button::secondary
                     })
                     .on_press(wrap(Msg::OpenPicker(key.clone()))),
+                    mode_btn,
                     reset,
                 ]
                 .spacing(10)
@@ -967,7 +1113,11 @@ impl App {
         .spacing(12);
         for (k, label) in BAR_COLOR_SLOTS {
             let shown = self.bar_color_shown(k);
-            col = col.push(self.field(label, "", line(k.to_string(), b.colors.slot(k), shown)));
+            col = col.push(self.field(
+                label,
+                "",
+                line(k.to_string(), b.colors.slot(k).cloned(), shown),
+            ));
         }
         // Transparence du fond.
         let theme_opacity = th.effect(crate::config::Place::Bar).opacity;
@@ -1033,7 +1183,7 @@ impl App {
             );
         }
         for (k, label) in modules {
-            let v = b.colors.modules.get(&k).copied();
+            let v = b.colors.modules.get(&k).cloned();
             fine = fine.push(
                 column![
                     text(label).font(self.title_font()).size(13),

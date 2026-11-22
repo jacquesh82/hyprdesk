@@ -1665,7 +1665,7 @@ impl Settings {
                 }
                 let slots: Vec<String> = crate::config::BAR_COLOR_SLOTS
                     .iter()
-                    .filter_map(|(k, _)| Some(format!("{k} = {}", q(&hex(b.colors.slot(k)?)))))
+                    .filter_map(|(k, _)| Some(format!("{k} = {}", q(&b.colors.slot(k)?.to_text()))))
                     .collect();
                 if !slots.is_empty() {
                     f.push(format!("colors = {{ {} }}", slots.join(", ")));
@@ -1678,7 +1678,7 @@ impl Settings {
                         .colors
                         .modules
                         .iter()
-                        .map(|(k, c)| format!("[{}] = {}", q(k), q(&hex(*c))))
+                        .map(|(k, c)| format!("[{}] = {}", q(k), q(&c.to_text())))
                         .collect();
                     f.push(format!("module_colors = {{ {} }}", m.join(", ")));
                 }
@@ -2260,13 +2260,26 @@ mod tests {
     fn couleurs_de_la_barre() {
         let mut s = Settings::default();
         let b = s.bar.get_or_insert_with(BarSettings::default);
-        b.colors.text = Some(Rgba(0x80, 0xff, 0xea, 0xff));
-        b.colors.critical = Some(Rgba(0xff, 0, 0, 0xff));
+        b.colors.text = Some(crate::config::ColorRef::Fixed(Rgba(0x80, 0xff, 0xea, 0xff)));
+        b.colors.critical = Some(crate::config::ColorRef::Fixed(Rgba(0xff, 0, 0, 0xff)));
         b.colors.opacity = Some(0.35);
-        b.colors
-            .modules
-            .insert("clock".into(), Rgba(0xff, 0x80, 0xbf, 0xff));
+        b.colors.modules.insert(
+            "clock".into(),
+            crate::config::ColorRef::Fixed(Rgba(0xff, 0x80, 0xbf, 0xff)),
+        );
+        // Couleurs qui suivent le mode (MLG-263) : slot du pack, paire.
+        b.colors.accent = Some(crate::config::ColorRef::Slot("active".into()));
+        b.colors.background = Some(crate::config::ColorRef::Pair {
+            dark: Rgba(0x1c, 0x20, 0x28, 0xff),
+            light: Rgba(0xf5, 0xf7, 0xfa, 0xff),
+        });
+        b.colors.modules.insert(
+            "volume".into(),
+            crate::config::ColorRef::Slot("focus".into()),
+        );
         let lua = s.to_lua();
+        assert!(lua.contains("accent = \"active\""), "{lua}");
+        assert!(lua.contains("\"#1c2028/#f5f7fa\""), "{lua}");
         assert!(lua.contains("opacity = 0.35"), "{lua}");
         let cfg = load_chunks(
             &[(lua.clone(), "settings.lua".into(), Origin::Settings)],

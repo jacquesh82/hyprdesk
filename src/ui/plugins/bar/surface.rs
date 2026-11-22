@@ -88,21 +88,38 @@ impl BarPalette {
     ) -> Self {
         use crate::config::{BarColors, Place};
 
-        let pick =
-            |f: fn(&BarColors) -> Option<Rgba>, fallback| colors.and_then(f).unwrap_or(fallback);
+        let light = light_theme(theme);
+        let pick = |f: fn(&BarColors) -> Option<&crate::config::ColorRef>, fallback| {
+            colors
+                .and_then(f)
+                .and_then(|c| resolve_color(c, light))
+                .unwrap_or(fallback)
+        };
         Self {
-            fg: pick(|c| c.text, theme.fg),
-            bg: pick(|c| c.background, theme.bg),
-            accent: pick(|c| c.accent, theme.accent),
+            fg: pick(|c| c.text.as_ref(), theme.fg),
+            bg: pick(|c| c.background.as_ref(), theme.bg),
+            accent: pick(|c| c.accent.as_ref(), theme.accent),
             // États : slots de la palette du moteur, lisibles sur le fond.
-            warning: pick(|c| c.warning, crate::ui::tone::rgba("warning")),
-            critical: pick(|c| c.critical, crate::ui::tone::rgba("danger")),
+            warning: pick(|c| c.warning.as_ref(), crate::ui::tone::rgba("warning")),
+            critical: pick(|c| c.critical.as_ref(), crate::ui::tone::rgba("danger")),
             opacity: colors
                 .and_then(|c| c.opacity)
                 .unwrap_or_else(|| theme.effect(Place::Bar).opacity)
                 .clamp(0.0, 1.0),
         }
     }
+}
+
+/// Thème clair : fond lumineux (variante `light` d'un pack, préréglage
+/// Clair) — c'est ce que voit l'utilisateur, quel que soit le pack.
+pub(in crate::ui) fn light_theme(theme: &crate::config::Theme) -> bool {
+    crate::theme_engine::color::luminance(theme.bg) > 0.4
+}
+
+/// Couleur réglée résolue dans le mode du thème (MLG-263) : un slot se lit
+/// dans la palette du pack actif, une paire selon le mode.
+pub(in crate::ui) fn resolve_color(c: &crate::config::ColorRef, light: bool) -> Option<Rgba> {
+    c.resolve(light, &crate::ui::tone::get)
 }
 
 /// Clé d'un module propre à la barre (couleur par module, `module_colors`).
@@ -703,13 +720,14 @@ impl App {
     /// Couleur propre d'un module (par son identifiant, puis par son type).
     pub(in crate::ui) fn bar_item_color(&self, item: &BarItem) -> Option<Rgba> {
         let m = &self.cfg.bar.as_ref()?.colors.modules;
-        match item {
-            BarItem::Widget(id) => m.get(id).copied().or_else(|| {
+        let spec = match item {
+            BarItem::Widget(id) => m.get(id).or_else(|| {
                 let w = self.cfg.widgets.iter().find(|w| &w.id == id)?;
-                m.get(&w.type_id).copied()
+                m.get(&w.type_id)
             }),
-            other => m.get(bar_item_key(other)).copied(),
-        }
+            other => m.get(bar_item_key(other)),
+        }?;
+        resolve_color(spec, light_theme(&self.cfg.general.theme))
     }
 
     pub(in crate::ui) fn state_color(&self, s: RenderState, normal: Color) -> Color {
@@ -1980,12 +1998,25 @@ mod tests {
             let cfg = Arc::make_mut(&mut app.cfg);
             let colors = &mut cfg.bar.as_mut().unwrap().colors;
             let explicit_bg = Rgba(31, 92, 75, 255);
-            colors.background = Some(explicit_bg);
+            colors.background = Some(crate::config::ColorRef::Fixed(explicit_bg));
             colors.opacity = Some(0.55);
             let pal = app.bar_palette();
             assert_eq!(pal.bg, explicit_bg);
             assert_eq!(pal.opacity, 0.55);
             assert_eq!(pal.accent, app.cfg.general.theme.accent);
+            // Paire sombre/clair (MLG-263) : la moitié du mode du thème.
+            let (sombre, clair) = (Rgba(0x2d, 0xd4, 0xbf, 255), Rgba(0x00, 0x6b, 0x5f, 255));
+            let cfg = Arc::make_mut(&mut app.cfg);
+            cfg.bar.as_mut().unwrap().colors.accent = Some(crate::config::ColorRef::Pair {
+                dark: sombre,
+                light: clair,
+            });
+            let attendu = if light_theme(&app.cfg.general.theme) {
+                clair
+            } else {
+                sombre
+            };
+            assert_eq!(app.bar_palette().accent, attendu);
         }
     }
 
