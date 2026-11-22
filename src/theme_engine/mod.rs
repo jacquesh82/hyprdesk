@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod packs;
 pub mod paths;
 pub mod resolve;
+pub mod template;
 
 use thiserror::Error;
 
@@ -34,6 +35,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("manifeste du pack {0} : {1}")]
     Manifest(String, String),
+    #[error("gabarit : {0}")]
+    Template(String),
     #[error("pack introuvable : {0}")]
     Missing(String),
     #[error("héritage du pack {0} : cyclique ou plus profond que {1} niveaux")]
