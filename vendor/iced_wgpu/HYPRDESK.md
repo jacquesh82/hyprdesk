@@ -17,6 +17,12 @@ charge la surface : les surfaces de hyprdesk ne sont plus recopiées d'une
 carte à l'autre. Variable absente, invalide ou carte introuvable : choix
 habituel de wgpu.
 
+Ajout : surfaces recopiables (`src/window/compositor.rs`, MLG-275). La
+surface est configurée avec `COPY_SRC` en plus de `RENDER_ATTACHMENT`
+quand ses capacités le permettent : la lentille de verre de hyprdesk
+(`src/ui/lens.rs`) copie la zone déjà dessinée derrière elle pour la
+réfracter. Sans cette capacité, configuration d'origine.
+
 ## Origine
 
 - Archive de départ : `iced_wgpu-0.14.0.crate`, https://static.crates.io/crates/iced_wgpu/iced_wgpu-0.14.0.crate

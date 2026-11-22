@@ -124,3 +124,27 @@
  
          log::info!("Selected: {:#?}", adapter.get_info());
  
+@@ -323,10 +349,22 @@
+         width: u32,
+         height: u32,
+     ) {
++        // hyprdesk (MLG-275) : l'image de la surface peut être recopiée,
++        // pour que le verre réfracte ce qui est déjà dessiné derrière lui ;
++        // seulement si la surface le permet.
++        let copy = surface
++            .get_capabilities(&self.adapter)
++            .usages
++            .contains(wgpu::TextureUsages::COPY_SRC);
++        let usage = if copy {
++            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
++        } else {
++            wgpu::TextureUsages::RENDER_ATTACHMENT
++        };
+         surface.configure(
+             &self.engine.device,
+             &wgpu::SurfaceConfiguration {
+-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
++                usage,
+                 format: self.format,
+                 present_mode: self.settings.present_mode,
+                 width,

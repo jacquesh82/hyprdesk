@@ -215,6 +215,25 @@ impl App {
         self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0)
     }
 
+    /// Crée la surface du tiroir sur `monitor`.
+    pub(super) fn panel_surface(&self, id: Id, monitor: String) -> Task<Msg> {
+        Task::done(Msg::NewLayerShell {
+            settings: iced_layershell::reexport::NewLayerShellSettings {
+                size: Some((self.panel_width() as u32, 0)),
+                layer: iced_layershell::reexport::Layer::Top,
+                anchor: iced_layershell::reexport::Anchor::Top
+                    | iced_layershell::reexport::Anchor::Bottom
+                    | iced_layershell::reexport::Anchor::Right,
+                exclusive_zone: Some(0),
+                keyboard_interactivity: iced_layershell::reexport::KeyboardInteractivity::OnDemand,
+                output_option: iced_layershell::reexport::OutputOption::OutputName(monitor),
+                namespace: Some(SETTINGS_NAMESPACE.into()),
+                ..Default::default()
+            },
+            id,
+        })
+    }
+
     fn open_panel_at(&mut self, win: Id) -> Task<Msg> {
         // Tiroir en cours de fermeture : on rouvre le même.
         let reuse = self
@@ -239,22 +258,28 @@ impl App {
             None => {
                 let id = Id::unique();
                 let monitor = self.surfaces.get(&win).cloned().unwrap_or_default();
-                create = Task::done(Msg::NewLayerShell {
-                    settings: iced_layershell::reexport::NewLayerShellSettings {
-                        size: Some((self.panel_width() as u32, 0)),
-                        layer: iced_layershell::reexport::Layer::Top,
-                        anchor: iced_layershell::reexport::Anchor::Top
-                            | iced_layershell::reexport::Anchor::Bottom
-                            | iced_layershell::reexport::Anchor::Right,
-                        exclusive_zone: Some(0),
-                        keyboard_interactivity:
-                            iced_layershell::reexport::KeyboardInteractivity::OnDemand,
-                        output_option: iced_layershell::reexport::OutputOption::OutputName(monitor),
-                        namespace: Some(SETTINGS_NAMESPACE.into()),
-                        ..Default::default()
-                    },
-                    id,
-                });
+                self.behind = None;
+                // Vraie réfraction (MLG-275) : l'écran est capturé avant que
+                // le tiroir n'existe, puis le tiroir est créé.
+                create = match self
+                    .monitors
+                    .iter()
+                    .find(|m| m.name == monitor)
+                    .filter(|_| super::behind::wanted(crate::config::Place::Settings))
+                {
+                    Some(m) => {
+                        let origin = iced::Point::new(
+                            m.width as f32 - m.reserved.2 - self.panel_width(),
+                            m.reserved.1,
+                        );
+                        let screen = iced::Size::new(m.width as f32, m.height as f32);
+                        let output = m.name.clone();
+                        Task::perform(super::behind::grab(output, origin, screen), move |b| {
+                            Msg::PanelBehind(id, monitor.clone(), b)
+                        })
+                    }
+                    None => self.panel_surface(id, monitor),
+                };
                 id
             }
         };
@@ -1018,26 +1043,34 @@ impl App {
         )
         .padding(24)
         .width(self.panel_width() - 2.0 * DRAWER_GAP)
-        .height(Length::Fill)
-        .style({
-            // Sans flou de Hyprland, la transparence rend le tiroir illisible.
-            let opacity = if self.hypr_blur_off() {
-                1.0
-            } else {
-                self.cfg
-                    .general
-                    .theme
-                    .shown(crate::config::Place::Settings)
-                    .opacity
-            };
-            move |theme| super::design::panel_surface(theme, opacity)
-        });
-        // Verre du thème (MLG-268), au rayon du tiroir.
-        let card = super::glass::over(
+        .height(Length::Fill);
+        // Sans flou de Hyprland, la transparence rend le tiroir illisible.
+        let opacity = if self.hypr_blur_off() {
+            1.0
+        } else {
+            self.cfg
+                .general
+                .theme
+                .shown(crate::config::Place::Settings)
+                .opacity
+        };
+        // Verre du thème (MLG-268) au rayon du tiroir ; vraie réfraction de
+        // l'écran capturé à l'ouverture (MLG-275).
+        let th = &self.cfg.general.theme;
+        let card = super::glass::card(
             card,
             crate::config::Place::Settings,
             24.0,
-            color(self.cfg.general.theme.fg, 1.0),
+            color(th.fg, 1.0),
+            color(
+                super::tokens::tinted(th.bg, crate::config::Place::Settings),
+                opacity,
+            ),
+            super::design::panel_surface(&self.theme, opacity),
+            true,
+            self.panel
+                .as_ref()
+                .and_then(|p| self.behind_backdrop(p.surface)),
         );
         let progress = self
             .panel_fade

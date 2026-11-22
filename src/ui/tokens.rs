@@ -326,6 +326,65 @@ pub fn disabled(c: Color) -> Color {
 }
 
 impl super::App {
+    /// Fond peint sous le lanceur en plein bureau (MLG-275) : rien d'autre
+    /// que le bureau n'est derrière lui, sa lentille réfracte le fond de
+    /// l'écran actif. Ailleurs (fenêtres derrière), `None`.
+    pub(super) fn launcher_under(&self) -> Option<iced::Element<'_, super::Msg>> {
+        if !super::lens::available() || self.mode() != super::DesktopMode::FullDesktop {
+            return None;
+        }
+        let m = self.monitors.iter().find(|m| m.focused)?;
+        self.wall_backdrop(&m.name, iced::Point::ORIGIN)
+    }
+
+    /// Teinte de la lentille du lanceur : son fond à l'opacité du thème.
+    pub(super) fn launcher_tint(&self, bg: iced::Color) -> iced::Color {
+        let o = self
+            .cfg
+            .general
+            .theme
+            .shown(crate::config::Place::Launcher)
+            .opacity;
+        iced::Color { a: o, ..bg }
+    }
+
+    /// Fond d'écran de `monitor`, à peindre sous une surface posée sur
+    /// cet écran en `origin` (coin de la surface, pixels logiques) : la
+    /// lentille de la barre ou du dock a ainsi le vrai fond à réfracter
+    /// (MLG-275). `None` : fond vidéo ou pas encore affiché.
+    pub(super) fn wall_backdrop(
+        &self,
+        monitor: &str,
+        origin: iced::Point,
+    ) -> Option<iced::Element<'_, super::Msg>> {
+        let shown = self.shown.get(monitor)?;
+        let wall = match &shown.current {
+            super::Wall::Color(c) => super::glass::Backing::Color(super::color(*c, 1.0)),
+            super::Wall::Image(key) => {
+                if self.video_walls.contains_key(key) {
+                    return None;
+                }
+                let h = self.walls.get(key)?;
+                let fit = if key.4 {
+                    iced::ContentFit::Cover
+                } else {
+                    match key.3 {
+                        crate::config::Fit::Cover => iced::ContentFit::Cover,
+                        crate::config::Fit::Contain => iced::ContentFit::Contain,
+                        crate::config::Fit::Fill => iced::ContentFit::Fill,
+                        crate::config::Fit::Center => iced::ContentFit::None,
+                    }
+                };
+                super::glass::Backing::Image(h.clone(), fit)
+            }
+        };
+        Some(iced::Element::new(super::glass::Backdrop {
+            wall,
+            screen: self.monitor_size(monitor),
+            origin,
+        }))
+    }
+
     /// Police des chiffres qui défilent (horloges, monitoring) : la police
     /// de l'interface avec ses chiffres tabulaires si le thème les veut
     /// (MLG-270, MLG-274 : variante OpenType `tnum`, transmise par la copie

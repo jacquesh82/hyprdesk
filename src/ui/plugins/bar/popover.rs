@@ -775,6 +775,21 @@ impl App {
         }
         tasks.push(self.destroy_popover());
         let (catcher, win) = (Id::unique(), Id::unique());
+        // Vraie réfraction (MLG-275) : l'écran est capturé avant que le menu
+        // n'apparaisse ; son fondu attend la capture.
+        self.behind = None;
+        let capture = crate::ui::behind::wanted(crate::config::Place::Menus);
+        if capture {
+            tasks.push(Task::perform(
+                crate::ui::behind::capture(
+                    m.name.clone(),
+                    POPOVER_NAMESPACE,
+                    iced::Point::new(m.x, m.y),
+                    Size::new(m.width as f32, m.height as f32),
+                ),
+                move |b| Msg::Behind(win, b),
+            ));
+        }
         // Le capteur d'abord : la carte, créée ensuite et sur le calque overlay, passe au-dessus.
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -835,7 +850,11 @@ impl App {
             visibility: Fade {
                 from: 0.0,
                 to: 1.0,
-                start: now,
+                start: if capture {
+                    now + crate::ui::behind::DELAY
+                } else {
+                    now
+                },
                 dur: duration,
             },
             change: None,
@@ -1310,28 +1329,24 @@ impl App {
         let card: Element<'_, Msg> = if let Some(dashboard) = &p.dashboard {
             self.continuity_dashboard(p, dashboard, alpha)
         } else {
-            container(iced::widget::scrollable(content()).height(Length::Fill))
-                .padding(12)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| {
-                    let mut style = crate::ui::design::bar_card(bg, fg);
-                    style.border.color.a *= alpha;
-                    style.shadow.color.a *= alpha;
-                    style
-                })
-                .into()
-        };
-        // Verre du thème (MLG-268), au rayon de la carte.
-        let card = if p.dashboard.is_none() && alpha > 0.0 {
-            crate::ui::glass::over(
-                card,
+            // Verre du thème (MLG-268) au rayon de la carte ; vraie
+            // réfraction de l'écran capturé à l'ouverture (MLG-275).
+            let mut style = crate::ui::design::bar_card(bg, fg);
+            style.border.color.a *= alpha;
+            style.shadow.color.a *= alpha;
+            crate::ui::glass::card(
+                container(iced::widget::scrollable(content()).height(Length::Fill))
+                    .padding(12)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
                 crate::config::Place::Menus,
                 crate::ui::design::RADIUS,
                 fg,
+                bg,
+                style,
+                true,
+                self.behind_backdrop(win),
             )
-        } else {
-            card
         };
         let card = if p.closing() {
             crate::ui::plugins::bar::motion::inert(card)

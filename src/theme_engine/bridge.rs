@@ -46,7 +46,7 @@ pub fn active(roots: &Roots) -> Option<Active> {
         })
 }
 
-fn resolve_pack(roots: &Roots, id: &str, variant: &str) -> Result<(Resolved, Option<PathBuf>)> {
+pub fn resolve_pack(roots: &Roots, id: &str, variant: &str) -> Result<(Resolved, Option<PathBuf>)> {
     let (all, _) = packs::discover(roots, &bundled::packs())?;
     let chain = packs::chain(&all, id)?;
     // Pack sans variantes : la sienne, quelle que soit celle notée dans

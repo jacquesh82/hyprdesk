@@ -42,6 +42,72 @@ pub fn over<'a, M: 'a>(
     iced::widget::stack![content.into(), rim].into()
 }
 
+/// Surface de verre complète (MLG-275) : `content` dans un conteneur de
+/// style `style`, le verre du thème par-dessus ; `bg` est la teinte de la
+/// lentille. En rendu
+/// matériel, avec de la réfraction au thème, le fond est dessiné par la
+/// lentille ([`super::lens`]) : ce qui est derrière la surface (fond
+/// d'écran, icônes ; ou `under`, la tranche de fond peinte sous une
+/// surface qui ne le voit pas) est flouté si `blur`, réfracté au bord et
+/// teinté de `bg` ; sinon (logiciel, réfraction nulle) fond plein et
+/// liseré simulé.
+#[allow(clippy::too_many_arguments)]
+pub fn card<'a, M: 'a>(
+    content: impl Into<Element<'a, M, iced::Theme, iced::Renderer>>,
+    place: Place,
+    radius: impl Into<Radius>,
+    ink: Color,
+    bg: Color,
+    mut style: iced::widget::container::Style,
+    blur: bool,
+    under: Option<Element<'a, M, iced::Theme, iced::Renderer>>,
+) -> Element<'a, M, iced::Theme, iced::Renderer> {
+    let radius = radius.into();
+    let glass = super::tokens::glass(place);
+    if !(super::lens::available() && glass.refraction > 0.0) {
+        // Sans lentille : le fond du style tel quel (`bg` à défaut).
+        if style.background.is_none() {
+            style.background = Some(bg.into());
+        }
+        return over(
+            iced::widget::container(content).style(move |_| style),
+            place,
+            radius,
+            ink,
+        );
+    }
+    style.background = None;
+    let lens = iced::widget::shader(super::lens::Lens {
+        glass: glass.clone(),
+        radius,
+        tint: bg,
+        blur,
+    })
+    .width(Length::Fill)
+    .height(Length::Fill);
+    let body = iced::widget::container(content).style(move |_| style);
+    // La lentille fait la réfraction et le liseré ; le reflet du haut et le
+    // filet restent dessinés en rectangles.
+    let light = Glass {
+        refraction: 0.0,
+        pointer_response: false,
+        ..glass
+    };
+    let mut layers = iced::widget::stack![body].push_under(lens);
+    if visible(&light) {
+        let rim: Element<'a, M, iced::Theme, iced::Renderer> = Element::new(Rim {
+            glass: light,
+            ink,
+            radius,
+        });
+        layers = layers.push(rim);
+    }
+    if let Some(under) = under {
+        layers = layers.push_under(under);
+    }
+    layers.into()
+}
+
 /// Le verre a quelque chose à dessiner.
 pub fn visible(g: &Glass) -> bool {
     g.highlight > 0.001 || g.refraction > 0.001 || g.border > 0.001
@@ -270,6 +336,89 @@ pub fn paint(
     // Filet du verre.
     if g.border > 0.0 {
         renderer.fill_quad(quad(b, r, (1.0, a(g.border))), clear);
+    }
+}
+
+/// Fond d'écran d'un écran, peint à la place qu'occupe ce widget sur
+/// l'écran (MLG-275) : sous la barre ou le dock, la lentille de verre a
+/// ainsi le vrai fond à réfracter. `origin` est le coin de la surface sur
+/// l'écran ; la place du widget dans la surface n'est connue qu'au rendu.
+pub struct Backdrop {
+    pub wall: Backing,
+    /// Taille logique de l'écran.
+    pub screen: Size,
+    /// Coin haut gauche de la surface sur l'écran.
+    pub origin: Point,
+}
+
+/// Ce que montre le fond de l'écran.
+pub enum Backing {
+    Image(iced::widget::image::Handle, iced::ContentFit),
+    Color(Color),
+}
+
+impl<M> Widget<M, iced::Theme, iced::Renderer> for Backdrop {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::Node::new(limits.max())
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut iced::Renderer,
+        _theme: &iced::Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        use iced::advanced::image::Renderer as _;
+        let b = layout.bounds();
+        match &self.wall {
+            Backing::Color(c) => renderer.fill_quad(quad(b, 0.0, (0.0, Color::TRANSPARENT)), *c),
+            Backing::Image(handle, fit) => {
+                let Some(size) = renderer.measure_image(handle) else {
+                    return;
+                };
+                let img = Size::new(size.width as f32, size.height as f32);
+                let fitted = fit.fit(img, self.screen);
+                // Image placée sur l'écran, centrée comme le bureau la
+                // montre, puis ramenée dans la surface.
+                let on_screen = Rectangle {
+                    x: (self.screen.width - fitted.width) / 2.0,
+                    y: (self.screen.height - fitted.height) / 2.0,
+                    width: fitted.width,
+                    height: fitted.height,
+                };
+                let at = Rectangle {
+                    x: on_screen.x - self.origin.x,
+                    y: on_screen.y - self.origin.y,
+                    ..on_screen
+                };
+                renderer.draw_image(
+                    iced::advanced::image::Image {
+                        handle: handle.clone(),
+                        filter_method: iced::advanced::image::FilterMethod::Linear,
+                        rotation: iced::Radians(0.0),
+                        border_radius: Radius::default(),
+                        opacity: 1.0,
+                        snap: true,
+                    },
+                    at,
+                    b,
+                );
+            }
+        }
     }
 }
 

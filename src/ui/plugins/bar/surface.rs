@@ -1072,13 +1072,10 @@ impl App {
             Some(underlay) => iced::widget::stack([underlay, content]).into(),
             None => content,
         };
-        let slab = container(content)
-            .padding(pad)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_| crate::ui::plugins::bar::style::surface(style, &pal, top));
         // Verre du thème (MLG-268) sur les lames pleines ; les capsules et
-        // les niches dessinent leur propre verre.
+        // les niches dessinent leur propre verre. Vraie réfraction (MLG-275)
+        // : la lame ne voit pas le fond derrière elle, la tranche de fond de
+        // son écran est peinte dessous pour la lentille.
         let slab: Element<'_, Msg> = if matches!(
             style,
             crate::config::BarStyle::Continuite | crate::config::BarStyle::Graphite
@@ -1089,9 +1086,37 @@ impl App {
                 (crate::config::BarStyle::Continuite, false) => iced::border::top(11),
                 _ => iced::border::radius(0),
             };
-            crate::ui::glass::over(slab, crate::config::Place::Bar, radius, color(pal.fg, 1.0))
+            let surface = crate::ui::plugins::bar::style::surface(style, &pal, top);
+            let bg = match surface.background {
+                Some(iced::Background::Color(c)) => c,
+                _ => color(pal.bg, pal.opacity),
+            };
+            let under = crate::ui::lens::available()
+                .then(|| {
+                    let roi = self.bar_roi(s);
+                    self.wall_backdrop(&s.monitor, iced::Point::new(roi.x, roi.y))
+                })
+                .flatten();
+            crate::ui::glass::card(
+                container(content)
+                    .padding(pad)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+                crate::config::Place::Bar,
+                radius,
+                color(pal.fg, 1.0),
+                bg,
+                surface,
+                true,
+                under,
+            )
         } else {
-            slab.into()
+            container(content)
+                .padding(pad)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| crate::ui::plugins::bar::style::surface(style, &pal, top))
+                .into()
         };
         if graphite {
             container(slab)

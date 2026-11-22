@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 mod apps_grid;
+mod behind;
 mod chat;
 pub(crate) mod color_picker;
 mod context;
@@ -26,6 +27,7 @@ mod hyprlists;
 mod hyprset;
 mod icons;
 mod kinetic;
+mod lens;
 mod mymfa;
 mod mymfa_fenetre;
 pub(crate) mod tokens;
@@ -258,6 +260,11 @@ pub enum Msg {
     /// Génération, icônes du bureau, puis icônes des commandes média.
     IconsResolved(u64, Vec<launch::Resolved>, Vec<Option<PathBuf>>),
     WallLoaded(WallKey, Result<DecodedWall, String>),
+    /// Capture de l'écran sous une surface (menu, Réglages) : le fond de sa
+    /// lentille (MLG-275).
+    Behind(Id, Option<Arc<behind::Behind>>),
+    /// Capture faite avant le tiroir des Réglages : le crée ensuite.
+    PanelBehind(Id, String, Option<Arc<behind::Behind>>),
     /// Trame suivante d'un fond vidéo (boucle ffmpeg, par clé de fond).
     VideoFrame(WallKey, crate::video::Frame),
     Rotate,
@@ -414,6 +421,8 @@ pub struct App {
     video_walls: HashMap<WallKey, crate::video::Tiles>,
     loading: HashSet<WallKey>,
     shown: HashMap<String, Shown>,
+    /// Capture sous la surface ouverte qui en a demandé une (MLG-275).
+    behind: Option<(Id, Arc<behind::Behind>)>,
     rot: HashMap<usize, Rot>,
     /// Icônes résolues, alignées sur `cfg.icons`.
     icons: Vec<launch::Resolved>,
@@ -967,6 +976,7 @@ impl App {
             video_walls: HashMap::new(),
             loading: HashSet::new(),
             shown: HashMap::new(),
+            behind: None,
             rot: HashMap::new(),
             icons: Vec::new(),
             icon_imgs: Vec::new(),
@@ -4475,6 +4485,23 @@ impl App {
                 again.push(smart);
                 Task::batch(again)
             }
+            Msg::Behind(id, b) => {
+                self.behind = b.map(|b| (id, b));
+                Task::none()
+            }
+            Msg::PanelBehind(id, monitor, b) => {
+                self.behind = b.map(|b| (id, b));
+                // Tiroir refermé entre-temps : rien à créer. Sinon son
+                // glissement part maintenant, pas pendant la capture.
+                if self.panel.as_ref().is_some_and(|p| p.surface == id) {
+                    if let Some(f) = self.panel_fade.as_mut().filter(|f| f.to >= 1.0) {
+                        f.start = std::time::Instant::now();
+                    }
+                    self.panel_surface(id, monitor)
+                } else {
+                    Task::none()
+                }
+            }
             Msg::WallLoaded(key, r) => {
                 self.loading.remove(&key);
                 match r {
@@ -6147,6 +6174,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::VolumeValue(_) => "VolumeValue",
         Msg::AudioValue(_) => "AudioValue",
         Msg::WallLoaded(..) => "WallLoaded",
+        Msg::Behind(..) => "Behind",
+        Msg::PanelBehind(..) => "PanelBehind",
         Msg::DrawerFullscreen(..) => "DrawerFullscreen",
         Msg::DrawerFloats(..) => "DrawerFloats",
         Msg::Noop => "Noop",

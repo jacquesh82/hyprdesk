@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **True glass refraction** (MLG-275). With a theme that asks for refraction
+  (the bundled Verre does), hyprdesk's surfaces now bend, blur and tint what
+  is really behind them on the GPU (approach of iced_glass, MIT): desktop
+  widget cards over the wallpaper and icons; the bar, the dock and the
+  full-desktop launcher over their slice of the wallpaper; bar menus and
+  Settings over a capture of the screen taken as they open (frozen while
+  open). Software rendering keeps the simulated rim. `hyprdesk preview` takes
+  `HYPRDESK_PREVIEW_PACK=<pack>` to try a pack.
 - **Theme glass on every bar style, true tabular figures, contrast notice**
   (MLG-274). Island's capsule and Convex's niches get the theme's highlight
   and refraction rim; clocks and monitoring use the font's real `tnum`

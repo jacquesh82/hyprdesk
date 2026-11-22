@@ -1459,11 +1459,16 @@ impl App {
                 super::apps_grid::spot_height(!_s.suggested.is_empty()),
             );
         }
-        let card = container(column![input, list].spacing(12))
-            .padding(16)
-            .width(super::apps_grid::SPOT_WIDTH)
-            .height(super::apps_grid::spot_height(!_s.suggested.is_empty()))
-            .style(move |_| container::Style {
+        super::glass::card(
+            container(column![input, list].spacing(12))
+                .padding(16)
+                .width(super::apps_grid::SPOT_WIDTH)
+                .height(super::apps_grid::spot_height(!_s.suggested.is_empty())),
+            crate::config::Place::Launcher,
+            super::design::RADIUS,
+            fg,
+            self.launcher_tint(bg),
+            container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
                     .rounded(super::design::RADIUS)
@@ -1476,12 +1481,9 @@ impl App {
                 },
                 text_color: Some(fg),
                 ..Default::default()
-            });
-        super::glass::over(
-            card,
-            crate::config::Place::Launcher,
-            super::design::RADIUS,
-            fg,
+            },
+            true,
+            self.launcher_under(),
         )
     }
 }

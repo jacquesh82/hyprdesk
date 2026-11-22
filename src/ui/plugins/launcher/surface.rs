@@ -866,10 +866,27 @@ impl App {
                     .into()
             }
         } else {
-            container(inner)
-                .padding(10)
-                .style(move |_| design::launcher_surface(&self.theme, t, false, base))
-                .into()
+            // Vraie réfraction (MLG-275) : le dock ne voit pas le fond derrière
+            // lui ; celui de son écran est peint dessous pour la lentille.
+            let style = design::launcher_surface(&self.theme, t, false, base);
+            let th = &self.cfg.general.theme;
+            let tint = color(
+                crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
+                base * 0.86 * t,
+            );
+            let under = crate::ui::lens::available()
+                .then(|| self.wall_backdrop(&m.name, Point::new(roi.x, roi.y)))
+                .flatten();
+            crate::ui::glass::card(
+                container(inner).padding(10),
+                crate::config::Place::Launcher,
+                design::RADIUS,
+                color(th.fg, t),
+                tint,
+                style,
+                true,
+                under,
+            )
         };
         let dock = mouse_area(dock).on_exit(UiMsg::LauncherPointer(monitor.clone(), None));
         let dock: Element<'_, UiMsg> = if self.convex_auto_hide() {

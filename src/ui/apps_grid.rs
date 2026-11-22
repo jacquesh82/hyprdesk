@@ -396,11 +396,17 @@ impl App {
             .color(dim),
         );
         // La feuille : opaque, coins arrondis, ombre ; un clic autour referme.
-        let sheet = container(body)
-            .padding([28, 32])
-            .max_width(COLUMNS as f32 * (TILE + 6.0) + 64.0)
-            .height(Length::Fill)
-            .style(move |_| container::Style {
+        // Verre du thème, vraie réfraction du fond en plein bureau (MLG-275).
+        let sheet = crate::ui::glass::card(
+            container(body)
+                .padding([28, 32])
+                .max_width(COLUMNS as f32 * (TILE + 6.0) + 64.0)
+                .height(Length::Fill),
+            crate::config::Place::Launcher,
+            32.0,
+            fg,
+            self.launcher_tint(surface),
+            container::Style {
                 background: Some(surface.into()),
                 border: Border::default().rounded(32).width(1).color(edge),
                 shadow: Shadow {
@@ -410,8 +416,10 @@ impl App {
                 },
                 text_color: Some(fg),
                 ..Default::default()
-            });
-        let sheet = crate::ui::glass::over(sheet, crate::config::Place::Launcher, 32.0, fg);
+            },
+            true,
+            self.launcher_under(),
+        );
         let page = container(mouse_area(sheet).on_press(Msg::Noop))
             .center_x(Length::Fill)
             .padding(Padding {
@@ -520,11 +528,16 @@ impl App {
                 spot_height(!s.suggested.is_empty()),
             );
         }
-        let card = container(body)
-            .padding(22)
-            .width(SPOT_WIDTH)
-            .height(spot_height(!s.suggested.is_empty()))
-            .style(move |_| container::Style {
+        let card = crate::ui::glass::card(
+            container(body)
+                .padding(22)
+                .width(SPOT_WIDTH)
+                .height(spot_height(!s.suggested.is_empty())),
+            crate::config::Place::Launcher,
+            28.0,
+            fg,
+            self.launcher_tint(bg),
+            container::Style {
                 background: Some(bg.into()),
                 border: Border::default().rounded(28).width(1).color(edge),
                 shadow: Shadow {
@@ -534,15 +547,11 @@ impl App {
                 },
                 text_color: Some(fg),
                 ..Default::default()
-            });
-        container(crate::ui::glass::over(
-            card,
-            crate::config::Place::Launcher,
-            28.0,
-            fg,
-        ))
-        .padding(18)
-        .into()
+            },
+            true,
+            self.launcher_under(),
+        );
+        container(card).padding(18).into()
     }
 }
 

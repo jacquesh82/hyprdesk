@@ -194,17 +194,21 @@ impl App {
             card_opacity * t,
         );
         let boxed: Element<'_, Msg> = if w.card {
-            // Verre du thème (MLG-268) au rayon de la carte.
-            super::glass::over(
-                container(content)
-                    .padding(16)
-                    .style(move |_| container::Style {
-                        background: Some(card_bg.into()),
-                        ..super::design::surface(&self.theme, super::design::Surface::Floating)
-                    }),
+            // Verre du thème (MLG-268) au rayon de la carte ; vraie
+            // réfraction du fond d'écran et des icônes derrière elle
+            // (MLG-275), la carte étant dessinée sur le bureau.
+            super::glass::card(
+                container(content).padding(16),
                 crate::config::Place::Widgets,
                 super::design::RADIUS,
                 color(th.fg, t),
+                card_bg,
+                container::Style {
+                    background: Some(card_bg.into()),
+                    ..super::design::surface(&self.theme, super::design::Surface::Floating)
+                },
+                true,
+                None,
             )
         } else {
             content

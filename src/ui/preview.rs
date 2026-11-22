@@ -513,6 +513,22 @@ impl Preview {
                 app.settings.apply_preset(preset);
             }
         }
+        // `HYPRDESK_PREVIEW_PACK=verre [HYPRDESK_PREVIEW_VARIANT=light]` : le
+        // pack du moteur (palette, effets, jetons, verre) habille les scènes.
+        if let Ok(id) = std::env::var("HYPRDESK_PREVIEW_PACK") {
+            let roots = crate::theme_engine::paths::Roots::from_env();
+            let variant =
+                std::env::var("HYPRDESK_PREVIEW_VARIANT").unwrap_or_else(|_| "dark".into());
+            match crate::theme_engine::bridge::resolve_pack(&roots, &id, &variant) {
+                Ok((r, _)) => {
+                    app.settings
+                        .apply_theme(&crate::theme_engine::bridge::to_theme(&r));
+                    super::tone::set(r.palette);
+                    super::tokens::set(r.design);
+                }
+                Err(e) => eprintln!("HYPRDESK_PREVIEW_PACK={id} : {e}"),
+            }
+        }
         let cfg = app.settings.apply_to(&cfg);
         app.theme = make_theme(&cfg);
         app.cfg = Arc::new(cfg);
