@@ -7,6 +7,7 @@
 //! sont `persist`, `hot` et `dry-run`. La variable `HYPRDESK_THEME=id[:variante]`
 //! surcharge le thème actif (équivalent de `GTK_THEME`).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -190,6 +191,8 @@ fn options_of(flags: &Flags) -> Result<Options, Failure> {
         origin: flags.origin.clone().unwrap_or_else(|| "cli".to_string()),
         check_installed: true,
         reload: true,
+        target_opts: BTreeMap::new(),
+        reload_commands: BTreeMap::new(),
     })
 }
 

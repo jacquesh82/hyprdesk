@@ -64,6 +64,12 @@ pub struct Options {
     pub check_installed: bool,
     /// Exécuter les rechargements (faux dans les essais).
     pub reload: bool,
+    /// Options par cible (`kitty.file`, `thunar.conf`…) : les réglages du
+    /// démon passent ici, clés conservées depuis `plugin_options`.
+    pub target_opts: BTreeMap<String, String>,
+    /// Rechargement par cible : commande configurée (elle passe par `sh -c`,
+    /// c'est un réglage du poste, jamais un contenu de pack).
+    pub reload_commands: BTreeMap<String, String>,
 }
 
 /// Sortie d'un fichier planifié.
@@ -417,6 +423,8 @@ mod tests {
             origin: "cli".to_string(),
             check_installed: false,
             reload: false,
+            target_opts: BTreeMap::new(),
+            reload_commands: BTreeMap::new(),
         }
     }
 

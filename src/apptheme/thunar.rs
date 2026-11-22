@@ -9,11 +9,11 @@
 
 use std::path::PathBuf;
 
-use super::{
-    Opt, Opts, Target, config_dir, hex, in_path, include_first, mix, opt, run_reload,
-    write_if_changed,
-};
+use std::collections::BTreeMap;
+
+use super::{Opt, Opts, Target, config_dir, in_path, opt, run_reload, write_if_changed};
 use crate::config::Theme;
+use crate::theme_engine;
 
 const OPTIONS: &[Opt] = &[
     Opt {
@@ -77,84 +77,38 @@ fn installed() -> bool {
     in_path("thunar")
 }
 
-/// Feuille GTK de Thunar d'après le thème, limitée à `.thunar`.
-pub fn css(t: &Theme) -> String {
-    let (fg, bg, ac) = (t.fg, t.bg, t.accent);
-    let side = hex(mix(bg, fg, 0.06));
-    let bar = hex(mix(bg, fg, 0.10));
-    let field = hex(mix(bg, fg, 0.14));
-    let hover = hex(mix(bg, ac, 0.25));
-    let dim = hex(mix(fg, bg, 0.35));
-    let (fg, bg, ac) = (hex(fg), hex(bg), hex(ac));
-    format!(
-        "/* Généré par hyprdesk (Réglages → Thème des applications) — thème « {name} ».\n   \
-         Réécrit à chaque changement de thème ; importé par gtk.css. Règles limitées\n   \
-         à Thunar (.thunar) : les autres applications GTK ne changent pas. */\n\n\
-         .thunar, .thunar .view, .thunar treeview.view, .thunar iconview, .thunar scrolledwindow {{\n  \
-         background-color: {bg};\n  color: {fg};\n}}\n\n\
-         .thunar .sidebar, .thunar .shortcuts-pane, .thunar placessidebar,\n\
-         .thunar .sidebar .view, .thunar .shortcuts-pane treeview.view {{\n  \
-         background-color: {side};\n  color: {fg};\n}}\n\n\
-         .thunar .view:selected, .thunar treeview.view:selected, .thunar iconview:selected,\n\
-         .thunar .sidebar .view:selected, .thunar row:selected {{\n  \
-         background-color: {ac};\n  color: {bg};\n}}\n\n\
-         .thunar headerbar, .thunar toolbar, .thunar menubar, .thunar .path-bar,\n\
-         .thunar .location-bar, .thunar statusbar {{\n  \
-         background-color: {bar};\n  color: {fg};\n}}\n\n\
-         .thunar statusbar label {{\n  color: {dim};\n}}\n\n\
-         .thunar entry {{\n  background-color: {field};\n  color: {fg};\n  caret-color: {ac};\n}}\n\n\
-         .thunar button:hover, .thunar .path-bar button:hover {{\n  background-color: {hover};\n}}\n\n\
-         .thunar .path-bar button:checked {{\n  background-color: {ac};\n  color: {bg};\n}}\n",
-        name = t.name
-    )
-}
-
 fn apply(t: &Theme, o: &Opts) -> Result<String, String> {
-    let file = file(o);
-    let changed = write_if_changed(&file, &css(t))?;
-    let reload = opt(o, "thunar", &OPTIONS[2]);
-    let Some(gtk) = conf_path(o) else {
-        if changed {
-            run_reload(&reload);
-        }
-        return Ok(crate::tr!(
-            "Thunar : thème « {name} » écrit dans {f} ; à importer dans votre gtk.css ({line}).",
-            name = t.name,
-            f = file.display(),
-            line = format!("@import url(\"{}\");", file.display())
-        ));
-    };
-    // Chemin relatif si la feuille est à côté de gtk.css, sinon complet.
-    let target = if file.parent() == gtk.parent() {
-        file.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    } else {
-        file.display().to_string()
-    };
-    let line = format!("@import url(\"{target}\");");
-    let included = include_first(
-        &gtk,
-        &line,
-        &[&format!("@import url(\"{}\");", file.display())],
-        "/* Thème de Thunar par hyprdesk (Réglages → Thème des applications). */",
-    )?;
-    if changed || included {
-        run_reload(&reload);
+    // Délégation moteur : feuille limitée à .thunar, import en tête de
+    // gtk.css réglé, rechargement configuré (docs/THEME-ENGINE.md §8).
+    let roots = theme_engine::paths::Roots::from_env();
+    let resolved = theme_engine::resolve::from_theme(t);
+    let mut target_opts = BTreeMap::new();
+    target_opts.insert("thunar.file".to_string(), file(o).display().to_string());
+    if let Some(c) = conf_path(o) {
+        target_opts.insert("thunar.conf".to_string(), c.display().to_string());
     }
-    Ok(if included {
-        crate::tr!(
-            "Thunar : thème « {name} » appliqué ; {c} l'importe désormais (copie : {c}.avant-hyprdesk.bak). Il vaut pour les prochaines fenêtres de Thunar.",
-            name = t.name,
-            c = gtk.display()
-        )
-    } else {
-        crate::tr!(
-            "Thunar : thème « {name} » appliqué (prochaines fenêtres de Thunar).",
-            name = t.name
-        )
-    })
+    let mut reload_commands = BTreeMap::new();
+    let cmd = opt(o, "thunar", &OPTIONS[2]);
+    if !cmd.is_empty() {
+        reload_commands.insert("thunar".to_string(), cmd);
+    }
+    let options = theme_engine::apply::Options {
+        only: vec!["thunar".to_string()],
+        origin: "daemon".to_string(),
+        check_installed: false,
+        reload: true,
+        target_opts,
+        reload_commands,
+        ..Default::default()
+    };
+    let report = theme_engine::apply::apply(&resolved, None, &roots, &options);
+    if !report.errors.is_empty() {
+        return Err(report.errors.join(" ; "));
+    }
+    Ok(crate::tr!(
+        "Thunar : thème « {name} » appliqué par le moteur de thème (prochaines fenêtres).",
+        name = t.name
+    ))
 }
 
 fn clear(o: &Opts) -> Result<(), String> {
@@ -174,56 +128,52 @@ fn clear(o: &Opts) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// Délégation moteur sur dossier XDG isolé (env modifié) :
+    /// `cargo test -- --ignored --nocapture essai_thunar_moteur`.
     #[test]
-    fn regles_limitees_a_thunar() {
-        let c = css(&Theme::default());
-        // Chaque sélecteur commence par .thunar : rien d'autre ne change.
-        for l in c.lines().filter(|l| l.contains('{') || l.ends_with(',')) {
-            for sel in l.trim_end_matches(['{', ' ', ',']).split(',') {
-                assert!(
-                    sel.trim().starts_with(".thunar"),
-                    "sélecteur hors de Thunar : {sel}"
-                );
-            }
+    #[ignore]
+    fn essai_thunar_moteur() {
+        let tmp =
+            std::env::temp_dir().join(format!("hyprdesk-thunar-moteur-{}", std::process::id()));
+        let gtk = tmp.join("gtk-3.0");
+        std::fs::create_dir_all(&gtk).unwrap();
+        std::fs::write(gtk.join("gtk.css"), "@define-color accent_color #9580ff;\n").unwrap();
+        let state = tmp.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        // SAFETY : essai lancé seul, à la main.
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &tmp);
+            std::env::set_var("XDG_STATE_HOME", &state);
+            std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
         }
-        assert!(c.contains("#171b27") && c.contains("#a69cff"), "{c}");
-    }
-
-    #[test]
-    fn import_en_tete_de_gtk_css() {
-        let dir = std::env::temp_dir().join(format!("hyprdesk-thunar-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let gtk = dir.join("gtk.css");
-        std::fs::write(&gtk, "@define-color accent_color #9580ff;\n").unwrap();
         let mut o = Opts::new();
-        o.insert(
-            "thunar.file".into(),
-            dir.join("hyprdesk-thunar.css").display().to_string(),
-        );
-        o.insert("thunar.conf".into(), gtk.display().to_string());
+        o.insert("thunar.reload".into(), String::new());
         apply(&Theme::default(), &o).unwrap();
-        let g = std::fs::read_to_string(&gtk).unwrap();
-        let first_rule = g
+        let css = std::fs::read_to_string(gtk.join("gtk.css")).unwrap();
+        // Import en tête, règles limitées à .thunar, règles de l'utilisateur gardées.
+        let première = css
             .lines()
             .find(|l| !l.trim().is_empty() && !l.starts_with("/*"))
             .unwrap();
-        assert_eq!(first_rule, "@import url(\"hyprdesk-thunar.css\");", "{g}");
-        assert!(g.contains("@define-color accent_color"));
-        // Deuxième passage : pas de second import.
-        apply(&Theme::default(), &o).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&gtk)
-                .unwrap()
-                .matches("@import")
-                .count(),
-            1
-        );
+        assert_eq!(première, "@import url(\"hyprdesk-thunar.css\");", "{css}");
+        assert!(css.contains("@define-color accent_color #9580ff;"), "{css}");
+        let feuille = std::fs::read_to_string(gtk.join("hyprdesk-thunar.css")).unwrap();
+        assert!(feuille.contains(".thunar"), "{feuille}");
+        // Clear : le bloc et l'import ne disparaissent pas de gtk.css (ils
+        // appartiennent aux cibles gtk et thunar du moteur), mais la feuille
+        // thunar se vide.
         clear(&o).unwrap();
         assert!(
-            !std::fs::read_to_string(dir.join("hyprdesk-thunar.css"))
+            !std::fs::read_to_string(gtk.join("hyprdesk-thunar.css"))
                 .unwrap()
                 .contains(".thunar")
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        // SAFETY : fin de l'essai.
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("XDG_STATE_HOME");
+            std::env::remove_var("XDG_CACHE_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -1366,7 +1366,8 @@ mod tests {
 
     #[test]
     fn exporter_puis_importer_ailleurs() {
-        let base = std::env::temp_dir().join(format!("hyprdesk-share-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("hyprdesk-share-import-{}", std::process::id()));
         let (a, b) = (base.join("a"), base.join("b"));
         for d in [&a, &b] {
             std::fs::create_dir_all(d.join("hyprdesk/widgets")).unwrap();

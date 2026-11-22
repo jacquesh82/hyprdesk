@@ -50,6 +50,8 @@ pub fn trigger_once(roots: &Roots, origin: &str) -> Result<super::apply::Report>
         origin: origin.to_string(),
         check_installed: false,
         reload: true,
+        target_opts: Default::default(),
+        reload_commands: Default::default(),
     };
     Ok(apply::apply(&resolved, pack_dir.as_deref(), roots, &opts))
 }

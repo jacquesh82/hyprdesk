@@ -11,6 +11,7 @@
 //! un fragment hyprlang pour les configurations standard (`source=`), et le
 //! mode `hot` passe par `hyprctl keyword` dans les deux mondes.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -251,10 +252,30 @@ pub fn plan(
     pack_dir: Option<&Path>,
     roots: &Roots,
 ) -> Result<Vec<Planned>> {
+    plan_opts(target, resolved, pack_dir, roots, &BTreeMap::new())
+}
+
+/// Valeur d'option de cible (`kitty.file`…), réglée ou absente.
+pub fn target_opt<'a>(target_opts: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    target_opts
+        .get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+}
+
+/// Plan complet, avec les options par cible (chemins de fichiers réglés par
+/// l'utilisateur dans le démon, clés conservées).
+pub fn plan_opts(
+    target: &Target,
+    resolved: &Resolved,
+    pack_dir: Option<&Path>,
+    roots: &Roots,
+    target_opts: &BTreeMap<String, String>,
+) -> Result<Vec<Planned>> {
     let content = render_for(target, resolved, pack_dir)?;
     validate_css(&target.id, &content)?;
     if let Some(id) = builtin_id(&target.id) {
-        let out = plan_builtin(id, &content, resolved, roots)?;
+        let out = plan_builtin(id, &content, resolved, roots, target_opts)?;
         return Ok(out);
     }
     // Cible générique : sortie déclarée en liste blanche, écriture simple.
@@ -283,6 +304,7 @@ fn plan_builtin(
     content: &str,
     resolved: &Resolved,
     roots: &Roots,
+    target_opts: &BTreeMap<String, String>,
 ) -> Result<Vec<Planned>> {
     let out = match id {
         "hyprland" => vec![Planned {
@@ -305,11 +327,34 @@ fn plan_builtin(
                 op: Op::AppendSource,
             },
         ],
-        "kitty" => vec![Planned {
-            path: roots.config.join("kitty").join("hyprdesk-theme.conf"),
-            content: content.to_string(),
-            op: Op::Write,
-        }],
+        "kitty" => {
+            let file = match target_opt(target_opts, "kitty.file") {
+                Some(f) => PathBuf::from(f),
+                None => roots.config.join("kitty").join("hyprdesk-theme.conf"),
+            };
+            let mut out = vec![Planned {
+                path: file.clone(),
+                content: content.to_string(),
+                op: Op::Write,
+            }];
+            // Inclusion dans kitty.conf (option `kitty.conf`, vide : à faire
+            // soi-même) — même mécanique que le démon historique.
+            if let Some(conf) = target_opt(target_opts, "kitty.conf") {
+                let conf = PathBuf::from(conf);
+                let line = match (file.parent(), conf.parent(), file.file_name()) {
+                    (Some(a), Some(b), Some(name)) if a == b => {
+                        format!("include {}", name.to_string_lossy())
+                    }
+                    _ => format!("include {}", file.display()),
+                };
+                out.push(Planned {
+                    path: conf,
+                    content: line,
+                    op: Op::AppendSource,
+                });
+            }
+            out
+        }
         "gtk" => ["gtk-3.0", "gtk-4.0"]
             .iter()
             .map(|dir| Planned {
@@ -328,8 +373,14 @@ fn plan_builtin(
             op: Op::Write,
         }],
         "thunar" => {
-            let thunar_css = roots.config.join("gtk-3.0").join("hyprdesk-thunar.css");
-            let gtk_css = roots.config.join("gtk-3.0").join("gtk.css");
+            let thunar_css = match target_opt(target_opts, "thunar.file") {
+                Some(f) => PathBuf::from(f),
+                None => roots.config.join("gtk-3.0").join("hyprdesk-thunar.css"),
+            };
+            let gtk_css = match target_opt(target_opts, "thunar.conf") {
+                Some(c) if c != thunar_css.display().to_string() => PathBuf::from(c),
+                _ => roots.config.join("gtk-3.0").join("gtk.css"),
+            };
             // Chemin relatif quand la feuille est à côté de gtk.css.
             let target = if thunar_css.parent() == gtk_css.parent() {
                 thunar_css
@@ -587,6 +638,25 @@ pub fn include_first(existing: &str, line: &str) -> String {
     format!("{IMPORT_MARKER}\n{line}\n\n{existing}")
 }
 
+/// Retire le bloc marqué d'un contenu (clear GTK) : tout ce qui précède
+/// reste, ce qui suit (règles de l'utilisateur postérieures) aussi.
+pub fn remove_block(existing: &str) -> String {
+    match existing.find(BLOCK_BEGIN) {
+        Some(i) => {
+            let after = &existing[i..];
+            let end = after
+                .find(BLOCK_END)
+                .map(|j| i + j + BLOCK_END.len())
+                .unwrap_or(existing.len());
+            let mut head = existing[..i].to_string();
+            let tail = existing[end..].trim_start_matches('\n');
+            head.push_str(tail);
+            head
+        }
+        None => existing.to_string(),
+    }
+}
+
 /// Ligne ajoutée une fois en fin de contenu (`source =` hyprlang).
 pub fn append_source_once(existing: &str, needle: &str, line: &str) -> String {
     if existing.contains(needle) {
@@ -767,6 +837,48 @@ mod tests {
             Reload::Signal("waybar".to_string(), "USR1".to_string())
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn kitty_inclusion_et_fichier_réglés_par_options() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-kopt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        let mut target_opts = BTreeMap::new();
+        target_opts.insert(
+            "kitty.file".to_string(),
+            root.join("kitty-perso/couleurs.conf").display().to_string(),
+        );
+        target_opts.insert(
+            "kitty.conf".to_string(),
+            root.join("kitty-perso/kitty.conf").display().to_string(),
+        );
+        let kitty = find("kitty").unwrap();
+        let planned = plan_opts(&kitty, &r, None, &roots, &target_opts).unwrap();
+        assert_eq!(planned.len(), 2, "{planned:?}");
+        assert!(planned[0].path.ends_with("couleurs.conf"), "{planned:?}");
+        // Include : même dossier → nom seul (mécanique du démon historique).
+        assert_eq!(
+            planned[1].content, "include couleurs.conf",
+            "{}",
+            planned[1].content
+        );
+        assert!(matches!(planned[1].op, Op::AppendSource));
+        // Options absentes : chemins par défaut, pas d'inclusion.
+        let defaut = plan(&kitty, &r, None, &roots).unwrap();
+        assert_eq!(defaut.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_block_renvoie_aux_règles_utilisateur() {
+        let bloc = format!("avant\n{}\ncontenu\n{}\naprès\n", BLOCK_BEGIN, BLOCK_END);
+        let sans = remove_block(&bloc);
+        assert!(sans.contains("avant") && sans.contains("après"), "{sans}");
+        assert!(!sans.contains(BLOCK_BEGIN));
+        // Idempotent.
+        assert_eq!(remove_block(&sans), sans);
     }
 
     #[test]
