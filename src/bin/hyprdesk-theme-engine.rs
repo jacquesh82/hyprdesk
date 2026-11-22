@@ -14,7 +14,7 @@ use hyprdesk::theme_engine::{
     apply::{self, Mode, Options},
     archive, bundled, color, intent, packs,
     paths::Roots,
-    recolor, resolve, state,
+    recolor, resolve, state, watch,
 };
 
 /// Paire code de sortie / message d'erreur.
@@ -89,6 +89,9 @@ fn run(args: &[String]) -> Result<u8, Failure> {
         "build" => build(&roots, &flags),
         "recolor" => recolor_cmd(&roots, &flags),
         "tools" => tools(&flags),
+        "diff" => diff(&roots, &flags, rest),
+        "preview" => preview(&roots, &flags, rest),
+        "watch" => watch_cmd(&roots, &flags),
         other => Err((
             1,
             format!("commande inconnue : {other} (--help pour l'usage)"),
@@ -585,6 +588,70 @@ fn tools(flags: &Flags) -> Result<u8, Failure> {
     Ok(0)
 }
 
+/// `diff <a> <b>` : divergences de slots et d'effets entre deux palettes.
+fn diff(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure> {
+    let (a, b) = match rest {
+        [a, b] => (a, b),
+        _ => return Err((1, "usage : diff <id|chemin> <id|chemin>".to_string())),
+    };
+    let ra = resolved_of(roots, flags, a)?;
+    let rb = resolved_of(roots, flags, b)?;
+    let d = watch::diff(&ra.0, &rb.0);
+    if flags.json {
+        let items: Vec<serde_json::Value> = d
+            .iter()
+            .map(|(s, x, y)| serde_json::json!({"slot": s, "a": x, "b": y}))
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&items).map_err(json_err)?
+        );
+    } else if d.is_empty() {
+        println!("palettes identiques");
+    } else {
+        println!("{:<16} {:<12} b", "slot", "a");
+        for (s, x, y) in &d {
+            println!("{:<16} {:<12} {}", s, x, y);
+        }
+    }
+    Ok(0)
+}
+
+/// `preview <id> --out <png>` : mire de palette.
+fn preview(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure> {
+    let id = rest
+        .first()
+        .ok_or_else(|| (1, "usage : preview <id> --out <png>".to_string()))?;
+    let out = flags
+        .out
+        .clone()
+        .ok_or_else(|| (1, "usage : preview <id> --out <png>".to_string()))?;
+    let (resolved, _) = resolved_of(roots, flags, id)?;
+    watch::mire_png(&resolved, &out).map_err(engine_err)?;
+    println!("mire → {}", out.display());
+    Ok(0)
+}
+
+/// `watch` : réapplication déclenchée (inotify, socket, SIGHUP).
+fn watch_cmd(roots: &Roots, _flags: &Flags) -> Result<u8, Failure> {
+    eprintln!(
+        "veille : {} — réveil par fichiers, socket ou SIGHUP",
+        watch::socket_path().display()
+    );
+    watch::watch(roots, |r| {
+        if r.errors.is_empty() {
+            eprintln!(
+                "reappliqué : {} ({}) révision {}",
+                r.pack, r.variant, r.revision
+            );
+        } else {
+            eprintln!("échec de réapplication : {}", r.errors.join(" ; "));
+        }
+    })
+    .map(|_| 0u8)
+    .map_err(|e| (4u8, e.to_string()))
+}
+
 /// Garde de policy pour les commandes pilotées par LYRA (§17.2) : la classe
 /// « application » exige `theme_engine_ai_apply`, les autres
 /// `theme_engine_ai`.
@@ -831,6 +898,9 @@ USAGE :\n\
   hyprdesk-theme-engine build --intent <fichier.json> [--out <dir>]\n\
   hyprdesk-theme-engine recolor --from <image> [--scheme …] [--variant …]\n\
   hyprdesk-theme-engine tools [--json]\n\
+  hyprdesk-theme-engine diff <a> <b> [--json]\n\
+  hyprdesk-theme-engine preview <id> --out <png>\n\
+  hyprdesk-theme-engine watch\n\
   hyprdesk-theme-engine install <archive|dossier>\n\
   hyprdesk-theme-engine remove <id>\n\n\
 ENVIRONNEMENT :\n\

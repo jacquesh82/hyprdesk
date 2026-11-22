@@ -33,6 +33,7 @@ pub mod resolve;
 pub mod state;
 pub mod targets;
 pub mod template;
+pub mod watch;
 
 use thiserror::Error;
 
