@@ -4653,3 +4653,8 @@
 "on | off — transparence réduite : surfaces presque opaques, sans reflet ni réfraction" = "on | off — reduced transparency: near-opaque surfaces, no highlight or refraction"
 "Accent peu visible sur le fond : {r}:1 (au moins {t}:1 conseillé pour les repères)." = "Accent hard to see on the background: {r}:1 (at least {t}:1 advised for markers)."
 "Vos couleurs sont gardées telles quelles ; un thème livré serait corrigé." = "Your colours are kept as chosen; a bundled theme would be corrected."
+"Contenu (résultats, formulaires)" = "Content (results, forms)"
+"Contraste renforcé" = "Increased contrast"
+"on | off — contraste renforcé : texte à 7:1, repères à 4,5:1, surfaces plus denses" = "on | off — increased contrast: text at 7:1, markers at 4.5:1, denser surfaces"
+"0.75..2 — échelle du texte de l'interface (1 : celle du thème)" = "0.75..2 — interface text scale (1: the theme's)"
+"échelle du texte attendue entre 0,75 et 2" = "text scale expected between 0.75 and 2"

@@ -745,6 +745,33 @@ impl App {
                 })
                 .fold(base, f32::max);
         }
+        // Barre presque transparente (matériau `transparent`, MLG-282) : le
+        // texte suit le fond local, clair sur fond sombre et inversement,
+        // sauf couleur de texte réglée pour la barre.
+        let own_text = self
+            .cfg
+            .bar
+            .as_ref()
+            .is_some_and(|b| b.colors.text.is_some());
+        if pal.opacity < 0.3 && !own_text && !self.bar_surfaces.is_empty() {
+            let bright = self
+                .bar_surfaces
+                .values()
+                .map(|s| {
+                    let (lo, hi) = self.wall_range(&s.monitor, self.bar_roi(s));
+                    (lo + hi) / 2.0
+                })
+                .fold(0.0, f32::max);
+            let light_wall = bright > 0.45;
+            let fg_dark = crate::theme_engine::color::luminance(pal.fg) < 0.4;
+            if light_wall != fg_dark {
+                pal.fg = if light_wall {
+                    Rgba(0x12, 0x14, 0x18, 0xff)
+                } else {
+                    Rgba(0xf4, 0xf6, 0xfb, 0xff)
+                };
+            }
+        }
         pal
     }
 
@@ -1421,7 +1448,7 @@ impl App {
         c: Color,
     ) -> Element<'a, Msg> {
         text(s.into())
-            .size(crate::ui::tokens::ts(size))
+            .size(crate::ui::tokens::ts_label(size))
             .color(c)
             .font(self.numeric_font(iced::font::Weight::Medium))
             .wrapping(iced::widget::text::Wrapping::None)
@@ -1436,7 +1463,7 @@ impl App {
     ) -> Element<'a, Msg> {
         text(s.into())
             .font(self.font)
-            .size(crate::ui::tokens::ts(size))
+            .size(crate::ui::tokens::ts_label(size))
             .color(c)
             .font(self.ui_font(iced::font::Weight::Medium))
             .wrapping(iced::widget::text::Wrapping::None)

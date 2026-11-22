@@ -103,8 +103,14 @@ pub struct Typography {
     pub mono_family: Option<String>,
     pub caption: f32,
     pub body: f32,
+    /// Libellés des commandes (barre, boutons) (MLG-282).
+    #[serde(default = "ref_label")]
+    pub label: f32,
     pub title: f32,
     pub display: f32,
+    /// Mesures (horloges, monitoring) (MLG-282).
+    #[serde(default = "ref_metric")]
+    pub metric: f32,
     pub weight: u16,
     pub title_weight: u16,
     pub line_height: f32,
@@ -118,6 +124,16 @@ pub const REF_CAPTION: f32 = 11.0;
 pub const REF_BODY: f32 = 13.0;
 pub const REF_TITLE: f32 = 17.0;
 pub const REF_DISPLAY: f32 = 34.0;
+pub const REF_LABEL: f32 = 12.0;
+pub const REF_METRIC: f32 = 34.0;
+
+fn ref_label() -> f32 {
+    REF_LABEL
+}
+
+fn ref_metric() -> f32 {
+    REF_METRIC
+}
 
 impl Default for Typography {
     fn default() -> Self {
@@ -126,8 +142,10 @@ impl Default for Typography {
             mono_family: None,
             caption: REF_CAPTION,
             body: REF_BODY,
+            label: REF_LABEL,
             title: REF_TITLE,
             display: REF_DISPLAY,
+            metric: REF_METRIC,
             weight: 400,
             title_weight: 700,
             line_height: 1.3,
@@ -338,6 +356,17 @@ pub struct Design {
     pub motion: Motion,
     /// Sélecteur d'écran → surcharges.
     pub screens: BTreeMap<String, Screen>,
+    /// Opacité du matériau de secours de chaque surface, quand elle ne
+    /// voit pas ce qu'il y a derrière elle (MLG-282).
+    #[serde(default)]
+    pub fallback: BTreeMap<String, f32>,
+    /// Dégradé de bord au défilement (MLG-282).
+    #[serde(default = "yes")]
+    pub scroll_edge: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Design {
@@ -352,6 +381,8 @@ impl Default for Design {
             states: States::default(),
             motion: Motion::default(),
             screens: BTreeMap::new(),
+            fallback: BTreeMap::new(),
+            scroll_edge: true,
         }
     }
 }
@@ -373,7 +404,10 @@ impl Design {
     }
 }
 
-/// Préréglages livrés : verre léger, teinté, dense.
+/// Préréglages livrés : verre léger, teinté, dense, et les matériaux par
+/// rôle (MLG-282) : `transparent` (le bureau reste visible), `glass_clear`
+/// (verre très transparent, bord réfractif), `glass_regular` (verre
+/// adaptatif des commandes), `content_surface` (surface de lecture stable).
 pub fn builtin_presets() -> BTreeMap<String, EffectSpec> {
     let preset = |opacity: f64, look: GlassLook| EffectSpec {
         opacity: Some(opacity),
@@ -381,7 +415,59 @@ pub fn builtin_presets() -> BTreeMap<String, EffectSpec> {
         glass: look,
         ..Default::default()
     };
+    let material = |opacity: f64, blur: bool, adaptive: Option<f64>, look: GlassLook| EffectSpec {
+        opacity: Some(opacity),
+        blur: Some(blur),
+        adaptive: adaptive.map(|_| true),
+        opacity_max: adaptive,
+        glass: look,
+        ..Default::default()
+    };
+    let none = || GlassLook {
+        highlight: Some(0.0),
+        refraction: Some(0.0),
+        border: Some(0.0),
+        tint_strength: Some(0.0),
+        ..Default::default()
+    };
     BTreeMap::from([
+        (
+            "transparent".to_string(),
+            material(0.0, false, None, none()),
+        ),
+        (
+            "glass_clear".to_string(),
+            material(
+                0.35,
+                true,
+                None,
+                GlassLook {
+                    highlight: Some(0.16),
+                    refraction: Some(0.35),
+                    border: Some(0.12),
+                    ..Default::default()
+                },
+            ),
+        ),
+        (
+            "glass_regular".to_string(),
+            material(
+                0.72,
+                true,
+                Some(0.94),
+                GlassLook {
+                    tint: Some("accent".to_string()),
+                    tint_strength: Some(0.04),
+                    highlight: Some(0.10),
+                    refraction: Some(0.2),
+                    ..Default::default()
+                },
+            ),
+        ),
+        (
+            "content_surface".to_string(),
+            material(0.94, true, None, none()),
+        ),
         (
             "light".to_string(),
             preset(
@@ -501,7 +587,7 @@ impl Ctx<'_> {
         e: &EffectSpec,
         warn: &mut Vec<String>,
     ) {
-        if let Some(name) = &e.preset {
+        if let Some(name) = e.preset.as_ref().or(e.material.as_ref()) {
             match self.presets.get(name) {
                 Some(p) => {
                     apply_effect(effect, p);
@@ -531,6 +617,9 @@ pub fn resolve(
     for m in chain {
         if let Some(g) = &m.glass {
             presets.extend(g.presets.clone());
+            if let Some(v) = g.scroll_edge {
+                design.scroll_edge = v;
+            }
             apply_look(&mut base, &g.look, palette, warnings);
             // Flou de Hyprland : posé seulement si le pack ne le règle pas
             // lui-même dans [hyprland.options].
@@ -575,6 +664,19 @@ pub fn resolve(
                         glass.get_mut(&place).expect("toutes les surfaces"),
                     );
                     ctx.apply(eff, gl, e, warnings);
+                    // Matériau de secours : l'opacité de son préréglage.
+                    if let Some(f) = &e.fallback {
+                        match ctx.presets.get(f).and_then(|p| p.opacity) {
+                            Some(o) => {
+                                design
+                                    .fallback
+                                    .insert(key.clone(), o.clamp(0.0, 1.0) as f32);
+                            }
+                            None => {
+                                warnings.push(format!("matériau de secours inconnu ignoré : {f}"))
+                            }
+                        }
+                    }
                 }
                 None => warnings.push(format!("surface d'effet inconnue ignorée : {key}")),
             }
@@ -742,8 +844,16 @@ pub fn typography(f: Option<&Fonts>) -> Typography {
         let k = size(body) / REF_BODY;
         t.body = size(body);
         t.caption = REF_CAPTION * k;
+        t.label = REF_LABEL * k;
         t.title = REF_TITLE * k;
         t.display = REF_DISPLAY * k;
+        t.metric = REF_METRIC * k;
+    }
+    if let Some(v) = f.sizes.get("label") {
+        t.label = size(*v);
+    }
+    if let Some(v) = f.sizes.get("metric") {
+        t.metric = size(*v);
     }
     if let Some(v) = f.sizes.get("caption") {
         t.caption = size(*v);
@@ -771,7 +881,7 @@ pub fn typography(f: Option<&Fonts>) -> Typography {
 
 /// Slots tenus à la cible du texte et à celle des repères.
 pub const TEXT_SLOTS: [&str; 5] = ["fg", "fg_muted", "success", "warning", "danger"];
-pub const UI_SLOTS: [&str; 3] = ["accent", "action", "selection"];
+pub const UI_SLOTS: [&str; 4] = ["accent", "action", "selection", "focus"];
 
 /// Contraste garanti (MLG-269) : un slot sous sa cible contre le fond est
 /// ajusté en luminosité, avec un avertissement.

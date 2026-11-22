@@ -1037,7 +1037,13 @@ impl App {
             column![
                 header,
                 rule::horizontal(1),
-                row![nav, detail].spacing(24).height(Length::Fill)
+                row![
+                    nav,
+                    // Réglages sur une surface de lecture stable (MLG-282).
+                    super::tokens::content(detail, &self.cfg.general.theme, 16.0)
+                ]
+                .spacing(24)
+                .height(Length::Fill)
             ]
             .spacing(22),
         )

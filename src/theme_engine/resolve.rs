@@ -20,6 +20,15 @@ use super::{Error, Result};
 /// Slots dont la présence est exigée dans la chaîne (directement ou hérités).
 pub const REQUIRED: [&str; 3] = ["bg", "fg", "accent"];
 
+/// Noms de rôles (MLG-282) → slot : `text_primary` est `fg`, etc. Les deux
+/// noms sont présents dans la palette résolue.
+pub const ALIASES: [(&str, &str); 4] = [
+    ("text_primary", "fg"),
+    ("text_secondary", "fg_muted"),
+    ("separator", "border"),
+    ("error", "danger"),
+];
+
 /// Palette entièrement résolue d'un pack dans une variante.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resolved {
@@ -107,6 +116,13 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
             ));
         };
         palette.insert(name.clone(), c);
+    }
+    // Rôles du brief (MLG-282) : un nom de rôle donne le slot qu'il
+    // désigne, s'il manque.
+    for (alias, slot) in ALIASES {
+        if let Some(c) = palette.get(alias).copied() {
+            palette.entry(slot.to_string()).or_insert(c);
+        }
     }
     for slot in REQUIRED {
         if !palette.contains_key(slot) {
@@ -322,6 +338,14 @@ fn fill_derived(p: &mut BTreeMap<String, Rgba>, c: &design::Contrast) {
     }
     p.entry("background".to_string())
         .or_insert(color::darken(bg, 4.0));
+    // Focus clavier (MLG-282) : l'accent, distinct de la sélection quand le
+    // pack les sépare.
+    p.entry("focus".to_string()).or_insert(accent);
+    for (alias, slot) in ALIASES {
+        if let Some(c) = p.get(slot).copied() {
+            p.entry(alias.to_string()).or_insert(c);
+        }
+    }
 }
 
 /// Palette implicite « thème réglé » : fg, bg, accent et fond du bureau
@@ -755,5 +779,33 @@ mod tests {
             .is_err()
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn matériaux_rôles_et_secours() {
+        let p = manifest(&format!(
+            "{BASE}text_secondary = \"#c0c4d0\"\nfocus = \"#2dd4bf\"\n\
+             [glass]\nscroll_edge = false\n\
+             [effects.bar]\nmaterial = \"transparent\"\n\
+             [effects.launcher]\nmaterial = \"glass_regular\"\nfallback = \"content_surface\"\n\
+             [effects.content]\nmaterial = \"content_surface\"\n\
+             [fonts.sizes]\nlabel = 14\nmetric = 40\n"
+        ));
+        let r = resolve(&[p], "dark").unwrap();
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert_eq!(r.effects[&Place::Bar].opacity, 0.0);
+        assert!(r.effects[&Place::Launcher].adaptive.is_some());
+        assert!((r.effects[&Place::Content].opacity - 0.94).abs() < 1e-6);
+        assert!((r.design.fallback["launcher"] - 0.94).abs() < 1e-6);
+        assert!(!r.design.scroll_edge);
+        // Rôles : nom du brief et slot, les deux présents.
+        assert_eq!(r.palette["fg_muted"], r.palette["text_secondary"]);
+        assert_eq!(r.palette["text_primary"], r.palette["fg"]);
+        assert_eq!(r.palette["error"], r.palette["danger"]);
+        assert_eq!(r.palette["focus"], Rgba(0x2d, 0xd4, 0xbf, 0xff));
+        assert_eq!(
+            (r.design.typography.label, r.design.typography.metric),
+            (14.0, 40.0)
+        );
     }
 }

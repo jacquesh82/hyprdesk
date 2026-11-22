@@ -48,13 +48,17 @@ impl App {
     /// Après chaque config installée.
     pub(super) fn sync_theme_engine(&mut self, theme_changed: bool) -> Task<Msg> {
         let first = !self.engine_synced;
-        super::tokens::set_user(
+        if super::tokens::set_user(
             self.cfg.general.reduced_transparency,
             self.cfg.general.reduced_motion,
-        );
+            self.cfg.general.increase_contrast,
+            self.cfg.general.text_scale,
+        ) {
+            self.theme = super::make_theme(&self.cfg);
+        }
         if first || theme_changed {
             // Couleurs d'état tout de suite, sans attendre le moteur.
-            super::tone::set(resolve::from_theme(&self.cfg.general.theme).palette);
+            super::tokens::set_palette(resolve::from_theme(&self.cfg.general.theme).palette);
         }
         if self.preview {
             return Task::none();
@@ -95,7 +99,7 @@ impl App {
     pub(super) fn on_theme_engine(&mut self, r: Outcome) -> Task<Msg> {
         match r {
             Ok((palette, design)) => {
-                super::tone::set(palette);
+                super::tokens::set_palette(palette);
                 let family = design.typography.family.clone();
                 super::tokens::set(design);
                 // Action, états : le thème iced suit la palette du pack.

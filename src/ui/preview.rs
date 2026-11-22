@@ -523,7 +523,7 @@ impl Preview {
                 Ok((r, _)) => {
                     app.settings
                         .apply_theme(&crate::theme_engine::bridge::to_theme(&r));
-                    super::tone::set(r.palette);
+                    super::tokens::set_palette(r.palette);
                     super::tokens::set(r.design);
                 }
                 Err(e) => eprintln!("HYPRDESK_PREVIEW_PACK={id} : {e}"),

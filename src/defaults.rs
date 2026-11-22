@@ -145,6 +145,7 @@ components! {
     ];
     "theme" => [
         accent, theme_name, fg, bg, background, effects, reduced_transparency, reduced_motion,
+        increase_contrast, text_scale,
     ];
     "apptheme" => [app_themes];
     "wallpaper" => [wallpapers];

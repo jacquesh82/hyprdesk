@@ -137,6 +137,8 @@ pub struct Settings {
     pub icon_double_click: Option<bool>,
     pub reduced_transparency: Option<bool>,
     pub reduced_motion: Option<bool>,
+    pub increase_contrast: Option<bool>,
+    pub text_scale: Option<f32>,
     pub advanced_settings: Option<bool>,
     pub tour_seen: Option<bool>,
     pub app_themes: Option<std::collections::BTreeSet<String>>,
@@ -391,6 +393,8 @@ impl Settings {
             icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
             reduced_transparency: has("reduced_transparency").then_some(g.reduced_transparency),
             reduced_motion: has("reduced_motion").then_some(g.reduced_motion),
+            increase_contrast: has("increase_contrast").then_some(g.increase_contrast),
+            text_scale: has("text_scale").then_some(g.text_scale),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
             tour_seen: has("tour_seen").then_some(g.tour_seen),
             app_themes: has("app_themes").then(|| g.app_themes.clone()),
@@ -715,6 +719,8 @@ impl Settings {
             g.reduced_transparency
         );
         set!(reduced_motion, "reduced_motion", g.reduced_motion);
+        set!(increase_contrast, "increase_contrast", g.increase_contrast);
+        set!(text_scale, "text_scale", g.text_scale);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
         set!(tour_seen, "tour_seen", g.tour_seen);
         set!(app_themes, "app_themes", g.app_themes);
@@ -1232,6 +1238,12 @@ impl Settings {
         }
         if let Some(v) = self.reduced_motion {
             cfg.push(format!("reduced_motion = {v}"));
+        }
+        if let Some(v) = self.increase_contrast {
+            cfg.push(format!("increase_contrast = {v}"));
+        }
+        if let Some(v) = self.text_scale {
+            cfg.push(format!("text_scale = {}", num(v)));
         }
         if let Some(v) = self.close_on_launch {
             cfg.push(format!("close_on_launch = {v}"));

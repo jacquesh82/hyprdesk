@@ -382,7 +382,15 @@ impl App {
         body = body.push(
             column![
                 self.launcher_heading(heading),
-                scrollable(grid).height(Length::Fill)
+                // La grille s'estompe sous les bords (MLG-282).
+                crate::ui::tokens::scroll_edges(
+                    scrollable(grid).height(Length::Fill),
+                    if crate::ui::glass::refracts(crate::config::Place::Launcher) {
+                        self.launcher_tint(surface)
+                    } else {
+                        surface
+                    },
+                )
             ]
             .spacing(10)
             .height(Length::Fill),
@@ -511,7 +519,8 @@ impl App {
         body = body.push(
             column![
                 self.launcher_heading(if typing { "Résultats" } else { "Applications" }),
-                list
+                // Résultats sur une surface de lecture stable (MLG-282).
+                crate::ui::tokens::content(list, &self.cfg.general.theme, 16.0)
             ]
             .spacing(8),
         );

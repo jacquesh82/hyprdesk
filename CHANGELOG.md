@@ -10,6 +10,17 @@ and this project adheres to
 
 ### Added
 
+- **Surface roles and accessibility preferences** (MLG-282, from Apple's
+  Human Interface Guidelines). Theme packs give each surface a role —
+  `transparent`, `glass_clear`, `glass_regular`, `content_surface` — and a
+  fallback material for when it cannot see what is behind it; a stable
+  `content` surface sits under launcher results and the Settings detail
+  inside their glass; lists fade under the edges of their surface; a
+  transparent bar picks its text colour from the wallpaper behind it. New
+  colour roles (`focus`, `separator`, `error`, `text_primary`,
+  `text_secondary`) and text styles (`label`, `metric`). Settings → Theme →
+  Accessibility adds increased contrast and text size next to reduced
+  transparency and motion.
 - **True glass refraction** (MLG-275). With a theme that asks for refraction
   (the bundled Verre does), hyprdesk's surfaces now bend, blur and tint what
   is really behind them on the GPU (approach of iced_glass, MIT): desktop

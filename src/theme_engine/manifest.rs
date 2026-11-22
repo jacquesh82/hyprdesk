@@ -146,6 +146,12 @@ pub struct EffectSpec {
     /// Préréglage de verre : `light`, `tinted`, `dense` ou un préréglage
     /// déclaré dans `[glass.presets]` (MLG-268).
     pub preset: Option<String>,
+    /// Rôle de la surface (MLG-282) : `transparent`, `glass_clear`,
+    /// `glass_regular`, `content_surface` (synonyme de `preset`).
+    pub material: Option<String>,
+    /// Matériau de secours quand la surface ne voit pas ce qu'il y a
+    /// derrière elle (fenêtres, rendu logiciel) : son opacité s'applique.
+    pub fallback: Option<String>,
     #[serde(flatten)]
     pub glass: GlassLook,
 }
@@ -185,6 +191,9 @@ pub struct GlassSpec {
     pub blur_passes: Option<u32>,
     /// Préréglages : nom → effet (opacité, flou, aspect).
     pub presets: BTreeMap<String, EffectSpec>,
+    /// Dégradé de bord au défilement : une liste qui passe sous le bord
+    /// d'une surface s'y estompe (défaut : oui).
+    pub scroll_edge: Option<bool>,
 }
 
 /// `[contrast]`.
@@ -625,7 +634,7 @@ impl Manifest {
 }
 
 /// Rôles de texte de `[fonts.sizes]`.
-pub const FONT_ROLES: [&str; 4] = ["caption", "body", "title", "display"];
+pub const FONT_ROLES: [&str; 6] = ["caption", "body", "label", "title", "display", "metric"];
 
 /// Chemin relatif au dossier du pack, sans remontée.
 pub fn pack_relative(path: &str) -> bool {

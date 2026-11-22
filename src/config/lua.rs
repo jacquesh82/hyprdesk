@@ -670,6 +670,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "icon_double_click",
             "reduced_transparency",
             "reduced_motion",
+            "increase_contrast",
+            "text_scale",
             "advanced_settings",
             "tour_seen",
             "app_themes",
@@ -1126,6 +1128,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "reduced_motion", CTX)? {
         g.reduced_motion = v;
+    }
+    if let Some(v) = opt_bool(t, "increase_contrast", CTX)? {
+        g.increase_contrast = v;
+    }
+    if let Some(v) = opt_num(t, "text_scale", CTX)? {
+        g.text_scale = (v as f32).clamp(0.75, 2.0);
     }
     if let Some(v) = opt_bool(t, "advanced_settings", CTX)? {
         g.advanced_settings = v;

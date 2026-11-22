@@ -64,10 +64,25 @@ pub fn card<'a, M: 'a>(
 ) -> Element<'a, M, iced::Theme, iced::Renderer> {
     let radius = radius.into();
     let glass = super::tokens::glass(place);
+    // Matériau de secours (MLG-282) : la surface ne voit pas ce qu'il y a
+    // derrière elle (rendu logiciel, ou fenêtres sans capture).
+    let blind = !super::lens::available()
+        || (under.is_none() && matches!(place, Place::Menus | Place::Settings | Place::Launcher));
+    let fallback = blind
+        .then(|| {
+            super::tokens::design()
+                .fallback
+                .get(place.as_str())
+                .copied()
+        })
+        .flatten();
     if !(super::lens::available() && glass.refraction > 0.0) {
         // Sans lentille : le fond du style tel quel (`bg` à défaut).
         if style.background.is_none() {
             style.background = Some(bg.into());
+        }
+        if let (Some(o), Some(iced::Background::Color(c))) = (fallback, style.background.as_mut()) {
+            c.a = c.a.max(o);
         }
         return over(
             iced::widget::container(content).style(move |_| style),
@@ -77,10 +92,17 @@ pub fn card<'a, M: 'a>(
         );
     }
     style.background = None;
+    let tint = match fallback {
+        Some(o) => Color {
+            a: bg.a.max(o),
+            ..bg
+        },
+        None => bg,
+    };
     let lens = iced::widget::shader(super::lens::Lens {
         glass: glass.clone(),
         radius,
-        tint: bg,
+        tint,
         blur,
     })
     .width(Length::Fill)
@@ -106,6 +128,12 @@ pub fn card<'a, M: 'a>(
         layers = layers.push_under(under);
     }
     layers.into()
+}
+
+/// La surface `place` est dessinée par la lentille (rendu matériel,
+/// réfraction au thème).
+pub fn refracts(place: Place) -> bool {
+    super::lens::available() && super::tokens::glass(place).refraction > 0.0
 }
 
 /// Le verre a quelque chose à dessiner.

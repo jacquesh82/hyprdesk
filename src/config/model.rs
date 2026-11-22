@@ -588,15 +588,19 @@ pub enum Place {
     Launcher,
     Settings,
     Widgets,
+    /// Surface de lecture stable sous le contenu (résultats, formulaires,
+    /// graphiques) d'une surface de verre (MLG-282).
+    Content,
 }
 
 impl Place {
-    pub const ALL: [Place; 5] = [
+    pub const ALL: [Place; 6] = [
         Place::Bar,
         Place::Menus,
         Place::Launcher,
         Place::Settings,
         Place::Widgets,
+        Place::Content,
     ];
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -610,6 +614,7 @@ impl Place {
             Place::Launcher => "launcher",
             Place::Settings => "settings",
             Place::Widgets => "widgets",
+            Place::Content => "content",
         }
     }
 
@@ -620,6 +625,7 @@ impl Place {
             Place::Launcher => "Lanceur",
             Place::Settings => crate::i18n::tr("Réglages"),
             Place::Widgets => crate::i18n::tr("Widgets du bureau"),
+            Place::Content => crate::i18n::tr("Contenu (résultats, formulaires)"),
         }
     }
 
@@ -633,6 +639,8 @@ impl Place {
             Place::Launcher => 0.88,
             Place::Settings => 0.97,
             Place::Widgets => 0.84,
+            // Pas de surface de contenu sans thème : l'apparence d'origine.
+            Place::Content => 0.0,
         };
         Effect {
             opacity,
@@ -644,7 +652,7 @@ impl Place {
     /// Les widgets sont dessinés sur la couche du bureau, avec le fond
     /// d'écran : pas de flou propre.
     pub fn blurrable(self) -> bool {
-        !matches!(self, Place::Widgets)
+        !matches!(self, Place::Widgets | Place::Content)
     }
 
     /// Couches Hyprland de cet endroit.
@@ -658,7 +666,7 @@ impl Place {
                 "hyprdesk-search",
             ],
             Place::Settings => &["hyprdesk-settings", "hyprdesk-wizard"],
-            Place::Widgets => &[],
+            Place::Widgets | Place::Content => &[],
         }
     }
 }
@@ -1303,6 +1311,11 @@ pub struct General {
     /// Mouvement réduit (MLG-271) : ouvertures en fondu court, sans échelle
     /// ni déplacement.
     pub reduced_motion: bool,
+    /// Contraste renforcé (MLG-282) : texte à 7:1, repères à 4,5:1,
+    /// surfaces plus denses et filets marqués.
+    pub increase_contrast: bool,
+    /// Échelle du texte de l'interface (MLG-282), 1 = celle du thème.
+    pub text_scale: f32,
     /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
     pub advanced_settings: bool,
     /// Visite guidée faite ou écartée : plus proposée à l'ouverture des Réglages.
@@ -1427,6 +1440,8 @@ impl Default for General {
             icon_double_click: true,
             reduced_transparency: false,
             reduced_motion: false,
+            increase_contrast: false,
+            text_scale: 1.0,
             advanced_settings: false,
             tour_seen: false,
             // Thème des applications actif d'emblée (MLG-207) : chaque

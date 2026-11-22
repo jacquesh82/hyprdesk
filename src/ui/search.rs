@@ -1460,10 +1460,16 @@ impl App {
             );
         }
         super::glass::card(
-            container(column![input, list].spacing(12))
-                .padding(16)
-                .width(super::apps_grid::SPOT_WIDTH)
-                .height(super::apps_grid::spot_height(!_s.suggested.is_empty())),
+            container(
+                column![
+                    input,
+                    crate::ui::tokens::content(list, &self.cfg.general.theme, 14.0)
+                ]
+                .spacing(12),
+            )
+            .padding(16)
+            .width(super::apps_grid::SPOT_WIDTH)
+            .height(super::apps_grid::spot_height(!_s.suggested.is_empty())),
             crate::config::Place::Launcher,
             super::design::RADIUS,
             fg,

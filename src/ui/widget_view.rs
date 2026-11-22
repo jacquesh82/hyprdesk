@@ -44,7 +44,7 @@ impl App {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
                 let time = text(format_now(format))
                     .font(self.numeric_font(iced::font::Weight::Light))
-                    .size(crate::ui::tokens::ts(size))
+                    .size(crate::ui::tokens::ts_metric(size))
                     .color(fg);
                 if format == "%H:%M" {
                     column![
@@ -81,7 +81,7 @@ impl App {
                                 .font(font)
                                 .width(Length::Fixed(size * 5.0)),
                             text(l.value.clone())
-                                .size(crate::ui::tokens::ts(size))
+                                .size(crate::ui::tokens::ts_metric(size))
                                 .color(fg)
                                 .font(self.numeric_font(font.weight)),
                         ]];

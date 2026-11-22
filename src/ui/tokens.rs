@@ -23,6 +23,11 @@ static TYPE: RwLock<TypeScale> = RwLock::new(TypeScale::IDENTITY);
 /// Courbe et durée de référence du mouvement, lues à chaque image.
 static CURVE: RwLock<(design::Easing, u32, bool)> =
     RwLock::new((design::Easing::CubicOut, 180, false));
+static USER_INCREASE_CONTRAST: AtomicBool = AtomicBool::new(false);
+/// Échelle du texte de l'utilisateur (bits d'un f32, 1,0 au départ).
+static USER_TEXT_SCALE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0x3f80_0000);
+static RAW_PALETTE: RwLock<Option<std::collections::BTreeMap<String, Rgba>>> = RwLock::new(None);
 static USER_REDUCED_TRANSPARENCY: AtomicBool = AtomicBool::new(false);
 static USER_REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
 
@@ -112,9 +117,64 @@ pub fn design() -> Arc<Design> {
 }
 
 /// Réglages de l'utilisateur (Réglages → Thème → Accessibilité).
-pub fn set_user(reduced_transparency: bool, reduced_motion: bool) {
+/// Renvoie `true` si le contraste renforcé a changé (la palette a été
+/// reposée : le thème iced est à refaire).
+pub fn set_user(
+    reduced_transparency: bool,
+    reduced_motion: bool,
+    increase_contrast: bool,
+    text_scale: f32,
+) -> bool {
     USER_REDUCED_TRANSPARENCY.store(reduced_transparency, Ordering::Relaxed);
     USER_REDUCED_MOTION.store(reduced_motion, Ordering::Relaxed);
+    USER_TEXT_SCALE.store(text_scale.clamp(0.75, 2.0).to_bits(), Ordering::Relaxed);
+    let changed =
+        USER_INCREASE_CONTRAST.swap(increase_contrast, Ordering::Relaxed) != increase_contrast;
+    if changed
+        && let Ok(raw) = RAW_PALETTE.read()
+        && let Some(p) = raw.clone()
+    {
+        super::tone::set(adjusted(p));
+    }
+    changed
+}
+
+/// Contraste renforcé (MLG-282) : réglage de l'utilisateur.
+pub fn increase_contrast() -> bool {
+    USER_INCREASE_CONTRAST.load(Ordering::Relaxed)
+}
+
+/// Palette du thème, telle que le moteur la résout ; les surfaces la
+/// reçoivent corrigée au contraste renforcé s'il est demandé.
+pub fn set_palette(p: std::collections::BTreeMap<String, Rgba>) {
+    if let Ok(mut raw) = RAW_PALETTE.write() {
+        *raw = Some(p.clone());
+    }
+    super::tone::set(adjusted(p));
+}
+
+fn adjusted(
+    mut p: std::collections::BTreeMap<String, Rgba>,
+) -> std::collections::BTreeMap<String, Rgba> {
+    if increase_contrast() {
+        let mut w = Vec::new();
+        design::enforce_contrast(
+            &mut p,
+            &design::Contrast {
+                text: 7.0,
+                ui: 4.5,
+                enforce: true,
+                ..Default::default()
+            },
+            &mut w,
+        );
+        if let Some(fg) = p.get("fg").copied() {
+            let line = crate::theme_engine::color::with_alpha(fg, 0.45);
+            p.insert("border".into(), line);
+            p.insert("separator".into(), line);
+        }
+    }
+    p
 }
 
 /// Transparence réduite : réglage de l'utilisateur ou du pack.
@@ -156,7 +216,28 @@ pub fn ts(reference: f32) -> f32 {
     } else {
         t.display
     };
-    (reference * ratio * SCREEN_TEXT.with(std::cell::Cell::get)).max(6.0)
+    (reference * ratio * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(6.0)
+}
+
+/// Échelle du texte réglée par l'utilisateur.
+fn user_text_scale() -> f32 {
+    f32::from_bits(USER_TEXT_SCALE.load(Ordering::Relaxed))
+}
+
+/// Taille d'un libellé de commande (barre, boutons) : rôle `label` du
+/// thème (MLG-282).
+pub fn ts_label(reference: f32) -> f32 {
+    role(reference, |t| t.label / design::REF_LABEL)
+}
+
+/// Taille d'une mesure (horloge, monitoring) : rôle `metric` du thème.
+pub fn ts_metric(reference: f32) -> f32 {
+    role(reference, |t| t.metric / design::REF_METRIC)
+}
+
+fn role(reference: f32, ratio: impl Fn(&design::Typography) -> f32) -> f32 {
+    let r = ratio(&design().typography);
+    (reference * r * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(6.0)
 }
 
 /// Interligne du thème.
@@ -200,11 +281,15 @@ pub fn glass(p: Place) -> Glass {
             .map(|sp| sp.glass.clone())
             .unwrap_or_else(|| d.glass(p))
     });
-    if reduced_transparency() {
+    let mut g = if reduced_transparency() {
         g.reduced()
     } else {
         g
+    };
+    if increase_contrast() {
+        g.border = g.border.max(0.3);
     }
+    g
 }
 
 /// Effet affiché d'une surface : celui du thème, surchargé par l'écran en
@@ -234,6 +319,9 @@ impl Shown for Theme {
         if reduced_transparency() {
             e.opacity = e.opacity.max(REDUCED_OPACITY);
             e.adaptive = None;
+        } else if increase_contrast() && p != Place::Content {
+            // Contraste renforcé : surfaces plus denses.
+            e.opacity = e.opacity.max(0.9);
         }
         e
     }
@@ -262,6 +350,85 @@ pub fn selection(fallback: Color) -> Color {
     }
 }
 
+/// Couleur de l'anneau de focus clavier : le slot `focus` du pack s'il le
+/// distingue de l'accent (MLG-282), sinon `fallback`.
+pub fn focus(fallback: Color) -> Color {
+    match (super::tone::get("focus"), super::tone::get("accent")) {
+        (Some(f), Some(acc)) if f != acc => {
+            Color::from_rgba8(f.0, f.1, f.2, f32::from(f.3) / 255.0)
+        }
+        _ => fallback,
+    }
+}
+
+/// Surface de contenu (MLG-282) : un fond de lecture stable sous les
+/// résultats, formulaires et graphiques d'une surface de verre, à
+/// l'opacité du rôle `content` du thème (aucune sans thème).
+pub fn content<'a, M: 'a>(
+    el: impl Into<iced::Element<'a, M>>,
+    theme: &Theme,
+    radius: f32,
+) -> iced::Element<'a, M> {
+    let e = theme.shown(Place::Content);
+    if e.opacity <= 0.001 {
+        return el.into();
+    }
+    let bg = tinted(theme.bg, Place::Content);
+    let fill = Color::from_rgba8(bg.0, bg.1, bg.2, e.opacity);
+    let line = glass(Place::Content).border.max(0.06);
+    let fg = theme.fg;
+    iced::widget::container(el)
+        .padding(6)
+        .style(move |_| iced::widget::container::Style {
+            background: Some(fill.into()),
+            border: iced::Border::default()
+                .rounded(radius)
+                .width(1)
+                .color(Color::from_rgba8(fg.0, fg.1, fg.2, line)),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Dégradé de bord au défilement (MLG-282) : la liste s'estompe sous les
+/// bords haut et bas de sa surface (`edge`, couleur du fond), si le thème
+/// le veut (oui par défaut).
+pub fn scroll_edges<'a, M: 'a>(
+    list: impl Into<iced::Element<'a, M>>,
+    edge: Color,
+) -> iced::Element<'a, M> {
+    if !design().scroll_edge {
+        return list.into();
+    }
+    let fade = |top: bool| {
+        let (from, to) = (edge, Color { a: 0.0, ..edge });
+        let g = iced::gradient::Linear::new(iced::Radians(if top {
+            std::f32::consts::PI
+        } else {
+            0.0
+        }))
+        .add_stop(0.0, from)
+        .add_stop(1.0, to);
+        iced::widget::container(iced::widget::Space::new())
+            .width(iced::Length::Fill)
+            .height(14)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(iced::Background::Gradient(g.into())),
+                ..Default::default()
+            })
+    };
+    iced::widget::stack![
+        list.into(),
+        iced::widget::column![
+            fade(true),
+            iced::widget::Space::new().height(iced::Length::Fill),
+            fade(false)
+        ]
+        .height(iced::Length::Fill)
+    ]
+    .into()
+}
+
 /// Élément de liste (résultat, tuile, entrée de menu) : voile de
 /// sélection, d'appui ou de survol, anneau de focus clavier sur
 /// l'élément choisi au clavier, texte atténué s'il est désactivé
@@ -276,6 +443,7 @@ pub fn item(
     use iced::widget::button::Status;
     let s = states();
     let sel = selection(accent);
+    let ring = focus(sel);
     let veil = if selected {
         Some(s.selected)
     } else {
@@ -297,8 +465,8 @@ pub fn item(
             .rounded(radius)
             .width(if selected { s.focus_width } else { 0.0 })
             .color(Color {
-                a: sel.a * 0.6,
-                ..sel
+                a: ring.a * 0.6,
+                ..ring
             }),
         text_color: if status == Status::Disabled {
             disabled(fg)
@@ -470,11 +638,11 @@ mod tests {
         assert_eq!(t.shown(Place::Bar), t.effect(Place::Bar));
         let teinte = tinted(Rgba(0, 0, 0, 200), Place::Bar);
         assert!(teinte.0 > teinte.1 + 40 && teinte.3 == 200, "{teinte:?}");
-        set_user(true, true);
+        set_user(true, true, false, 1.0);
         assert!(t.shown(Place::Bar).opacity >= REDUCED_OPACITY);
         assert_eq!(glass(Place::Bar).highlight, 0.0);
         assert!(motion().reduced);
-        set_user(false, false);
+        set_user(false, false, false, 1.0);
         set(Design::default());
         assert_eq!(ts(13.0), 13.0);
     }

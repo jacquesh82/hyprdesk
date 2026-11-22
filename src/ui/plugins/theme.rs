@@ -148,6 +148,10 @@ pub enum Msg {
     ReducedTransparency(bool),
     /// Mouvement réduit (MLG-271).
     ReducedMotion(bool),
+    /// Contraste renforcé (MLG-282).
+    IncreaseContrast(bool),
+    /// Échelle du texte de l'interface (MLG-282).
+    TextScale(f32),
     Mode(Mode),
     GlassOpacity(f32),
     LockBlur(bool),
@@ -559,6 +563,23 @@ impl App {
                 .label(crate::i18n::tr("Mouvement réduit"))
                 .font(font)
                 .on_toggle(|v| wrap(Msg::ReducedMotion(v))),
+            toggler(g.increase_contrast)
+                .label(crate::i18n::tr("Contraste renforcé"))
+                .font(font)
+                .on_toggle(|v| wrap(Msg::IncreaseContrast(v))),
+            row![
+                text(crate::i18n::tr("Taille du texte"))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(13.0)),
+                slider(75..=200u32, (g.text_scale * 100.0).round() as u32, |v| {
+                    wrap(Msg::TextScale(v as f32 / 100.0))
+                })
+                .on_release(wrap(Msg::Commit))
+                .width(Length::Fill),
+                percent(g.text_scale),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
         ]
         .spacing(8);
         if pack.contrast.reduced_transparency || pack.motion.reduced {
@@ -1055,6 +1076,14 @@ impl App {
             Msg::ReducedMotion(v) => {
                 self.settings.reduced_motion = Some(v);
                 self.commit()
+            }
+            Msg::IncreaseContrast(v) => {
+                self.settings.increase_contrast = Some(v);
+                self.commit()
+            }
+            Msg::TextScale(v) => {
+                self.settings.text_scale = Some(v.clamp(0.75, 2.0));
+                self.apply()
             }
             Msg::Mode(m) => {
                 self.settings.mode = Some(m);
