@@ -1,7 +1,7 @@
 [meta]
 id = "verre"
 name = "Verre"
-version = "1.1.0"
+version = "1.2.0"
 description = "Surfaces très transparentes, accent rose."
 license = "GPL-3.0-or-later"
 authors = ["hyprdesk"]
@@ -12,6 +12,14 @@ min_engine = "0.1.9"
 bg = "#1b1f33"
 fg = "#f6f7ff"
 accent = "#ff80bf"
+
+# Verre dessiné par hyprdesk (MLG-268) : reflet qui suit le pointeur et
+# réfraction au bord de chaque surface.
+[glass]
+highlight = 0.14
+refraction = 0.35
+refraction_width = 12
+pointer_response = true
 
 [effects.bar]
 opacity = 0.42

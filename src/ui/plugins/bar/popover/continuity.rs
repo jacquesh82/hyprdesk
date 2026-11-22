@@ -1,4 +1,5 @@
 //! Composition du centre de contrôle de Continuité dans la surface de menu existante.
+use crate::ui::tokens::Shown as _;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -281,7 +282,7 @@ impl App {
             .cfg
             .general
             .theme
-            .effect(crate::config::Place::Menus)
+            .shown(crate::config::Place::Menus)
             .opacity;
         let pal = Palette::new(&self.bar_palette(), alpha, opacity);
         let width = popover.size.width - 2.0 * SHADOW;
@@ -369,7 +370,10 @@ impl App {
     }
 
     fn dash_label(&self, label: impl Into<String>, size: f32, fg: Color) -> iced::widget::Text<'_> {
-        text(label.into()).font(self.font).size(size).color(fg)
+        text(label.into())
+            .font(self.font)
+            .size(crate::ui::tokens::ts(size))
+            .color(fg)
     }
 
     fn dash_icon(&self, name: &str, fallback: &str, size: f32, fg: Color) -> Element<'_, Msg> {
@@ -428,7 +432,7 @@ impl App {
         container(
             text(tr(title).to_uppercase())
                 .font(self.title_font())
-                .size(15)
+                .size(crate::ui::tokens::ts(15.0))
                 .color(pal.fg),
         )
         .padding([8, 12])

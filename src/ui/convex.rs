@@ -350,7 +350,7 @@ impl App {
                     let head = row![
                         text(title)
                             .font(self.font)
-                            .size(16)
+                            .size(crate::ui::tokens::ts(16.0))
                             .color(fg)
                             .width(Length::Fill),
                         button(text("×").color(fg))
@@ -416,7 +416,7 @@ impl App {
         let mut col = column![
             text(super::format_now("%H:%M"))
                 .font(self.font)
-                .size(36)
+                .size(crate::ui::tokens::ts(36.0))
                 .color(fg),
             text(super::format_now("%A %-d %B"))
                 .font(self.font)

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use crate::config::{Effect, Place, Rgba};
 
 use super::color;
+use super::design::{self, Design};
 use super::manifest::{Cursors, Fonts, Named, PackTarget, VARIANTS};
 use super::packs::Pack;
 use super::{Error, Result};
@@ -48,9 +49,24 @@ pub struct Resolved {
     /// ses ancêtres (le plus proche d'abord) : gabarits de convention
     /// hérités (`templates/<id>.tmpl`).
     pub template_dirs: Vec<PathBuf>,
+    /// Verre, contraste, typographie, états, mouvement, écrans (MLG-267 à
+    /// 273).
+    pub design: Design,
+    /// Fond d'écran du pack, variante comprise (MLG-266).
+    pub wallpaper: Option<PackWallpaper>,
     /// Avertissements non bloquants (parents manquants, clés d'effet
     /// inconnues).
     pub warnings: Vec<String>,
+}
+
+/// Fond d'écran déclaré par le pack, chemin absolu dans son dossier.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PackWallpaper {
+    /// Image, ou dossier d'images pour un diaporama.
+    pub path: PathBuf,
+    pub slideshow: bool,
+    pub interval: u64,
+    pub shuffle: bool,
 }
 
 /// Résout une chaîne (ancêtres d'abord, pack en dernier) dans une variante.
@@ -97,51 +113,12 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
             return Err(Error::Slot(slot.to_string()));
         }
     }
-    fill_derived(&mut palette);
-
-    // Effets : défauts du moteur, fusion de la chaîne, puis la variante.
-    let mut effects: BTreeMap<Place, Effect> = Place::ALL
-        .iter()
-        .map(|p| (*p, p.default_effect()))
-        .collect();
-    let merge_effects = |spec: &BTreeMap<String, super::manifest::EffectSpec>,
-                         effects: &mut BTreeMap<Place, Effect>,
-                         warnings: &mut Vec<String>| {
-        for (key, e) in spec {
-            match Place::parse(key) {
-                Some(place) => {
-                    let current = effects[&place];
-                    effects.insert(
-                        place,
-                        Effect {
-                            opacity: e.opacity as f32,
-                            blur: e.blur.unwrap_or(current.blur),
-                            // Adaptatif : déclaré ici, sinon hérité ; un
-                            // plafond seul relève celui d'un parent adaptatif.
-                            adaptive: match e.adaptive {
-                                Some(false) => None,
-                                Some(true) => {
-                                    Some(e.opacity_max.unwrap_or(1.0).clamp(0.0, 1.0) as f32)
-                                }
-                                None => current
-                                    .adaptive
-                                    .map(|m| e.opacity_max.map_or(m, |x| x.clamp(0.0, 1.0) as f32)),
-                            },
-                        },
-                    );
-                }
-                None => warnings.push(format!("surface d'effet inconnue ignorée : {key}")),
-            }
-        }
-    };
-    for pack in chain {
-        merge_effects(&pack.manifest.effects, &mut effects, &mut warnings);
-    }
-    for pack in chain {
-        if let Some(v) = pack.manifest.variant.get(variant) {
-            merge_effects(&v.effects, &mut effects, &mut warnings);
-        }
-    }
+    let manifests: Vec<&super::manifest::Manifest> = chain.iter().map(|p| &p.manifest).collect();
+    // Contraste garanti (MLG-269) : slots déclarés d'abord, dérivés ensuite
+    // (calculés à la cible).
+    let contrast = design::contrast_of(&manifests);
+    design::enforce_contrast(&mut palette, &contrast, &mut warnings);
+    fill_derived(&mut palette, &contrast);
 
     // Options Hyprland : chaîne, puis surcharge de variante.
     let mut hyprland_options: BTreeMap<String, String> = BTreeMap::new();
@@ -152,11 +129,29 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         }
     }
 
-    // Typographie, icônes, curseurs, sons : la dernière déclarée gagne.
-    let fonts = chain.iter().find_map(|p| p.manifest.fonts.clone());
-    let icons = chain.iter().find_map(|p| p.manifest.icons.clone());
-    let cursors = chain.iter().find_map(|p| p.manifest.cursors.clone());
-    let sounds = chain.iter().find_map(|p| p.manifest.sounds.clone());
+    // Effets et verre : défauts du moteur, préréglages, fusion de la chaîne,
+    // puis la variante ; jetons de conception.
+    let mut effects: BTreeMap<Place, Effect> = Place::ALL
+        .iter()
+        .map(|p| (*p, p.default_effect()))
+        .collect();
+    let design = design::resolve(
+        &manifests,
+        variant,
+        &palette,
+        &mut effects,
+        &mut hyprland_options,
+        &mut warnings,
+    );
+
+    // Typographie fusionnée champ par champ ; icônes, curseurs, sons : la
+    // plus proche déclarée gagne (MLG-266 : l'ancêtre le plus lointain
+    // l'emportait).
+    let fonts = design::merged_fonts(&manifests);
+    let icons = chain.iter().rev().find_map(|p| p.manifest.icons.clone());
+    let cursors = chain.iter().rev().find_map(|p| p.manifest.cursors.clone());
+    let sounds = chain.iter().rev().find_map(|p| p.manifest.sounds.clone());
+    let wallpaper = wallpaper(chain, variant, &mut warnings);
 
     // Cibles déclarées : fusion de la chaîne champ par champ (le dernier
     // pack gagne). Un gabarit garde le dossier du pack qui l'a déclaré : un
@@ -196,13 +191,58 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         sounds,
         pack_targets,
         template_dirs,
+        design,
+        wallpaper,
         warnings,
+    })
+}
+
+/// Fond du pack : le plus proche qui en déclare un, la variante l'emportant
+/// sur la déclaration générale ; chemin lu dans le dossier du pack qui le
+/// déclare.
+fn wallpaper(chain: &[Pack], variant: &str, warnings: &mut Vec<String>) -> Option<PackWallpaper> {
+    let mut found: Option<(&super::manifest::WallpaperSpec, &Pack)> = None;
+    for pack in chain {
+        if let Some(w) = &pack.manifest.wallpaper {
+            found = Some((w, pack));
+        }
+    }
+    for pack in chain {
+        if let Some(w) = pack
+            .manifest
+            .variant
+            .get(variant)
+            .and_then(|v| v.wallpaper.as_ref())
+        {
+            found = Some((w, pack));
+        }
+    }
+    let (spec, pack) = found?;
+    let rel = spec.image.as_ref().or(spec.dir.as_ref())?;
+    let Some(dir) = &pack.dir else {
+        warnings.push(format!(
+            "fond d'écran de {} ignoré : pack embarqué, sans dossier",
+            pack.manifest.meta.id
+        ));
+        return None;
+    };
+    let path = dir.join(rel);
+    if !path.exists() {
+        warnings.push(format!("fond d'écran introuvable : {}", path.display()));
+        return None;
+    }
+    let slideshow = spec.mode.as_deref() == Some("slideshow") || path.is_dir();
+    Some(PackWallpaper {
+        path,
+        slideshow,
+        interval: spec.interval.unwrap_or(1800).max(10),
+        shuffle: spec.shuffle.unwrap_or(false),
     })
 }
 
 /// Slots dérivés (§5) : calculés seulement quand ils ne sont pas posés
 /// explicitement (palette, variante, héritage).
-fn fill_derived(p: &mut BTreeMap<String, Rgba>) {
+fn fill_derived(p: &mut BTreeMap<String, Rgba>, c: &design::Contrast) {
     let bg = p["bg"];
     let fg = p["fg"];
     let accent = p["accent"];
@@ -222,19 +262,30 @@ fn fill_derived(p: &mut BTreeMap<String, Rgba>) {
         } else {
             o.l * 0.65
         };
-        color::ensure_contrast(color::from_oklch(color::Oklch { l, ..o }), surface, 3.0)
+        color::ensure_contrast(
+            color::from_oklch(color::Oklch { l, ..o }),
+            surface,
+            f64::from(c.text),
+        )
     });
     p.entry("border".to_string())
         .or_insert(color::with_alpha(fg, 0.18));
-    p.entry("accent_fg".to_string()).or_insert({
+    let ink = |on: Rgba| {
         let blanc = Rgba(255, 255, 255, 255);
         let noir = Rgba(0, 0, 0, 255);
-        if color::contrast(blanc, accent) >= color::contrast(noir, accent) {
+        if color::contrast(blanc, on) >= color::contrast(noir, on) {
             blanc
         } else {
             noir
         }
-    });
+    };
+    p.entry("accent_fg".to_string()).or_insert(ink(accent));
+    // Action (commandes) et sélection (MLG-267) : l'accent s'ils manquent,
+    // chacun avec son encre.
+    for (slot, on) in [("action", "action_fg"), ("selection", "selection_fg")] {
+        let c = *p.entry(slot.to_string()).or_insert(accent);
+        p.entry(on.to_string()).or_insert(ink(c));
+    }
     p.entry("accent_muted".to_string())
         .or_insert(color::with_alpha(accent, 0.35));
     // États (ok, attention, danger) : teintes fixes, luminosité ajustée pour
@@ -267,7 +318,7 @@ fn fill_derived(p: &mut BTreeMap<String, Rgba>) {
         ),
     ] {
         p.entry(slot.to_string())
-            .or_insert_with(|| color::ensure_contrast(color::from_oklch(o), bg, 4.5));
+            .or_insert_with(|| color::ensure_contrast(color::from_oklch(o), bg, f64::from(c.text)));
     }
     p.entry("background".to_string())
         .or_insert(color::darken(bg, 4.0));
@@ -286,7 +337,7 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
     ] {
         palette.insert(name.to_string(), c);
     }
-    fill_derived(&mut palette);
+    fill_derived(&mut palette, &design::Contrast::default());
     Resolved {
         id: "regle".to_string(),
         name: "Thème réglé".to_string(),
@@ -304,6 +355,8 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
         sounds: None,
         pack_targets: BTreeMap::new(),
         template_dirs: Vec::new(),
+        design: Design::default(),
+        wallpaper: None,
         warnings: Vec::new(),
     }
 }
@@ -422,8 +475,9 @@ mod tests {
         );
         base.manifest.inherits.themes = vec!["fantôme".to_string()];
         let r = resolve(&[base], "dark").unwrap();
-        assert_eq!(r.warnings.len(), 1);
-        assert!(r.warnings[0].contains("fantôme"));
+        let parents: Vec<_> = r.warnings.iter().filter(|w| w.contains("parent")).collect();
+        assert_eq!(parents.len(), 1, "{:?}", r.warnings);
+        assert!(parents[0].contains("fantôme"));
     }
 
     #[test]
@@ -562,9 +616,10 @@ mod tests {
                 l(m) > lo && l(m) < hi,
                 "fg_muted {m:?} hors de [{fg:?}, {bg:?}]"
             );
-            assert!(color::contrast(m, r.palette["surface"]) >= 3.0);
+            assert!(color::contrast(m, r.palette["surface"]) >= 4.5);
         }
-        // Thème sombre : inchangé (65 % de la luminosité de fg).
+        // Thème sombre : 65 % de la luminosité de fg, relevé jusqu'à la
+        // cible du texte (MLG-269).
         let r = from_adjusted(
             Rgba(0xf2, 0xf4, 0xfc, 0xff),
             Rgba(0x17, 0x1b, 0x27, 0xff),
@@ -572,7 +627,133 @@ mod tests {
             Rgba(0x17, 0x1b, 0x27, 0xff),
         );
         let o = color::to_oklch(Rgba(0xf2, 0xf4, 0xfc, 0xff));
-        let attendu = color::from_oklch(color::Oklch { l: o.l * 0.65, ..o });
+        let attendu = color::ensure_contrast(
+            color::from_oklch(color::Oklch { l: o.l * 0.65, ..o }),
+            r.palette["surface"],
+            4.5,
+        );
         assert_eq!(r.palette["fg_muted"], attendu);
+    }
+
+    fn manifest(text: &str) -> Pack {
+        let (m, w) = Manifest::parse("essai", text).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        use_manifest(m)
+    }
+
+    const BASE: &str = "[meta]\nid = \"essai\"\nname = \"Essai\"\nversion = \"1\"\n[palette]\nbg = \"#171b27\"\nfg = \"#f2f4fc\"\naccent = \"#a69cff\"\n";
+
+    #[test]
+    fn verre_préréglages_et_surcharges() {
+        let p = manifest(&format!(
+            "{BASE}[glass]\nhighlight = 0.2\nblur_size = 12\n[glass.presets.brume]\nopacity = 0.6\nrefraction = 0.5\n\
+             [effects.launcher]\npreset = \"dense\"\nrefraction = 0.4\n[effects.bar]\npreset = \"brume\"\n\
+             [effects.menus]\npreset = \"tinted\"\n[variant.dark.effects.widgets]\nblur = true\n"
+        ));
+        let r = resolve(&[p], "dark").unwrap();
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        let l = r.effects[&Place::Launcher];
+        assert!((l.opacity - 0.92).abs() < 1e-6);
+        let g = r.design.glass(Place::Launcher);
+        assert!(
+            (g.refraction - 0.4).abs() < 1e-6,
+            "surcharge après le préréglage"
+        );
+        assert!((g.highlight - 0.05).abs() < 1e-6, "valeur du préréglage");
+        assert!((r.effects[&Place::Bar].opacity - 0.6).abs() < 1e-6);
+        assert!(
+            (r.design.glass(Place::Bar).highlight - 0.2).abs() < 1e-6,
+            "verre commun"
+        );
+        // Teinte d'un préréglage : le slot résolu.
+        let t = r.design.glass(Place::Menus).tint_rgba().unwrap();
+        assert_eq!(t, r.palette["accent"]);
+        // MLG-266 : une variante qui ne donne que le flou garde l'opacité.
+        assert!(
+            (r.effects[&Place::Widgets].opacity - Place::Widgets.default_effect().opacity).abs()
+                < 1e-6
+        );
+        assert!(r.effects[&Place::Widgets].blur);
+        assert_eq!(r.hyprland_options["decoration:blur:size"], "12");
+    }
+
+    #[test]
+    fn jetons_contraste_typo_états_mouvement_écrans() {
+        let p = manifest(&format!(
+            "{BASE}[contrast]\ntext = 7\nreduced_transparency = true\n[fonts]\nsize = 15\nweight = \"medium\"\ntabular_numbers = true\n\
+             [fonts.sizes]\ntitle = 20\n[states]\nhover = 0.1\n[motion]\nduration = 240\neasing = \"cubic-bezier(0.2, 0.8, 0.2, 1)\"\n\
+             [screens.\"2570x720\"]\ntext_scale = 0.85\n[screens.\"2570x720\".effects.bar]\nopacity = 0.5\n"
+        ));
+        let r = resolve(&[p], "dark").unwrap();
+        let d = &r.design;
+        assert_eq!(d.contrast.text, 7.0);
+        assert!(d.contrast.reduced_transparency);
+        assert!(color::contrast(r.palette["fg_muted"], r.palette["surface"]) >= 7.0 - 1e-6);
+        assert_eq!(
+            (d.typography.body, d.typography.title, d.typography.weight),
+            (15.0, 20.0, 500)
+        );
+        assert!(d.typography.tabular_numbers);
+        assert_eq!(d.states.hover, 0.1);
+        assert_eq!(d.motion.duration, 240);
+        let s = d.screen("HDMI-A-1", Some((2570, 720))).unwrap();
+        assert_eq!(s.text_scale, 0.85);
+        assert_eq!(s.effects["bar"].opacity, 0.5);
+        assert!(d.screen("DP-1", Some((1920, 1080))).is_none());
+    }
+
+    #[test]
+    fn polices_et_icônes_du_plus_proche() {
+        let parent = manifest(&format!(
+            "{BASE}[fonts]\nfamily = \"Parent\"\nsize = 12\n[icons]\ntheme = \"Papirus\"\n"
+        ));
+        let enfant = manifest(
+            "[meta]\nid = \"essai\"\nname = \"E\"\nversion = \"1\"\n[fonts]\nsize = 14\n[icons]\ntheme = \"Adwaita\"\n",
+        );
+        let r = resolve(&[parent, enfant], "dark").unwrap();
+        let f = r.fonts.unwrap();
+        assert_eq!(f.family.as_deref(), Some("Parent"), "champ hérité");
+        assert_eq!(f.size, Some(14.0), "le plus proche gagne");
+        assert_eq!(r.icons.unwrap().theme.as_deref(), Some("Adwaita"));
+    }
+
+    #[test]
+    fn fond_du_pack_selon_la_variante() {
+        let dir = std::env::temp_dir().join(format!("hd-fond-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("fonds")).unwrap();
+        std::fs::write(dir.join("fonds/nuit.jpg"), b"x").unwrap();
+        std::fs::write(dir.join("fonds/jour.jpg"), b"x").unwrap();
+        let mut p = manifest(&format!(
+            "{BASE}[wallpaper]\nimage = \"fonds/nuit.jpg\"\n[variant.light.wallpaper]\nimage = \"fonds/jour.jpg\"\n"
+        ));
+        p.dir = Some(dir.clone());
+        let nuit = resolve(std::slice::from_ref(&p), "dark")
+            .unwrap()
+            .wallpaper
+            .unwrap();
+        assert_eq!(nuit.path, dir.join("fonds/nuit.jpg"));
+        assert!(!nuit.slideshow);
+        let jour = resolve(std::slice::from_ref(&p), "light")
+            .unwrap()
+            .wallpaper
+            .unwrap();
+        assert_eq!(jour.path, dir.join("fonds/jour.jpg"));
+        let dossier = manifest(&format!(
+            "{BASE}[wallpaper]\ndir = \"fonds\"\nmode = \"slideshow\"\ninterval = 600\n"
+        ));
+        let dossier = Pack {
+            dir: Some(dir.clone()),
+            ..dossier
+        };
+        let w = resolve(&[dossier], "dark").unwrap().wallpaper.unwrap();
+        assert!(w.slideshow && w.interval == 600);
+        assert!(
+            Manifest::parse(
+                "essai",
+                &format!("{BASE}[wallpaper]\nimage = \"../x.jpg\"\n")
+            )
+            .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

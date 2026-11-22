@@ -143,7 +143,9 @@ components! {
         assistant_mode, ai_services, ai_use, launcher_smartui, smartui_style,
         smartui_auto,
     ];
-    "theme" => [accent, theme_name, fg, bg, background, effects];
+    "theme" => [
+        accent, theme_name, fg, bg, background, effects, reduced_transparency, reduced_motion,
+    ];
     "apptheme" => [app_themes];
     "wallpaper" => [wallpapers];
     "widgets" => [widgets, placements, disabled];

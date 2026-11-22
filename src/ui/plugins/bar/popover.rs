@@ -6,6 +6,7 @@
 //! au premier clic ailleurs.
 
 use crate::i18n::text;
+use crate::ui::tokens::Shown as _;
 use iced::widget::{Space, button, column, container, mouse_area, row, rule, slider, toggler};
 use iced::window::Id;
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Vector};
@@ -879,10 +880,15 @@ impl App {
             .unwrap_or("");
         let mut col = column![].spacing(4).padding([4, 10]);
         if let Some(l) = label {
-            col = col.push(text(l.to_string()).font(self.font).size(12).color(Color {
-                a: 0.7 * alpha,
-                ..fg
-            }));
+            col = col.push(
+                text(l.to_string())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(Color {
+                        a: 0.7 * alpha,
+                        ..fg
+                    }),
+            );
         }
         col.push(
             iced::widget::text_input(placeholder, value)
@@ -890,7 +896,7 @@ impl App {
                 .on_input(move |s| Msg::Popover(PMsg::Input(i, s)))
                 .on_submit(Msg::Popover(PMsg::Submit(i)))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .padding(8)
                 .style(move |theme, status| {
                     let mut style = iced::widget::text_input::default(theme, status);
@@ -1224,8 +1230,8 @@ impl App {
             alpha,
         );
         let bg = color(
-            th.bg,
-            th.effect(crate::config::Place::Menus).opacity * alpha,
+            crate::ui::tokens::tinted(th.bg, crate::config::Place::Menus),
+            th.shown(crate::config::Place::Menus).opacity * alpha,
         );
         let win = p.win;
         let content = || {
@@ -1316,6 +1322,17 @@ impl App {
                 })
                 .into()
         };
+        // Verre du thème (MLG-268), au rayon de la carte.
+        let card = if p.dashboard.is_none() && alpha > 0.0 {
+            crate::ui::glass::over(
+                card,
+                crate::config::Place::Menus,
+                crate::ui::design::RADIUS,
+                fg,
+            )
+        } else {
+            card
+        };
         let card = if p.closing() {
             crate::ui::plugins::bar::motion::inert(card)
         } else {
@@ -1331,16 +1348,21 @@ impl App {
         } else {
             iced::Point::new(p.origin, 1.0)
         };
+        // Mouvement du thème (MLG-271) : échelle et déplacement de départ.
+        let mo = crate::ui::tokens::motion();
         let scale = if p.dashboard.is_some() {
             1.0
         } else {
-            0.975 + 0.025 * alpha
+            mo.scale + (1.0 - mo.scale) * alpha
         };
         iced::widget::sensor(
             container(crate::ui::plugins::bar::motion::surface(
                 card,
                 scale,
-                Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
+                Vector::new(
+                    p.slide_from * (1.0 - mix),
+                    direction * mo.offset * (1.0 - alpha),
+                ),
                 origin,
             ))
             .padding(SHADOW)
@@ -1364,7 +1386,7 @@ impl App {
         container(
             text(label)
                 .font(self.font)
-                .size(11.5)
+                .size(crate::ui::tokens::ts(11.5))
                 .color(dim)
                 .font(self.ui_font(iced::font::Weight::Semibold)),
         )
@@ -1437,7 +1459,7 @@ impl App {
         let active = enabled && clickable;
         let label_el = text(label)
             .font(self.font)
-            .size(13.5)
+            .size(crate::ui::tokens::ts(13.5))
             .font(font)
             .wrapping(iced::widget::text::Wrapping::None);
         let body: Element<'_, Msg> = match detail {
@@ -1445,7 +1467,7 @@ impl App {
                 label_el,
                 text(d)
                     .font(self.font)
-                    .size(11.5)
+                    .size(crate::ui::tokens::ts(11.5))
                     .color(dim)
                     .font(font)
                     .wrapping(iced::widget::text::Wrapping::None)
@@ -1454,7 +1476,11 @@ impl App {
             .into(),
             Some(d) => row![
                 label_el.width(Length::Fill),
-                text(d).font(self.font).size(12).color(dim).font(font)
+                text(d)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim)
+                    .font(font)
             ]
             .align_y(Alignment::Center)
             .into(),
@@ -1551,7 +1577,12 @@ impl App {
                     let lead: Element<'_, Msg> = match (checked, icon) {
                         (Some(true), _) => self
                             .icon_named("object-select-symbolic", 14.0, fg)
-                            .unwrap_or_else(|| text("•").font(self.font).size(13).into()),
+                            .unwrap_or_else(|| {
+                                text("•")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .into()
+                            }),
                         (_, Some(name)) => self
                             .icon_named(name, 16.0, fg)
                             .unwrap_or_else(|| Space::new().into()),
@@ -1575,13 +1606,19 @@ impl App {
                             row![
                                 text(question)
                                     .font(self.font)
-                                    .size(12.5)
+                                    .size(crate::ui::tokens::ts(12.5))
                                     .font(font)
                                     .width(Length::Fill),
-                                button(text("Annuler").font(self.font).size(12.5).font(font))
-                                    .padding([4, 10])
-                                    .on_press(Msg::Popover(PMsg::CancelConfirm))
-                                    .style(move |_, st| button::Style {
+                                button(
+                                    text("Annuler")
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(12.5))
+                                        .font(font)
+                                )
+                                .padding([4, 10])
+                                .on_press(Msg::Popover(PMsg::CancelConfirm))
+                                .style(move |_, st| {
+                                    button::Style {
                                         background: Some(Background::Color(Color {
                                             a: if matches!(st, button::Status::Hovered) {
                                                 0.18
@@ -1594,11 +1631,18 @@ impl App {
                                         border: Border::default()
                                             .rounded(crate::ui::design::SMALL_RADIUS),
                                         ..Default::default()
-                                    }),
-                                button(text("Confirmer").font(self.font).size(12.5).font(font))
-                                    .padding([4, 10])
-                                    .on_press(Msg::Popover(PMsg::Confirm(i)))
-                                    .style(move |_, st| button::Style {
+                                    }
+                                }),
+                                button(
+                                    text("Confirmer")
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(12.5))
+                                        .font(font)
+                                )
+                                .padding([4, 10])
+                                .on_press(Msg::Popover(PMsg::Confirm(i)))
+                                .style(move |_, st| {
+                                    button::Style {
                                         background: Some(Background::Color(Color {
                                             a: if matches!(st, button::Status::Hovered) {
                                                 1.0
@@ -1611,7 +1655,8 @@ impl App {
                                         border: Border::default()
                                             .rounded(crate::ui::design::SMALL_RADIUS),
                                         ..Default::default()
-                                    }),
+                                    }
+                                }),
                             ]
                             .spacing(6)
                             .align_y(Alignment::Center)
@@ -1715,7 +1760,7 @@ impl App {
                 ))
                 .width(Length::Fill),
             text(format!("{:.0} %", v * 100.0))
-                .size(12.5)
+                .size(crate::ui::tokens::ts(12.5))
                 .font(self.ui_font(iced::font::Weight::Medium))
                 .width(40)
                 .align_x(Alignment::End),
@@ -1758,7 +1803,7 @@ impl App {
                     .width(Length::Fill),
                 text(format!("{:.0} %", v * 100.0))
                     .font(self.font)
-                    .size(12.5)
+                    .size(crate::ui::tokens::ts(12.5))
                     .font(font)
                     .width(40)
                     .align_x(Alignment::End),
@@ -1770,7 +1815,7 @@ impl App {
             row![
                 text("Muet")
                     .font(self.font)
-                    .size(13.5)
+                    .size(crate::ui::tokens::ts(13.5))
                     .font(self.ui_font(iced::font::Weight::Normal))
                     .width(Length::Fill),
                 toggler(muted)
@@ -1861,12 +1906,12 @@ impl App {
                 column![
                     text(title)
                         .font(self.font)
-                        .size(15)
+                        .size(crate::ui::tokens::ts(15.0))
                         .font(self.ui_font(iced::font::Weight::Semibold))
                         .color(fg),
                     text(format_now("%H:%M"))
                         .font(self.font)
-                        .size(12.5)
+                        .size(crate::ui::tokens::ts(12.5))
                         .color(dim)
                         .font(self.ui_font(iced::font::Weight::Normal)),
                 ]
@@ -1896,21 +1941,26 @@ impl App {
     /// Mois précédent, aujourd'hui, mois suivant.
     fn calendar_nav(&self, alpha: f32, fg: Color, accent: Color) -> Element<'_, Msg> {
         let nav = |label: &str, delta: i32| {
-            button(text(label.to_string()).font(self.font).size(13).color(fg))
-                .padding([2, 10])
-                .style(move |_, st| button::Style {
-                    background: matches!(st, button::Status::Hovered).then(|| {
-                        Color {
-                            a: 0.10 * alpha,
-                            ..accent
-                        }
-                        .into()
-                    }),
-                    border: Border::default().rounded(8),
-                    text_color: fg,
-                    ..Default::default()
-                })
-                .on_press(Msg::CalendarMonth(delta))
+            button(
+                text(label.to_string())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(fg),
+            )
+            .padding([2, 10])
+            .style(move |_, st| button::Style {
+                background: matches!(st, button::Status::Hovered).then(|| {
+                    Color {
+                        a: 0.10 * alpha,
+                        ..accent
+                    }
+                    .into()
+                }),
+                border: Border::default().rounded(8),
+                text_color: fg,
+                ..Default::default()
+            })
+            .on_press(Msg::CalendarMonth(delta))
         };
         let first =
             crate::ui::widget_view::month_start(chrono::Local::now().date_naive(), self.cal_months);
@@ -1921,7 +1971,7 @@ impl App {
             nav("‹", -1),
             text(month)
                 .font(self.ui_font(iced::font::Weight::Semibold))
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg)
                 .width(Length::Fill)
                 .align_x(Alignment::Center),

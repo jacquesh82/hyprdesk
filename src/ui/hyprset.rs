@@ -183,12 +183,16 @@ impl App {
             row![
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(color(self.cfg.general.theme.accent, 1.0)),
-                button(text(crate::i18n::tr("Rétablir")).font(self.font).size(12))
-                    .padding([2, 8])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Set(store, p, None))),
+                button(
+                    text(crate::i18n::tr("Rétablir"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([2, 8])
+                .style(button::text)
+                .on_press(wrap(Msg::Set(store, p, None))),
             ]
             .spacing(6)
             .align_y(Alignment::Center)
@@ -196,7 +200,7 @@ impl App {
         } else {
             text(self.opt_origin_text(&path))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .into()
         };
@@ -210,7 +214,7 @@ impl App {
             body = body.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::danger()),
             );
         }
@@ -255,7 +259,7 @@ impl App {
                     .max_width(240),
                     text(format!("{}", (v * 100.0).round() / 100.0))
                         .font(self.font)
-                        .size(13),
+                        .size(crate::ui::tokens::ts(13.0)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center)
@@ -317,7 +321,7 @@ impl App {
                             .on_input(move |s| wrap(Msg::Draft(p2.clone(), s)))
                             .on_submit(wrap(Msg::Submit(store, p)))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .width(Length::Fill)
                     )
                     .width(Length::Fill)
@@ -519,7 +523,7 @@ impl App {
     fn small(&self, s: String) -> Element<'_, UiMsg> {
         text(s)
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(self.ink().dim)
             .into()
     }
@@ -613,15 +617,15 @@ impl App {
                         .on_input(move |s| wrap(Msg::Env(i, Some((s, vv.clone())))))
                         .on_submit(wrap(Msg::Commit))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(260),
                     text_input(crate::i18n::tr("valeur"), v)
                         .on_input(move |s| wrap(Msg::Env(i, Some((kk.clone(), s)))))
                         .on_submit(wrap(Msg::Commit))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
-                    button(text("×").font(self.font).size(14))
+                    button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
                         .padding([2, 10])
                         .style(button::text)
                         .on_press(wrap(Msg::Env(i, None))),
@@ -634,7 +638,7 @@ impl App {
             button(
                 text(crate::i18n::tr("Ajouter une variable"))
                     .font(self.font)
-                    .size(13),
+                    .size(crate::ui::tokens::ts(13.0)),
             )
             .padding([4, 12])
             .on_press(wrap(Msg::EnvAdd)),
@@ -685,7 +689,9 @@ impl App {
                     .step(2.0_f32)
                     .on_release(wrap(Msg::CursorCommit))
                     .width(240),
-                    text(format!("{size:.0}")).font(self.font).size(13),
+                    text(format!("{size:.0}"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),

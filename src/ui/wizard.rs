@@ -843,7 +843,7 @@ impl App {
         let p = self.wizard_pal();
         text(crate::i18n::tr(title))
             .font(self.title_font())
-            .size(15)
+            .size(crate::ui::tokens::ts(15.0))
             .color(p.fg)
             .into()
     }
@@ -852,7 +852,7 @@ impl App {
         let p = self.wizard_pal();
         text(s.into())
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(p.dim)
             .width(Length::Fill)
             .into()
@@ -918,7 +918,9 @@ impl App {
                             ..Default::default()
                         }
                     }),
-                text(crate::i18n::tr(s.label)).font(self.font).size(12),
+                text(crate::i18n::tr(s.label))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
                 tooltip::Position::Bottom,
             )
             .into()
@@ -938,7 +940,7 @@ impl App {
                     total = STEPS.len()
                 ))
                 .font(self.title_font())
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(p.accent),
                 text(crate::i18n::tr(info.label))
                     .font(self.title_font())
@@ -955,7 +957,7 @@ impl App {
             title,
             text(crate::i18n::tr(info.summary))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(p.dim),
             dots,
         ]
@@ -977,52 +979,64 @@ impl App {
         // Pied : retour, passer, suivant (terminer à la fin).
         let last = w.step == SUMMARY;
         let mut foot = row![
-            button(text("Retour").font(self.font).size(14))
-                .padding([9, 18])
-                .style(button::secondary)
-                .on_press_maybe((w.step > 0).then(|| wrap(WMsg::Back))),
+            button(
+                text("Retour")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0))
+            )
+            .padding([9, 18])
+            .style(button::secondary)
+            .on_press_maybe((w.step > 0).then(|| wrap(WMsg::Back))),
             Space::new().width(Length::Fill),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
         if last {
             foot = foot.push(
-                button(text("Annuler l'assistant").font(self.font).size(14))
-                    .padding([9, 16])
-                    .style(move |_, status| button::Style {
-                        background: Some(
-                            Color {
-                                a: if matches!(status, button::Status::Hovered) {
-                                    0.22
-                                } else {
-                                    0.10
-                                },
-                                ..p.warn
-                            }
-                            .into(),
-                        ),
-                        text_color: p.fg,
-                        border: Border::default()
-                            .rounded(8)
-                            .width(1)
-                            .color(Color { a: 0.6, ..p.warn }),
-                        ..Default::default()
-                    })
-                    .on_press_maybe((!w.busy).then(|| wrap(WMsg::Cancel))),
+                button(
+                    text("Annuler l'assistant")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0)),
+                )
+                .padding([9, 16])
+                .style(move |_, status| button::Style {
+                    background: Some(
+                        Color {
+                            a: if matches!(status, button::Status::Hovered) {
+                                0.22
+                            } else {
+                                0.10
+                            },
+                            ..p.warn
+                        }
+                        .into(),
+                    ),
+                    text_color: p.fg,
+                    border: Border::default()
+                        .rounded(8)
+                        .width(1)
+                        .color(Color { a: 0.6, ..p.warn }),
+                    ..Default::default()
+                })
+                .on_press_maybe((!w.busy).then(|| wrap(WMsg::Cancel))),
             );
         } else {
             foot = foot.push(
-                button(text("Passer").font(self.font).size(14))
-                    .padding([9, 14])
-                    .style(button::text)
-                    .on_press(wrap(WMsg::Skip)),
+                button(
+                    text("Passer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0)),
+                )
+                .padding([9, 14])
+                .style(button::text)
+                .on_press(wrap(WMsg::Skip)),
             );
         }
         foot = foot.push(
             button(
                 text(if last { "Terminer" } else { "Suivant" })
                     .font(self.title_font())
-                    .size(14),
+                    .size(crate::ui::tokens::ts(14.0)),
             )
             .padding([9, 22])
             .on_press(wrap(if last { WMsg::Finish } else { WMsg::Next })),
@@ -1077,26 +1091,36 @@ impl App {
         };
         let tw = self.wizard_tile(3);
         let card = |code: &'static str, glyph: &'static str, name: String, sub: String| {
-            let mark: Element<'_, Msg> =
-                container(text(glyph).font(self.title_font()).size(20).color(p.accent))
-                    .center(56)
-                    .style(move |_| container::Style {
-                        background: Some(
-                            Color {
-                                a: 0.14,
-                                ..p.accent
-                            }
-                            .into(),
-                        ),
-                        border: Border::default().rounded(28),
-                        ..Default::default()
-                    })
-                    .into();
+            let mark: Element<'_, Msg> = container(
+                text(glyph)
+                    .font(self.title_font())
+                    .size(crate::ui::tokens::ts(20.0))
+                    .color(p.accent),
+            )
+            .center(56)
+            .style(move |_| container::Style {
+                background: Some(
+                    Color {
+                        a: 0.14,
+                        ..p.accent
+                    }
+                    .into(),
+                ),
+                border: Border::default().rounded(28),
+                ..Default::default()
+            })
+            .into();
             self.wz_choice(
                 column![
                     mark,
-                    text(name).font(self.title_font()).size(16).color(p.fg),
-                    text(sub).font(self.font).size(12).color(p.dim),
+                    text(name)
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(16.0))
+                        .color(p.fg),
+                    text(sub)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(p.dim),
                 ]
                 .spacing(8)
                 .align_x(Alignment::Center)
@@ -1113,7 +1137,7 @@ impl App {
                 column![
                     text("Bienvenue dans hyprdesk")
                         .font(self.title_font())
-                        .size(24)
+                        .size(crate::ui::tokens::ts(24.0))
                         .color(p.fg),
                     self.wz_note(crate::i18n::tr(
                         "Le bureau qui apparaît d'une touche sous vos fenêtres en tuiles. \
@@ -1171,7 +1195,7 @@ impl App {
             column![
                 text(crate::i18n::tr("Sauvegarde et marche arrière"))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(p.fg),
                 self.wz_note(saved),
                 self.wz_note(crate::i18n::tr(
@@ -1202,9 +1226,13 @@ impl App {
             return column![
                 self.wz_badge("video-display", 64.0),
                 self.wz_note(crate::i18n::tr("Aucun écran détecté pour l'instant.")),
-                button(text("Détecter").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press(wrap(WMsg::DetectScreens)),
+                button(
+                    text("Détecter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press(wrap(WMsg::DetectScreens)),
             ]
             .spacing(14)
             .align_x(Alignment::Center)
@@ -1243,15 +1271,15 @@ impl App {
             let mut label = column![
                 text(s.name.clone())
                     .font(self.title_font())
-                    .size(15)
+                    .size(crate::ui::tokens::ts(15.0))
                     .color(p.fg),
                 text(s.description.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.dim),
                 text(format!("{pw} × {ph}"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.dim),
             ]
             .spacing(3)
@@ -1261,7 +1289,7 @@ impl App {
                     container(
                         text("★ Principal")
                             .font(self.title_font())
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.on_accent),
                     )
                     .padding([3, 10])
@@ -1362,7 +1390,7 @@ impl App {
                     container(
                         text(k.to_string())
                             .font(self.title_font())
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.fg),
                     )
                     .center(24)
@@ -1387,9 +1415,12 @@ impl App {
                         caps,
                         text(crate::i18n::tr(name))
                             .font(self.title_font())
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .color(p.fg),
-                        text(code.to_string()).font(self.font).size(12).color(p.dim),
+                        text(code.to_string())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(p.dim),
                     ]
                     .spacing(8)
                     .into(),
@@ -1410,7 +1441,7 @@ impl App {
             row![
                 text("Autre disposition")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(p.fg),
                 pick_list(all, selected, |c| wrap(WMsg::LayoutPick(c)))
                     .placeholder(crate::i18n::tr("Choisir…"))
@@ -1418,7 +1449,7 @@ impl App {
                     .width(300),
                 text(crate::tr!("En place : {l}", l = cur.kb_layout))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.dim),
             ]
             .spacing(12)
@@ -1429,7 +1460,7 @@ impl App {
             )
             .on_input(|t| wrap(WMsg::Try(t)))
             .font(self.font)
-            .size(18)
+            .size(crate::ui::tokens::ts(18.0))
             .padding(14)
             .width(Length::Fill),
             self.wz_note(crate::i18n::tr(
@@ -1539,7 +1570,10 @@ impl App {
                 self.wz_choice(
                     column![
                         mock,
-                        text(t.name).font(self.title_font()).size(14).color(p.fg)
+                        text(t.name)
+                            .font(self.title_font())
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(p.fg)
                     ]
                     .spacing(8)
                     .into(),
@@ -1585,7 +1619,7 @@ impl App {
                                 self.wz_scene(th, ww - 26.0, ((ww - 26.0) * 0.5625).floor(), false),
                                 text(name)
                                     .font(self.font)
-                                    .size(12)
+                                    .size(crate::ui::tokens::ts(12.0))
                                     .color(p.dim)
                                     .wrapping(iced::widget::text::Wrapping::None),
                             ]
@@ -1623,14 +1657,14 @@ impl App {
                 column![
                     text("Bordures aux couleurs du thème")
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(p.fg),
                     text(
                         "Accent du thème pour la fenêtre active, fond pour les autres ; suit les \
                          changements de thème."
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.dim),
                 ]
                 .spacing(4)
@@ -1696,11 +1730,11 @@ impl App {
                     thumb,
                     text(crate::i18n::tr(name))
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(p.fg),
                     text(crate::i18n::tr(sub))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(p.dim),
                 ]
                 .spacing(6)
@@ -1749,7 +1783,7 @@ impl App {
                         screen(v == BarPosition::Top),
                         text(crate::i18n::tr(label))
                             .font(self.title_font())
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .color(p.fg),
                     ]
                     .spacing(14)
@@ -1788,7 +1822,7 @@ impl App {
                     container(
                         text(n.to_string())
                             .font(self.title_font())
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .color(if full { p.on_accent } else { p.dim }),
                     )
                     .center(40),
@@ -1817,7 +1851,7 @@ impl App {
             button(
                 text("À la demande")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(if count.is_none() { p.on_accent } else { p.fg }),
             )
             .padding([11, 14])
@@ -1881,11 +1915,11 @@ impl App {
                         ),
                         text(crate::i18n::tr(name))
                             .font(self.title_font())
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .color(p.fg),
                         text(crate::i18n::tr(sub))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.dim),
                     ]
                     .spacing(6)
@@ -1909,11 +1943,11 @@ impl App {
                 column![
                     text("Fichiers du dossier Bureau et Corbeille")
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(p.fg),
                     text("Le contenu de ~/Bureau apparaît en icônes, avec la Corbeille.")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(p.dim),
                 ]
                 .spacing(4)
@@ -1977,17 +2011,20 @@ impl App {
                         self.wz_badge(icon, 44.0),
                         text(crate::i18n::tr(pr.label()))
                             .font(self.title_font())
-                            .size(15)
+                            .size(crate::ui::tokens::ts(15.0))
                             .color(p.fg),
                         row![
-                            text("Effets").font(self.font).size(12).color(p.dim),
+                            text("Effets")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(p.dim),
                             gauge(level)
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
                         text(crate::i18n::tr(pr.summary()))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.dim),
                     ]
                     .spacing(8)
@@ -2021,11 +2058,11 @@ impl App {
                         column![
                             text(crate::i18n::tr(r.label()))
                                 .font(self.title_font())
-                                .size(14)
+                                .size(crate::ui::tokens::ts(14.0))
                                 .color(p.fg),
                             text(crate::i18n::tr(sub))
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(p.dim),
                         ]
                         .spacing(4)
@@ -2071,14 +2108,14 @@ impl App {
                 column![
                     text("hyprdesk gère la veille")
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(p.fg),
                     text(
                         "hyprdesk écrit la configuration de hypridle et le lance ; une \
                          application qui demande à rester éveillée (vidéo, appel) l'en empêche."
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.dim),
                 ]
                 .spacing(4)
@@ -2171,7 +2208,7 @@ impl App {
                         n = m
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg)
                     .align_x(Alignment::Center)
                     .width(160),
@@ -2211,17 +2248,20 @@ impl App {
                         row![
                             text((k + 1).to_string())
                                 .font(self.title_font())
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(p.accent),
                             self.wz_icon(icon, 16.0, fg),
                             text(crate::i18n::tr(label))
                                 .font(self.title_font())
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                         ]
                         .spacing(6)
                         .align_y(Alignment::Center),
-                        text(value).font(self.title_font()).size(22).color(fg),
+                        text(value)
+                            .font(self.title_font())
+                            .size(crate::ui::tokens::ts(22.0))
+                            .color(fg),
                         slider(0..=120u32, m, move |v| wrap(WMsg::Idle(step, v)))
                             .on_release(wrap(WMsg::IdleCommit))
                             .style(design::bar_slider),
@@ -2246,7 +2286,7 @@ impl App {
             col = col.push(
                 text("hypridle est absent (paquet hypridle) : rien ne se passera à l'inactivité.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.warn),
             );
         }
@@ -2260,13 +2300,16 @@ impl App {
                     row![
                         self.wz_icon("hyprdesk-urgent", 20.0, p.warn),
                         column![
-                            text(warning).font(self.font).size(13).color(p.fg),
+                            text(warning)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                                .color(p.fg),
                             text(
                                 "Vos délais sont gardés. Pour l'éviter, verrouillez avant \
                                  d'éteindre l'écran."
                             )
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.dim),
                         ]
                         .spacing(3)
@@ -2354,7 +2397,7 @@ impl App {
                             }),
                         text("Celle du système")
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(p.fg)
                             .align_x(Alignment::Center),
                     ]
@@ -2375,7 +2418,7 @@ impl App {
                             self.wz_app_icon(&id, &name, 44.0),
                             text(name)
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(p.fg)
                                 .align_x(Alignment::Center),
                         ]
@@ -2532,7 +2575,7 @@ impl App {
                     self.wz_icon(STEPS[i].icon, 18.0, p.accent),
                     text(crate::i18n::tr(STEPS[i].label))
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(p.fg)
                         .width(Length::Fill),
                 ]
@@ -2540,22 +2583,36 @@ impl App {
                 .align_y(Alignment::Center);
                 if changed {
                     head = head.push(
-                        container(text("modifié").font(self.font).size(11).color(p.on_accent))
-                            .padding([2, 8])
-                            .style(move |_| container::Style {
-                                background: Some(p.accent.into()),
-                                border: Border::default().rounded(999),
-                                ..Default::default()
-                            }),
+                        container(
+                            text("modifié")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(11.0))
+                                .color(p.on_accent),
+                        )
+                        .padding([2, 8])
+                        .style(move |_| container::Style {
+                            background: Some(p.accent.into()),
+                            border: Border::default().rounded(999),
+                            ..Default::default()
+                        }),
                     );
                 }
-                button(column![head, text(now).font(self.font).size(12).color(p.dim)].spacing(6))
-                    .padding(12)
-                    .width(tw)
-                    .height(86)
-                    .style(tile_style(false, p))
-                    .on_press(wrap(WMsg::Go(i)))
-                    .into()
+                button(
+                    column![
+                        head,
+                        text(now)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(p.dim)
+                    ]
+                    .spacing(6),
+                )
+                .padding(12)
+                .width(tw)
+                .height(86)
+                .style(tile_style(false, p))
+                .on_press(wrap(WMsg::Go(i)))
+                .into()
             })
             .collect();
         let mut col = column![self.wz_wrap(tiles)].spacing(14);
@@ -2563,7 +2620,7 @@ impl App {
             col = col.push(
                 text(crate::tr!("Annulation impossible : {e}", e = e))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(p.warn),
             );
         }
@@ -2577,7 +2634,7 @@ impl App {
                 button(
                     text("Terminer et visiter les Réglages")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([7, 14])
                 .style(button::secondary)

@@ -42,7 +42,7 @@ impl App {
                      seule (raccourcis de groupe : Réglages → Raccourcis)."
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
                 self.hyprset_tab("groupes"),
             ]
@@ -55,7 +55,7 @@ impl App {
                  ici dit d'où elle vient."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.theme_borders_field(),
             self.hyprset_tab("fenetres"),

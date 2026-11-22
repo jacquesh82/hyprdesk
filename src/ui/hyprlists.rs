@@ -366,7 +366,7 @@ impl App {
         let mut head = row![
             text(title)
                 .font(self.title_font())
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .width(Length::Fill)
         ]
         .spacing(6)
@@ -374,20 +374,20 @@ impl App {
         if movable.0 || movable.1 {
             head = head
                 .push(
-                    button(text("↑").font(self.font).size(13))
+                    button(text("↑").font(self.font).size(crate::ui::tokens::ts(13.0)))
                         .padding([2, 8])
                         .style(button::text)
                         .on_press_maybe(movable.0.then(|| wrap(Msg::SpecMove(list, i, -1)))),
                 )
                 .push(
-                    button(text("↓").font(self.font).size(13))
+                    button(text("↓").font(self.font).size(crate::ui::tokens::ts(13.0)))
                         .padding([2, 8])
                         .style(button::text)
                         .on_press_maybe(movable.1.then(|| wrap(Msg::SpecMove(list, i, 1)))),
                 );
         }
         head = head.push(
-            button(text("×").font(self.font).size(14))
+            button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
                 .padding([2, 10])
                 .style(button::text)
                 .on_press(wrap(Msg::SpecDel(list, i))),
@@ -407,7 +407,7 @@ impl App {
                 row![
                     text(crate::i18n::tr(label))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(260),
                     self.spec_control(list, i, body, path, *kind)
                 ]
@@ -538,7 +538,7 @@ impl App {
                     })
                     .on_submit(wrap(Msg::Commit))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(320)
                     .into()
             }
@@ -564,17 +564,21 @@ impl App {
                 l = lines.join(", ")
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(self.ink().dim)
             .into(),
         )
     }
 
     fn add_button(&self, label: &'static str, msg: Msg) -> Element<'_, UiMsg> {
-        button(text(crate::i18n::tr(label)).font(self.font).size(13))
-            .padding([4, 12])
-            .on_press(wrap(msg))
-            .into()
+        button(
+            text(crate::i18n::tr(label))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0)),
+        )
+        .padding([4, 12])
+        .on_press(wrap(msg))
+        .into()
     }
 
     /// Règles d'une sorte (indices dans `hypr.rules`).
@@ -634,7 +638,7 @@ impl App {
                  Les champs non proposés ici sont gardés tels quels."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.rules_of(RuleKind::Window),
             self.adv(
@@ -645,7 +649,7 @@ impl App {
                          repérées par leur espace de noms : hyprctl layers les liste."
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                     self.rules_of(RuleKind::Layer),
                     self.section("Règles de workspaces"),
@@ -654,7 +658,7 @@ impl App {
                          workspaces et leurs écrans se règlent dans Workspaces."
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                     self.rules_of(RuleKind::Workspace),
                 ]
@@ -675,7 +679,7 @@ impl App {
                  et pris en compte aussitôt."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(12);
@@ -691,7 +695,7 @@ impl App {
                      qui partage cette configuration.",
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(crate::ui::tone::warning()),
             );
         }
@@ -745,7 +749,7 @@ impl App {
                  Souris et Pavé tactile ; « Comme partout » garde le réglage commun."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(12);
@@ -762,7 +766,7 @@ impl App {
             let mut pick = row![
                 text(crate::i18n::tr("Périphérique"))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(260),
                 pick_list(
                     opts,
@@ -784,7 +788,7 @@ impl App {
                 pick = pick.push(
                     text(crate::i18n::tr("non branché"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -811,7 +815,7 @@ impl App {
             col = col.push(
                 text(crate::tr!("Branchés : {l}", l = detected.join(", ")))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -831,7 +835,7 @@ impl App {
                  Hyprland seulement : une modification attend la prochaine session."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Permissions"),
         ]
@@ -851,7 +855,7 @@ impl App {
                      d'écran et vignettes demanderont une autorisation à chaque fois.",
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(warn),
             );
         }
@@ -888,7 +892,7 @@ impl App {
                         })
                         .on_submit(wrap(Msg::Commit))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     pick_list(
                         kinds.clone(),
@@ -924,7 +928,7 @@ impl App {
                     )
                     .font(self.font)
                     .width(140),
-                    button(text("×").font(self.font).size(14))
+                    button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
                         .padding([2, 10])
                         .style(button::text)
                         .on_press(wrap(Msg::Perm(i, None, true))),
@@ -946,7 +950,7 @@ impl App {
                         n = missing
                     ))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([4, 12])
                 .style(button::secondary)
@@ -960,7 +964,7 @@ impl App {
                  chargement de plugins pour hyprpm.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         if let Some(e) = self.left_in_hyprland("permission") {

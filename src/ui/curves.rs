@@ -205,7 +205,7 @@ impl App {
                  proposées pour chaque élément (onglet Animations)."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Vos courbes"),
         ]
@@ -215,7 +215,7 @@ impl App {
             col = col.push(
                 text("Aucune courbe à vous pour l'instant.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -227,7 +227,7 @@ impl App {
                     row![
                         text(crate::i18n::tr(label))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .width(110),
                         slider(min as f32..=max as f32, v as f32, move |x| wrap(
                             Msg::Param(n.clone(), i, ((x as f64) / step).round() * step)
@@ -237,7 +237,7 @@ impl App {
                         .width(200),
                         text(format!("{}", (v * 100.0).round() / 100.0))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
@@ -263,9 +263,9 @@ impl App {
                         row![
                             text(name.clone())
                                 .font(self.title_font())
-                                .size(14)
+                                .size(crate::ui::tokens::ts(14.0))
                                 .width(Length::Fill),
-                            button(text("×").font(self.font).size(14))
+                            button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
                                 .padding([2, 10])
                                 .style(button::text)
                                 .on_press_maybe(
@@ -274,7 +274,10 @@ impl App {
                         ]
                         .align_y(Alignment::Center),
                         sliders,
-                        text(note).font(self.font).size(11).color(dim),
+                        text(note)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(dim),
                     ]
                     .spacing(6)
                     .width(Length::Fill),
@@ -289,19 +292,19 @@ impl App {
                 text_input(crate::i18n::tr("nom de la courbe"), &draft)
                     .on_input(|s| wrap(Msg::NewName(s)))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(200),
                 button(
                     text(crate::i18n::tr("Nouvelle courbe de Bézier"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .on_press(wrap(Msg::Add(false))),
                 button(
                     text(crate::i18n::tr("Nouveau ressort"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .on_press(wrap(Msg::Add(true))),
@@ -314,7 +317,9 @@ impl App {
             col = col.push(
                 row![
                     self.plot(&c.def),
-                    text(crate::i18n::tr(c.label)).font(self.font).size(13),
+                    text(crate::i18n::tr(c.label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                     Space::new().width(Length::Fill),
                 ]
                 .spacing(14)

@@ -281,7 +281,7 @@ impl App {
                 if ok { yes } else { no }
             ))
             .font(self.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(if ok { fg } else { warn })
         };
         let st = p.assistant.status.clone().unwrap_or_default();
@@ -340,7 +340,7 @@ impl App {
                  personnalise, avec confirmation avant chaque commande."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             status,
             self.section("Fournisseur"),
@@ -364,7 +364,7 @@ impl App {
                 .spacing(8),
             )),
             row![
-                button(text("Ouvrir l'assistant").font(self.font).size(13))
+                button(text("Ouvrir l'assistant").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .on_press(wrap(Msg::Open)),
                 button(
@@ -374,7 +374,7 @@ impl App {
                         crate::i18n::tr("Voir le contexte transmis")
                     })
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 14])
                 .style(button::secondary)
@@ -386,7 +386,7 @@ impl App {
                 "Aussi : « hyprdesk open ai » (raccourci), et le bouton de l'assistant dans le lanceur."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -396,7 +396,7 @@ impl App {
                     scrollable(
                         text(assistant::context(&self.cfg, &self.config_path))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(fg),
                     )
                     .height(260),
@@ -487,14 +487,14 @@ impl App {
                  ou en anglais. Écoute et voix restent sur cette machine (Vosk, hors ligne).",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             text(
                 "Le micro n'écoute que si l'écoute se voit : module « LYRA vocale » (voix) dans la \
                  barre, ou bouton micro du Panorama. L'un comme l'autre l'active ou la coupe.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             toggler(c.voice)
                 .label(crate::i18n::tr("Écouter le mot « Lyra »"))
@@ -503,19 +503,25 @@ impl App {
             row![
                 text(crate::i18n::tr("Micro"))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(80),
                 pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
                     .text_size(13)
                     .width(Length::Fill),
-                button(text("Actualiser").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(UiMsg::Panorama(PMsg::MicsRefresh)),
-                button(text("Tester la voix").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press_maybe(
-                        crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))
-                    ),
+                button(
+                    text("Actualiser")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(UiMsg::Panorama(PMsg::MicsRefresh)),
+                button(
+                    text("Tester la voix")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press_maybe(crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -523,7 +529,7 @@ impl App {
                 "Halo de conversation (« Lyra » entendu, réflexion, réponse)"
             ))
             .font(self.font)
-            .size(13),
+            .size(crate::ui::tokens::ts(13.0)),
             halo,
             halo_color,
         ]

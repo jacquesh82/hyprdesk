@@ -179,13 +179,13 @@ impl App {
                 .width(Length::Fill),
             text(format!("{pct} %"))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(fg)
                 .width(48),
             button(
                 text(if n.muted { "Rétablir" } else { "Couper" })
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
             .on_press(wrap(Msg::Mute(id))),
@@ -200,7 +200,7 @@ impl App {
         if list.is_empty() {
             return text("Aucun appareil.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .into();
         }
@@ -209,7 +209,7 @@ impl App {
             col = col.push(
                 radio(n.name.clone(), n.id, current, |id| wrap(Msg::Default(id)))
                     .font(self.font)
-                    .size(16)
+                    .size(crate::ui::tokens::ts(16.0))
                     .text_size(13),
             );
         }
@@ -225,7 +225,7 @@ impl App {
         let Some(s) = self.sound_state().filter(|s| s.loaded) else {
             return text("Lecture des appareils…")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
@@ -233,12 +233,16 @@ impl App {
             row![
                 text("Réglages de PipeWire (wpctl).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
-                button(text("Actualiser").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::Refresh)),
+                button(
+                    text("Actualiser")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::Refresh)),
             ]
             .align_y(Alignment::Center),
             self.section("Sortie"),
@@ -252,14 +256,17 @@ impl App {
             col = col.push(
                 text("Aucune application ne joue de son.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
         for n in &s.streams {
             col = col.push(
                 column![
-                    text(n.name.clone()).font(self.font).size(13).color(fg),
+                    text(n.name.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     self.sound_node(n, fg)
                 ]
                 .spacing(4),

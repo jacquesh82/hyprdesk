@@ -151,12 +151,16 @@ impl App {
             row![
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(color(self.cfg.general.theme.accent, 1.0)),
-                button(text(crate::i18n::tr("Rétablir")).font(self.font).size(12))
-                    .padding([2, 8])
-                    .style(button::text)
-                    .on_press(reset),
+                button(
+                    text(crate::i18n::tr("Rétablir"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([2, 8])
+                .style(button::text)
+                .on_press(reset),
             ]
             .spacing(6)
             .align_y(Alignment::Center)
@@ -164,7 +168,7 @@ impl App {
         } else {
             text(crate::i18n::tr("hyprland.lua"))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color { a: 0.6, ..fg })
                 .into()
         }
@@ -183,7 +187,7 @@ impl App {
             button(
                 text(crate::i18n::tr("Comparer à l'écran"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
             .on_press(wrap(Msg::Compare("decoration.blur.variant"))),
@@ -192,7 +196,7 @@ impl App {
                  Gardez une fenêtre transparente devant un fond détaillé."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim)
             .width(Length::Fill),
         ]
@@ -210,7 +214,7 @@ impl App {
                  de flou animées sollicitent davantage la carte graphique."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(Color { a: 0.6, ..fg }),
         ]
         .spacing(14);
@@ -246,7 +250,7 @@ impl App {
                  petite, plus rapide."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -277,7 +281,7 @@ impl App {
                                 button(
                                     text(crate::i18n::tr("Personnaliser"))
                                         .font(self.font)
-                                        .size(12)
+                                        .size(crate::ui::tokens::ts(12.0))
                                 )
                                 .padding([4, 10])
                                 .on_press(wrap(Msg::Anim(name.into(), Some(Anim::new_for(l))))),
@@ -319,7 +323,7 @@ impl App {
                 line = line.push(
                     text(format!("{}", a.speed))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(30),
                 );
                 let sel = curves.iter().find(|c| c.value == a.curve).cloned();
@@ -379,7 +383,7 @@ impl App {
                  hd.config({ fx = { animations = { … } } }) dans hyprdesk.lua.",
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         col.into()

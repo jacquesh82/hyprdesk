@@ -27,6 +27,7 @@ const PACKS: &[(&str, &str)] = &[
 const ANCIENS: &[(&str, &str)] = &[
     ("ardoise", include_str!("packs/anciens/ardoise-1.0.0.toml")),
     ("verre", include_str!("packs/anciens/verre-1.0.0.toml")),
+    ("verre", include_str!("packs/anciens/verre-1.1.0.toml")),
     ("encre", include_str!("packs/anciens/encre-1.0.0.toml")),
     ("foret", include_str!("packs/anciens/foret-1.0.0.toml")),
     ("ambre", include_str!("packs/anciens/ambre-1.0.0.toml")),
@@ -114,7 +115,7 @@ mod tests {
             .iter()
             .find(|p| p.manifest.meta.id == "encre")
             .unwrap();
-        assert_eq!(encre.manifest.effects["bar"].opacity, 0.94);
+        assert_eq!(encre.manifest.effects["bar"].opacity, Some(0.94));
         assert_eq!(encre.manifest.effects["bar"].blur, Some(false));
         let ardoise = packs
             .iter()
@@ -147,6 +148,23 @@ mod tests {
             assert_eq!(déclarée, déduite, "{id}");
             for surface in ["bar", "menus", "launcher", "settings", "widgets"] {
                 assert!(m.effects.contains_key(surface), "{id} : {surface}");
+            }
+        }
+    }
+
+    #[test]
+    fn packs_livrés_au_contraste_sans_correction() {
+        // MLG-269 : aucun slot d'un pack livré ne manque sa cible.
+        for (id, text) in PACKS {
+            let (manifest, _) = Manifest::parse(id, text).unwrap();
+            let pack = super::super::packs::Pack {
+                origin: super::super::packs::Origin::Bundled,
+                dir: None,
+                manifest,
+            };
+            for v in ["dark", "light"] {
+                let r = super::super::resolve::resolve(std::slice::from_ref(&pack), v).unwrap();
+                assert!(r.warnings.is_empty(), "{id} {v} : {:?}", r.warnings);
             }
         }
     }

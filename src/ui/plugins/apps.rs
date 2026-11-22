@@ -89,7 +89,7 @@ impl App {
                  « hyprdesk open <rôle> » lance l'application, par exemple depuis un raccourci."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -156,19 +156,29 @@ impl App {
             .align_y(Alignment::Center);
             if current.is_some() {
                 controls = controls.push(
-                    button(text("Système").font(self.font).size(12))
-                        .padding([4, 8])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::UseSystem(r.id.to_string()))),
+                    button(
+                        text("Système")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 8])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::UseSystem(r.id.to_string()))),
                 );
             }
             col = col.push(
                 self.field(
                     r.label,
                     "",
-                    column![controls, text(status).font(self.font).size(12).color(dim)]
-                        .spacing(4)
-                        .width(Length::Fill),
+                    column![
+                        controls,
+                        text(status)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim)
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
                 ),
             );
         }

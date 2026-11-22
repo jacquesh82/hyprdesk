@@ -240,13 +240,17 @@ impl App {
         let accent = color(self.cfg.general.theme.accent, 1.0);
         let ambre = crate::ui::tone::warning();
         let Some(s) = self.panel.as_ref().map(|p| &p.index) else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let mut col = column![self.section("Recherche de fichiers (:f)")].spacing(10);
         col = col.push(
             text("Le lanceur indexe vos fichiers (nom, type, chemin, taille) pour répondre dès la première lettre : « :f » puis un mot. Un démon tourne en arrière-plan, tenu à jour par inotify et un rescan périodique.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
 
@@ -257,20 +261,24 @@ impl App {
                 col = col.push(
                     text("Démon d'index arrêté : il démarre avec hyprdesk (réglage ci-dessous) ou au premier « :f » dans le lanceur, ou maintenant :")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
                 col = col.push(
-                    button(text("Démarrer l'indexation").font(self.font).size(13))
-                        .padding([6, 14])
-                        .on_press(wrap(Msg::Demarrer)),
+                    button(
+                        text("Démarrer l'indexation")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::Demarrer)),
                 );
             }
             Some(st) if st.phase == "chargement" => {
                 col = col.push(
                     text("Chargement de l'index…")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                 );
             }
@@ -281,7 +289,7 @@ impl App {
                         n = st.progression
                     ))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
             }
@@ -290,7 +298,7 @@ impl App {
                     col = col.push(
                         text(crate::tr!("Index prêt : {n} fichiers", n = st.files))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                     );
                 }
@@ -298,7 +306,7 @@ impl App {
                     col = col.push(
                         text(format!("{racine} ({fs})"))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                     );
                 }
@@ -309,7 +317,7 @@ impl App {
                             n = st.volumes.len() - st.watched
                         ))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                     );
                 }
@@ -321,13 +329,17 @@ impl App {
                         taille = crate::fileindex::fmt_taille(st.snapshot_size)
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 );
                 col = col.push(
-                    button(text("Réindexer maintenant").font(self.font).size(13))
-                        .padding([6, 14])
-                        .on_press(wrap(Msg::Reindexer)),
+                    button(
+                        text("Réindexer maintenant")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::Reindexer)),
                 );
             }
         }
@@ -337,11 +349,18 @@ impl App {
         for (i, racine) in s.roots.iter().enumerate() {
             col = col.push(
                 row![
-                    text(racine.clone()).font(self.font).size(13).color(fg),
+                    text(racine.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     iced::widget::Space::new().width(iced::Length::Fill),
-                    button(text("Retirer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::RootRemove(i))),
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::RootRemove(i))),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -351,7 +370,7 @@ impl App {
             col = col.push(
                 text("Aucune racine : défaut = home et volumes montés (/media, /run/media/$USER).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -362,14 +381,18 @@ impl App {
                     &s.root_draft
                 )
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .padding(8)
                 .width(iced::Length::Fill)
                 .on_input(|v| wrap(Msg::RootDraft(v)))
                 .on_submit(wrap(Msg::RootAdd)),
-                button(text("Ajouter").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press_maybe((!s.root_draft.trim().is_empty()).then(|| wrap(Msg::RootAdd)),),
+                button(
+                    text("Ajouter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press_maybe((!s.root_draft.trim().is_empty()).then(|| wrap(Msg::RootAdd)),),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -377,7 +400,7 @@ impl App {
         col = col.push(
             text("Une racine = un volume : les montages ne sont pas traversés. Vide : défaut.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
 
@@ -391,7 +414,7 @@ impl App {
                 "index_exclude",
                 text_input("ex. musiques, dist", &s.exclude_text)
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8)
                     .width(iced::Length::Fill)
                     .on_input(|v| wrap(Msg::Exclude(v))),
@@ -400,17 +423,24 @@ impl App {
         fine = fine.push(
             text("En plus des défauts : .git, node_modules, target, .cache, __pycache__…")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         for (i, motif) in s.regexes.iter().enumerate() {
             fine = fine.push(
                 row![
-                    text(motif.clone()).font(self.font).size(13).color(fg),
+                    text(motif.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     iced::widget::Space::new().width(iced::Length::Fill),
-                    button(text("Retirer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::RegexRemove(i))),
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::RegexRemove(i))),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -423,16 +453,18 @@ impl App {
                     &s.regex_draft
                 )
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .padding(8)
                 .width(iced::Length::Fill)
                 .on_input(|v| wrap(Msg::RegexDraft(v)))
                 .on_submit(wrap(Msg::RegexAdd)),
-                button(text("Ajouter").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press_maybe(
-                        (!s.regex_draft.trim().is_empty()).then(|| wrap(Msg::RegexAdd)),
-                    ),
+                button(
+                    text("Ajouter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press_maybe((!s.regex_draft.trim().is_empty()).then(|| wrap(Msg::RegexAdd)),),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -440,7 +472,7 @@ impl App {
         fine = fine.push(
             text("Appliquée au chemin complet ; une regex invalide est refusée à l'ajout.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
 
@@ -449,7 +481,7 @@ impl App {
         fine = fine.push(
             text("Catégories exclues de l'indexation :")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         let mut cats = row![].spacing(6);
@@ -457,30 +489,33 @@ impl App {
             let nom = (*label).to_lowercase();
             let actif = s.cats_excl.iter().any(|c| c == &nom);
             cats = cats.push(
-                button(text(*label).font(self.font).size(12).color(fg))
-                    .padding([4, 10])
-                    .style(move |_, status| button::Style {
-                        background: (actif || matches!(status, button::Status::Hovered)).then(
-                            || {
-                                iced::Color {
-                                    a: if actif { 0.4 } else { 0.12 },
-                                    ..ambre
-                                }
-                                .into()
-                            },
-                        ),
-                        border: iced::Border::default().rounded(999),
-                        text_color: fg,
-                        ..Default::default()
-                    })
-                    .on_press(wrap(Msg::CatToggle(nom))),
+                button(
+                    text(*label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(fg),
+                )
+                .padding([4, 10])
+                .style(move |_, status| button::Style {
+                    background: (actif || matches!(status, button::Status::Hovered)).then(|| {
+                        iced::Color {
+                            a: if actif { 0.4 } else { 0.12 },
+                            ..ambre
+                        }
+                        .into()
+                    }),
+                    border: iced::Border::default().rounded(999),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(wrap(Msg::CatToggle(nom))),
             );
         }
         fine = fine.push(cats.wrap());
         fine = fine.push(
             text("Une catégorie exclue n'est pas indexée (ex. toutes les vidéos), quelle que soit son extension.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         fine = fine.push(
@@ -489,7 +524,7 @@ impl App {
                 "index_exclude_ext",
                 text_input("ex. iso, vdi, img", &s.ext_text)
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8)
                     .width(iced::Length::Fill)
                     .on_input(|v| wrap(Msg::ExtText(v))),
@@ -501,7 +536,7 @@ impl App {
                 "index_max_size",
                 text_input("Mio, vide : illimitée", &s.max_text)
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8)
                     .width(iced::Length::Fill)
                     .on_input(|v| wrap(Msg::MaxText(v))),
@@ -522,7 +557,7 @@ impl App {
                     ),
                     text("Désactivé : le démon démarre à la première recherche « :f ».")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 ]
                 .spacing(8),
@@ -538,7 +573,7 @@ impl App {
                 "index_interval",
                 text_input("secondes (défaut 21600)", &s.interval_text)
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8)
                     .width(iced::Length::Fill)
                     .on_input(|v| wrap(Msg::Interval(v))),
@@ -547,27 +582,41 @@ impl App {
         rescan = rescan.push(
             text("Réindexation complète à cet intervalle ; inotify couvre le reste.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col = col.push(self.adv(rescan));
 
         // — retour inline + Appliquer —
         if let Some(m) = &s.info {
-            col = col.push(text(m.clone()).font(self.font).size(12).color(accent));
+            col = col.push(
+                text(m.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(accent),
+            );
         }
         if let Some(e) = &s.erreur {
-            col = col.push(text(e.clone()).font(self.font).size(12).color(ambre));
+            col = col.push(
+                text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(ambre),
+            );
         }
         col = col.push(
-            button(text("Appliquer").font(self.font).size(13))
-                .padding([6, 14])
-                .on_press(wrap(Msg::Appliquer)),
+            button(
+                text("Appliquer")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .padding([6, 14])
+            .on_press(wrap(Msg::Appliquer)),
         );
         col = col.push(
             text("Appliqué au prochain démarrage du démon (premier « :f » ou bouton « Démarrer ») : il est arrêté au passage pour reprendre les réglages.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col.into()

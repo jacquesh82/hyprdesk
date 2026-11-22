@@ -831,7 +831,7 @@ impl App {
         if sp.busy {
             return container(
                 text(crate::i18n::tr("Fenêtre en route…"))
-                    .size(15)
+                    .size(crate::ui::tokens::ts(15.0))
                     .color(dim),
             )
             .center_x(Length::Fill)
@@ -886,7 +886,7 @@ impl App {
             .spacing(14)
             .align_x(Alignment::Center);
             if let Some(e) = &sp.error {
-                col = col.push(text(e.clone()).size(13).color(dim));
+                col = col.push(text(e.clone()).size(crate::ui::tokens::ts(13.0)).color(dim));
             }
             return container(col)
                 .center_x(Length::Fill)
@@ -1010,7 +1010,7 @@ impl App {
         let dim = fx::alpha(fg, 0.65);
         let heading = |s: &str| {
             text(crate::i18n::tr(s).to_string())
-                .size(15)
+                .size(crate::ui::tokens::ts(15.0))
                 .font(iced::Font {
                     weight: iced::font::Weight::Semibold,
                     ..self.panorama_font()
@@ -1058,7 +1058,7 @@ impl App {
                         column![
                             glyph,
                             text(crate::i18n::tr(label).to_string())
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(fg)
                                 .wrapping(text::Wrapping::None)
                         ]
@@ -1117,11 +1117,11 @@ impl App {
                             container(
                                 column![
                                     text(title)
-                                        .size(13)
+                                        .size(crate::ui::tokens::ts(13.0))
                                         .color(fg)
                                         .wrapping(text::Wrapping::None),
                                     text(format!("{} · {}", c.class, c.monitor))
-                                        .size(11)
+                                        .size(crate::ui::tokens::ts(11.0))
                                         .color(dim)
                                         .wrapping(text::Wrapping::None),
                                 ]
@@ -1162,14 +1162,14 @@ impl App {
         if !any {
             wins = wins.push(
                 text(crate::i18n::tr("Aucune fenêtre ouverte"))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
         let done = self.panorama_feedback(
             button(
                 text(crate::i18n::tr("Terminé").to_string())
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
             )
             .padding([8, 18])
@@ -1182,7 +1182,7 @@ impl App {
             .padding([8, 12]);
         let mut col = column![mods, heading("Ramener une fenêtre"), wins].spacing(10);
         if let Some(e) = &sp.error {
-            col = col.push(text(e.clone()).size(13).color(dim));
+            col = col.push(text(e.clone()).size(crate::ui::tokens::ts(13.0)).color(dim));
         }
         // Le tout défile au doigt, n'importe où dans la zone.
         column![

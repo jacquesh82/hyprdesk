@@ -135,6 +135,8 @@ pub struct Settings {
     pub icon_scope: Option<crate::config::IconScope>,
     pub workspace_selector: Option<crate::config::WsSelector>,
     pub icon_double_click: Option<bool>,
+    pub reduced_transparency: Option<bool>,
+    pub reduced_motion: Option<bool>,
     pub advanced_settings: Option<bool>,
     pub tour_seen: Option<bool>,
     pub app_themes: Option<std::collections::BTreeSet<String>>,
@@ -387,6 +389,8 @@ impl Settings {
             icon_scope: has("icon_scope").then_some(g.icon_scope),
             workspace_selector: has("workspace_selector").then_some(g.workspace_selector),
             icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
+            reduced_transparency: has("reduced_transparency").then_some(g.reduced_transparency),
+            reduced_motion: has("reduced_motion").then_some(g.reduced_motion),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
             tour_seen: has("tour_seen").then_some(g.tour_seen),
             app_themes: has("app_themes").then(|| g.app_themes.clone()),
@@ -705,6 +709,12 @@ impl Settings {
             g.workspace_selector
         );
         set!(icon_double_click, "icon_double_click", g.icon_double_click);
+        set!(
+            reduced_transparency,
+            "reduced_transparency",
+            g.reduced_transparency
+        );
+        set!(reduced_motion, "reduced_motion", g.reduced_motion);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
         set!(tour_seen, "tour_seen", g.tour_seen);
         set!(app_themes, "app_themes", g.app_themes);
@@ -1216,6 +1226,12 @@ impl Settings {
         }
         if let Some(v) = self.icon_double_click {
             cfg.push(format!("icon_double_click = {v}"));
+        }
+        if let Some(v) = self.reduced_transparency {
+            cfg.push(format!("reduced_transparency = {v}"));
+        }
+        if let Some(v) = self.reduced_motion {
+            cfg.push(format!("reduced_motion = {v}"));
         }
         if let Some(v) = self.close_on_launch {
             cfg.push(format!("close_on_launch = {v}"));

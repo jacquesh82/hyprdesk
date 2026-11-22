@@ -155,12 +155,16 @@ impl App {
         }
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let Some(cur) = s.cur.clone() else {
             return text("Hyprland ne répond pas.")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
@@ -177,7 +181,7 @@ impl App {
                          profil d'accélération ci-dessous n'a pas d'effet.",
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
                 );
             }
@@ -197,7 +201,7 @@ impl App {
                         .width(260),
                         text(format!("{:+.2}", cur.sensitivity))
                             .font(self.font)
-                            .size(13),
+                            .size(crate::ui::tokens::ts(13.0)),
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),
@@ -274,7 +278,7 @@ impl App {
                 col = col.push(
                     text("Aucun pavé tactile détecté : ces réglages s'appliqueront quand il y en aura un.")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -320,7 +324,7 @@ impl App {
                         .width(260),
                         text(format!("× {:.1}", cur.tp_scroll_factor))
                             .font(self.font)
-                            .size(13),
+                            .size(crate::ui::tokens::ts(13.0)),
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),
@@ -415,7 +419,7 @@ impl App {
                         .width(260),
                         text(format!("{} ms", cur.repeat_delay))
                             .font(self.font)
-                            .size(13),
+                            .size(crate::ui::tokens::ts(13.0)),
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),
@@ -437,7 +441,7 @@ impl App {
                         .width(260),
                         text(crate::tr!("{n} / s", n = cur.repeat_rate))
                             .font(self.font)
-                            .size(13),
+                            .size(crate::ui::tokens::ts(13.0)),
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),
@@ -459,14 +463,14 @@ impl App {
         col = col.push(
             text("Appliqué aussitôt, et enregistré dans inputs.lua (tenu par hyprdesk).")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         if let Some(e) = &s.error {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }

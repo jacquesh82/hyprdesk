@@ -5,6 +5,7 @@
 //! modification de config. Les curseurs prévisualisent pendant le glissé et
 //! n'enregistrent qu'au relâchement.
 
+use crate::ui::tokens::Shown as _;
 use std::sync::Arc;
 
 use crate::i18n::text;
@@ -337,7 +338,11 @@ impl App {
                     .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
                     .into()
             })
-            .unwrap_or_else(|| iced::widget::text("IA").size(12).into());
+            .unwrap_or_else(|| {
+                iced::widget::text("IA")
+                    .size(crate::ui::tokens::ts(12.0))
+                    .into()
+            });
         iced::widget::tooltip(
             iced::widget::button(glyph)
                 .padding([4, 8])
@@ -511,10 +516,14 @@ impl App {
             return Space::new().into();
         }
         tooltip(
-            button(text("Par défaut…").font(self.font).size(12))
-                .padding([3, 10])
-                .style(button::text)
-                .on_press(Msg::Panel(PanelMsg::Defaults(p.tab))),
+            button(
+                text("Par défaut…")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([3, 10])
+            .style(button::text)
+            .on_press(Msg::Panel(PanelMsg::Defaults(p.tab))),
             text("Remettre cette page à sa configuration par défaut").font(self.font),
             iced::widget::tooltip::Position::Left,
         )
@@ -541,14 +550,14 @@ impl App {
                         w = what.join(", ")
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(Color { a: 0.8, ..fg }),
                     row![
-                        button(text("Confirmer").font(self.font).size(12))
+                        button(text("Confirmer").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 12])
                             .style(button::danger)
                             .on_press(Msg::Panel(PanelMsg::Defaults(tab))),
-                        button(text("Annuler").font(self.font).size(12))
+                        button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 12])
                             .style(button::secondary)
                             .on_press(Msg::Panel(PanelMsg::DefaultsCancel)),
@@ -565,7 +574,13 @@ impl App {
                     Ok(m) => (m.clone(), Color { a: 0.75, ..fg }),
                     Err(e) => (e.clone(), crate::ui::tone::warning()),
                 };
-                Some(text(msg).font(self.font).size(12).color(c).into())
+                Some(
+                    text(msg)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(c)
+                        .into(),
+                )
             }
             _ => None,
         }
@@ -625,7 +640,7 @@ impl App {
             let mut content = row![
                 text(label)
                     .font(if active { self.title_font() } else { self.font })
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(if active { fg } else { self.ink().dim })
             ]
             .spacing(6)
@@ -714,7 +729,7 @@ impl App {
                 content = content.push(
                     text(label)
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .font(self.ui_font(iced::font::Weight::Medium))
                         .width(Length::Fill),
                 );
@@ -729,7 +744,9 @@ impl App {
                         content = content.push(
                             row![
                                 plugins::adv_icon(13.0),
-                                text(n.to_string()).size(11).color(plugins::ADV_COLOR)
+                                text(n.to_string())
+                                    .size(crate::ui::tokens::ts(11.0))
+                                    .color(plugins::ADV_COLOR)
                             ]
                             .spacing(3)
                             .align_y(Alignment::Center),
@@ -741,7 +758,7 @@ impl App {
                         container(
                             iced::widget::text(n.to_string())
                                 .font(self.title_font())
-                                .size(11)
+                                .size(crate::ui::tokens::ts(11.0))
                                 .color(ink.fg),
                         )
                         .padding([1, 7])
@@ -793,7 +810,7 @@ impl App {
                     container(
                         text(crate::i18n::tr(g.label).to_uppercase())
                             .font(self.title_font())
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                     )
                     .padding(iced::Padding {
@@ -816,7 +833,7 @@ impl App {
                         let mut tab_label = row![
                             text(crate::i18n::tr(l))
                                 .font(if active { self.title_font() } else { self.font })
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .width(Length::Fill)
                         ]
                         .align_y(Alignment::Center);
@@ -885,7 +902,7 @@ impl App {
                     None => Msg::Noop,
                 })
                 .padding([6, 10])
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .font(self.font)
                 .width(if one_line {
                     Length::Fixed(230.0)
@@ -895,15 +912,19 @@ impl App {
             button(
                 text(crate::i18n::tr("Visite guidée"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
             .style(button::text)
             .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start))),
-            button(text(crate::i18n::tr("Assistant")).font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::text)
-                .on_press(Msg::Control(crate::control::Command::Wizard)),
+            button(
+                text(crate::i18n::tr("Assistant"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding([4, 10])
+            .style(button::text)
+            .on_press(Msg::Control(crate::control::Command::Wizard)),
             toggler(adv)
                 .label(crate::i18n::tr("Configuration avancée"))
                 .text_size(12)
@@ -915,17 +936,17 @@ impl App {
         let titles = column![
             text("HYPRDESK")
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(self.ink().dim)
                 .font(self.title_font()),
             text("Réglages")
                 .font(self.font)
-                .size(27)
+                .size(crate::ui::tokens::ts(27.0))
                 .font(self.title_font())
                 .color(fg),
             text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color { a: 0.65, ..fg }),
         ]
         .spacing(5)
@@ -969,7 +990,7 @@ impl App {
                 }),
                 text("Modifications enregistrées automatiquement")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(Color { a: 0.6, ..fg }),
                 Space::new().width(Length::Fill),
                 self.defaults_button(p),
@@ -1006,11 +1027,18 @@ impl App {
                 self.cfg
                     .general
                     .theme
-                    .effect(crate::config::Place::Settings)
+                    .shown(crate::config::Place::Settings)
                     .opacity
             };
             move |theme| super::design::panel_surface(theme, opacity)
         });
+        // Verre du thème (MLG-268), au rayon du tiroir.
+        let card = super::glass::over(
+            card,
+            crate::config::Place::Settings,
+            24.0,
+            color(self.cfg.general.theme.fg, 1.0),
+        );
         let progress = self
             .panel_fade
             .map(|f| f.value(std::time::Instant::now()))
@@ -1046,7 +1074,7 @@ impl App {
             head = head.push(
                 text("surchargé dans hyprdesk.lua — sans effet ici")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }
@@ -1099,7 +1127,7 @@ impl App {
         if hits.is_empty() {
             return iced::widget::text(s.to_string())
                 .font(font)
-                .size(size)
+                .size(crate::ui::tokens::ts(size as f32))
                 .color(c)
                 .into();
         }
@@ -1112,14 +1140,14 @@ impl App {
                 spans.push(
                     iced::widget::span(s[at..a].to_string())
                         .font(font)
-                        .size(size)
+                        .size(crate::ui::tokens::ts(size as f32))
                         .color(c),
                 );
             }
             spans.push(
                 iced::widget::span(s[a..b].to_string())
                     .font(self.title_font())
-                    .size(size)
+                    .size(crate::ui::tokens::ts(size as f32))
                     .color(fg)
                     .background(Color { a: 0.45, ..accent })
                     .border(Border::default().rounded(4))
@@ -1131,7 +1159,7 @@ impl App {
             spans.push(
                 iced::widget::span(s[at..].to_string())
                     .font(font)
-                    .size(size)
+                    .size(crate::ui::tokens::ts(size as f32))
                     .color(c),
             );
         }
@@ -1150,17 +1178,25 @@ impl App {
                     n = here
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(ink.fg)
                 .width(Length::Fill),
-                button(text("Résultats").font(self.font).size(12))
-                    .padding([3, 10])
-                    .style(button::secondary)
-                    .on_press(Msg::Panel(PanelMsg::SearchBack)),
-                button(text("Effacer").font(self.font).size(12))
-                    .padding([3, 10])
-                    .style(button::text)
-                    .on_press(Msg::Panel(PanelMsg::SearchClear)),
+                button(
+                    text("Résultats")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([3, 10])
+                .style(button::secondary)
+                .on_press(Msg::Panel(PanelMsg::SearchBack)),
+                button(
+                    text("Effacer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([3, 10])
+                .style(button::text)
+                .on_press(Msg::Panel(PanelMsg::SearchClear)),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -1191,7 +1227,7 @@ impl App {
                 q = query
             ))
             .font(self.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(ink.dim)
             .into();
         }
@@ -1202,7 +1238,7 @@ impl App {
                 q = query
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(ink.dim)
         ]
         .spacing(4);
@@ -1261,7 +1297,7 @@ impl App {
                             self.marked(crate::i18n::tr(&e.text), 14, fg, self.font),
                             iced::widget::text(place)
                                 .font(self.font)
-                                .size(11)
+                                .size(crate::ui::tokens::ts(11.0))
                                 .color(ink.dim),
                         ]
                         .spacing(2),
@@ -1284,7 +1320,7 @@ impl App {
             let mut lines = column![
                 iced::widget::text(place)
                     .font(self.title_font())
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(ink.dim)
             ]
             .spacing(3);
@@ -1325,7 +1361,7 @@ impl App {
                 lines = lines.push(
                     iced::widget::text(crate::tr!("… {n} de plus dans ce bloc", n = total - 12))
                         .font(self.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(ink.dim),
                 );
             }
@@ -1344,7 +1380,7 @@ impl App {
                     n = found.len() - 120
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(ink.dim),
             );
         }

@@ -10,6 +10,29 @@ and this project adheres to
 
 ### Added
 
+- **Theme design tokens** (MLG-267 to 273). A theme pack now covers the whole
+  look of the desktop, not just colours and opacities:
+  - glass: `[glass]` tint, highlight (optionally following the pointer),
+    edge refraction, rim and shadow, drawn by hyprdesk over the bar, menus,
+    Settings, launcher and widget cards; reusable `light`, `tinted`, `dense`
+    presets (and the pack's own) per surface; Hyprland blur size and passes.
+    The bundled Verre pack uses them;
+  - palette: `action` and `selection` slots, distinct from the accent;
+  - contrast: text and UI-marker targets (4.5:1, 3:1) enforced on the pack's
+    slots, minimum density of readable surfaces, reduced transparency;
+  - typography: sizes per role (every hyprdesk text follows its role),
+    weights, line height, tabular figures for clocks and monitoring, pack font
+    family;
+  - interaction states: hover, pressed, selected, keyboard focus ring,
+    disabled — launcher results and tiles;
+  - motion: reference duration, easing of all fades, scale and offset of bar
+    menus, reduced motion;
+  - per-screen overrides: `[screens."DP-1"]` or `[screens."2570x720"]`
+    surface effects and text scale.
+  Templates read them (`fonts.*`, `motion.*`, `states.*`, `contrast.*`,
+  `effects.<surface>.refraction`…), `palette.json` publishes them, and
+  Settings → Theme gains Accessibility (reduced transparency, reduced motion;
+  `theme.reduced_transparency`, `theme.reduced_motion`).
 - **Window borders follow the theme pack in a hyprdesk session** (MLG-264).
   With theme-coloured borders on (Settings → Windows), a pack with its own
   Hyprland template (Nacre…) now gives `appearance.lua` its border, group and
@@ -38,6 +61,13 @@ and this project adheres to
   Animations → Effects has a **Compare on screen** button.
 
 ### Fixed
+
+- **Theme engine** (MLG-266): a pack's `[wallpaper]` was documented but
+  silently ignored — it is now applied (per variant too) when the pack or its
+  variant changes; `[fonts]`, `[icons]`, `[cursors]`, `[sounds]` took the
+  farthest ancestor's instead of the closest, and `[fonts]` now merges field
+  by field; an effect giving only `blur` (in a variant) reset the opacity to 1;
+  the iced theme's success and warning colours were fixed, dark-theme colours.
 
 - **`hyprdesk-theme-engine use --mode dry-run` no longer applies the theme**
   (MLG-258): it wrote the active theme before the dry run, and the daemon's

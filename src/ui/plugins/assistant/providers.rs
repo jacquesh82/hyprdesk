@@ -306,7 +306,11 @@ impl App {
         let dim = self.ink().dim;
         let warn = crate::ui::tone::warning();
         let small = |t: String, c: Color| -> Element<'a, UiMsg> {
-            text(t).font(self.font).size(12).color(c).into()
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+                .into()
         };
         let card = move |e: Element<'a, UiMsg>| -> Element<'a, UiMsg> {
             container(e)
@@ -328,7 +332,7 @@ impl App {
         let mut list = column![card(
             row![
                 column![
-                    text("LYRA").font(self.title_font()).size(14).color(fg),
+                    text("LYRA").font(self.title_font()).size(crate::ui::tokens::ts(14.0)).color(fg),
                     small(
                         crate::tr!(
                             "Intégrée · abonnement de l'assistant : {sub}",
@@ -396,16 +400,23 @@ impl App {
             let editing = s.draft.as_ref().filter(|d| !d.new && d.id == svc.id);
             let head = row![
                 column![
-                    text(svc.label()).font(self.title_font()).size(14).color(fg),
+                    text(svc.label())
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(fg),
                     small(detail, dim),
                     key,
                 ]
                 .spacing(2)
                 .width(Length::Fill),
-                button(text("Modifier").font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press_maybe(editing.is_none().then(|| wrap(Msg::AiEdit(svc.id.clone())))),
+                button(
+                    text("Modifier")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press_maybe(editing.is_none().then(|| wrap(Msg::AiEdit(svc.id.clone())))),
                 self.delete_button(
                     s.delete_armed.as_deref() == Some(svc.id.as_str()),
                     wrap(Msg::AiDelete(svc.id.clone())),
@@ -429,7 +440,7 @@ impl App {
                         kind = crate::i18n::tr(d.kind.label()).to_string()
                     ))
                     .font(self.title_font())
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
                     self.draft_form(d, None),
                 ]
@@ -438,15 +449,24 @@ impl App {
             ));
         }
         let add = ADDABLE.iter().fold(
-            row![text("Ajouter :").font(self.font).size(13).color(dim)]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            row![
+                text("Ajouter :")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim)
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
             |r, (kind, label)| {
                 r.push(
-                    button(text(format!("+ {label}")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press_maybe(s.draft.is_none().then(|| wrap(Msg::AiAdd(*kind)))),
+                    button(
+                        text(format!("+ {label}"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press_maybe(s.draft.is_none().then(|| wrap(Msg::AiAdd(*kind)))),
                 )
             },
         );
@@ -458,7 +478,7 @@ impl App {
                  trousseau de la session, jamais dans settings.lua ni dans un export des réglages."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             list,
             add,
@@ -504,12 +524,16 @@ impl App {
                 row![
                     text(format!("✓ {}", crate::i18n::tr("Clé dans le trousseau")))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg),
-                    button(text("Effacer la clé").font(self.font).size(12))
-                        .padding([3, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::AiKeyClear(d.id.clone()))),
+                    button(
+                        text("Effacer la clé")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([3, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::AiKeyClear(d.id.clone()))),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -521,7 +545,7 @@ impl App {
                     v = v.to_string()
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -549,21 +573,34 @@ impl App {
         ]
         .spacing(10);
         if let Some(e) = &d.error {
-            col = col.push(text(e).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(e)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         col.push(
             row![
-                button(text("Enregistrer").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::AiSave)),
-                button(text("Annuler").font(self.font).size(13))
-                    .padding([6, 14])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::AiCancel)),
+                button(
+                    text("Enregistrer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::AiSave)),
+                button(
+                    text("Annuler")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .style(button::secondary)
+                .on_press(wrap(Msg::AiCancel)),
                 Space::new().width(Length::Fill),
                 text(format!("id : {}", d.id))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             ]
             .spacing(10)
@@ -589,7 +626,7 @@ impl App {
             self.section("Utilisation"),
             text("Le fournisseur de chaque fonction ; LYRA par défaut.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(12);
@@ -602,11 +639,11 @@ impl App {
                     column![
                         text(crate::i18n::tr(c.label))
                             .font(self.font)
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .color(fg),
                         text(crate::i18n::tr(c.summary))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                     ]
                     .spacing(2)

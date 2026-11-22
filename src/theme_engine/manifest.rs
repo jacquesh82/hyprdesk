@@ -27,6 +27,11 @@ const KNOWN_TOP: &[&str] = &[
     "sounds",
     "wallpaper",
     "targets",
+    "glass",
+    "contrast",
+    "states",
+    "motion",
+    "screens",
 ];
 
 /// Cartouche du pack.
@@ -85,6 +90,25 @@ pub struct Manifest {
     /// Thème de sons (cible `sounds`, phase 2).
     #[serde(default)]
     pub sounds: Option<Named>,
+    /// Fond d'écran du pack (MLG-266), surchargeable par variante.
+    #[serde(default)]
+    pub wallpaper: Option<WallpaperSpec>,
+    /// Verre commun et préréglages réutilisables (MLG-268).
+    #[serde(default)]
+    pub glass: Option<GlassSpec>,
+    /// Cibles de contraste et transparence réduite (MLG-269).
+    #[serde(default)]
+    pub contrast: Option<ContrastSpec>,
+    /// États interactifs (MLG-273).
+    #[serde(default)]
+    pub states: Option<StatesSpec>,
+    /// Mouvement des surfaces (MLG-271).
+    #[serde(default)]
+    pub motion: Option<MotionSpec>,
+    /// Surcharges par écran : nom de sortie (`DP-1`) ou définition
+    /// (`2570x720`) → effets et échelle du texte (MLG-272).
+    #[serde(default)]
+    pub screens: BTreeMap<String, ScreenSpec>,
 }
 
 /// `[inherits] themes = [...]`.
@@ -101,31 +125,141 @@ pub struct VariantSpec {
     pub palette: BTreeMap<String, String>,
     pub effects: BTreeMap<String, EffectSpec>,
     pub hyprland_options: BTreeMap<String, String>,
+    /// Fond propre à la variante (un fond clair pour `light`).
+    pub wallpaper: Option<WallpaperSpec>,
 }
 
-/// Effet d'une surface : opacité du fond (0..1) et flou derrière (absent :
-/// la valeur en place du moteur est conservée).
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+/// Effet d'une surface : opacité du fond (0..1), flou derrière, et verre
+/// (préréglage, teinte, reflet, réfraction, filet, ombre). Tout champ
+/// absent est hérité (préréglage, parent, défaut du moteur) — une variante
+/// qui ne donne que `blur` garde l'opacité du pack (MLG-266).
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct EffectSpec {
-    pub opacity: f64,
+    pub opacity: Option<f64>,
     pub blur: Option<bool>,
     /// Transparence adaptative (MLG-261) : le verre se densifie selon le
     /// fond d'écran, jusqu'à `opacity_max` (absent : hérité).
     pub adaptive: Option<bool>,
     /// Plafond de la transparence adaptative (défaut 1, opaque).
     pub opacity_max: Option<f64>,
+    /// Préréglage de verre : `light`, `tinted`, `dense` ou un préréglage
+    /// déclaré dans `[glass.presets]` (MLG-268).
+    pub preset: Option<String>,
+    #[serde(flatten)]
+    pub glass: GlassLook,
 }
 
-impl Default for EffectSpec {
-    fn default() -> Self {
-        Self {
-            opacity: 1.0,
-            blur: None,
-            adaptive: None,
-            opacity_max: None,
-        }
-    }
+/// Aspect du verre, hors opacité : chaque champ absent est hérité.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct GlassLook {
+    /// Teinte mêlée au fond du verre : slot de la palette ou couleur.
+    pub tint: Option<String>,
+    /// Part de la teinte (0..1).
+    pub tint_strength: Option<f64>,
+    /// Force de la réfraction au bord (0..1).
+    pub refraction: Option<f64>,
+    /// Largeur de la bande de réfraction, en pixels logiques.
+    pub refraction_width: Option<f64>,
+    /// Intensité du reflet (0..1).
+    pub highlight: Option<f64>,
+    /// Le reflet suit le pointeur sur la surface.
+    pub pointer_response: Option<bool>,
+    /// Opacité du filet (0..1, couleur du texte).
+    pub border: Option<f64>,
+    /// Opacité de l'ombre portée (0..1).
+    pub shadow: Option<f64>,
+}
+
+/// `[glass]` : verre commun à toutes les surfaces, flou de Hyprland et
+/// préréglages réutilisables.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct GlassSpec {
+    #[serde(flatten)]
+    pub look: GlassLook,
+    /// Rayon du flou (`decoration:blur:size`).
+    pub blur_size: Option<u32>,
+    /// Passes du flou (`decoration:blur:passes`).
+    pub blur_passes: Option<u32>,
+    /// Préréglages : nom → effet (opacité, flou, aspect).
+    pub presets: BTreeMap<String, EffectSpec>,
+}
+
+/// `[contrast]`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ContrastSpec {
+    /// Contraste cible du texte (défaut 4,5).
+    pub text: Option<f64>,
+    /// Contraste cible des repères visuels essentiels (défaut 3).
+    pub ui: Option<f64>,
+    /// Densité minimale des surfaces lisibles (menus, lanceur, Réglages).
+    pub min_opacity: Option<f64>,
+    /// Corrige les slots qui manquent leur cible (défaut : oui).
+    pub enforce: Option<bool>,
+    /// Transparence réduite : fonds presque opaques, sans reflet ni
+    /// réfraction.
+    pub reduced_transparency: Option<bool>,
+}
+
+/// `[states]` : voiles des états interactifs (part du texte mêlée au fond).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct StatesSpec {
+    pub hover: Option<f64>,
+    pub pressed: Option<f64>,
+    pub selected: Option<f64>,
+    /// Épaisseur de l'anneau de focus clavier (px, couleur `accent`).
+    pub focus_width: Option<f64>,
+    /// Opacité d'une commande désactivée.
+    pub disabled: Option<f64>,
+}
+
+/// `[motion]`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct MotionSpec {
+    /// Durée de référence (ms).
+    pub duration: Option<u32>,
+    /// Courbe : `linear`, `ease`, `ease-in`, `ease-out`, `ease-out-cubic`, `ease-in-out`,
+    /// `spring` ou `cubic-bezier(x1, y1, x2, y2)`.
+    pub easing: Option<String>,
+    /// Échelle de départ d'une surface qui s'ouvre (ex. 0,96).
+    pub scale: Option<f64>,
+    /// Déplacement de départ (px).
+    pub offset: Option<f64>,
+    /// Intensité du reflet au survol (0..1).
+    pub hover_highlight: Option<f64>,
+    /// Mouvement réduit : ouvertures en fondu court, sans échelle ni
+    /// déplacement.
+    pub reduced: Option<bool>,
+}
+
+/// `[screens."<sortie ou définition>"]`.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ScreenSpec {
+    pub effects: BTreeMap<String, EffectSpec>,
+    /// Échelle du texte sur cet écran (1 = celle du thème).
+    pub text_scale: Option<f64>,
+}
+
+/// `[wallpaper]` : fond du pack, chemin relatif au dossier du pack.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct WallpaperSpec {
+    /// Image, ou dossier pour un diaporama.
+    pub image: Option<String>,
+    /// Dossier d'images (synonyme historique de `image` en diaporama).
+    pub dir: Option<String>,
+    /// `static` (défaut) ou `slideshow`.
+    pub mode: Option<String>,
+    /// Intervalle du diaporama, en secondes (défaut 1800).
+    pub interval: Option<u64>,
+    /// Ordre aléatoire du diaporama.
+    pub shuffle: Option<bool>,
 }
 
 /// `[hyprland] options = { ... }` : chemins hyprlang → valeurs.
@@ -142,6 +276,50 @@ pub struct Fonts {
     pub family: Option<String>,
     pub mono_family: Option<String>,
     pub size: Option<f64>,
+    /// Tailles par rôle (MLG-270) : `caption`, `body`, `title`, `display`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub sizes: BTreeMap<String, f64>,
+    /// Graisse du texte courant (100..900 ou `normal`, `medium`, `bold`…).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<WeightSpec>,
+    /// Graisse des titres.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_weight: Option<WeightSpec>,
+    /// Interligne (multiple de la taille, ex. 1,3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_height: Option<f64>,
+    /// Chiffres tabulaires (horloges, monitoring).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tabular_numbers: Option<bool>,
+}
+
+/// Graisse : nombre (100..900) ou nom (`thin` … `black`).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum WeightSpec {
+    Num(u16),
+    Name(String),
+}
+
+impl WeightSpec {
+    /// Graisse numérique, `None` pour un nom inconnu.
+    pub fn value(&self) -> Option<u16> {
+        match self {
+            WeightSpec::Num(n) => Some((*n).clamp(100, 900) / 100 * 100),
+            WeightSpec::Name(n) => Some(match n.trim().to_ascii_lowercase().as_str() {
+                "thin" => 100,
+                "extralight" | "extra-light" => 200,
+                "light" => 300,
+                "normal" | "regular" => 400,
+                "medium" => 500,
+                "semibold" | "semi-bold" => 600,
+                "bold" => 700,
+                "extrabold" | "extra-bold" => 800,
+                "black" => 900,
+                _ => return None,
+            }),
+        }
+    }
 }
 
 /// Cible déclarée par le pack (§4) : surcharge ou cible générique.
@@ -366,6 +544,67 @@ impl Manifest {
                 ));
             }
         }
+        let bad = |msg: String| Err(Error::Manifest(id.to_string(), msg));
+        // Fonds : chemins relatifs au pack, sans remontée ni chemin absolu.
+        for w in self
+            .wallpaper
+            .iter()
+            .chain(self.variant.values().filter_map(|v| v.wallpaper.as_ref()))
+        {
+            for path in w.image.iter().chain(w.dir.iter()) {
+                if !pack_relative(path) {
+                    return bad(format!(
+                        "fond d'écran hors du pack : {path} (chemin relatif au pack attendu)"
+                    ));
+                }
+            }
+            if let Some(m) = &w.mode
+                && !matches!(m.as_str(), "static" | "slideshow")
+            {
+                return bad(format!("mode de fond inconnu : {m} (static ou slideshow)"));
+            }
+        }
+        if let Some(f) = &self.fonts {
+            for w in f.weight.iter().chain(f.title_weight.iter()) {
+                if w.value().is_none() {
+                    return bad(format!("graisse inconnue : {w:?}"));
+                }
+            }
+            for role in f.sizes.keys() {
+                if !FONT_ROLES.contains(&role.as_str()) {
+                    return bad(format!(
+                        "rôle de texte inconnu : {role} ({})",
+                        FONT_ROLES.join(", ")
+                    ));
+                }
+            }
+        }
+        if let Some(m) = &self.motion
+            && let Some(e) = &m.easing
+            && super::design::Easing::parse(e).is_none()
+        {
+            return bad(format!("courbe de mouvement inconnue : {e}"));
+        }
+        // Teintes du verre : slot ou couleur.
+        let effects = self
+            .effects
+            .values()
+            .chain(self.variant.values().flat_map(|v| v.effects.values()))
+            .chain(self.screens.values().flat_map(|s| s.effects.values()))
+            .chain(self.glass.iter().flat_map(|g| g.presets.values()));
+        let looks = effects
+            .map(|e| &e.glass)
+            .chain(self.glass.iter().map(|g| &g.look));
+        for look in looks {
+            if let Some(t) = &look.tint
+                && crate::theme_engine::color::parse(t).is_none()
+                && !super::design::slot_name(t)
+            {
+                return bad(format!(
+                    "teinte du verre : « {t} » (slot ou couleur attendu)"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -383,6 +622,21 @@ impl Manifest {
             },
         }
     }
+}
+
+/// Rôles de texte de `[fonts.sizes]`.
+pub const FONT_ROLES: [&str; 4] = ["caption", "body", "title", "display"];
+
+/// Chemin relatif au dossier du pack, sans remontée.
+pub fn pack_relative(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    !path.trim().is_empty()
+        && p.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
 }
 
 /// Identifiant de pack : 2 à 32 caractères `[a-z0-9-]`.

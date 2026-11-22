@@ -180,14 +180,16 @@ impl Picker {
         // Luminosité, sur un dégradé du noir à la teinte choisie.
         let bright = hsv_to_rgb(self.h, self.s, 1.0);
         let lum = row![
-            text(crate::i18n::tr("Luminosité")).font(font).size(12),
+            text(crate::i18n::tr("Luminosité"))
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0)),
             slider(0..=100u32, (self.v * 100.0).round() as u32, move |v| {
                 w5(PickerMsg::Value(v as f32 / 100.0))
             })
             .width(Length::Fill),
             text(format!("{} %", (self.v * 100.0).round() as i32))
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .width(40),
         ]
         .spacing(10)
@@ -216,7 +218,7 @@ impl Picker {
                 }),
                 text(crate::i18n::tr(label))
                     .font(font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(Color { a: 0.6, ..fg }),
             ]
             .spacing(3)
@@ -227,19 +229,27 @@ impl Picker {
             row![swatch(self.initial, "avant"), swatch(current, "après")].spacing(8),
             text_input("#rrggbb", &self.hex)
                 .font(font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .on_input(move |v| wh(PickerMsg::Hex(v)))
                 .on_submit(ws(PickerMsg::HexSubmit))
                 .padding(6)
                 .width(120),
             row![
-                button(text(crate::i18n::tr("Appliquer")).font(font).size(12))
-                    .padding([4, 10])
-                    .on_press(apply),
-                button(text(crate::i18n::tr("Annuler")).font(font).size(12))
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(cancel),
+                button(
+                    text(crate::i18n::tr("Appliquer"))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(apply),
+                button(
+                    text(crate::i18n::tr("Annuler"))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(cancel),
             ]
             .spacing(6),
         ]
@@ -251,7 +261,7 @@ impl Picker {
                     "Cliquer ou glisser : teinte (horizontal), saturation (vertical)",
                 ))
                 .font(font)
-                .size(11),
+                .size(crate::ui::tokens::ts(11.0)),
             )
             .padding([4, 8])
             .style(container::rounded_box),

@@ -35,6 +35,10 @@ pub struct PaletteDoc {
     /// Typographie déclarée, si le pack en porte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fonts: Option<super::manifest::Fonts>,
+    /// Verre, contraste, typographie, états, mouvement, écrans (MLG-267 à
+    /// 273).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<super::design::Design>,
     pub updated: String,
 }
 
@@ -92,7 +96,12 @@ pub fn publish_palette(roots: &Roots, resolved: &Resolved) -> Result<u64> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok());
     let changed = match &old {
-        Some(o) => o.colors != colors || o.effects != effects || o.fonts != resolved.fonts,
+        Some(o) => {
+            o.colors != colors
+                || o.effects != effects
+                || o.fonts != resolved.fonts
+                || o.design.as_ref() != Some(&resolved.design)
+        }
         None => true,
     };
     // Rien de neuf (couleurs, effets, polices, pack, variante) : le fichier
@@ -118,6 +127,7 @@ pub fn publish_palette(roots: &Roots, resolved: &Resolved) -> Result<u64> {
         colors,
         effects,
         fonts: resolved.fonts.clone(),
+        design: Some(resolved.design.clone()),
         updated: chrono::Utc::now().to_rfc3339(),
     };
     atomic_write(&path, &serde_json::to_string_pretty(&doc)?)?;

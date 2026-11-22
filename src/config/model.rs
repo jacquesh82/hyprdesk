@@ -1297,6 +1297,12 @@ pub struct General {
     pub workspace_selector: WsSelector,
     /// Icônes ouvertes d'un double clic (un clic : sélection) ; sinon un clic.
     pub icon_double_click: bool,
+    /// Transparence réduite (MLG-269) : surfaces presque opaques, sans
+    /// reflet ni réfraction, quel que soit le thème.
+    pub reduced_transparency: bool,
+    /// Mouvement réduit (MLG-271) : ouvertures en fondu court, sans échelle
+    /// ni déplacement.
+    pub reduced_motion: bool,
     /// Écran Réglages : tous les détails (sinon l'essentiel seulement).
     pub advanced_settings: bool,
     /// Visite guidée faite ou écartée : plus proposée à l'ouverture des Réglages.
@@ -1419,6 +1425,8 @@ impl Default for General {
             icon_scope: IconScope::Global,
             workspace_selector: WsSelector::Rail,
             icon_double_click: true,
+            reduced_transparency: false,
+            reduced_motion: false,
             advanced_settings: false,
             tour_seen: false,
             // Thème des applications actif d'emblée (MLG-207) : chaque

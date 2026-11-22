@@ -252,18 +252,21 @@ impl App {
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
         let head = column![
-            text("hyprdesk").font(self.title_font()).size(28).color(fg),
+            text("hyprdesk")
+                .font(self.title_font())
+                .size(crate::ui::tokens::ts(28.0))
+                .color(fg),
             text(format!(
                 "{} {}",
                 crate::i18n::tr("Version"),
                 env!("CARGO_PKG_VERSION")
             ))
             .font(self.font)
-            .size(14)
+            .size(crate::ui::tokens::ts(14.0))
             .color(accent),
             text(crate::i18n::tr(env!("CARGO_PKG_DESCRIPTION")))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim),
             text(crate::tr!(
                 "Licence {l} · {repo}",
@@ -271,14 +274,14 @@ impl App {
                 repo = REPOSITORY.to_string()
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(6);
         let details: Element<'_, UiMsg> = match &p.about.facts {
             None => text("Lecture des informations…")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into(),
             Some(f) => {
@@ -289,10 +292,13 @@ impl App {
                         row![
                             text(k.to_string())
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(dim)
                                 .width(150),
-                            text(v.to_string()).font(self.font).size(13).color(fg),
+                            text(v.to_string())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                                .color(fg),
                         ]
                         .spacing(10),
                     )
@@ -321,11 +327,11 @@ impl App {
                         crate::i18n::tr("Copier les informations")
                     })
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 14])
                 .on_press_maybe(p.about.facts.is_some().then(|| wrap(Msg::Copy))),
-                button(text("Ouvrir le dépôt").font(self.font).size(13))
+                button(text("Ouvrir le dépôt").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
                     .on_press(wrap(Msg::OpenRepo)),
@@ -335,20 +341,20 @@ impl App {
             .align_y(Alignment::Center),
             text("Pour un rapport de bogue : copiez ces informations, et joignez « hyprdesk doctor ».")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             self.section("Fichiers de configuration"),
             text("Dans ~/.config/hypr : les fichiers générés par hyprdesk sont réécrits par les Réglages (ne pas les éditer) ; hyprland.lua et les autres restent à vous. Chaque changement est gardé 30 jours dans l'historique.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             self.about_files(p),
             row![
-                button(text("Ouvrir le dossier").font(self.font).size(13))
+                button(text("Ouvrir le dossier").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
                     .on_press(wrap(Msg::OpenConfigDir)),
-                button(text("Historique…").font(self.font).size(13))
+                button(text("Historique…").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
                     .on_press(wrap(Msg::History)),
@@ -359,16 +365,16 @@ impl App {
             self.section("Configuration par défaut"),
             text("Remet chaque composant à sa configuration par défaut : les réglages faits ici (bureau de départ), les fichiers de Hyprland que tient hyprdesk (raccourcis réactivés, clavier et souris aux valeurs de Hyprland en gardant la disposition, écrans en mode préféré, démarrage vide), l'état mémorisé (positions des icônes, places des fenêtres, lancements, notifications). Vos thèmes et widgets perso sont mis de côté. hyprdesk.lua n'est pas touché. Une copie est gardée dans ~/.config/hypr/hyprdesk/sauvegardes. Chaque page a aussi son bouton « Par défaut… ».")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             if p.about.confirm_reset {
                 Element::from(
                     row![
-                        button(text("Confirmer : tout remettre par défaut").font(self.font).size(13))
+                        button(text("Confirmer : tout remettre par défaut").font(self.font).size(crate::ui::tokens::ts(13.0)))
                             .padding([6, 14])
                             .style(button::danger)
                             .on_press(wrap(Msg::Reset)),
-                        button(text("Annuler").font(self.font).size(13))
+                        button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(13.0)))
                             .padding([6, 14])
                             .style(button::secondary)
                             .on_press(wrap(Msg::ResetCancel)),
@@ -376,17 +382,17 @@ impl App {
                     .spacing(10),
                 )
             } else {
-                button(text("Revenir à la configuration par défaut…").font(self.font).size(13))
+                button(text("Revenir à la configuration par défaut…").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
                     .on_press(wrap(Msg::Reset))
                     .into()
             },
             match &p.about.reset {
-                Some(Ok(m)) => Element::from(text(m.clone()).font(self.font).size(12).color(accent)),
+                Some(Ok(m)) => Element::from(text(m.clone()).font(self.font).size(crate::ui::tokens::ts(12.0)).color(accent)),
                 Some(Err(e)) => text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning())
                     .into(),
                 None => Space::new().into(),
@@ -412,7 +418,7 @@ impl App {
                     row![
                         text(name.clone())
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .width(170),
                         text(if *generated {
@@ -421,7 +427,7 @@ impl App {
                             crate::i18n::tr("à vous")
                         })
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(if *generated { accent } else { dim }),
                     ]
                     .spacing(10),
@@ -456,8 +462,13 @@ impl App {
             .fold(column![].spacing(6), |c, n| {
                 c.push(
                     row![
-                        text("•").font(self.font).size(13).color(dim),
-                        text(crate::i18n::tr(n)).font(self.font).size(13),
+                        text("•")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(dim),
+                        text(crate::i18n::tr(n))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
                     ]
                     .spacing(8),
                 )

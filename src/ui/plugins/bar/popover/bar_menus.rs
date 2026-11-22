@@ -52,7 +52,7 @@ impl App {
                 column![
                     text(label.to_string())
                         .font(self.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(Color {
                             a: 0.65 * alpha,
                             ..fg
@@ -122,7 +122,7 @@ impl App {
                         .unwrap_or_else(|| Space::new().width(16).height(16).into()),
                     text(crate::i18n::tr("Organiser les fenêtres…"))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                 ]
                 .spacing(10)

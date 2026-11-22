@@ -1058,7 +1058,7 @@ impl App {
             .on_input(|q| Msg::Search(SMsg::Query(q)))
             .on_submit(Msg::Search(SMsg::Launch(s.selected)))
             .font(self.font)
-            .size(20)
+            .size(crate::ui::tokens::ts(20.0))
             .padding(14)
             .width(Length::Fill);
             return container(self.search_card(
@@ -1093,7 +1093,7 @@ impl App {
         .on_input(|q| Msg::Search(SMsg::Query(q)))
         .on_submit(Msg::Search(SMsg::Launch(s.selected)))
         .font(self.font)
-        .size(20)
+        .size(crate::ui::tokens::ts(20.0))
         .padding(14)
         .width(Length::Fill);
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
@@ -1129,7 +1129,12 @@ impl App {
             },
         };
         if let Some(msg) = note {
-            list = list.push(text(msg).font(self.font).size(13).color(dim));
+            list = list.push(
+                text(msg)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
         }
         // Puces de nature : tout, fichiers, dossiers, liens — la puce
         // active relance la requête avec la nature demandée côté démon.
@@ -1144,23 +1149,26 @@ impl App {
         ] {
             let actif = kind_active == k;
             chips = chips.push(
-                button(text(label).font(self.font).size(12).color(fg))
-                    .padding([4, 10])
-                    .style(move |_, status| button::Style {
-                        background: (actif || matches!(status, button::Status::Hovered)).then(
-                            || {
-                                Color {
-                                    a: if actif { 0.35 } else { 0.12 },
-                                    ..accent
-                                }
-                                .into()
-                            },
-                        ),
-                        border: Border::default().rounded(999),
-                        text_color: fg,
-                        ..Default::default()
-                    })
-                    .on_press(Msg::Search(SMsg::FileFilter(k))),
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(fg),
+                )
+                .padding([4, 10])
+                .style(move |_, status| button::Style {
+                    background: (actif || matches!(status, button::Status::Hovered)).then(|| {
+                        Color {
+                            a: if actif { 0.35 } else { 0.12 },
+                            ..accent
+                        }
+                        .into()
+                    }),
+                    border: Border::default().rounded(999),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::Search(SMsg::FileFilter(k))),
             );
         }
         list = list.push(chips);
@@ -1174,7 +1182,7 @@ impl App {
                 button(
                     text(tr(label).to_string())
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg),
                 )
                 .padding([4, 10])
@@ -1197,7 +1205,7 @@ impl App {
             button(
                 text(tr("Toutes").to_string())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
             )
             .padding([4, 10])
@@ -1249,9 +1257,15 @@ impl App {
                 button(
                     row![
                         icon,
-                        text(h.name.clone()).font(self.font).size(14).color(fg),
+                        text(h.name.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
                         iced::widget::Space::new().width(Length::Fill),
-                        text(detail).font(self.font).size(13).color(dim),
+                        text(detail)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(dim),
                     ]
                     .spacing(14)
                     .align_y(Alignment::Center),
@@ -1259,20 +1273,7 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| button::Style {
-                    background: (selected || matches!(status, button::Status::Hovered)).then(
-                        || {
-                            Color {
-                                a: if selected { 0.22 } else { 0.1 },
-                                ..accent
-                            }
-                            .into()
-                        },
-                    ),
-                    border: Border::default().rounded(10),
-                    text_color: fg,
-                    ..Default::default()
-                })
+                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1293,7 +1294,7 @@ impl App {
         .on_input(|q| Msg::Search(SMsg::Query(q)))
         .on_submit(Msg::Search(SMsg::Launch(s.selected)))
         .font(self.font)
-        .size(20)
+        .size(crate::ui::tokens::ts(20.0))
         .padding(14)
         .width(Length::Fill);
         use crate::i18n::tr;
@@ -1314,7 +1315,12 @@ impl App {
             Some(_) => None,
         };
         if let Some(msg) = note {
-            list = list.push(text(msg).font(self.font).size(13).color(dim));
+            list = list.push(
+                text(msg)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
         }
         let rows: Vec<(String, String)> = match s.mfa.as_ref().map(|(_, l)| l) {
             Some(MfaList::Codes(c)) => s
@@ -1352,9 +1358,15 @@ impl App {
                 button(
                     row![
                         icon,
-                        text(label).font(self.font).size(14).color(fg),
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
                         iced::widget::Space::new().width(Length::Fill),
-                        text(detail).font(self.font).size(13).color(dim),
+                        text(detail)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(dim),
                     ]
                     .spacing(14)
                     .align_y(Alignment::Center),
@@ -1362,20 +1374,7 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| button::Style {
-                    background: (selected || matches!(status, button::Status::Hovered)).then(
-                        || {
-                            Color {
-                                a: if selected { 0.22 } else { 0.1 },
-                                ..accent
-                            }
-                            .into()
-                        },
-                    ),
-                    border: Border::default().rounded(10),
-                    text_color: fg,
-                    ..Default::default()
-                })
+                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1405,7 +1404,12 @@ impl App {
             Some(_) => None,
         };
         if let Some(msg) = empty {
-            list = list.push(text(msg).font(self.font).size(13).color(dim));
+            list = list.push(
+                text(msg)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
         }
         let clips = s.clips.as_deref().unwrap_or_default();
         for (k, &i) in s.results.iter().enumerate() {
@@ -1417,27 +1421,20 @@ impl App {
             let selected = k == s.selected;
             list = list.push(
                 button(
-                    row![icon, text(preview).font(self.font).size(14).color(fg)]
-                        .spacing(14)
-                        .align_y(Alignment::Center),
+                    row![
+                        icon,
+                        text(preview)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg)
+                    ]
+                    .spacing(14)
+                    .align_y(Alignment::Center),
                 )
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| button::Style {
-                    background: (selected || matches!(status, button::Status::Hovered)).then(
-                        || {
-                            Color {
-                                a: if selected { 0.22 } else { 0.1 },
-                                ..accent
-                            }
-                            .into()
-                        },
-                    ),
-                    border: Border::default().rounded(10),
-                    text_color: fg,
-                    ..Default::default()
-                })
+                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1462,7 +1459,7 @@ impl App {
                 super::apps_grid::spot_height(!_s.suggested.is_empty()),
             );
         }
-        container(column![input, list].spacing(12))
+        let card = container(column![input, list].spacing(12))
             .padding(16)
             .width(super::apps_grid::SPOT_WIDTH)
             .height(super::apps_grid::spot_height(!_s.suggested.is_empty()))
@@ -1479,8 +1476,13 @@ impl App {
                 },
                 text_color: Some(fg),
                 ..Default::default()
-            })
-            .into()
+            });
+        super::glass::over(
+            card,
+            crate::config::Place::Launcher,
+            super::design::RADIUS,
+            fg,
+        )
     }
 }
 

@@ -199,7 +199,7 @@ impl App {
         let Some(mon) = self.colors_selected() else {
             return text("Aucun écran détecté.")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
@@ -207,7 +207,7 @@ impl App {
         let mut col = column![
             text("Réglages appliqués aussitôt à l'écran choisi, et gardés. Un fichier .cal (ArgyllCMS) ajoute ses courbes à celles-ci ; un profil .icc ou .icm est confié à Hyprland.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(12);
@@ -225,14 +225,18 @@ impl App {
                 m.name.clone()
             };
             screens = screens.push(
-                button(iced::widget::text(label).font(self.font).size(13))
-                    .padding([6, 12])
-                    .style(if on {
-                        button::primary
-                    } else {
-                        button::secondary
-                    })
-                    .on_press(wrap(Msg::Select(m.name.clone()))),
+                button(
+                    iced::widget::text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 12])
+                .style(if on {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::Select(m.name.clone()))),
             );
         }
         col = col.push(screens);
@@ -240,7 +244,7 @@ impl App {
             col = col.push(
                 iced::widget::text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -249,7 +253,7 @@ impl App {
                 row![
                     iced::widget::text(crate::tr!("{m} : {e}", m = mon, e = e))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(warn)
                         .width(Length::Fill),
                     self.lyra_button(
@@ -284,10 +288,10 @@ impl App {
                     .width(Length::Fill),
                 iced::widget::text(format!("{v:.2}"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(40),
-                button(iced::widget::text("↺").size(12))
+                button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
                     .padding([2, 8])
                     .style(button::text)
                     .on_press_maybe(
@@ -308,7 +312,7 @@ impl App {
                 image(h.clone()).width(260).height(170),
                 text("Courbes rouge, verte et bleue (entrée → sortie) ; la diagonale grise est neutre.")
                     .font(self.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim)
                     .width(260),
             ]
@@ -321,10 +325,14 @@ impl App {
         col = col.push(curves);
         col = col.push(
             row![
-                button(text("Rétablir cet écran").font(self.font).size(13))
-                    .padding([6, 12])
-                    .style(button::secondary)
-                    .on_press_maybe((!a.is_default()).then(|| wrap(Msg::ResetScreen))),
+                button(
+                    text("Rétablir cet écran")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 12])
+                .style(button::secondary)
+                .on_press_maybe((!a.is_default()).then(|| wrap(Msg::ResetScreen))),
                 button(
                     iced::widget::text(if self.monitors.len() > 1 {
                         crate::tr!(
@@ -335,7 +343,7 @@ impl App {
                         crate::i18n::tr("Mire plein écran").to_string()
                     })
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 12])
                 .on_press(wrap(Msg::TestOpen)),
@@ -355,15 +363,17 @@ impl App {
             row![
                 iced::widget::text(crate::tr!("En place : {f}", f = current))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(Length::Fill),
-                button(text("Retirer").font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press_maybe(
-                        (!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))
-                    ),
+                button(
+                    text("Retirer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press_maybe((!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -374,10 +384,14 @@ impl App {
                     .on_input(|v| wrap(Msg::CalInput(v)))
                     .on_submit(wrap(Msg::CalImport))
                     .padding(6)
-                    .size(13),
-                button(text("Importer").font(self.font).size(13))
-                    .padding([6, 12])
-                    .on_press_maybe((!s.cal_input.trim().is_empty()).then(|| wrap(Msg::CalImport))),
+                    .size(crate::ui::tokens::ts(13.0)),
+                button(
+                    text("Importer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 12])
+                .on_press_maybe((!s.cal_input.trim().is_empty()).then(|| wrap(Msg::CalImport))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -385,7 +399,10 @@ impl App {
         if !s.profiles.is_empty() {
             fine = fine.push(
                 row![
-                    text("Profils du poste").font(self.font).size(13).color(fg),
+                    text("Profils du poste")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     pick_list(s.profiles.clone(), None::<String>, |v| wrap(Msg::CalPick(
                         v
                     )))
@@ -399,14 +416,14 @@ impl App {
         fine = fine.push(
             text("Importer copie le fichier dans ~/.config/hypr/hyprdesk/calibration. .cal : courbes d'ArgyllCMS (dispcal), appliquées par hyprdesk ; .icc / .icm : profil appliqué par Hyprland (monitors.lua).")
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(dim),
         );
         if let Some(m) = &s.info {
             fine = fine.push(
                 iced::widget::text(m.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent),
             );
         }
@@ -414,7 +431,7 @@ impl App {
             fine = fine.push(
                 iced::widget::text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -426,7 +443,7 @@ impl App {
         fine = fine.push(
             text("Les cases des ombres (1 à 32) et des hautes lumières (223 à 254) doivent toutes se distinguer de leur fond ; le dégradé de gris doit rester neutre, sans dominante ni marches ; les peaux doivent paraître naturelles. « Mire plein écran » l'affiche sur chaque écran, avec ses réglages.")
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(dim),
         );
         col = col.push(self.adv(fine));
@@ -442,7 +459,7 @@ impl App {
         let mut list = column![
             text("Programmes qui gênent les réglages de couleur")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(warn),
         ]
         .spacing(4);
@@ -460,7 +477,12 @@ impl App {
             if !from.is_empty() {
                 line += &format!(" ({})", from.join(", "));
             }
-            list = list.push(iced::widget::text(line).font(self.font).size(12).color(fg));
+            list = list.push(
+                iced::widget::text(line)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(fg),
+            );
         }
         let busy = s.stopping;
         let mut buttons = row![
@@ -473,7 +495,7 @@ impl App {
                     crate::tr!("Arrêter {p}", p = s.blockers[0].name)
                 })
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
             )
             .padding([6, 12])
             .style(button::danger)
@@ -483,17 +505,21 @@ impl App {
         .align_y(Alignment::Center);
         if s.blockers.iter().any(|b| b.relaunched()) {
             buttons = buttons.push(
-                button(text("Arrêter et ne plus lancer").font(self.font).size(13))
-                    .padding([6, 12])
-                    .style(button::secondary)
-                    .on_press_maybe((!busy).then(|| wrap(Msg::Stop(true)))),
+                button(
+                    text("Arrêter et ne plus lancer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 12])
+                .style(button::secondary)
+                .on_press_maybe((!busy).then(|| wrap(Msg::Stop(true)))),
             );
         }
         list = list.push(buttons);
         list = list.push(
             text("Arrêter : son service s'il en a un, sinon le programme lui-même ; les réglages d'ici reprennent la main aussitôt. Sans « ne plus lancer », il revient à la session suivante.")
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(dim),
         );
         container(list)
@@ -768,11 +794,16 @@ impl App {
         let bg = color(th.bg, 0.9);
         let a = self.colors_of(mon);
         let folded = self.color_test.folded.contains(mon);
-        let small = |s: String| iced::widget::text(s).font(self.font).size(13).color(fg);
+        let small = |s: String| {
+            iced::widget::text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg)
+        };
         let mut head = row![
             iced::widget::text(mon.to_string())
                 .font(self.title_font())
-                .size(18)
+                .size(crate::ui::tokens::ts(18.0))
                 .color(accent),
             Space::new().width(Length::Fill),
             button(small(
@@ -818,10 +849,18 @@ impl App {
                     let v = a.get(key).unwrap_or(*n);
                     let d = step_of(key);
                     let b = |sym: &'static str, delta: f32| {
-                        button(iced::widget::text(sym).size(14).color(fg))
-                            .padding([2, 10])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Step(mon.to_string(), key.to_string(), delta)))
+                        button(
+                            iced::widget::text(sym)
+                                .size(crate::ui::tokens::ts(14.0))
+                                .color(fg),
+                        )
+                        .padding([2, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Step(
+                            mon.to_string(),
+                            key.to_string(),
+                            delta,
+                        )))
                     };
                     c = c.push(
                         row![
@@ -829,7 +868,7 @@ impl App {
                             b("−", -d),
                             iced::widget::text(format!("{v:.2}"))
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(if (v - n).abs() < 1e-3 { fg } else { accent })
                                 .width(44)
                                 .align_x(iced::alignment::Horizontal::Center),
@@ -846,7 +885,7 @@ impl App {
                 panel = panel.push(
                     iced::widget::text(e.clone())
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(crate::ui::tone::warning()),
                 );
             }

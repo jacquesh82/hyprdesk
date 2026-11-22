@@ -121,7 +121,7 @@ impl App {
                  l'application retrouve son propre thème."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -141,14 +141,16 @@ impl App {
                         row![
                             column![
                                 row![
-                                    text(t.label).font(self.title_font()).size(14),
-                                    status.font(self.font).size(12),
+                                    text(t.label)
+                                        .font(self.title_font())
+                                        .size(crate::ui::tokens::ts(14.0)),
+                                    status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                                 ]
                                 .spacing(8)
                                 .align_y(Alignment::Center),
                                 text(crate::i18n::tr(t.summary))
                                     .font(self.font)
-                                    .size(12)
+                                    .size(crate::ui::tokens::ts(12.0))
                                     .color(dim),
                             ]
                             .spacing(4)
@@ -163,7 +165,7 @@ impl App {
                                 path = (t.file)(&opts).display().to_string()
                             ))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(Length::Fill),
                             button(
@@ -173,7 +175,7 @@ impl App {
                                     "Réglages"
                                 })
                                 .font(self.font)
-                                .size(12),
+                                .size(crate::ui::tokens::ts(12.0)),
                             )
                             .padding([4, 10])
                             .style(button::secondary)
@@ -210,7 +212,7 @@ impl App {
                 }),
                 text(crate::i18n::tr(label))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             ]
             .spacing(6)
@@ -228,7 +230,7 @@ impl App {
             button(
                 text(crate::i18n::tr("Appliquer maintenant"))
                     .font(self.font)
-                    .size(13),
+                    .size(crate::ui::tokens::ts(13.0)),
             )
             .padding([6, 14])
             .on_press(wrap(Msg::ApplyNow)),
@@ -236,7 +238,14 @@ impl App {
         if let Some(p) = &self.panel {
             for (id, r) in &p.apptheme.report {
                 match r {
-                    Ok(m) => col = col.push(text(m.clone()).color(accent).font(self.font).size(12)),
+                    Ok(m) => {
+                        col = col.push(
+                            text(m.clone())
+                                .color(accent)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                    }
                     Err(e) => {
                         // Échec : le problème se propose à LYRA (bouton IA).
                         let ask = crate::apptheme::target(id)
@@ -248,7 +257,7 @@ impl App {
                             text(crate::tr!("{id} : {e}", id = id, e = e))
                                 .color(warn)
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .width(Length::Fill)
                         ]
                         .spacing(10)
@@ -283,8 +292,8 @@ impl App {
                 row![
                     text(crate::i18n::tr("Applications iced"))
                         .font(self.title_font())
-                        .size(14),
-                    status.font(self.font).size(12),
+                        .size(crate::ui::tokens::ts(14.0)),
+                    status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -294,14 +303,14 @@ impl App {
                      à chaud. Rien à couper, chaque application suit d'elle-même."
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
                 text(crate::tr!(
                     "Fichier : {path}",
                     path = palette.display().to_string()
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             ]
             .spacing(8),
@@ -341,17 +350,19 @@ impl App {
             let k2 = key.clone();
             col = col.push(
                 column![
-                    text(crate::i18n::tr(o.label)).font(self.font).size(13),
+                    text(crate::i18n::tr(o.label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                     text_input(&(o.default)(), &shown)
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .padding(6)
                         .on_input(move |v| wrap(Msg::Draft(k2.clone(), v)))
                         .on_submit(wrap(Msg::Submit(key)))
                         .width(Length::Fill),
                     text(crate::i18n::tr(o.help))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 ]
                 .spacing(4),
@@ -363,13 +374,17 @@ impl App {
                     "Valider un champ avec Entrée ; le thème est réappliqué aussitôt."
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text("Valeurs par défaut").font(self.font).size(12))
-                    .padding([3, 8])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Reset(t.id))),
+                button(
+                    text("Valeurs par défaut")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([3, 8])
+                .style(button::text)
+                .on_press(wrap(Msg::Reset(t.id))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

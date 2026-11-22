@@ -677,11 +677,15 @@ impl App {
 
     /// Bouton « Capturer » : la prochaine combinaison pressée.
     fn capture_button<'a>(&self, t: Target) -> Element<'a, UiMsg> {
-        button(text(crate::i18n::tr("Capturer")).font(self.font).size(12))
-            .padding([4, 10])
-            .style(button::secondary)
-            .on_press(wrap(Msg::Capture(t)))
-            .into()
+        button(
+            text(crate::i18n::tr("Capturer"))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
+        )
+        .padding([4, 10])
+        .style(button::secondary)
+        .on_press(wrap(Msg::Capture(t)))
+        .into()
     }
 
     /// Bouton « Par défaut », avec la valeur rendue.
@@ -691,11 +695,15 @@ impl App {
         } else {
             crate::tr!("Par défaut ({k})", k = pretty(&default))
         };
-        button(text(label).font(self.font).size(12))
-            .padding([4, 10])
-            .style(button::text)
-            .on_press(wrap(Msg::Reset(t)))
-            .into()
+        button(
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
+        )
+        .padding([4, 10])
+        .style(button::text)
+        .on_press(wrap(Msg::Reset(t)))
+        .into()
     }
 
     /// Capture en cours : la consigne, l'erreur éventuelle, « Annuler ».
@@ -708,12 +716,17 @@ impl App {
                 "Appuyez sur la combinaison voulue… (Échap : annuler)"
             ))
             .font(self.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(accent),
         ]
         .spacing(4);
         if let Some(e) = self.panel.as_ref().and_then(|p| p.keys.key_error.clone()) {
-            col = col.push(text(e).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(e)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         row![
             container(col)
@@ -723,10 +736,14 @@ impl App {
                     border: Border::default().rounded(6).width(1).color(accent),
                     ..Default::default()
                 }),
-            button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::CaptureCancel)),
+            button(
+                text(crate::i18n::tr("Annuler"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press(wrap(Msg::CaptureCancel)),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -805,17 +822,22 @@ impl App {
     /// Pastille d'une combinaison.
     fn key_chip<'a>(&self, s: String, c: Color) -> Element<'a, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        container(text(s).font(self.font).size(12).color(c))
-            .padding([2, 8])
-            .style(move |_| container::Style {
-                background: Some(Color { a: 0.08, ..fg }.into()),
-                border: Border::default()
-                    .rounded(6)
-                    .width(1)
-                    .color(Color { a: 0.25, ..c }),
-                ..Default::default()
-            })
-            .into()
+        container(
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c),
+        )
+        .padding([2, 8])
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.08, ..fg }.into()),
+            border: Border::default()
+                .rounded(6)
+                .width(1)
+                .color(Color { a: 0.25, ..c }),
+            ..Default::default()
+        })
+        .into()
     }
 
     /// Une ligne de la vue d'ensemble, avec ce qu'on peut y faire (MLG-116).
@@ -987,7 +1009,7 @@ impl App {
         let mut what = column![
             text(s.what.clone())
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .color(if s.on { fg } else { dim }),
         ]
@@ -996,7 +1018,7 @@ impl App {
             what = what.push(
                 text(crate::i18n::tr("Désactivé"))
                     .font(self.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(warn),
             );
         }
@@ -1006,7 +1028,7 @@ impl App {
             container(what).width(Length::FillPortion(6)),
             text(s.origin.clone())
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(dim)
                 .width(Length::FillPortion(3)),
         ]
@@ -1025,7 +1047,7 @@ impl App {
                         "Actions"
                     }))
                     .font(self.font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([4, 10])
                 .style(if menu_open {
@@ -1056,17 +1078,25 @@ impl App {
                         o = c.origin.as_str()
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
-                    button(text(crate::i18n::tr("Remplacer")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::primary)
-                        .on_press(wrap(Msg::ClashReplace)),
-                    button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::ClashCancel)),
+                    button(
+                        text(crate::i18n::tr("Remplacer"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::primary)
+                    .on_press(wrap(Msg::ClashReplace)),
+                    button(
+                        text(crate::i18n::tr("Annuler"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::ClashCancel)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -1079,7 +1109,7 @@ impl App {
                     button(
                         text(crate::i18n::tr("Capturer une combinaison"))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .style(button::secondary)
@@ -1094,7 +1124,7 @@ impl App {
                         "Activer"
                     }))
                     .font(self.font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([4, 10])
                 .style(button::secondary)
@@ -1102,10 +1132,14 @@ impl App {
             );
             if s.deletable {
                 m = m.push(
-                    button(text(crate::i18n::tr("Supprimer…")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::danger)
-                        .on_press(wrap(Msg::AskDelete(Some(r.clone())))),
+                    button(
+                        text(crate::i18n::tr("Supprimer…"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::danger)
+                    .on_press(wrap(Msg::AskDelete(Some(r.clone())))),
                 );
             } else {
                 m = m.push(
@@ -1113,7 +1147,7 @@ impl App {
                         "Posé par hyprdesk, pas dans binds.lua : on le désactive au lieu de le supprimer.",
                     ))
                     .font(self.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim)
                     .width(Length::Fill),
                 );
@@ -1133,12 +1167,12 @@ impl App {
                     n = n
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .width(Length::Fill),
                 button(
                     text(crate::i18n::tr("Supprimer la ligne"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .style(button::danger)
@@ -1151,7 +1185,7 @@ impl App {
                     button(
                         text(crate::i18n::tr("Désactiver plutôt"))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .style(button::secondary)
@@ -1159,10 +1193,14 @@ impl App {
                 );
             }
             c = c.push(
-                button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::AskDelete(None))),
+                button(
+                    text(crate::i18n::tr("Annuler"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(wrap(Msg::AskDelete(None))),
             );
             col = col.push(container(c).padding([8, 12]).style(move |_| {
                 container::Style {
@@ -1177,7 +1215,12 @@ impl App {
         if let Some(n) = &s.note
             && menu_open
         {
-            col = col.push(text(n.clone()).font(self.font).size(11).color(dim));
+            col = col.push(
+                text(n.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(dim),
+            );
         }
         col.into()
     }
@@ -1195,20 +1238,24 @@ impl App {
         let warn = crate::ui::tone::warning();
         let desktop = p.keys.desktop_view;
         let mode = |label: &'static str, on: bool, v: bool| {
-            button(text(crate::i18n::tr(label)).font(self.font).size(13))
-                .padding([6, 14])
-                .style(if on {
-                    button::primary
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::View(v)))
+            button(
+                text(crate::i18n::tr(label))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .padding([6, 14])
+            .style(if on {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .on_press(wrap(Msg::View(v)))
         };
         let mut col = column![
             self.section("Vue d'ensemble"),
             text("Les raccourcis actifs en ce moment, lus dans Hyprland : ceux de binds.lua (avec leur ligne) et ceux que pose hyprdesk. Chacun s'active ou se désactive ; « Capturer » change sa combinaison ; « Actions » propose aussi de supprimer une ligne de binds.lua. Désactiver garde la ligne, mise en commentaire ; hyprland.lua n'est jamais touché.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             row![
                 mode("Hors plein bureau (no-desktop, launcher-only)", !desktop, false),
@@ -1222,7 +1269,7 @@ impl App {
             let mut r = row![
                 text(n.text.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(if n.error { warn } else { fg })
                     .width(Length::Fill),
             ]
@@ -1230,17 +1277,25 @@ impl App {
             .align_y(Alignment::Center);
             if n.undo.is_some() {
                 r = r.push(
-                    button(text(crate::i18n::tr("Annuler")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Undo)),
+                    button(
+                        text(crate::i18n::tr("Annuler"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Undo)),
                 );
             }
             r = r.push(
-                button(text(crate::i18n::tr("Fermer")).font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::CloseNotice)),
+                button(
+                    text(crate::i18n::tr("Fermer"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(wrap(Msg::CloseNotice)),
             );
             let edge = if n.error {
                 warn
@@ -1275,7 +1330,7 @@ impl App {
             button(
                 text(crate::tr!("{l} ({n})", l = crate::i18n::tr(label), n = n))
                     .font(self.font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
             )
             .padding([4, 12])
             .style(if filter == f {
@@ -1306,7 +1361,7 @@ impl App {
             col = col.push(
                 text("Aucun raccourci lu (Hyprland injoignable, ou relevé en cours).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -1329,7 +1384,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1348,7 +1403,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1362,7 +1417,7 @@ impl App {
                     "Aucun raccourci ne correspond : effacez la recherche ou changez de filtre.",
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -1380,7 +1435,7 @@ impl App {
                     n = held
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -1398,7 +1453,7 @@ impl App {
             self.section("Fenêtres, workspaces, écrans"),
             text("hyprdesk pose ces raccourcis là où hyprland.lua n'en a pas, et seulement sur une combinaison libre : hyprland.lua n'est pas modifié. Les combinaisons suivent celles de hyprland.lua (modificateur des workspaces, touches du focus). Une combinaison prise par hyprland.lua se pose une fois prise par hyprdesk.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             self.field(
                 "Poser les raccourcis essentiels",
@@ -1413,7 +1468,7 @@ impl App {
             col = col.push(
                 text("Relevé en cours (ou Hyprland injoignable).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -1421,7 +1476,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr(group.label()))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
             );
             for e in CATALOGUE.iter().filter(|e| e.group == group) {
@@ -1431,7 +1486,7 @@ impl App {
                 let mut head = row![
                     text(crate::i18n::tr(e.label))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                 ]
                 .spacing(10)
@@ -1440,7 +1495,7 @@ impl App {
                     head = head.push(
                         text(crate::i18n::tr("bureau affiché aussi"))
                             .font(self.font)
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(dim),
                     );
                 }
@@ -1480,7 +1535,7 @@ impl App {
                     let mut r = row![
                         text(parts.join(" · "))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(Length::Fill),
                     ]
@@ -1509,7 +1564,7 @@ impl App {
                                     crate::i18n::tr(&l.detail).to_string()
                                 })
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(dim),
                                 self.capture_prompt(),
                             ]
@@ -1528,7 +1583,7 @@ impl App {
                         container(self.key_chip(shown, c)).width(Length::FillPortion(4)),
                         text(what)
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(if matches!(&l.state, Ess::Taken { .. }) {
                                 warn
                             } else {
@@ -1544,7 +1599,7 @@ impl App {
                                 button(
                                     text(crate::i18n::tr("hyprdesk le prend"))
                                         .font(self.font)
-                                        .size(12),
+                                        .size(crate::ui::tokens::ts(12.0)),
                                 )
                                 .padding([4, 10])
                                 .style(button::secondary)
@@ -1553,10 +1608,14 @@ impl App {
                         }
                         Ess::TakenOver => {
                             r = r.push(
-                                button(text(crate::i18n::tr("Rendre")).font(self.font).size(12))
-                                    .padding([4, 10])
-                                    .style(button::secondary)
-                                    .on_press(wrap(Msg::ReleaseKey(l.combo.clone()))),
+                                button(
+                                    text(crate::i18n::tr("Rendre"))
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([4, 10])
+                                .style(button::secondary)
+                                .on_press(wrap(Msg::ReleaseKey(l.combo.clone()))),
                             );
                         }
                         _ => {}
@@ -1570,7 +1629,12 @@ impl App {
                     }
                     col = col.push(r);
                     if let Some(n) = &l.note {
-                        col = col.push(text(n.clone()).font(self.font).size(11).color(warn));
+                        col = col.push(
+                            text(n.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(11.0))
+                                .color(warn),
+                        );
                     }
                 }
             }
@@ -1616,7 +1680,7 @@ impl App {
                 "suspend_binds",
                 toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v))),
             )),
-            self.adv(text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(12).color(dim)),
+            self.adv(text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim)),
             key_field(0, "Changer de mode (no-desktop → launcher-only → full-desktop)", "keys.toggle"),
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
@@ -1648,19 +1712,24 @@ impl App {
                  Réglé ici, hyprdesk le remplace."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.adv(key_field(2, crate::i18n::tr("Sortie de secours (bureau affiché)"), "keys.leave")),
-            text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(12).color(dim),
+            text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
         ]
         .spacing(10);
         if let Some(e) = &p.keys.key_error {
-            col = col.push(text(e.clone()).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         col = col.push(
             text("Tous les raccourcis actifs, hors plein bureau et bureau affiché : onglet Vue d'ensemble.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col.into()
@@ -1683,7 +1752,7 @@ impl App {
                         n = r.issues.len()
                     ))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(warn)
                     .width(Length::Fill),
                     self.lyra_button(crate::i18n::tr("Raccourcis"), crate::keymap::lyra_prompt(r)),
@@ -1696,7 +1765,7 @@ impl App {
             let mut line = row![
                 text(i.message())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
             ]
@@ -1707,7 +1776,7 @@ impl App {
                     button(
                         text(crate::i18n::tr("hyprdesk le prend"))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .style(button::secondary)
@@ -1720,7 +1789,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr("Pris à hyprland.lua par hyprdesk"))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
             );
         }
@@ -1733,7 +1802,7 @@ impl App {
                     h = h.holder.describe()
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
             ]
@@ -1747,10 +1816,14 @@ impl App {
                 .any(|t| crate::keymap::norm(t) == crate::keymap::norm(&h.action.combo))
             {
                 line = line.push(
-                    button(text(crate::i18n::tr("Rendre")).font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::ReleaseKey(h.action.combo.clone()))),
+                    button(
+                        text(crate::i18n::tr("Rendre"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::ReleaseKey(h.action.combo.clone()))),
                 );
             }
             col = col.push(line);
@@ -1764,7 +1837,7 @@ impl App {
                     label = crate::i18n::tr(h.action.label)
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }

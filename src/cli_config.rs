@@ -1296,6 +1296,14 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| { s.theme_name = None; s.fg = None; s.bg = None; s.accent = None; s.effects.clear(); };
+    "theme.reduced_transparency", "theme", "on | off — transparence réduite : surfaces presque opaques, sans reflet ni réfraction",
+        |c| on_off(c.general.reduced_transparency),
+        |s, v, c| { s.reduced_transparency = Some(parse_bool(v)?); Ok(()) },
+        |s| s.reduced_transparency = None;
+    "theme.reduced_motion", "theme", "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement",
+        |c| on_off(c.general.reduced_motion),
+        |s, v, c| { s.reduced_motion = Some(parse_bool(v)?); Ok(()) },
+        |s| s.reduced_motion = None;
     "theme.name", "theme", "texte — nom du thème",
         |c| c.general.theme.name.clone(),
         |s, v, c| { s.theme_name = Some(v.to_string()); Ok(()) },

@@ -21,12 +21,14 @@ mod curves;
 mod design;
 mod desk_layout;
 mod engine;
+mod glass;
 mod hyprlists;
 mod hyprset;
 mod icons;
 mod kinetic;
 mod mymfa;
 mod mymfa_fenetre;
+pub(crate) mod tokens;
 pub(crate) mod tone;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
 mod controls;
@@ -332,8 +334,8 @@ impl Fade {
         }
         let p = (now.saturating_duration_since(self.start).as_secs_f32() / self.dur.as_secs_f32())
             .clamp(0.0, 1.0);
-        // Ease-out cubique.
-        let e = 1.0 - (1.0 - p).powi(3);
+        // Courbe du thème (MLG-271), ease-out cubique sans thème.
+        let e = tokens::ease(p);
         self.from + (self.to - self.from) * e
     }
     fn done(&self, now: Instant) -> bool {
@@ -1200,15 +1202,15 @@ impl App {
         let n_owned = self.cfg.general.clone();
         let (o, n) = (&old.general, &n_owned);
         if o.font != n.font || self.icons_gen == 0 {
-            self.font = match &n.font {
-                // Les noms de police doivent vivre aussi longtemps que le programme.
-                Some(f) => Font::with_name(intern_font(f)),
-                None => crate::fonts::DEFAULT,
-            };
-            self.ui_family = match &n.font {
+            // Police de l'utilisateur, sinon celle du pack (MLG-270), à la
+            // graisse du thème. Les noms de police doivent vivre aussi
+            // longtemps que le programme.
+            let typo = tokens::design().typography.clone();
+            self.ui_family = match n.font.as_ref().or(typo.family.as_ref()) {
                 Some(f) => intern_font(f),
                 None => crate::fonts::FAMILY,
             };
+            self.font = self.ui_font(tokens::weight(typo.weight));
         }
         if o.theme != n.theme {
             self.theme = make_theme(&self.cfg);
@@ -3366,7 +3368,7 @@ impl App {
     /// Police de l'interface, à la graisse voulue.
     /// Graisse de la barre et des titres : la version grasse de la police.
     pub(super) fn title_font(&self) -> Font {
-        self.ui_font(iced::font::Weight::Bold)
+        self.ui_font(tokens::weight(tokens::design().typography.title_weight))
     }
 
     pub(super) fn ui_font(&self, weight: iced::font::Weight) -> Font {
@@ -5663,6 +5665,8 @@ impl App {
     // -- Vue ---------------------------------------------------------------------
 
     fn view(&self, id: Id) -> Element<'_, Msg> {
+        // Surcharges de l'écran de cette surface (MLG-272).
+        tokens::enter_screen(self.surface_screen(id));
         if self.convex_frames.contains_key(&id) {
             return iced::widget::sensor(self.view_convex_frame_on(&self.convex_frames[&id]))
                 .key(id)
@@ -6183,9 +6187,13 @@ fn make_theme(cfg: &Config) -> iced::Theme {
         iced::theme::Palette {
             background: color(th.bg, 1.0),
             text: color(th.fg, 1.0),
-            primary: color(th.accent, 1.0),
-            success: Color::from_rgb8(0x8a, 0xff, 0x80),
-            warning: Color::from_rgb8(0xff, 0xff, 0x80),
+            // Commandes : le slot `action` du pack (MLG-267), l'accent à
+            // défaut ; états lisibles sur le fond du thème (MLG-266 : ok et
+            // attention étaient fixes, pensés pour un fond sombre).
+            primary: crate::ui::tone::get("action")
+                .map_or(color(th.accent, 1.0), |c| color(c, 1.0)),
+            success: crate::ui::tone::success(),
+            warning: crate::ui::tone::warning(),
             danger: crate::ui::tone::danger(),
         },
     )

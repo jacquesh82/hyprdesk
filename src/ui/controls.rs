@@ -123,14 +123,14 @@ impl App {
             column![
                 text(label.to_string())
                     .font(self.ui_font(iced::font::Weight::Medium))
-                    .size(12.5)
+                    .size(crate::ui::tokens::ts(12.5))
                     .color(fg),
                 text(crate::ui::plugins::bar::surface::truncate(
                     &detail.replace('\n', " · "),
                     15
                 ))
                 .font(self.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(Color {
                     a: 0.65 * alpha,
                     ..fg
@@ -160,13 +160,18 @@ impl App {
                 border: Border::default().rounded(14),
                 ..Default::default()
             });
-        let details = button(text("›").font(self.font).size(19).color(fg))
-            .padding([8, 4])
-            .on_press_maybe(menu)
-            .style(move |_, _| iced::widget::button::Style {
-                text_color: fg,
-                ..Default::default()
-            });
+        let details = button(
+            text("›")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(19.0))
+                .color(fg),
+        )
+        .padding([8, 4])
+        .on_press_maybe(menu)
+        .style(move |_, _| iced::widget::button::Style {
+            text_color: fg,
+            ..Default::default()
+        });
         let mut tile = column![row![main, details].align_y(Alignment::Center)]
             .width(Length::Fill)
             .spacing(6);
@@ -174,7 +179,7 @@ impl App {
             tile = tile.push(
                 text(error.to_string())
                     .font(self.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(color(self.bar_palette().warning, alpha)),
             );
         }
@@ -202,21 +207,26 @@ impl App {
         let mut header = row![
             text("Centre de contrôle")
                 .font(self.ui_font(iced::font::Weight::Semibold))
-                .size(15)
+                .size(crate::ui::tokens::ts(15.0))
                 .color(fg)
                 .width(Length::Fill)
         ]
         .align_y(Alignment::Center);
         if bar.is_some() {
             header = header.push(
-                button(text("×").font(self.font).size(18).color(fg))
-                    .padding([2, 7])
-                    .on_press(Msg::ClosePopover)
-                    .style(move |_, _| iced::widget::button::Style {
-                        text_color: fg,
-                        border: Border::default().rounded(12),
-                        ..Default::default()
-                    }),
+                button(
+                    text("×")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(18.0))
+                        .color(fg),
+                )
+                .padding([2, 7])
+                .on_press(Msg::ClosePopover)
+                .style(move |_, _| iced::widget::button::Style {
+                    text_color: fg,
+                    border: Border::default().rounded(12),
+                    ..Default::default()
+                }),
             );
         }
         let menu_bar = bar.or_else(|| {
@@ -270,7 +280,7 @@ impl App {
                             format!("{:.0} %", volume * 100.0)
                         })
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg)
                         .width(40)
                         .align_x(Alignment::End)
@@ -282,7 +292,7 @@ impl App {
             col = col.push(
                 text("Audio indisponible")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(Color {
                         a: 0.65 * alpha,
                         ..fg
@@ -311,27 +321,32 @@ impl App {
             ] {
                 let active = mode == state;
                 modes = modes.push(
-                    button(text(label).font(self.font).size(12).color(fg))
-                        .padding([8, 6])
-                        .width(Length::Fill)
-                        .on_press(Msg::On(
-                            monitor.to_string(),
-                            Box::new(Msg::Control(command)),
-                        ))
-                        .style(move |_, status| iced::widget::button::Style {
-                            background: (active
-                                || matches!(status, iced::widget::button::Status::Hovered))
-                            .then_some(
-                                Color {
-                                    a: (if active { 0.13 } else { 0.06 }) * alpha,
-                                    ..fg
-                                }
-                                .into(),
-                            ),
-                            text_color: fg,
-                            border: Border::default().rounded(design::SMALL_RADIUS),
-                            ..Default::default()
-                        }),
+                    button(
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(fg),
+                    )
+                    .padding([8, 6])
+                    .width(Length::Fill)
+                    .on_press(Msg::On(
+                        monitor.to_string(),
+                        Box::new(Msg::Control(command)),
+                    ))
+                    .style(move |_, status| iced::widget::button::Style {
+                        background: (active
+                            || matches!(status, iced::widget::button::Status::Hovered))
+                        .then_some(
+                            Color {
+                                a: (if active { 0.13 } else { 0.06 }) * alpha,
+                                ..fg
+                            }
+                            .into(),
+                        ),
+                        text_color: fg,
+                        border: Border::default().rounded(design::SMALL_RADIUS),
+                        ..Default::default()
+                    }),
                 );
             }
             col = col
@@ -346,7 +361,7 @@ impl App {
             col = col.push(self.pop_separator(alpha)).push(
                 text(r.tooltip.clone().unwrap_or_else(|| r.text.clone()))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(self.state_color(r.state, fg)),
             );
         }

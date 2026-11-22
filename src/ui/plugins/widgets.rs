@@ -99,8 +99,14 @@ impl App {
             };
             let mut info = column![
                 row![
-                    text(t.name.clone()).font(self.font).size(15).color(fg),
-                    text(source).font(self.font).size(12).color(dim)
+                    text(t.name.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(15.0))
+                        .color(fg),
+                    text(source)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim)
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -111,7 +117,7 @@ impl App {
                 info = info.push(
                     text(t.description.clone())
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -122,7 +128,7 @@ impl App {
                         in_user = in_user
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 );
             }
@@ -133,7 +139,7 @@ impl App {
                         disabled = disabled
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 );
             }
@@ -141,7 +147,7 @@ impl App {
                 info = info.push(
                     text(crate::tr!("⚠ {e}", e = e))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(warn),
                 );
             }
@@ -168,7 +174,7 @@ impl App {
             active = active.push(
                 text("Aucun widget sur ce bureau.")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
@@ -208,10 +214,13 @@ impl App {
                 row![
                     button(
                         row![
-                            text(name).font(self.font).size(14).width(Length::Fill),
+                            text(name)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(14.0))
+                                .width(Length::Fill),
                             text(format!("{label} · {from}"))
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(dim)
                         ]
                         .spacing(8),
@@ -242,7 +251,7 @@ impl App {
         let editor: Element<'_, UiMsg> = match self.selected_placement() {
             None => text("Sélectionnez un widget dans la liste ou cliquez-le sur le bureau.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .into(),
             Some((id, pl)) => {
@@ -293,7 +302,7 @@ impl App {
                 let mut c = column![
                     text(crate::tr!("Placement de « {id} »", id = id))
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(fg),
                     self.field("Ancrage", "", grid),
                     self.field(
@@ -306,7 +315,9 @@ impl App {
                             .step(2.0f32)
                             .on_release(UiMsg::Panel(PanelMsg::Commit))
                             .width(300),
-                            text(format!("{:+.0} px", pl.x)).font(self.font).size(13),
+                            text(format!("{:+.0} px", pl.x))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
                         ]
                         .spacing(12),
                     ),
@@ -320,7 +331,9 @@ impl App {
                             .step(2.0f32)
                             .on_release(UiMsg::Panel(PanelMsg::Commit))
                             .width(300),
-                            text(format!("{:+.0} px", pl.y)).font(self.font).size(13),
+                            text(format!("{:+.0} px", pl.y))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
                         ]
                         .spacing(12),
                     ),
@@ -340,7 +353,7 @@ impl App {
                                 format!("{:.0} px", pl.size)
                             })
                             .font(self.font)
-                            .size(13),
+                            .size(crate::ui::tokens::ts(13.0)),
                         ]
                         .spacing(12),
                     ),
@@ -350,13 +363,17 @@ impl App {
                         toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
                     ),
                     self.widget_screen_field(&pl),
-                    button(text("Réinitialiser la position").font(self.font).size(13))
-                        .padding([6, 12])
-                        .on_press(wrap(Msg::WidgetReset)),
+                    button(
+                        text("Réinitialiser la position")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::WidgetReset)),
                 ]
                 .spacing(12);
                 if user_widget {
-                    c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(12).color(dim));
+                    c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
                 c.into()
             }
@@ -367,7 +384,7 @@ impl App {
                 self.section("Sur ce bureau"),
                 text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 active,
                 editor,
@@ -382,14 +399,14 @@ impl App {
                 button(
                     text("Rechercher de nouveaux widgets")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 12])
                 .on_press(wrap(Msg::RescanWidgets)),
                 button(
                     text("Ouvrir le dossier des plugins")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 12])
                 .on_press(wrap(Msg::OpenWidgetDir)),
@@ -400,7 +417,7 @@ impl App {
                 dir = plugin_dir.display()
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14)
@@ -450,13 +467,13 @@ impl App {
                     wrap(Msg::WidgetIfMissing(v))
                 })
                 .font(self.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
             };
             col = col.push(
                 column![
                     text("Si cet écran est débranché :")
                         .font(self.font)
-                        .size(12),
+                        .size(crate::ui::tokens::ts(12.0)),
                     row![
                         missing("sur l'écran principal", IfMissing::Primary),
                         missing("masqué", IfMissing::Hide),

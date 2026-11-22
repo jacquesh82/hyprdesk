@@ -78,7 +78,7 @@ pub(super) fn miniatures<'a>(
             // Le nom de l'espace au-dessus, la minimap en dessous.
             let head = text(w.name.clone())
                 .font(app.font)
-                .size(9)
+                .size(crate::ui::tokens::ts(9.0))
                 .color(if active { accent } else { dim });
             let chip = motion::press(
                 iced::widget::button(
@@ -266,7 +266,7 @@ fn bar_tooltip<'a>(
     let fg = color(pal.fg, 1.0);
     tooltip(
         content,
-        container(text(label).font(app.font).size(12))
+        container(text(label).font(app.font).size(crate::ui::tokens::ts(12.0)))
             .padding([4, 8])
             .style(move |_| container::Style {
                 background: Some(bg.into()),

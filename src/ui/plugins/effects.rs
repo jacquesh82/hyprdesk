@@ -73,7 +73,9 @@ impl App {
                     .step(10u32)
                     .on_release(wrap(Msg::CommitFade))
                     .width(260),
-                    text(format!("{} ms", g.fade_ms)).font(self.font).size(14),
+                    text(format!("{} ms", g.fade_ms))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
@@ -90,13 +92,13 @@ impl App {
                     .width(260),
                     text(format!("{} ms", g.crossfade_ms))
                         .font(self.font)
-                        .size(14),
+                        .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
             text("Couleurs, opacité et flou de chaque endroit : paquet Thème.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color { a: 0.6, ..fg }),
         ]
         .spacing(14)

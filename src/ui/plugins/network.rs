@@ -219,18 +219,26 @@ impl App {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.network).filter(|s| s.loaded) else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let small = |label: &'static str, m: Msg| {
-            button(text(label).font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(m))
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .on_press(wrap(m))
         };
         let mut col = column![
             row![
                 text("NetworkManager (nmcli).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
                 small("Éditeur de connexions…", Msg::Editor),
@@ -254,7 +262,7 @@ impl App {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }
@@ -263,14 +271,17 @@ impl App {
             col = col.push(
                 text("Aucune connexion.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
         for c in &s.conns {
             let mut line = row![
                 column![
-                    text(c.name.clone()).font(self.font).size(13).color(fg),
+                    text(c.name.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     text(format!(
                         "{}{}",
                         kind_label(&c.kind),
@@ -281,7 +292,7 @@ impl App {
                         }
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                 ]
                 .width(Length::Fill),
@@ -312,7 +323,7 @@ impl App {
                 col = col.push(
                     text("Aucun réseau visible.")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -320,7 +331,10 @@ impl App {
             for n in s.nets.iter().take(12) {
                 let mut line = row![
                     column![
-                        text(n.ssid.clone()).font(self.font).size(13).color(fg),
+                        text(n.ssid.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
                         text(format!(
                             "{} %{}{}",
                             n.signal,
@@ -336,7 +350,7 @@ impl App {
                             }
                         ))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                     ]
                     .width(Length::Fill),
@@ -350,7 +364,7 @@ impl App {
                         line.push(
                             text("mot de passe : menu Réseau de la barre")
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(dim),
                         )
                     };

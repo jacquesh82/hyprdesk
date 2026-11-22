@@ -57,7 +57,7 @@ impl App {
             shortcuts = shortcuts.push(
                 text("Aucun raccourci ajouté ici.")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
@@ -83,11 +83,21 @@ impl App {
             };
             shortcuts = shortcuts.push(
                 row![
-                    text(name).font(self.font).size(14).width(Length::Fill),
-                    text(scope).font(self.font).size(12).color(dim),
-                    button(text("Retirer").font(self.font).size(13))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::RemoveIcon(i))),
+                    text(name)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .width(Length::Fill),
+                    text(scope)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::RemoveIcon(i))),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -114,7 +124,7 @@ impl App {
                 picker = picker.push(
                     text("Aucune application trouvée.")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                 );
             }
@@ -124,9 +134,12 @@ impl App {
                         row![
                             text(a.name.clone())
                                 .font(self.font)
-                                .size(14)
+                                .size(crate::ui::tokens::ts(14.0))
                                 .width(Length::Fill),
-                            text(a.id.clone()).font(self.font).size(12).color(dim)
+                            text(a.id.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim)
                         ]
                         .spacing(8),
                     )
@@ -162,7 +175,7 @@ impl App {
                         "Une icône ajoutée (ici ou en déposant un fichier sur le bureau) va sur l'écran ou le workspace en cours ; celles d'avant restent où elles étaient."
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 ]
                 .spacing(8),
@@ -176,7 +189,7 @@ impl App {
                 "Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du bureau… Échap retire la sélection, Entrée ouvre l'icône sélectionnée."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Raccourcis"),
             shortcuts,
@@ -185,7 +198,7 @@ impl App {
                 user_icons = user_icons
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.field(
                 "Ajouter une application",
@@ -212,7 +225,7 @@ impl App {
                         .width(260),
                     text(format!("{} px", g.grid.icon_size))
                         .font(self.font)
-                        .size(14),
+                        .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
@@ -223,7 +236,7 @@ impl App {
                     slider(64..=192u16, g.grid.cell, |v| wrap(Msg::CellSize(v)))
                         .on_release(UiMsg::Panel(PanelMsg::Commit))
                         .width(260),
-                    text(format!("{} px", g.grid.cell)).font(self.font).size(14),
+                    text(format!("{} px", g.grid.cell)).font(self.font).size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
@@ -238,7 +251,7 @@ impl App {
             self.field(
                 "Disposition de ce bureau",
                 "",
-                button(text("Réinitialiser les positions").font(self.font).size(14))
+                button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(14.0)))
                     .padding([6, 12])
                     .on_press(wrap(Msg::ResetLayout)),
             ),

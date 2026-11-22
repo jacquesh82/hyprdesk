@@ -123,7 +123,11 @@ impl App {
             .map(|p| &p.datetime)
             .filter(|s| s.loaded)
         else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let mut col = column![
             self.section("Fuseau horaire"),
@@ -152,14 +156,14 @@ impl App {
                     "Horloge pas encore synchronisée."
                 })
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         } else {
             col = col.push(
                 text("Aucun service de synchronisation (systemd-timesyncd) disponible.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -169,7 +173,7 @@ impl App {
                     "L'horloge matérielle est à l'heure locale (double démarrage avec Windows ?).",
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -178,12 +182,16 @@ impl App {
                 row![
                     text(e.clone())
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(crate::ui::tone::warning())
                         .width(Length::Fill),
-                    button(text("Relire").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(UiMsg::Panel(PanelMsg::Tab(INFO.id))),
+                    button(
+                        text("Relire")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(UiMsg::Panel(PanelMsg::Tab(INFO.id))),
                 ]
                 .align_y(Alignment::Center),
             );

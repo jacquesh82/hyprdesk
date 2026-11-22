@@ -151,7 +151,7 @@ impl App {
                      derrière. Pas d'option : on passe de l'une à l'autre par raccourci."
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color {
                     a: 0.6,
                     ..color(self.cfg.general.theme.fg, 1.0)
@@ -193,7 +193,12 @@ impl App {
     fn layouts_general(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let dim = self.ink().dim;
-        let small = |s: String| text(s).font(self.font).size(12).color(dim);
+        let small = |s: String| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+        };
         let t = &g.tiling;
         let current = self
             .panel
@@ -235,7 +240,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .width(110),
                     pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
                         wrap(Msg::Workspace(w.clone(), c.value))
@@ -304,7 +309,7 @@ impl App {
                 ),
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -326,7 +331,7 @@ impl App {
                  À choisir comme layout par défaut ou pour un workspace (onglet Général)."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -336,10 +341,12 @@ impl App {
                 container(
                     row![
                         column![
-                            text(crate::i18n::tr(c.label)).font(self.font).size(14),
+                            text(crate::i18n::tr(c.label))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(14.0)),
                             text(crate::i18n::tr(c.summary))
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(dim),
                         ]
                         .spacing(4)
@@ -348,15 +355,19 @@ impl App {
                             Element::from(
                                 text(crate::i18n::tr("par défaut"))
                                     .font(self.font)
-                                    .size(12)
+                                    .size(crate::ui::tokens::ts(12.0))
                                     .color(accent),
                             )
                         } else {
-                            button(text(crate::i18n::tr("Par défaut")).font(self.font).size(12))
-                                .padding([4, 10])
-                                .style(button::secondary)
-                                .on_press(wrap(Msg::Default(Some(c.name.to_string()))))
-                                .into()
+                            button(
+                                text(crate::i18n::tr("Par défaut"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([4, 10])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Default(Some(c.name.to_string()))))
+                            .into()
                         },
                     ]
                     .spacing(12)
@@ -382,7 +393,7 @@ impl App {
                  split(boîte, côté, part).",
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         col.into()
@@ -402,16 +413,21 @@ impl App {
             .unwrap_or_default();
         let lines = tiling::key_lines(layout, binds);
         let chip = |s: String, c: Color| {
-            container(text(s).font(self.font).size(12).color(c))
-                .padding([2, 8])
-                .style(move |_| container::Style {
-                    background: Some(Color { a: 0.08, ..fg }.into()),
-                    border: Border::default()
-                        .rounded(6)
-                        .width(1)
-                        .color(Color { a: 0.2, ..c }),
-                    ..Default::default()
-                })
+            container(
+                text(s)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(c),
+            )
+            .padding([2, 8])
+            .style(move |_| container::Style {
+                background: Some(Color { a: 0.08, ..fg }.into()),
+                border: Border::default()
+                    .rounded(6)
+                    .width(1)
+                    .color(Color { a: 0.2, ..c }),
+                ..Default::default()
+            })
         };
         let mut col = column![
             self.section("Raccourcis"),
@@ -426,7 +442,7 @@ impl App {
                 ),
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(8);
@@ -436,7 +452,7 @@ impl App {
                     "Aucun raccourci lu (hyprland.lua introuvable à côté de hyprdesk.lua).",
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -454,15 +470,19 @@ impl App {
                         crate::i18n::tr("proposé, déjà pris")
                     })
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(if free { dim } else { warn }),
                 );
                 if let Some(lua) = l.lua.clone() {
                     keys = keys.push(
-                        button(text(crate::i18n::tr("Copier")).font(self.font).size(12))
-                            .padding([2, 8])
-                            .style(button::text)
-                            .on_press(wrap(Msg::Copy(lua))),
+                        button(
+                            text(crate::i18n::tr("Copier"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([2, 8])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Copy(lua))),
                     );
                 }
             }
@@ -470,7 +490,7 @@ impl App {
                 row![
                     text(crate::i18n::tr(l.label))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::FillPortion(5)),
                     container(keys).width(Length::FillPortion(6)),
                 ]

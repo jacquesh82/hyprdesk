@@ -144,6 +144,10 @@ pub enum Msg {
     Blur(Place, bool),
     /// Transparence adaptative d'une surface posée sur le fond (MLG-261).
     Adaptive(Place, bool),
+    /// Transparence réduite (MLG-269).
+    ReducedTransparency(bool),
+    /// Mouvement réduit (MLG-271).
+    ReducedMotion(bool),
     Mode(Mode),
     GlassOpacity(f32),
     LockBlur(bool),
@@ -231,7 +235,10 @@ impl App {
             let (cf, cb, ca) = (color(f, 1.0), color(b, 1.0), color(a, 1.0));
             container(
                 column![
-                    text(name).font(self.title_font()).size(13).color(cf),
+                    text(name)
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(cf),
                     row![
                         container(Space::new().width(26).height(6)).style(move |_| {
                             container::Style {
@@ -287,12 +294,16 @@ impl App {
                         .padding(8)
                         .width(Length::Fill),
                     row![
-                        button(text("Enregistrer dans Mes thèmes").font(font).size(13))
-                            .padding([6, 14])
-                            .on_press_maybe((!name.trim().is_empty()).then(|| wrap(Msg::Save))),
+                        button(
+                            text("Enregistrer dans Mes thèmes")
+                                .font(font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .on_press_maybe((!name.trim().is_empty()).then(|| wrap(Msg::Save))),
                         text("Exporter : Partage → Thème seul")
                             .font(font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                     ]
                     .spacing(12)
@@ -309,8 +320,14 @@ impl App {
         .spacing(8);
         if let Some(r) = &st.report {
             current = current.push(match r {
-                Ok(m) => text(m.clone()).font(font).size(12).color(accent),
-                Err(e) => text(e.clone()).font(font).size(12).color(warn),
+                Ok(m) => text(m.clone())
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(accent),
+                Err(e) => text(e.clone())
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
             });
         }
 
@@ -343,7 +360,7 @@ impl App {
                             "Version sombre"
                         }))
                         .font(font)
-                        .size(11),
+                        .size(crate::ui::tokens::ts(11.0)),
                     )
                     .padding([2, 8])
                     .style(button::text)
@@ -365,7 +382,7 @@ impl App {
                  de thème (Partage).",
             )
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim)
             .into()
         } else {
@@ -420,7 +437,7 @@ impl App {
                         dot(value, 22.0, false),
                         text_input(crate::i18n::tr("#rrggbb"), &draft)
                             .font(font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .on_input(move |v| wrap(Msg::Hex(slot, v)))
                             .on_submit(wrap(Msg::HexSubmit(slot)))
                             .padding(6)
@@ -436,7 +453,7 @@ impl App {
         let percent = |v: f32| {
             text(format!("{} %", (v * 100.0).round() as i32))
                 .font(font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .width(48)
                 .wrapping(iced::widget::text::Wrapping::None)
         };
@@ -494,13 +511,34 @@ impl App {
                 _ => None,
             };
             if let Some(n) = note {
-                cell = cell.push(text(n).font(font).size(11).color(self.ink().dim));
+                cell = cell.push(
+                    text(n)
+                        .font(font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(self.ink().dim),
+                );
+            }
+            // Verre du pack (MLG-268) : ce que le thème dessine en plus.
+            let glass = crate::ui::tokens::glass(place);
+            if glass.highlight > 0.0 || glass.refraction > 0.0 || glass.tint_strength > 0.0 {
+                let pct = |v: f32| (v * 100.0).round() as i32;
+                cell = cell.push(
+                    text(crate::tr!(
+                        "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %.",
+                        h = pct(glass.highlight),
+                        r = pct(glass.refraction),
+                        t = pct(glass.tint_strength)
+                    ))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(self.ink().dim),
+                );
             }
             if place == Place::Settings && self.hypr_blur_off() {
                 cell = cell.push(
                     text("Opaque tant que le flou de Hyprland est coupé (Performance).")
                         .font(font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(self.ink().dim),
                 );
             }
@@ -510,6 +548,30 @@ impl App {
                 cell,
             ));
         }
+        // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
+        let pack = crate::ui::tokens::design();
+        let mut access = column![
+            toggler(g.reduced_transparency)
+                .label(crate::i18n::tr("Transparence réduite"))
+                .font(font)
+                .on_toggle(|v| wrap(Msg::ReducedTransparency(v))),
+            toggler(g.reduced_motion)
+                .label(crate::i18n::tr("Mouvement réduit"))
+                .font(font)
+                .on_toggle(|v| wrap(Msg::ReducedMotion(v))),
+        ]
+        .spacing(8);
+        if pack.contrast.reduced_transparency || pack.motion.reduced {
+            access = access.push(
+                text(crate::i18n::tr(
+                    "Le thème en place réduit déjà l'un ou l'autre.",
+                ))
+                .font(font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(self.ink().dim),
+            );
+        }
+        effects = effects.push(self.field("Accessibilité", "reduced_transparency", access));
         effects = effects.push(
             self.field(
                 "Bureau affiché",
@@ -522,12 +584,12 @@ impl App {
                         |v| wrap(Msg::Mode(v))
                     )
                     .font(font)
-                    .size(16),
+                    .size(crate::ui::tokens::ts(16.0)),
                     radio(crate::i18n::tr("Verre"), Mode::Glass, Some(g.mode), |v| {
                         wrap(Msg::Mode(v))
                     })
                     .font(font)
-                    .size(16),
+                    .size(crate::ui::tokens::ts(16.0)),
                 ]
                 .spacing(16),
             ),
@@ -581,12 +643,16 @@ impl App {
                 n => crate::tr!("{n} règles de fond d'écran.", n = n),
             })
             .font(font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .width(Length::Fill),
-            button(text("Choisir les fonds d'écran").font(font).size(12))
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::OpenWallpapers)),
+            button(
+                text("Choisir les fonds d'écran")
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press(wrap(Msg::OpenWallpapers)),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -601,7 +667,7 @@ impl App {
                         r = format!("{ratio:.1}")
                     ))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning())
                 } else {
                     text(crate::tr!(
@@ -609,7 +675,7 @@ impl App {
                         r = format!("{ratio:.1}")
                     ))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                 };
                 return column![self.section("Couleurs"), colors, note]
@@ -625,7 +691,7 @@ impl App {
                          (fourni par Hyprland)."
                     )
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                     effects,
                 ]
@@ -640,7 +706,7 @@ impl App {
             self.section("Thèmes livrés"),
             text("Leurs couleurs et leurs effets ; les fonds d'écran restent en place.")
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             presets,
             self.section("Mes thèmes"),
@@ -650,13 +716,17 @@ impl App {
                      d'abord pour le garder."
                 )
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text("Ouvrir le dossier").font(font).size(12))
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::OpenDir)),
+                button(
+                    text("Ouvrir le dossier")
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::OpenDir)),
             ]
             .spacing(12)
             .align_y(Alignment::Center),
@@ -671,11 +741,13 @@ impl App {
                 .on_submit(wrap(Msg::CreateFromScene))
                 .padding(8)
                 .width(Length::Fill),
-                button(text("Créer le thème").font(font).size(13))
-                    .padding([6, 14])
-                    .on_press_maybe(
-                        (!st.scene.trim().is_empty()).then(|| wrap(Msg::CreateFromScene))
-                    ),
+                button(
+                    text("Créer le thème")
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press_maybe((!st.scene.trim().is_empty()).then(|| wrap(Msg::CreateFromScene))),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -685,7 +757,7 @@ impl App {
                  (manifest.json) fournit sa scène maîtresse."
             )
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Fonds d'écran"),
             wallpapers,
@@ -939,6 +1011,14 @@ impl App {
                 // opaque (le verre reste du verre).
                 e.adaptive = v.then(|| e.adaptive.unwrap_or(0.95).max(e.opacity));
                 self.settings.effects.insert(place, e);
+                self.commit()
+            }
+            Msg::ReducedTransparency(v) => {
+                self.settings.reduced_transparency = Some(v);
+                self.commit()
+            }
+            Msg::ReducedMotion(v) => {
+                self.settings.reduced_motion = Some(v);
                 self.commit()
             }
             Msg::Mode(m) => {

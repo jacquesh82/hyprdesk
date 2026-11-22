@@ -25,6 +25,7 @@ pub mod archive;
 pub mod bridge;
 pub mod bundled;
 pub mod color;
+pub mod design;
 pub mod env;
 pub mod gtktheme;
 pub mod intent;

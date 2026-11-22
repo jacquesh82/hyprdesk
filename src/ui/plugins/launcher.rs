@@ -149,7 +149,7 @@ impl App {
                  les fenêtres lui laissent sa place. L'utiliser ne change jamais le mode du bureau."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14)
@@ -219,7 +219,7 @@ impl App {
             self.section("Lanceur d'applications"),
             text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             self.field(
                 "Présentation",
@@ -241,7 +241,7 @@ impl App {
                     .step(1.0_f32)
                     .on_release(wrap(Msg::AppsSuggestionsCommit))
                     .width(220),
-                    text(a.suggestions.to_string()).font(self.font).size(13),
+                    text(a.suggestions.to_string()).font(self.font).size(crate::ui::tokens::ts(13.0)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -257,8 +257,8 @@ impl App {
                 "apps_unified",
                 iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v))),
             ),
-            text(outside).font(self.font).size(13).color(fg),
-            text(inside).font(self.font).size(13).color(fg),
+            text(outside).font(self.font).size(crate::ui::tokens::ts(13.0)).color(fg),
+            text(inside).font(self.font).size(crate::ui::tokens::ts(13.0)).color(fg),
             self.field(
                 "Plein bureau : un autre raccourci",
                 "keys.search_desktop",
@@ -271,7 +271,7 @@ impl App {
             ),
             text("Les autres raccourcis, et tous les conflits : Réglages → Raccourcis.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(12);
@@ -280,7 +280,12 @@ impl App {
             .as_ref()
             .and_then(|p| p.launcher.desk_error.clone())
         {
-            col = col.push(text(e).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(e)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         // Un raccourci du lanceur en conflit : hyprdesk le prend, ou LYRA.
         for i in ["keys.search", "keys.search_desktop"]
@@ -290,7 +295,7 @@ impl App {
             let mut line = row![
                 text(i.message())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
             ]
@@ -301,7 +306,7 @@ impl App {
                     button(
                         text(crate::i18n::tr("hyprdesk le prend"))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .style(button::secondary)
@@ -320,7 +325,7 @@ impl App {
             button(
                 text(crate::i18n::tr("Ouvrir le lanceur"))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
             )
             .padding([6, 14])
             .on_press(UiMsg::Control(crate::control::Command::Apps)),
@@ -331,7 +336,7 @@ impl App {
                 button(
                     text(crate::i18n::tr("Utiliser SUPER + R"))
                         .font(self.font)
-                        .size(13),
+                        .size(crate::ui::tokens::ts(13.0)),
                 )
                 .padding([6, 14])
                 .style(button::secondary)
@@ -364,20 +369,27 @@ impl App {
             pins = pins.push(
                 text("Aucune application épinglée.")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
         for (i, id) in l.pinned.iter().enumerate() {
             let small = |label: &'static str, msg: Option<UiMsg>| {
-                button(text(label).font(self.font).size(12))
-                    .padding([3, 8])
-                    .style(button::secondary)
-                    .on_press_maybe(msg)
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([3, 8])
+                .style(button::secondary)
+                .on_press_maybe(msg)
             };
             pins = pins.push(
                 row![
-                    text(name(id)).font(self.font).size(14).width(Length::Fill),
+                    text(name(id))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .width(Length::Fill),
                     small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
                     small(
                         "↓",
@@ -406,9 +418,12 @@ impl App {
                         row![
                             text(a.name.clone())
                                 .font(self.font)
-                                .size(14)
+                                .size(crate::ui::tokens::ts(14.0))
                                 .width(Length::Fill),
-                            text(a.id.clone()).font(self.font).size(12).color(dim),
+                            text(a.id.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim),
                         ]
                         .spacing(8),
                     )
@@ -424,7 +439,7 @@ impl App {
                 self.section("Applications épinglées"),
                 text("Toujours dans le lanceur ; un clic les lance si elles ne sont pas ouvertes.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 pins,
                 iced::widget::text_input(
@@ -459,7 +474,9 @@ impl App {
                     iced::widget::slider(24..=96u16, l.size, |v| wrap(Msg::Size(v)))
                         .on_release(wrap(Msg::SizeCommit))
                         .width(260),
-                    text(format!("{} px", l.size)).font(self.font).size(14),
+                    text(format!("{} px", l.size))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
@@ -490,7 +507,7 @@ impl App {
                     button(
                         text("Créer et valider les icônes…")
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                     )
                     .padding([4, 10])
                     .style(button::secondary)

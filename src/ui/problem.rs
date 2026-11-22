@@ -4,6 +4,7 @@
 //! Rien ne part à l'assistant sans ce geste ; une demande explicite
 //! (`ProblemShow`, `Ask`) va droit à LYRA.
 
+use crate::ui::tokens::Shown as _;
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Task, Vector};
@@ -144,7 +145,7 @@ impl App {
         let dim = Color { a: 0.65, ..fg };
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let lyra =
             self.cfg.plugin_on("assistant") && crate::assistant::serve_command(&self.cfg).is_some();
@@ -152,7 +153,7 @@ impl App {
             scrollable(
                 text(p.text.clone())
                     .font(iced::Font::MONOSPACE)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
             )
             .height(Length::Fill),
@@ -167,13 +168,13 @@ impl App {
         let col = column![
             text(crate::i18n::tr("Un problème est survenu"))
                 .font(self.title_font())
-                .size(20)
+                .size(crate::ui::tokens::ts(20.0))
                 .color(fg),
             text(crate::i18n::tr(
                 "Le détail ci-dessous peut être copié pour le chercher ou le confier à un assistant."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             detail,
             row![
@@ -183,20 +184,20 @@ impl App {
                     ""
                 })
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text(crate::i18n::tr("Fermer")).font(self.font).size(14))
+                button(text(crate::i18n::tr("Fermer")).font(self.font).size(crate::ui::tokens::ts(14.0)))
                     .padding([8, 16])
                     .style(button::text)
                     .on_press(Msg::Problem(PrMsg::Close)),
-                button(text(crate::i18n::tr("Copier")).font(self.font).size(14))
+                button(text(crate::i18n::tr("Copier")).font(self.font).size(crate::ui::tokens::ts(14.0)))
                     .padding([8, 16])
                     .style(if lyra { button::secondary } else { button::primary })
                     .on_press(Msg::Problem(PrMsg::Copy)),
             ]
             .push(lyra.then(|| {
-                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(14))
+                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(crate::ui::tokens::ts(14.0)))
                     .padding([8, 16])
                     .on_press(Msg::Problem(PrMsg::Ask))
             }))

@@ -133,9 +133,12 @@ impl App {
             column![
                 text(p.label())
                     .font(self.title_font())
-                    .size(15)
+                    .size(crate::ui::tokens::ts(15.0))
                     .color(if on { ink.accent } else { fg }),
-                text(p.summary()).font(self.font).size(12).color(ink.dim),
+                text(p.summary())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(ink.dim),
             ]
             .spacing(6),
         )
@@ -169,7 +172,12 @@ impl App {
         let ink = self.ink();
         let (dim, warn) = (ink.dim, ink.accent);
         let g = &self.cfg.general;
-        let small = |s: String, c: Color| text(s).font(self.font).size(12).color(c);
+        let small = |s: String, c: Color| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+        };
         let mut col = column![small(
             crate::i18n::tr(
                 "Ce que hyprdesk demande lui-même à la machine pour dessiner sa barre, son \
@@ -223,9 +231,13 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(text("Relancer hyprdesk").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::Restart)),
+                    button(
+                        text("Relancer hyprdesk")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Restart)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -312,7 +324,12 @@ impl App {
         let ink = self.ink();
         let (fg, dim, warn) = (ink.fg, ink.dim, ink.accent);
         let g = &self.cfg.general;
-        let small = |s: String, c: Color| text(s).font(self.font).size(12).color(c);
+        let small = |s: String, c: Color| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+        };
         let Some(st) = self
             .panel
             .as_ref()
@@ -471,11 +488,11 @@ impl App {
                     ),
                     row![
                         Space::new().width(Length::Fill),
-                        button(text("Annuler").font(self.font).size(12))
+                        button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
                             .style(button::secondary)
                             .on_press(wrap(Msg::CancelExit)),
-                        button(text("Fermer la session").font(self.font).size(12))
+                        button(text("Fermer la session").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
                             .style(button::danger)
                             .on_press(wrap(Msg::Exit)),
@@ -485,9 +502,8 @@ impl App {
                 .spacing(8),
             );
         } else if hypr_pending {
-            col =
-                col.push(
-                    row![
+            col = col.push(
+                row![
                     small(
                         crate::i18n::tr(
                             "Pour appliquer : fermer puis rouvrir la session (Hyprland ne lit sa \
@@ -497,13 +513,17 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(text("Fermer la session pour appliquer…").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::AskExit)),
+                    button(
+                        text("Fermer la session pour appliquer…")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::AskExit)),
                 ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-                );
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
         } else if desk_pending {
             col = col.push(
                 row![
@@ -515,7 +535,7 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(text("Relancer hyprdesk pour appliquer").font(self.font).size(12))
+                    button(text("Relancer hyprdesk pour appliquer").font(self.font).size(crate::ui::tokens::ts(12.0)))
                         .padding([4, 10])
                         .on_press(wrap(Msg::Restart)),
                 ]
@@ -548,7 +568,7 @@ impl App {
                  les réglages ci-dessous d'un coup ; chacun se retouche ensuite à la main."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Profil"),
             row(Profile::ALL.map(|p| self.perf_card(p, active == Some(p))))
@@ -563,14 +583,23 @@ impl App {
             }
             None => crate::i18n::tr("Réglages retouchés à la main (aucun profil).").to_string(),
         };
-        let mut line = row![text(status).font(self.font).size(12).color(dim)]
-            .spacing(12)
-            .align_y(Alignment::Center);
+        let mut line = row![
+            text(status)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
         if !perf::untouched(options) {
             line = line.push(
-                button(text("Revenir à hyprland.lua").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::Clear)),
+                button(
+                    text("Revenir à hyprland.lua")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::Clear)),
             );
         }
         col = col.push(line);
@@ -578,7 +607,7 @@ impl App {
             col = col.push(
                 text("Sans flou, le tiroir des Réglages devient opaque pour rester lisible.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -604,7 +633,7 @@ impl App {
                             profiles.join(" · ")
                         ))
                         .font(self.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(dim),
                     ]
                     .spacing(4),
@@ -619,12 +648,16 @@ impl App {
                      (power-profiles-daemon)."
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text("Profil d'énergie…").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::Energy)),
+                button(
+                    text("Profil d'énergie…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::Energy)),
             ]
             .spacing(12)
             .align_y(Alignment::Center),

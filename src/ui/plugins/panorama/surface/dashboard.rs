@@ -164,16 +164,20 @@ impl App {
         ] {
             head = head.push(
                 self.panorama_feedback(
-                    button(text(crate::i18n::tr(label)).size(size).color(fg))
-                        .padding([5, 12])
-                        .on_press(wrap(PMsg::TasksSort(id)))
-                        .style(pill(t.sort == id)),
+                    button(
+                        text(crate::i18n::tr(label))
+                            .size(crate::ui::tokens::ts(size))
+                            .color(fg),
+                    )
+                    .padding([5, 12])
+                    .on_press(wrap(PMsg::TasksSort(id)))
+                    .style(pill(t.sort == id)),
                 ),
             );
         }
         head = head.push(
             self.panorama_feedback(
-                button(text("✕").size(size).color(fg))
+                button(text("✕").size(crate::ui::tokens::ts(size)).color(fg))
                     .padding([5, 12])
                     .on_press(wrap(PMsg::TasksClose))
                     .style(pill(false)),
@@ -197,7 +201,7 @@ impl App {
         ];
         let cell = |v: String, on: bool, w: Length| {
             text(v)
-                .size(size)
+                .size(crate::ui::tokens::ts(size))
                 .color(if on { accent } else { fg })
                 .width(w)
                 .wrapping(text::Wrapping::None)
@@ -240,7 +244,11 @@ impl App {
         });
         let mut rows = column![].spacing(2);
         if t.list.is_empty() {
-            rows = rows.push(text(crate::i18n::tr("Relevé…")).size(size).color(dim));
+            rows = rows.push(
+                text(crate::i18n::tr("Relevé…"))
+                    .size(crate::ui::tokens::ts(size))
+                    .color(dim),
+            );
         }
         for (row_i, p) in t.list.iter().take(40).enumerate() {
             let armed = t.kill == Some(p.pid);
@@ -431,10 +439,14 @@ impl App {
         let mut head = if audio {
             let tab = |label: &'static str, id: &'static str, on: bool| {
                 self.panorama_feedback(
-                    button(text(crate::i18n::tr(label)).size(13).color(fg))
-                        .padding([6, 12])
-                        .on_press(wrap(PMsg::MusicTab(id)))
-                        .style(pill(on)),
+                    button(
+                        text(crate::i18n::tr(label))
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(PMsg::MusicTab(id)))
+                    .style(pill(on)),
                 )
             };
             row![
@@ -460,10 +472,14 @@ impl App {
         if playing.is_some() {
             head = head.push(
                 self.panorama_feedback(
-                    button(text(crate::i18n::tr("Fermer")).size(13).color(fg))
-                        .padding([6, 12])
-                        .on_press(wrap(PMsg::VideoClose))
-                        .style(pill(false)),
+                    button(
+                        text(crate::i18n::tr("Fermer"))
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(PMsg::VideoClose))
+                    .style(pill(false)),
                 ),
             );
         }
@@ -475,10 +491,17 @@ impl App {
                 .max(36.0);
             let key = |label: &'static str, icon: &'static str, op: &'static str| {
                 let glyph: Element<'_, Msg> = if icon.is_empty() {
-                    text(crate::i18n::tr(label)).size(13).color(fg).into()
+                    text(crate::i18n::tr(label))
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg)
+                        .into()
                 } else {
-                    self.icon_named(icon, side * 0.4, fg)
-                        .unwrap_or_else(|| text(crate::i18n::tr(label)).size(13).color(fg).into())
+                    self.icon_named(icon, side * 0.4, fg).unwrap_or_else(|| {
+                        text(crate::i18n::tr(label))
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg)
+                            .into()
+                    })
                 };
                 self.panorama_feedback(
                     button(
@@ -529,7 +552,7 @@ impl App {
                 ]
                 .spacing(gap),
                 row![
-                    container(text(zoom).size(13).color(fg))
+                    container(text(zoom).size(crate::ui::tokens::ts(13.0)).color(fg))
                         .width(side)
                         .height(side)
                         .center_x(side)
@@ -576,7 +599,7 @@ impl App {
                     text(crate::i18n::tr(
                         "Aucune source : ajoutez-en dans Réglages → Panorama.",
                     ))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
             }
@@ -607,7 +630,11 @@ impl App {
         let c = &self.cfg.general.panorama;
         let (_, fg, _) = self.panorama_palette();
         let line_h = 46.0;
-        let small = |t: String| text(t).size(12).color(fx::alpha(fg, 0.7));
+        let small = |t: String| {
+            text(t)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(fx::alpha(fg, 0.7))
+        };
         if let Some((_, label, Some(url))) = crate::panorama::radio::service(&c.webradio) {
             let src = crate::panorama::config::Source {
                 name: label.to_string(),
@@ -633,7 +660,7 @@ impl App {
         let chip = |label: String, query: String| {
             let on = current == Some(query.as_str());
             self.panorama_feedback(
-                button(text(label).size(13).color(fg))
+                button(text(label).size(crate::ui::tokens::ts(13.0)).color(fg))
                     .padding([6, 12])
                     .on_press(wrap(PMsg::RadioSearch(query, false)))
                     .style(move |_, st| button::Style {
@@ -799,9 +826,13 @@ impl App {
                 main,
                 self.panorama_feedback(
                     button(
-                        container(text(if is_fav { "★" } else { "☆" }).size(18).color(fg))
-                            .center_x(Length::Fill)
-                            .center_y(Length::Fill),
+                        container(
+                            text(if is_fav { "★" } else { "☆" })
+                                .size(crate::ui::tokens::ts(18.0))
+                                .color(fg)
+                        )
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill),
                     )
                     .width(line_h)
                     .height(line_h)
@@ -948,7 +979,7 @@ impl App {
             // Au survol : ce que fait le bouton, en dessous.
             let tip = container(
                 text(crate::i18n::tr(label))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .wrapping(text::Wrapping::None),
             )
@@ -1027,7 +1058,7 @@ impl App {
                 });
             let tip = container(
                 text(label)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .wrapping(text::Wrapping::None),
             )
@@ -1114,7 +1145,7 @@ impl App {
                     text(crate::i18n::tr(
                         "Ajoutez vos raccourcis dans Réglages → Panorama → Raccourcis.",
                     ))
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
                 )
                 .height(Length::Fill)
@@ -1159,7 +1190,7 @@ impl App {
                     .icon_named(icon_name, (height * 0.37).min(width * 0.35), fg)
                     .unwrap_or_else(|| {
                         text(s.name.chars().next().unwrap_or('·').to_string())
-                            .size(24)
+                            .size(crate::ui::tokens::ts(24.0))
                             .color(fg)
                             .into()
                     });
@@ -1236,7 +1267,7 @@ impl App {
             .collect();
         let mut list = column![
             text(crate::i18n::tr("Fenêtres ouvertes"))
-                .size(15)
+                .size(crate::ui::tokens::ts(15.0))
                 .font(iced::Font {
                     weight: iced::font::Weight::Semibold,
                     ..self.panorama_font()
@@ -1247,7 +1278,7 @@ impl App {
         if wins.is_empty() {
             list = list.push(
                 text(crate::i18n::tr("Aucune fenêtre ouverte"))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
@@ -1292,11 +1323,11 @@ impl App {
                 container(
                     column![
                         text(title.clone())
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .wrapping(text::Wrapping::None),
                         text(format!("{} · {}", c.class, c.monitor))
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(dim)
                             .wrapping(text::Wrapping::None),
                     ]
@@ -1311,7 +1342,7 @@ impl App {
                 let here = c.monitor == *m;
                 let b = button(
                     text(m.to_string())
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg)
                         .wrapping(text::Wrapping::None),
                 )

@@ -5,6 +5,7 @@
 //! modification donne le focus à la fenêtre choisie ; Échap annule ; un clic
 //! choisit directement.
 
+use crate::ui::tokens::Shown as _;
 use iced::widget::{button, column, container, row, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Task, Vector};
@@ -157,7 +158,7 @@ impl App {
         let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         // En plein bureau, le choix d'une fenêtre cachée quitte le bureau.
         let title = if self.mode() == super::DesktopMode::FullDesktop {
@@ -165,8 +166,14 @@ impl App {
         } else {
             crate::i18n::tr("Fenêtres")
         };
-        let mut list =
-            column![text(title).font(self.font).size(12).color(dim).height(28)].spacing(2);
+        let mut list = column![
+            text(title)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+                .height(28)
+        ]
+        .spacing(2);
         if s.wins.is_empty() {
             list = list.push(
                 text(if s.loading {
@@ -175,7 +182,7 @@ impl App {
                     crate::i18n::tr("Aucune fenêtre ouverte.")
                 })
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim),
             );
         }
@@ -196,14 +203,17 @@ impl App {
                     row![
                         icon,
                         column![
-                            text(w.title.clone()).font(self.font).size(14).color(fg),
+                            text(w.title.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(14.0))
+                                .color(fg),
                             text(if w.stashed {
                                 crate::tr!("{c} · cachée par le bureau", c = w.class)
                             } else {
                                 format!("{} · {}", w.class, w.workspace)
                             })
                             .font(self.font)
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(dim)
                         ]
                         .width(Length::Fill)

@@ -232,7 +232,7 @@ pub(in crate::ui) fn urgent_mark<'a>(
             container(
                 text(crate::i18n::tr("Fenêtre nécessitant votre attention"))
                     .font(app.font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
             )
             .padding([4, 8])
             .style(move |_| container::Style {

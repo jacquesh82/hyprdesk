@@ -236,7 +236,7 @@ impl App {
         else {
             return text("Analyse de hyprland.lua…")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
@@ -246,14 +246,18 @@ impl App {
             .filter(|f| f.safe && f.fix.is_some())
             .count();
         let mut head = row![
-            button(text("Analyser à nouveau").font(self.font).size(13))
-                .padding([6, 12])
-                .style(button::secondary)
-                .on_press(wrap(Msg::Rescan)),
+            button(
+                text("Analyser à nouveau")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+            )
+            .padding([6, 12])
+            .style(button::secondary)
+            .on_press(wrap(Msg::Rescan)),
             button(
                 iced::widget::text(crate::tr!("Tout ranger ({n})", n = safe))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
             )
             .padding([6, 12])
             .on_press_maybe((safe > 0).then(|| wrap(Msg::FixAll))),
@@ -270,7 +274,7 @@ impl App {
         let mut col = column![
             text("hyprland.lua est relu : ce qui se contredit, fait double emploi ou ne sert plus. « Tout ranger » applique les corrections sûres (commenter, supprimer) ; hyprland.lua est copié avant, et une ligne modifiée entre-temps n'est pas touchée.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             head,
         ]
@@ -279,7 +283,7 @@ impl App {
             col = col.push(
                 iced::widget::text(m.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent),
             );
         }
@@ -287,7 +291,7 @@ impl App {
             col = col.push(
                 iced::widget::text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -295,7 +299,7 @@ impl App {
             col = col.push(
                 text("Rien à signaler : hyprland.lua est en ordre.")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(accent),
             );
             return col.into();
@@ -312,7 +316,7 @@ impl App {
                     None => f.excerpt.clone(),
                 })
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
             ]
             .spacing(2)
@@ -321,7 +325,7 @@ impl App {
                 info = info.push(
                     iced::widget::text(f.detail.clone())
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -334,9 +338,13 @@ impl App {
                     Fix::Archive(..) => "Archiver",
                 };
                 line = line.push(
-                    button(text(label).font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::Fix(i))),
+                    button(
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Fix(i))),
                 );
             }
             col = col.push(container(line).padding([8, 10]).style(move |_| {
@@ -365,10 +373,10 @@ impl App {
         let mut col = column![
             text("Avant chaque modification de la configuration (Réglages, ménage, raccourcis, démarrage, import, ligne de commande), et après chaque modification à la main, hyprdesk garde une copie des fichiers de ~/.config/hypr pendant 30 jours. « Revenir à cette version » remet ces fichiers, recharge Hyprland et annule tout si Hyprland signale une erreur nouvelle ; l'état d'avant reste dans l'historique.")
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             row![
-                button(text("Actualiser").font(font).size(13))
+                button(text("Actualiser").font(font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 12])
                     .style(button::secondary)
                     .on_press(wrap(Msg::HistoryRefresh)),
@@ -379,7 +387,7 @@ impl App {
             col = col.push(
                 iced::widget::text(m.clone())
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent),
             );
         }
@@ -387,7 +395,7 @@ impl App {
             col = col.push(
                 iced::widget::text(e.clone())
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -396,7 +404,7 @@ impl App {
                 .push(
                     text("Lecture de l'historique…")
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                 )
                 .into();
@@ -406,7 +414,7 @@ impl App {
                 .push(
                     text("Aucun instantané pour l'instant : le premier sera pris à la prochaine modification de la configuration.")
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                 )
                 .into();
@@ -430,7 +438,7 @@ impl App {
                 col = col.push(
                     iced::widget::text(label)
                         .font(self.title_font())
-                        .size(15)
+                        .size(crate::ui::tokens::ts(15.0))
                         .color(accent),
                 );
             }
@@ -445,17 +453,17 @@ impl App {
                 row![
                     iced::widget::text(t.format("%H:%M:%S").to_string())
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                     iced::widget::text(crate::history::reason_label(&e.snap.reason))
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                 ]
                 .spacing(10),
                 iced::widget::text(crate::tr!("Fichiers changés ensuite : {f}", f = changed))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             ]
             .spacing(2);
@@ -463,7 +471,7 @@ impl App {
                 row![
                     iced::widget::text(if open { "▾" } else { "▸" })
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                     info,
                 ]
@@ -481,7 +489,7 @@ impl App {
                     crate::i18n::tr("Revenir à cette version")
                 })
                 .font(font)
-                .size(12),
+                .size(crate::ui::tokens::ts(12.0)),
             )
             .padding([4, 10])
             .style(move |th, st| {
@@ -521,14 +529,18 @@ impl App {
         let (fg, dim) = (ink.fg, ink.dim);
         let font = self.font;
         let Some((_, r)) = s.diff.as_ref().filter(|(d, _)| d == id) else {
-            return text("Lecture…").font(font).size(12).color(dim).into();
+            return text("Lecture…")
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+                .into();
         };
         let diffs = match r {
             Ok(d) => d,
             Err(e) => {
                 return iced::widget::text(e.clone())
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .into();
             }
@@ -536,14 +548,14 @@ impl App {
         if diffs.is_empty() {
             return text("Identique à l'état actuel.")
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .into();
         }
         let mut col = column![
             text("Écart avec l'état actuel (− cette version, + maintenant) :")
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
         ]
         .spacing(4);
@@ -553,7 +565,7 @@ impl App {
             col = col.push(
                 iced::widget::text(format!("{} — {}", d.file, d.change.label()))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
             );
             // En-têtes « --- / +++ » retirés : le nom du fichier suffit.
@@ -565,7 +577,7 @@ impl App {
                 col = col.push(
                     iced::widget::text(lines[..shown].join("\n"))
                         .font(iced::Font::MONOSPACE)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(fg),
                 );
             }
@@ -578,7 +590,7 @@ impl App {
                     id = id
                 ))
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -601,13 +613,18 @@ impl App {
                  plugin le charge ou le décharge aussitôt."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(12);
         let Some(st) = &p.hyprpm else {
             return col
-                .push(text("Lecture…").font(self.font).size(13).color(dim))
+                .push(
+                    text("Lecture…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(dim),
+                )
                 .into();
         };
         match &st.repos {
@@ -615,7 +632,7 @@ impl App {
                 col = col.push(
                     text("hyprpm est absent (paquet hyprland) : aucun plugin à gérer.")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(warn),
                 );
                 return col.into();
@@ -624,7 +641,7 @@ impl App {
                 col = col.push(
                     iced::widget::text(crate::tr!("hyprpm : {e}", e = e))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(warn),
                 );
             }
@@ -632,7 +649,7 @@ impl App {
                 col = col.push(
                     text("Aucun dépôt installé : ajoutez-en un ci-dessous.")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                 );
             }
@@ -643,7 +660,11 @@ impl App {
                     } else {
                         crate::tr!("{n} (par {a})", n = r.name, a = r.author)
                     };
-                    col = col.push(iced::widget::text(head).font(self.title_font()).size(14));
+                    col = col.push(
+                        iced::widget::text(head)
+                            .font(self.title_font())
+                            .size(crate::ui::tokens::ts(14.0)),
+                    );
                     for pl in &r.plugins {
                         let name = pl.name.clone();
                         let busy = p.hyprpm_busy.as_deref() == Some(pl.name.as_str());
@@ -651,7 +672,7 @@ impl App {
                         let mut line = row![
                             iced::widget::text(pl.name.clone())
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                         ]
                         .spacing(10)
@@ -660,15 +681,25 @@ impl App {
                             line = line.push(
                                 text("tenu par hyprdesk (Bureau → Session)")
                                     .font(self.font)
-                                    .size(12)
+                                    .size(crate::ui::tokens::ts(12.0))
                                     .color(dim),
                             );
                         }
                         if loaded {
-                            line = line.push(text("chargé").font(self.font).size(12).color(accent));
+                            line = line.push(
+                                text("chargé")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(accent),
+                            );
                         }
                         if busy {
-                            line = line.push(text("…").font(self.font).size(13).color(dim));
+                            line = line.push(
+                                text("…")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .color(dim),
+                            );
                         }
                         let t = toggler(pl.enabled);
                         line = line.push(if p.hyprpm_busy.is_some() {
@@ -685,7 +716,7 @@ impl App {
             col = col.push(
                 iced::widget::text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -698,12 +729,16 @@ impl App {
                          (hyprpm reload absent du démarrage)."
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
-                    button(text("Recharger au démarrage").font(self.font).size(13))
-                        .padding([4, 12])
-                        .on_press(wrap(Msg::HyprpmAtStart)),
+                    button(
+                        text("Recharger au démarrage")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 12])
+                    .on_press(wrap(Msg::HyprpmAtStart)),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -712,14 +747,22 @@ impl App {
         let url = p.hyprpm_url.trim().to_string();
         col.push(
             row![
-                button(text("Actualiser").font(self.font).size(13))
-                    .padding([4, 12])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::HyprpmRefresh)),
-                button(text("Mettre à jour…").font(self.font).size(13))
-                    .padding([4, 12])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::HyprpmUpdate)),
+                button(
+                    text("Actualiser")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([4, 12])
+                .style(button::secondary)
+                .on_press(wrap(Msg::HyprpmRefresh)),
+                button(
+                    text("Mettre à jour…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([4, 12])
+                .style(button::secondary)
+                .on_press(wrap(Msg::HyprpmUpdate)),
             ]
             .spacing(10),
         )
@@ -730,11 +773,15 @@ impl App {
                     .on_input(|s| wrap(Msg::HyprpmUrl(s)))
                     .on_submit(wrap(Msg::HyprpmAdd))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(Length::Fill),
-                button(text("Ajouter…").font(self.font).size(13))
-                    .padding([4, 12])
-                    .on_press_maybe((!url.is_empty()).then(|| wrap(Msg::HyprpmAdd))),
+                button(
+                    text("Ajouter…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([4, 12])
+                .on_press_maybe((!url.is_empty()).then(|| wrap(Msg::HyprpmAdd))),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -746,7 +793,7 @@ impl App {
                  Actualiser ensuite.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         )
         .into()

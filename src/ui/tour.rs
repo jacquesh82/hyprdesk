@@ -5,6 +5,7 @@
 //! Réglages (clé `tour_seen`), relançable par le bouton « Visite guidée » de
 //! l'en-tête ou `hyprdesk tour`.
 
+use crate::ui::tokens::Shown as _;
 use iced::widget::{Space, button, column, container, row, scrollable, text as raw_text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Task, Vector};
@@ -435,24 +436,32 @@ impl App {
                 column![
                     text(crate::i18n::tr("Première visite ?"))
                         .font(self.title_font())
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(fg),
                     text(crate::i18n::tr(
                         "Une visite guidée présente les réglages de hyprdesk, thème par thème."
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 ]
                 .spacing(4)
                 .width(Length::Fill),
-                button(text(crate::i18n::tr("Commencer")).font(self.font).size(12))
-                    .padding([5, 12])
-                    .on_press(go(TourMsg::Start)),
-                button(text(crate::i18n::tr("Plus tard")).font(self.font).size(12))
-                    .padding([5, 12])
-                    .style(button::text)
-                    .on_press(go(TourMsg::End)),
+                button(
+                    text(crate::i18n::tr("Commencer"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([5, 12])
+                .on_press(go(TourMsg::Start)),
+                button(
+                    text(crate::i18n::tr("Plus tard"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([5, 12])
+                .style(button::text)
+                .on_press(go(TourMsg::End)),
             ]
             .spacing(10)
             .align_y(Alignment::Center)
@@ -473,7 +482,7 @@ impl App {
         let dim = Color { a: 0.72, ..fg };
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let go = |m: TourMsg| Msg::Panel(PanelMsg::Tour(m));
         let last = i + 1 == steps.len();
@@ -488,11 +497,11 @@ impl App {
                 column![
                     text(crate::i18n::tr(it.title))
                         .font(self.title_font())
-                        .size(15)
+                        .size(crate::ui::tokens::ts(15.0))
                         .color(fg),
                     raw_text(crate::i18n::tr(it.body).to_string())
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .line_height(1.35)
                         .color(dim),
                 ]
@@ -540,7 +549,7 @@ impl App {
                 button(
                     text(crate::i18n::tr("Quitter la visite"))
                         .font(self.font)
-                        .size(12),
+                        .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([6, 10])
                 .style(button::text)
@@ -549,10 +558,14 @@ impl App {
         }
         if i > 0 {
             buttons = buttons.push(
-                button(text(crate::i18n::tr("Précédent")).font(self.font).size(13))
-                    .padding([7, 14])
-                    .style(button::secondary)
-                    .on_press(go(TourMsg::Prev)),
+                button(
+                    text(crate::i18n::tr("Précédent"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([7, 14])
+                .style(button::secondary)
+                .on_press(go(TourMsg::Prev)),
             );
         }
         buttons = buttons.push(
@@ -563,7 +576,7 @@ impl App {
                     crate::i18n::tr("Suivant")
                 })
                 .font(self.font)
-                .size(13),
+                .size(crate::ui::tokens::ts(13.0)),
             )
             .padding([7, 16])
             .on_press(go(if last { TourMsg::End } else { TourMsg::Next })),
@@ -575,15 +588,15 @@ impl App {
                 total = steps.len()
             ))
             .font(self.title_font())
-            .size(11)
+            .size(crate::ui::tokens::ts(11.0))
             .color(accent),
             text(crate::i18n::tr(s.title))
                 .font(self.title_font())
-                .size(22)
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
             raw_text(crate::i18n::tr(s.intro).to_string())
                 .font(self.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .line_height(1.35)
                 .color(fg),
             scrollable(grid).height(Length::Fill),

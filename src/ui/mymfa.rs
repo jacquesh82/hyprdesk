@@ -574,7 +574,7 @@ impl App {
             .id(id)
             .secure(true)
             .font(self.font)
-            .size(16)
+            .size(crate::ui::tokens::ts(16.0))
             .padding(12)
             .width(Length::Fill)
             .style(move |_, status| {
@@ -599,15 +599,35 @@ impl App {
             }
             input
         };
-        let title = |t: String| text(t).font(self.title_font()).size(20).color(fg);
-        let para = |t: String| text(t).font(self.font).size(14).color(fg);
-        let note = |t: String, c: Color| text(t).font(self.font).size(12).color(c);
+        let title = |t: String| {
+            text(t)
+                .font(self.title_font())
+                .size(crate::ui::tokens::ts(20.0))
+                .color(fg)
+        };
+        let para = |t: String| {
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(14.0))
+                .color(fg)
+        };
+        let note = |t: String, c: Color| {
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+        };
         // Lien discret : bascule création ↔ reprise.
         let link = |t: String, to: Kind| {
-            button(text(t).font(self.font).size(12).color(focus))
-                .padding(0)
-                .style(|_: &iced::Theme, _| button::Style::default())
-                .on_press_maybe((!d.busy).then(|| wrap(MMsg::Switch(to))))
+            button(
+                text(t)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(focus),
+            )
+            .padding(0)
+            .style(|_: &iced::Theme, _| button::Style::default())
+            .on_press_maybe((!d.busy).then(|| wrap(MMsg::Switch(to))))
         };
         let backup_name = |p: &PathBuf| {
             p.file_name()
@@ -637,7 +657,7 @@ impl App {
             ..Default::default()
         };
         let actions = |cancel: Option<String>, ok: String, enabled: bool| {
-            let mut ok = button(text(ok).font(self.font).size(14))
+            let mut ok = button(text(ok).font(self.font).size(crate::ui::tokens::ts(14.0)))
                 .padding([8, 16])
                 .style(ok_style);
             if enabled && !d.busy {
@@ -648,7 +668,7 @@ impl App {
                 .align_y(Alignment::Center);
             if let Some(c) = cancel {
                 r = r.push(
-                    button(text(c).font(self.font).size(14))
+                    button(text(c).font(self.font).size(crate::ui::tokens::ts(14.0)))
                         .padding([8, 16])
                         .style(cancel_style)
                         .on_press(wrap(MMsg::Cancel)),

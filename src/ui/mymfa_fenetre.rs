@@ -1242,16 +1242,17 @@ impl Fenetre {
 
         let titre = text(crate::i18n::tr("myMFA"))
             .font(app.title_font())
-            .size(20)
+            .size(crate::ui::tokens::ts(20.0))
             .color(fg);
         let onglets = row(Onglet::TOUS.iter().map(|o| {
             let actif = self.onglet == *o;
             Element::from(
-                button(text(o.titre()).font(app.font).size(14).color(if actif {
-                    on_btn
-                } else {
-                    fg
-                }))
+                button(
+                    text(o.titre())
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(if actif { on_btn } else { fg }),
+                )
                 .padding([8, 14])
                 .style(move |_, st| button::Style {
                     background: Some(
@@ -1293,7 +1294,7 @@ impl Fenetre {
         let message: Option<Element<'_, Msg>> = self.message.as_ref().map(|(erreur, t)| {
             text(t.clone())
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(if *erreur { error } else { dim })
                 .into()
         });
@@ -1355,17 +1356,22 @@ impl Fenetre {
         let fg = color(r.fg, 1.0);
         let edge = color(r.edge, 1.0);
         let wrap = Msg::MymfaF;
-        button(text(t.to_string()).font(app.font).size(13).color(fg))
-            .padding([7, 12])
-            .style(move |_, st| button::Style {
-                background: matches!(st, button::Status::Hovered | button::Status::Pressed)
-                    .then(|| Color { a: 0.12, ..fg }.into()),
-                text_color: fg,
-                border: Border::default().rounded(8).width(1).color(edge),
-                ..Default::default()
-            })
-            .on_press(wrap(act))
-            .into()
+        button(
+            text(t.to_string())
+                .font(app.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg),
+        )
+        .padding([7, 12])
+        .style(move |_, st| button::Style {
+            background: matches!(st, button::Status::Hovered | button::Status::Pressed)
+                .then(|| Color { a: 0.12, ..fg }.into()),
+            text_color: fg,
+            border: Border::default().rounded(8).width(1).color(edge),
+            ..Default::default()
+        })
+        .on_press(wrap(act))
+        .into()
     }
 
     /* ── Onglet Codes ── */
@@ -1388,7 +1394,7 @@ impl Fenetre {
                     &self.recherche,
                 )
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -1468,7 +1474,7 @@ impl Fenetre {
                     .to_string(),
                 )
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim),
             );
         }
@@ -1483,23 +1489,27 @@ impl Fenetre {
             let carte = container(
                 row![
                     column![
-                        text(c.label()).font(app.font).size(14).color(fg),
+                        text(c.label())
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
                         text(if c.tag.is_empty() {
                             String::new()
                         } else {
                             format!("#{}", c.tag)
                         })
                         .font(app.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(accent),
                     ]
                     .spacing(2)
                     .width(Length::FillPortion(5)),
-                    button(text(affiche).font(app.font).size(22).color(if self.masque {
-                        dim
-                    } else {
-                        fg
-                    }))
+                    button(
+                        text(affiche)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(22.0))
+                            .color(if self.masque { dim } else { fg })
+                    )
                     .padding([6, 14])
                     .style(move |_, st| button::Style {
                         background: Some(
@@ -1529,7 +1539,7 @@ impl Fenetre {
                         container(
                             text(format!("{} s", c.remaining))
                                 .font(app.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(dim),
                         )
                         .width(Length::Shrink)
@@ -1563,7 +1573,7 @@ impl Fenetre {
         let saisie = |placeholder: &'static str, valeur: &str, champ: &'static str| {
             text_input(placeholder, valeur)
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -1585,7 +1595,7 @@ impl Fenetre {
         let mut col = column![
             text(crate::i18n::tr("Nouveau compte").to_string())
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg),
             saisie(
                 "URI otpauth:// ou clé base32 (JBSWY3DP…)",
@@ -1614,12 +1624,12 @@ impl Fenetre {
                 }),
             text(crate::i18n::tr("Ou depuis un code QR :").to_string())
                 .font(app.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             row![
                 text_input(crate::i18n::tr("chemin de l'image…"), &self.image_chemin,)
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding([8, 10])
                     .width(Length::Fill)
                     .style(move |_, status| {
@@ -1659,10 +1669,13 @@ impl Fenetre {
                     row![
                         text(format!("{service} — {compte}"))
                             .font(app.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         iced::widget::Space::new().width(Length::Fill),
-                        text(code).font(app.font).size(18).color(accent),
+                        text(code)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(18.0))
+                            .color(accent),
                         bouton_simple(
                             app,
                             crate::i18n::tr("Ajouter ce compte"),
@@ -1682,7 +1695,12 @@ impl Fenetre {
             );
         }
         if let Some(e) = &self.nouveau.erreur {
-            col = col.push(text(e.clone()).font(app.font).size(12).color(dim));
+            col = col.push(
+                text(e.clone())
+                    .font(app.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
         }
         col.into()
     }
@@ -1709,7 +1727,7 @@ impl Fenetre {
                     &self.recherche,
                 )
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -1770,7 +1788,10 @@ impl Fenetre {
                 row![
                     button(
                         column![
-                            text(site.clone()).font(app.font).size(14).color(fg),
+                            text(site.clone())
+                                .font(app.font)
+                                .size(crate::ui::tokens::ts(14.0))
+                                .color(fg),
                             text(if user.is_empty() {
                                 if tag.is_empty() {
                                     String::new()
@@ -1783,7 +1804,7 @@ impl Fenetre {
                                 format!("{user} · #{tag}")
                             })
                             .font(app.font)
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(dim),
                         ]
                         .spacing(2)
@@ -1836,7 +1857,7 @@ impl Fenetre {
                         .to_string(),
                 )
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim),
             );
         }
@@ -1864,10 +1885,13 @@ impl Fenetre {
                 row![
                     text(crate::i18n::tr("Identifiant").to_string())
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                         .width(Length::Fixed(110.0)),
-                    text(user.clone()).font(app.font).size(13).color(fg),
+                    text(user.clone())
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                     iced::widget::Space::new().width(Length::Fill),
                     bouton_simple(
                         app,
@@ -1886,7 +1910,7 @@ impl Fenetre {
                 row![
                     text(crate::i18n::tr("Mot de passe").to_string())
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                         .width(Length::Fixed(110.0)),
                     text(if montre {
@@ -1895,7 +1919,7 @@ impl Fenetre {
                         "••••••••".to_string()
                     })
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(if montre { fg } else { dim }),
                     iced::widget::Space::new().width(Length::Fill),
                     if montre {
@@ -1923,10 +1947,13 @@ impl Fenetre {
                 row![
                     text(crate::i18n::tr("Note").to_string())
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                         .width(Length::Fixed(110.0)),
-                    text(note).font(app.font).size(13).color(fg),
+                    text(note)
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(fg),
                 ]
                 .spacing(8),
             );
@@ -1942,7 +1969,7 @@ impl Fenetre {
                     format!("{origin} · #{tag}")
                 })
                 .font(app.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
                 iced::widget::Space::new().width(Length::Fill),
                 bouton_simple(
@@ -1971,7 +1998,7 @@ impl Fenetre {
                 row![
                     text(crate::i18n::tr("Code 2FA du site").to_string())
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                         .width(Length::Fixed(110.0)),
                     text(format!(
@@ -1980,7 +2007,7 @@ impl Fenetre {
                         Self::texte_de(a, "account")
                     ))
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 ]
                 .spacing(8),
@@ -2009,7 +2036,7 @@ impl Fenetre {
                 row![
                     text(format!("🔑 {} — {}", rp, nom))
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg),
                     iced::widget::Space::new().width(Length::Fill),
                     bouton_simple(
@@ -2039,7 +2066,7 @@ impl Fenetre {
         let champ = |placeholder: &'static str, valeur: &str, nom: &'static str, secret: bool| {
             let mut t = text_input(placeholder, valeur)
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -2076,7 +2103,7 @@ impl Fenetre {
                 row![
                     text(crate::i18n::tr("Solidité").to_string())
                         .font(app.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(dim),
                     container(
                         container(iced::widget::Space::new().width(Length::Fill))
@@ -2095,7 +2122,7 @@ impl Fenetre {
                     .height(4),
                     text(format!("{t} · {bits} bits"))
                         .font(app.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(c),
                 ]
                 .spacing(8)
@@ -2111,7 +2138,7 @@ impl Fenetre {
                 crate::i18n::tr("Modifier le site").to_string()
             })
             .font(app.font)
-            .size(14)
+            .size(crate::ui::tokens::ts(14.0))
             .color(fg),
             champ(
                 "https://exemple.fr (adresse)",
@@ -2136,7 +2163,7 @@ impl Fenetre {
             row![
                 text(crate::i18n::tr("Générer :").to_string())
                     .font(app.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 bouton_simple(
                     app,
@@ -2145,7 +2172,7 @@ impl Fenetre {
                 ),
                 text(gene.longueur.to_string())
                     .font(app.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
                 bouton_simple(
                     app,
@@ -2228,7 +2255,7 @@ impl Fenetre {
             col = col.push(
                 text(crate::i18n::tr("Aucune activité enregistrée.").to_string())
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
             return col.into();
@@ -2259,7 +2286,12 @@ impl Fenetre {
                 } else {
                     jour.clone()
                 };
-                col = col.push(text(libelle).font(app.font).size(12).color(dim));
+                col = col.push(
+                    text(libelle)
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                );
             }
             let action = Self::texte_de(e, "action");
             let label = e
@@ -2279,15 +2311,18 @@ impl Fenetre {
                     row![
                         text(at.get(11..16).unwrap_or("").to_string())
                             .font(app.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(Length::Fixed(46.0)),
                         text(Self::verbe_site(&action))
                             .font(app.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .width(Length::Fixed(90.0)),
-                        text(label).font(app.font).size(13).color(fg),
+                        text(label)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
                     ]
                     .spacing(10),
                 )
@@ -2366,7 +2401,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Usage sur 30 jours").to_string())
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg),
         );
         let histoire = self
@@ -2400,7 +2435,7 @@ impl Fenetre {
                             }),
                         text(jour.get(8..10).unwrap_or("").to_string())
                             .font(app.font)
-                            .size(9)
+                            .size(crate::ui::tokens::ts(9.0))
                             .color(dim),
                     ]
                     .spacing(2),
@@ -2412,7 +2447,7 @@ impl Fenetre {
             barres = barres.push(
                 text(crate::i18n::tr("Aucun usage enregistré sur 30 jours.").to_string())
                     .font(app.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -2432,29 +2467,40 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Santé des mots de passe").to_string())
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg),
         );
         let Some(a) = &self.audit else {
             col = col.push(
                 text(crate::i18n::tr("Chargement de l'audit…").to_string())
                     .font(app.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
             return col.into();
         };
         let section_sante =
             |titre: String, vide: String, items: Vec<Value>, cle_label: &str| -> Element<'_, Msg> {
-                let mut bloc = column![text(titre).font(app.font).size(13).color(warn),].spacing(4);
+                let mut bloc = column![
+                    text(titre)
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(warn),
+                ]
+                .spacing(4);
                 if items.is_empty() {
-                    bloc = bloc.push(text(vide).font(app.font).size(12).color(dim));
+                    bloc = bloc.push(
+                        text(vide)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim),
+                    );
                 }
                 for item in &items {
                     bloc = bloc.push(
                         text(Self::texte_de(item, cle_label))
                             .font(app.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(fg),
                     );
                 }
@@ -2484,7 +2530,7 @@ impl Fenetre {
                     .to_string(),
                 )
                 .font(app.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(ok_vert(app)),
             );
         }
@@ -2500,7 +2546,7 @@ impl Fenetre {
             let mut bloc = column![
                 text(crate::tr!("Réutilisés ({n})", n = reutilises.len()).to_string())
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(warn)
             ]
             .spacing(4);
@@ -2515,7 +2561,12 @@ impl Fenetre {
                             .join(" · ")
                     })
                     .unwrap_or_default();
-                bloc = bloc.push(text(sites).font(app.font).size(12).color(fg));
+                bloc = bloc.push(
+                    text(sites)
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(fg),
+                );
             }
             col = col.push(bloc);
         }
@@ -2530,7 +2581,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Fuites (Have I Been Pwned) : vérification côté web en attendant le port au démon.").to_string())
                 .font(app.font)
-                .size(11)
+                .size(crate::ui::tokens::ts(11.0))
                 .color(dim),
         );
         col.into()
@@ -2546,9 +2597,12 @@ impl Fenetre {
             column![
                 text(nombre.to_string())
                     .font(app.title_font())
-                    .size(26)
+                    .size(crate::ui::tokens::ts(26.0))
                     .color(fg),
-                text(libelle.to_string()).font(app.font).size(11).color(dim),
+                text(libelle.to_string())
+                    .font(app.font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(dim),
             ]
             .spacing(2),
         )
@@ -2579,24 +2633,27 @@ impl Fenetre {
         let Some(a) = &self.appareil else {
             return text(crate::i18n::tr("Lecture de l'appareil…").to_string())
                 .font(app.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
         let titre = |t: &str| {
             text(t.to_string())
                 .font(app.title_font())
-                .size(15)
+                .size(crate::ui::tokens::ts(15.0))
                 .color(fg)
         };
         let ligne = |etiquette: String, valeur: String, c: Color| -> Element<'static, Msg> {
             row![
                 text(etiquette)
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim)
                     .width(Length::Fixed(220.0)),
-                text(valeur).font(app.font).size(13).color(c),
+                text(valeur)
+                    .font(app.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(c),
             ]
             .spacing(10)
             .into()
@@ -2676,7 +2733,7 @@ impl Fenetre {
             c1 = c1.push(
                 text(tr("Une clé de session attend : le prochain déverrouillage activera l'ouverture à la connexion."))
                     .font(app.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -2707,7 +2764,7 @@ impl Fenetre {
                 tenu = if b(a, "secretService") { tr(", tenu par myMFA") } else { tr(", pas tenu par myMFA") }
             ))
             .font(app.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(6);
@@ -2722,7 +2779,7 @@ impl Fenetre {
             c2 = c2.push(
                 text(format!("{label} ({nombre})"))
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             );
             let Some(mut elements) = elements else {
@@ -2755,11 +2812,17 @@ impl Fenetre {
                     row![
                         text(s(&e, "label"))
                             .font(app.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(fg)
                             .width(Length::Fill),
-                        text(source).font(app.font).size(11).color(dim),
-                        text(quand).font(app.font).size(11).color(dim),
+                        text(source)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(dim),
+                        text(quand)
+                            .font(app.font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(dim),
                     ]
                     .spacing(12)
                     .padding([0, 12]),
@@ -2772,7 +2835,7 @@ impl Fenetre {
                     "Coffre verrouillé : les libellés des secrets n'apparaissent qu'ouvert.",
                 ))
                 .font(app.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -2791,7 +2854,7 @@ impl Fenetre {
                     "Aucun pour l'instant : le registre se remplit à la première synchro.",
                 ))
                 .font(app.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -2829,7 +2892,7 @@ impl Fenetre {
                         format!("{type_} · {nom}")
                     })
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(Length::Fill),
                     text(if moi {
@@ -2838,9 +2901,12 @@ impl Fenetre {
                         String::new()
                     })
                     .font(app.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(ok),
-                    text(quand).font(app.font).size(11).color(dim),
+                    text(quand)
+                        .font(app.font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(dim),
                 ]
                 .spacing(12),
             );
@@ -2864,7 +2930,7 @@ impl Fenetre {
         )
         .secure(true)
         .font(app.font)
-        .size(13)
+        .size(crate::ui::tokens::ts(13.0))
         .padding(8)
         .on_input(|m| Msg::MymfaF(FMsg::MdpDrive(m)))
         .on_submit(Msg::MymfaF(FMsg::LierDrive));
@@ -2873,13 +2939,13 @@ impl Fenetre {
                 "Google Drive porte un autre coffre que celui de cet ordinateur (celui du web, en général)."
             ))
             .font(app.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(warn),
             text(crate::i18n::tr(
                 "Liez-les avec le mot de passe du coffre de Drive, une seule fois : ce coffre d'appareil garde sa clé et son mot de passe (ouvert par la session), les deux fusionnent à chaque synchro. Les secrets des applications restent sur cet ordinateur."
             ))
             .font(app.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             row![
                 saisie,
@@ -2913,7 +2979,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Synchronisation Google Drive").to_string())
                 .font(app.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg),
         );
         let statut = self.statut_synchro.clone().unwrap_or(Value::Null);
@@ -2939,7 +3005,7 @@ impl Fenetre {
                 crate::i18n::tr("Non connecté.").to_string()
             })
             .font(app.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(if connecte { fg } else { dim }),
             text(if horloge {
                 crate::i18n::tr("Horloge vérifiée (NTS).").to_string()
@@ -2947,7 +3013,7 @@ impl Fenetre {
                 crate::i18n::tr("Horloge non vérifiée.").to_string()
             })
             .font(app.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(if horloge { fg } else { warn }),
             text(if revision.is_empty() {
                 String::new()
@@ -2955,7 +3021,7 @@ impl Fenetre {
                 crate::tr!("Dernière sauvegarde : {revision}", revision = revision).to_string()
             })
             .font(app.font)
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(dim),
         ]
         .spacing(14)
@@ -2998,7 +3064,7 @@ impl Fenetre {
             col = col.push(
                 text(crate::tr!("Dernière synchro en échec : {code}", code = code).to_string())
                     .font(app.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(warn),
             );
         }
@@ -3020,7 +3086,7 @@ impl Fenetre {
                                 .to_string()
                         )
                         .font(app.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(dim),
                         text(
                             e.get("texte")
@@ -3029,7 +3095,7 @@ impl Fenetre {
                                 .to_string()
                         )
                         .font(app.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(fg),
                     ]
                     .spacing(10),
@@ -3091,7 +3157,7 @@ fn bascule(app: &Habillage, nom: &'static str, actif: bool, t: &str) -> Element<
     button(
         text(t.to_string())
             .font(app.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(if actif { accent } else { fg }),
     )
     .padding([5, 10])
@@ -3123,11 +3189,16 @@ fn bouton_etoile_login(app: &Habillage, id: String, favori: bool) -> Element<'st
     let wrap = Msg::MymfaF;
     let marque = if favori { "★" } else { "☆" };
     let c = if favori { accent } else { dim };
-    button(text(marque.to_string()).font(app.font).size(15).color(c))
-        .padding(4)
-        .style(|_, _| button::Style::default())
-        .on_press(wrap(FMsg::FavoriLogin(id, !favori)))
-        .into()
+    button(
+        text(marque.to_string())
+            .font(app.font)
+            .size(crate::ui::tokens::ts(15.0))
+            .color(c),
+    )
+    .padding(4)
+    .style(|_, _| button::Style::default())
+    .on_press(wrap(FMsg::FavoriLogin(id, !favori)))
+    .into()
 }
 
 fn bouton_poubelle_login(app: &Habillage, id: String, _site: String) -> Element<'static, Msg> {
@@ -3136,17 +3207,22 @@ fn bouton_poubelle_login(app: &Habillage, id: String, _site: String) -> Element<
     let dim = color(r.dim, 1.0);
     let warn = color(r.error, 1.0);
     let wrap = Msg::MymfaF;
-    button(text("🗑").font(app.font).size(13).color(dim))
-        .padding(4)
-        .style(move |_, st| button::Style {
-            text_color: match st {
-                button::Status::Hovered | button::Status::Pressed => warn,
-                _ => dim,
-            },
-            ..Default::default()
-        })
-        .on_press(wrap(FMsg::SupprimerLogin(id)))
-        .into()
+    button(
+        text("🗑")
+            .font(app.font)
+            .size(crate::ui::tokens::ts(13.0))
+            .color(dim),
+    )
+    .padding(4)
+    .style(move |_, st| button::Style {
+        text_color: match st {
+            button::Status::Hovered | button::Status::Pressed => warn,
+            _ => dim,
+        },
+        ..Default::default()
+    })
+    .on_press(wrap(FMsg::SupprimerLogin(id)))
+    .into()
 }
 
 /// Solidité d'un mot de passe (0-4, bits), réplique de l'heuristique du web
@@ -3252,7 +3328,7 @@ fn filtre_bouton(app: &Habillage, actif: bool, t: &str, act: FMsg) -> Element<'s
     button(
         text(t.to_string())
             .font(app.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(if actif { accent } else { fg }),
     )
     .padding([5, 10])
@@ -3283,24 +3359,29 @@ fn bouton_simple(app: &Habillage, t: &str, act: FMsg) -> Element<'static, Msg> {
     let btn = color(r.button, 1.0);
     let on_btn = color(r.on_button, 1.0);
     let wrap = Msg::MymfaF;
-    button(text(t.to_string()).font(app.font).size(13).color(on_btn))
-        .padding([7, 12])
-        .style(move |_, st| button::Style {
-            background: Some(
-                match st {
-                    button::Status::Hovered | button::Status::Pressed => {
-                        color(crate::theme::mix(r.button, r.on_button, 0.12), 1.0)
-                    }
-                    _ => btn,
+    button(
+        text(t.to_string())
+            .font(app.font)
+            .size(crate::ui::tokens::ts(13.0))
+            .color(on_btn),
+    )
+    .padding([7, 12])
+    .style(move |_, st| button::Style {
+        background: Some(
+            match st {
+                button::Status::Hovered | button::Status::Pressed => {
+                    color(crate::theme::mix(r.button, r.on_button, 0.12), 1.0)
                 }
-                .into(),
-            ),
-            text_color: on_btn,
-            border: Border::default().rounded(8).width(1).color(btn),
-            ..Default::default()
-        })
-        .on_press(wrap(act))
-        .into()
+                _ => btn,
+            }
+            .into(),
+        ),
+        text_color: on_btn,
+        border: Border::default().rounded(8).width(1).color(btn),
+        ..Default::default()
+    })
+    .on_press(wrap(act))
+    .into()
 }
 
 fn bouton_etoile(app: &Habillage, id: String, favori: bool) -> Element<'static, Msg> {
@@ -3311,11 +3392,16 @@ fn bouton_etoile(app: &Habillage, id: String, favori: bool) -> Element<'static, 
     let wrap = Msg::MymfaF;
     let marque = if favori { "★" } else { "☆" };
     let c = if favori { accent } else { dim };
-    button(text(marque.to_string()).font(app.font).size(15).color(c))
-        .padding(4)
-        .style(|_, _| button::Style::default())
-        .on_press(wrap(FMsg::Favori(id, !favori)))
-        .into()
+    button(
+        text(marque.to_string())
+            .font(app.font)
+            .size(crate::ui::tokens::ts(15.0))
+            .color(c),
+    )
+    .padding(4)
+    .style(|_, _| button::Style::default())
+    .on_press(wrap(FMsg::Favori(id, !favori)))
+    .into()
 }
 
 fn bouton_poubelle(app: &Habillage, id: String, label: String) -> Element<'static, Msg> {
@@ -3324,17 +3410,22 @@ fn bouton_poubelle(app: &Habillage, id: String, label: String) -> Element<'stati
     let dim = color(r.dim, 1.0);
     let warn = color(r.error, 1.0);
     let wrap = Msg::MymfaF;
-    button(text("🗑").font(app.font).size(13).color(dim))
-        .padding(4)
-        .style(move |_, st| button::Style {
-            text_color: match st {
-                button::Status::Hovered | button::Status::Pressed => warn,
-                _ => dim,
-            },
-            ..Default::default()
-        })
-        .on_press(wrap(FMsg::SupprimerCompte(id, label)))
-        .into()
+    button(
+        text("🗑")
+            .font(app.font)
+            .size(crate::ui::tokens::ts(13.0))
+            .color(dim),
+    )
+    .padding(4)
+    .style(move |_, st| button::Style {
+        text_color: match st {
+            button::Status::Hovered | button::Status::Pressed => warn,
+            _ => dim,
+        },
+        ..Default::default()
+    })
+    .on_press(wrap(FMsg::SupprimerCompte(id, label)))
+    .into()
 }
 
 /* ───── Fenêtre d'application (processus à part) ─────────────────────────── */

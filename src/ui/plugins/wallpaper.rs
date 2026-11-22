@@ -233,7 +233,7 @@ impl App {
                 .to_string(),
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14);
@@ -244,7 +244,7 @@ impl App {
             col = col.push(
                 text("Le fond affiché ici vient de hyprdesk.lua, qui passe avant ces réglages.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }
@@ -283,9 +283,13 @@ impl App {
                         .on_submit(wrap(Msg::FolderSubmit))
                         .padding(8)
                         .width(240),
-                    button(text("Parcourir").font(self.font).size(14))
-                        .padding([6, 12])
-                        .on_press(wrap(Msg::Browse)),
+                    button(
+                        text("Parcourir")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::Browse)),
                 ]
                 .spacing(8),
             ),
@@ -302,7 +306,7 @@ impl App {
                     col = col.push(
                         text(crate::tr!("Diaporama de {dir}", dir = dir.display()))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(dim),
                     );
                     col = col.push(
@@ -322,7 +326,7 @@ impl App {
                                     format!("{secs} s")
                                 })
                                 .font(self.font)
-                                .size(14),
+                                .size(crate::ui::tokens::ts(14.0)),
                             ]
                             .spacing(12),
                         ),
@@ -332,7 +336,7 @@ impl App {
                         "",
                         toggler(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v))),
                     ));
-                    col = col.push(text("Pour changer de dossier : saisir le dossier, puis choisir à nouveau « Diaporama ».").font(self.font).size(12).color(dim));
+                    col = col.push(text("Pour changer de dossier : saisir le dossier, puis choisir à nouveau « Diaporama ».").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
             }
             Some(WallKind::Color) => {
@@ -378,7 +382,7 @@ impl App {
                     col = col.push(
                         text("Aucune image ni vidéo (jpg, png, webp, mp4…) dans ce dossier.")
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(dim),
                     );
                 }
@@ -407,10 +411,12 @@ impl App {
                                         thumb.into()
                                     }
                                 }
-                                None => container(text("…").font(self.font).size(14))
-                                    .center_x(THUMB.0 as f32)
-                                    .center_y(THUMB.1 as f32)
-                                    .into(),
+                                None => container(
+                                    text("…").font(self.font).size(crate::ui::tokens::ts(14.0)),
+                                )
+                                .center_x(THUMB.0 as f32)
+                                .center_y(THUMB.1 as f32)
+                                .into(),
                             };
                             button(inner)
                                 .padding(3)
@@ -483,7 +489,7 @@ impl App {
                         .join(", ")
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -511,7 +517,7 @@ impl App {
                 col = col.push(
                     text(crate::tr!("Attention : {w}", w = w))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(crate::ui::tone::warning()),
                 );
             }
@@ -547,7 +553,7 @@ impl App {
                 button(
                     text("Supprimer la règle de cette portée")
                         .font(self.font)
-                        .size(14),
+                        .size(crate::ui::tokens::ts(14.0)),
                 )
                 .padding([6, 12])
                 .on_press(wrap(Msg::RemoveWall)),
@@ -638,27 +644,31 @@ impl App {
             let delete = self.delete_button(armed, wrap(Msg::DeleteRule(s.clone())));
             rules = rules.push(
                 row![
-                    button(text(scope_label(&s)).font(self.font).size(12))
-                        .padding([3, 10])
-                        .style(move |_, status| button::Style {
-                            background: Some(
-                                if active {
-                                    Color { a: 0.28, ..accent }
-                                } else if matches!(status, button::Status::Hovered) {
-                                    Color { a: 0.1, ..fg }
-                                } else {
-                                    Color { a: 0.05, ..fg }
-                                }
-                                .into(),
-                            ),
-                            text_color: fg,
-                            border: Border::default().rounded(999).width(1).color(Color {
-                                a: if active { 0.7 } else { 0.15 },
-                                ..if active { accent } else { fg }
-                            }),
-                            ..Default::default()
-                        })
-                        .on_press(wrap(Msg::Scope(s))),
+                    button(
+                        text(scope_label(&s))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([3, 10])
+                    .style(move |_, status| button::Style {
+                        background: Some(
+                            if active {
+                                Color { a: 0.28, ..accent }
+                            } else if matches!(status, button::Status::Hovered) {
+                                Color { a: 0.1, ..fg }
+                            } else {
+                                Color { a: 0.05, ..fg }
+                            }
+                            .into(),
+                        ),
+                        text_color: fg,
+                        border: Border::default().rounded(999).width(1).color(Color {
+                            a: if active { 0.7 } else { 0.15 },
+                            ..if active { accent } else { fg }
+                        }),
+                        ..Default::default()
+                    })
+                    .on_press(wrap(Msg::Scope(s))),
                     delete,
                 ]
                 .spacing(2)
@@ -671,7 +681,7 @@ impl App {
                 column![
                     text(crate::i18n::tr("Règles en place :"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(Color { a: 0.6, ..fg }),
                     rules.wrap(),
                 ]

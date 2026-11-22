@@ -3,6 +3,7 @@
 //! s'efface d'elle-même. Commandé par `hyprdesk osd …` (`crate::osd`), qui
 //! fait l'action puis prévient le démon (`control::Command::Osd`).
 
+use crate::ui::tokens::Shown as _;
 use std::time::{Duration, Instant};
 
 use iced::widget::{container, row, text};
@@ -120,7 +121,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
         let accent = color(th.accent, 1.0);
-        let bg = color(th.bg, th.effect(crate::config::Place::Menus).opacity);
+        let bg = color(th.bg, th.shown(crate::config::Place::Menus).opacity);
         let dim = Color { a: 0.35, ..fg };
         let fill = if o.muted { dim } else { accent };
         let icon: Element<'_, Msg> = self
@@ -163,7 +164,11 @@ impl App {
             row![
                 icon,
                 gauge,
-                text(label).font(self.font).size(14).color(fg).width(52),
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0))
+                    .color(fg)
+                    .width(52),
             ]
             .spacing(14)
             .align_y(Alignment::Center),

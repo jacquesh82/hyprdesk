@@ -8,6 +8,7 @@
 //! Si un autre démon de notifications tient le nom (wayle, mako…), rien
 //! n'est affiché ici : c'est lui qui montre les notifications.
 
+use crate::ui::tokens::Shown as _;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -429,7 +430,7 @@ impl App {
         let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let edge = if t.n.urgency == Urgency::Critical {
             accent
@@ -448,13 +449,18 @@ impl App {
                 t.n.app.clone()
             })
             .font(self.font)
-            .size(11)
+            .size(crate::ui::tokens::ts(11.0))
             .color(dim)
             .width(Length::Fill),
-            button(text("✕").font(self.font).size(12).color(dim))
-                .padding([0, 6])
-                .style(button::text)
-                .on_press(Msg::Toasts(TMsg::Close(id))),
+            button(
+                text("✕")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim)
+            )
+            .padding([0, 6])
+            .style(button::text)
+            .on_press(Msg::Toasts(TMsg::Close(id))),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -462,7 +468,7 @@ impl App {
             head,
             text(t.n.summary.clone())
                 .font(self.title_font())
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg)
                 .wrapping(text::Wrapping::None),
         ]
@@ -470,7 +476,13 @@ impl App {
         if !t.n.body.is_empty() {
             // Deux lignes au plus (la carte a une hauteur fixe).
             let body: String = t.n.body.lines().take(2).collect::<Vec<_>>().join("\n");
-            col = col.push(text(body).font(self.font).size(12).color(dim));
+            col = col.push(
+                text(body)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .line_height(crate::ui::tokens::line_height())
+                    .color(dim),
+            );
         }
         let extra: Vec<&(String, String)> =
             t.n.actions
@@ -482,9 +494,13 @@ impl App {
             let mut r = row![].spacing(8);
             for (k, label) in extra {
                 r = r.push(
-                    button(text(label.clone()).font(self.font).size(11))
-                        .padding([2, 10])
-                        .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
+                    button(
+                        text(label.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(11.0)),
+                    )
+                    .padding([2, 10])
+                    .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
                 );
             }
             col = col.push(r);
@@ -532,7 +548,7 @@ impl App {
         let mut col = column![
             text(crate::i18n::tr("Notifications"))
                 .font(self.font)
-                .size(16)
+                .size(crate::ui::tokens::ts(16.0))
                 .color(fg)
         ]
         .spacing(12);
@@ -546,9 +562,19 @@ impl App {
         for n in self.toasts.history.iter().take(30) {
             col = col.push(
                 column![
-                    text(n.app.clone()).font(self.font).size(11).color(fg),
-                    text(n.summary.clone()).font(self.font).size(14).color(fg),
-                    text(n.body.clone()).font(self.font).size(12).color(fg)
+                    text(n.app.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(fg),
+                    text(n.summary.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(fg),
+                    text(n.body.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .line_height(crate::ui::tokens::line_height())
+                        .color(fg)
                 ]
                 .spacing(4),
             );

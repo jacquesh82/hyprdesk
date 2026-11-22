@@ -139,6 +139,7 @@ mod tests {
             colors: [("bg".to_string(), "#171b27".to_string())].into(),
             effects: Default::default(),
             fonts: None,
+            design: None,
             updated: String::new(),
         };
         assert_eq!(

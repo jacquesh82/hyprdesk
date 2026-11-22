@@ -121,7 +121,7 @@ impl App {
             container(
                 text(label)
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(if on { accent } else { dim }),
             )
             .padding([2, 8])
@@ -156,13 +156,17 @@ impl App {
                 };
                 // Paquet configurable : « Configurer » ouvre sa page de réglages.
                 let configure: Element<'_, UiMsg> = if info.id == crate::apptheme::PLUGIN && on {
-                    button(text("Configurer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(UiMsg::Control(crate::control::Command::Settings(
-                            info.id.into(),
-                        )))
-                        .into()
+                    button(
+                        text("Configurer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(UiMsg::Control(crate::control::Command::Settings(
+                        info.id.into(),
+                    )))
+                    .into()
                 } else {
                     iced::widget::Space::new().into()
                 };
@@ -170,7 +174,9 @@ impl App {
                     row![
                         column![
                             row![
-                                text(info.label).font(self.title_font()).size(14),
+                                text(info.label)
+                                    .font(self.title_font())
+                                    .size(crate::ui::tokens::ts(14.0)),
                                 badge(
                                     if on {
                                         "actif"
@@ -183,7 +189,10 @@ impl App {
                             ]
                             .spacing(8)
                             .align_y(Alignment::Center),
-                            text(info.summary).font(self.font).size(12).color(dim),
+                            text(info.summary)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim),
                         ]
                         .spacing(3)
                         .width(Length::Fill),
@@ -212,14 +221,21 @@ impl App {
                 WidgetSource::Plugin(path) => ("tiers", Some(path.clone()), &mut tiers),
             };
             let mut head = row![
-                text(t.name.clone()).font(self.title_font()).size(14),
+                text(t.name.clone())
+                    .font(self.title_font())
+                    .size(crate::ui::tokens::ts(14.0)),
                 badge(if active { "actif" } else { "inactif" }, active),
                 badge(origin, false),
             ]
             .spacing(8)
             .align_y(Alignment::Center);
             if t.error.is_some() {
-                head = head.push(text("en erreur").font(self.font).size(12).color(warn));
+                head = head.push(
+                    text("en erreur")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(warn),
+                );
             }
             let mut info = column![head].spacing(3).width(Length::Fill);
             let detail = match (&t.error, &path) {
@@ -227,14 +243,23 @@ impl App {
                 (None, Some(p)) => format!("{} — {}", t.description, p.display()),
                 (None, None) => t.description.clone(),
             };
-            info = info.push(text(detail).font(self.font).size(12).color(dim));
+            info = info.push(
+                text(detail)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
             let mut line = row![info].spacing(12).align_y(Alignment::Center);
             if let Some(path) = path.filter(|p| p.starts_with(&user)) {
                 line = line.push(
-                    button(text("Retirer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Retire(path))),
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Retire(path))),
                 );
             }
             let configurable = !t.options.is_empty() || t.id == "updates";
@@ -244,7 +269,7 @@ impl App {
                     button(
                         text(if open { "Fermer" } else { "Configurer" })
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .style(button::secondary)
@@ -289,11 +314,13 @@ impl App {
                 .on_submit(wrap(Msg::Install))
                 .padding(8)
                 .width(Length::Fill),
-                button(text("Installer").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press_maybe(
-                        (!p.plugins.source.trim().is_empty()).then(|| wrap(Msg::Install))
-                    ),
+                button(
+                    text("Installer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press_maybe((!p.plugins.source.trim().is_empty()).then(|| wrap(Msg::Install))),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -301,7 +328,7 @@ impl App {
                 button(
                     text("Ouvrir le dossier des plugins")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .style(button::secondary)
@@ -309,7 +336,7 @@ impl App {
                 button(
                     text("Rechercher de nouveaux plugins")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .style(button::secondary)
@@ -320,8 +347,14 @@ impl App {
         .spacing(10);
         if let Some(r) = &p.plugins.report {
             add = add.push(match r {
-                Ok(m) => text(m.clone()).font(self.font).size(12).color(accent),
-                Err(e) => text(e.clone()).font(self.font).size(12).color(warn),
+                Ok(m) => text(m.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(accent),
+                Err(e) => text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
             });
         }
         if let Some(q) = &p.plugins.pending {
@@ -329,18 +362,18 @@ impl App {
                 column![
                 text(crate::tr!("Relire « {name} » avant de l'installer", name = q.name))
                     .font(self.ui_font(iced::font::Weight::Medium))
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
                 text(crate::i18n::tr(
                     "Un plugin s'exécute avec vos droits : il peut lire vos fichiers et lancer des \
                      commandes. N'installez que le code d'un auteur que vous connaissez.",
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(warn),
                 text(crate::tr!("Source : {s}", s = q.source))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             ]
                 .spacing(6);
@@ -348,7 +381,7 @@ impl App {
                 card = card.push(
                     text(crate::tr!("Commit : {c}", c = c))
                         .font(iced::Font::MONOSPACE)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -360,14 +393,14 @@ impl App {
                         n = q.lua_files
                     ))
                     .font(iced::Font::MONOSPACE)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim),
                 )
                 .push(
                     container(
                         text(q.preview.clone())
                             .font(iced::Font::MONOSPACE)
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(fg),
                     )
                     .padding(8)
@@ -380,13 +413,21 @@ impl App {
                 )
                 .push(
                     row![
-                        button(text("Installer ce code").font(self.font).size(13))
-                            .padding([6, 14])
-                            .on_press(wrap(Msg::Confirm(true))),
-                        button(text("Annuler").font(self.font).size(13))
-                            .padding([6, 14])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Confirm(false))),
+                        button(
+                            text("Installer ce code")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::Confirm(true))),
+                        button(
+                            text("Annuler")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Confirm(false))),
                     ]
                     .spacing(10),
                 );
@@ -398,7 +439,7 @@ impl App {
             let active = p.plugins.tab == tab;
             button(
                 text(label)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .font(self.ui_font(iced::font::Weight::Medium)),
             )
             .padding([8, 14])
@@ -439,7 +480,7 @@ impl App {
                      fonction (barre, lanceur, règles de workspaces…)."
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
                 packages,
             ]
@@ -458,7 +499,7 @@ impl App {
                             p0 = user.display()
                         ))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                         add,
                     ]
@@ -487,7 +528,7 @@ impl App {
             let cur = set.and_then(|m| m.get(k)).unwrap_or(default);
             let label = text(k.replace('_', " "))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .width(Length::Fill);
             let field: Element<'_, UiMsg> = match cur {
                 OptValue::Bool(b) => {
@@ -507,7 +548,7 @@ impl App {
                     let (id, key) = (t.id.clone(), k.clone());
                     text_input(&default.display(), &shown)
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .padding(6)
                         .width(220)
                         .on_input(move |v| wrap(Msg::Draft(dk.clone(), v)))
@@ -525,13 +566,17 @@ impl App {
                          instance du plugin, sauf les options écrites dans hyprdesk.lua."
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
-                    button(text("Valeurs du plugin").font(self.font).size(12))
-                        .padding([3, 8])
-                        .style(button::text)
-                        .on_press(wrap(Msg::OptReset(t.id.clone()))),
+                    button(
+                        text("Valeurs du plugin")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([3, 8])
+                    .style(button::text)
+                    .on_press(wrap(Msg::OptReset(t.id.clone()))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -551,7 +596,7 @@ impl App {
                         row![
                             text(crate::i18n::tr("Un seul mot de passe par mise à jour"))
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                             keep,
                         ]
@@ -564,7 +609,7 @@ impl App {
                      Posée dans /etc/polkit-1/rules.d (mot de passe demandé une fois).",
                         ))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                     ]
                     .spacing(8),
@@ -573,7 +618,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr("Commandes utilisées"))
                     .font(self.title_font())
-                    .size(13),
+                    .size(crate::ui::tokens::ts(13.0)),
             );
             col = col.push(
                 text(crate::i18n::tr(
@@ -582,7 +627,7 @@ impl App {
                      ~/.local/state/hyprdesk/updates.log.",
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
             let over = &self.cfg.general.update_commands;
@@ -603,7 +648,7 @@ impl App {
                     };
                     text_input(&hint, &shown)
                         .font(iced::Font::MONOSPACE)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .padding(6)
                         .width(Length::Fill)
                         .on_input(move |v| wrap(Msg::Draft(dk.clone(), v)))
@@ -613,12 +658,16 @@ impl App {
                     row![
                         text(crate::i18n::tr(label))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .width(Length::Fill),
-                        button(text("Commandes de hyprdesk").font(self.font).size(12))
-                            .padding([3, 8])
-                            .style(button::text)
-                            .on_press(wrap(Msg::UpdReset(id.clone()))),
+                        button(
+                            text("Commandes de hyprdesk")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 8])
+                        .style(button::text)
+                        .on_press(wrap(Msg::UpdReset(id.clone()))),
                     ]
                     .align_y(Alignment::Center),
                 );
@@ -626,7 +675,7 @@ impl App {
                     row![
                         text(crate::i18n::tr("relevé"))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(90),
                         field(false, check, &oc)
@@ -638,7 +687,7 @@ impl App {
                     row![
                         text(crate::i18n::tr("mise à jour"))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(90),
                         field(true, upgrade, &ou)
@@ -651,7 +700,7 @@ impl App {
                 col = col.push(
                     text(crate::i18n::tr("aucune source de paquets reconnue"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -660,7 +709,7 @@ impl App {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }

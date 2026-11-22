@@ -188,7 +188,7 @@ impl App {
                  glisser au doigt ou à la souris. Il ne prend jamais le clavier aux fenêtres."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Écrans"),
         ]
@@ -198,7 +198,7 @@ impl App {
             col = col.push(
                 text("Lecture des écrans…")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -236,7 +236,7 @@ impl App {
                     button(
                         text(if hidden { "Afficher" } else { "Escamoter" })
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
                     .on_press(wrap(Msg::Toggle(s.name.clone()))),
@@ -256,7 +256,7 @@ impl App {
                 )
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(fg),
         );
         if !c.declined.is_empty() {
@@ -266,14 +266,18 @@ impl App {
                     p0 = c.declined.join(", ")
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
         col = col.push(
-            button(text("Rechercher les écrans").font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(Msg::Detect)),
+            button(
+                text("Rechercher les écrans")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .on_press(wrap(Msg::Detect)),
         );
         col = col.push(self.panorama_sleep_section());
         // Aperçu : un outil d'essai sans écran bandeau (avancé).
@@ -285,7 +289,7 @@ impl App {
                  la fenêtre se redimensionne (plus haute que large : portrait).",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         let open = self.panorama.preview.map(|p| p.virtual_size);
@@ -293,16 +297,20 @@ impl App {
         for (size, label) in PREVIEW_FORMATS {
             let on = open == Some(*size);
             formats = formats.push(
-                button(text(crate::i18n::tr(label)).font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(move |t, st| {
-                        if on {
-                            button::primary(t, st)
-                        } else {
-                            button::secondary(t, st)
-                        }
-                    })
-                    .on_press(wrap(Msg::Preview(*size))),
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(move |t, st| {
+                    if on {
+                        button::primary(t, st)
+                    } else {
+                        button::secondary(t, st)
+                    }
+                })
+                .on_press(wrap(Msg::Preview(*size))),
             );
         }
         preview = preview.push(formats);
@@ -322,7 +330,7 @@ impl App {
                     wrap(Msg::Layout(v))
                 })
                 .font(self.font)
-                .size(16)
+                .size(crate::ui::tokens::ts(16.0))
                 .text_size(13),
             );
         }
@@ -332,7 +340,7 @@ impl App {
         let mut seg = row![
             text(crate::i18n::tr("Régler"))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .width(80)
         ]
         .spacing(6)
@@ -344,14 +352,18 @@ impl App {
                 l.short().to_string()
             };
             seg = seg.push(
-                button(text(label).font(self.font).size(12))
-                    .padding([4, 10])
-                    .style(if l == edit {
-                        button::primary
-                    } else {
-                        button::secondary
-                    })
-                    .on_press(wrap(Msg::EditLayout(l))),
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(if l == edit {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::EditLayout(l))),
             );
         }
         col = col.push(seg);
@@ -366,14 +378,14 @@ impl App {
                 }
             ))
             .font(self.font)
-            .size(13),
+            .size(crate::ui::tokens::ts(13.0)),
         );
         match edit {
             Layout::Single => {
                 col = col.push(
                     text("Une page à la fois : la vue par défaut, puis les pages des onglets ci-dessus.")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 );
             }
@@ -384,7 +396,7 @@ impl App {
                         n = c.design.tiles.len()
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 );
             }
@@ -394,7 +406,7 @@ impl App {
                     let mut r = row![
                         text(crate::i18n::tr("Part de la zone 1"))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .width(140)
                     ]
                     .spacing(14)
@@ -403,7 +415,7 @@ impl App {
                         r = r.push(
                             iced::widget::radio(f.id(), f, cur, move |v| wrap(Msg::First(l, v)))
                                 .font(self.font)
-                                .size(16)
+                                .size(crate::ui::tokens::ts(16.0))
                                 .text_size(13),
                         );
                     }
@@ -419,7 +431,7 @@ impl App {
                         row![
                             text(crate::tr!("Zone {n}", n = i + 1))
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(80),
                             iced::widget::pick_list(options.clone(), Some(cur), move |v| {
                                 wrap(Msg::PaneWidget(l, i, v))
@@ -429,7 +441,7 @@ impl App {
                                 c.pane_of(l, i)
                             )))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                         ]
                         .spacing(10)
@@ -447,7 +459,7 @@ impl App {
                  d'une zone. En plein écran, la vidéo reste dans sa zone.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         col.into()
@@ -463,16 +475,20 @@ impl App {
         let n = c.pages.len();
         let tab = |label: String, b: Option<usize>| {
             let on = board == b;
-            button(text(label).font(self.font).size(12))
-                .padding([4, 12])
-                .style(move |th, st| {
-                    if on {
-                        button::primary(th, st)
-                    } else {
-                        button::secondary(th, st)
-                    }
-                })
-                .on_press(wrap(Msg::ComposePage(b)))
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 12])
+            .style(move |th, st| {
+                if on {
+                    button::primary(th, st)
+                } else {
+                    button::secondary(th, st)
+                }
+            })
+            .on_press(wrap(Msg::ComposePage(b)))
         };
         let mut tabs = row![tab(crate::i18n::tr("Vue par défaut").to_string(), None)]
             .spacing(6)
@@ -481,16 +497,24 @@ impl App {
             tabs = tabs.push(tab(p.name.clone(), Some(i)));
         }
         tabs = tabs.extend([
-            button(text("+ Page").font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::text)
-                .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(false))))
-                .into(),
-            button(text("+ Page Système").font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::text)
-                .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(true))))
-                .into(),
+            button(
+                text("+ Page")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .style(button::text)
+            .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(false))))
+            .into(),
+            button(
+                text("+ Page Système")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .style(button::text)
+            .on_press_maybe((n < 12).then(|| wrap(Msg::PageAdd(true))))
+            .into(),
         ]);
         let mut col = column![
             iced::widget::scrollable(tabs).direction(
@@ -505,7 +529,7 @@ impl App {
                  l'autre sur le bandeau ; les points en bas de l'écran y mènent aussi."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(12);
@@ -530,12 +554,16 @@ impl App {
                         iced::widget::text_input(crate::i18n::tr("Nom"), &name)
                             .on_input(move |v| wrap(Msg::PageName(i, v)))
                             .on_submit(wrap(Msg::PageNameCommit(i)))
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .width(Length::Fill),
                         self.panorama_move_buttons(i, n, |i, d| wrap(Msg::PageMove(i, d))),
-                        button(text("Retirer la page").font(self.font).size(12))
-                            .padding([4, 10])
-                            .on_press(wrap(Msg::PageRemove(i))),
+                        button(
+                            text("Retirer la page")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::PageRemove(i))),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
@@ -556,16 +584,20 @@ impl App {
         for (id, label) in PLAYER_VIEWS {
             let on = view == *id;
             tabs = tabs.push(
-                button(text(crate::i18n::tr(label)).font(self.font).size(12))
-                    .padding([4, 12])
-                    .style(move |th, st| {
-                        if on {
-                            button::primary(th, st)
-                        } else {
-                            button::secondary(th, st)
-                        }
-                    })
-                    .on_press(wrap(Msg::SourcesKind(id))),
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 12])
+                .style(move |th, st| {
+                    if on {
+                        button::primary(th, st)
+                    } else {
+                        button::secondary(th, st)
+                    }
+                })
+                .on_press(wrap(Msg::SourcesKind(id))),
             );
         }
         let extra = if view == "radio" {
@@ -585,7 +617,7 @@ impl App {
                         .on_toggle(|v| wrap(Msg::RestoreOnFullscreenExit(v))),
                     text("Rétablit le workspace, la position et la taille d'origine. Désactivé : la fenêtre reste dans Panorama après la sortie du plein écran.")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(self.ink().dim),
                 ]
                 .spacing(8),
@@ -610,14 +642,14 @@ impl App {
                 .on_toggle(|b| wrap(Msg::DimOn(b))),
             text("Un voile sombre se pose autour de la zone Vidéo quand elle joue : l'image se détache, l'écran fatigue moins. La vidéo elle-même n'est jamais voilée.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(8);
         if !v.on {
             return col.into();
         }
-        let value = |s: String| text(s).font(self.font).size(14);
+        let value = |s: String| text(s).font(self.font).size(crate::ui::tokens::ts(14.0));
         col = col.push(
             self.field(
                 "Intensité",
@@ -714,7 +746,7 @@ impl App {
             ),
             text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(10)))
@@ -754,7 +786,7 @@ impl App {
                         format!("{} min", c.sleep_minutes)
                     })
                     .font(self.font)
-                    .size(14),
+                    .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
@@ -762,7 +794,7 @@ impl App {
         col = col.push(
             text("Rien ne joue et personne n'a touché l'écran : l'horloge s'affiche, jusqu'au prochain toucher.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color { a: 0.8, ..dim }),
         );
         col.into()
@@ -803,10 +835,10 @@ impl App {
         msg: impl Fn(usize, i32) -> UiMsg,
     ) -> Element<'_, UiMsg> {
         row![
-            button(text("↑").size(12))
+            button(text("↑").size(crate::ui::tokens::ts(12.0)))
                 .padding([2, 7])
                 .on_press_maybe((i > 0).then(|| msg(i, -1))),
-            button(text("↓").size(12))
+            button(text("↓").size(crate::ui::tokens::ts(12.0)))
                 .padding([2, 7])
                 .on_press_maybe((i + 1 < n).then(|| msg(i, 1))),
         ]
@@ -821,14 +853,18 @@ impl App {
             button(
                 text("Dessiner les icônes (SmartUI)")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
             .on_press_maybe(idle.then(|| wrap(Msg::DrawIcons(what, false)))),
-            button(text("Tout redessiner").font(self.font).size(12))
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press_maybe(idle.then(|| wrap(Msg::DrawIcons(what, true)))),
+            button(
+                text("Tout redessiner")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press_maybe(idle.then(|| wrap(Msg::DrawIcons(what, true)))),
         ]
         .spacing(8)
         .into()
@@ -854,7 +890,11 @@ impl App {
                 .into(),
             }
         };
-        text(t).font(self.font).size(12).color(dim).into()
+        text(t)
+            .font(self.font)
+            .size(crate::ui::tokens::ts(12.0))
+            .color(dim)
+            .into()
     }
 
     /// LYRA vocale : ses réglages sont dans IA → Voix ; ici, un renvoi.
@@ -886,7 +926,10 @@ impl App {
         };
         let mut col = column![
             self.section(title),
-            text(about).font(self.font).size(12).color(dim),
+            text(about)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
         ]
         .spacing(8);
         let list = match kind {
@@ -918,10 +961,12 @@ impl App {
                 self.panorama_icon_thumb(&s.icon, 24.0),
                 self.panorama_move_buttons(i, n, |i, d| wrap(Msg::SourceMove(i, d))),
                 column![
-                    text(s.name.clone()).font(self.font).size(13),
+                    text(s.name.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                     text(format!("{} · {state}", s.url))
                         .font(self.font)
-                        .size(11)
+                        .size(crate::ui::tokens::ts(11.0))
                         .color(dim),
                 ]
                 .width(Length::Fill),
@@ -934,9 +979,13 @@ impl App {
             .align_y(Alignment::Center);
             if crate::panorama::auth::needs_account(&s.url) && signed != Some(true) {
                 line = line.push(
-                    button(text("Se connecter").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::SourceLogin(i))),
+                    button(
+                        text("Se connecter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::SourceLogin(i))),
                 );
             }
             col = col.push(line.push(self.delete_button(false, wrap(Msg::SourceRemove(i)))));
@@ -946,35 +995,47 @@ impl App {
             row![
                 iced::widget::text_input(crate::i18n::tr("Nom"), name)
                     .on_input(|v| wrap(Msg::SourceName(v)))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(160),
                 iced::widget::text_input("https://…", url)
                     .on_input(|v| wrap(Msg::SourceUrl(v)))
                     .on_submit(wrap(Msg::SourceAdd))
-                    .size(13),
-                button(text("Ajouter").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press_maybe(
-                        (url.starts_with("https://") || url.starts_with("http://"))
-                            .then(|| wrap(Msg::SourceAdd))
-                    ),
+                    .size(crate::ui::tokens::ts(13.0)),
+                button(
+                    text("Ajouter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press_maybe(
+                    (url.starts_with("https://") || url.starts_with("http://"))
+                        .then(|| wrap(Msg::SourceAdd))
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
         );
         col = col.push(
             row![
-                button(text("Liste par défaut").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::SourcesReset)),
+                button(
+                    text("Liste par défaut")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::SourcesReset)),
                 // Radios : leurs logos viennent de l'annuaire, pas de SmartUI.
                 if kind == "radio" {
-                    button(text("Chercher les logos").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(UiMsg::Panorama(
-                            crate::ui::plugins::panorama::surface::PMsg::RadioLogos(true),
-                        ))
-                        .into()
+                    button(
+                        text("Chercher les logos")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .on_press(UiMsg::Panorama(
+                        crate::ui::plugins::panorama::surface::PMsg::RadioLogos(true),
+                    ))
+                    .into()
                 } else {
                     self.panorama_icons_buttons("sources")
                 },
@@ -1034,34 +1095,46 @@ impl App {
                 )
                 .on_input(|v| wrap(Msg::RadioQuery(v)))
                 .on_submit(wrap(Msg::RadioQuerySubmit))
-                .size(13),
-                button(text("Chercher").font(self.font).size(12))
-                    .padding([4, 10])
-                    .on_press_maybe(
-                        (!self.panorama.radio_query.trim().is_empty() && !self.panorama.radio_busy)
-                            .then(|| wrap(Msg::RadioQuerySubmit))
-                    ),
+                .size(crate::ui::tokens::ts(13.0)),
+                button(
+                    text("Chercher")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press_maybe(
+                    (!self.panorama.radio_query.trim().is_empty() && !self.panorama.radio_busy)
+                        .then(|| wrap(Msg::RadioQuerySubmit))
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
         );
         let country = crate::panorama::radio::local_country();
         let mut chips = row![
-            button(text(crate::i18n::tr("Populaires")).font(self.font).size(12))
-                .padding([3, 10])
-                .style(button::secondary)
-                .on_press(UiMsg::Panorama(PMsg::RadioSearch(
-                    format!("@{country}"),
-                    false
-                )))
+            button(
+                text(crate::i18n::tr("Populaires"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding([3, 10])
+            .style(button::secondary)
+            .on_press(UiMsg::Panorama(PMsg::RadioSearch(
+                format!("@{country}"),
+                false
+            )))
         ]
         .spacing(6);
         for (tag, label) in crate::panorama::radio::GENRES {
             chips = chips.push(
-                button(text(crate::i18n::tr(label)).font(self.font).size(12))
-                    .padding([3, 10])
-                    .style(button::secondary)
-                    .on_press(UiMsg::Panorama(PMsg::RadioSearch(format!("#{tag}"), false))),
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([3, 10])
+                .style(button::secondary)
+                .on_press(UiMsg::Panorama(PMsg::RadioSearch(format!("#{tag}"), false))),
             );
         }
         col = col.push(
@@ -1077,12 +1150,17 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr("Recherche…"))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
         if let Some(e) = &self.panorama.radio_error {
-            col = col.push(text(e.clone()).font(self.font).size(12).color(dim));
+            col = col.push(
+                text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
         }
         if let Some((q, found)) = &self.panorama.radio_results {
             col = col.push(
@@ -1091,7 +1169,7 @@ impl App {
                     q = crate::panorama::radio::query_label(q)
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
             let playing = self.panorama.radio.as_ref().map(|r| r.1.as_str());
@@ -1103,8 +1181,13 @@ impl App {
                     row![
                         self.panorama_icon_thumb(&r.icon, 28.0),
                         column![
-                            text(r.name.clone()).font(self.font).size(13),
-                            text(r.url.clone()).font(self.font).size(11).color(dim),
+                            text(r.name.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                            text(r.url.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(11.0))
+                                .color(dim),
                         ]
                         .width(Length::Fill),
                         button(
@@ -1114,7 +1197,7 @@ impl App {
                                 crate::i18n::tr("Écouter")
                             })
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                         )
                         .padding([4, 10])
                         .on_press(if on {
@@ -1129,7 +1212,7 @@ impl App {
                                 crate::i18n::tr("☆ Ajouter")
                             })
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                         )
                         .padding([4, 10])
                         .style(if fav {
@@ -1171,7 +1254,7 @@ impl App {
         let mut ambiances = row![
             text(crate::i18n::tr("Ambiance du flux"))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .width(140)
         ]
         .spacing(14)
@@ -1200,7 +1283,12 @@ impl App {
                 service = label.to_string()
             ),
         };
-        col = col.push(text(about).font(self.font).size(12).color(dim));
+        col = col.push(
+            text(about)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+        );
         if let Some((label, url)) = web
             && crate::panorama::auth::needs_account(url)
         {
@@ -1220,14 +1308,23 @@ impl App {
                     service = label.to_string()
                 ),
             };
-            let mut line = row![text(state).font(self.font).size(12).width(Length::Fill)]
-                .spacing(10)
-                .align_y(Alignment::Center);
+            let mut line = row![
+                text(state)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .width(Length::Fill)
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
             if signed != Some(true) {
                 line = line.push(
-                    button(text("Se connecter").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::WebradioLogin)),
+                    button(
+                        text("Se connecter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::WebradioLogin)),
                 );
             }
             col = col.push(line);
@@ -1260,7 +1357,7 @@ impl App {
                     )
                     .on_input(|v| wrap(Msg::Browser(v)))
                     .on_submit(wrap(Msg::BrowserCommit))
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .width(320),
                 ),
             ),
@@ -1277,7 +1374,7 @@ impl App {
                 .to_string(),
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         col.into()

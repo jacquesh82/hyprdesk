@@ -9,7 +9,10 @@
 //!   `watch`) réveille [`stream`] et est recopié dans le miroir.
 //!
 //! Dans chaque cas, la palette du pack actif devient celle des couleurs
-//! d'état des surfaces ([`super::tone`]). Rien de tout cela en aperçu.
+//! d'état des surfaces ([`super::tone`]) et ses jetons (verre, contraste,
+//! typographie, états, mouvement, écrans) ceux de [`super::tokens`]. Un pack
+//! ou une variante qui change pose son fond d'écran, s'il en déclare un
+//! (MLG-266). Rien de tout cela en aperçu.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -19,12 +22,17 @@ use iced::Task;
 use iced::futures::Stream;
 
 use crate::config::{Rgba, Theme};
+use crate::theme_engine::design::Design;
 use crate::theme_engine::{bridge, paths::Roots, resolve};
 
 use super::{App, Msg};
 
-/// Palette du pack actif, ou l'erreur à journaliser.
-pub type Outcome = Result<BTreeMap<String, Rgba>, String>;
+/// Palette et jetons du pack actif, ou l'erreur à journaliser.
+pub type Outcome = Result<(BTreeMap<String, Rgba>, Design), String>;
+
+/// Pack et variante actifs vus en dernier par le démon : un changement pose
+/// le fond du pack, le démarrage non (le fond de l'utilisateur reste).
+static LAST: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Moment {
@@ -40,6 +48,10 @@ impl App {
     /// Après chaque config installée.
     pub(super) fn sync_theme_engine(&mut self, theme_changed: bool) -> Task<Msg> {
         let first = !self.engine_synced;
+        super::tokens::set_user(
+            self.cfg.general.reduced_transparency,
+            self.cfg.general.reduced_motion,
+        );
         if first || theme_changed {
             // Couleurs d'état tout de suite, sans attendre le moteur.
             super::tone::set(resolve::from_theme(&self.cfg.general.theme).palette);
@@ -82,7 +94,23 @@ impl App {
     /// Réponse du moteur.
     pub(super) fn on_theme_engine(&mut self, r: Outcome) -> Task<Msg> {
         match r {
-            Ok(palette) => super::tone::set(palette),
+            Ok((palette, design)) => {
+                super::tone::set(palette);
+                let family = design.typography.family.clone();
+                super::tokens::set(design);
+                // Action, états : le thème iced suit la palette du pack.
+                self.theme = super::make_theme(&self.cfg);
+                // Police du pack, si l'utilisateur n'en a pas choisi.
+                if self.cfg.general.font.is_none() {
+                    self.ui_family = match &family {
+                        Some(f) => super::intern_font(f),
+                        None => crate::fonts::FAMILY,
+                    };
+                }
+                self.font = self.ui_font(super::tokens::weight(
+                    super::tokens::design().typography.weight,
+                ));
+            }
             Err(e) => tracing::warn!("{}", crate::tr!("moteur de thème : {e}", e = e)),
         }
         Task::none()
@@ -90,6 +118,33 @@ impl App {
 }
 
 fn job(moment: Moment, theme: &Theme, config_path: &Path, roots: &Roots) -> Outcome {
+    let r = resolution(moment, theme, config_path, roots)?;
+    pack_wallpaper(moment, &r, config_path);
+    Ok((r.palette, r.design))
+}
+
+/// Fond du pack quand le pack ou sa variante change (pas au démarrage).
+fn pack_wallpaper(moment: Moment, r: &resolve::Resolved, config_path: &Path) {
+    let now = (r.id.clone(), r.variant.clone());
+    let Ok(mut last) = LAST.lock() else { return };
+    let changed = last.as_ref().is_some_and(|l| *l != now);
+    *last = Some(now);
+    if moment == Moment::Start || !changed {
+        return;
+    }
+    if let Some(w) = &r.wallpaper
+        && let Err(e) = crate::theme::apply_pack_wallpaper(config_path, w)
+    {
+        tracing::warn!("{}", crate::tr!("fond d'écran du thème : {e}", e = e));
+    }
+}
+
+fn resolution(
+    moment: Moment,
+    theme: &Theme,
+    config_path: &Path,
+    roots: &Roots,
+) -> Result<resolve::Resolved, String> {
     let err = |e: crate::theme_engine::Error| e.to_string();
     match moment {
         Moment::Start | Moment::External => {
@@ -99,22 +154,22 @@ fn job(moment: Moment, theme: &Theme, config_path: &Path, roots: &Roots) -> Outc
                     // Le moteur fait foi : les réglages suivent, le
                     // rechargement de la config redessine les surfaces.
                     crate::theme::mirror_engine(config_path, &engine)?;
-                    return Ok(a.resolved.palette);
+                    return Ok(a.resolved);
                 }
                 if moment == Moment::External {
-                    return Ok(a.resolved.palette);
+                    return Ok(a.resolved);
                 }
             } else if moment == Moment::External {
-                return Ok(resolve::from_theme(theme).palette);
+                return Ok(resolve::from_theme(theme));
             }
             // Démarrage : thème des réglages posé (migration) ou confirmé,
             // palette publiée.
             bridge::adopt(roots, theme, "daemon")
-                .map(|a| a.resolved.palette)
+                .map(|a| a.resolved)
                 .map_err(err)
         }
         Moment::Changed => bridge::adopt(roots, theme, "user")
-            .map(|a| a.resolved.palette)
+            .map(|a| a.resolved)
             .map_err(err),
     }
 }
@@ -205,7 +260,7 @@ mod tests {
             },
         )
         .unwrap();
-        let palette = job(Moment::Start, &Theme::default(), &config, &roots).unwrap();
+        let (palette, _) = job(Moment::Start, &Theme::default(), &config, &roots).unwrap();
         assert!(palette.contains_key("warning"));
         // Le miroir porte le pack du moteur.
         let t = thème_des_réglages(&config);

@@ -199,16 +199,16 @@ impl App {
                 "float_launched",
                 toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v))),
             ),
-            text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(12),
+            text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(crate::ui::tokens::ts(12.0)),
             row![
                 text(match p_places {
                     0 => crate::i18n::tr("Aucune place de fenêtre choisie pour l'instant.").to_string(),
                     n => crate::tr!("{n} place(s) de fenêtre choisie(s) par vous.", n = n),
                 })
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .width(Length::Fill),
-                button(text("Oublier ces places").font(self.font).size(12))
+                button(text("Oublier ces places").font(self.font).size(crate::ui::tokens::ts(12.0)))
                     .padding([4, 10])
                     .on_press_maybe((p_places > 0).then(|| wrap(Msg::ForgetWindowPlaces))),
             ]
@@ -225,7 +225,7 @@ impl App {
                 Some(None) => crate::i18n::tr("Hyprbars n'est pas installé : ./scripts/install.sh l'installe (étape Hyprbars), ou à la main hyprpm update puis hyprpm add https://github.com/hyprwm/hyprland-plugins (ou réglez hyprbars_path).").to_string(),
             })
             .font(self.font)
-            .size(12),
+            .size(crate::ui::tokens::ts(12.0)),
             self.section("Mode"),
             self.field(
                 "Mode par défaut",
@@ -254,7 +254,7 @@ impl App {
                         .step(0.05f32)
                         .on_release(UiMsg::Panel(PanelMsg::Commit))
                         .width(260),
-                    text(format!("{:.0} %", g.glass_opacity * 100.0)).font(self.font).size(14),
+                    text(format!("{:.0} %", g.glass_opacity * 100.0)).font(self.font).size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             )),
@@ -285,7 +285,7 @@ impl App {
                 column![
                     text("Le bureau, à votre rythme.")
                         .font(self.font)
-                        .size(24)
+                        .size(crate::ui::tokens::ts(24.0))
                         .font(self.title_font()),
                     text("Aa Bb Cc · 0123456789 · Éàçœ")
                         .font(self.font)
@@ -308,7 +308,9 @@ impl App {
                         .step(0.5_f32)
                         .on_release(UiMsg::Panel(PanelMsg::Commit))
                         .width(260),
-                    text(format!("{} px", g.font_size)).font(self.font).size(13),
+                    text(format!("{} px", g.font_size))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                 ]
                 .spacing(12)
             ),
@@ -350,7 +352,7 @@ impl App {
                  workspace l'emporte sur celle de l'écran."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Écrans"),
         ]
@@ -368,7 +370,7 @@ impl App {
                 row![
                     text(name.clone())
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .width(Length::Fill),
                     pick(name)
                 ]
@@ -388,7 +390,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {w}", w = w))
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .width(Length::Fill),
                     pick(format!("ws:{w}"))
                 ]
@@ -412,7 +414,7 @@ impl App {
         col = col.push(
             text("Lance une fois par session les applications de ~/.config/autostart et /etc/xdg/autostart, sauf celles qui tournent déjà. À laisser coupé si hyprland.lua les lance déjà.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         if self.advanced() || g.autostart {
@@ -427,10 +429,13 @@ impl App {
                 };
                 let mut line = row![
                     column![
-                        text(e.name.clone()).font(self.font).size(13).color(fg),
+                        text(e.name.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
                         text(format!("{state} — {}", e.exec))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                     ]
                     .width(Length::Fill),
@@ -442,7 +447,7 @@ impl App {
                         button(
                             text(if enable { "Activer" } else { "Désactiver" })
                                 .font(self.font)
-                                .size(12),
+                                .size(crate::ui::tokens::ts(12.0)),
                         )
                         .padding([4, 10])
                         .on_press(wrap(Msg::AutostartEntry(e.id.clone(), enable))),
@@ -461,7 +466,7 @@ impl App {
         let mut col = column![self.section("Session")].spacing(10);
         col = col.push(
             text("Composants lancés et supervisés par hyprdesk (relancés s'ils s'arrêtent, arrêtés avec lui). À déclarer dans hyprdesk.lua : hd.component(\"nom\", { exec = \"commande\" }).").font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col = col.push(self.field(
@@ -476,7 +481,7 @@ impl App {
                 "cliphist et wl-clipboard ne sont pas installés (voir Dépendances)."
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         if crate::clipboard::available() {
@@ -484,7 +489,7 @@ impl App {
                 button(
                     text("Vider l'historique du presse-papiers")
                         .font(self.font)
-                        .size(12),
+                        .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([4, 10])
                 .style(button::secondary)
@@ -495,18 +500,28 @@ impl App {
                 .as_ref()
                 .and_then(|p| p.desktop.clip_report.as_ref())
             {
-                col = col.push(text(r.clone()).font(self.font).size(12).color(dim));
+                col = col.push(
+                    text(r.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                );
             }
         }
         col = col.push(
             text("Démarrage automatique (hyprland.lua, applications XDG) : Réglages → Démarrage automatique.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         let comps = crate::session::snapshot();
         if comps.is_empty() {
-            col = col.push(text("Aucun composant.").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("Aucun composant.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
         }
         for (d, st) in comps {
             let state = match (st.pid, st.given_up) {
@@ -522,16 +537,23 @@ impl App {
             col = col.push(
                 row![
                     column![
-                        text(d.name.clone()).font(self.font).size(14).color(fg),
+                        text(d.name.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
                         text(format!("{} — {state}{extra}", d.exec))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                     ]
                     .width(Length::Fill),
-                    button(text("Relancer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::ComponentRestart(d.name.clone()))),
+                    button(
+                        text("Relancer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::ComponentRestart(d.name.clone()))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -556,7 +578,7 @@ impl App {
             col = col.push(
                 text("Ces fonctions restent assurées par un programme lancé par votre configuration ; hyprdesk ne prend pas sa place sans vous. Le bouton IA demande à LYRA de trouver d'où il est lancé et de proposer la modification.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
             for c in conflicts {
@@ -574,7 +596,7 @@ impl App {
                                 crate::i18n::tr("Prendre la main").to_string()
                             })
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                         )
                         .padding([4, 10])
                         .style(if confirm {
@@ -590,14 +612,17 @@ impl App {
                 col = col.push(
                     row![
                         column![
-                            text(origin.clone()).font(self.font).size(14).color(fg),
+                            text(origin.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(14.0))
+                                .color(fg),
                             text(crate::tr!(
                                 "tenu par {h} (pid {pid})",
                                 h = c.holder,
                                 pid = c.pid
                             ))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                         ]
                         .width(Length::Fill),
@@ -613,13 +638,13 @@ impl App {
         col = col.push(
             text("Outils auxquels hyprdesk confie ce qui ne se voit pas. Un outil absent rend seulement sa fonction inopérante ; hyprdesk doctor donne le même relevé.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col = col.push(
             text(crate::tr!("{n}/{m} présentes", n = present, m = list.len()))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         for s in list {
@@ -634,12 +659,18 @@ impl App {
             };
             col = col.push(
                 row![
-                    text(mark).font(self.font).size(14).color(mark_color),
+                    text(mark)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(mark_color),
                     column![
-                        text(s.dep.name).font(self.font).size(14).color(fg),
+                        text(s.dep.name)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
                         text(format!("{} · {detail}", crate::i18n::tr(s.dep.feature)))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                     ]
                     .width(Length::Fill),

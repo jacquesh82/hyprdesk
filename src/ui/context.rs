@@ -10,6 +10,7 @@
 //! changer de fond d'écran, réglages du bureau). Une carte du
 //! thème au curseur, un capteur plein écran : un clic à côté ou Échap ferme.
 
+use crate::ui::tokens::Shown as _;
 use std::path::{Path, PathBuf};
 
 use iced::widget::{button, column, container, mouse_area, text, text_input};
@@ -928,12 +929,12 @@ impl App {
         let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let mut col = column![
             text(crate::tr!("Propriétés — {n}", n = name))
                 .font(self.title_font())
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .color(fg)
                 .height(ROW)
         ]
@@ -941,10 +942,13 @@ impl App {
         for (k, v) in props {
             col = col.push(
                 column![
-                    text(k.clone()).font(self.font).size(11).color(dim),
+                    text(k.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(dim),
                     text(v.clone())
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                 ]
@@ -955,7 +959,7 @@ impl App {
             button(
                 text(crate::i18n::tr(label))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             )
             .padding([5, 12])
@@ -1026,7 +1030,7 @@ impl App {
         let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let name = match &m.target {
             MenuTarget::Icon => self
@@ -1060,31 +1064,39 @@ impl App {
         if let Some(props) = &m.props {
             return self.view_properties(&name, props);
         }
-        let mut col =
-            column![text(name).font(self.font).size(12).color(dim).height(ROW)].spacing(0);
+        let mut col = column![
+            text(name)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+                .height(ROW)
+        ]
+        .spacing(0);
         for (label, msg) in self.icon_menu_entries(m) {
             let danger = matches!(msg, CMsg::Trash) && m.confirm;
-            col =
-                col.push(
-                    button(text(crate::i18n::tr(label)).font(self.font).size(14).color(
-                        if danger {
+            col = col.push(
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(if danger {
                             crate::ui::tone::danger()
                         } else {
                             fg
-                        },
-                    ))
-                    .padding([6, 10])
-                    .width(Length::Fill)
-                    .height(ROW)
-                    .style(move |_, st| button::Style {
-                        background: matches!(st, button::Status::Hovered)
-                            .then(|| Color { a: 0.14, ..accent }.into()),
-                        border: Border::default().rounded(8),
-                        text_color: fg,
-                        ..Default::default()
-                    })
-                    .on_press(Msg::IconMenu(msg)),
-                );
+                        }),
+                )
+                .padding([6, 10])
+                .width(Length::Fill)
+                .height(ROW)
+                .style(move |_, st| button::Style {
+                    background: matches!(st, button::Status::Hovered)
+                        .then(|| Color { a: 0.14, ..accent }.into()),
+                    border: Border::default().rounded(8),
+                    text_color: fg,
+                    ..Default::default()
+                })
+                .on_press(Msg::IconMenu(msg)),
+            );
         }
         if let Some(r) = &m.rename {
             col = col.push(
@@ -1093,7 +1105,7 @@ impl App {
                     .on_input(|s| Msg::IconMenu(CMsg::RenameInput(s)))
                     .on_submit(Msg::IconMenu(CMsg::RenameSubmit))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .padding(8),
             );
         }
@@ -1101,7 +1113,7 @@ impl App {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }

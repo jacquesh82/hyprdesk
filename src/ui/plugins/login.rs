@@ -176,9 +176,17 @@ impl App {
             crate::ui::tone::warning()
         };
         row![
-            text(if ok { "●" } else { "○" }).size(13).color(mark),
-            text(label).font(self.font).size(13).color(fg),
-            text(detail).font(self.font).size(12).color(dim),
+            text(if ok { "●" } else { "○" })
+                .size(crate::ui::tokens::ts(13.0))
+                .color(mark),
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg),
+            text(detail)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -187,10 +195,14 @@ impl App {
 
     fn login_button<'a>(&self, label: &'a str, msg: Option<Msg>) -> Element<'a, UiMsg> {
         let busy = self.panel.as_ref().is_some_and(|p| p.login.busy.is_some());
-        button(text(label).font(self.font).size(13))
-            .padding([6, 14])
-            .on_press_maybe(msg.filter(|_| !busy).map(wrap))
-            .into()
+        button(
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0)),
+        )
+        .padding([6, 14])
+        .on_press_maybe(msg.filter(|_| !busy).map(wrap))
+        .into()
     }
 
     pub(in crate::ui) fn login_page(&self) -> Element<'_, UiMsg> {
@@ -204,11 +216,19 @@ impl App {
             .map(|p| &p.login)
             .filter(|s| s.status.loaded)
         else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let s = &st.status;
         let small = |t: String, c: Color| -> Element<'_, UiMsg> {
-            text(t).font(self.font).size(12).color(c).into()
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+                .into()
         };
 
         // En service.
@@ -227,7 +247,7 @@ impl App {
             self.section("En service"),
             text(crate::tr!("Gestionnaire de connexion : {c}", c = current))
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         ]
         .spacing(10);
@@ -330,7 +350,9 @@ impl App {
             let current = greeter_setup::login_monitor(&want).map(|m| m.name.clone());
             col = col.push(
                 row![
-                    text("Écran de la connexion").font(self.font).size(13),
+                    text("Écran de la connexion")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                     pick_list(names, current, |n| wrap(Msg::LoginMonitor(n)))
                         .font(self.font)
                         .text_size(13)
@@ -358,7 +380,9 @@ impl App {
             }
             col = col.push(
                 row![
-                    text(label).font(self.font).size(13),
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
                     pick_list(walls, Some(WallChoice(chosen.clone())), move |c| {
                         wrap(Msg::Wallpaper(vertical, c))
                     })
@@ -451,7 +475,7 @@ impl App {
             row![
                 text(crate::i18n::tr("Emplacement du formulaire"))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 grid,
             ]
@@ -582,7 +606,7 @@ impl App {
                             d = if old.is_empty() { "—".to_string() } else { old }
                         ))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                         small(
                             crate::i18n::tr(

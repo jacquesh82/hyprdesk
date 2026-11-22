@@ -3088,9 +3088,12 @@ impl App {
             container(
                 row![
                     self.icon_named("go-up-symbolic", 14.0, fg)
-                        .unwrap_or_else(|| text("▴").size(14).color(fg).into()),
+                        .unwrap_or_else(|| text("▴")
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg)
+                            .into()),
                     text("Panorama")
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .font(self.panorama_font())
                 ]
@@ -3141,7 +3144,7 @@ impl App {
         let btn = |label: &'static str, primary: bool, msg: Msg| -> Element<'_, Msg> {
             button(
                 text(crate::i18n::tr(label))
-                    .size(18)
+                    .size(crate::ui::tokens::ts(18.0))
                     .font(self.panorama_font())
                     .color(if primary { Color::BLACK } else { fg }),
             )
@@ -3171,10 +3174,13 @@ impl App {
         container(
             column![
                 text(crate::i18n::tr("Panorama"))
-                    .size(26)
+                    .size(crate::ui::tokens::ts(26.0))
                     .font(self.panorama_font())
                     .color(fg),
-                text(what).size(16).font(self.panorama_font()).color(dim),
+                text(what)
+                    .size(crate::ui::tokens::ts(16.0))
+                    .font(self.panorama_font())
+                    .color(dim),
                 Space::new().height(Length::Fill),
                 row![
                     btn("Oui, en faire un Panorama", true, wrap(PMsg::Accept(id))),

@@ -162,16 +162,25 @@ impl App {
             .map(|p| &p.autostart)
             .filter(|s| s.loaded)
         else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let font = self.font;
-        let small = move |t: String, c: Color| iced::widget::text(t).font(font).size(12).color(c);
+        let small = move |t: String, c: Color| {
+            iced::widget::text(t)
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+        };
         // Pastille d'état : « actif » en couleur, « coupé » en retrait.
         let chip = move |on: bool, label: &'static str| -> Element<'_, UiMsg> {
             container(
                 text(label)
                     .font(font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(if on { fg } else { dim }),
             )
             .padding([2, 8])
@@ -186,7 +195,7 @@ impl App {
             .into()
         };
         let action = move |label: &'static str, m: Msg| {
-            button(text(label).font(font).size(12))
+            button(text(label).font(font).size(crate::ui::tokens::ts(12.0)))
                 .padding([4, 10])
                 .on_press(wrap(m))
         };
@@ -211,7 +220,7 @@ impl App {
             let mut label = column![
                 iced::widget::text(it.command.clone())
                     .font(font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(if it.enabled { fg } else { dim })
             ];
             if !detail.is_empty() {
@@ -227,7 +236,7 @@ impl App {
         let mut col = column![
             text("Programmes lancés à chaque ouverture de session Hyprland. Une modification vaut pour la prochaine connexion ; « Lancer » l'essaie tout de suite.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
         ]
         .spacing(10);
@@ -256,9 +265,13 @@ impl App {
                         .on_submit(wrap(Msg::Submit))
                         .padding(8)
                         .width(Length::Fill),
-                    button(text("Ajouter").font(self.font).size(13))
-                        .padding([6, 14])
-                        .on_press_maybe(can_add.then(|| wrap(Msg::Submit))),
+                    button(
+                        text("Ajouter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe(can_add.then(|| wrap(Msg::Submit))),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -277,7 +290,7 @@ impl App {
             col = col.push(
                 text("Aucun pour l'instant : ajoutez une application ou une commande ci-dessus.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -299,18 +312,18 @@ impl App {
             col = col.push(
                 text("hyprland.lua introuvable à côté de hyprdesk.lua.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         } else if s.theirs.is_empty() {
             col = col.push(
                 text("Aucune commande dans le bloc de démarrage (hl.on(\"hyprland.start\", …)).")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         } else {
-            col = col.push(text("Couper une ligne la met en commentaire ; Supprimer la retire. hyprland.lua est sauvegardé avant la première modification.").font(self.font).size(12).color(dim));
+            col = col.push(text("Couper une ligne la met en commentaire ; Supprimer la retire. hyprland.lua est sauvegardé avant la première modification.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
         }
         for (i, it) in s.theirs.iter().enumerate() {
             let mut detail = Vec::new();

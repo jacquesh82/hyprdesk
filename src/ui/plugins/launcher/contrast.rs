@@ -1,6 +1,7 @@
 //! Analyse légère du fond décodé, hors thread UI. Aucun relevé d'écran par image.
 use super::App;
 use crate::config::Fit;
+use crate::ui::tokens::Shown as _;
 use crate::ui::{Wall, color};
 use iced::{Color, Rectangle, Size};
 
@@ -112,12 +113,14 @@ pub(in crate::ui) fn material_opacity(
 ) -> f32 {
     let fg = luminance(fg);
     let bg = luminance(bg);
+    // Cible du texte du thème (MLG-269), 4,5:1 par défaut.
+    let target = crate::ui::tokens::design().contrast.text;
     // Inclut le reflet en haut et le creux d'opacité au milieu du verre.
     let passes = |a: f32| {
         [behind.0, behind.1].into_iter().all(|wall| {
             [bg, bg + (fg - bg) * 0.065].into_iter().all(|tint| {
                 let l = tint * a + wall * (1.0 - a);
-                (fg.max(l) + 0.05) / (fg.min(l) + 0.05) >= 4.5
+                (fg.max(l) + 0.05) / (fg.min(l) + 0.05) >= target
             })
         })
     };
@@ -146,14 +149,14 @@ impl App {
             color(g.theme.fg, 1.0),
             color(g.theme.bg, 1.0),
             (0.0, 1.0),
-            g.theme.effect(crate::config::Place::Launcher).opacity,
+            g.theme.shown(crate::config::Place::Launcher).opacity,
             0.95 / 0.88,
         )
     }
 
     pub(super) fn launcher_material_opacity(&self, monitor: &str, roi: Rectangle) -> f32 {
         let g = &self.cfg.general;
-        let base = g.theme.effect(crate::config::Place::Launcher).opacity;
+        let base = g.theme.shown(crate::config::Place::Launcher).opacity;
         let behind = self.wall_range(monitor, roi);
         readable_opacity(color(g.theme.fg, 1.0), color(g.theme.bg, 1.0), behind, base)
     }
@@ -180,7 +183,7 @@ impl App {
         roi: Rectangle,
     ) -> f32 {
         let g = &self.cfg.general;
-        let Some(max) = g.theme.effect(place).adaptive else {
+        let Some(max) = g.theme.shown(place).adaptive else {
             return base;
         };
         let needed = material_opacity(

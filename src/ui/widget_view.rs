@@ -4,6 +4,7 @@
 //!   la souris.
 
 use crate::i18n::text;
+use crate::ui::tokens::Shown as _;
 use chrono::{Datelike, Local};
 use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, mouse};
@@ -42,8 +43,8 @@ impl App {
             WidgetKind::Clock { format } => {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
                 let time = text(format_now(format))
-                    .font(self.ui_font(iced::font::Weight::Light))
-                    .size(size)
+                    .font(self.numeric_font(iced::font::Weight::Light))
+                    .size(crate::ui::tokens::ts(size))
                     .color(fg);
                 if format == "%H:%M" {
                     column![
@@ -75,15 +76,14 @@ impl App {
                         let mut c = column![row![
                             text(l.label.clone())
                                 .font(self.font)
-                                .size(size)
+                                .size(crate::ui::tokens::ts(size))
                                 .color(dim)
                                 .font(font)
                                 .width(Length::Fixed(size * 5.0)),
                             text(l.value.clone())
-                                .font(self.font)
-                                .size(size)
+                                .size(crate::ui::tokens::ts(size))
                                 .color(fg)
-                                .font(font),
+                                .font(self.numeric_font(font.weight)),
                         ]];
                         if let Some(r) = l.ratio {
                             let (track, bar) = (color(th.fg, 0.15 * t), accent);
@@ -117,7 +117,7 @@ impl App {
                                 self.img_element(img, size * 1.3, t).unwrap_or_else(|| {
                                     text(fallback)
                                         .font(self.font)
-                                        .size(size)
+                                        .size(crate::ui::tokens::ts(size))
                                         .color(fg)
                                         .font(font)
                                         .into()
@@ -145,7 +145,7 @@ impl App {
                             .font(self.title_font()),
                             text(mi.artist.clone())
                                 .font(self.font)
-                                .size(size)
+                                .size(crate::ui::tokens::ts(size))
                                 .color(dim)
                                 .font(font),
                             row![
@@ -165,7 +165,7 @@ impl App {
                     }
                     Some(widgets::Value::Media(None)) => text("Aucun lecteur")
                         .font(self.font)
-                        .size(size)
+                        .size(crate::ui::tokens::ts(size))
                         .color(dim)
                         .font(font)
                         .into(),
@@ -180,24 +180,32 @@ impl App {
         // Transparence adaptative (MLG-261) : la carte se densifie sur un
         // fond chargé, d'après la zone d'ancrage du widget.
         let card_opacity = {
-            let base = th.effect(crate::config::Place::Widgets).opacity;
+            let base = th.shown(crate::config::Place::Widgets).opacity;
             match self.monitor(win) {
-                Some(m) if th.effect(crate::config::Place::Widgets).adaptive.is_some() => {
+                Some(m) if th.shown(crate::config::Place::Widgets).adaptive.is_some() => {
                     let roi = widget_roi(self.monitor_size(&m.name), w.anchor, (w.x, w.y));
                     self.adaptive_opacity(crate::config::Place::Widgets, base, &m.name, roi)
                 }
                 _ => base,
             }
         };
-        let card_bg = color(th.bg, card_opacity * t);
+        let card_bg = color(
+            super::tokens::tinted(th.bg, crate::config::Place::Widgets),
+            card_opacity * t,
+        );
         let boxed: Element<'_, Msg> = if w.card {
-            container(content)
-                .padding(16)
-                .style(move |_| container::Style {
-                    background: Some(card_bg.into()),
-                    ..super::design::surface(&self.theme, super::design::Surface::Floating)
-                })
-                .into()
+            // Verre du thème (MLG-268) au rayon de la carte.
+            super::glass::over(
+                container(content)
+                    .padding(16)
+                    .style(move |_| container::Style {
+                        background: Some(card_bg.into()),
+                        ..super::design::surface(&self.theme, super::design::Surface::Floating)
+                    }),
+                crate::config::Place::Widgets,
+                super::design::RADIUS,
+                color(th.fg, t),
+            )
         } else {
             content
         };
@@ -268,7 +276,7 @@ impl App {
         match v {
             Some(widgets::Value::Text(s)) => text(s.clone())
                 .font(self.font)
-                .size(size)
+                .size(crate::ui::tokens::ts(size))
                 .color(fg)
                 .font(self.font)
                 .into(),
@@ -284,7 +292,7 @@ impl App {
                 c.push(
                     text(r.text.clone())
                         .font(self.font)
-                        .size(size)
+                        .size(crate::ui::tokens::ts(size))
                         .color(fg)
                         .font(self.font),
                 )
@@ -293,7 +301,7 @@ impl App {
             Some(widgets::Value::Rich(_)) => Space::new().into(),
             Some(widgets::Value::Error(e)) => text(crate::tr!("⚠ {e}", e = e))
                 .font(self.font)
-                .size(size)
+                .size(crate::ui::tokens::ts(size))
                 .color(Color {
                     r: 1.0,
                     g: 0.5,
@@ -304,7 +312,7 @@ impl App {
                 .into(),
             _ => text("…")
                 .font(self.font)
-                .size(size)
+                .size(crate::ui::tokens::ts(size))
                 .color(dim)
                 .font(self.font)
                 .into(),
@@ -372,7 +380,7 @@ impl App {
                 let is_today = this_month && d == today.day();
                 let label = text(d.to_string())
                     .font(self.font)
-                    .size(size)
+                    .size(crate::ui::tokens::ts(size))
                     .font(self.font)
                     .color(if is_today {
                         super::design::on_accent(

@@ -100,7 +100,7 @@ impl App {
                  de côté ; la tuile « + » de la bande les ajoute ou les retire aussi.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.section("Modules de la bande"),
         ]
@@ -111,7 +111,7 @@ impl App {
                 row![
                     text(crate::i18n::tr(label))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
                     toggler(on).on_toggle(move |_| wrap(Msg::Toggle(id.to_string()))),
@@ -128,7 +128,7 @@ impl App {
                 row![
                     text("Recevoir depuis le téléphone (Partager, cast YouTube)")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
                     toggler(cast).on_toggle(|v| wrap(Msg::Cast(v))),
@@ -144,18 +144,28 @@ impl App {
                     name = crate::panorama::cast::device_name()
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         if let Some(p) = cast.then(crate::panorama::cast::problem).flatten() {
-            col = col.push(text(p).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(p)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
 
         // Hue
         col = col.push(self.section("Hue"));
         let Some(s) = self.modules_state().filter(|s| s.hue_loaded) else {
             return col
-                .push(text("Lecture…").font(self.font).size(13).color(dim))
+                .push(
+                    text("Lecture…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(dim),
+                )
                 .into();
         };
         match &s.bridge {
@@ -164,12 +174,16 @@ impl App {
                     row![
                         text(crate::tr!("Pont appairé : {ip}", ip = b.ip.clone()))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .width(Length::Fill),
-                        button(text("Oublier ce pont").font(self.font).size(12))
-                            .padding([4, 10])
-                            .on_press(wrap(Msg::HueForget)),
+                        button(
+                            text("Oublier ce pont")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::HueForget)),
                     ]
                     .align_y(Alignment::Center),
                 );
@@ -181,7 +195,7 @@ impl App {
                          30 secondes.",
                     )
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                 );
                 for ip in &s.found {
@@ -189,34 +203,46 @@ impl App {
                         row![
                             text(ip.clone())
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg)
                                 .width(Length::Fill),
-                            button(text("Appairer").font(self.font).size(12))
-                                .padding([4, 10])
-                                .on_press_maybe((!s.busy).then(|| wrap(Msg::HuePair(ip.clone()))),),
+                            button(
+                                text("Appairer")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                            )
+                            .padding([4, 10])
+                            .on_press_maybe((!s.busy).then(|| wrap(Msg::HuePair(ip.clone()))),),
                         ]
                         .align_y(Alignment::Center),
                     );
                 }
                 col = col.push(
                     row![
-                        button(text("Chercher le pont").font(self.font).size(12))
-                            .padding([4, 10])
-                            .on_press_maybe((!s.busy).then(|| wrap(Msg::HueDiscover))),
+                        button(
+                            text("Chercher le pont")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press_maybe((!s.busy).then(|| wrap(Msg::HueDiscover))),
                         text_input("192.168.1.20", &s.ip)
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .padding(6)
                             .width(180)
                             .on_input(|v| wrap(Msg::HueIp(v)))
                             .on_submit(wrap(Msg::HuePair(s.ip.trim().to_string()))),
-                        button(text("Appairer cette adresse").font(self.font).size(12))
-                            .padding([4, 10])
-                            .on_press_maybe(
-                                (!s.busy && !s.ip.trim().is_empty())
-                                    .then(|| wrap(Msg::HuePair(s.ip.trim().to_string()))),
-                            ),
+                        button(
+                            text("Appairer cette adresse")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press_maybe(
+                            (!s.busy && !s.ip.trim().is_empty())
+                                .then(|| wrap(Msg::HuePair(s.ip.trim().to_string()))),
+                        ),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
@@ -224,20 +250,30 @@ impl App {
             }
         }
         if s.busy {
-            col = col.push(text("…").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("…")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
         }
         if let Some(st) = &s.hue_status {
             let (msg, c) = match st {
                 Ok(m) => (m.clone(), dim),
                 Err(e) => (e.clone(), warn),
             };
-            col = col.push(text(msg).font(self.font).size(12).color(c));
+            col = col.push(
+                text(msg)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(c),
+            );
         }
         if s.bridge.is_some() {
             col = col.push(
                 text("Pièces montrées dans la tuile Hue du Panorama.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
             let hidden = hue::hidden(&self.cfg);
@@ -247,12 +283,12 @@ impl App {
                     row![
                         text(r.name.clone())
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .width(Length::Fill),
                         text(crate::tr!("{n} lampe(s)", n = r.lights.len()))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
                         toggler(!hidden.contains(&r.id))
                             .on_toggle(move |v| wrap(Msg::HueShow(id.clone(), v))),
@@ -272,7 +308,7 @@ impl App {
                  notes, un script… Elle s'ouvre sur le workspace actif de l'écran choisi.",
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         // La commande lancée : avancé (par défaut, un éditeur détecté).
@@ -281,14 +317,18 @@ impl App {
                 row![
                     text_input("gnome-text-editor", &shown)
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .padding(6)
                         .width(Length::Fill)
                         .on_input(|v| wrap(Msg::NotesDraft(v)))
                         .on_submit(wrap(Msg::NotesSubmit)),
-                    button(text("Enregistrer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::NotesSubmit)),
+                    button(
+                        text("Enregistrer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::NotesSubmit)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -305,25 +345,39 @@ impl App {
                 name.to_string()
             };
             screens = screens.push(
-                button(text(label).font(self.font).size(12).color(fg))
-                    .padding([4, 10])
-                    .style(move |t, st| {
-                        if on {
-                            button::primary(t, st)
-                        } else {
-                            button::secondary(t, st)
-                        }
-                    })
-                    .on_press(wrap(Msg::NotesMonitor(name.to_string()))),
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(fg),
+                )
+                .padding([4, 10])
+                .style(move |t, st| {
+                    if on {
+                        button::primary(t, st)
+                    } else {
+                        button::secondary(t, st)
+                    }
+                })
+                .on_press(wrap(Msg::NotesMonitor(name.to_string()))),
             );
         }
         col = col.push(screens).push(
-            button(text("Ouvrir maintenant").font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(Msg::NotesOpen)),
+            button(
+                text("Ouvrir maintenant")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .on_press(wrap(Msg::NotesOpen)),
         );
         if let Some(e) = &s.notes_status {
-            col = col.push(text(e.clone()).font(self.font).size(12).color(warn));
+            col = col.push(
+                text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         col.into()
     }

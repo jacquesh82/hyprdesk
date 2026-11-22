@@ -81,7 +81,11 @@ impl App {
         let th = &self.cfg.general.theme;
         (
             crate::theme::readable(th.fg, th.bg, th.accent),
-            color(th.bg, 1.0),
+            // Teinte du verre du lanceur (MLG-268).
+            color(
+                crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
+                1.0,
+            ),
         )
     }
 
@@ -106,7 +110,7 @@ impl App {
         .on_input(|q| Msg::Search(SMsg::Query(q)))
         .on_submit(Msg::Search(SMsg::Launch(s.selected)))
         .font(self.font)
-        .size(size)
+        .size(crate::ui::tokens::ts(size))
         .padding(Padding {
             top: 14.0,
             bottom: 14.0,
@@ -138,7 +142,12 @@ impl App {
                     .style(move |_, _| iced::widget::svg::Style { color: Some(dim) })
                     .into()
             })
-            .unwrap_or_else(|| text("⌕").size(18).color(dim).into());
+            .unwrap_or_else(|| {
+                text("⌕")
+                    .size(crate::ui::tokens::ts(18.0))
+                    .color(dim)
+                    .into()
+            });
         iced::widget::stack![
             input,
             container(glass)
@@ -225,20 +234,11 @@ impl App {
             left: 6.0,
             right: 6.0,
         })
-        .style(move |_, st| button::Style {
-            background: (selected || matches!(st, button::Status::Hovered)).then(|| {
-                Color {
-                    a: if selected { 0.24 } else { 0.12 },
-                    ..accent
-                }
-                .into()
-            }),
-            border: Border::default()
-                .rounded(20)
-                .width(if selected { 2.0 } else { 0.0 })
-                .color(accent),
-            text_color: fg,
-            ..Default::default()
+        .style(move |_, st| {
+            // États du thème (MLG-273), anneau plein sur la tuile choisie.
+            let mut style = crate::ui::tokens::item(accent, fg, selected, st, 20.0);
+            style.border.color.a = style.border.color.a.max(if selected { 1.0 } else { 0.0 });
+            style
         })
         .on_press(msg)
         .into()
@@ -249,7 +249,7 @@ impl App {
         let (r, _) = self.launcher_palette();
         text(crate::i18n::tr(label).to_string())
             .font(self.title_font())
-            .size(13)
+            .size(crate::ui::tokens::ts(13.0))
             .color(color(r.dim, 1.0))
             .into()
     }
@@ -299,7 +299,7 @@ impl App {
                 button(
                     text(label)
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(if on { on_btn } else { fg }),
                 )
                 .padding([7, 16])
@@ -308,7 +308,7 @@ impl App {
                         if on {
                             accent
                         } else if matches!(st, button::Status::Hovered) {
-                            Color { a: 0.12, ..fg }
+                            crate::ui::tokens::veil(fg, crate::ui::tokens::states().hover)
                         } else {
                             Color::TRANSPARENT
                         }
@@ -352,7 +352,7 @@ impl App {
             grid = grid.push(
                 text(crate::i18n::tr("Aucune application ne correspond."))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(dim),
             );
         }
@@ -392,7 +392,7 @@ impl App {
                 "Entrée lance · flèches pour choisir · Échap ferme",
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         // La feuille : opaque, coins arrondis, ombre ; un clic autour referme.
@@ -411,6 +411,7 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
+        let sheet = crate::ui::glass::over(sheet, crate::config::Place::Launcher, 32.0, fg);
         let page = container(mouse_area(sheet).on_press(Msg::Noop))
             .center_x(Length::Fill)
             .padding(Padding {
@@ -463,7 +464,7 @@ impl App {
             list = list.push(
                 text(crate::i18n::tr("Aucune application ne correspond."))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(dim),
             );
         }
@@ -475,11 +476,16 @@ impl App {
                         self.app_icon(i, 28.0),
                         text(self.apps[i].name.clone())
                             .font(self.font)
-                            .size(15)
+                            .size(crate::ui::tokens::ts(15.0))
                             .color(fg)
                             .width(Length::Fill),
                         if selected {
-                            Element::from(text("↵").font(self.font).size(14).color(dim))
+                            Element::from(
+                                text("↵")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(14.0))
+                                    .color(dim),
+                            )
                         } else {
                             Space::new().into()
                         },
@@ -490,18 +496,7 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(SPOT_ROW)
-                .style(move |_, st| button::Style {
-                    background: (selected || matches!(st, button::Status::Hovered)).then(|| {
-                        Color {
-                            a: if selected { 0.22 } else { 0.1 },
-                            ..accent
-                        }
-                        .into()
-                    }),
-                    border: Border::default().rounded(12),
-                    text_color: fg,
-                    ..Default::default()
-                })
+                .style(move |_, st| crate::ui::tokens::item(accent, fg, selected, st, 12.0))
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -540,7 +535,14 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
-        container(card).padding(18).into()
+        container(crate::ui::glass::over(
+            card,
+            crate::config::Place::Launcher,
+            28.0,
+            fg,
+        ))
+        .padding(18)
+        .into()
     }
 }
 

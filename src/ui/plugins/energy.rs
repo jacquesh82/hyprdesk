@@ -138,14 +138,18 @@ impl App {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
         let Some(s) = self.panel.as_ref().map(|p| &p.energy).filter(|s| s.loaded) else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let mut col = column![self.section("Profil d'énergie")].spacing(10);
         if s.profiles.is_empty() {
             col = col.push(
                 text("power-profiles-daemon n'est pas installé ou pas démarré.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -157,7 +161,7 @@ impl App {
                     wrap(Msg::Profile(id.clone()))
                 })
                 .font(self.font)
-                .size(16)
+                .size(crate::ui::tokens::ts(16.0))
                 .text_size(13),
             );
         }
@@ -167,7 +171,7 @@ impl App {
                 col = col.push(
                     text(format!("{name} — {cap} % · {}", status_label(st)))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                 );
             }
@@ -188,13 +192,17 @@ impl App {
                     .to_string()
             })
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         col = col.push(
-            button(text("Régler la veille…").font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(Msg::Idle)),
+            button(
+                text("Régler la veille…")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .on_press(wrap(Msg::Idle)),
         );
         col.into()
     }

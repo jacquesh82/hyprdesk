@@ -105,7 +105,7 @@ impl App {
                     move |v| wrap(msg(v))
                 )
                 .font(self.font)
-                .size(16),
+                .size(crate::ui::tokens::ts(16.0)),
                 radio(
                     crate::i18n::tr("Thème seul"),
                     Scope::Theme,
@@ -113,7 +113,7 @@ impl App {
                     move |v| wrap(msg(v))
                 )
                 .font(self.font)
-                .size(16),
+                .size(crate::ui::tokens::ts(16.0)),
             ]
             .spacing(18)
         };
@@ -149,16 +149,23 @@ impl App {
         };
         let export_box = column![
             scope_radios(s.export_scope, Msg::ExportScope),
-            text(export_help).font(self.font).size(12).color(dim),
+            text(export_help)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
             row![
                 text_input(crate::i18n::tr("~/hyprdesk-setup.tar.gz"), &s.export_to)
                     .font(self.font)
                     .on_input(|v| wrap(Msg::ExportTo(v)))
                     .padding(8)
                     .width(Length::Fill),
-                button(text("Exporter").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::Export)),
+                button(
+                    text("Exporter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::Export)),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -169,7 +176,7 @@ impl App {
             export_box,
             self.section("Importer"),
             scope_radios(s.import_scope, Msg::ImportScope),
-            text(import_help).font(self.font).size(12).color(dim),
+            text(import_help).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             if s.import_scope == Scope::All {
                 Element::from(
                     toggler(s.screens)
@@ -187,11 +194,11 @@ impl App {
                     .on_input(|v| wrap(Msg::ImportFrom(v)))
                     .padding(8)
                     .width(Length::Fill),
-                button(text("Vérifier").font(self.font).size(13))
+                button(text("Vérifier").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
                     .on_press_maybe((!s.import_from.trim().is_empty()).then(|| wrap(Msg::Check))),
-                button(text("Importer").font(self.font).size(13))
+                button(text("Importer").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .on_press_maybe(
                         (s.checked && (!s.has_code || s.trust_code)).then(|| wrap(Msg::Import))
@@ -203,8 +210,14 @@ impl App {
         .spacing(14);
         if let Some(r) = &s.report {
             col = col.push(match r {
-                Ok(m) => text(m.clone()).font(self.font).size(12).color(accent),
-                Err(e) => text(e.clone()).font(self.font).size(12).color(warn),
+                Ok(m) => text(m.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(accent),
+                Err(e) => text(e.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
             });
         }
         if s.checked && s.has_code {

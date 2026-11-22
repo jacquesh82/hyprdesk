@@ -403,6 +403,34 @@ pub fn mirror_engine(config_path: &Path, t: &Theme) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Pose le fond d'écran d'un pack (MLG-266) comme fond de tous les écrans :
+/// les fonds réglés par écran ou par workspace restent en place. Renvoie
+/// `true` si `settings.lua` a changé.
+pub fn apply_pack_wallpaper(
+    config_path: &Path,
+    w: &crate::theme_engine::resolve::PackWallpaper,
+) -> Result<bool, String> {
+    use crate::config::{Fit, Selector, WallSource};
+    let mut s = Settings::from_config(&crate::config::lua::load_settings_only(config_path)?);
+    let avant = s.to_lua();
+    let source = if w.slideshow {
+        WallSource::Rotate {
+            dir: w.path.clone(),
+            interval: std::time::Duration::from_secs(w.interval),
+            shuffle: w.shuffle,
+        }
+    } else {
+        WallSource::Path(w.path.clone())
+    };
+    s.set_wallpaper(Selector::default(), source, Fit::Cover);
+    if s.to_lua() == avant {
+        return Ok(false);
+    }
+    s.save_versioned(config_path, crate::storage::revision())
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// Dossier de « Mes thèmes ».
 pub fn themes_dir(config_path: &Path) -> PathBuf {
     config_path

@@ -668,6 +668,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "icon_scope",
             "workspace_selector",
             "icon_double_click",
+            "reduced_transparency",
+            "reduced_motion",
             "advanced_settings",
             "tour_seen",
             "app_themes",
@@ -1118,6 +1120,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "icon_double_click", CTX)? {
         g.icon_double_click = v;
+    }
+    if let Some(v) = opt_bool(t, "reduced_transparency", CTX)? {
+        g.reduced_transparency = v;
+    }
+    if let Some(v) = opt_bool(t, "reduced_motion", CTX)? {
+        g.reduced_motion = v;
     }
     if let Some(v) = opt_bool(t, "advanced_settings", CTX)? {
         g.advanced_settings = v;

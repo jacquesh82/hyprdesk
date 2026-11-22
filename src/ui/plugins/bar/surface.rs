@@ -6,6 +6,7 @@
 //! flouté, filet discret, icônes symboliques teintées, capsule au survol,
 //! menus déroulants (voir `popover`). Ses modules sont des widgets.
 
+use crate::ui::tokens::Shown as _;
 use std::time::Duration;
 
 use crate::i18n::text;
@@ -97,14 +98,15 @@ impl BarPalette {
         };
         Self {
             fg: pick(|c| c.text.as_ref(), theme.fg),
-            bg: pick(|c| c.background.as_ref(), theme.bg),
+            // Teinte du verre de la barre (MLG-268).
+            bg: crate::ui::tokens::tinted(pick(|c| c.background.as_ref(), theme.bg), Place::Bar),
             accent: pick(|c| c.accent.as_ref(), theme.accent),
             // États : slots de la palette du moteur, lisibles sur le fond.
             warning: pick(|c| c.warning.as_ref(), crate::ui::tone::rgba("warning")),
             critical: pick(|c| c.critical.as_ref(), crate::ui::tone::rgba("danger")),
             opacity: colors
                 .and_then(|c| c.opacity)
-                .unwrap_or_else(|| theme.effect(Place::Bar).opacity)
+                .unwrap_or_else(|| theme.shown(Place::Bar).opacity)
                 .clamp(0.0, 1.0),
         }
     }
@@ -479,7 +481,8 @@ impl App {
         if self.cfg.general.transition == crate::config::Transition::None {
             Duration::ZERO
         } else {
-            Duration::from_millis(millis)
+            // Durée du thème, fondu court en mouvement réduit (MLG-271).
+            crate::ui::tokens::duration(millis)
         }
     }
 
@@ -724,7 +727,7 @@ impl App {
                 .cfg
                 .general
                 .theme
-                .effect(crate::config::Place::Bar)
+                .shown(crate::config::Place::Bar)
                 .adaptive
                 .is_some()
         {
@@ -1074,6 +1077,16 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| crate::ui::plugins::bar::style::surface(style, &pal, top));
+        // Verre du thème (MLG-268) sur les lames pleines ; les capsules et
+        // les niches dessinent leur propre verre.
+        let slab: Element<'_, Msg> = if matches!(
+            style,
+            crate::config::BarStyle::Continuite | crate::config::BarStyle::Graphite
+        ) {
+            crate::ui::glass::over(slab, crate::config::Place::Bar, 0.0, color(pal.fg, 1.0))
+        } else {
+            slab.into()
+        };
         if graphite {
             container(slab)
                 .width(Length::Fill)
@@ -1084,7 +1097,7 @@ impl App {
                 })
                 .into()
         } else {
-            slab.into()
+            slab
         }
     }
 
@@ -1339,7 +1352,7 @@ impl App {
                     container(
                         text(t)
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .font(self.ui_font(iced::font::Weight::Normal)),
                     )
                     .padding([5, 9])
@@ -1368,6 +1381,22 @@ impl App {
         }
     }
 
+    /// Libellé de chiffres qui défilent (horloge) : chiffres tabulaires du
+    /// thème (MLG-270).
+    pub(in crate::ui) fn label_numeric<'a>(
+        &self,
+        s: impl Into<String>,
+        size: f32,
+        c: Color,
+    ) -> Element<'a, Msg> {
+        text(s.into())
+            .size(crate::ui::tokens::ts(size))
+            .color(c)
+            .font(self.numeric_font(iced::font::Weight::Medium))
+            .wrapping(iced::widget::text::Wrapping::None)
+            .into()
+    }
+
     pub(in crate::ui) fn label<'a>(
         &self,
         s: impl Into<String>,
@@ -1376,7 +1405,7 @@ impl App {
     ) -> Element<'a, Msg> {
         text(s.into())
             .font(self.font)
-            .size(size)
+            .size(crate::ui::tokens::ts(size))
             .color(c)
             .font(self.ui_font(iced::font::Weight::Medium))
             .wrapping(iced::widget::text::Wrapping::None)
@@ -1437,7 +1466,7 @@ impl App {
                     text(truncate(&t, if compact { 18 } else { 36 }))
                         .wrapping(iced::widget::text::Wrapping::None)
                         .font(self.font)
-                        .size(size)
+                        .size(crate::ui::tokens::ts(size))
                         .color(dim)
                         .font(self.ui_font(iced::font::Weight::Normal)),
                 )
@@ -1501,7 +1530,7 @@ impl App {
                                 t = crate::i18n::tr(tip)
                             ))
                             .font(self.font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                         )
                         .padding([4, 8])
                         .style(move |_| container::Style {
@@ -1734,14 +1763,18 @@ impl App {
                                 .into()
                         } else if style == crate::config::BarStyle::Graphite {
                             iced::widget::column![
-                                self.label(format_now("%H:%M"), 12.0, fg),
+                                self.label_numeric(format_now("%H:%M"), 12.0, fg),
                                 self.label(format_now("%d/%m/%Y"), 11.0, fg),
                             ]
                             .align_x(Alignment::End)
                             .spacing(0)
                             .into()
                         } else {
-                            self.label(format_now(if compact { "%H:%M" } else { format }), size, fg)
+                            self.label_numeric(
+                                format_now(if compact { "%H:%M" } else { format }),
+                                size,
+                                fg,
+                            )
                         };
                         self.module(
                             bar,

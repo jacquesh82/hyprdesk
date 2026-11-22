@@ -22,6 +22,9 @@ pub enum Path {
     Palette(String),
     Effect(String, String),
     Meta(String),
+    /// Jetons de conception (MLG-267 à 273) : `fonts.body`,
+    /// `motion.duration`, `states.hover`, `contrast.text`.
+    Design(String, String),
     Variant,
 }
 
@@ -108,9 +111,12 @@ fn parse_path(path: &str) -> Result<Path> {
         ["palette", slot] => Ok(Path::Palette((*slot).to_string())),
         ["effects", surface, key] => Ok(Path::Effect((*surface).to_string(), (*key).to_string())),
         ["meta", field] => Ok(Path::Meta((*field).to_string())),
+        [ns @ ("fonts" | "motion" | "states" | "contrast"), field] => {
+            Ok(Path::Design((*ns).to_string(), (*field).to_string()))
+        }
         ["variant"] => Ok(Path::Variant),
         _ => Err(Error::Template(format!(
-            "chemin inconnu « {path} » (attendu : palette.<slot>, effects.<surface>.<clé>, meta.<champ>, variant)"
+            "chemin inconnu « {path} » (attendu : palette.<slot>, effects.<surface>.<clé>, meta.<champ>, fonts|motion|states|contrast.<champ>, variant)"
         ))),
     }
 }
@@ -220,6 +226,7 @@ fn describe(p: &Path) -> String {
         Path::Palette(s) => format!("palette.{s}"),
         Path::Effect(s, k) => format!("effects.{s}.{k}"),
         Path::Meta(m) => format!("meta.{m}"),
+        Path::Design(n, f) => format!("{n}.{f}"),
         Path::Variant => "variant".to_string(),
     }
 }
@@ -252,6 +259,19 @@ fn apply_color_filter(f: &Filter, c: Rgba, ctx: &Context) -> Result<Rgba> {
     })
 }
 
+/// Champ d'un jeton de conception, par son nom sérialisé.
+fn design_value<T: serde::Serialize>(token: &T, field: &str) -> Option<Val> {
+    let v = serde_json::to_value(token).ok()?;
+    Some(match v.get(field)? {
+        serde_json::Value::Bool(b) => Val::Bool(*b),
+        serde_json::Value::Number(n) => Val::Num((n.as_f64()? * 10_000.0).round() / 10_000.0),
+        serde_json::Value::String(s) => Val::Text(s.clone()),
+        // Champ facultatif absent (police non déclarée) : texte vide.
+        serde_json::Value::Null => Val::Text(String::new()),
+        _ => return None,
+    })
+}
+
 fn resolve_path(path: &Path, ctx: &Context) -> Result<Val> {
     Ok(match path {
         Path::Palette(slot) => Val::Color(
@@ -269,15 +289,43 @@ fn resolve_path(path: &Path, ctx: &Context) -> Result<Val> {
                 ctx.resolved.effects.get(&place).ok_or_else(|| {
                     Error::Template(format!("surface d'effet absente « {surface} »"))
                 })?;
+            let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
             match key.as_str() {
-                "opacity" => Val::Num((f64::from(effect.opacity) * 10_000.0).round() / 10_000.0),
+                "opacity" => Val::Num(round(f64::from(effect.opacity))),
                 "blur" => Val::Bool(effect.blur),
-                _ => {
-                    return Err(Error::Template(format!(
-                        "clé d'effet inconnue « {key} » (attendu : opacity ou blur)"
-                    )));
+                "opacity_max" => {
+                    Val::Num(round(f64::from(effect.adaptive.unwrap_or(effect.opacity))))
                 }
+                "adaptive" => Val::Bool(effect.adaptive.is_some()),
+                "tint" => {
+                    let g = ctx.resolved.design.glass(place);
+                    Val::Color(g.tint_rgba().unwrap_or_else(|| {
+                        ctx.resolved
+                            .palette
+                            .get("bg")
+                            .copied()
+                            .unwrap_or(Rgba(0, 0, 0, 0))
+                    }))
+                }
+                _ => match design_value(&ctx.resolved.design.glass(place), key) {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::Template(format!(
+                            "clé d'effet inconnue « {key} » (attendu : opacity, blur, adaptive, opacity_max, tint, tint_strength, refraction, refraction_width, highlight, pointer_response, border, shadow)"
+                        )));
+                    }
+                },
             }
+        }
+        Path::Design(ns, field) => {
+            let d = &ctx.resolved.design;
+            let found = match ns.as_str() {
+                "fonts" => design_value(&d.typography, field),
+                "motion" => design_value(&d.motion, field),
+                "states" => design_value(&d.states, field),
+                _ => design_value(&d.contrast, field),
+            };
+            found.ok_or_else(|| Error::Template(format!("champ inconnu « {ns}.{field} »")))?
         }
         Path::Meta(field) => {
             let meta = &ctx.resolved;
@@ -354,6 +402,20 @@ mod tests {
         );
         // Accolades simples (CSS) ne sont pas des placeholders.
         assert_eq!(render("a { b }", &ctx).unwrap(), "a { b }");
+    }
+
+    #[test]
+    fn jetons_de_conception_dans_les_gabarits() {
+        let r = ardoise();
+        let ctx = ctx(&r);
+        assert_eq!(render("{{fonts.body}}", &ctx).unwrap(), "13");
+        assert_eq!(render("{{motion.duration}}", &ctx).unwrap(), "180");
+        assert_eq!(render("{{states.hover}}", &ctx).unwrap(), "0.1");
+        assert_eq!(render("{{contrast.text}}", &ctx).unwrap(), "4.5");
+        assert_eq!(render("{{effects.bar.refraction}}", &ctx).unwrap(), "0");
+        assert_eq!(render("{{fonts.family}}", &ctx).unwrap(), "");
+        assert!(render("{{effects.bar.tint|alpha(0.5)}}", &ctx).is_ok());
+        assert!(render("{{motion.inconnu}}", &ctx).is_err());
     }
 
     #[test]

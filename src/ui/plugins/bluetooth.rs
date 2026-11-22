@@ -185,19 +185,27 @@ impl App {
             .map(|p| &p.bluetooth)
             .filter(|s| s.loaded)
         else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let Some(on) = s.powered else {
             return text("Aucun adaptateur Bluetooth.")
                 .font(self.font)
-                .size(13)
+                .size(crate::ui::tokens::ts(13.0))
                 .color(dim)
                 .into();
         };
         let small = |label: &'static str, m: Msg| {
-            button(text(label).font(self.font).size(12))
-                .padding([4, 10])
-                .on_press(wrap(m))
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .on_press(wrap(m))
         };
         let mut col = column![self.field(
             "Bluetooth",
@@ -209,7 +217,7 @@ impl App {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
         }
@@ -218,7 +226,12 @@ impl App {
         }
         col = col.push(self.section("Appareils appairés"));
         if s.paired.is_empty() {
-            col = col.push(text("Aucun appareil.").font(self.font).size(12).color(dim));
+            col = col.push(
+                text("Aucun appareil.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
         }
         for d in &s.paired {
             let detail = match (d.connected, d.battery) {
@@ -230,8 +243,14 @@ impl App {
             col = col.push(
                 row![
                     column![
-                        text(d.name.clone()).font(self.font).size(13).color(fg),
-                        text(detail).font(self.font).size(12).color(dim)
+                        text(d.name.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
+                        text(detail)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim)
                     ]
                     .width(Length::Fill),
                     if d.connected {
@@ -257,7 +276,12 @@ impl App {
                 self.section("À proximité"),
                 iced::widget::Space::new().width(Length::Fill),
                 if s.scanning {
-                    button(text("Recherche (10 s)…").font(self.font).size(12)).padding([4, 10])
+                    button(
+                        text("Recherche (10 s)…")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
                 } else {
                     small("Rechercher", Msg::Scan)
                 },
@@ -268,7 +292,7 @@ impl App {
             col = col.push(
                 text("Aucun appareil trouvé ; lancez une recherche, appareil en mode appairage.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -277,7 +301,7 @@ impl App {
                 row![
                     text(d.name.clone())
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
                     small("Appairer", Msg::Pair(d.mac.clone())),

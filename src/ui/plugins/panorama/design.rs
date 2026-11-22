@@ -28,7 +28,7 @@ impl std::fmt::Display for Choice {
 impl App {
     fn panorama_design_error(&self) -> Element<'_, UiMsg> {
         text(self.panorama.design_error.clone().unwrap_or_default())
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(iced::Color::from_rgb8(255, 160, 120))
             .into()
     }
@@ -44,19 +44,26 @@ impl App {
             text_input("", &value)
                 .on_input(move |s| wrap(Msg::DesignText(key.into(), s)))
                 .on_submit(wrap(Msg::DesignApply(key.into())))
-                .size(13),
-            button(text("Appliquer").size(12)).on_press(wrap(Msg::DesignApply(key.into())))
+                .size(crate::ui::tokens::ts(13.0)),
+            button(text("Appliquer").size(crate::ui::tokens::ts(12.0)))
+                .on_press(wrap(Msg::DesignApply(key.into())))
         ]
         .spacing(8);
         // Image de fond : choisie aussi dans un explorateur (portail).
         if key == "wallpaper" {
             line = line.push(
-                button(text("Parcourir…").size(12)).on_press(wrap(Msg::DesignBrowse(key.into()))),
+                button(text("Parcourir…").size(crate::ui::tokens::ts(12.0)))
+                    .on_press(wrap(Msg::DesignBrowse(key.into()))),
             );
         }
-        column![text(label).font(self.font).size(12), line]
-            .spacing(5)
-            .into()
+        column![
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
+            line
+        ]
+        .spacing(5)
+        .into()
     }
     fn panorama_design_slider(
         &self,
@@ -69,7 +76,9 @@ impl App {
         let c = self.panorama_cfg();
         let v = c.design.number(key).unwrap_or(min);
         column![
-            text(label).font(self.font).size(12),
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
             row![
                 slider(min..=max, v, move |v| wrap(Msg::DesignNumber(
                     key.into(),
@@ -77,7 +86,9 @@ impl App {
                 )))
                 .step(step)
                 .on_release(wrap(Msg::DesignCommit)),
-                text(format!("{v:.2}")).size(12).width(50)
+                text(format!("{v:.2}"))
+                    .size(crate::ui::tokens::ts(12.0))
+                    .width(50)
             ]
             .spacing(12)
             .align_y(Alignment::Center)
@@ -93,7 +104,9 @@ impl App {
     ) -> Element<'_, UiMsg> {
         let c = self.panorama_cfg();
         column![
-            text(label).font(self.font).size(12),
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
             pick_list(
                 values
                     .iter()
@@ -137,7 +150,7 @@ impl App {
             for (id, label) in [(group.0, group.1), (group.2, group.3)] {
                 let selected = c.design.preset == id;
                 r = r.push(
-                    button(text(label).size(13))
+                    button(text(label).size(crate::ui::tokens::ts(13.0)))
                         .padding([10, 14])
                         .width(Length::Fill)
                         .style(move |t, s| {
@@ -152,7 +165,7 @@ impl App {
             }
             presets = presets.push(r);
         }
-        let mut col=presets.push(text("Un préréglage remplace la composition et le style ; votre image et vos raccourcis sont conservés.").size(12))
+        let mut col=presets.push(text("Un préréglage remplace la composition et le style ; votre image et vos raccourcis sont conservés.").size(crate::ui::tokens::ts(12.0)))
             .push(self.panorama_design_error())
             .push(self.section("Fond et couleurs"))
             .push(self.panorama_design_input("Image de fond (chemin, vide pour le fond du style)","wallpaper"))
@@ -197,7 +210,7 @@ impl App {
                 self.panorama_design_input("Mesures (cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp)","metrics"),
                 self.panorama_design_slider("Historique des courbes (secondes)","history_seconds",15.0,600.0,1.0),
             ].spacing(10)))
-            .push(text("Les capteurs absents affichent —. Les courbes enregistrent les relevés réels pendant l'affichage.").size(12))
+            .push(text("Les capteurs absents affichent —. Les courbes enregistrent les relevés réels pendant l'affichage.").size(crate::ui::tokens::ts(12.0)))
             .push(self.section("Lecteur et effets"))
             .push(self.panorama_design_choice("Présentation du lecteur","media_style",crate::panorama::design::MEDIA));
         for (key, label) in [
@@ -225,15 +238,15 @@ impl App {
             .min(tiles.len().saturating_sub(1));
         let mut col = column![
             self.section("Composition"),
-            text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(12),
+            text("Choisissez une zone puis réglez son widget, sa position et sa taille. En portrait, la composition pivote et les widgets restent droits.").size(crate::ui::tokens::ts(12.0)),
         ]
         .spacing(12);
         col = match board {
             None if c.layout != crate::panorama::config::Layout::Dashboard => col.push(
-                button(text("Utiliser cette composition").size(13)).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))),
+                button(text("Utiliser cette composition").size(crate::ui::tokens::ts(13.0))).on_press(wrap(Msg::Layout(crate::panorama::config::Layout::Dashboard))),
             ),
             None => col,
-            Some(_) => col.push(text("Mesures : une tuile par mesure, en graphique (metric:cpu) ou en jauge (metric:cpu:gauges).").size(12)),
+            Some(_) => col.push(text("Mesures : une tuile par mesure, en graphique (metric:cpu) ou en jauge (metric:cpu:gauges).").size(crate::ui::tokens::ts(12.0))),
         };
         col = col.push(self.panorama_design_error());
         for (i, t) in tiles.iter().enumerate() {
@@ -245,7 +258,7 @@ impl App {
                         i + 1,
                         crate::i18n::tr(crate::panorama::page_label(&t.widget))
                     ))
-                    .size(13),
+                    .size(crate::ui::tokens::ts(13.0)),
                 )
                 .width(Length::Fill)
                 .style(move |th, s| {
@@ -260,9 +273,9 @@ impl App {
         }
         col = col.push(
             row![
-                button(text("Ajouter une zone").size(12))
+                button(text("Ajouter une zone").size(crate::ui::tokens::ts(12.0)))
                     .on_press_maybe((tiles.len() < 16).then(|| wrap(Msg::TileAdd))),
-                button(text("Retirer la zone").size(12))
+                button(text("Retirer la zone").size(crate::ui::tokens::ts(12.0)))
                     .on_press_maybe((tiles.len() > 1).then(|| wrap(Msg::TileRemove)))
             ]
             .spacing(8),
@@ -279,12 +292,14 @@ impl App {
                 options.push(format!("metric:{m}:cards"));
             }
             options.extend(self.cfg.widgets.iter().map(|w| format!("widget:{}", w.id)));
-            col = col.push(text("Widget de la zone").size(12)).push(
-                pick_list(options, Some(tile.widget.clone()), |v| {
-                    wrap(Msg::TileWidget(v))
-                })
-                .text_size(13),
-            );
+            col = col
+                .push(text("Widget de la zone").size(crate::ui::tokens::ts(12.0)))
+                .push(
+                    pick_list(options, Some(tile.widget.clone()), |v| {
+                        wrap(Msg::TileWidget(v))
+                    })
+                    .text_size(13),
+                );
             for (key, label, v, max) in [
                 ("x", "Position horizontale (%)", tile.x, 1.0 - tile.w),
                 ("y", "Position verticale (%)", tile.y, 1.0 - tile.h),
@@ -294,14 +309,16 @@ impl App {
                 let minimum = if key == "w" || key == "h" { 5.0 } else { 0.0 };
                 col = col.push(
                     column![
-                        text(label).size(12),
+                        text(label).size(crate::ui::tokens::ts(12.0)),
                         row![
                             slider(minimum..=(max * 100.0).max(minimum), v * 100.0, move |n| {
                                 wrap(Msg::TileNumber(key.into(), n / 100.0))
                             })
                             .step(1.0_f32)
                             .on_release(wrap(Msg::DesignCommit)),
-                            text(format!("{:.0}", v * 100.0)).width(36).size(12)
+                            text(format!("{:.0}", v * 100.0))
+                                .width(36)
+                                .size(crate::ui::tokens::ts(12.0))
                         ]
                         .spacing(10)
                     ]
@@ -309,7 +326,7 @@ impl App {
                 );
             }
         }
-        col.push(text("Les zones peuvent se superposer volontairement. La zone placée en dernier apparaît au-dessus.").size(12)).into()
+        col.push(text("Les zones peuvent se superposer volontairement. La zone placée en dernier apparaît au-dessus.").size(crate::ui::tokens::ts(12.0))).into()
     }
 
     pub(super) fn panorama_shortcuts_tab(&self) -> Element<'_, UiMsg> {
@@ -319,10 +336,10 @@ impl App {
             self.section("Profil du bloc"),
             self.panorama_profile_choice(),
             text("Le bloc de raccourcis du Panorama s'ouvre sur ce profil ; son sélecteur en change au doigt. Vidéo, Audio et Télécommande ont leurs touches intégrées (la télécommande envoie flèches, OK et Retour à la fenêtre active) ; Système affiche la liste ci-dessous.")
-                .size(12),
+                .size(crate::ui::tokens::ts(12.0)),
             self.section("Raccourcis tactiles (Système)"),
             text("Chaque touche lance la commande que vous choisissez, uniquement à l'appui.")
-                .size(12),
+                .size(crate::ui::tokens::ts(12.0)),
             self.panorama_design_error(),
             self.panorama_design_slider("Nombre de colonnes", "shortcut_columns", 2.0, 8.0, 1.0)
         ]
@@ -333,8 +350,11 @@ impl App {
                 row![
                     self.panorama_icon_thumb(&s.icon, 24.0),
                     self.panorama_move_buttons(i, n, |i, d| wrap(Msg::ShortcutMove(i, d))),
-                    text(s.name.clone()).size(13).width(Length::Fill),
-                    button(text("Retirer").size(12)).on_press(wrap(Msg::ShortcutRemove(i)))
+                    text(s.name.clone())
+                        .size(crate::ui::tokens::ts(13.0))
+                        .width(Length::Fill),
+                    button(text("Retirer").size(crate::ui::tokens::ts(12.0)))
+                        .on_press(wrap(Msg::ShortcutRemove(i)))
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
@@ -349,17 +369,17 @@ impl App {
         ] {
             col = col.push(
                 column![
-                    text(label).size(12),
+                    text(label).size(crate::ui::tokens::ts(12.0)),
                     text_input("", v)
                         .on_input(move |v| wrap(Msg::ShortcutText(i, v)))
                         .on_submit(wrap(Msg::ShortcutAdd))
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                 ]
                 .spacing(5),
             );
         }
         col.push(
-            button(text("Ajouter le raccourci").size(13)).on_press_maybe(
+            button(text("Ajouter le raccourci").size(crate::ui::tokens::ts(13.0))).on_press_maybe(
                 (!draft.0.trim().is_empty()
                     && !draft.2.trim().is_empty()
                     && c.design.shortcuts.len() < 64)

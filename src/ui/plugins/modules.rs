@@ -23,7 +23,7 @@ impl App {
             return column![
                 text("Les modules vivent dans le Panorama, coupé dans Plugins → Installés.")
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(self.ink().dim)
             ]
             .into();

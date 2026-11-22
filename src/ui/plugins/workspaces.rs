@@ -159,7 +159,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .width(110),
                     pick_list(choices.clone(), selected, move |c: ScreenChoice| {
                         wrap(Msg::WsMonitor(w.clone(), c.value))
@@ -194,7 +194,7 @@ impl App {
                     m = screen
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .into()
             })
@@ -206,7 +206,7 @@ impl App {
                  permanent change d'écran aussitôt ; les autres, à leur création."
             )
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.field(
                 "Écran de chaque workspace",
@@ -259,7 +259,7 @@ impl App {
                         "La barre change aussitôt. Les miniatures et les icônes suivent les fenêtres de chaque espace."
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
                     // Graphite réserve le centre au lanceur.
                     (self.cfg.bar.as_ref().is_some_and(|b| b.style == crate::config::BarStyle::Graphite))
@@ -268,7 +268,7 @@ impl App {
                                 "Graphite centre le lanceur ; les espaces de travail ajoutés à la barre restent à droite.",
                             ))
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                         }),
                 ]
@@ -281,7 +281,7 @@ impl App {
                  l'espace, « + Nouvel espace » pour en créer un."
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(14)
@@ -293,7 +293,12 @@ impl App {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let small = |s: String| text(s).font(self.font).size(12).color(dim);
+        let small = |s: String| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+        };
 
         // Nombre de workspaces : interrupteur, puis − N +.
         let count = self.settings.workspaces;
@@ -309,15 +314,15 @@ impl App {
         if count.is_some() {
             stepper = stepper.push(
                 row![
-                    button(text("−").font(self.font).size(16))
+                    button(text("−").font(self.font).size(crate::ui::tokens::ts(16.0)))
                         .padding([2, 12])
                         .on_press_maybe((shown > 1).then(|| step(shown - 1))),
                     text(shown.to_string())
                         .font(self.font)
-                        .size(16)
+                        .size(crate::ui::tokens::ts(16.0))
                         .width(32)
                         .align_x(Alignment::Center),
-                    button(text("+").font(self.font).size(16))
+                    button(text("+").font(self.font).size(crate::ui::tokens::ts(16.0)))
                         .padding([2, 12])
                         .on_press_maybe((shown < MAX_WORKSPACES).then(|| step(shown + 1))),
                 ]
@@ -365,12 +370,16 @@ impl App {
                 .assigns
                 .iter()
                 .any(|u| u.origin == Origin::User && u.app == a.app);
-            let mut name = column![text(app_name(&a.app)).font(self.font).size(14)];
+            let mut name = column![
+                text(app_name(&a.app))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0))
+            ];
             if overridden {
                 name = name.push(
                     text("surchargée dans hyprdesk.lua — sans effet ici")
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(crate::ui::tone::warning()),
                 );
             }
@@ -386,9 +395,13 @@ impl App {
                     toggler(a.silent)
                         .label(crate::i18n::tr("Sans y aller"))
                         .on_toggle(move |v| wrap(Msg::AssignRuleSilent(i, v))),
-                    button(text("Retirer").font(self.font).size(13))
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::RemoveAssign(i))),
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::RemoveAssign(i))),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -415,8 +428,14 @@ impl App {
             let pick = |label: String, detail: String, m: AppMatch| {
                 button(
                     row![
-                        text(label).font(self.font).size(14).width(Length::Fill),
-                        text(detail).font(self.font).size(12).color(dim)
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .width(Length::Fill),
+                        text(detail)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim)
                     ]
                     .spacing(8),
                 )
@@ -476,11 +495,11 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(crate::ui::tone::warning()),
                     small(lines.join("\n")),
                     row![
-                        iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(12))
+                        iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
                             .on_press(UiMsg::Control(crate::control::Command::Settings("hyprconfig".into()))),
                         self.lyra_button(crate::i18n::tr("Workspaces"), prompt),

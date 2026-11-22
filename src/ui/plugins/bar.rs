@@ -185,7 +185,7 @@ impl App {
         let mut col = if general {
             column![
                 self.section("Barre de hyprdesk"),
-                text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(12).color(dim),
+                text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
                 self.field("Afficher la barre", "bar", toggler(b.enabled).on_toggle(|v| wrap(Msg::Enable(v)))),
             ]
         } else {
@@ -193,7 +193,7 @@ impl App {
         }
         .spacing(12);
         if self.cfg.keys_user.contains("bar") {
-            col = col.push(text("hd.bar est aussi déclaré dans hyprdesk.lua, qui l'emporte : ces réglages sont sans effet.").font(self.font).size(12).color(warn));
+            col = col.push(text("hd.bar est aussi déclaré dans hyprdesk.lua, qui l'emporte : ces réglages sont sans effet.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(warn));
         }
         if !b.enabled {
             col = col.push(
@@ -203,15 +203,19 @@ impl App {
                     crate::i18n::tr("La barre est masquée : affichez-la dans l'onglet Général.")
                 })
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
             return col.into();
         }
         let small = |label: &'static str, msg: UiMsg| {
-            button(text(label).font(self.font).size(12))
-                .padding([2, 8])
-                .on_press(msg)
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([2, 8])
+            .on_press(msg)
         };
         if general {
             col = col
@@ -246,7 +250,7 @@ impl App {
                             slider(24..=64u16, b.height.clamp(24, 64), |v| wrap(Msg::Height(v)))
                                 .on_release(wrap(Msg::Commit))
                                 .width(260),
-                            text(format!("{} px", b.height)).font(self.font).size(13),
+                            text(format!("{} px", b.height)).font(self.font).size(crate::ui::tokens::ts(13.0)),
                         ]
                         .spacing(12),
                     ),
@@ -259,7 +263,7 @@ impl App {
                             slider(0..=24u16, b.margin.min(24), |v| wrap(Msg::Margin(v)))
                                 .on_release(wrap(Msg::Commit))
                                 .width(260),
-                            text(format!("{} px", b.margin)).font(self.font).size(13),
+                            text(format!("{} px", b.margin)).font(self.font).size(crate::ui::tokens::ts(13.0)),
                         ]
                         .spacing(12),
                     ),
@@ -368,7 +372,9 @@ impl App {
                                 )
                                 .width(Length::Fill)
                                 .max_width(260),
-                                text(format!("{value} {unit}")).font(self.font).size(13),
+                                text(format!("{value} {unit}"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0)),
                             ]
                             .spacing(12),
                         ),
@@ -435,7 +441,7 @@ impl App {
                 button(
                     text("Mêmes modules que les autres écrans")
                         .font(self.font)
-                        .size(12),
+                        .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([3, 10])
                 .style(button::secondary)
@@ -450,7 +456,7 @@ impl App {
                      un changement ici leur donne leurs propres modules.",
                 )
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             );
         }
@@ -464,14 +470,14 @@ impl App {
         col = col.push(
             text("Faites glisser un module pour le déplacer.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         if graphite {
             col = col.push(
                 text("Le lanceur reste au centre ; placez vos modules à gauche, au centre ou à droite.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -480,7 +486,7 @@ impl App {
             col = col.push(
                 text(*zname)
                     .font(self.font)
-                    .size(15)
+                    .size(crate::ui::tokens::ts(15.0))
                     .color(color(g.theme.accent, 1.0)),
             );
             let mut group = column![].spacing(0);
@@ -496,9 +502,14 @@ impl App {
                 })
             };
             if zones[zi].is_empty() {
-                let empty = container(text("vide").font(self.font).size(12).color(dim))
-                    .width(Length::Fill)
-                    .padding([6, 0]);
+                let empty = container(
+                    text("vide")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                )
+                .width(Length::Fill)
+                .padding([6, 0]);
                 group = group.push({
                     Element::from(
                         mouse_area(empty)
@@ -510,7 +521,9 @@ impl App {
             for (i, e) in zones[zi].iter().enumerate() {
                 let draggable = b.can_drag_entry((z, i));
                 let dragged = self.bar_drag.is_some_and(|(from, _)| from == (z, i));
-                let label = text(label_of(&e.type_id)).font(self.font).size(14);
+                let label = text(label_of(&e.type_id))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0));
                 let label: Element<'_, UiMsg> = if draggable {
                     let grip = iced::widget::svg(
                         super::super::icons::get("grip-vertical").expect("drag grip"),
@@ -965,7 +978,7 @@ impl App {
                             crate::settings::hex(c)
                         ))
                         .font(font)
-                        .size(12),
+                        .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 8])
                     .style(container::rounded_box),
@@ -976,7 +989,12 @@ impl App {
             }))
             .spacing(6);
             if !slot_chips.is_empty() {
-                chips = chips.push(text("·").font(font).size(12).color(dim));
+                chips = chips.push(
+                    text("·")
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                );
             }
             for (name, c) in &slot_chips {
                 let selected = matches!(&value, Some(ColorRef::Slot(s)) if s == name);
@@ -985,11 +1003,10 @@ impl App {
                         button(
                             row![
                                 dot(*c, 16.0, selected),
-                                text(name.clone()).font(font).size(11).color(if selected {
-                                    fg
-                                } else {
-                                    dim
-                                }),
+                                text(name.clone())
+                                    .font(font)
+                                    .size(crate::ui::tokens::ts(11.0))
+                                    .color(if selected { fg } else { dim }),
                             ]
                             .spacing(4)
                             .align_y(Alignment::Center),
@@ -1006,7 +1023,7 @@ impl App {
                                 name = name
                             ))
                             .font(font)
-                            .size(12),
+                            .size(crate::ui::tokens::ts(12.0)),
                         )
                         .padding([4, 8])
                         .style(container::rounded_box),
@@ -1018,7 +1035,7 @@ impl App {
             let is_open = open.is_some_and(|(k, _)| *k == key);
             let by_mode = matches!(value, Some(ColorRef::Pair { .. }));
             let mode_btn = tooltip(
-                button(text(crate::i18n::tr("Selon le mode")).font(font).size(12))
+                button(text(crate::i18n::tr("Selon le mode")).font(font).size(crate::ui::tokens::ts(12.0)))
                     .padding([3, 8])
                     .style(if by_mode {
                         button::primary
@@ -1031,7 +1048,7 @@ impl App {
                         "Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours.",
                     ))
                     .font(font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
                 )
                 .padding([4, 8])
                 .style(container::rounded_box),
@@ -1044,14 +1061,18 @@ impl App {
                 None => crate::settings::hex(shown),
             };
             let reset: Element<'_, UiMsg> = if value.is_some() {
-                button(text(crate::i18n::tr("Thème")).font(font).size(12))
-                    .padding([3, 8])
-                    .on_press(wrap(Msg::SetColor(key.clone(), None)))
-                    .into()
+                button(
+                    text(crate::i18n::tr("Thème"))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([3, 8])
+                .on_press(wrap(Msg::SetColor(key.clone(), None)))
+                .into()
             } else {
                 text(crate::i18n::tr("thème"))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(52)
                     .into()
@@ -1063,7 +1084,7 @@ impl App {
                     dot(shown, 22.0, false),
                     text(label)
                         .font(font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(if value.is_some() { fg } else { dim })
                         .width(if by_mode { 120 } else { 64 }),
                     button(
@@ -1073,7 +1094,7 @@ impl App {
                             "Choisir…"
                         }))
                         .font(font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                     )
                     .padding([3, 8])
                     .style(if is_open {
@@ -1107,7 +1128,7 @@ impl App {
                 "Par défaut, les couleurs de la barre suivent le thème actif."
             ))
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         ]
         .spacing(12);
@@ -1134,18 +1155,22 @@ impl App {
                     .width(Length::Fill),
                     text(format!("{} %", (o * 100.0).round() as i32))
                         .font(font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(48),
                     if b.colors.opacity.is_some() {
                         Element::from(
-                            button(text(crate::i18n::tr("Thème")).font(font).size(12))
-                                .padding([3, 8])
-                                .on_press(wrap(Msg::Opacity(None))),
+                            button(
+                                text(crate::i18n::tr("Thème"))
+                                    .font(font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([3, 8])
+                            .on_press(wrap(Msg::Opacity(None))),
                         )
                     } else {
                         text(crate::i18n::tr("thème"))
                             .font(font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(52)
                             .into()
@@ -1160,7 +1185,7 @@ impl App {
                 "0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Transparence.",
             ))
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         // Couleur de chaque module : configuration avancée.
@@ -1171,14 +1196,14 @@ impl App {
                 "Texte et icônes du module, y compris quand il est actif ; avertissement et critique gardent leurs couleurs.",
             ))
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
         if modules.is_empty() {
             fine = fine.push(
                 text(crate::i18n::tr("Aucun module dans la barre."))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -1186,7 +1211,9 @@ impl App {
             let v = b.colors.modules.get(&k).cloned();
             fine = fine.push(
                 column![
-                    text(label).font(self.title_font()).size(13),
+                    text(label)
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(13.0)),
                     line(format!("mod:{k}"), v, pal.fg),
                 ]
                 .spacing(6),

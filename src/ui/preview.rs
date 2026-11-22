@@ -3417,7 +3417,7 @@ impl Preview {
                 );
             }
             container(column(vec![
-                container(text(title).size(13))
+                container(text(title).size(crate::ui::tokens::ts(13.0)))
                     .padding(Padding {
                         top: 9.0,
                         left: 12.0,

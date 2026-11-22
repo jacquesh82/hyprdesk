@@ -10,6 +10,7 @@
 //! outil prend la combinaison. Installation et remise à zéro effacent les
 //! réponses. « Plus tard » : la question revient au prochain démarrage.
 
+use crate::ui::tokens::Shown as _;
 use iced::keyboard::key::{Named, Physical};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::{Space, button, column, container, row, scrollable, text};
@@ -397,11 +398,11 @@ impl App {
         let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
-            th.effect(crate::config::Place::Menus).opacity.max(0.97),
+            th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
         let font = self.font;
         let btn = |label: String, on: KcMsg, primary: bool| {
-            button(text(label).font(font).size(13))
+            button(text(label).font(font).size(crate::ui::tokens::ts(13.0)))
                 .padding([6, 12])
                 .style(if primary {
                     button::primary
@@ -416,7 +417,7 @@ impl App {
                 container(
                     text(crate::essentials::pretty(&it.combo))
                         .font(font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .color(accent)
                 )
                 .padding([3, 8])
@@ -427,7 +428,7 @@ impl App {
                 }),
                 text(crate::i18n::tr(it.label))
                     .font(font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
             ]
             .spacing(10)
@@ -437,17 +438,17 @@ impl App {
                 h = it.holder.as_str()
             ))
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim);
             let status: Element<'_, Msg> = match &it.answer {
                 Some(Answer::Taken) => text(crate::i18n::tr("Pris pour hyprdesk."))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent)
                     .into(),
                 Some(Answer::Kept) => text(crate::i18n::tr("Gardé tel quel."))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent)
                     .into(),
                 Some(Answer::Changed(c)) => text(crate::tr!(
@@ -455,7 +456,7 @@ impl App {
                     c = crate::essentials::pretty(c)
                 ))
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(accent)
                 .into(),
                 None => Space::new().into(),
@@ -466,7 +467,7 @@ impl App {
                         "Appuyez sur la nouvelle combinaison… (Échap : annuler)"
                     ))
                     .font(font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(Length::Fill),
                     btn(
@@ -520,23 +521,23 @@ impl App {
         let col = column![
             text(crate::i18n::tr("Raccourcis déjà pris"))
                 .font(self.title_font())
-                .size(20)
+                .size(crate::ui::tokens::ts(20.0))
                 .color(fg),
             text(crate::i18n::tr(
                 "Ces raccourcis de hyprdesk sont déjà liés dans la configuration de Hyprland. Pour chacun : le prendre pour hyprdesk, garder l'existant, ou choisir une autre combinaison."
             ))
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             scrollable(list).height(Length::Fill),
             text(kc.error.clone().unwrap_or_default())
                 .font(font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(Color::from_rgb(0.95, 0.45, 0.45)),
             row![
                 text(crate::i18n::tr("Modifiable plus tard dans Réglages → Raccourcis."))
                     .font(font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
                 button(
@@ -546,7 +547,7 @@ impl App {
                         crate::i18n::tr("Plus tard")
                     })
                     .font(font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                 )
                 .padding([8, 16])
                 .style(if all { button::primary } else { button::text })

@@ -317,7 +317,10 @@ pub fn adv_badge<'a>(font: iced::Font) -> Element<'a, Msg> {
     container(
         iced::widget::row![
             adv_glyph(12.0, ink),
-            crate::i18n::text("Avancé").font(font).size(11).color(ink),
+            crate::i18n::text("Avancé")
+                .font(font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(ink),
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center),

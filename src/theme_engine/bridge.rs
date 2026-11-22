@@ -331,6 +331,12 @@ pub fn write_custom(roots: &Roots, theme: &Theme) -> Result<PathBuf> {
     doc.insert("meta".into(), meta.into());
     doc.insert("palette".into(), palette.into());
     doc.insert("effects".into(), effects.into());
+    // Les couleurs choisies dans hyprdesk sont rendues telles quelles : le
+    // contraste garanti (MLG-269) vaut pour les packs, pas pour un choix
+    // explicite de l'utilisateur, que Réglages → Thème signale.
+    let mut contrast = toml::Table::new();
+    contrast.insert("enforce".into(), false.into());
+    doc.insert("contrast".into(), contrast.into());
     let text =
         toml::to_string(&doc).map_err(|e| Error::Manifest(CUSTOM_ID.to_string(), e.to_string()))?;
     // Relu avant d'écrire : un pack invalide n'est jamais posé.

@@ -205,11 +205,11 @@ impl App {
                         .width(260),
                     text(format!("{:.0} %", l.dim * 100.0))
                         .font(self.font)
-                        .size(14),
+                        .size(crate::ui::tokens::ts(14.0)),
                 ]
                 .spacing(12),
             ),
-            text(origin).font(self.font).size(12).color(dim),
+            text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             self.section("Contenus"),
             column![
                 toggler(l.show_user)
@@ -252,7 +252,7 @@ impl App {
                     .to_string()
                 })
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(if crate::doctor::has("fprintd") {
                     dim
                 } else {
@@ -270,9 +270,9 @@ impl App {
                 p0 = crate::lock::pam::service()
             ))
             .font(self.font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            button(text("Verrouiller maintenant").font(self.font).size(13))
+            button(text("Verrouiller maintenant").font(self.font).size(crate::ui::tokens::ts(13.0)))
                 .padding([6, 14])
                 .on_press(wrap(Msg::LockNow)),
         ]
@@ -288,7 +288,11 @@ impl App {
         let ink = self.ink();
         let warn = crate::ui::tone::warning();
         let note = |s: String, c: Color| -> Element<'_, UiMsg> {
-            text(s).font(self.font).size(12).color(c).into()
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+                .into()
         };
         let mut col = column![self.section("Empreintes digitales")].spacing(10);
         let Some(s) = self
@@ -298,7 +302,12 @@ impl App {
             .filter(|s| s.loaded)
         else {
             return col
-                .push(text("Lecture…").font(self.font).size(13).color(ink.dim))
+                .push(
+                    text("Lecture…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .color(ink.dim),
+                )
                 .into();
         };
         let Some(reader) = &s.reader else {
@@ -306,7 +315,7 @@ impl App {
                 .push(
                     text("Aucun lecteur d'empreintes détecté.")
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(ink.dim),
                 )
                 .into();
@@ -337,11 +346,15 @@ impl App {
                 row![
                     text(enroll::finger_label(f))
                         .font(self.font)
-                        .size(14)
+                        .size(crate::ui::tokens::ts(14.0))
                         .width(200),
-                    button(text("Supprimer").font(self.font).size(12))
-                        .padding([4, 10])
-                        .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                    button(
+                        text("Supprimer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -370,7 +383,7 @@ impl App {
                     )
                 })
                 .font(self.font)
-                .size(13),
+                .size(crate::ui::tokens::ts(13.0)),
             );
             if e.started && e.total > 0 {
                 col = col.push(
@@ -386,9 +399,13 @@ impl App {
                 col = col.push(note(h.clone(), warn));
             }
             col = col.push(
-                button(text("Annuler").font(self.font).size(13))
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::FingerCancel)),
+                button(
+                    text("Annuler")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::FingerCancel)),
             );
         } else if let Some(target) = s.target() {
             col = col.push(
@@ -396,9 +413,13 @@ impl App {
                     pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
                         .font(self.font)
                         .text_size(13),
-                    button(text("Enregistrer ce doigt").font(self.font).size(13))
-                        .padding([6, 14])
-                        .on_press(wrap(Msg::FingerEnroll)),
+                    button(
+                        text("Enregistrer ce doigt")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::FingerEnroll)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -428,7 +449,7 @@ impl App {
             self.section("Veille"),
             text("À chaque étape, après ce délai sans activité. hyprdesk écrit la configuration de hypridle et le lance ; une application qui demande à rester éveillée (vidéo, appel) l'en empêche.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             self.field(
                 "hyprdesk gère la veille",
@@ -444,7 +465,7 @@ impl App {
             )),
             text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(14);
@@ -456,7 +477,7 @@ impl App {
                     n = (max as u64).div_ceil(60)
                 ))
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(warn),
             );
         }
@@ -464,7 +485,7 @@ impl App {
             col = col.push(
                 text("hypridle est absent (paquet hypridle) : rien ne se passera à l'inactivité.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
             );
         }
@@ -477,7 +498,7 @@ impl App {
                         pid = pid
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(if i.manage { warn } else { dim })
                     .width(iced::Length::Fill),
                     self.lyra_button(
@@ -517,7 +538,9 @@ impl App {
                         slider(0..=120u32, minutes, move |m| wrap(Msg::IdleDelay(step, m)))
                             .on_release(wrap(Msg::IdleCommit))
                             .width(260),
-                        text(value).font(self.font).size(14),
+                        text(value)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0)),
                     ]
                     .spacing(12),
                 ),
@@ -528,14 +551,14 @@ impl App {
             col = col.push(
                 text(w)
                     .font(self.font)
-                    .size(13)
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(crate::ui::tone::warning()),
             );
         }
         col = col.push(
             text("Avant une mise en veille, la session est toujours verrouillée ; au réveil, les écrans se rallument. Assombrir passe par brightnessctl.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col.push(self.lid_section()).into()
@@ -550,7 +573,7 @@ impl App {
             self.section("Capot de l'écran"),
             text("Quand le capot du portable se referme. « Comme le système » laisse logind décider (le plus souvent : mise en veille) ; un autre choix fait tenir le capot par hyprdesk, qui verrouille toujours avant une veille ou une hibernation.")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         ]
         .spacing(14);
@@ -558,7 +581,7 @@ impl App {
             col = col.push(
                 text("Aucun capot détecté sur ce poste : ces réglages servent au portable qui partage cette configuration.")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
             );
         }
@@ -590,7 +613,7 @@ impl App {
         col = col.push(
             text("« Éteindre l'écran du portable » : avec un écran externe, l'écran du portable est désactivé et ses workspaces passent sur l'externe ; il revient à l'ouverture. Seul, il s'éteint simplement. Hibernation : il faut une partition d'échange assez grande et le réveil configuré (resume).")
                 .font(self.font)
-                .size(12)
+                .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
         col.into()

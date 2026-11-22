@@ -288,6 +288,8 @@ fn info(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure> {
                 "version": resolved.version,
                 "variant": resolved.variant,
                 "palette": palette,
+                "design": resolved.design,
+                "wallpaper": resolved.wallpaper.as_ref().map(|w| w.path.display().to_string()),
                 "warnings": resolved.warnings,
             }))
             .map_err(json_err)?

@@ -1082,16 +1082,20 @@ impl App {
             column![
                 text("Votre assistante du bureau")
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
-                text("LYRA").font(self.title_font()).size(32).color(fg),
-                text(presence.label()).font(self.font).size(13).color(
-                    if presence == Presence::Offline {
+                text("LYRA")
+                    .font(self.title_font())
+                    .size(crate::ui::tokens::ts(32.0))
+                    .color(fg),
+                text(presence.label())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(if presence == Presence::Offline {
                         dim
                     } else {
                         accent
-                    }
-                ),
+                    }),
             ]
             .spacing(3)
             .width(Length::Fill),
@@ -1110,10 +1114,14 @@ impl App {
         .style(appearance::selector)
         .placeholder(crate::i18n::tr("Fournisseur"))
         .width(145);
-        let new_conversation = button(text("+ Nouvelle").font(self.font).size(12))
-            .padding([8, 14])
-            .style(|t, s| appearance::pill(t, s, false))
-            .on_press(Msg::Chat(ChatMsg::NewConversation));
+        let new_conversation = button(
+            text("+ Nouvelle")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
+        )
+        .padding([8, 14])
+        .style(|t, s| appearance::pill(t, s, false))
+        .on_press(Msg::Chat(ChatMsg::NewConversation));
         let header: Element<'_, Msg> = if self.chat_width() < 760.0 {
             column![
                 row![identity, close].spacing(8).align_y(Alignment::Center),
@@ -1167,12 +1175,12 @@ impl App {
             conv_row = conv_row.push(
                 text(crate::tr!("{n} à lire", n = others_unread))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(accent),
             );
         }
         conv_row = conv_row.push(iced::widget::tooltip(
-            button(text("×").font(self.font).size(15))
+            button(text("×").font(self.font).size(crate::ui::tokens::ts(15.0)))
                 .padding([2, 8])
                 .style(button::text)
                 .on_press(Msg::Chat(ChatMsg::CloseConversation(c.session))),
@@ -1188,11 +1196,11 @@ impl App {
             let mut welcome = column![
                 text("On fait quoi, ensemble ?")
                     .font(self.title_font())
-                    .size(25)
+                    .size(crate::ui::tokens::ts(25.0))
                     .color(fg),
                 text("Un bureau à votre image, un souci à résoudre ou une idée à explorer. Je suis là.")
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .color(dim),
             ].spacing(12);
             for (label, prompt) in [
@@ -1207,11 +1215,15 @@ impl App {
                 ("Explorer hyprdesk", "Que puis-je faire avec hyprdesk ?"),
             ] {
                 welcome = welcome.push(
-                    button(text(crate::i18n::tr(label)).font(self.font).size(13))
-                        .padding([10, 16])
-                        .width(Length::Fill)
-                        .style(|t, s| appearance::pill(t, s, false))
-                        .on_press(Msg::Chat(ChatMsg::Suggest(crate::i18n::tr(prompt).into()))),
+                    button(
+                        text(crate::i18n::tr(label))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([10, 16])
+                    .width(Length::Fill)
+                    .style(|t, s| appearance::pill(t, s, false))
+                    .on_press(Msg::Chat(ChatMsg::Suggest(crate::i18n::tr(prompt).into()))),
                 );
             }
             thread = thread.push(
@@ -1230,7 +1242,7 @@ impl App {
             button(
                 text(crate::i18n::tr(label))
                     .font(self.font)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim),
             )
             .padding([1, 6])
@@ -1255,10 +1267,15 @@ impl App {
                         crate::tr!("▸ {n} étape(s) technique(s)", n = n)
                     };
                     thread = thread.push(
-                        button(text(label).font(self.font).size(12).color(dim))
-                            .padding([1, 4])
-                            .style(button::text)
-                            .on_press(Msg::Chat(ChatMsg::ToggleSteps(start))),
+                        button(
+                            text(label)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim),
+                        )
+                        .padding([1, 4])
+                        .style(button::text)
+                        .on_press(Msg::Chat(ChatMsg::ToggleSteps(start))),
                     );
                 }
                 if !open {
@@ -1267,13 +1284,18 @@ impl App {
             }
             let el: Element<'_, Msg> = match e {
                 Entry::User { text: t, images } => {
-                    let mut body =
-                        column![text(t.clone()).font(self.font).size(14).color(fg)].spacing(4);
+                    let mut body = column![
+                        text(t.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg)
+                    ]
+                    .spacing(4);
                     if *images > 0 {
                         body = body.push(
                             text(crate::tr!("{n} image(s) jointe(s)", n = images))
                                 .font(self.font)
-                                .size(11)
+                                .size(crate::ui::tokens::ts(11.0))
                                 .color(dim),
                         );
                     }
@@ -1292,7 +1314,7 @@ impl App {
                         // Texte sélectionnable : lecture seule, Ctrl+C copie la sélection.
                         Some((_, editor)) => iced::widget::text_editor(editor)
                             .font(self.font)
-                            .size(14)
+                            .size(crate::ui::tokens::ts(14.0))
                             .on_action(|a| Msg::Chat(ChatMsg::EditorAction(a)))
                             .into(),
                         None => {
@@ -1306,7 +1328,10 @@ impl App {
                                 .height(24)
                                 .content_fit(iced::ContentFit::Cover)
                                 .border_radius(12),
-                            text("LYRA").font(self.title_font()).size(11).color(accent),
+                            text("LYRA")
+                                .font(self.title_font())
+                                .size(crate::ui::tokens::ts(11.0))
+                                .color(accent),
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
@@ -1343,7 +1368,11 @@ impl App {
                     if let Some(r) = result.as_deref().filter(|r| !r.is_empty()) {
                         l += &format!(" — {r}");
                     }
-                    text(l).font(self.font).size(12).color(dim).into()
+                    text(l)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim)
+                        .into()
                 }
                 Entry::Confirm {
                     id,
@@ -1360,12 +1389,12 @@ impl App {
                             reason.clone()
                         })
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                         container(
                             text(command.clone())
                                 .font(iced::Font::MONOSPACE)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(fg)
                         )
                         .padding([6, 10])
@@ -1380,23 +1409,35 @@ impl App {
                     card = card.push(match answer {
                         None => Element::from(
                             row![
-                                button(text("Accepter").font(self.font).size(13))
-                                    .padding([8, 18])
-                                    .style(|t, s| appearance::pill(t, s, true))
-                                    .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), true))),
-                                button(text("Refuser").font(self.font).size(13))
-                                    .padding([8, 18])
-                                    .style(|t, s| appearance::pill(t, s, false))
-                                    .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), false))),
+                                button(
+                                    text("Accepter")
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(13.0))
+                                )
+                                .padding([8, 18])
+                                .style(|t, s| appearance::pill(t, s, true))
+                                .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), true))),
+                                button(
+                                    text("Refuser")
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(13.0))
+                                )
+                                .padding([8, 18])
+                                .style(|t, s| appearance::pill(t, s, false))
+                                .on_press(Msg::Chat(ChatMsg::Confirm(id.clone(), false))),
                             ]
                             .spacing(10),
                         ),
                         Some(true) => text("Accepté")
                             .font(self.font)
-                            .size(12)
+                            .size(crate::ui::tokens::ts(12.0))
                             .color(accent)
                             .into(),
-                        Some(false) => text("Refusé").font(self.font).size(12).color(dim).into(),
+                        Some(false) => text("Refusé")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim)
+                            .into(),
                     });
                     container(card)
                         .padding(16)
@@ -1444,7 +1485,7 @@ impl App {
                         label = label.push(
                             text(o.label.clone())
                                 .font(self.font)
-                                .size(13.5)
+                                .size(crate::ui::tokens::ts(13.5))
                                 .color(tc)
                                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                         );
@@ -1500,13 +1541,20 @@ impl App {
                         column(options.iter().map(option)).spacing(6).into()
                     };
                     column![
-                        text(prompt.clone()).font(self.font).size(13).color(fg),
+                        text(prompt.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg),
                         pills
                     ]
                     .spacing(8)
                     .into()
                 }
-                Entry::Error(m) => text(m.clone()).font(self.font).size(12).color(warn).into(),
+                Entry::Error(m) => text(m.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn)
+                    .into(),
             };
             thread = thread.push(el);
         }
@@ -1521,7 +1569,10 @@ impl App {
             };
             let mut pill = row![
                 appearance::activity(animate, accent),
-                text(label).font(self.font).size(13).color(fg),
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(fg),
             ]
             .spacing(8)
             .align_y(Alignment::Center);
@@ -1530,7 +1581,12 @@ impl App {
                     Some(f) => format!("{phase} — {:.0} %", f * 100.0),
                     None => phase.clone(),
                 };
-                pill = pill.push(text(detail).font(self.font).size(11).color(dim));
+                pill = pill.push(
+                    text(detail)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(dim),
+                );
             }
             thread =
                 thread.push(
@@ -1544,7 +1600,12 @@ impl App {
                 );
         }
         if let Some(why) = &c.ended {
-            thread = thread.push(text(why.clone()).font(self.font).size(12).color(warn));
+            thread = thread.push(
+                text(why.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            );
         }
         let body = scrollable(container(thread).padding(Padding {
             right: 14.0,
@@ -1559,22 +1620,30 @@ impl App {
             text_input(crate::i18n::tr("Écrire à LYRA…"), &c.input)
                 .id(CHAT_INPUT)
                 .font(self.font)
-                .size(14)
+                .size(crate::ui::tokens::ts(14.0))
                 .padding([12, 14])
                 .style(appearance::input)
                 .on_input(|s| Msg::Chat(ChatMsg::Input(s)))
                 .on_submit(Msg::Chat(ChatMsg::Send))
                 .width(Length::Fill),
             if c.busy {
-                button(text("Arrêter").font(self.font).size(13))
-                    .padding([10, 18])
-                    .style(|t, s| appearance::pill(t, s, false))
-                    .on_press(Msg::Chat(ChatMsg::Cancel))
+                button(
+                    text("Arrêter")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([10, 18])
+                .style(|t, s| appearance::pill(t, s, false))
+                .on_press(Msg::Chat(ChatMsg::Cancel))
             } else {
-                button(text("Envoyer").font(self.font).size(13))
-                    .padding([10, 18])
-                    .style(|t, s| appearance::pill(t, s, true))
-                    .on_press_maybe(can_send.then(|| Msg::Chat(ChatMsg::Send)))
+                button(
+                    text("Envoyer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([10, 18])
+                .style(|t, s| appearance::pill(t, s, true))
+                .on_press_maybe(can_send.then(|| Msg::Chat(ChatMsg::Send)))
             },
         ]
         .spacing(10)
@@ -1589,7 +1658,7 @@ impl App {
                             .width(40)
                             .height(40)
                             .content_fit(iced::ContentFit::Cover),
-                        button(text("×").font(self.font).size(14))
+                        button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
                             .padding([0, 6])
                             .style(button::text)
                             .on_press(Msg::Chat(ChatMsg::RemoveAttachment(i))),
@@ -1611,7 +1680,7 @@ impl App {
             button(
                 text(crate::i18n::tr("Coller une image"))
                     .font(self.font)
-                    .size(12),
+                    .size(crate::ui::tokens::ts(12.0)),
             )
             .padding([4, 10])
             .style(button::text)
@@ -1674,7 +1743,7 @@ impl<'a> markdown::Viewer<'a, ChatMsg> for CopyCode {
         column![
             markdown::code_block(settings, lines, ChatMsg::Link),
             container(
-                button(text(crate::i18n::tr("Copier le code")).size(11))
+                button(text(crate::i18n::tr("Copier le code")).size(crate::ui::tokens::ts(11.0)))
                     .padding([1, 6])
                     .style(button::text)
                     .on_press(ChatMsg::Copy(code.to_string())),

@@ -140,6 +140,54 @@ blur = true
 opacity = 0.84
 blur = true
 
+# ─── Verre commun, flou de Hyprland et préréglages (MLG-268) ───
+[glass]
+tint = "accent"          # slot ou couleur mêlée au fond du verre
+tint_strength = 0.06
+highlight = 0.12         # reflet venu d'en haut
+pointer_response = true  # le reflet suit le pointeur
+refraction = 0.3         # lumière concentrée au bord (simulée, voir §8)
+refraction_width = 10    # px
+border = 0.0             # filet du verre (0 : celui de la surface)
+shadow = 0.27
+blur_size = 8            # decoration:blur:size (une option posée gagne)
+blur_passes = 3
+[glass.presets.brume]    # s'ajoute à light, tinted, dense
+opacity = 0.6
+refraction = 0.5
+# [effects.launcher] preset = "dense"   → puis surcharges locales
+
+# ─── Contraste (MLG-269) ───
+[contrast]
+text = 4.5               # cible du texte : fg, fg_muted, success, warning, danger
+ui = 3.0                 # cible des repères : accent, action, selection
+min_opacity = 0.5        # densité minimale des menus, du lanceur, des Réglages
+enforce = true           # slots sous leur cible corrigés (avertissement)
+reduced_transparency = false
+
+# ─── États interactifs (MLG-273) ───
+[states]
+hover = 0.10             # voiles (part de la couleur de sélection)
+pressed = 0.16
+selected = 0.22
+focus_width = 2          # anneau de focus clavier (px)
+disabled = 0.45
+
+# ─── Mouvement (MLG-271) ───
+[motion]
+duration = 180           # ms, référence : toutes les durées suivent
+easing = "ease-out-cubic"  # linear, ease, ease-in, ease-out, ease-in-out, spring, cubic-bezier(…)
+scale = 0.975            # échelle de départ d'une surface qui s'ouvre
+offset = 6               # déplacement de départ (px)
+hover_highlight = 0.12
+reduced = false
+
+# ─── Surcharges par écran (MLG-272) ───
+[screens."2570x720"]     # définition logique, ou nom de sortie (« DP-1 »)
+text_scale = 0.85
+[screens."2570x720".effects.bar]
+opacity = 0.6
+
 # ─── Options Hyprland (liste blanche, voir §8 cible hyprland) ───
 [hyprland.options]
 "decoration:rounding" = "10"
@@ -148,7 +196,15 @@ blur = true
 [fonts]
 family = "Mindlog"
 mono_family = "Mindlog Mono"
-size = 10.5
+size = 13                         # corps ; les autres rôles suivent
+weight = "normal"                 # 100..900 ou thin … black
+title_weight = "bold"
+line_height = 1.3
+tabular_numbers = true            # horloges et monitoring à chasse fixe
+[fonts.sizes]
+caption = 11
+title = 17
+display = 34
 
 [icons]
 theme = "Papirus"
@@ -161,8 +217,12 @@ size = 24
 theme = "ocean"
 
 [wallpaper]
-dir = "fonds/"
+image = "fonds/nuit.jpg"          # ou dir = "fonds/" avec mode = "slideshow"
 mode = "static"                   # "static" | "slideshow"
+interval = 1800                   # s, diaporama
+shuffle = false
+[variant.light.wallpaper]
+image = "fonds/jour.jpg"          # fond propre au mode clair
 
 # ─── Gabarits additionnels du pack (cible générique ou surcharge) ───
 [targets.waybar]
@@ -202,6 +262,8 @@ Slots internes OKLCH ; entrées manifestes acceptées en `#rrggbb`, `#rrggbbaa`,
 | `warning` | ambre OKLCH par défaut | avertissements |
 | `danger` | rouge OKLCH par défaut | erreurs, urgent |
 | `background` | `bg` assombri de 4 % | fond du bureau sans image |
+| `action` / `action_fg` | `accent` / encre de contraste maximal | commandes (bouton principal, thème iced `primary`) |
+| `selection` / `selection_fg` | `accent` / encre de contraste maximal | résultat, tuile ou entrée choisis |
 
 Règle de résolution d'un slot : surcharge de variante > palette du pack > chaîne d'héritage (le plus proche d'abord) > défaut dérivé. Un slot requis absent partout : erreur de résolution explicite (`resolve` échoue, jamais de valeur inventée).
 
@@ -215,6 +277,20 @@ L'aliasing vers les clés de réglage existantes est bijectif : `theme.fg` ↔ `
 - **Variantes** : sections `[variant.dark]` / `[variant.light]` (noms réservés) qui surchargent palette, effets et options Hyprland. Une variante ne peut hériter que de l'autre si le pack le déclare (`variant.light.inherits = "dark"` est refusé : les variantes sont plates, l'héritage est l'affaire des packs).
 - **Gabarits hérités** : un gabarit déclaré (`[targets.<id>].template`) se lit dans le dossier du pack qui l'a déclaré ; un gabarit de convention (`templates/<id>.tmpl`) se cherche chez le pack, puis chez ses ancêtres du plus proche au plus lointain. Un pack qui hérite n'a donc pas à recopier les gabarits de son parent. Les déclarations de cible fusionnent champ par champ : un enfant qui ne redéclare que `reload` garde le gabarit du parent (MLG-259).
 - **Transparence adaptative** (`adaptive`, `opacity_max` d'une surface) : pour les surfaces posées sur le fond d'écran (`bar`, `widgets` ; le lanceur l'est toujours), hyprdesk mesure à chaque fond décodé la zone de l'image derrière la surface et relève l'opacité juste assez pour que le texte reste à 4,5:1 sur sa partie la plus défavorable, sans dépasser `opacity_max`. Rien n'est mesuré en continu ; les menus et Réglages, qui passent devant des fenêtres, gardent leur opacité. Hérité comme les autres champs d'effet, coupé par `adaptive = false` (MLG-261).
+- **Polices, icônes, curseurs, sons** : le pack le plus proche gagne ; `[fonts]` fusionne champ par champ (un enfant qui ne donne que `size` garde la famille du parent). Un effet qui ne donne que `blur` garde l'opacité héritée (MLG-266).
+- **Fond d'écran** : `[wallpaper]` du pack le plus proche, `[variant.<v>.wallpaper]` l'emporte ; chemin relatif au dossier du pack qui le déclare (sans `..`), absent → avertissement. Le démon le pose comme fond de tous les écrans quand le pack ou sa variante change (pas au démarrage) ; les fonds réglés par écran restent (MLG-266).
+
+### 6.1 Jetons de conception (MLG-267 à 273)
+
+Résolus avec la palette dans le même ordre (variante > pack > ancêtres > défauts du moteur), publiés dans `palette.json` (`design`) et suivis par les surfaces de hyprdesk. Les défauts sont les valeurs de hyprdesk sans thème : un pack qui ne les déclare pas ne change rien.
+
+- **Verre** (`[glass]`, et par surface dans `[effects.<surface>]`) : préréglages `light` (0,55, reflet 0,16, réfraction 0,30), `tinted` (0,72, teinte accent 0,14), `dense` (0,92, reflet 0,05) et ceux de `[glass.presets]` ; une surface applique son `preset`, puis ses propres champs. Teinte, reflet, réfraction et filet sont dessinés par hyprdesk au-dessus du fond (`ui::glass`) : barres Continuité et Graphite, menus, Réglages, lanceur, cartes des widgets.
+- **Contraste** : avec `enforce`, un slot sous sa cible contre `bg` est ajusté en luminosité (avertissement `slot … ajusté`) ; `fg_muted` dérivé est calculé à la cible du texte. La transparence adaptative du lanceur et des surfaces posées sur le fond vise aussi `text`. `min_opacity` relève à l'affichage les menus, le lanceur et les Réglages (les réglages gardent leur valeur). Transparence réduite (pack, ou Réglages → Thème → Accessibilité, `theme.reduced_transparency`) : surfaces à 96 % au moins, sans reflet ni réfraction ni densification. Le pack `perso` (couleurs choisies dans hyprdesk) déclare `enforce = false` : un choix explicite n'est pas réécrit.
+- **Typographie** : tailles par rôle ; chaque texte de hyprdesk est mis à l'échelle de son rôle, déduit de sa taille (< 12 légende, < 15,5 corps, < 24 titre, au-delà affichage). Graisses du texte et des titres, interligne (bulles de notification), chiffres tabulaires (horloges, monitoring : police à chasse fixe du pack, sinon du système — iced n'expose pas les variantes OpenType). La famille du pack sert si l'utilisateur n'a pas choisi de police.
+- **États** : voiles de survol, d'appui, de sélection (couleur `selection`), anneau de focus clavier sur l'élément choisi, opacité d'un élément désactivé — résultats et tuiles du lanceur, catégories.
+- **Mouvement** : `duration` met à l'échelle les durées de la barre et de ses menus, `easing` est la courbe de tous les fondus, `scale`/`offset` le départ des menus de la barre. Mouvement réduit (pack, ou `theme.reduced_motion`) : fondus linéaires de 90 ms au plus, sans échelle ni déplacement.
+- **Écrans** : `[screens."<sortie>"]` ou `[screens."<l>x<h>"]` (définition logique) : effets des surfaces et `text_scale` pour les surfaces de cet écran (barre, bureau, dock).
+
 - **`theme.variant`** : réglage utilisateur `dark | light | auto`. En `auto`, suit `org.freedesktop.appearance color-scheme` (portail), relu à chaque événement du portail. La variante effective fait partie du rapport d'application.
 
 ---
@@ -230,7 +306,7 @@ filter       ::= ident ( "(" arg ( "," arg )* ")" )?
 arg          ::= nombre | pourcentage | couleur | ident | texte
 ```
 
-Espaces de noms : `palette.*` (couleurs), `effects.<surface>.<opacity|blur>`, `meta.*` (id, name, version), `variant` (valeur effective `dark`/`light`). Aucun accès à la machine (pas de `env`, pas de `file`) — c'est un écart volontaire avec la plupart des moteurs de gabarits, assumé pour la sécurité.
+Espaces de noms : `palette.*` (couleurs), `effects.<surface>.<opacity|blur|adaptive|opacity_max|tint|tint_strength|refraction|refraction_width|highlight|pointer_response|border|shadow>`, `fonts.*` (family, mono_family, caption, body, title, display, weight, title_weight, line_height, tabular_numbers), `motion.*`, `states.*`, `contrast.*`, `meta.*` (id, name, version), `variant` (valeur effective `dark`/`light`). Aucun accès à la machine (pas de `env`, pas de `file`) — c'est un écart volontaire avec la plupart des moteurs de gabarits, assumé pour la sécurité.
 
 ### Filtres (builtins, liste close)
 
@@ -288,7 +364,7 @@ Rechargement `gsettings` : un appel par clé — `color-scheme` (`prefer-dark` /
 - Mode `hot` : batch `hyprctl keyword` des mêmes options, sans écrire de fichier — c'est l'aperçu en direct, aligné sur le comportement de `hypr_set_option_live`.
 - Session hyprdesk (MLG-255) : le démon n'utilise pas ce fragment, la configuration de Hyprland y est en Lua. Les options du pack en place (variante comprise) sont écrites en tête d'`appearance.lua` (`genfiles::pack_block`) : `decoration:rounding` devient `hl.config({ decoration = { rounding = 12 } })`, `animation:<élément>` devient `hl.animation` (élément connu de hyprdesk, courbe inconnue ramenée à `default`). Les réglages de l'utilisateur, écrits après (et `animations.lua`, chargé après), gagnent. Le pack est retrouvé par son apparence (`bridge::resolved_for_look`), au moment même où le thème change.
 - Bordures en session hyprdesk (MLG-264) : avec « Bordures aux couleurs du thème » (Réglages → Fenêtres), un pack qui a son propre gabarit `hyprland` (déclaré ou `templates/hyprland.tmpl`, hérité compris) donne ses couleurs de fenêtre — `general:col.*`, `group:col.*`, ombre — à `appearance.lua` (`targets::pack_window_colors`) : dégradés et alphas du gabarit, variante comprise. Une ombre posée dans `[hyprland.options]` l'emporte sur `decoration:col.shadow` du gabarit. Sans gabarit propre (packs livrés), le démon garde son dégradé d'accent.
-- Limite : Hyprland ne fait pas de réfraction. La seule déformation possible derrière le verre est celle d'une variante de flou (`decoration:blur:variant`, Prisme, Eau, Fluide…) ; elle s'applique à tout le flou, pas à une surface. Pour choisir à l'œil : `hyprdesk fx compare blur.variant 4,5,6` (MLG-262).
+- Limite : Hyprland ne fait pas de réfraction. La seule déformation possible derrière le verre est celle d'une variante de flou (`decoration:blur:variant`, Prisme, Eau, Fluide…) ; elle s'applique à tout le flou, pas à une surface. Pour choisir à l'œil : `hyprdesk fx compare blur.variant 4,5,6` (MLG-262). La réfraction de `[glass]` est dessinée par hyprdesk : lumière concentrée et décomposée au bord de la surface, sans déplacer l'image derrière, que la surface ne voit pas (MLG-268).
 
 ---
 

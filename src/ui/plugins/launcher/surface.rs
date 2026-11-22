@@ -504,7 +504,13 @@ impl App {
                             })
                             .into()
                     })
-                    .unwrap_or_else(|| text(*fallback).font(self.font).size(13).color(fg).into()),
+                    .unwrap_or_else(|| {
+                        text(*fallback)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(fg)
+                            .into()
+                    }),
                 Glyph::Settings if embedded => iced::widget::svg(
                     crate::ui::icons::get("preferences-system").expect("settings icon"),
                 )
@@ -524,7 +530,7 @@ impl App {
                     .unwrap_or_else(|| {
                         text(crate::i18n::tr("Réglages"))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .into()
                     }),
@@ -738,13 +744,18 @@ impl App {
         for (index, slot) in self.dock_slots(m).into_iter().enumerate() {
             items.push(match slot {
                 Slot::Item(entry) => item(index, *entry),
-                Slot::Label(ws) => container(text(ws).font(self.title_font()).size(12).color(dim))
-                    .padding(Padding {
-                        left: 6.0,
-                        right: 2.0,
-                        ..Padding::ZERO
-                    })
-                    .into(),
+                Slot::Label(ws) => container(
+                    text(ws)
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                )
+                .padding(Padding {
+                    left: 6.0,
+                    right: 2.0,
+                    ..Padding::ZERO
+                })
+                .into(),
                 Slot::Separator => {
                     let sep = Color { a: 0.12 * t, ..fg };
                     let line = if vertical {
@@ -1423,7 +1434,11 @@ impl App {
             ..Default::default()
         };
         let body: Element<'_, UiMsg> = match &p.content {
-            PopupContent::Label(t) => text(t.clone()).font(self.font).size(13).color(fg).into(),
+            PopupContent::Label(t) => text(t.clone())
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg)
+                .into(),
             PopupContent::Windows(class) => {
                 column(self.popup_windows(&p.monitor, class).into_iter().map(|c| {
                     let active =
@@ -1456,12 +1471,12 @@ impl App {
                             icon,
                             text(short)
                                 .font(self.font)
-                                .size(13)
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg)
                                 .width(Length::Fill),
                             text(format!("ws {}", c.workspace))
                                 .font(self.font)
-                                .size(12)
+                                .size(crate::ui::tokens::ts(12.0))
                                 .color(dim),
                         ]
                         .spacing(10)

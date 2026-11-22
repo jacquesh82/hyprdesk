@@ -1439,7 +1439,7 @@ impl App {
         };
         let btn = |label: &'static str, msg: Msg| {
             self.panorama_feedback(
-                button(text(label).size(16).color(fg))
+                button(text(label).size(crate::ui::tokens::ts(16.0)).color(fg))
                     .padding([4, 12])
                     .on_press(msg)
                     .style(move |_, st| button::Style {
@@ -1462,7 +1462,9 @@ impl App {
         };
         let pill = container(
             row![
-                text(format!("♪ {name}")).size(14).color(fg),
+                text(format!("♪ {name}"))
+                    .size(crate::ui::tokens::ts(14.0))
+                    .color(fg),
                 btn(if paused { "▶" } else { "⏸" }, wrap(PMsg::NowPlayingToggle)),
                 btn("✕", wrap(PMsg::VideoClose)),
             ]
@@ -1525,7 +1527,11 @@ impl App {
         .spacing(4)
         .align_x(Alignment::Center);
         if n > 0 {
-            col = col.push(text(n.min(99).to_string()).size(11).color(tint));
+            col = col.push(
+                text(n.min(99).to_string())
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(tint),
+            );
         }
         // Poignée : une languette collée au bord, le geste part de là.
         let tab = container(col)
@@ -1645,16 +1651,20 @@ impl App {
         if !history.is_empty() {
             head = head.push(
                 self.panorama_feedback(
-                    button(text(crate::i18n::tr("Tout effacer")).size(size).color(fg))
-                        .padding([5, 12])
-                        .on_press(wrap(PMsg::NotifsClear))
-                        .style(pill),
+                    button(
+                        text(crate::i18n::tr("Tout effacer"))
+                            .size(crate::ui::tokens::ts(size))
+                            .color(fg),
+                    )
+                    .padding([5, 12])
+                    .on_press(wrap(PMsg::NotifsClear))
+                    .style(pill),
                 ),
             );
         }
         head = head.push(
             self.panorama_feedback(
-                button(text("✕").size(size).color(fg))
+                button(text("✕").size(crate::ui::tokens::ts(size)).color(fg))
                     .padding([5, 12])
                     .on_press(wrap(PMsg::Notifs(None)))
                     .style(pill),
@@ -1664,7 +1674,7 @@ impl App {
         if history.is_empty() {
             list = list.push(
                 text(crate::i18n::tr("Aucune notification"))
-                    .size(size)
+                    .size(crate::ui::tokens::ts(size))
                     .font(font)
                     .color(dim),
             );
@@ -1672,7 +1682,10 @@ impl App {
         for n in history.iter().take(30) {
             let mut card = column![
                 text(n.app.clone()).size(size * 0.75).font(font).color(dim),
-                text(n.summary.clone()).size(size).font(font).color(fg),
+                text(n.summary.clone())
+                    .size(crate::ui::tokens::ts(size))
+                    .font(font)
+                    .color(fg),
             ]
             .spacing(3);
             if !n.body.is_empty() {
@@ -2147,7 +2160,7 @@ impl App {
                         text(crate::i18n::tr(
                             "Pour voir l'image ici : Picture-in-Picture ou plein écran dans le navigateur.",
                         ))
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(Color { a: 0.65, ..fg })
                     )
                     .height(hint)
@@ -2468,7 +2481,7 @@ impl App {
                                 ..Default::default()
                             }),
                         text(crate::i18n::tr(t))
-                            .size(size)
+                            .size(crate::ui::tokens::ts(size))
                             .font(self.panorama_font())
                             .color(dim)
                             .width(Length::Fill),
@@ -2721,7 +2734,11 @@ impl App {
         let size = (z.unit * 0.045).clamp(12.0, 20.0);
         let font = self.panorama_font();
         let line = |t: String, c: Color| -> Element<'_, Msg> {
-            text(t).size(size).font(font).color(c).into()
+            text(t)
+                .size(crate::ui::tokens::ts(size))
+                .font(font)
+                .color(c)
+                .into()
         };
         let mut info = column![
             text(crate::i18n::tr("Depuis le téléphone"))
@@ -2786,7 +2803,7 @@ impl App {
         info = info.push(
             button(
                 text(crate::i18n::tr("Retour"))
-                    .size(size)
+                    .size(crate::ui::tokens::ts(size))
                     .font(font)
                     .color(fg),
             )

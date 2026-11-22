@@ -255,7 +255,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     .id(INPUT_ID)
     .secure(!d.echo)
     .font(font)
-    .size(16)
+    .size(crate::ui::tokens::ts(16.0))
     .padding(12)
     .width(Length::Fill)
     .style(move |_, status| {
@@ -281,16 +281,19 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     let mut col = column![
         text(crate::i18n::tr("Authentification requise"))
             .font(title_font)
-            .size(20)
+            .size(crate::ui::tokens::ts(20.0))
             .color(fg),
-        text(d.req.message.clone()).font(font).size(14).color(fg),
+        text(d.req.message.clone())
+            .font(font)
+            .size(crate::ui::tokens::ts(14.0))
+            .color(fg),
         text(crate::tr!(
             "Compte : {u} · {a}",
             u = d.req.user,
             a = d.req.action
         ))
         .font(font)
-        .size(11)
+        .size(crate::ui::tokens::ts(11.0))
         .color(dim),
     ]
     .spacing(12);
@@ -301,7 +304,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
             lines = lines.push(
                 text(format!("{k} : {v}"))
                     .font(iced::Font::MONOSPACE)
-                    .size(11)
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(fg)
                     .wrapping(iced::widget::text::Wrapping::None),
             );
@@ -310,11 +313,12 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     }
     col = col.push(input);
     if let Some((m, is_error)) = &d.message {
-        col = col.push(text(m.clone()).font(font).size(12).color(if *is_error {
-            error
-        } else {
-            dim
-        }));
+        col = col.push(
+            text(m.clone())
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(if *is_error { error } else { dim }),
+        );
     }
     // Désactivé (vérification en cours) : mêmes couleurs, donc mêmes
     // contrastes ; seul le contour passe à la couleur des champs.
@@ -345,9 +349,13 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
         border: Border::default().rounded(10).width(2).color(edge),
         ..Default::default()
     };
-    let mut ok = button(text(crate::i18n::tr("Authentifier")).font(font).size(14))
-        .padding([8, 16])
-        .style(ok_style);
+    let mut ok = button(
+        text(crate::i18n::tr("Authentifier"))
+            .font(font)
+            .size(crate::ui::tokens::ts(14.0)),
+    )
+    .padding([8, 16])
+    .style(ok_style);
     if !waiting {
         ok = ok.on_press(wrap(PMsg::Submit));
     }
@@ -361,7 +369,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
                 crate::i18n::tr("Détails")
             })
             .font(font)
-            .size(12)
+            .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         )
         .padding([6, 4])
@@ -373,10 +381,14 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
         row![
             details,
             iced::widget::Space::new().width(Length::Fill),
-            button(text(crate::i18n::tr("Annuler")).font(font).size(14))
-                .padding([8, 16])
-                .style(cancel_style)
-                .on_press(wrap(PMsg::Cancel)),
+            button(
+                text(crate::i18n::tr("Annuler"))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(14.0))
+            )
+            .padding([8, 16])
+            .style(cancel_style)
+            .on_press(wrap(PMsg::Cancel)),
             ok,
         ]
         .spacing(10)

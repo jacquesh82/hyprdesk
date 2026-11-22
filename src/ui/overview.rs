@@ -689,7 +689,7 @@ impl App {
         let title = container(
             text(crate::i18n::tr("Espaces de travail"))
                 .font(self.font)
-                .size(20)
+                .size(crate::ui::tokens::ts(20.0))
                 .color(fg),
         )
         .height(TITLE_H)
@@ -700,18 +700,23 @@ impl App {
         let hint = |keys: &'static str, label: &'static str| {
             container(
                 row![
-                    container(text(keys).font(self.font).size(12).color(fg))
-                        .padding([3, 8])
-                        .style(move |_| container::Style {
-                            border: Border::default().rounded(6).width(1).color(Color {
-                                a: 0.35 * alpha,
-                                ..fg
-                            }),
-                            ..Default::default()
+                    container(
+                        text(keys)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(fg)
+                    )
+                    .padding([3, 8])
+                    .style(move |_| container::Style {
+                        border: Border::default().rounded(6).width(1).color(Color {
+                            a: 0.35 * alpha,
+                            ..fg
                         }),
+                        ..Default::default()
+                    }),
                     text(crate::i18n::tr(label))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 ]
                 .spacing(8)
@@ -726,10 +731,13 @@ impl App {
             Space::new().width(Length::Fill),
             button(
                 row![
-                    text("+").font(self.font).size(15).color(on_accent),
+                    text("+")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(15.0))
+                        .color(on_accent),
                     text(crate::i18n::tr("Nouvel espace"))
                         .font(self.font)
-                        .size(13)
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(on_accent),
                 ]
                 .spacing(6)
@@ -800,7 +808,10 @@ impl App {
                 row![
                     self.img_element(img, 18.0, alpha)
                         .unwrap_or_else(|| Space::new().width(18).height(18).into()),
-                    text(label).font(self.font).size(12).color(fg),
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(fg),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -886,7 +897,7 @@ impl App {
                     .on_input(|s| Msg::Overview(OMsg::RenameDraft(s)))
                     .on_submit(Msg::Overview(OMsg::RenameSubmit))
                     .font(self.font)
-                    .size(14)
+                    .size(crate::ui::tokens::ts(14.0))
                     .padding(4)
                     .width(Length::Fill)
                     .style(move |theme, status| {
@@ -903,12 +914,12 @@ impl App {
                 row![
                     text(card.name.clone())
                         .font(self.font)
-                        .size(16)
+                        .size(crate::ui::tokens::ts(16.0))
                         .color(if active { accent } else { fg }),
                     (multi && !card.monitor.is_empty()).then(|| {
                         text(card.monitor.clone())
                             .font(self.font)
-                            .size(11)
+                            .size(crate::ui::tokens::ts(11.0))
                             .color(dim)
                     }),
                     Space::new().width(Length::Fill),
@@ -916,7 +927,7 @@ impl App {
                         container(
                             text(crate::i18n::tr("Actif"))
                                 .font(self.font)
-                                .size(11)
+                                .size(crate::ui::tokens::ts(11.0))
                                 .color(on_accent),
                         )
                         .padding([3, 10])
@@ -943,7 +954,7 @@ impl App {
                 container(
                     text(crate::i18n::tr("Aucune fenêtre"))
                         .font(self.font)
-                        .size(12)
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
                 )
                 .width(Length::Fill)
@@ -969,7 +980,7 @@ impl App {
                         .unwrap_or_else(|| Space::new().width(13).height(13).into()),
                     text(truncate(&w.title, 22))
                         .font(self.font)
-                        .size(10)
+                        .size(crate::ui::tokens::ts(10.0))
                         .color(fg),
                 ]
                 .spacing(4)

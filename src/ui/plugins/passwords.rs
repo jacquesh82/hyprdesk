@@ -96,9 +96,17 @@ impl App {
             crate::ui::tone::warning()
         };
         row![
-            text(if ok { "●" } else { "○" }).size(13).color(mark),
-            text(label).font(self.font).size(13).color(fg),
-            text(detail).font(self.font).size(12).color(dim),
+            text(if ok { "●" } else { "○" })
+                .size(crate::ui::tokens::ts(13.0))
+                .color(mark),
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg),
+            text(detail)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -106,10 +114,14 @@ impl App {
     }
 
     fn pw_button<'a>(&self, label: &'a str, msg: Option<Msg>, busy: bool) -> Element<'a, UiMsg> {
-        button(text(label).font(self.font).size(13))
-            .padding([6, 14])
-            .on_press_maybe(msg.filter(|_| !busy).map(wrap))
-            .into()
+        button(
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0)),
+        )
+        .padding([6, 14])
+        .on_press_maybe(msg.filter(|_| !busy).map(wrap))
+        .into()
     }
 
     pub(in crate::ui) fn passwords_page(&self) -> Element<'_, UiMsg> {
@@ -122,11 +134,19 @@ impl App {
             .map(|p| &p.passwords)
             .filter(|s| s.loaded)
         else {
-            return text("Lecture…").font(self.font).size(13).color(dim).into();
+            return text("Lecture…")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
         };
         let m = &self.mfa;
         let small = |t: String, c: Color| -> Element<'_, UiMsg> {
-            text(t).font(self.font).size(12).color(c).into()
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(c)
+                .into()
         };
         let mut col = column![self.section("Coffre myMFA")].spacing(10);
         col = col.push(self.pw_check(
@@ -264,7 +284,7 @@ impl App {
                         h = holder
                     ))
                     .font(self.font)
-                    .size(12)
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
                     self.lyra_button(
@@ -316,7 +336,7 @@ impl App {
                                  puis gnome-keyring est arrêté et masqué : myMFA prend sa place.",
                             ))
                             .font(self.font)
-                            .size(13)
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                             small(
                                 crate::i18n::tr(
