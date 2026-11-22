@@ -446,21 +446,31 @@ fn plan_builtin(
             }
             out
         }
-        "gtk" => ["gtk-3.0", "gtk-4.0"]
-            .iter()
-            .map(|dir| Planned {
-                path: roots.config.join(dir).join("gtk.css"),
-                content: rendu().to_string(),
-                op: Op::UpsertBlock,
-                ..Default::default()
-            })
-            .collect(),
+        "gtk" => {
+            // Couche douce : bloc de couleurs nommées dans les gtk.css de
+            // l'utilisateur (applications qui écrasent le thème, libadwaita).
+            let mut out: Vec<Planned> = ["gtk-3.0", "gtk-4.0"]
+                .iter()
+                .map(|dir| Planned {
+                    path: roots.config.join(dir).join("gtk.css"),
+                    content: rendu().to_string(),
+                    op: Op::UpsertBlock,
+                    ..Default::default()
+                })
+                .collect();
+            // Couche forte (MLG-237) : thème de base recoloré, installé et
+            // sélectionné par gtk-theme.
+            out.extend(plan_gtk_theme(rendu(), resolved, roots));
+            out
+        }
         "qt" => vec![Planned {
             path: roots
                 .config
                 .join("qt6ct")
                 .join("colors")
-                .join(format!("hyprdesk-{}.conf", resolved.id)),
+                // Nom stable (MLG-247) : choisi une fois dans qt6ct, il suit
+                // chaque pack.
+                .join(QT_SCHEME),
             content: rendu().to_string(),
             op: Op::Write,
             setting: None,
@@ -594,6 +604,146 @@ fn plan_builtin(
         other => return Err(Error::Template(format!("cible inconnue : {other}"))),
     };
     Ok(out)
+}
+
+/// Schéma de couleurs Qt écrit par le moteur (`~/.config/qt6ct/colors/`).
+pub const QT_SCHEME: &str = "hyprdesk.conf";
+
+/// Clé gsettings du thème GTK.
+pub const GTK_THEME_KEY: (&str, &str) = ("org.gnome.desktop.interface", "gtk-theme");
+
+/// Plan du thème GTK installé : feuilles GTK 3 et 4 du thème de base
+/// recolorées, `index.theme`, puis `gtk-theme` posé. Le nom alterne entre
+/// `hyprdesk-<pack>` et `hyprdesk-<pack>-bis` quand le contenu change : le
+/// changement de nom fait relire leurs feuilles aux applications ouvertes.
+fn plan_gtk_theme(named_block: &str, resolved: &Resolved, roots: &Roots) -> Vec<Planned> {
+    use super::gtktheme as g;
+    let current = g::current_theme();
+    let base = g::base_name(roots, current.as_deref());
+    let base_dir = g::find_theme(roots, &base);
+    let dark = resolved.variant != "light";
+    let mut files: Vec<(String, String)> = Vec::new();
+    for (major, dir) in [(3u8, "gtk-3.0"), (4, "gtk-4.0")] {
+        let sheet = base_dir
+            .as_deref()
+            .and_then(|d| g::base_sheet(d, major, dark))
+            .and_then(|p| g::read_sheet(&p));
+        let css = match sheet {
+            Some(css) => g::render_sheet(Some(&css), resolved, named_block),
+            // Base introuvable (Adwaita intégré à GTK 3) : sa feuille
+            // embarquée, couleurs nommées redéfinies par-dessus.
+            None if major == 3 => format!(
+                "@import url(\"resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained{}.css\");\n\n{named_block}",
+                if dark { "-dark" } else { "" }
+            ),
+            // Pas de GTK 4 dans la base : GTK 4 garde son thème par défaut.
+            None => continue,
+        };
+        files.push((format!("{dir}/gtk.css"), css.clone()));
+        files.push((format!("{dir}/gtk-dark.css"), css));
+    }
+    let a = format!("{}{}", g::PREFIX, resolved.id);
+    let b = format!("{a}-bis");
+    let themes = roots.data.join("themes");
+    let same = |name: &str| {
+        files
+            .iter()
+            .all(|(rel, c)| read_or_empty(&themes.join(name).join(rel)) == *c)
+    };
+    let name = match current.as_deref() {
+        Some(c) if c == a || c == b => {
+            if same(c) {
+                c.to_string()
+            } else if c == a {
+                b
+            } else {
+                a
+            }
+        }
+        _ => a,
+    };
+    let mut out: Vec<Planned> = files
+        .into_iter()
+        .map(|(rel, content)| Planned {
+            path: themes.join(&name).join(rel),
+            content,
+            op: Op::Write,
+            ..Default::default()
+        })
+        .collect();
+    out.push(Planned {
+        path: themes.join(&name).join("index.theme"),
+        content: g::index_theme(&name, resolved, &base),
+        op: Op::Write,
+        ..Default::default()
+    });
+    out.push(Planned {
+        path: PathBuf::new(),
+        content: name,
+        op: Op::Setting,
+        setting: Some((GTK_THEME_KEY.0.to_string(), GTK_THEME_KEY.1.to_string())),
+    });
+    out
+}
+
+/// Couche forte GTK retirée : le thème de base revient d'abord (les
+/// applications ne restent pas sur un thème retiré), puis les thèmes du
+/// moteur sont supprimés. `dry` : rien n'est fait.
+pub fn remove_gtk_theme(roots: &Roots, dry: bool) -> Vec<(PathBuf, Removal)> {
+    let mut done = Vec::new();
+    if let Some(cur) =
+        super::gtktheme::current_theme().filter(|c| c.starts_with(super::gtktheme::PREFIX))
+    {
+        let base = super::gtktheme::base_name(roots, Some(&cur));
+        done.push((
+            PathBuf::from(format!("{}/{} → {base}", GTK_THEME_KEY.0, GTK_THEME_KEY.1)),
+            Removal::Reset,
+        ));
+        if !dry {
+            let _ = Command::new("gsettings")
+                .args(["set", GTK_THEME_KEY.0, GTK_THEME_KEY.1, &base])
+                .output();
+        }
+    }
+    for dir in super::gtktheme::installed(roots) {
+        done.push((dir.clone(), Removal::Removed));
+        if !dry {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    done
+}
+
+/// Après une application réussie d'une cible : ce qui ne sert plus est
+/// retiré — les autres thèmes GTK du moteur (celui posé reste), les anciens
+/// schémas Qt par pack.
+pub fn after_commit(id: &str, planned: &[Planned], roots: &Roots) {
+    match id {
+        "gtk" => {
+            if let Some(name) = planned
+                .iter()
+                .find(|p| {
+                    p.setting
+                        .as_ref()
+                        .is_some_and(|(_, k)| k == GTK_THEME_KEY.1)
+                })
+                .map(|p| p.content.clone())
+            {
+                super::gtktheme::prune(roots, &name);
+            }
+        }
+        "qt" => {
+            if let Ok(rd) = std::fs::read_dir(roots.config.join("qt6ct").join("colors")) {
+                for e in rd.flatten() {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    if n.starts_with("hyprdesk-") && n.ends_with(".conf") {
+                        let _ = std::fs::remove_file(e.path());
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Sortie de cible générique : `~/` développé d'après les racines XDG du
@@ -1114,6 +1264,8 @@ pub enum Removal {
     Emptied,
     /// Fichier généré par le moteur : retiré.
     Removed,
+    /// Réglage remis à sa valeur d'avant le moteur.
+    Reset,
 }
 
 /// Retire d'un contenu les lignes posées après [`SOURCE_MARKER`] (une
@@ -1227,11 +1379,12 @@ pub fn remove_all(
     ];
     if let Ok(rd) = std::fs::read_dir(roots.config.join("qt6ct").join("colors")) {
         files.extend(rd.flatten().map(|e| e.path()).filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("hyprdesk-") && n.ends_with(".conf"))
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n == QT_SCHEME || (n.starts_with("hyprdesk-") && n.ends_with(".conf"))
+            })
         }));
     }
+    done.extend(remove_gtk_theme(roots, dry));
     for f in files {
         if f.is_file() {
             done.push((f.clone(), Removal::Removed));
@@ -1351,8 +1504,21 @@ mod tests {
         let lock = plan(&find("hyprlock").unwrap(), &r, None, &roots).unwrap();
         assert_eq!(lock.len(), 2);
         assert!(matches!(lock[1].op, Op::AppendSource));
+        // gtk : les deux blocs, puis le thème installé (Adwaita intégré
+        // faute de base : gtk-3.0 seul), son index.theme et gtk-theme.
         let gtk = plan(&find("gtk").unwrap(), &r, None, &roots).unwrap();
-        assert_eq!(gtk.len(), 2);
+        assert_eq!(gtk.len(), 6, "{gtk:?}");
+        assert!(
+            gtk[2]
+                .path
+                .ends_with("themes/hyprdesk-regle/gtk-3.0/gtk.css")
+        );
+        assert!(
+            gtk[2]
+                .content
+                .contains("resource:///org/gtk/libgtk/theme/Adwaita")
+        );
+        assert_eq!(gtk[5].content, "hyprdesk-regle");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1503,7 +1669,7 @@ mod tests {
         let planned = plan(qt, &r, None, &roots).unwrap();
         let c = &planned[0];
         assert!(
-            c.path.ends_with("qt6ct/colors/hyprdesk-regle.conf"),
+            c.path.ends_with("qt6ct/colors/hyprdesk.conf"),
             "{}",
             c.path.display()
         );
@@ -1703,13 +1869,70 @@ mod tests {
         for f in [
             "kitty/hyprdesk-theme.conf",
             "gtk-3.0/hyprdesk-thunar.css",
-            "qt6ct/colors/hyprdesk-regle.conf",
+            "qt6ct/colors/hyprdesk.conf",
         ] {
             assert!(!roots.config.join(f).exists(), "{f}");
         }
         assert!(!roots.hypr_theme_dir().exists());
         // Rejouer ne fait plus rien.
         assert!(remove_all(&roots, &opts.target_opts, false).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn thème_gtk_installé_recoloré_et_nom_alterné() {
+        // MLG-237 / MLG-248 : le thème de base recoloré est installé et
+        // sélectionné ; un contenu changé change le nom (rechargement à chaud).
+        use super::super::gtktheme::TEST_CURRENT;
+        let root = std::env::temp_dir().join(format!("hd-tgt-gtkth-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let base = root.join(".themes/Sombre/gtk-3.20");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(
+            base.join("gtk.css"),
+            "@define-color theme_bg_color #17161d;\n@define-color theme_fg_color #f8f8f2;\n\
+             window { background-color: #17161d; }\n",
+        )
+        .unwrap();
+        TEST_CURRENT.with(|c| *c.borrow_mut() = Some("Sombre".to_string()));
+        let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        let gtk = find("gtk").unwrap();
+        let p = plan(&gtk, &r, None, &roots).unwrap();
+        let css = p
+            .iter()
+            .find(|x| x.path.ends_with("hyprdesk-regle/gtk-3.0/gtk.css"))
+            .unwrap();
+        assert!(
+            css.content.contains("background-color: #171b27"),
+            "{}",
+            css.content
+        );
+        assert!(!css.content.contains("#17161d"));
+        let index = p.iter().find(|x| x.path.ends_with("index.theme")).unwrap();
+        assert!(index.content.contains("X-Hyprdesk-Base=Sombre"));
+        // Thème du moteur posé, contenu identique : même nom.
+        for x in &p {
+            if x.op == Op::Write && x.path.starts_with(roots.data.join("themes")) {
+                std::fs::create_dir_all(x.path.parent().unwrap()).unwrap();
+                std::fs::write(&x.path, &x.content).unwrap();
+            }
+        }
+        TEST_CURRENT.with(|c| *c.borrow_mut() = Some("hyprdesk-regle".to_string()));
+        let p2 = plan(&gtk, &r, None, &roots).unwrap();
+        assert_eq!(p2.last().unwrap().content, "hyprdesk-regle");
+        // Base retrouvée par index.theme ; contenu changé : l'autre nom.
+        let mut r2 = r.clone();
+        r2.palette
+            .insert("bg".to_string(), crate::config::Rgba(1, 2, 3, 255));
+        let p3 = plan(&gtk, &r2, None, &roots).unwrap();
+        assert_eq!(p3.last().unwrap().content, "hyprdesk-regle-bis");
+        // Après coup : seul le thème posé reste.
+        std::fs::create_dir_all(roots.data.join("themes/hyprdesk-regle-bis")).unwrap();
+        after_commit("gtk", &p3, &roots);
+        assert!(!roots.data.join("themes/hyprdesk-regle").exists());
+        assert!(roots.data.join("themes/hyprdesk-regle-bis").exists());
+        TEST_CURRENT.with(|c| *c.borrow_mut() = None);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

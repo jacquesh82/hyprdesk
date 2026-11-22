@@ -74,6 +74,14 @@ and this project adheres to
   change, app themes (kitty, GTK, Thunar, Qt) use the active pack,
   Settings → Theme lists the engine packs (installed ones included), and
   `theme.preset` takes a pack name or id.
+- **GTK apps follow the theme live, Brave and Firefox included** (MLG-237,
+  MLG-248): the GTK target installs your base GTK theme recoloured to the
+  pack (`~/.local/share/themes/hyprdesk-<pack>`) and selects it; open GTK 3
+  apps reload it at once. Compiled themes such as Dracula-Pro were barely
+  affected by redefined named colours. Unchecking GTK or uninstalling puts
+  the base theme back; `--restore` also restores `gtk-theme`.
+- **Qt colour scheme under a stable name** (MLG-247): `qt6ct/colors/hyprdesk.conf`,
+  pick it once in qt6ct; the old per-pack files are removed.
 - **Status colours follow the theme**: warning, success and danger (and the
   bar's warning and critical defaults) come from the active pack, readable
   on light themes too (they were fixed colours, 1.5:1 on *Clair*).

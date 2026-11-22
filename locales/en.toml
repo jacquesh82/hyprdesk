@@ -4574,8 +4574,6 @@
 
 # Moteur de thème (paquet « Thème des applications » du démon).
 "GTK 3 et 4" = "GTK 3 and 4"
-"Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) et schéma clair/sombre." = "Named gtk-3.0 and gtk-4.0 colors (marked block) and light/dark scheme."
-"GTK : couleurs nommées gtk-3.0 et gtk-4.0 posées ; schéma clair/sombre réglé." = "GTK: named gtk-3.0 and gtk-4.0 colours set; light/dark scheme applied."
 "Qt : schéma de couleurs qt5/6ct posé ; vaut au relancement des applications." = "Qt: qt5/6ct colour scheme set; applies on relaunch."
 "Schéma de couleurs qt5/6ct (QPalette) ; vaut pour les applications lancées ensuite." = "qt5/6ct colour scheme (QPalette); applies to apps launched afterwards."
 "kitty : thème « {name} » appliqué par le moteur de thème." = "kitty: theme \u201c{name}\u201d applied by the theme engine."
@@ -4604,3 +4602,6 @@
 "nettoyé" = "cleaned up"
 "retiré (rien d'autre que le thème)" = "removed (nothing but the theme)"
 "retiré" = "removed"
+"remis comme avant" = "put back as before"
+"Thème GTK de base recoloré aux couleurs du pack (hyprdesk-<pack>, suivi à chaud par les applications ouvertes, Brave et Firefox compris), couleurs nommées gtk-3.0 et gtk-4.0 et schéma clair/sombre." = "Base GTK theme recoloured to the pack's colours (hyprdesk-<pack>, followed live by open applications, Brave and Firefox included), gtk-3.0 and gtk-4.0 named colours and light/dark scheme."
+"GTK : thème de base recoloré et sélectionné, couleurs nommées posées ; schéma clair/sombre réglé." = "GTK: base theme recoloured and selected, named colours set; light/dark scheme set."

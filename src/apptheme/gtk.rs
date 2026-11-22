@@ -1,6 +1,6 @@
-//! Cible « GTK » : couleurs nommées pour gtk-3.0 et gtk-4.0, déléguées au
-//! moteur de thème. Le rendu est un bloc marqué en fin de gtk.css : les
-//! règles de l'utilisateur restent devant. Le rechargement passe par
+//! Cible « GTK », déléguée au moteur de thème : le thème GTK de base
+//! recoloré et installé (`hyprdesk-<pack>`, MLG-237), et un bloc de couleurs
+//! nommées en fin des gtk.css de l'utilisateur (ses règles restent devant). Le rechargement passe par
 //! `gsettings` (schéma clair/sombre), côté moteur.
 //!
 //! Clear : le bloc saute des deux feuilles — les règles de l'utilisateur
@@ -17,7 +17,9 @@ const OPTIONS: &[Opt] = &[];
 pub const TARGET: Target = Target {
     id: "gtk",
     label: "GTK 3 et 4",
-    summary: "Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) et schéma clair/sombre.",
+    summary: "Thème GTK de base recoloré aux couleurs du pack (hyprdesk-<pack>, suivi à chaud \
+              par les applications ouvertes, Brave et Firefox compris), couleurs nommées \
+              gtk-3.0 et gtk-4.0 et schéma clair/sombre.",
     installed,
     options: OPTIONS,
     file,
@@ -44,14 +46,17 @@ fn installed() -> bool {
 fn apply(t: &Theme, _o: &Opts) -> Result<String, String> {
     engine_apply(t, &["gtk"])?;
     Ok(
-        crate::tr!("GTK : couleurs nommées gtk-3.0 et gtk-4.0 posées ; schéma clair/sombre réglé.")
+        crate::tr!("GTK : thème de base recoloré et sélectionné, couleurs nommées posées ; schéma clair/sombre réglé.")
             .to_string(),
     )
 }
 
-/// Clear : le bloc marqué saute des deux feuilles, rien d'autre.
+/// Clear : le bloc marqué saute des deux feuilles, le thème de base revient
+/// et les thèmes recolorés sont retirés.
 fn clear(_o: &Opts) -> Result<(), String> {
-    let mut changé = false;
+    let mut changé =
+        !theme_engine::targets::remove_gtk_theme(&theme_engine::paths::Roots::from_env(), false)
+            .is_empty();
     for path in files(&Opts::new()) {
         let current = std::fs::read_to_string(&path).unwrap_or_default();
         let sans = theme_engine::targets::remove_block(&current);

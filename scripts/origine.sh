@@ -72,6 +72,7 @@ origine_t() { hyprdesk_t "$@"; }
 # Réglages GNOME que le moteur de thème peut poser (cibles gtk, fonts,
 # icons, cursors, sounds) : « schéma clé ».
 ORIGINE_GSETTINGS=(
+    "org.gnome.desktop.interface gtk-theme"
     "org.gnome.desktop.interface color-scheme"
     "org.gnome.desktop.interface accent-color"
     "org.gnome.desktop.interface font-name"
@@ -81,18 +82,24 @@ ORIGINE_GSETTINGS=(
     "org.gnome.desktop.sound theme-name"
 )
 
-# origine_gsettings_capture <fichier> [tardif] : valeurs en place, une par ligne.
+# origine_gsettings_capture <fichier> [tardif] : valeurs en place, une par
+# ligne. Fichier déjà là : seules les clés qui y manquent sont ajoutées
+# (relevé tardif), les valeurs gardées ne bougent jamais.
 origine_gsettings_capture() {
-    local out="$1" late="${2:-}" pair v
+    local out="$1" late="${2:-}" pair v have="" lines=""
     command -v gsettings >/dev/null 2>&1 || return 0
-    {
-        [[ -z "$late" ]] || echo "# tardif $(date -Iseconds)"
-        for pair in "${ORIGINE_GSETTINGS[@]}"; do
-            # shellcheck disable=SC2086 # « schéma clé » : deux mots voulus
-            v="$(gsettings get $pair 2>/dev/null)" || continue
-            echo "$pair $v"
-        done
-    } > "$out"
+    [[ -f "$out" ]] && have="$(cat -- "$out")"
+    for pair in "${ORIGINE_GSETTINGS[@]}"; do
+        grep -q "^$pair " <<< "$have" && continue
+        # shellcheck disable=SC2086 # « schéma clé » : deux mots voulus
+        v="$(gsettings get $pair 2>/dev/null)" || continue
+        # Thème GTK du moteur en place : ce n'est pas l'origine.
+        [[ "$pair" == *" gtk-theme" && "$v" == "'hyprdesk-"* ]] && continue
+        lines+="$pair $v"$'\n'
+    done
+    [[ -n "$lines" ]] || { [[ -f "$out" ]] || : > "$out"; return 0; }
+    if [[ -n "$late" ]]; then lines="# tardif $(date -Iseconds)"$'\n'"$lines"; fi
+    printf '%s' "$lines" >> "$out"
 }
 
 origine_exists() { [[ -f "$ORIGINE_DIR/manifest" ]]; }
@@ -111,7 +118,7 @@ origine_capture() {
         hd_ok "$(origine_t "état d'origine déjà gardé" "original state already kept") (${ORIGINE_DIR/#$HOME/\~})"
         # Origine d'avant le relevé des réglages GNOME : relevés maintenant,
         # marqués « tardif » (ce qui est en place aujourd'hui).
-        [[ -f "$ORIGINE_DIR/gsettings" ]] || origine_gsettings_capture "$ORIGINE_DIR/gsettings" tardif
+        origine_gsettings_capture "$ORIGINE_DIR/gsettings" tardif
         return 0
     fi
     local tmp p

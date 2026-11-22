@@ -220,7 +220,12 @@ pub fn apply(
                 Vec::new(),
             )
         } else {
-            commit_target(planned, opts.mode, &Gsettings)
+            let après = planned.clone();
+            let r = commit_target(planned, opts.mode, réglages_du_poste());
+            if r.0.status == "ok" && opts.mode != Mode::DryRun {
+                targets::after_commit(&target.id, &après, roots);
+            }
+            r
         };
         if !rolled.is_empty() || target_report.status == "failed" {
             report.errors.push(format!(
@@ -487,7 +492,52 @@ trait Réglages {
 }
 
 /// Réglages par l'outil `gsettings`.
+#[cfg_attr(test, allow(dead_code))]
 struct Gsettings;
+
+/// Réglages de bureau utilisés par [`apply`] : gsettings ; dans les essais,
+/// un magasin en mémoire propre au fil — un essai ne pose jamais un réglage
+/// de la session qui le lance (le thème GTK de la session avait été changé
+/// par un essai).
+fn réglages_du_poste() -> &'static dyn Réglages {
+    #[cfg(test)]
+    {
+        &EssaiRéglages
+    }
+    #[cfg(not(test))]
+    {
+        &Gsettings
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static ESSAI_RÉGLAGES: std::cell::RefCell<BTreeMap<String, String>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// Magasin de réglages des essais (voir [`réglages_du_poste`]).
+#[cfg(test)]
+struct EssaiRéglages;
+
+#[cfg(test)]
+impl Réglages for EssaiRéglages {
+    fn lire(&self, schema: &str, clé: &str) -> std::result::Result<String, String> {
+        Ok(ESSAI_RÉGLAGES.with(|m| {
+            m.borrow()
+                .get(&format!("{schema} {clé}"))
+                .cloned()
+                .unwrap_or_default()
+        }))
+    }
+    fn poser(&self, schema: &str, clé: &str, valeur: &str) -> std::result::Result<(), String> {
+        ESSAI_RÉGLAGES.with(|m| {
+            m.borrow_mut()
+                .insert(format!("{schema} {clé}"), valeur.to_string())
+        });
+        Ok(())
+    }
+}
 
 impl Réglages for Gsettings {
     fn lire(&self, schema: &str, clé: &str) -> std::result::Result<String, String> {
@@ -499,6 +549,7 @@ impl Réglages for Gsettings {
 }
 
 /// Valeur actuelle d'un réglage gsettings.
+#[cfg_attr(test, allow(dead_code))]
 fn valeur_gsettings(schema: &str, clé: &str) -> std::result::Result<String, String> {
     match std::process::Command::new("gsettings")
         .args(["get", schema, clé])
@@ -511,6 +562,7 @@ fn valeur_gsettings(schema: &str, clé: &str) -> std::result::Result<String, Str
 }
 
 /// Pose un réglage gsettings.
+#[cfg_attr(test, allow(dead_code))]
 fn poser_gsettings(schema: &str, clé: &str, valeur: &str) -> std::result::Result<(), String> {
     match std::process::Command::new("gsettings")
         .args(["set", schema, clé, valeur])

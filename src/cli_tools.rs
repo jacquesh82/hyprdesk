@@ -479,6 +479,7 @@ fn app_theme(config_path: &Path, args: &[String]) -> Result<String, String> {
                                 crate::i18n::tr("retiré (rien d'autre que le thème)")
                             }
                             Removal::Removed => crate::i18n::tr("retiré"),
+                            Removal::Reset => crate::i18n::tr("remis comme avant"),
                         };
                         format!("{} {what}", p.display())
                     })
