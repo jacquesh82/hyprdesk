@@ -238,7 +238,7 @@ impl App {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
         let accent = color(self.cfg.general.theme.accent, 1.0);
-        let ambre = iced::Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let ambre = crate::ui::tone::warning();
         let Some(s) = self.panel.as_ref().map(|p| &p.index) else {
             return text("Lecture…").font(self.font).size(13).color(dim).into();
         };

@@ -726,7 +726,7 @@ impl App {
             accent,
             bg,
             on_accent: design::on_accent(accent, color(th.fg, 1.0), bg),
-            warn: Color::from_rgb8(0xff, 0xb8, 0x6c),
+            warn: crate::ui::tone::warning(),
         }
     }
 

@@ -62,7 +62,7 @@ impl App {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let plugin_dir = crate::widgets::plugins::dirs(
             self.config_path

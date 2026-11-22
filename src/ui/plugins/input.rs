@@ -8,7 +8,7 @@
 use crate::i18n::text;
 use crate::inputs::Inputs;
 use iced::widget::{column, pick_list, radio, row, slider, text_input, toggler};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg};
@@ -178,7 +178,7 @@ impl App {
                     )
                     .font(self.font)
                     .size(12)
-                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
                 );
             }
             let c = cur.clone();
@@ -467,7 +467,7 @@ impl App {
                 text(e.clone())
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         col.into()

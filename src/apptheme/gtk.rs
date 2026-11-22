@@ -68,7 +68,7 @@ fn clear(_o: &Opts) -> Result<(), String> {
 /// Délégation moteur partagée aux modules de cibles du démon.
 pub(super) fn engine_apply(t: &Theme, only: &[&str]) -> Result<(), String> {
     let roots = theme_engine::paths::Roots::from_env();
-    let resolved = theme_engine::resolve::from_theme(t);
+    let (resolved, pack_dir) = theme_engine::bridge::resolution_for(&roots, t);
     let opts = theme_engine::apply::Options {
         only: only.iter().map(|s| (*s).to_string()).collect(),
         origin: "daemon".to_string(),
@@ -76,7 +76,7 @@ pub(super) fn engine_apply(t: &Theme, only: &[&str]) -> Result<(), String> {
         reload: true,
         ..Default::default()
     };
-    let report = theme_engine::apply::apply(&resolved, None, &roots, &opts);
+    let report = theme_engine::apply::apply(&resolved, pack_dir.as_deref(), &roots, &opts);
     if report.errors.is_empty() {
         Ok(())
     } else {

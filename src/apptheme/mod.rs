@@ -138,7 +138,7 @@ pub fn sync(
         return out;
     }
     let roots = crate::theme_engine::paths::Roots::from_env();
-    let resolved = crate::theme_engine::resolve::from_theme(theme);
+    let (resolved, pack_dir) = crate::theme_engine::bridge::resolution_for(&roots, theme);
     let mut target_opts = BTreeMap::new();
     for (k, v) in opts {
         target_opts.insert(k.clone(), v.clone());
@@ -168,7 +168,8 @@ pub fn sync(
         reload_commands,
         ..Default::default()
     };
-    let report = crate::theme_engine::apply::apply(&resolved, None, &roots, &options);
+    let report =
+        crate::theme_engine::apply::apply(&resolved, pack_dir.as_deref(), &roots, &options);
     for id in &activées {
         match report.targets.iter().find(|tr| tr.id == *id) {
             Some(tr) if tr.status == "ok" => {

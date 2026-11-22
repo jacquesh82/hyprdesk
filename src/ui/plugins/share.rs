@@ -6,7 +6,7 @@
 
 use crate::i18n::text;
 use iced::widget::{Space, button, column, radio, row, text_input, toggler};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -94,7 +94,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let accent = color(th.accent, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let s = &p.share;
         let scope_radios = |current: Scope, msg: fn(Scope) -> Msg| {
             row![

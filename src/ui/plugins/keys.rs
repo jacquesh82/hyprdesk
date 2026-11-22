@@ -702,7 +702,7 @@ impl App {
     fn capture_prompt<'a>(&self) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let accent = color(g.theme.accent, 1.0);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let mut col = column![
             text(crate::i18n::tr(
                 "Appuyez sur la combinaison voulue… (Échap : annuler)"
@@ -965,7 +965,7 @@ impl App {
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let chip_color = if !s.on {
             dim
         } else if s.hyprdesk {
@@ -1169,7 +1169,7 @@ impl App {
                     border: Border::default()
                         .rounded(8)
                         .width(1)
-                        .color(Color::from_rgb8(0xff, 0xa3, 0xa3)),
+                        .color(crate::ui::tone::danger()),
                     ..Default::default()
                 }
             }));
@@ -1192,7 +1192,7 @@ impl App {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let desktop = p.keys.desktop_view;
         let mode = |label: &'static str, on: bool, v: bool| {
             button(text(crate::i18n::tr(label)).font(self.font).size(13))
@@ -1393,7 +1393,7 @@ impl App {
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let mut col = column![
             self.section("Fenêtres, workspaces, écrans"),
             text("hyprdesk pose ces raccourcis là où hyprland.lua n'en a pas, et seulement sur une combinaison libre : hyprland.lua n'est pas modifié. Les combinaisons suivent celles de hyprland.lua (modificateur des workspaces, touches du focus). Une combinaison prise par hyprland.lua se pose une fois prise par hyprdesk.")
@@ -1584,7 +1584,7 @@ impl App {
         };
         let g = &self.cfg.general;
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let key_field = |i: usize, label: &'static str, cfg_key: &'static str| {
             let target = Target::Hyprdesk(i);
             let control: Element<'_, UiMsg> = if p.keys.capture.as_ref() == Some(&target) {
@@ -1672,7 +1672,7 @@ impl App {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let r = &self.key_report;
         let mut col = column![].spacing(10);
         if !r.issues.is_empty() {

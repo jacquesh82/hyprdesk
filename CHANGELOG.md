@@ -63,6 +63,25 @@ and this project adheres to
   calibration file and reference image (Screen colours); adding a
   third-party plugin; each bar module's colour.
 
+### Changed
+
+- **The theme engine holds the truth** (MLG-231 to MLG-235). The active pack
+  and its variant are the reference; the `theme.*` settings mirror them.
+  Picking or tweaking a theme in hyprdesk (Settings, wizard, `hyprdesk
+  config set theme.*`) sets the matching engine pack, or a `perso` user pack;
+  a theme set outside hyprdesk (`hyprdesk-theme-engine use`, LYRA) is copied
+  back and every surface follows. The palette is published on every theme
+  change, app themes (kitty, GTK, Thunar, Qt) use the active pack,
+  Settings → Theme lists the engine packs (installed ones included), and
+  `theme.preset` takes a pack name or id.
+- **Status colours follow the theme**: warning, success and danger (and the
+  bar's warning and critical defaults) come from the active pack, readable
+  on light themes too (they were fixed colours, 1.5:1 on *Clair*).
+- `HYPRDESK_*` theme variables now reach launched applications (they are
+  started by Hyprland, not by hyprdesk) and follow theme changes.
+- The default theme is exactly the *Ardoise* pack: menus opacity 0.90
+  (was 0.94).
+
 ### Fixed
 
 - **Theme engine** (MLG-221 to MLG-229):

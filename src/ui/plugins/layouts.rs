@@ -394,7 +394,7 @@ impl App {
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
         let accent = color(g.theme.accent, 1.0);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let binds = self
             .panel
             .as_ref()

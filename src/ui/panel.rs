@@ -563,7 +563,7 @@ impl App {
             Some((t, r)) if *t == tab => {
                 let (msg, c) = match r {
                     Ok(m) => (m.clone(), Color { a: 0.75, ..fg }),
-                    Err(e) => (e.clone(), Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    Err(e) => (e.clone(), crate::ui::tone::warning()),
                 };
                 Some(text(msg).font(self.font).size(12).color(c).into())
             }
@@ -1047,7 +1047,7 @@ impl App {
                 text("surchargé dans hyprdesk.lua — sans effet ici")
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         column![head, control.into()].spacing(6).into()

@@ -1568,7 +1568,7 @@ impl App {
                     );
                     if confirm == Some(i) {
                         let question = ask.clone().unwrap_or_else(|| "Confirmer ?".into());
-                        let danger = Color::from_rgb8(0xff, 0x55, 0x55);
+                        let danger = crate::ui::tone::danger();
                         let font = self.ui_font(iced::font::Weight::Medium);
                         column![
                             row_el,

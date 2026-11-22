@@ -2509,7 +2509,7 @@ impl App {
                     col = col.push(
                         text(e)
                             .size(size * 0.85)
-                            .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                            .color(crate::ui::tone::warning())
                             .font(self.panorama_font()),
                     );
                 }
@@ -2533,7 +2533,7 @@ impl App {
                     col = col.push(
                         text(e.clone())
                             .size(z.unit * 0.045)
-                            .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                            .color(crate::ui::tone::warning())
                             .font(self.panorama_font()),
                     );
                 }
@@ -2717,7 +2717,7 @@ impl App {
     /// mode d'emploi, état du serveur (MLG-217, MLG-218).
     fn panorama_cast_card(&self, z: &layout::Zones, area: Rect, fg: Color) -> Element<'_, Msg> {
         let dim = Color { a: 0.7, ..fg };
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let size = (z.unit * 0.045).clamp(12.0, 20.0);
         let font = self.panorama_font();
         let line = |t: String, c: Color| -> Element<'_, Msg> {

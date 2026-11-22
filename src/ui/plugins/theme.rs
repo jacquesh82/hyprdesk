@@ -107,6 +107,9 @@ pub struct State {
     pub hex: BTreeMap<Slot, String>,
     /// « Mes thèmes ».
     pub library: Vec<Saved>,
+    /// Packs du moteur de thème (embarqués, installés, `perso`) : les thèmes
+    /// livrés (MLG-233).
+    pub catalog: Vec<crate::theme_engine::bridge::Entry>,
     /// Image ou pack d'où créer un thème.
     pub scene: String,
     pub report: Option<Result<String, String>>,
@@ -117,6 +120,8 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Preset(usize),
+    /// Pose un pack du moteur (son thème, dans sa variante par défaut).
+    Pack(Box<crate::config::Theme>),
     Color(Slot, Rgba),
     Hex(Slot, String),
     HexSubmit(Slot),
@@ -129,7 +134,7 @@ pub enum Msg {
     /// Crée un thème depuis cette scène, dans « Mes thèmes ».
     CreateFromScene,
     Saved(Result<String, String>),
-    Library(Vec<Saved>),
+    Library(Vec<Saved>, Vec<crate::theme_engine::bridge::Entry>),
     /// Applique un thème enregistré.
     Apply(PathBuf),
     /// Retire un thème de « Mes thèmes » (premier appui : arme ; second : confirme).
@@ -147,16 +152,46 @@ pub enum Msg {
     OpenDir,
 }
 
-/// Relit « Mes thèmes ».
+/// Relit « Mes thèmes » et les packs du moteur.
 pub fn load_library(config_path: PathBuf) -> Task<UiMsg> {
     Task::perform(
         async move {
-            tokio::task::spawn_blocking(move || crate::theme::library(&config_path))
-                .await
-                .unwrap_or_default()
+            tokio::task::spawn_blocking(move || {
+                (
+                    crate::theme::library(&config_path),
+                    crate::theme_engine::bridge::catalog(
+                        &crate::theme_engine::paths::Roots::from_env(),
+                    ),
+                )
+            })
+            .await
+            .unwrap_or_default()
         },
-        |l| wrap(Msg::Library(l)),
+        |(l, c)| wrap(Msg::Library(l, c)),
     )
+}
+
+/// Thèmes livrés à montrer : les packs du moteur ; tant qu'ils ne sont pas
+/// lus, les préréglages (identiques aux packs embarqués).
+fn shown_catalog(st: &State) -> Vec<crate::theme_engine::bridge::Entry> {
+    if !st.catalog.is_empty() {
+        return st.catalog.clone();
+    }
+    PRESETS
+        .iter()
+        .map(|p| crate::theme_engine::bridge::Entry {
+            id: crate::theme::slug(p.name),
+            origin: "bundled",
+            variant: "dark".to_string(),
+            theme: crate::config::Theme {
+                name: p.name.to_string(),
+                fg: p.fg,
+                bg: p.bg,
+                accent: p.accent,
+                effects: p.effects(),
+            },
+        })
+        .collect()
 }
 
 impl App {
@@ -169,7 +204,7 @@ impl App {
         let th = &g.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let font = self.font;
 
         // Pastille de couleur ; `selected` l'entoure.
@@ -276,12 +311,17 @@ impl App {
             });
         }
 
-        // Thèmes livrés.
-        let presets = row(PRESETS.iter().enumerate().map(|(i, p)| {
-            let on = th.name == p.name && th.fg == p.fg && th.bg == p.bg && th.accent == p.accent;
+        // Thèmes livrés : les packs du moteur de thème, qui fait foi.
+        let presets = row(shown_catalog(st).into_iter().map(|e| {
+            let on = crate::theme_engine::bridge::same_theme(th, &e.theme);
+            let name = match e.origin {
+                "bundled" => e.theme.name.clone(),
+                "user" => crate::tr!("{n} · à vous", n = e.theme.name),
+                _ => crate::tr!("{n} · installé", n = e.theme.name),
+            };
             card_button(
-                preview(p.name.into(), p.fg, p.bg, p.accent, on).into(),
-                wrap(Msg::Preset(i)),
+                preview(name, e.theme.fg, e.theme.bg, e.theme.accent, on).into(),
+                wrap(Msg::Pack(Box::new(e.theme))),
             )
             .into()
         }))
@@ -498,7 +538,7 @@ impl App {
                     ))
                     .font(font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                    .color(crate::ui::tone::warning())
                 } else {
                     text(crate::tr!(
                         "Contraste du texte : {r}:1.",
@@ -601,6 +641,16 @@ impl App {
 
     pub(in crate::ui) fn theme_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
+            Msg::Pack(t) => {
+                // Le thème du pack ; le moteur le reconnaît à l'installation
+                // de la config et le pose comme pack actif.
+                self.settings.apply_theme(&t);
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.theme.name = None;
+                    panel.theme.hex.clear();
+                }
+                self.commit()
+            }
             Msg::Preset(i) => {
                 let Some(p) = PRESETS.get(i) else {
                     return Task::none();
@@ -745,9 +795,10 @@ impl App {
                     Task::none()
                 }
             }
-            Msg::Library(l) => {
+            Msg::Library(l, c) => {
                 if let Some(panel) = self.panel.as_mut() {
                     panel.theme.library = l;
+                    panel.theme.catalog = c;
                 }
                 Task::none()
             }

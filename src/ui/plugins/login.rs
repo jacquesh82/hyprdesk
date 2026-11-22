@@ -171,9 +171,9 @@ impl App {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
         let mark = if ok {
-            Color::from_rgb8(0x50, 0xfa, 0x7b)
+            crate::ui::tone::success()
         } else {
-            Color::from_rgb8(0xff, 0xb8, 0x6c)
+            crate::ui::tone::warning()
         };
         row![
             text(if ok { "●" } else { "○" }).size(13).color(mark),
@@ -197,7 +197,7 @@ impl App {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let accent = color(self.cfg.general.theme.accent, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let Some(st) = self
             .panel
             .as_ref()
@@ -636,7 +636,7 @@ impl App {
             col = col.push(small(
                 m.clone(),
                 if *ok {
-                    Color::from_rgb8(0x50, 0xfa, 0x7b)
+                    crate::ui::tone::success()
                 } else {
                     warn
                 },

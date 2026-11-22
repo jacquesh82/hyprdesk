@@ -1283,14 +1283,16 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.crossfade_ms.to_string(),
         |s, v, c| { s.crossfade_ms = Some(number(v, 0u64, 10000)?); Ok(()) },
         |s| s.crossfade_ms = None;
-    "theme.preset", "theme", "nom d'un thème livré — applique ses couleurs et ses effets",
+    "theme.preset", "theme", "pack du moteur de thème (nom ou identifiant) — applique ses couleurs et ses effets",
         |c| c.general.theme.name.clone(),
         |s, v, c| {
-            let p = crate::theme::PRESETS.iter().find(|p| p.name.eq_ignore_ascii_case(v)).ok_or_else(|| {
-                let all: Vec<&str> = crate::theme::PRESETS.iter().map(|p| p.name).collect();
-                crate::tr!("« {v} » : thèmes livrés {p0}", v = v, p0 = all.join(", "))
+            // Packs du moteur (embarqués, installés) : il fait foi (MLG-231).
+            let all = crate::theme_engine::bridge::catalog(&crate::theme_engine::paths::Roots::from_env());
+            let e = all.iter().find(|e| e.id.eq_ignore_ascii_case(v) || e.theme.name.eq_ignore_ascii_case(v)).ok_or_else(|| {
+                let noms: Vec<&str> = all.iter().map(|e| e.theme.name.as_str()).collect();
+                crate::tr!("« {v} » : thèmes livrés {p0}", v = v, p0 = noms.join(", "))
             })?;
-            s.apply_preset(p);
+            s.apply_theme(&e.theme);
             Ok(())
         },
         |s| { s.theme_name = None; s.fg = None; s.bg = None; s.accent = None; s.effects.clear(); };
@@ -2309,6 +2311,17 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
             s.save_versioned(config_path, crate::storage::revision())
                 .map_err(|e| crate::tr!("settings.lua : {e}", e = e))?;
             let after = full()?;
+            // Le moteur de thème fait foi (MLG-231) : un thème changé ici lui
+            // est posé tout de suite, démon lancé ou non.
+            if after.general.theme != c.general.theme
+                && let Err(e) = crate::theme_engine::bridge::adopt(
+                    &crate::theme_engine::paths::Roots::from_env(),
+                    &after.general.theme,
+                    "cli",
+                )
+            {
+                tracing::warn!("{}", crate::tr!("moteur de thème : {e}", e = e));
+            }
             let now = KEYS
                 .iter()
                 .find(|k| k.name == key)

@@ -211,7 +211,7 @@ impl App {
                 text(e.clone())
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0x95, 0x80)),
+                    .color(crate::ui::tone::danger()),
             );
         }
         self.field(o.label, "", body)

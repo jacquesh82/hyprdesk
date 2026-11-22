@@ -251,7 +251,7 @@ impl App {
             col = col.push(
                 text(e.clone())
                     .size(12.0 * t)
-                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         let hidden = hue::hidden(&self.cfg);

@@ -22,6 +22,7 @@
 
 pub mod apply;
 pub mod archive;
+pub mod bridge;
 pub mod bundled;
 pub mod color;
 pub mod env;

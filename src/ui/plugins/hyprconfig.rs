@@ -227,7 +227,7 @@ impl App {
         }
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let Some(s) = self
             .panel
             .as_ref()
@@ -357,7 +357,7 @@ impl App {
     pub(in crate::ui) fn hyprconfig_history(&self) -> Element<'_, UiMsg> {
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let font = self.font;
         let Some(s) = self.panel.as_ref().map(|p| &p.hyprconfig) else {
             return iced::widget::Space::new().into();
@@ -590,7 +590,7 @@ impl App {
         use iced::widget::{text_input, toggler};
         let ink = self.ink();
         let (dim, accent) = (ink.dim, ink.accent);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let Some(p) = self.panel.as_ref().map(|p| &p.hyprconfig) else {
             return column![].into();
         };

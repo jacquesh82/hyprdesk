@@ -95,6 +95,16 @@ pub fn publish_palette(roots: &Roots, resolved: &Resolved) -> Result<u64> {
         Some(o) => o.colors != colors || o.effects != effects || o.fonts != resolved.fonts,
         None => true,
     };
+    // Rien de neuf (couleurs, effets, polices, pack, variante) : le fichier
+    // n'est pas réécrit, ses lecteurs (démon, clientes) ne sont pas réveillés.
+    if let Some(o) = &old
+        && !changed
+        && o.pack == resolved.id
+        && o.variant == resolved.variant
+        && o.schema == SCHEMA
+    {
+        return Ok(o.revision);
+    }
     let revision = match old {
         Some(o) if !changed => o.revision,
         Some(o) => o.revision + 1,

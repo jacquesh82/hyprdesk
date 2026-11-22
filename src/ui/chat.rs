@@ -1058,7 +1058,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = Color { a: 0.72, ..fg };
-        let warn = Color::from_rgb8(0xff, 0x95, 0x80);
+        let warn = crate::ui::tone::danger();
         let close_icon = super::icons::get("window-close").unwrap();
         let close = iced::widget::tooltip(
             button(

@@ -261,7 +261,7 @@ impl App {
                     .style(move |_, st| button::Style {
                         background: Some(
                             if armed {
-                                Color::from_rgba8(0xe0, 0x4f, 0x5f, 0.85)
+                                Color { a: 0.85, ..crate::ui::tone::danger() }
                             } else {
                                 fx::alpha(
                                     fg,

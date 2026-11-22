@@ -91,7 +91,7 @@ impl App {
     pub(in crate::ui) fn panorama_modules_tab(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = iced::Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let c = self.panorama_cfg();
         let current = c.design.modules();
         let mut col = column![

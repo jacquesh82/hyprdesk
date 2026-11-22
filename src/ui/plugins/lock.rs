@@ -256,7 +256,7 @@ impl App {
                 .color(if crate::doctor::has("fprintd") {
                     dim
                 } else {
-                    Color::from_rgb8(0xff, 0xb8, 0x6c)
+                    crate::ui::tone::warning()
                 }),
             ]
             .spacing(8),
@@ -286,7 +286,7 @@ impl App {
             return column![].into();
         }
         let ink = self.ink();
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let note = |s: String, c: Color| -> Element<'_, UiMsg> {
             text(s).font(self.font).size(12).color(c).into()
         };
@@ -529,7 +529,7 @@ impl App {
                 text(w)
                     .font(self.font)
                     .size(13)
-                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         col = col.push(

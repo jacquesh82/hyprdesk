@@ -445,7 +445,7 @@ impl App {
     /// l'élément armé.
     pub(in crate::ui) fn delete_button<'a>(&self, armed: bool, msg: Msg) -> Element<'a, Msg> {
         use iced::widget::button;
-        let warn = iced::Color::from_rgb8(0xff, 0x95, 0x80);
+        let warn = crate::ui::tone::danger();
         let fg = super::color(self.cfg.general.theme.fg, 1.0);
         button(
             crate::i18n::text(if armed {

@@ -19,6 +19,8 @@ mod context;
 mod convex;
 mod curves;
 mod design;
+mod engine;
+pub(crate) mod tone;
 mod desk_layout;
 mod hyprlists;
 mod hyprset;
@@ -146,6 +148,10 @@ pub enum Msg {
     /// Tiroir de l'assistant (LYRA, protocole serve).
     Chat(chat::ChatMsg),
     SettingsLoaded(u64, DeskSettings),
+    /// Réponse du moteur de thème : palette du pack actif (MLG-231).
+    ThemeEngine(engine::Outcome),
+    /// Le moteur de thème a changé hors du démon.
+    ThemeEngineChanged,
     /// Barre : aller au workspace (écran, nom).
     BarWorkspace(String, String),
     /// Barre : molette sur les workspaces (écran, ±1).
@@ -610,6 +616,8 @@ pub struct App {
     preview: bool,
     /// Nom de la courbe d'animation en cours de création.
     curve_name: String,
+    /// Première synchronisation avec le moteur de thème faite.
+    engine_synced: bool,
 }
 
 /// Surfaces qu'un message peut changer (MLG-131, `iced_layershell::damage`) :
@@ -1090,6 +1098,7 @@ impl App {
             hypr_source: None,
             preview,
             curve_name: String::new(),
+            engine_synced: false,
         };
         let apps = Task::perform(
             async {
@@ -1396,15 +1405,19 @@ impl App {
         }
         // LYRA en tiroir : règle Hyprland sur sa fenêtre.
         tasks.push(self.sync_lyra_drawer());
-        // Thème appliqué aux autres applications (kitty…), à chaque changement.
+        // Moteur de thème (MLG-231), puis thème appliqué aux autres
+        // applications (kitty…) : après le moteur, qui pose le pack actif.
+        let theme_changed = old.general.theme != self.cfg.general.theme;
+        let engine = self.sync_theme_engine(theme_changed);
         if plugins::apptheme::effective(&old) != plugins::apptheme::effective(&self.cfg)
             || (crate::apptheme::options(&old.general)
                 != crate::apptheme::options(&self.cfg.general)
                 && !plugins::apptheme::effective(&self.cfg).is_empty())
-            || (old.general.theme != self.cfg.general.theme
-                && !plugins::apptheme::effective(&self.cfg).is_empty())
+            || (theme_changed && !plugins::apptheme::effective(&self.cfg).is_empty())
         {
-            tasks.push(self.sync_app_themes(false));
+            tasks.push(engine.chain(self.sync_app_themes(false)));
+        } else {
+            tasks.push(engine);
         }
         // Layouts de Hyprland réglés dans hyprdesk (paquet « Layouts »).
         if plugins::layouts::effective(&old) != plugins::layouts::effective(&self.cfg) {
@@ -4366,6 +4379,8 @@ impl App {
                 Task::none()
             }
             Msg::ConfigChanged => self.load_config(),
+            Msg::ThemeEngine(r) => self.on_theme_engine(r),
+            Msg::ThemeEngineChanged => self.on_theme_engine_changed(),
             Msg::ConfigLoaded(Ok(cfg)) => {
                 self.widget_generation += 1;
                 self.bar_hidden.clear();
@@ -5415,6 +5430,8 @@ impl App {
                 watch_stream(path.as_path())
             })
             .map(|_| Msg::ConfigChanged),
+            // Moteur de thème : un thème posé hors du démon (MLG-231).
+            Subscription::run(engine::stream).map(|_| Msg::ThemeEngineChanged),
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
@@ -6169,7 +6186,7 @@ fn make_theme(cfg: &Config) -> iced::Theme {
             primary: color(th.accent, 1.0),
             success: Color::from_rgb8(0x8a, 0xff, 0x80),
             warning: Color::from_rgb8(0xff, 0xff, 0x80),
-            danger: Color::from_rgb8(0xff, 0x95, 0x80),
+            danger: crate::ui::tone::danger(),
         },
     )
 }

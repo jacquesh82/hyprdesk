@@ -387,7 +387,7 @@ impl App {
                 Some(Err(e)) => text(e.clone())
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c))
+                    .color(crate::ui::tone::warning())
                     .into(),
                 None => Space::new().into(),
             },

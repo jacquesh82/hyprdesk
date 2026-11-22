@@ -624,10 +624,12 @@ impl Place {
     }
 
     /// Effet livré : l'apparence d'origine de hyprdesk.
+    /// Effets par défaut : ceux du pack Ardoise, le thème par défaut — le
+    /// thème par défaut du démon est exactement ce pack du moteur (MLG-231).
     pub fn default_effect(self) -> Effect {
         let opacity = match self {
             Place::Bar => 0.72,
-            Place::Menus => 0.94,
+            Place::Menus => 0.90,
             Place::Launcher => 0.88,
             Place::Settings => 0.97,
             Place::Widgets => 0.84,
@@ -877,10 +879,6 @@ pub const BAR_COLOR_SLOTS: &[(&str, &str)] = &[
 ];
 
 impl BarColors {
-    /// Avertissement et critique par défaut (le thème n'en déclare pas).
-    pub const WARNING: Rgba = Rgba(0xff, 0xb8, 0x6c, 0xff);
-    pub const CRITICAL: Rgba = Rgba(0xff, 0x55, 0x55, 0xff);
-
     pub fn slot(&self, key: &str) -> Option<Rgba> {
         match key {
             "text" => self.text,

@@ -26,7 +26,7 @@ pub(in crate::ui) use surface::{LauncherSurface, Popup, PopupContent, thickness}
 
 use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -202,7 +202,7 @@ impl App {
         let a = g.apps_launcher;
         let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let style = |label: &'static str, v: AppsStyle| {
             radio(crate::i18n::tr(label), v, Some(a.style), |v| {
                 wrap(Msg::AppsStyle(v))

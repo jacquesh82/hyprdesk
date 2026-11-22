@@ -21,7 +21,15 @@ pub struct Roots {
 
 impl Roots {
     /// Racines de la session courante.
+    /// Pendant les essais de la bibliothèque, un dossier temporaire propre au
+    /// processus : aucun essai (démon compris) ne touche au thème de la
+    /// session qui les lance.
     pub fn from_env() -> Self {
+        if cfg!(test) {
+            return Self::at(
+                &std::env::temp_dir().join(format!("hyprdesk-test-theme-{}", std::process::id())),
+            );
+        }
         let home = std::env::var("HOME").unwrap_or_default();
         let dir = |var: &str, fallback: &str| {
             std::env::var(var)

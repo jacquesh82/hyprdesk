@@ -642,7 +642,7 @@ impl App {
                         Some(Background::Color(match encre {
                             crate::ui::plugins::index::IndexInk::Ready => accent,
                             crate::ui::plugins::index::IndexInk::Scan => {
-                                Color::from_rgb8(0xff, 0xb8, 0x6c)
+                                crate::ui::tone::warning()
                             }
                         }))
                     } else {

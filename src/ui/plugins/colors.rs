@@ -191,7 +191,7 @@ impl App {
     pub(in crate::ui) fn colors_page(&self) -> Element<'_, UiMsg> {
         let ink = self.ink();
         let (fg, dim, accent) = (ink.fg, ink.dim, ink.accent);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let Some(p) = self.panel.as_ref() else {
             return Space::new().into();
         };
@@ -438,7 +438,7 @@ impl App {
     fn colors_blockers<'a>(&'a self, s: &'a State) -> Element<'a, UiMsg> {
         let ink = self.ink();
         let (fg, dim) = (ink.fg, ink.dim);
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let mut list = column![
             text("Programmes qui gênent les réglages de couleur")
                 .font(self.font)
@@ -847,7 +847,7 @@ impl App {
                     iced::widget::text(e.clone())
                         .font(self.font)
                         .size(12)
-                        .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                        .color(crate::ui::tone::warning()),
                 );
             }
         }

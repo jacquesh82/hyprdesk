@@ -371,7 +371,7 @@ impl App {
                     text("surchargée dans hyprdesk.lua — sans effet ici")
                         .font(self.font)
                         .size(12)
-                        .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                        .color(crate::ui::tone::warning()),
                 );
             }
             rules = rules.push(
@@ -477,7 +477,7 @@ impl App {
                     ))
                     .font(self.font)
                     .size(13)
-                    .color(iced::Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
                     small(lines.join("\n")),
                     row![
                         iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(12))
@@ -495,7 +495,7 @@ impl App {
                 border: iced::Border::default()
                     .rounded(10)
                     .width(1)
-                    .color(iced::Color::from_rgba8(0xff, 0xb8, 0x6c, 0.6)),
+                    .color(iced::Color { a: 0.6, ..crate::ui::tone::warning() }),
                 ..Default::default()
             })
             .into()

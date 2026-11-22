@@ -480,7 +480,7 @@ impl App {
     /// Génération automatique : interrupteur et état de la file.
     fn smartui_auto_line(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0x95, 0x80);
+        let warn = crate::ui::tone::danger();
         let on = crate::smartui::auto_on(&self.cfg);
         let (status, c) = {
             let a = crate::smartui::auto();
@@ -543,7 +543,7 @@ impl App {
         let th = &g.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0x95, 0x80);
+        let warn = crate::ui::tone::danger();
         let l = &g.launcher;
         let waiting = s.rows.iter().filter(|r| r.proposal.is_some()).count();
         let validated = s.rows.iter().filter(|r| r.validated.is_some()).count();

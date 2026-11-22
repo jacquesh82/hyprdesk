@@ -78,7 +78,7 @@ fn apply(t: &Theme, o: &Opts) -> Result<String, String> {
     // Délégation moteur : fichier réglé, inclusion dans kitty.conf,
     // rechargement configuré (docs/THEME-ENGINE.md §8).
     let roots = theme_engine::paths::Roots::from_env();
-    let resolved = theme_engine::resolve::from_theme(t);
+    let (resolved, pack_dir) = theme_engine::bridge::resolution_for(&roots, t);
     let mut target_opts = BTreeMap::new();
     target_opts.insert("kitty.file".to_string(), file(o).display().to_string());
     if let Some(c) = conf_path(o) {
@@ -98,7 +98,7 @@ fn apply(t: &Theme, o: &Opts) -> Result<String, String> {
         reload_commands,
         ..Default::default()
     };
-    let report = theme_engine::apply::apply(&resolved, None, &roots, &options);
+    let report = theme_engine::apply::apply(&resolved, pack_dir.as_deref(), &roots, &options);
     if !report.errors.is_empty() {
         return Err(report.errors.join(" ; "));
     }

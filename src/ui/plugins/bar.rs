@@ -22,7 +22,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
-use crate::config::{BAR_COLOR_SLOTS, BarColors, Rgba};
+use crate::config::{BAR_COLOR_SLOTS, Rgba};
 use crate::ui::color_picker::{Picker, PickerMsg};
 
 use super::super::panel::PanelMsg;
@@ -130,7 +130,7 @@ impl App {
         use crate::config::BarPosition;
         let g = &self.cfg.general;
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let (mon, _) = self.panel_ctx().unwrap_or_default();
         let b = self
             .settings
@@ -862,8 +862,8 @@ impl App {
             (th.bg, "Fond du thème"),
             (th.accent, "Accent du thème"),
             (self.cfg.general.background, "Couleur de fond du bureau"),
-            (BarColors::WARNING, "Avertissement"),
-            (BarColors::CRITICAL, "Critique"),
+            (crate::ui::tone::rgba("warning"), "Avertissement"),
+            (crate::ui::tone::rgba("danger"), "Critique"),
         ] {
             if !proposals.iter().any(|(p, _)| *p == c) {
                 proposals.push((c, l));

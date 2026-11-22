@@ -367,6 +367,16 @@ impl Settings {
         self.wallpapers = t.wallpapers;
     }
 
+    /// Thème du moteur (pack actif, entrée du catalogue) : nom, couleurs et
+    /// effets ; fonds, mode et le reste des réglages restent en place.
+    pub fn apply_theme(&mut self, t: &Theme) {
+        self.theme_name = Some(t.name.clone());
+        self.fg = Some(t.fg);
+        self.bg = Some(t.bg);
+        self.accent = Some(t.accent);
+        self.effects = Place::ALL.iter().map(|p| (*p, t.effect(*p))).collect();
+    }
+
     /// Thème livré : ses couleurs et ses effets ; fonds et mode restent en place.
     pub fn apply_preset(&mut self, p: &Preset) {
         self.theme_name = Some(p.name.into());
@@ -375,6 +385,21 @@ impl Settings {
         self.accent = Some(p.accent);
         self.effects = p.effects();
     }
+}
+
+/// Recopie dans `settings.lua` le thème posé par le moteur de thème, qui
+/// fait foi (MLG-231) : nom, couleurs et effets ; le reste des réglages ne
+/// bouge pas. Renvoie `false` si le miroir était déjà à jour (rien d'écrit).
+pub fn mirror_engine(config_path: &Path, t: &Theme) -> Result<bool, String> {
+    let mut s = Settings::from_config(&crate::config::lua::load_settings_only(config_path)?);
+    let avant = s.to_lua();
+    s.apply_theme(t);
+    if s.to_lua() == avant {
+        return Ok(false);
+    }
+    s.save_versioned(config_path, crate::storage::revision())
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Dossier de « Mes thèmes ».

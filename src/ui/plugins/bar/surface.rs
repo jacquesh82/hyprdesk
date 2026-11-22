@@ -94,8 +94,9 @@ impl BarPalette {
             fg: pick(|c| c.text, theme.fg),
             bg: pick(|c| c.background, theme.bg),
             accent: pick(|c| c.accent, theme.accent),
-            warning: pick(|c| c.warning, BarColors::WARNING),
-            critical: pick(|c| c.critical, BarColors::CRITICAL),
+            // États : slots de la palette du moteur, lisibles sur le fond.
+            warning: pick(|c| c.warning, crate::ui::tone::rgba("warning")),
+            critical: pick(|c| c.critical, crate::ui::tone::rgba("danger")),
             opacity: colors
                 .and_then(|c| c.opacity)
                 .unwrap_or_else(|| theme.effect(Place::Bar).opacity)

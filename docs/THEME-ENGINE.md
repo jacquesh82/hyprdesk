@@ -310,6 +310,8 @@ Une application tierce — iced, GTK, Qt, ou tout autre toolkit — doit pouvoir
 
 Pour les applications lancées par hyprdesk (lanceur, dock, autostart), le démon expose un jeu d'environnement minimal et stable : `HYPRDESK_THEME_ID`, `HYPRDESK_THEME_VARIANT`, `HYPRDESK_BG`, `HYPRDESK_FG`, `HYPRDESK_ACCENT`, `HYPRDESK_SURFACE`, `HYPRDESK_BORDER`. Réservé aux lectures au démarrage (prompts shell, TUI, scripts) ; suivre le thème à chaud exige 9.1 ou 9.3.
 
+Les applications sont lancées par Hyprland (`hl.dsp.exec_cmd`), pas par le démon : chaque lancement exporte les variables de la palette publiée **à cet instant** (`export HYPRDESK_…; commande`), valeurs bornées à un identifiant, une variante ou un `#hex` (MLG-235).
+
 ### 9.3 Crate cliente iced — `hyprdesk-theme-client`
 
 Nouvelle crate du workspace (`crates/hyprdesk-theme-client`, même modèle que hyprdesk-i18n et hyprdesk-auth) : elle ne lie ni le démon, ni iced, ni mlua — serde et inotify suffisent.
@@ -471,11 +473,18 @@ Variable d'environnement `HYPRDESK_THEME=<id>[:<variante>]` : surcharge globale 
 
 ## 16. Intégration hyprdesk
 
-- **Démon** : Réglages → Thème appelle la bibliothèque en cours de processus (pas de sous-process) ; chaque `hyprdesk config set theme.*` est suivi d'un `apply` debouncé (300 ms). Les clés `theme.*`, `general.app_themes`, `plugin_options["apptheme"]` gardent leur sens exact.
-- **Surfaces iced du démon** : la barre, les réglages et les widgets rechargent leurs couleurs au changement de `revision` de `palette.json` via la crate cliente (§9.3) — même règle que le reste : redessin local des seules surfaces touchées.
-- **Portail** (`src/portal.rs`) : publie `accent-color` et `contrast` d'après la palette publiée, en plus de `color-scheme` (§9.5).
+**Le moteur fait foi** (MLG-231). Le pack actif et sa variante (`active.json`) sont la vérité ; les clés `theme.*` de `settings.lua` (nom, couleurs, effets) en sont le **miroir**, lu par toutes les surfaces du démon et par le verrouillage et l'écran de connexion. Le pont est `theme_engine::bridge` :
+
+- **Réglages → moteur** (`bridge::adopt`) : un thème changé dans hyprdesk (Réglages → Thème, assistant, « Mes thèmes », `hyprdesk config set theme.*`, démon lancé ou non) est posé au moteur — le pack qui a exactement ces couleurs et ces effets dans l'une de ses variantes (même nom d'abord), sinon le pack utilisateur `perso` (`~/.local/share/hyprdesk/themes/perso/`), réécrit à chaque retouche. La palette est publiée à chaque fois, que des applications soient cochées ou non (MLG-232).
+- **Moteur → Réglages** : un thème posé hors du démon (`hyprdesk-theme-engine use`, LYRA, `watch`) réveille le démon (suivi de `active.json` et `palette.json`) et est recopié dans le miroir (`crate::theme::mirror_engine`) ; le rechargement de la config redessine les surfaces. Au démarrage, le moteur gagne ; sans thème actif, le thème des réglages est posé (migration). Le thème par défaut du démon est exactement le pack `ardoise`.
+- **Thème des applications** (kitty, GTK, Thunar, Qt) : résolution du pack actif et son dossier (gabarits du pack), plus de palette recalculée depuis les réglages.
+- **Couleurs d'état** des surfaces (attention, réussite, danger, couleurs par défaut de la barre et des états `warning` / `critical` des plugins) : slots `warning`, `success`, `danger` de la palette du pack actif (`src/ui/tone.rs`, MLG-234), dérivés lisibles sur le fond (4,5:1).
+- **Réglages → Thème** : les thèmes livrés sont les packs du moteur (embarqués, installés, `perso`), avec leur origine (MLG-233) ; `theme.preset` accepte le nom ou l'identifiant d'un pack.
+- Une valeur de `theme` fixée dans `hyprdesk.lua` reste prioritaire pour le démon (le moteur garde son pack actif) ; aucun aller-retour n'est forcé.
+- Rien de tout cela en aperçu (`hyprdesk preview`) ni dans les essais : la racine du moteur y est un dossier temporaire.
+- **Portail** : à faire (MLG-236) — `src/portal.rs` n'est aujourd'hui qu'un client du sélecteur de fichiers ; hyprdesk ne sert pas encore `org.freedesktop.appearance` (§9.5).
 - **`src/apptheme/`** : les modules `kitty` et `thunar` migrent vers des cibles du moteur, clés d'options conservées ; le contrat `Target` devient `theme_engine::Target`. La page Réglages → Thème des applications devient la liste des cibles du moteur.
-- **Préréglages** : ceux de `src/theme.rs` (Ardoise…) deviennent des packs embarqués équivalents bit-à-bit ; `theme.preset` reste valable (alias de `use <id>`), `theme.pack` désigne un pack installé.
+- **Préréglages** : ceux de `src/theme.rs` (Ardoise…) ont leurs packs embarqués équivalents bit-à-bit (vérifié en essai : chaque préréglage est reconnu comme son pack) ; `theme.preset` accepte le nom ou l'identifiant de tout pack découvert.
 - **Partage** (`src/share.rs`) : « exporter le thème seul » → `export` du pack actif + valeurs des clés `theme.*` ; « importer » → `import` + `use`.
 - **Historique** (`src/history.rs`) : chaque `apply` journalisé ; « retour à une version précédente » rejoue le `last-applied.json` correspondant.
 - **doctor** (`src/doctor.rs`) : `theme-engine doctor` alimente `DEPS` (gsettings, kitty, hyprctl, thunar…).

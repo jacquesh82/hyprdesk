@@ -272,7 +272,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let g = &self.cfg.general;
         let line = |ok: bool, yes: &str, no: &str| {
             text(format!(

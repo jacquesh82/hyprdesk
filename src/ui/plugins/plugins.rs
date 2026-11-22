@@ -116,7 +116,7 @@ impl App {
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let badge = move |label: &'static str, on: bool| {
             container(
                 text(label)
@@ -661,7 +661,7 @@ impl App {
                 text(e.clone())
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         container(col)

@@ -268,7 +268,7 @@ impl App {
             col = col.push(small(m.clone(), accent));
         }
         if let Some(e) = &s.error {
-            col = col.push(small(e.clone(), Color::from_rgb8(0xff, 0xb8, 0x6c)));
+            col = col.push(small(e.clone(), crate::ui::tone::warning()));
         }
 
         // -- Lancés par hyprdesk --------------------------------------------------

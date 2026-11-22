@@ -4592,3 +4592,10 @@
 "Thème et taille de curseur déclarés par le pack (gsettings)." = "Cursor theme and size declared by the pack (gsettings)."
 "Sons" = "Sounds"
 "Thème de sons déclaré par le pack (gsettings)." = "Sound theme declared by the pack (gsettings)."
+
+# Moteur de thème source de vérité (MLG-231 à MLG-235).
+"moteur de thème : {e}" = "theme engine: {e}"
+"suivi du moteur de thème : {e}" = "following the theme engine: {e}"
+"{n} · installé" = "{n} · installed"
+"{n} · à vous" = "{n} · yours"
+"pack du moteur de thème (nom ou identifiant) — applique ses couleurs et ses effets" = "theme engine pack (name or id) — applies its colours and effects"

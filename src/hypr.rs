@@ -2187,10 +2187,17 @@ pub fn restore_leftover_stash() {
     }
 }
 
+/// Commande lancée avec les variables du thème (`HYPRDESK_*`, MLG-235) :
+/// l'application est un enfant de Hyprland, pas du démon.
+fn themed(cmd: &str) -> String {
+    format!("{}{cmd}", crate::theme_engine::env::launch_prefix())
+}
+
 /// Lance une commande par Hyprland (`hl.dsp.exec_cmd`) : le processus est un
 /// enfant du compositeur, pas de hyprdesk, et les règles d'exec s'appliquent.
 /// Lance sur un workspace donné (celui de l'écran où l'on a cliqué).
 pub fn exec_on(cmd: &str, workspace: &str) -> Result<(), ipc::IpcError> {
+    let cmd = &themed(cmd);
     let r = ipc::dispatch(&format!(
         "hl.dsp.exec_cmd(\"{}\", {{ workspace = \"{}\" }})",
         ipc::lua_escape(cmd),
@@ -2210,6 +2217,7 @@ pub fn exec_on(cmd: &str, workspace: &str) -> Result<(), ipc::IpcError> {
 }
 
 pub fn exec(cmd: &str) -> Result<(), ipc::IpcError> {
+    let cmd = &themed(cmd);
     let r = ipc::dispatch(&format!("hl.dsp.exec_cmd(\"{}\")", ipc::lua_escape(cmd)))?;
     if r.trim() != "ok" {
         tracing::warn!(
@@ -2237,6 +2245,7 @@ pub fn exec_floating(
     let ws = workspace
         .map(|w| format!("workspace = \"{}\", ", ipc::lua_escape(w)))
         .unwrap_or_default();
+    let cmd = &themed(cmd);
     let r = ipc::dispatch(&format!(
         "hl.dsp.exec_cmd(\"{}\", {{ {ws}float = true, center = true, size = \"{w} {h}\" }})",
         ipc::lua_escape(cmd)

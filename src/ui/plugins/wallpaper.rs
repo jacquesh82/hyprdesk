@@ -245,7 +245,7 @@ impl App {
                 text("Le fond affiché ici vient de hyprdesk.lua, qui passe avant ces réglages.")
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         col = col.push(self.section("Source"));
@@ -512,7 +512,7 @@ impl App {
                     text(crate::tr!("Attention : {w}", w = w))
                         .font(self.font)
                         .size(12)
-                        .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                        .color(crate::ui::tone::warning()),
                 );
             }
         }

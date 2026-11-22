@@ -193,24 +193,38 @@ fn fill_derived(p: &mut BTreeMap<String, Rgba>) {
     });
     p.entry("accent_muted".to_string())
         .or_insert(color::with_alpha(accent, 0.35));
-    p.entry("success".to_string())
-        .or_insert(color::from_oklch(color::Oklch {
-            l: 0.72,
-            c: 0.17,
-            h: 145.0,
-        }));
-    p.entry("warning".to_string())
-        .or_insert(color::from_oklch(color::Oklch {
-            l: 0.80,
-            c: 0.16,
-            h: 75.0,
-        }));
-    p.entry("danger".to_string())
-        .or_insert(color::from_oklch(color::Oklch {
-            l: 0.63,
-            c: 0.21,
-            h: 25.0,
-        }));
+    // États (ok, attention, danger) : teintes fixes, luminosité ajustée pour
+    // rester lisibles en texte sur le fond du thème (4,5:1), clair comme
+    // sombre.
+    for (slot, o) in [
+        (
+            "success",
+            color::Oklch {
+                l: 0.72,
+                c: 0.17,
+                h: 145.0,
+            },
+        ),
+        (
+            "warning",
+            color::Oklch {
+                l: 0.80,
+                c: 0.16,
+                h: 75.0,
+            },
+        ),
+        (
+            "danger",
+            color::Oklch {
+                l: 0.63,
+                c: 0.21,
+                h: 25.0,
+            },
+        ),
+    ] {
+        p.entry(slot.to_string())
+            .or_insert_with(|| color::ensure_contrast(color::from_oklch(o), bg, 4.5));
+    }
     p.entry("background".to_string())
         .or_insert(color::darken(bg, 4.0));
 }
@@ -423,5 +437,27 @@ mod tests {
         assert_eq!(r.id, "regle");
         assert_eq!(r.palette["bg"], Rgba(0x17, 0x1b, 0x27, 0xff));
         assert!(r.palette.contains_key("surface"));
+    }
+
+    #[test]
+    fn états_lisibles_en_clair_comme_en_sombre() {
+        // MLG-234 : le jaune d'attention était illisible sur un fond clair.
+        use crate::config::Rgba;
+        for bg in [
+            Rgba(0xf3, 0xf4, 0xf8, 0xff),
+            Rgba(0x17, 0x1b, 0x27, 0xff),
+            Rgba(0, 0, 0, 0xff),
+        ] {
+            let r = from_adjusted(
+                Rgba(0x1f, 0x23, 0x30, 0xff),
+                bg,
+                Rgba(0x5b, 0x5b, 0xd6, 0xff),
+                bg,
+            );
+            for slot in ["success", "warning", "danger"] {
+                let ratio = color::contrast(r.palette[slot], bg);
+                assert!(ratio >= 4.5, "{slot} sur {bg:?} : {ratio:.2}");
+            }
+        }
     }
 }

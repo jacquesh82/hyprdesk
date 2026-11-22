@@ -304,7 +304,7 @@ impl App {
         let th = &g.theme;
         let fg = color(th.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let small = |t: String, c: Color| -> Element<'a, UiMsg> {
             text(t).font(self.font).size(12).color(c).into()
         };
@@ -476,7 +476,7 @@ impl App {
     fn draft_form<'a>(&'a self, d: &'a Draft, key: Option<&'a KeySource>) -> Element<'a, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0x95, 0x80);
+        let warn = crate::ui::tone::danger();
         let input = |placeholder: &str, value: &'a str, f: DraftField| {
             text_input(placeholder, value)
                 .font(self.font)

@@ -692,7 +692,7 @@ impl App {
                 )
                 .font(self.font)
                 .size(12)
-                .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                .color(crate::ui::tone::warning()),
             );
         }
         let gestures = &self.cfg.general.hypr.gestures;
@@ -821,7 +821,7 @@ impl App {
     /// Configuration de Hyprland → Permissions.
     pub(in crate::ui) fn permissions_page(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
-        let warn = Color::from_rgb8(0xff, 0xb8, 0x6c);
+        let warn = crate::ui::tone::warning();
         let h = &self.cfg.general.hypr;
         let mut col = column![
             self.hyprset_tab("permissions"),

@@ -104,7 +104,7 @@ return {
 
 - Icons whose name ends in **`-symbolic`** are tinted with the theme colors.
   Prefer them in the bar.
-- `state` colors the module: `active` (accent), `warning`, `critical`.
+- `state` colors the module: `active` (accent), `warning`, `critical`. The colors come from the active theme pack (theme engine slots `warning` and `danger`), readable on its background, light or dark — unless the bar sets its own.
 - `toggled` optionally reports a confirmed boolean state. `on_toggle(o)` changes it through the plugin's existing source; throw an error if the system did not confirm the change. The UI shows pending/error state and polls the same widget again. This does not replace `on_click` or `menu`.
 - **`hidden`** removes the module entirely: it takes no space in the bar.
   Use it when there is nothing to show (no battery, no device plugged in).

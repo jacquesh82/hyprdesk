@@ -52,6 +52,36 @@ pub fn inject_session() {
 }
 
 /// Les paires de la palette publiée (doc sérialisé).
+/// Préfixe de lancement (MLG-235) : les applications sont lancées par
+/// Hyprland (`hl.dsp.exec_cmd`), pas par le démon — l'environnement du démon
+/// ne leur arrive pas. Chaque lancement exporte donc les variables de la
+/// palette publiée à cet instant (`export …; commande`, valable aussi pour
+/// une commande composée). Vide sans palette publiée.
+pub fn launch_prefix() -> String {
+    let Some(doc) = state::read_palette(&Roots::from_env()) else {
+        return String::new();
+    };
+    prefix_of(&doc)
+}
+
+fn prefix_of(doc: &state::PaletteDoc) -> String {
+    let vars: Vec<String> = doc_colors(doc)
+        .into_iter()
+        // Valeurs bornées (identifiant, variante, #hex) : rien à échapper,
+        // tout autre caractère écarte la variable.
+        .filter(|(_, v)| {
+            !v.is_empty()
+                && v.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '#' | '-' | '_'))
+        })
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    if vars.is_empty() {
+        return String::new();
+    }
+    format!("export {}; ", vars.join(" "))
+}
+
 fn doc_colors(doc: &state::PaletteDoc) -> Vec<(String, String)> {
     let mut out = vec![
         ("HYPRDESK_THEME_ID".to_string(), doc.pack.clone()),
@@ -97,5 +127,26 @@ mod tests {
         // Les couleurs sont en hexadécimal.
         let (_, bg) = vars.iter().find(|(k, _)| k == "HYPRDESK_BG").unwrap();
         assert!(bg.starts_with('#'), "{bg}");
+    }
+
+    #[test]
+    fn préfixe_de_lancement_borné() {
+        let mut doc = state::PaletteDoc {
+            schema: state::SCHEMA,
+            pack: "ardoise".to_string(),
+            variant: "dark".to_string(),
+            revision: 1,
+            colors: [("bg".to_string(), "#171b27".to_string())].into(),
+            effects: Default::default(),
+            fonts: None,
+            updated: String::new(),
+        };
+        assert_eq!(
+            prefix_of(&doc),
+            "export HYPRDESK_THEME_ID=ardoise HYPRDESK_THEME_VARIANT=dark HYPRDESK_BG=#171b27; "
+        );
+        // Une valeur hors bornes n'est jamais passée au shell.
+        doc.pack = "x; rm -rf ~".to_string();
+        assert!(!prefix_of(&doc).contains("rm"));
     }
 }

@@ -1068,7 +1068,7 @@ impl App {
                 col.push(
                     button(text(crate::i18n::tr(label)).font(self.font).size(14).color(
                         if danger {
-                            Color::from_rgb8(0xff, 0x8a, 0x80)
+                            crate::ui::tone::danger()
                         } else {
                             fg
                         },
@@ -1102,7 +1102,7 @@ impl App {
                 text(e.clone())
                     .font(self.font)
                     .size(12)
-                    .color(Color::from_rgb8(0xff, 0xb8, 0x6c)),
+                    .color(crate::ui::tone::warning()),
             );
         }
         let card = container(col)
