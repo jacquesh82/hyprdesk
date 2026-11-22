@@ -176,9 +176,18 @@ fn fill_derived(p: &mut BTreeMap<String, Rgba>) {
     let surface = p["surface"];
     p.entry("surface_raised".to_string())
         .or_insert(color::lighten(surface, 4.0));
+    // Texte secondaire : 35 % du chemin de fg vers l'extrême du côté du
+    // fond (vers le noir sur un thème sombre, comme avant ; vers le blanc
+    // sur un thème clair, où il partait vers le noir — MLG-250), puis
+    // lisible sur surface (3:1, plancher de `verify`).
     p.entry("fg_muted".to_string()).or_insert({
         let o = color::to_oklch(fg);
-        color::from_oklch(color::Oklch { l: o.l * 0.65, ..o })
+        let l = if color::luminance(bg) > color::luminance(fg) {
+            o.l + (1.0 - o.l) * 0.35
+        } else {
+            o.l * 0.65
+        };
+        color::ensure_contrast(color::from_oklch(color::Oklch { l, ..o }), surface, 3.0)
     });
     p.entry("border".to_string())
         .or_insert(color::with_alpha(fg, 0.18));
@@ -454,10 +463,56 @@ mod tests {
                 Rgba(0x5b, 0x5b, 0xd6, 0xff),
                 bg,
             );
-            for slot in ["success", "warning", "danger"] {
-                let ratio = color::contrast(r.palette[slot], bg);
+            for (slot, teinte) in [("success", 145.0), ("warning", 75.0), ("danger", 25.0)] {
+                let c = r.palette[slot];
+                let ratio = color::contrast(c, bg);
                 assert!(ratio >= 4.5, "{slot} sur {bg:?} : {ratio:.2}");
+                // MLG-250 : la teinte et la couleur restent (le noir passait
+                // aussi le 4,5:1).
+                let o = color::to_oklch(c);
+                let écart = ((o.h - teinte + 180.0).rem_euclid(360.0) - 180.0).abs();
+                assert!(o.c > 0.08, "{slot} sur {bg:?} : chroma {:.3} ({c:?})", o.c);
+                assert!(
+                    écart < 25.0,
+                    "{slot} sur {bg:?} : teinte {:.0} ({c:?})",
+                    o.h
+                );
+                assert!(o.l > 0.35, "{slot} sur {bg:?} : presque noir ({c:?})");
             }
         }
+    }
+
+    #[test]
+    fn texte_secondaire_entre_texte_et_fond() {
+        // MLG-250 : sur un thème clair, fg_muted était plus foncé que fg.
+        use crate::config::Rgba;
+        for (fg, bg) in [
+            (Rgba(0x1f, 0x23, 0x30, 0xff), Rgba(0xf3, 0xf4, 0xf8, 0xff)),
+            (Rgba(0xf2, 0xf4, 0xfc, 0xff), Rgba(0x17, 0x1b, 0x27, 0xff)),
+        ] {
+            let r = from_adjusted(fg, bg, Rgba(0x5b, 0x5b, 0xd6, 0xff), bg);
+            let l = |c| color::luminance(c);
+            let m = r.palette["fg_muted"];
+            let (lo, hi) = if l(fg) < l(bg) {
+                (l(fg), l(bg))
+            } else {
+                (l(bg), l(fg))
+            };
+            assert!(
+                l(m) > lo && l(m) < hi,
+                "fg_muted {m:?} hors de [{fg:?}, {bg:?}]"
+            );
+            assert!(color::contrast(m, r.palette["surface"]) >= 3.0);
+        }
+        // Thème sombre : inchangé (65 % de la luminosité de fg).
+        let r = from_adjusted(
+            Rgba(0xf2, 0xf4, 0xfc, 0xff),
+            Rgba(0x17, 0x1b, 0x27, 0xff),
+            Rgba(0xa6, 0x9c, 0xff, 0xff),
+            Rgba(0x17, 0x1b, 0x27, 0xff),
+        );
+        let o = color::to_oklch(Rgba(0xf2, 0xf4, 0xfc, 0xff));
+        let attendu = color::from_oklch(color::Oklch { l: o.l * 0.65, ..o });
+        assert_eq!(r.palette["fg_muted"], attendu);
     }
 }

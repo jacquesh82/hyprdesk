@@ -476,7 +476,10 @@ blur = true
             "version = \"1\"\ndefault_variant = \"dark\"\n",
         );
         assert_eq!(
-            Manifest::parse("xx", &déclarée).unwrap().0.default_variant(),
+            Manifest::parse("xx", &déclarée)
+                .unwrap()
+                .0
+                .default_variant(),
             "dark"
         );
     }

@@ -197,53 +197,55 @@ pub fn with_alpha(c: Rgba, a: f64) -> Rgba {
     Rgba(c.0, c.1, c.2, (a * 255.0).round().clamp(0.0, 255.0) as u8)
 }
 
-/// `c` assez contrastée sur `against` (au moins `min`, WCAG) : luminosité
-/// OKLCH poussée loin de celle du fond par recherche dichotomique ; en cas
-/// d'impossibilité (fond extrême), noir ou blanc, celui qui contraste le plus.
+/// `c` assez contrastée sur `against` (au moins `min`, WCAG) : teinte et
+/// chroma gardées, luminosité OKLCH éloignée de celle du fond juste assez
+/// (la plus proche de celle d'origine qui atteint `min`). Si ce côté n'y
+/// arrive pas, l'autre côté ; en dernier recours, l'extrême qui contraste
+/// le plus.
 pub fn ensure_contrast(c: Rgba, against: Rgba, min: f64) -> Rgba {
     if contrast(c, against) >= min {
         return c;
     }
     let o = to_oklch(c);
-    let against_l = to_oklch(against).l;
-    let mut best = if against_l > o.l {
-        search_l(o, o.l, 1.0, against, min)
+    // Fond clair : on assombrit ; fond sombre : on éclaircit (MLG-250 : la
+    // recherche partait vers le fond, puis convergeait vers le noir).
+    let (loin, près) = if luminance(against) > luminance(c) {
+        (0.0, 1.0)
     } else {
-        search_l(o, o.l, 0.0, against, min)
+        (1.0, 0.0)
     };
-    // Le fond bloque la direction : l'autre extrême reste possible.
-    if contrast(best, against) < min {
-        let alt = if against_l > o.l {
-            search_l(o, o.l, 0.0, against, min)
-        } else {
-            search_l(o, o.l, 1.0, against, min)
-        };
-        if contrast(alt, against) > contrast(best, against) {
-            best = alt;
-        }
+    let best = search_l(o, o.l, loin, against, min);
+    if contrast(best, against) >= min {
+        return best;
     }
-    best
+    let alt = search_l(o, o.l, près, against, min);
+    if contrast(alt, against) > contrast(best, against) {
+        alt
+    } else {
+        best
+    }
 }
 
-/// Dichotomie de la luminosité entre `from` et `to` pour atteindre `min`.
+/// Luminosité la plus proche de `from`, en allant vers `to`, qui atteint
+/// `min` contre `against` (dichotomie) ; l'extrémité `to` si rien n'y
+/// arrive.
 fn search_l(o: Oklch, from: f64, to: f64, against: Rgba, min: f64) -> Rgba {
     let try_l = |l: f64| from_oklch(Oklch { l, ..o });
-    let mut lo = from.min(to);
-    let mut hi = from.max(to);
-    // Si l'extrémité n'atteint pas le plancher, prendre l'extrémité même.
     let end = try_l(to);
     if contrast(end, against) < min {
         return end;
     }
-    for _ in 0..24 {
-        let mid = (lo + hi) / 2.0;
+    // `near` n'atteint pas `min`, `far` l'atteint : on resserre vers `from`.
+    let (mut near, mut far) = (from, to);
+    for _ in 0..32 {
+        let mid = (near + far) / 2.0;
         if contrast(try_l(mid), against) >= min {
-            hi = mid;
+            far = mid;
         } else {
-            lo = mid;
+            near = mid;
         }
     }
-    try_l(hi)
+    try_l(far)
 }
 
 /// Rendu d'une couleur dans un format de gabarit.

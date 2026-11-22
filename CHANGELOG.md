@@ -110,6 +110,11 @@ and this project adheres to
 
 ### Fixed
 
+- **State colours on light themes** (MLG-250): success, warning, danger and
+  secondary text no longer come out almost black on a light background
+  (Clair: `#00821d`, `#a55f00`, `#d72730`, `#636877`). The contrast search
+  now moves away from the background and stops at the closest readable
+  shade, keeping hue and colour; dark themes are unchanged.
 - **Bundled themes follow the theme engine in full** (MLG-254). Clair now
   sets GTK, Brave and Firefox to light mode instead of dark (the pack had no
   `default_variant`; a pack that declares none now takes it from its
