@@ -3,7 +3,7 @@
 //! relu par SIGUSR1. Les trois se règlent (fichier, configuration à compléter
 //! — vide : ne pas y toucher —, commande de rechargement).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use std::collections::BTreeMap;
 

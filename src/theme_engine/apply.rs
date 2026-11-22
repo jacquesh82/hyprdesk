@@ -211,7 +211,7 @@ pub fn apply(
             } else if opts.mode == Mode::Hot && target.id == "hyprland" {
                 hot_apply(resolved, pack_dir)
             } else {
-                match targets::run_reload(targets::reload_of(&target.id), &resolved.variant) {
+                match targets::run_reload(targets::reload_of(&target.id), resolved) {
                     Ok(Some(text)) => text,
                     Ok(None) => "aucun".to_string(),
                     Err(e) => format!("échec : {e}"),

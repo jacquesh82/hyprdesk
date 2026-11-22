@@ -24,6 +24,7 @@ pub mod apply;
 pub mod archive;
 pub mod bundled;
 pub mod color;
+pub mod env;
 pub mod intent;
 pub mod manifest;
 pub mod packs;

@@ -119,6 +119,10 @@ fn init_tracing() {
 
 fn daemon(path: PathBuf, replace: bool) -> ExitCode {
     init_tracing();
+    // Environnement de lancement (docs/THEME-ENGINE.md §9.2) : les variables
+    // HYPRDESK_* de la palette publiée, héritées par tout ce que le démon
+    // lance cette session. Avant tout fil.
+    hyprdesk::theme_engine::env::inject_session();
     // Hyprland trop ancien : rien ne lui est envoyé (un raccourci posé par
     // hyprctl eval fait planter la 0.56). Code 75 : systemd ne relance pas.
     if let Some((a, b, c)) = hypr::running_version()

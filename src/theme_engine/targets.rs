@@ -534,24 +534,38 @@ pub fn reload_generic(declared: &str) -> Result<Reload> {
 
 /// Exécute le rechargement prévu ; `Ok(Some(texte))` = fait, `Ok(None)` =
 /// rien à faire, `Err` = échec signalé dans le rapport (l'écriture reste
-/// valable).
-pub fn run_reload(r: Reload, variant: &str) -> std::result::Result<Option<String>, String> {
+/// valable). Le schéma GTK s'accompagne de la couleur d'accent
+/// (`org.gnome.desktop.interface accent-color`), lue par libadwaita récent
+/// et les applications GNOME — le canal standard sans service de portail.
+pub fn run_reload(r: Reload, resolved: &Resolved) -> std::result::Result<Option<String>, String> {
+    let variant = resolved.variant.as_str();
     let (prog, args): (&str, Vec<String>) = match r {
         Reload::None => return Ok(None),
         Reload::Hyprctl => ("hyprctl", vec!["reload".to_string()]),
-        Reload::GsettingsScheme => (
-            "gsettings",
-            vec![
-                "set".to_string(),
-                "org.gnome.desktop.interface".to_string(),
-                "color-scheme".to_string(),
-                if variant == "light" {
-                    "prefer-light".to_string()
-                } else {
-                    "prefer-dark".to_string()
-                },
-            ],
-        ),
+        Reload::GsettingsScheme => {
+            let accent = super::color::fmt(resolved.palette["accent"], Fmt::Rgb);
+            (
+                "gsettings",
+                vec![
+                    "set".to_string(),
+                    "org.gnome.desktop.interface".to_string(),
+                    "color-scheme".to_string(),
+                    if variant == "light" {
+                        "prefer-light".to_string()
+                    } else {
+                        "prefer-dark".to_string()
+                    },
+                ]
+                .into_iter()
+                .chain([
+                    "set".to_string(),
+                    "org.gnome.desktop.interface".to_string(),
+                    "accent-color".to_string(),
+                    format!("'{accent}'"),
+                ])
+                .collect(),
+            )
+        }
         Reload::KittySignal => (
             "pkill",
             vec!["-USR1".to_string(), "-x".to_string(), "kitty".to_string()],
