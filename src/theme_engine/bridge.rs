@@ -219,6 +219,44 @@ pub fn adopt(roots: &Roots, theme: &Theme, origin: &str) -> Result<Active> {
     })
 }
 
+/// Pack qui porte exactement l'apparence de `theme` : le pack actif s'il
+/// l'a, sinon le premier pack découvert qui l'a (même nom d'abord, variante
+/// par défaut d'abord). Sans lecture d'active.json au-delà du pack actif :
+/// sert à `genfiles` au moment même du changement de thème (MLG-255).
+pub fn resolved_for_look(roots: &Roots, theme: &Theme) -> Option<Resolved> {
+    if let Some(a) = active(roots)
+        && same_look(&to_theme(&a.resolved), theme)
+    {
+        return Some(a.resolved);
+    }
+    let (all, _) = packs::discover(roots, &bundled::packs()).ok()?;
+    let mut trouvé: Option<(Resolved, bool)> = None;
+    for p in &all {
+        let Ok(chain) = packs::chain(&all, &p.manifest.meta.id) else {
+            continue;
+        };
+        let défaut = p.manifest.default_variant();
+        let variantes = std::iter::once(défaut).chain(
+            super::manifest::VARIANTS
+                .iter()
+                .copied()
+                .filter(|v| *v != défaut),
+        );
+        for variant in variantes {
+            let Ok(r) = resolve::resolve(&chain, variant) else {
+                continue;
+            };
+            if same_look(&to_theme(&r), theme) {
+                let même_nom = r.name == theme.name;
+                if trouvé.as_ref().is_none_or(|(_, n)| !n && même_nom) {
+                    trouvé = Some((r, même_nom));
+                }
+            }
+        }
+    }
+    trouvé.map(|(r, _)| r)
+}
+
 /// Résolution à appliquer pour le thème du démon : celle du pack actif
 /// (et son dossier, pour ses gabarits) quand il porte ce thème, sinon la
 /// palette implicite calculée depuis le thème lui-même.

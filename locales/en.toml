@@ -4606,3 +4606,7 @@
 # Thèmes livrés : autre variante d'un pack (MLG-254).
 "Version claire" = "Light version"
 "Version sombre" = "Dark version"
+
+# Options Hyprland d'un pack dans appearance.lua (MLG-255).
+"Options Hyprland du thème « {name} » (pack) ; vos réglages, plus bas, gagnent" = "Hyprland options of the “{name}” theme (pack); your settings, further down, win"
+"Animations du thème « {name} » (pack)" = "Animations of the “{name}” theme (pack)"

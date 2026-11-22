@@ -7,7 +7,8 @@
 //!
 //! Note d'intégration hyprdesk : dans une session hyprdesk, les couleurs des
 //! fenêtres (bordures, ombre) sont déjà portées par le démon via
-//! `appearance.lua` (API `hl.config`). Le fragment `hyprland` du moteur reste
+//! `appearance.lua` (API `hl.config`), options `[hyprland.options]` du pack
+//! comprises (MLG-255, `genfiles::pack_block`). Le fragment `hyprland` du moteur reste
 //! un fragment hyprlang pour les configurations standard (`source=`), et le
 //! mode `hot` passe par `hyprctl keyword` dans les deux mondes.
 

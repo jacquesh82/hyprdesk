@@ -96,8 +96,116 @@ fn config_block(title: &str, opts: &BTreeMap<String, OptValue>) -> String {
     )
 }
 
+/// Options Hyprland déclarées par le pack du thème en place
+/// (`[hyprland.options]`, variante comprise), clés hyprlang
+/// (`decoration:rounding`) déjà en liste blanche du moteur.
+#[derive(Debug, Clone, Default)]
+pub struct PackHypr {
+    pub name: String,
+    pub options: BTreeMap<String, String>,
+}
+
+/// Le pack qui porte le thème des réglages, s'il déclare des options.
+pub fn pack_hypr(cfg: &Config) -> Option<PackHypr> {
+    let roots = crate::theme_engine::paths::Roots::from_env();
+    let r = crate::theme_engine::bridge::resolved_for_look(&roots, &cfg.general.theme)?;
+    (!r.hyprland_options.is_empty()).then_some(PackHypr {
+        name: r.name,
+        options: r.hyprland_options,
+    })
+}
+
+/// Valeur hyprlang d'un pack en valeur Lua : booléen, nombre, sinon texte
+/// (couleurs `rgba(…)` comprises, que `hl.config` accepte en chaîne).
+fn pack_value(v: &str) -> OptValue {
+    let v = v.trim();
+    match v {
+        "true" | "yes" | "on" => return OptValue::Bool(true),
+        "false" | "no" | "off" => return OptValue::Bool(false),
+        _ => {}
+    }
+    v.parse::<f64>()
+        .ok()
+        .filter(|n| n.is_finite())
+        .map(OptValue::Num)
+        .unwrap_or_else(|| OptValue::Str(v.to_string()))
+}
+
+/// `animation:<élément>` = `1, 4, courbe[, style]` en `hl.animation`, si
+/// l'élément est connu et que l'utilisateur ne l'a pas réglé lui-même. Une
+/// courbe inconnue devient `default` (une courbe absente ferait échouer
+/// toute la config, et write_checked la refuserait).
+fn pack_animation(leaf: &str, v: &str, fx: &crate::fx::Fx) -> Option<String> {
+    use hyprpanel_core::ipc::lua_escape;
+    if fx.anims.contains_key(leaf) || !crate::fx::LEAVES.iter().any(|l| l.name == leaf) {
+        return None;
+    }
+    let parts: Vec<&str> = v.split(',').map(str::trim).collect();
+    let enabled = parts.first()? == &"1";
+    let mut f = vec![
+        format!("leaf = \"{}\"", lua_escape(leaf)),
+        format!("enabled = {enabled}"),
+    ];
+    if enabled {
+        let speed: f64 = parts
+            .get(1)?
+            .parse()
+            .ok()
+            .filter(|s: &f64| s.is_finite() && *s > 0.0)?;
+        f.push(format!("speed = {}", OptValue::Num(speed).lua()));
+        let courbe = match parts.get(2).copied().unwrap_or("default") {
+            c @ ("default" | "linear") => c.to_string(),
+            c if fx.curves.contains_key(c) => c.to_string(),
+            c if crate::fx::curve(c).is_some() => format!("hd-{c}"),
+            _ => "default".to_string(),
+        };
+        f.push(format!("bezier = \"{}\"", lua_escape(&courbe)));
+        if let Some(style) = parts.get(3).filter(|s| !s.is_empty()) {
+            f.push(format!("style = \"{}\"", lua_escape(style)));
+        }
+    }
+    Some(format!("hl.animation({{ {} }})\n", f.join(", ")))
+}
+
+/// Bloc des options du pack, en tête d'`appearance.lua` : tout ce qui suit
+/// (vos réglages, puis `animations.lua`…) passe après et gagne (MLG-255).
+fn pack_block(p: &PackHypr, fx: &crate::fx::Fx) -> String {
+    let mut opts = BTreeMap::new();
+    let mut anims = String::new();
+    for (k, v) in &p.options {
+        match k.strip_prefix("animation:") {
+            Some(leaf) => anims += &pack_animation(leaf, v, fx).unwrap_or_default(),
+            None => {
+                opts.insert(k.replace(':', "."), pack_value(v));
+            }
+        }
+    }
+    let mut s = config_block(
+        &crate::tr!(
+            "Options Hyprland du thème « {name} » (pack) ; vos réglages, plus bas, gagnent",
+            name = p.name
+        ),
+        &opts,
+    );
+    if !anims.is_empty() {
+        if s.is_empty() {
+            s += &format!(
+                "\n-- {}\n",
+                crate::tr!("Animations du thème « {name} » (pack)", name = p.name)
+            );
+        }
+        s += &anims;
+    }
+    s
+}
+
 /// Contenu de chaque module généré.
 pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
+    render_with(cfg, None)
+}
+
+/// Comme [`render`], avec les options Hyprland du pack en place.
+pub fn render_with(cfg: &Config, pack: Option<&PackHypr>) -> Vec<(&'static str, String)> {
     let fx = fx_of(cfg);
     let tiling = tiling_of(cfg);
     let hypr = &cfg.general.hypr;
@@ -127,6 +235,9 @@ pub fn render(cfg: &Config) -> Vec<(&'static str, String)> {
                 }
             }
             "appearance" => {
+                if let Some(p) = pack {
+                    body += &pack_block(p, &fx);
+                }
                 let mut opts: BTreeMap<String, OptValue> = hypr
                     .options
                     .iter()
@@ -314,7 +425,7 @@ pub fn changes_with(
 ) -> Vec<crate::hyprwrite::Change> {
     let d = dir(config_path);
     let mut out = Vec::new();
-    for (module, content) in render(cfg) {
+    for (module, content) in render_with(cfg, pack_hypr(cfg).as_ref()) {
         out.push(crate::hyprwrite::Change {
             path: d.join(format!("{module}.lua")),
             content: Some(content),
@@ -483,5 +594,48 @@ mod tests {
         let new = with_inputs_block(&old, &block);
         assert!(!new.contains(INPUTS_BLOCK_OLD[0]));
         assert_eq!(new.matches(INPUTS_BLOCK).count(), 1);
+    }
+
+    #[test]
+    fn options_hyprland_du_pack_en_tête_d_appearance() {
+        // MLG-255 : les options du pack passent avant celles de
+        // l'utilisateur, qui gagnent ; animation traduite, courbe inconnue
+        // ramenée à `default`, élément réglé par l'utilisateur laissé.
+        let mut cfg = Config::default();
+        cfg.general
+            .hypr
+            .options
+            .insert("decoration.rounding".to_string(), OptValue::Num(4.0));
+        let pack = PackHypr {
+            name: "Duo".to_string(),
+            options: [
+                ("decoration:rounding", "12"),
+                ("decoration:blur:enabled", "true"),
+                ("general:gaps_in", "6"),
+                ("animation:windows", "1, 4, inconnue, popin 80%"),
+                ("animation:pasunélément", "1, 4, default"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        };
+        let files: BTreeMap<_, _> = render_with(&cfg, Some(&pack)).into_iter().collect();
+        let a = &files["appearance"];
+        let pack_at = a.find("Duo").expect(a);
+        let user_at = a.rfind("rounding = 4").expect(a);
+        assert!(pack_at < user_at, "{a}");
+        assert!(
+            a.contains("rounding = 12") && a.contains("gaps_in = 6"),
+            "{a}"
+        );
+        assert!(a.contains("enabled = true"), "{a}");
+        assert!(
+            a.contains("hl.animation({ leaf = \"windows\", enabled = true, speed = 4, bezier = \"default\", style = \"popin 80%\" })"),
+            "{a}"
+        );
+        assert!(!a.contains("pasunélément"), "{a}");
+        // Sans pack : rien de plus.
+        let sans: BTreeMap<_, _> = render(&cfg).into_iter().collect();
+        assert!(!sans["appearance"].contains("Duo"));
     }
 }

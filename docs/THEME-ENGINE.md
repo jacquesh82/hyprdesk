@@ -175,7 +175,7 @@ template = "templates/kitty.conf.tmpl"
 
 Les packs livrés déclarent `authors`, `license`, `default_variant` (cohérente avec leur fond) et `min_engine`, et les effets des cinq surfaces ; un essai le vérifie (`packs_livrés_complets_sans_avertissement`).
 
-Choisir un pack dans Réglages → Thème l'applique en entier : palette et effets, modules du thème cochés, et ce que le pack déclare pour lui-même — `[fonts]`, `[icons]`, `[cursors]`, `[sounds]` et ses cibles génériques actives (`targets::pack_declared`). Seul le fragment `hyprland` reste au démon (`appearance.lua`). Un pack dont l'autre variante a une autre apparence propose « Version claire » ou « Version sombre » sous sa tuile.
+Choisir un pack dans Réglages → Thème l'applique en entier : palette et effets, modules du thème cochés, et ce que le pack déclare pour lui-même — `[fonts]`, `[icons]`, `[cursors]`, `[sounds]` et ses cibles génériques actives (`targets::pack_declared`). Ses options Hyprland vont dans `appearance.lua` (§8, cible `hyprland`). Un pack dont l'autre variante a une autre apparence propose « Version claire » ou « Version sombre » sous sa tuile.
 
 Champ `enabled` (défaut `true`) : une cible désactivée est ignorée, même si `general.app_themes` l'active — le pack a le dernier mot pour sa propre distribution.
 
@@ -282,6 +282,7 @@ Rechargement `gsettings` : un appel par clé — `color-scheme` (`prefer-dark` /
 - Les options du pack sont écrites dans le fragment persistant comme en mode `hot`. Le fragment rendu (gabarit du pack compris) est validé ligne à ligne : des `clé = valeur` en liste blanche (plus `general:col.*` et `group:col.*`) et des commentaires, rien d'autre — ni `exec`, ni `source`, ni `bind`, ni `env`, ni variable.
 - L'inclusion du fragment est faite une fois dans `hyprland.lua` par le démon (pattern existant `hyprsrc.rs`/`genfiles.rs` : écriture idempotente, inclusion unique avec copie de sauvegarde). Le moteur n'édite jamais `hyprland.lua` lui-même : il écrit le fragment et signale l'inclusion manquante dans le rapport (`warning: include_missing`).
 - Mode `hot` : batch `hyprctl keyword` des mêmes options, sans écrire de fichier — c'est l'aperçu en direct, aligné sur le comportement de `hypr_set_option_live`.
+- Session hyprdesk (MLG-255) : le démon n'utilise pas ce fragment, la configuration de Hyprland y est en Lua. Les options du pack en place (variante comprise) sont écrites en tête d'`appearance.lua` (`genfiles::pack_block`) : `decoration:rounding` devient `hl.config({ decoration = { rounding = 12 } })`, `animation:<élément>` devient `hl.animation` (élément connu de hyprdesk, courbe inconnue ramenée à `default`). Les réglages de l'utilisateur, écrits après (et `animations.lua`, chargé après), gagnent. Le pack est retrouvé par son apparence (`bridge::resolved_for_look`), au moment même où le thème change.
 
 ---
 

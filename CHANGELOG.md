@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- **A theme's Hyprland options apply from Settings** (MLG-255). Picking a
+  pack that declares `[hyprland.options]` (rounding, gaps, borders, blur,
+  animations) now writes them at the top of `appearance.lua`; your own
+  window and animation settings, written after, still win.
 - **iced applications card** (MLG-252, Settings → App theming): hyprdesk
   and iced apps linked to `hyprdesk-theme-client` follow the theme palette
   live; the card shows it (and where `palette.json` lives), with no switch
