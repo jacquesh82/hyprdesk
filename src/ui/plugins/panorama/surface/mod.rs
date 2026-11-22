@@ -94,6 +94,16 @@ fn preview_rule_lua(w: u32, h: u32) -> String {
 /// Relevés (lecteur, système) tant qu'un Panorama est affiché.
 pub const TICK: Duration = Duration::from_secs(1);
 
+/// Une vidéo est posée dans le Panorama (fenêtre d'application ou fenêtre
+/// empruntée) et un lecteur joue.
+pub(in crate::ui) fn video_playing(
+    video: Option<&panes::Video>,
+    media: Option<&crate::widgets::media::Status>,
+) -> bool {
+    video.is_some_and(|v| v.address.is_some() || v.borrowed.is_some())
+        && media.is_some_and(|m| m.playing)
+}
+
 /// Vidéo posée dans sa zone sans navigateur : aperçu isolé (`hyprdesk
 /// preview`), pour voir le trou et le voile qui l'entoure.
 pub(in crate::ui) fn preview_video(name: &str) -> panes::Video {
@@ -153,6 +163,10 @@ pub struct State {
     pub preview: Option<Preview>,
     /// Vidéo du widget Vidéo (fenêtre de navigateur posée dans sa zone).
     pub video: Option<panes::Video>,
+    /// Inhibiteur logind `idle` tenu pendant qu'une vidéo du Panorama joue
+    /// (MLG-249) : une fenêtre empruntée (PiP d'un navigateur) ne retient
+    /// pas elle-même la veille.
+    pub idle_hold: Option<std::process::Child>,
     pub capture_watch: crate::panorama::capture::Watch,
     pub capture_busy: bool,
     pub capture_host: Option<Id>,
@@ -2065,6 +2079,7 @@ impl App {
                     _ => {}
                 }
                 self.panorama.media = s;
+                self.panorama_sync_idle();
                 Task::none()
             }
             PMsg::Sys(l) => {
@@ -2493,6 +2508,59 @@ impl App {
             .unwrap_or(0)
             .saturating_sub(self.panorama_offset());
         pages.get(i.min(pages.len().saturating_sub(1)))
+    }
+
+    /// Veille du système retenue pendant qu'une vidéo du Panorama joue
+    /// (MLG-249). La fenêtre posée dans la zone est souvent empruntée (PiP
+    /// d'un navigateur dont l'onglet d'origine n'est plus à l'écran) : son
+    /// navigateur ne retient pas la veille, hypridle verrouillait en pleine
+    /// lecture. hyprdesk tient alors un inhibiteur logind `idle` (respecté
+    /// par hypridle : `ignore_systemd_inhibit = false`), relâché à la pause,
+    /// à l'arrêt ou au départ de la vidéo ; il meurt avec le démon
+    /// (`tail --pid`), jamais orphelin. Une vidéo en pause n'empêche ni la
+    /// veille ni le verrouillage.
+    pub(in crate::ui) fn panorama_sync_idle(&mut self) {
+        let want = !self.preview
+            && video_playing(self.panorama.video.as_ref(), self.panorama.media.as_ref());
+        // Inhibiteur tombé tout seul (logind relancé…) : à reprendre.
+        if let Some(c) = self.panorama.idle_hold.as_mut()
+            && !matches!(c.try_wait(), Ok(None))
+        {
+            self.panorama.idle_hold = None;
+        }
+        match (want, self.panorama.idle_hold.take()) {
+            (true, Some(c)) => self.panorama.idle_hold = Some(c),
+            (true, None) => {
+                let pid = std::process::id().to_string();
+                match std::process::Command::new("systemd-inhibit")
+                    .args([
+                        "--what=idle",
+                        "--who=hyprdesk",
+                        "--why=Vidéo du Panorama en lecture",
+                        "--mode=block",
+                        "tail",
+                        &format!("--pid={pid}"),
+                        "-f",
+                        "/dev/null",
+                    ])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    Ok(c) => self.panorama.idle_hold = Some(c),
+                    Err(e) => tracing::warn!(
+                        "{}",
+                        crate::tr!("veille retenue pour la vidéo : {e}", e = e)
+                    ),
+                }
+            }
+            (false, Some(mut c)) => {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+            (false, None) => {}
+        }
     }
 
     /// Veille : rien ne joue et personne n'a touché depuis `sleep_minutes`.
@@ -3134,6 +3202,29 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn veille_retenue_seulement_pour_une_vidéo_en_lecture() {
+        // MLG-249 : une PiP empruntée ne retient pas la veille elle-même.
+        let mut v = preview_video("PiP");
+        let joue = crate::widgets::media::Status {
+            playing: true,
+            ..Default::default()
+        };
+        let pause = crate::widgets::media::Status::default();
+        assert!(video_playing(Some(&v), Some(&joue)));
+        assert!(
+            !video_playing(Some(&v), Some(&pause)),
+            "pause : la veille reprend"
+        );
+        assert!(!video_playing(None, Some(&joue)), "musique seule : rien");
+        v.address = None;
+        assert!(
+            !video_playing(Some(&v), Some(&joue)),
+            "fenêtre pas encore posée"
+        );
+    }
+
     use super::*;
 
     #[test]

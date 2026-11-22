@@ -4605,3 +4605,4 @@
 "remis comme avant" = "put back as before"
 "Thème GTK de base recoloré aux couleurs du pack (hyprdesk-<pack>, suivi à chaud par les applications ouvertes, Brave et Firefox compris), couleurs nommées gtk-3.0 et gtk-4.0 et schéma clair/sombre." = "Base GTK theme recoloured to the pack's colours (hyprdesk-<pack>, followed live by open applications, Brave and Firefox included), gtk-3.0 and gtk-4.0 named colours and light/dark scheme."
 "GTK : thème de base recoloré et sélectionné, couleurs nommées posées ; schéma clair/sombre réglé." = "GTK: base theme recoloured and selected, named colours set; light/dark scheme set."
+"veille retenue pour la vidéo : {e}" = "keeping the screen awake for the video: {e}"
