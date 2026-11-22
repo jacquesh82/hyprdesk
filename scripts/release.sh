@@ -3,7 +3,7 @@
 # packages de .github/workflows/ci.yml sur un tag v*) et sa vérification.
 # Sourcé par scripts/install.sh et scripts/update.sh.
 #
-#   release_version           → « 0.1.9 », la version de ce dépôt (Cargo.toml) :
+#   release_version           → « 0.2.0 », la version de ce dépôt (Cargo.toml) :
 #                               celle qu'on installe, pas la dernière publiée —
 #                               les scripts relus et le paquet vont ensemble
 #   release_latest            → la dernière release publiée (information)

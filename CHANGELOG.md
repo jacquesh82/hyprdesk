@@ -8,13 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-22
+
+The theme engine at the centre: one pack drives Hyprland, hyprdesk, GTK,
+Qt, kitty and iced apps, applied in full from Settings (Hyprland options,
+fonts, icons, cursors, sounds), readable on light themes too, with a new
+Theme modules page, a LYRA shortcut, touchpad gestures and the advanced
+settings reorganised (MLG-142 to MLG-255).
+
 ### Added
 
 - **A theme's Hyprland options apply from Settings** (MLG-255). Picking a
   pack that declares `[hyprland.options]` (rounding, gaps, borders, blur,
   animations) now writes them at the top of `appearance.lua`; your own
   window and animation settings, written after, still win.
-- **iced applications card** (MLG-252, Settings → App theming): hyprdesk
+- **iced applications card** (MLG-252, Settings → Theme modules): hyprdesk
   and iced apps linked to `hyprdesk-theme-client` follow the theme palette
   live; the card shows it (and where `palette.json` lives), with no switch
   since there is nothing to turn off.
@@ -75,8 +83,6 @@ and this project adheres to
   file index exclusions, file types and safety rescan; per-channel gamma,
   calibration file and reference image (Screen colours); adding a
   third-party plugin; each bar module's colour.
-
-### Changed
 
 - **The theme engine holds the truth** (MLG-231 to MLG-235). The active pack
   and its variant are the reference; the `theme.*` settings mirror them.

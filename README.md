@@ -161,11 +161,11 @@ integrations. By default it installs the desktop only: the login screen,
 LYRA, and myMFA stay off until you pick them. On first launch, a visual
 wizard walks through screens, keyboard, theme, bar, and default apps.
 
-| Distribution              | 0.1.9 release package                                                                                                                                                                   |
+| Distribution              | 0.2.0 release package                                                                                                                                                                   |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Debian, Ubuntu (amd64)    | [hyprdesk_0.1.9-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk_0.1.9-1_amd64.deb)                                                                |
-| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.9-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1.x86_64.rpm)                                                              |
-| Arch Linux (x86_64)       | [hyprdesk-0.1.9-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1-x86_64.pkg.tar.zst), or the [AUR package](https://aur.archlinux.org/packages/hyprdesk) |
+| Debian, Ubuntu (amd64)    | [hyprdesk_0.2.0-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.2.0/hyprdesk_0.2.0-1_amd64.deb)                                                                |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.2.0-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.2.0/hyprdesk-0.2.0-1.x86_64.rpm)                                                              |
+| Arch Linux (x86_64)       | [hyprdesk-0.2.0-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.2.0/hyprdesk-0.2.0-1-x86_64.pkg.tar.zst), or the [AUR package](https://aur.archlinux.org/packages/hyprdesk) |
 
 ### Update and uninstall
 
