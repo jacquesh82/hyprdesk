@@ -3631,6 +3631,7 @@
 "Patientez…" = "Please wait…"
 "hyprdesk lock : verrou d'instance impossible ({e}), verrouillage quand même" = "hyprdesk lock: instance lock unavailable ({e}), locking anyway"
 "hyprdesk lock : verrou laissé dans le service de hyprdesk ({e})" = "hyprdesk lock: lock left inside the hyprdesk service ({e})"
+"hyprdesk lock : verrou laissé dans le groupe de processus de hypridle ({e})" = "hyprdesk lock: lock left inside the hypridle process group ({e})"
 "hyprdesk lock : verrouillage refusé ou interrompu par Hyprland" = "hyprdesk lock: locking refused or ended by Hyprland"
 "usage : hyprdesk-greeter [--window | --demo [--window] | --tty]" = "usage: hyprdesk-greeter [--window | --demo [--window] | --tty]"
 "usage : hyprdesk-polkit [--tty]" = "usage: hyprdesk-polkit [--tty]"

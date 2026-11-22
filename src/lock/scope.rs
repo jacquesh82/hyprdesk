@@ -10,8 +10,31 @@
 //! Le verrou passe donc dans sa propre unité (`hyprdesk-lock-<pid>.scope`,
 //! comme `systemd-run --user --scope`), avant toute chose. Sans systemd
 //! utilisateur, il reste où il est : verrouiller passe avant.
+//!
+//! La scope ne suffit pas : le démon lance hypridle dans son propre groupe de
+//! processus et l'arrête par `kill -TERM/-KILL -- -<pgid>`. Le verrou, enfant
+//! de hypridle, hérite de ce groupe et recevait ces signaux quel que soit son
+//! cgroup. Il quitte donc aussi le groupe (`setsid`, voir
+//! [`leave_process_group`]).
 
 use std::time::{Duration, Instant};
+
+/// Quitte le groupe de processus hérité du parent (hypridle) en ouvrant une
+/// session à soi : les signaux envoyés au groupe du parent ne l'atteignent
+/// plus. Rien à faire si le processus mène déjà son groupe (lancé depuis un
+/// shell à contrôle de tâches, ou par `systemd-run`).
+pub fn leave_process_group() -> Result<(), String> {
+    // SAFETY: getpid/getpgrp/setsid n'ont pas de préconditions.
+    unsafe {
+        if libc::getpgrp() == libc::getpid() {
+            return Ok(());
+        }
+        if libc::setsid() == -1 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+    Ok(())
+}
 
 /// Le processus courant vit dans un service systemd (et non une scope ou une
 /// tranche) : un arrêt de ce service le tuerait.

@@ -995,6 +995,15 @@ pub fn run() -> ExitCode {
         eprintln!("{msg}");
         pam::journal(&msg);
     }
+    // Ni le groupe de processus de hypridle : le démon l'arrête par groupe.
+    if let Err(e) = scope::leave_process_group() {
+        let msg = crate::tr!(
+            "hyprdesk lock : verrou laissé dans le groupe de processus de hypridle ({e})",
+            e = e
+        );
+        eprintln!("{msg}");
+        pam::journal(&msg);
+    }
     let _guard = match single_instance() {
         Instance::Held(f) => Some(f),
         // Déjà verrouillé : rien à faire (hypridle peut appeler plusieurs fois).
