@@ -249,6 +249,7 @@ impl App {
             "keys.search" => keys.search = combo.clone(),
             "keys.switch" => keys.switch = combo.clone(),
             "keys.overview" => keys.overview = combo.clone(),
+            "keys.assistant" => keys.assistant = combo.clone(),
             "keys.search_desktop" => keys.search_desktop = combo.clone(),
             _ => return Task::none(),
         }

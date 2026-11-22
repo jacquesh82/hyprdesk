@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- **LYRA shortcut** (MLG-220): `SUPER + SHIFT + L` opens LYRA, the AI
+  assistant, and closes it when shown, in every mode (`keys.assistant`,
+  Settings → Shortcuts).
 - **Touchpad gestures** (MLG-142, Settings → Keyboard and mouse → Gestures): fingers
   and direction bound to an action (switch workspace, special workspace,
   move, resize, close, fullscreen, floating, cursor zoom), written as

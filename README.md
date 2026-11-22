@@ -176,6 +176,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `SUPER + ALT + D` | Toggle the dock and keep windows in place |
 | `SUPER + CTRL + D` | Hide the desktop and dock |
 | `SUPER + SHIFT + D` | Open Settings |
+| `SUPER + SHIFT + L` | Open or close LYRA, the AI assistant |
 | `SUPER + R` | Search apps. `:f` searches files, `:clip` the clipboard history, `:2fa` and `:mdp` the myMFA keyring |
 | `ALT + Tab` | Switch windows |
 | `SUPER + Tab` | Workspaces overview: drag windows between workspaces |

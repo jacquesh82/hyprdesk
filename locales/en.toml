@@ -1830,6 +1830,8 @@
 "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)" = "shortcut | none — window overview (hyprdesk overview)"
 "  overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)" = "  overview          window overview (overview_command, otherwise the switcher)"
 "Vue d'ensemble des fenêtres" = "Window overview"
+"Ouvrir LYRA (assistant IA)" = "Open LYRA (AI assistant)"
+"raccourci | none — ouvrir ou refermer LYRA, l'assistant IA (hyprdesk assistant, SUPER + SHIFT + L)" = "shortcut | none — open or close LYRA, the AI assistant (hyprdesk assistant, SUPER + SHIFT + L)"
 "Vue d'ensemble par un plugin de Hyprland" = "Overview through a Hyprland plugin"
 "vide : le sélecteur de hyprdesk" = "empty: the hyprdesk switcher"
 

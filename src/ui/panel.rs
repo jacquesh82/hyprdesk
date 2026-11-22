@@ -269,6 +269,7 @@ impl App {
             k.switch.clone(),
             k.overview.clone(),
             k.search_desktop.clone(),
+            k.assistant.clone(),
         ];
         self.panel = Some(p);
         let from = self

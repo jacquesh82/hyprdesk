@@ -777,6 +777,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "search",
                 "search_desktop",
                 "overview",
+                "assistant",
                 "take",
                 "essentials",
                 "essentials_off",
@@ -875,6 +876,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("search", &mut g.keys.search),
             ("search_desktop", &mut g.keys.search_desktop),
             ("overview", &mut g.keys.overview),
+            ("assistant", &mut g.keys.assistant),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}

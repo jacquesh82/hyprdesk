@@ -104,6 +104,7 @@ pub struct Settings {
     pub key_search: Option<String>,
     pub key_search_desktop: Option<String>,
     pub key_overview: Option<String>,
+    pub key_assistant: Option<String>,
     pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
@@ -356,6 +357,7 @@ impl Settings {
             key_search: has("keys.search").then(|| g.keys.search.clone()),
             key_search_desktop: has("keys.search_desktop").then(|| g.keys.search_desktop.clone()),
             key_overview: has("keys.overview").then(|| g.keys.overview.clone()),
+            key_assistant: has("keys.assistant").then(|| g.keys.assistant.clone()),
             key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -653,6 +655,7 @@ impl Settings {
             g.keys.search_desktop
         );
         set!(key_overview, "keys.overview", g.keys.overview);
+        set!(key_assistant, "keys.assistant", g.keys.assistant);
         set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
@@ -1111,6 +1114,7 @@ impl Settings {
             ("search", &self.key_search),
             ("search_desktop", &self.key_search_desktop),
             ("overview", &self.key_overview),
+            ("assistant", &self.key_assistant),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {

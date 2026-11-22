@@ -113,6 +113,7 @@ const KEY_LABELS: &[(usize, &str)] = &[
     (9, "Lanceur d'applications en plein bureau (vide : le même)"),
     (7, "Fenêtres (Alt+Tab ; avec Maj : en arrière)"),
     (8, "Vue d'ensemble des fenêtres"),
+    (10, "Ouvrir LYRA (assistant IA)"),
     (5, "Verrouiller la session"),
     (2, "Sortie de secours (bureau affiché)"),
 ];
@@ -130,6 +131,7 @@ pub(in crate::ui) fn key_index(key: &str) -> Option<usize> {
         "keys.switch" => 7,
         "keys.overview" => 8,
         "keys.search_desktop" => 9,
+        "keys.assistant" => 10,
         _ => return None,
     })
 }
@@ -146,6 +148,7 @@ fn key_value(k: &crate::config::Keys, i: usize) -> &str {
         6 => &k.search,
         7 => &k.switch,
         8 => &k.overview,
+        10 => &k.assistant,
         _ => &k.search_desktop,
     }
 }
@@ -175,7 +178,7 @@ pub struct State {
     pub capture: Option<Target>,
     /// Numéro de la capture : un délai écoulé d'une capture finie est ignoré.
     pub capture_seq: u64,
-    pub keys: [String; 10],
+    pub keys: [String; 11],
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
@@ -249,6 +252,7 @@ pub fn default_key(i: usize) -> String {
         6 => k.search,
         7 => k.switch,
         8 => k.overview,
+        10 => k.assistant,
         _ => k.search_desktop,
     }
 }
@@ -554,6 +558,7 @@ impl App {
             6 => &mut s.key_search,
             7 => &mut s.key_switch,
             8 => &mut s.key_overview,
+            10 => &mut s.key_assistant,
             _ => &mut s.key_search_desktop,
         };
         *field = v;
@@ -1620,6 +1625,7 @@ impl App {
             key_field(9, crate::i18n::tr("Lanceur d'applications en plein bureau (vide : le même)"), "keys.search_desktop"),
             key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
+            key_field(10, crate::i18n::tr("Ouvrir LYRA (assistant IA)"), "keys.assistant"),
             self.adv(self.field(
                 "Vue d'ensemble par un plugin de Hyprland",
                 "overview_command",
@@ -1847,6 +1853,7 @@ impl App {
                         6 => s.key_search = None,
                         7 => s.key_switch = None,
                         8 => s.key_overview = None,
+                        10 => s.key_assistant = None,
                         _ => s.key_search_desktop = None,
                     }
                     self.commit()
@@ -2030,6 +2037,7 @@ impl App {
                     7 => ("keys.switch", &mut keys.switch),
                     8 => ("keys.overview", &mut keys.overview),
                     9 => ("keys.search_desktop", &mut keys.search_desktop),
+                    10 => ("keys.assistant", &mut keys.assistant),
                     _ => ("keys.leave", &mut keys.leave),
                 };
                 *target = v.clone();
@@ -2055,6 +2063,7 @@ impl App {
                     7 => self.settings.key_switch = Some(v),
                     8 => self.settings.key_overview = Some(v),
                     9 => self.settings.key_search_desktop = Some(v),
+                    10 => self.settings.key_assistant = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()

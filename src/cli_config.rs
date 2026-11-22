@@ -451,6 +451,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.overview.clone(),
         |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
         |s| s.key_overview = None;
+    "keys.assistant", "keys", "raccourci | none — ouvrir ou refermer LYRA, l'assistant IA (hyprdesk assistant, SUPER + SHIFT + L)",
+        |c| c.general.keys.assistant.clone(),
+        |s, v, c| { s.key_assistant = Some(combo(v)?); Ok(()) },
+        |s| s.key_assistant = None;
     "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },

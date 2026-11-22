@@ -690,6 +690,7 @@ pub fn build_keys_lua(
         ),
         ("search", &keys.search, "search", "lanceur d'applications"),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
+        ("assistant", &keys.assistant, "assistant", "LYRA"),
         ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
@@ -780,6 +781,7 @@ pub fn build_keys_lua(
             "fenêtres, en arrière",
         ),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
+        ("assistant", &keys.assistant, "assistant", "LYRA"),
     ] {
         if plan.desktop(id, k) {
             bind(&mut lua, "  ", k, exec(arg), desc);

@@ -186,6 +186,7 @@ désinstallation sont dans le
 | `SUPER + ALT + D` | Fait apparaître ou disparaître le dock, fenêtres en place |
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
 | `SUPER + SHIFT + D` | Ouvre les Réglages |
+| `SUPER + SHIFT + L` | Ouvre ou referme LYRA, l'assistant IA |
 | `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:clip` l'historique du presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
 | `ALT + Tab` | Change de fenêtre |
 | `SUPER + Tab` | Vue des workspaces : glisser les fenêtres d'un workspace à l'autre |

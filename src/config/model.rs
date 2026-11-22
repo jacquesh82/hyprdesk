@@ -1113,6 +1113,8 @@ pub struct Keys {
     pub search_desktop: String,
     /// Vue d'ensemble des fenêtres (`hyprdesk overview`).
     pub overview: String,
+    /// Ouvrir ou refermer LYRA, l'assistant IA (`hyprdesk assistant`).
+    pub assistant: String,
     /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
     /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
     pub take: Vec<String>,
@@ -1139,6 +1141,7 @@ impl Default for Keys {
             search: "SUPER + R".into(),
             search_desktop: String::new(),
             overview: "SUPER + Tab".into(),
+            assistant: "SUPER + SHIFT + L".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),

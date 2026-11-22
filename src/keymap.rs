@@ -68,6 +68,7 @@ pub const LABELS: &[&str] = &[
     "Lanceur d'applications",
     "Lanceur d'applications (plein bureau)",
     "Vue d'ensemble des fenêtres",
+    "Ouvrir LYRA (assistant IA)",
     "partout",
     "hors plein bureau",
     "bureau affiché",
@@ -137,6 +138,13 @@ pub fn actions(k: &Keys) -> Vec<Action> {
         "keys.overview",
         LABELS[10],
         &k.overview,
+        Everywhere,
+    );
+    push(
+        "assistant",
+        "keys.assistant",
+        LABELS[11],
+        &k.assistant,
         Everywhere,
     );
     // Verrouillage non réglé : celui de hyprland.lua hors du bureau, celui
