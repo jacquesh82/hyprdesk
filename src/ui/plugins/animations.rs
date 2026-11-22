@@ -53,6 +53,8 @@ pub enum Msg {
     Speed(String, f64),
     Commit,
     Current(BTreeMap<String, String>),
+    /// Fait défiler les valeurs d'un effet à l'écran (MLG-262).
+    Compare(&'static str),
 }
 
 /// Réglages effectifs : ceux de la config, ou rien si le paquet est coupé
@@ -173,6 +175,32 @@ impl App {
         self.opt_field(crate::ui::hyprset::Store::Fx, path)
     }
 
+    /// Comparer les variantes de flou à l'œil : Hyprland n'a pas de
+    /// réfraction et une capture ne montre pas le flou (MLG-262).
+    fn blur_compare(&self) -> Element<'_, UiMsg> {
+        let dim = self.ink().dim;
+        row![
+            button(
+                text(crate::i18n::tr("Comparer à l'écran"))
+                    .font(self.font)
+                    .size(12)
+            )
+            .padding([4, 10])
+            .on_press(wrap(Msg::Compare("decoration.blur.variant"))),
+            text(crate::i18n::tr(
+                "Chaque variante quatre secondes, son nom en haut de l'écran, puis la vôtre revient. \
+                 Gardez une fenêtre transparente devant un fond détaillé."
+            ))
+            .font(self.font)
+            .size(12)
+            .color(dim)
+            .width(Length::Fill),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center)
+        .into()
+    }
+
     fn fx_effects(&self) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let mut col = column![
@@ -192,6 +220,9 @@ impl App {
             for k in *keys {
                 if fx::ADVANCED.contains(k) {
                     fine = fine.push(self.fx_option(k));
+                    if *k == "decoration.blur.variant" {
+                        fine = fine.push(self.blur_compare());
+                    }
                 } else {
                     col = col.push(self.fx_option(k));
                 }
@@ -376,6 +407,21 @@ impl App {
                 self.apply()
             }
             Msg::Commit => self.commit(),
+            Msg::Compare(path) => {
+                let exe = std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "hyprdesk".into());
+                let cmd = format!(
+                    "{} fx compare {path} all --seconds 4",
+                    crate::launch::sh_quote(&exe)
+                );
+                Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || crate::hypr::exec(&cmd)).await;
+                    },
+                    |_| UiMsg::Noop,
+                )
+            }
             Msg::Current(m) => {
                 if let Some(p) = self.panel.as_mut() {
                     p.animations.current = m;

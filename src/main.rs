@@ -962,6 +962,73 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        // Comparaison à l'œil d'un effet (MLG-262) : variantes de flou…
+        "fx" if args.get(1).map(String::as_str) == Some("compare") => {
+            let mut pos = Vec::new();
+            let (mut secs, mut rounds) = (4.0_f64, 1_u32);
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--seconds" | "--rounds" => {
+                        let Some(v) = args.get(i + 1) else {
+                            eprintln!("{}", hyprdesk::tr!("{o} attend une valeur", o = args[i]));
+                            return ExitCode::from(2);
+                        };
+                        let ok = if args[i] == "--seconds" {
+                            v.parse().map(|n| secs = n).is_ok()
+                        } else {
+                            v.parse().map(|n| rounds = n).is_ok()
+                        };
+                        if !ok {
+                            eprintln!("{}", hyprdesk::tr!("« {v} » : nombre attendu", v = v));
+                            return ExitCode::from(2);
+                        }
+                        i += 1;
+                    }
+                    a => pos.push(a.to_string()),
+                }
+                i += 1;
+            }
+            let Some(path) = pos.first() else {
+                eprintln!(
+                    "{}",
+                    hyprdesk::i18n::tr(
+                        "usage : hyprdesk fx compare <effet> [a,b,c|all] [--seconds N] [--rounds N]"
+                    )
+                );
+                return ExitCode::from(2);
+            };
+            let plan = match hyprdesk::fx::compare_plan(path, pos.get(1).map_or("", String::as_str))
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(2);
+                }
+            };
+            // Ctrl-C : arrêt propre, la valeur d'origine est remise.
+            static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            extern "C" fn on_signal(_: libc::c_int) {
+                STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            unsafe {
+                libc::signal(libc::SIGINT, on_signal as *const () as libc::sighandler_t);
+                libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
+            }
+            match hyprdesk::fx::compare_run(&plan, secs, rounds, &STOP, |_, label| {
+                println!("{label}");
+            }) {
+                Ok(Some(v)) => {
+                    println!("{}", hyprdesk::tr!("remis : {v}", v = v.display()));
+                    ExitCode::SUCCESS
+                }
+                Ok(None) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}", hyprdesk::tr!("hyprdesk fx compare : {e}", e = e));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         // Découpe d'une scène selon la disposition des écrans.
         "wallpaper" if args.get(1).map(String::as_str) == Some("split") => {
             // Arguments positionnels : ni option, ni valeur d'option.

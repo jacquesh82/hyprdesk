@@ -889,9 +889,165 @@ pub fn current() -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+/// Comparaison à l'œil d'un effet (MLG-262) : Hyprland n'a pas de
+/// réfraction, et grim ne capture pas le flou — le choix d'une variante de
+/// flou se fait en regardant l'écran. Chaque valeur est posée en direct
+/// (`hl.config`), nommée par une notification de Hyprland, tenue quelques
+/// secondes ; la valeur d'origine revient à la fin ou à l'interruption.
+pub struct Compare {
+    pub opt: &'static Opt,
+    /// Valeurs à montrer, avec leur nom.
+    pub steps: Vec<(OptValue, String)>,
+}
+
+/// Option du registre par son chemin complet ou abrégé (`blur.variant` pour
+/// `decoration.blur.variant`).
+pub fn opt_loose(path: &str) -> Option<&'static Opt> {
+    opt(path).or_else(|| opt(&format!("decoration.{path}")))
+}
+
+/// Prépare une comparaison : `values` liste des valeurs séparées par des
+/// virgules, ou `all` (vide aussi) pour toutes celles d'une option à choix.
+pub fn compare_plan(path: &str, values: &str) -> Result<Compare, String> {
+    let o = opt_loose(path).ok_or_else(|| {
+        crate::tr!(
+            "« {path} » : effet inconnu (hyprdesk config list fx)",
+            path = path
+        )
+    })?;
+    let label = |v: &OptValue| match (&o.kind, v) {
+        (Kind::IntChoice(list), OptValue::Num(n)) => list
+            .iter()
+            .find(|(i, _)| *i as f64 == *n)
+            .map(|(i, l)| format!("{} ({i})", crate::i18n::tr(l)))
+            .unwrap_or_else(|| v.display()),
+        _ => v.display(),
+    };
+    let values = values.trim();
+    let steps: Vec<OptValue> = match (&o.kind, values) {
+        (Kind::IntChoice(list), "" | "all") => {
+            list.iter().map(|(i, _)| OptValue::Num(*i as f64)).collect()
+        }
+        (Kind::Bool, "" | "all") => vec![OptValue::Bool(false), OptValue::Bool(true)],
+        (_, "" | "all") => {
+            return Err(crate::tr!(
+                "« {path} » : donner les valeurs à comparer (a,b,c)",
+                path = path
+            ));
+        }
+        _ => values
+            .split(',')
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| o.parse(v))
+            .collect::<Result<_, _>>()?,
+    };
+    if steps.len() < 2 {
+        return Err(crate::i18n::tr("au moins deux valeurs à comparer").to_string());
+    }
+    Ok(Compare {
+        opt: o,
+        steps: steps
+            .into_iter()
+            .map(|v| {
+                let l = label(&v);
+                (v, l)
+            })
+            .collect(),
+    })
+}
+
+/// `pcall(hl.config, { decoration = { blur = { variant = 6 } } })`.
+fn live_lua(path: &str, v: &OptValue) -> String {
+    format!(
+        "pcall(hl.config, {})",
+        nested(&BTreeMap::from([(path.to_string(), v.clone())]))
+    )
+}
+
+/// Pose une valeur en direct (aperçu, rien d'écrit).
+pub fn set_live(path: &str, v: &OptValue) -> Result<(), String> {
+    hyprpanel_core::ipc::eval(&live_lua(path, v))
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Déroule la comparaison : `secs` secondes par valeur, `rounds` tours ;
+/// `stop` interrompt (Ctrl-C). Rend la valeur remise en place.
+pub fn compare_run(
+    c: &Compare,
+    secs: f64,
+    rounds: u32,
+    stop: &std::sync::atomic::AtomicBool,
+    mut each: impl FnMut(usize, &str),
+) -> Result<Option<OptValue>, String> {
+    use std::sync::atomic::Ordering;
+    let path = c.opt.path();
+    // Valeur en place avant la comparaison (celle que Hyprland a, réglée
+    // par hyprland.lua ou par hyprdesk).
+    let original = current().get(&path).and_then(|v| c.opt.parse(v).ok());
+    let n = c.steps.len();
+    let total = n * rounds.max(1) as usize;
+    let ms = (secs.max(0.5) * 1000.0) as u64;
+    let mut res = Ok(());
+    'tours: for i in 0..total {
+        let (v, label) = &c.steps[i % n];
+        if let Err(e) = set_live(&path, v) {
+            res = Err(e);
+            break;
+        }
+        each(i % n, label);
+        let msg = crate::tr!(
+            "{what} : {label} — {i}/{n}",
+            what = crate::i18n::tr(c.opt.label),
+            label = label,
+            i = i % n + 1,
+            n = n
+        );
+        let _ = hyprpanel_core::ipc::notify(1, ms.min(u32::MAX as u64) as u32, "0", &msg);
+        let mut waited = 0;
+        while waited < ms {
+            if stop.load(Ordering::Relaxed) {
+                break 'tours;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            waited += 100;
+        }
+    }
+    if let Some(o) = &original {
+        set_live(&path, o)?;
+    }
+    res.map(|_| original)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparaison_des_variantes_de_flou() {
+        let c = compare_plan("blur.variant", "4,5,6").unwrap();
+        assert_eq!(c.opt.path(), "decoration.blur.variant");
+        assert_eq!(c.steps.len(), 3);
+        assert!(c.steps[2].1.contains("(6)"), "{}", c.steps[2].1);
+        assert_eq!(
+            compare_plan("decoration.blur.variant", "all")
+                .unwrap()
+                .steps
+                .len(),
+            BLUR_VARIANTS.len()
+        );
+        assert!(
+            compare_plan("blur.variant", "6").is_err(),
+            "une seule valeur"
+        );
+        assert!(compare_plan("blur.variant", "4,42").is_err(), "hors liste");
+        assert!(compare_plan("blur.size", "").is_err(), "valeurs à donner");
+        assert!(compare_plan("fantome", "1,2").is_err());
+        assert_eq!(
+            live_lua("decoration.blur.variant", &OptValue::Num(6.0)),
+            "pcall(hl.config, { decoration = { blur = { variant = 6 } } })"
+        );
+    }
 
     #[test]
     fn options_et_elements_connus() {

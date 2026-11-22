@@ -17,6 +17,13 @@ and this project adheres to
   bar.color.accent active`, and Settings → Bar → Colours (theme slot chips,
   **By mode** button; **Choose…** then sets the current mode's colour).
 
+- **Compare blur variants on screen** (MLG-262). Hyprland has no
+  refraction and screenshots do not show blur, so the variant (Prism, Water,
+  Fluid…) is chosen by eye: `hyprdesk fx compare blur.variant 4,5,6` (or
+  `all`, `--seconds`, `--rounds`) sets each value live with its name in a
+  Hyprland notification, then puts yours back (Ctrl-C too). Settings →
+  Animations → Effects has a **Compare on screen** button.
+
 ### Fixed
 
 - **`hyprdesk-theme-engine use --mode dry-run` no longer applies the theme**

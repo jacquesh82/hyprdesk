@@ -136,6 +136,10 @@ Commandes :
                     scène étalée sur tous les écrans (bureau et verrouillage)
   theme apply <nom|archive>
                     applique un thème (le reste de la configuration ne change pas)
+  fx compare <effet> [a,b,c|all] [--seconds N] [--rounds N]
+                    compare un effet à l'œil : chaque valeur posée en direct et
+                    nommée à l'écran (ex. : fx compare blur.variant 4,5,6),
+                    puis la valeur d'origine remise
   wallpaper split <image> [dossier] [--scale N]
                     découpe une scène selon la disposition des écrans : une
                     image par écran (<écran>.png) ; --scale 2 pour du HiDPI
