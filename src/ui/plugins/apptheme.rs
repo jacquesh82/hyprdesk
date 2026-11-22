@@ -114,7 +114,7 @@ impl App {
             .clone()
             .unwrap_or_else(|| g.app_themes.clone());
         let mut col = column![
-            self.section("Modules"),
+            self.section("Modules du moteur de thème"),
             text(crate::i18n::tr(
                 "Chaque module du moteur de thème porte les couleurs du thème en place jusqu'à \
                  une application, et les repose à chaque changement de thème. Coupé, \

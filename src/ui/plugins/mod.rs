@@ -497,7 +497,6 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "kitty"
         | "theme-apps"
         | "thème-applications"
-        | "modules"
         | "modules-theme"
         | "modules-thème"
         | "theme-modules" => "apptheme",

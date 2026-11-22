@@ -4601,3 +4601,4 @@
 "en direct" = "live"
 "palette pas encore publiée" = "palette not published yet"
 "Module toujours actif : hyprdesk et les applications iced liées à hyprdesk-theme-client lisent la palette publiée par le moteur et la suivent à chaud. Rien à couper, chaque application suit d'elle-même." = "Always-on module: hyprdesk and iced applications linked to hyprdesk-theme-client read the palette the engine publishes and follow it live. Nothing to turn off, each application follows on its own."
+"Modules du moteur de thème" = "Theme engine modules"
