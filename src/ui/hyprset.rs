@@ -580,8 +580,9 @@ impl App {
             ),
             self.small(
                 crate::i18n::tr(
-                    "Accent du thème pour la fenêtre active, fond pour les autres ; suit les \
-                     changements de thème et l'emporte sur les couleurs réglées plus bas.",
+                    "Accent du thème pour la fenêtre active, fond pour les autres — ou les \
+                     bordures que dessine le pack du thème, s'il en a ; suit les changements de \
+                     thème et l'emporte sur les couleurs réglées plus bas.",
                 )
                 .to_string()
             ),

@@ -6,9 +6,10 @@
 //! transactionnelle de `apply.rs` les exécute avec retour arrière.
 //!
 //! Note d'intégration hyprdesk : dans une session hyprdesk, les couleurs des
-//! fenêtres (bordures, ombre) sont déjà portées par le démon via
-//! `appearance.lua` (API `hl.config`), options `[hyprland.options]` du pack
-//! comprises (MLG-255, `genfiles::pack_block`). Le fragment `hyprland` du moteur reste
+//! fenêtres (bordures, ombre) sont portées par le démon via `appearance.lua`
+//! (API `hl.config`), options `[hyprland.options]` du pack comprises
+//! (MLG-255, `genfiles::pack_block`), et couleurs du gabarit propre du pack
+//! quand il en a un ([`pack_window_colors`], MLG-264). Le fragment `hyprland` du moteur reste
 //! un fragment hyprlang pour les configurations standard (`source=`), et le
 //! mode `hot` passe par `hyprctl keyword` dans les deux mondes.
 
@@ -926,6 +927,44 @@ pub fn hot_keywords(resolved: &Resolved, pack_dir: Option<&Path>) -> Result<Vec<
     Ok(out)
 }
 
+/// Couleurs des fenêtres (bordures, groupes, ombre) que le pack dessine
+/// lui-même dans son gabarit Hyprland, pour une session hyprdesk où ce
+/// fragment n'est pas sourcé (MLG-264) : clés hyprlang et valeurs rendues.
+/// Vide si la chaîne du pack n'a pas son propre gabarit — le démon garde
+/// alors ses bordures d'accent.
+pub fn pack_window_colors(resolved: &Resolved) -> Vec<(String, String)> {
+    let Some(target) = all(resolved).into_iter().find(|t| t.id == "hyprland") else {
+        return Vec::new();
+    };
+    let déclaré = target.pack_template.is_some() && target.template_base.is_some();
+    let convention = resolved
+        .template_dirs
+        .iter()
+        .any(|d| d.join("templates/hyprland.tmpl").is_file());
+    if !(déclaré || convention) {
+        return Vec::new();
+    }
+    let Ok(content) = render_for(&target, resolved, None) else {
+        return Vec::new();
+    };
+    if validate_hypr_fragment(&content).is_err() {
+        return Vec::new();
+    }
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .filter(|(k, _)| {
+            k.starts_with("general:col.")
+                || k.starts_with("group:col.")
+                || k == "decoration:col.shadow"
+                || k == "decoration:shadow:color"
+        })
+        .collect()
+}
+
 /// Fragment Hyprland : des options `clé = valeur` et des commentaires, rien
 /// d'autre. Un gabarit de pack ne peut ni lancer de commande (`exec`), ni
 /// sourcer un fichier, ni poser un raccourci ou une variable d'environnement.
@@ -1685,6 +1724,43 @@ mod tests {
                 .contains("de l'enfant")
         );
         let _ = roots;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn couleurs_de_fenêtre_du_gabarit_du_pack() {
+        // MLG-264 : en session hyprdesk, les bordures d'un pack qui dessine
+        // les siennes viennent de son gabarit ; sans gabarit propre, rien.
+        let root = std::env::temp_dir().join(format!("hd-tgt-bord-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        assert!(
+            pack_window_colors(&r).is_empty(),
+            "gabarit intégré : le démon garde la main"
+        );
+        std::fs::create_dir_all(root.join("templates")).unwrap();
+        std::fs::write(
+            root.join("templates/hyprland.conf.tmpl"),
+            "# bordures\ngeneral:col.active_border = {{palette.accent|alpha(0.5)}} {{palette.fg}} 135deg\ndecoration:col.shadow = {{palette.bg}}\ndecoration:rounding = 22\n",
+        )
+        .unwrap();
+        r.pack_targets.insert(
+            "hyprland".to_string(),
+            super::super::manifest::PackTarget {
+                template: Some("templates/hyprland.conf.tmpl".to_string()),
+                template_base: Some(root.clone()),
+                ..Default::default()
+            },
+        );
+        let c = pack_window_colors(&r);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert_eq!(c[0].0, "general:col.active_border");
+        assert!(
+            c[0].1.ends_with("135deg") && c[0].1.contains("rgba("),
+            "{}",
+            c[0].1
+        );
+        assert_eq!(c[1].0, "decoration:col.shadow");
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- **Window borders follow the theme pack in a hyprdesk session** (MLG-264).
+  With theme-coloured borders on (Settings → Windows), a pack with its own
+  Hyprland template (Nacre…) now gives `appearance.lua` its border, group and
+  shadow colours, gradients and alphas included, for the current variant;
+  packs without one keep the accent gradient.
 - **Adaptive transparency** (MLG-261). A theme pack can declare
   `adaptive = true` (and an `opacity_max` cap) on a surface: over a busy or
   bright wallpaper, the bar and desktop widgets thicken their glass just

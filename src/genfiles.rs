@@ -103,16 +103,61 @@ fn config_block(title: &str, opts: &BTreeMap<String, OptValue>) -> String {
 pub struct PackHypr {
     pub name: String,
     pub options: BTreeMap<String, String>,
+    /// Couleurs des fenêtres dessinées par le gabarit du pack (MLG-264),
+    /// clés Lua (`general.col.active_border`) ; vide : bordures du démon.
+    pub borders: BTreeMap<String, OptValue>,
 }
 
 /// Le pack qui porte le thème des réglages, s'il déclare des options.
 pub fn pack_hypr(cfg: &Config) -> Option<PackHypr> {
     let roots = crate::theme_engine::paths::Roots::from_env();
     let r = crate::theme_engine::bridge::resolved_for_look(&roots, &cfg.general.theme)?;
-    (!r.hyprland_options.is_empty()).then_some(PackHypr {
+    let borders: BTreeMap<String, OptValue> = crate::theme_engine::targets::pack_window_colors(&r)
+        .into_iter()
+        .filter_map(|(k, v)| {
+            let k = window_color_key(&k);
+            let v = window_color(&k, &v)?;
+            Some((k, v))
+        })
+        .collect();
+    // Une ombre posée dans [hyprland.options] l'emporte sur celle du gabarit.
+    let mut borders = borders;
+    if r.hyprland_options.contains_key("decoration:shadow:color") {
+        borders.remove("decoration.shadow.color");
+    }
+    (!r.hyprland_options.is_empty() || !borders.is_empty()).then_some(PackHypr {
         name: r.name,
         options: r.hyprland_options,
+        borders,
     })
+}
+
+/// Clé hyprlang d'une couleur de fenêtre en chemin Lua ; l'ancienne
+/// `decoration:col.shadow` devient `decoration.shadow.color`.
+fn window_color_key(k: &str) -> String {
+    match k {
+        "decoration:col.shadow" | "decoration:shadow:color" => "decoration.shadow.color".into(),
+        _ => k.replace(':', "."),
+    }
+}
+
+/// Couleur hyprlang (`rgba(…)`, `#…`, dégradé `c1 c2 … 45deg`) en valeur
+/// Lua ; les bordures (`*.col.*`) sont toujours des dégradés pour `hl.config`.
+fn window_color(key: &str, v: &str) -> Option<OptValue> {
+    let mut colors = Vec::new();
+    let mut angle = None;
+    for tok in v.split_whitespace() {
+        if let Some(a) = tok.strip_suffix("deg") {
+            angle = Some(a.parse::<f64>().ok()?.round() as i32);
+        } else {
+            colors.push(crate::config::Rgba::parse(tok)?);
+        }
+    }
+    match (colors.as_slice(), angle) {
+        ([], _) => None,
+        ([c], None) if !key.contains(".col.") => Some(OptValue::Color(*c)),
+        (_, a) => Some(OptValue::Gradient(colors, a.unwrap_or(0))),
+    }
 }
 
 /// Valeur hyprlang d'un pack en valeur Lua : booléen, nombre, sinon texte
@@ -250,7 +295,13 @@ pub fn render_with(cfg: &Config, pack: Option<&PackHypr>) -> Vec<(&'static str, 
                         .filter(|(k, _)| fx_domain(k) == "appearance")
                         .map(|(k, v)| (k.clone(), v.clone())),
                 );
-                if hypr.theme_borders {
+                if hypr.theme_borders
+                    && let Some(p) = pack.filter(|p| !p.borders.is_empty())
+                {
+                    // Bordures aux couleurs du thème : celles que le pack
+                    // dessine dans son gabarit Hyprland (MLG-264).
+                    opts.extend(p.borders.iter().map(|(k, v)| (k.clone(), v.clone())));
+                } else if hypr.theme_borders {
                     // Bordures aux couleurs du thème (A6) : accent pour la
                     // fenêtre active, fond translucide pour les autres.
                     let th = &cfg.general.theme;
@@ -618,6 +669,7 @@ mod tests {
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
+            borders: BTreeMap::new(),
         };
         let files: BTreeMap<_, _> = render_with(&cfg, Some(&pack)).into_iter().collect();
         let a = &files["appearance"];
@@ -637,5 +689,53 @@ mod tests {
         // Sans pack : rien de plus.
         let sans: BTreeMap<_, _> = render(&cfg).into_iter().collect();
         assert!(!sans["appearance"].contains("Duo"));
+    }
+
+    #[test]
+    fn bordures_dessinées_par_le_pack() {
+        // MLG-264 : bordures du thème activées ; le pack qui dessine les
+        // siennes remplace le dégradé d'accent du démon.
+        let mut cfg = Config::default();
+        cfg.general.hypr.theme_borders = true;
+        let borders: BTreeMap<String, OptValue> = [
+            (
+                "general:col.active_border",
+                "rgba(cdeeff8c) rgba(cdeeff2e) rgba(2dd4bf8c) 135deg",
+            ),
+            ("general:col.inactive_border", "rgba(cdeeff24)"),
+            ("decoration:col.shadow", "rgba(12151c73)"),
+            ("general:col.nogroup_border", "pas une couleur"),
+        ]
+        .into_iter()
+        .filter_map(|(k, v)| {
+            let k = window_color_key(k);
+            let v = window_color(&k, v)?;
+            Some((k, v))
+        })
+        .collect();
+        assert_eq!(borders.len(), 3, "valeur illisible écartée");
+        let pack = PackHypr {
+            name: "Nacre".to_string(),
+            options: BTreeMap::new(),
+            borders,
+        };
+        let files: BTreeMap<_, _> = render_with(&cfg, Some(&pack)).into_iter().collect();
+        let a = &files["appearance"];
+        assert!(
+            a.contains("active_border = { colors = { \"rgba(cdeeff8c)\", \"rgba(cdeeff2e)\", \"rgba(2dd4bf8c)\" }, angle = 135 }"),
+            "{a}"
+        );
+        assert!(
+            a.contains("inactive_border = { colors = { \"rgba(cdeeff24)\" }, angle = 0 }"),
+            "{a}"
+        );
+        assert!(a.contains("color = \"rgba(12151c73)\""), "{a}");
+        // Sans bordures de pack : le dégradé d'accent du démon.
+        let sans: BTreeMap<_, _> = render(&cfg).into_iter().collect();
+        assert!(
+            sans["appearance"].contains("angle = 45"),
+            "{}",
+            sans["appearance"]
+        );
     }
 }

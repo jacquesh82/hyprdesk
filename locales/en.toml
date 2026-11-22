@@ -3439,7 +3439,7 @@
 "Gestes" = "Gestures"
 "Règles" = "Rules"
 "Espacement et bordures des fenêtres, règles par application, groupes à onglets." = "Window spacing and borders, per-app rules, tabbed groups."
-"Accent du thème pour la fenêtre active, fond pour les autres ; suit les changements de thème et l'emporte sur les couleurs réglées plus bas." = "Theme accent for the active window, background for the others; follows theme changes and overrides the colours set below."
+"Accent du thème pour la fenêtre active, fond pour les autres — ou les bordures que dessine le pack du thème, s'il en a ; suit les changements de thème et l'emporte sur les couleurs réglées plus bas." = "Theme accent for the active window, background for the others — or the borders the theme pack draws, if it has any; follows theme changes and overrides the colours set below."
 "Ajouter une règle" = "Add a rule"
 "Ajouter une variable" = "Add a variable"
 "Appliqué aussitôt (hyprctl setcursor) et gardé dans env.lua pour les applications ; un thème hyprcursor du même nom est pris s'il existe." = "Applied at once (hyprctl setcursor) and kept in env.lua for applications; a hyprcursor theme with the same name is used if present."
