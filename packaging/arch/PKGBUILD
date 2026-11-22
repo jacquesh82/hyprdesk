@@ -107,8 +107,9 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
-  # Binaires dédiés (à partir de la 0.1.9) : verrouillage, connexion, polkit.
-  for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit; do
+  # Binaires dédiés (à partir de la 0.1.9) : verrouillage, connexion, polkit ;
+  # moteur de thème (MLG-230).
+  for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit hyprdesk-theme-engine; do
     [[ ! -x "target/release/$b" ]] || install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$b"
   done
 

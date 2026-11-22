@@ -7,7 +7,7 @@
 //! - `hyprdesk hyprland-fix (--safe | <ligne>… | backups)`
 //! - `hyprdesk window-places [forget]`
 //! - `hyprdesk icons [list | add app <id> | add path <chemin> | add exec <commande> | remove <id>]`
-//! - `hyprdesk app-theme [status | apply]`
+//! - `hyprdesk app-theme [status | apply | remove [--dry-run]]`
 //! - `hyprdesk colors [list | set <écran> <réglage> <valeur> | reset <écran> | calibration <écran> <fichier>|none]`
 //!
 //! Chacune rend un texte (sortie standard) ou une erreur ; rien n'est
@@ -457,7 +457,39 @@ fn app_theme(config_path: &Path, args: &[String]) -> Result<String, String> {
             }
             if failed { Err(s) } else { Ok(s) }
         }
-        other => Err(crate::tr!("app-theme {o} : status | apply", o = other)),
+        // Désinstallation (MLG-230) : tout ce que le moteur de thème a posé
+        // chez l'utilisateur, retiré ; `--dry-run` : ce qui le serait.
+        "remove" => {
+            let dry = args.iter().any(|a| a == "--dry-run");
+            let (target_opts, _) = crate::apptheme::engine_options(&opts);
+            let done = crate::theme_engine::targets::remove_all(
+                &crate::theme_engine::paths::Roots::from_env(),
+                &target_opts,
+                dry,
+            );
+            use crate::theme_engine::targets::Removal;
+            Ok(if done.is_empty() {
+                crate::i18n::tr("rien à retirer").to_string()
+            } else {
+                done.iter()
+                    .map(|(p, r)| {
+                        let what = match r {
+                            Removal::Cleaned => crate::i18n::tr("nettoyé"),
+                            Removal::Emptied => {
+                                crate::i18n::tr("retiré (rien d'autre que le thème)")
+                            }
+                            Removal::Removed => crate::i18n::tr("retiré"),
+                        };
+                        format!("{} {what}", p.display())
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+        }
+        other => Err(crate::tr!(
+            "app-theme {o} : status | apply | remove [--dry-run]",
+            o = other
+        )),
     }
 }
 

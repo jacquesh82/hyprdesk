@@ -144,7 +144,7 @@ hd_section "📋" "Ce qui sera fait" "What will happen"
 greeter_ours && hd_info "$(t "écran de connexion : retour au gestionnaire d'avant (sudo)" "login screen: back to the previous display manager (sudo)")"
 hd_info "$(t "service hyprdesk arrêté et retiré ; binaire et police supprimés" "hyprdesk service stopped and removed; binary and font deleted")"
 [[ "$RESTORE" == 1 ]] || hd_info "$(t "hyprland.lua et binds.lua nettoyés (copie de sauvegarde d'abord)" "hyprland.lua and binds.lua cleaned up (backup copy first)")"
-[[ "$RESTORE" == 1 ]] || hd_info "$(t "thème des applications retiré (kitty, Thunar)" "application theme removed (kitty, Thunar)")"
+[[ "$RESTORE" == 1 ]] || hd_info "$(t "thème des applications retiré (kitty, Thunar, GTK, Qt)" "application theme removed (kitty, Thunar, GTK, Qt)")"
 if [[ "$RESTORE" == 1 ]]; then
     hd_info "$(t "tout remis comme avant hyprdesk (--restore), état d'origine du" "everything put back as before hyprdesk (--restore), original state from") $(sed -n 's/^date //p' "$ORIGINE_DIR/manifest")"
     hd_note "$(t "ce qui a changé depuis (vos retouches comprises) est rangé dans" "what changed since (your own edits included) is moved to") ${KEEP/#$HOME/\~}/"
@@ -316,10 +316,12 @@ if [[ -f "$STATE/install-options" ]] && grep -qx -- --remove-hyprpaper "$STATE/i
 fi
 
 # -- 5. Thème des applications ------------------------------------------------------------
+# Tout ce que le moteur de thème a posé (blocs et imports GTK 3/4, inclusion
+# kitty, Thunar, Qt, fragments Hyprland), retiré par hyprdesk lui-même tant
+# que son binaire est là (il connaît les fichiers réglés et ses marqueurs) ;
+# sinon, motifs connus. Aussi avant --restore : une origine plus ancienne ne
+# couvre pas tous ces fichiers.
 hd_section "🎨" "Thème des applications" "Application theme"
-if [[ "$RESTORE" == 1 ]]; then
-    hd_ok "$(t "remis comme avant plus bas (--restore)" "put back as before further down (--restore)")"
-else
 strip_lines() { # strip_lines <fichier> <motif awk> : lignes de hyprdesk retirées
     local f="$1" re="$2"
     [[ -f "$f" ]] && grep -Eq "$re" "$f" || return 0
@@ -329,10 +331,43 @@ strip_lines() { # strip_lines <fichier> <motif awk> : lignes de hyprdesk retiré
     mv -f "$f.hyprdesk-tmp" "$f"
     hd_ok "${f/#$HOME/\~} $(t "nettoyé" "cleaned up")"
 }
-strip_lines "$CFG/kitty/kitty.conf" '^# Thème de hyprdesk \(|^include .*hyprdesk-theme\.conf'
-strip_lines "$CFG/gtk-3.0/gtk.css" '^/\* Thème de Thunar par hyprdesk|^@import url\(".*hyprdesk-thunar\.css"\);'
-rm_path "$CFG/kitty/hyprdesk-theme.conf" "$CFG/gtk-3.0/hyprdesk-thunar.css"
+strip_block() { # strip_block <fichier> : bloc du moteur de thème retiré
+    local f="$1"
+    [[ -f "$f" ]] && grep -q '\[hyprdesk-theme-engine\] début du bloc' "$f" || return 0
+    if [[ "$DRY" == 1 ]]; then hd_info "$(t "ferait :" "would:") ${f/#$HOME/\~}"; return 0; fi
+    backup_once "$f"
+    awk '/\[hyprdesk-theme-engine\] début du bloc/{skip=1} !skip{print} /\[hyprdesk-theme-engine\] fin du bloc/{skip=0}' \
+        "$f" > "$f.hyprdesk-tmp" || true
+    mv -f "$f.hyprdesk-tmp" "$f"
+    hd_ok "${f/#$HOME/\~} $(t "nettoyé" "cleaned up")"
+}
+REMOVED_OK=0
+if [[ -x "$BIN" ]]; then
+    REMOVE_ARGS=(app-theme remove)
+    [[ "$DRY" == 1 ]] && REMOVE_ARGS+=(--dry-run)
+    if REMOVED="$("$BIN" "${REMOVE_ARGS[@]}" 2>&1)"; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            if [[ "$DRY" == 1 ]]; then hd_info "$(t "ferait :" "would:") ${line//$HOME/\~}"; else hd_ok "${line//$HOME/\~}"; fi
+        done <<< "$REMOVED"
+        REMOVED_OK=1
+    else
+        hd_warn "$(t "thème des applications : retrait par hyprdesk impossible, motifs connus" "application theme: removal by hyprdesk failed, known patterns") ($REMOVED)"
+    fi
 fi
+# Repli (binaire absent ou en échec) et restes d'avant le moteur de thème ;
+# à blanc, seulement si hyprdesk n'a pas déjà listé ses actions.
+if [[ "$REMOVED_OK" == 0 || "$DRY" == 0 ]]; then
+    strip_lines "$CFG/kitty/kitty.conf" '^# Thème de hyprdesk \(|^# \[hyprdesk-theme-engine\]|^include .*hyprdesk-theme\.conf'
+    for css in "$CFG/gtk-3.0/gtk.css" "$CFG/gtk-4.0/gtk.css"; do
+        strip_block "$css"
+        strip_lines "$css" '^/\* Thème de Thunar par hyprdesk|^/\* \[hyprdesk-theme-engine\]|^@import url\(".*hyprdesk-thunar\.css"\);'
+    done
+    rm_path "$CFG/kitty/hyprdesk-theme.conf" "$CFG/gtk-3.0/hyprdesk-thunar.css" \
+        "$CFG"/qt6ct/colors/hyprdesk-*.conf "$CFG/hypr/theme/hyprland.conf" "$CFG/hypr/theme/hyprlock.conf"
+    [[ "$DRY" == 1 ]] || rmdir "$CFG/hypr/theme" 2>/dev/null || true
+fi
+[[ "$RESTORE" == 1 ]] && hd_note "$(t "fichiers d'avant hyprdesk remis plus bas (--restore)" "files from before hyprdesk put back further down (--restore)")"
 
 # -- 5 bis. Comme avant (--restore) --------------------------------------------------------
 if [[ "$RESTORE" == 1 ]]; then

@@ -745,15 +745,11 @@ mod tests {
         let mut o = opts(Mode::Persist);
         o.only = vec!["hyprland".to_string()];
         o.check_installed = true;
-        // hyprctl n'existe pas dans l'environnement d'essai (PATH réduit).
-        let saved = std::env::var("PATH").ok();
-        // SAFETY : essai unitaire mono-thread sur son propre PATH.
-        unsafe { std::env::set_var("PATH", "/rien") };
+        // hyprctl n'existe pas dans le PATH de ce fil d'essai (le PATH du
+        // processus n'est pas touché : les autres essais lancent tar, sh…).
+        targets::TEST_PATH.with(|p| *p.borrow_mut() = Some("/rien".to_string()));
         let report = apply(&ardoise(), None, &roots, &o);
-        match saved {
-            Some(p) => unsafe { std::env::set_var("PATH", p) },
-            None => unsafe { std::env::remove_var("PATH") },
-        }
+        targets::TEST_PATH.with(|p| *p.borrow_mut() = None);
         assert_eq!(report.targets[0].status, "skipped");
         let _ = std::fs::remove_dir_all(&root);
     }

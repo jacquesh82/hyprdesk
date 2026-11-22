@@ -214,9 +214,22 @@ pub fn find(id: &str) -> Option<Target> {
     builtin().into_iter().find(|t| t.id == id)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// `PATH` vu par [`in_path`] dans le fil d'un essai : jamais le `PATH` du
+    /// processus, partagé par les essais lancés en parallèle.
+    pub static TEST_PATH: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Programme présent dans le `PATH` ? (doublet local : le binaire dédié ne
 /// doit pas tirer `crate::apptheme`, donc le démon avec lui.)
 pub fn in_path(name: &str) -> bool {
+    #[cfg(test)]
+    if let Some(path) = TEST_PATH.with(|p| p.borrow().clone()) {
+        return path
+            .split(':')
+            .any(|dir| !dir.is_empty() && Path::new(dir).join(name).is_file());
+    }
     let Ok(path) = std::env::var("PATH") else {
         return false;
     };
@@ -1089,6 +1102,151 @@ pub fn append_source_once(existing: &str, needle: &str, line: &str) -> String {
     out
 }
 
+/// Nettoyage d'un contenu : lignes du moteur retirées.
+type Nettoyage = fn(&str) -> String;
+
+/// Action de [`remove_all`] sur un fichier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    /// Lignes du moteur retirées, celles de l'utilisateur gardées.
+    Cleaned,
+    /// Fichier qui ne portait que le thème : retiré.
+    Emptied,
+    /// Fichier généré par le moteur : retiré.
+    Removed,
+}
+
+/// Retire d'un contenu les lignes posées après [`SOURCE_MARKER`] (une
+/// ligne `source =` ou `include` par marqueur) et l'ancien marqueur de
+/// kitty d'avant le moteur.
+pub fn remove_sources(existing: &str) -> String {
+    let mut out = Vec::new();
+    let mut skip_next = false;
+    for line in existing.lines() {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        let t = line.trim_start();
+        if t == SOURCE_MARKER || t.starts_with("# Thème de hyprdesk (") {
+            skip_next = true;
+            continue;
+        }
+        out.push(line);
+    }
+    let mut text = out.join("\n");
+    if existing.ends_with('\n') && !text.is_empty() {
+        text.push('\n');
+    }
+    text
+}
+
+/// Retire l'import de Thunar posé en tête de gtk.css ([`IMPORT_MARKER`]) et
+/// la ligne vide qui le suit.
+pub fn remove_import(existing: &str) -> String {
+    let Some(rest) = existing.strip_prefix(IMPORT_MARKER) else {
+        return existing.to_string();
+    };
+    let rest = rest.strip_prefix('\n').unwrap_or(rest);
+    let rest = match rest.split_once('\n') {
+        Some((first, after)) if first.trim_start().starts_with("@import url(") => after,
+        _ => rest,
+    };
+    rest.strip_prefix('\n').unwrap_or(rest).to_string()
+}
+
+/// Tout ce que le moteur a posé chez l'utilisateur, retiré (désinstallation,
+/// MLG-230) : blocs et imports de gtk.css, lignes d'inclusion de kitty.conf
+/// et hyprlock.conf, fichiers générés (kitty, Thunar, Qt, fragments
+/// Hyprland). Les règles de l'utilisateur restent ; un fichier qui n'en
+/// porte plus aucune est retiré. Les réglages gsettings ne sont pas touchés
+/// (la restauration de l'état d'origine les remet). `dry` : rien n'est
+/// écrit. Rend une action par fichier.
+pub fn remove_all(
+    roots: &Roots,
+    target_opts: &BTreeMap<String, String>,
+    dry: bool,
+) -> Vec<(PathBuf, Removal)> {
+    let mut done = Vec::new();
+    let opt_path = |key: &str, default: PathBuf| {
+        target_opt(target_opts, key)
+            .map(PathBuf::from)
+            .unwrap_or(default)
+    };
+    let mut edits: Vec<(PathBuf, Nettoyage)> = Vec::new();
+    for dir in ["gtk-3.0", "gtk-4.0"] {
+        edits.push((roots.config.join(dir).join("gtk.css"), |t| {
+            remove_import(&remove_block(t))
+        }));
+    }
+    edits.push((
+        opt_path("thunar.conf", roots.config.join("gtk-3.0").join("gtk.css")),
+        |t| remove_import(t),
+    ));
+    edits.push((
+        opt_path("kitty.conf", roots.config.join("kitty").join("kitty.conf")),
+        remove_sources,
+    ));
+    edits.push((
+        roots.config.join("hypr").join("hyprlock.conf"),
+        remove_sources,
+    ));
+    let mut vus = std::collections::BTreeSet::new();
+    for (path, f) in edits {
+        if !vus.insert(path.clone()) || !path.is_file() {
+            continue;
+        }
+        let avant = read_or_empty(&path);
+        let après = f(&avant);
+        if après == avant {
+            continue;
+        }
+        if après.trim().is_empty() {
+            done.push((path.clone(), Removal::Emptied));
+            if !dry {
+                let _ = std::fs::remove_file(&path);
+            }
+        } else {
+            done.push((path.clone(), Removal::Cleaned));
+            if !dry {
+                let _ = super::state::atomic_write(&path, &après);
+            }
+        }
+    }
+    let mut files = vec![
+        opt_path(
+            "kitty.file",
+            roots.config.join("kitty").join("hyprdesk-theme.conf"),
+        ),
+        opt_path(
+            "thunar.file",
+            roots.config.join("gtk-3.0").join("hyprdesk-thunar.css"),
+        ),
+        roots.hypr_theme_dir().join("hyprland.conf"),
+        roots.hypr_theme_dir().join("hyprlock.conf"),
+    ];
+    if let Ok(rd) = std::fs::read_dir(roots.config.join("qt6ct").join("colors")) {
+        files.extend(rd.flatten().map(|e| e.path()).filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("hyprdesk-") && n.ends_with(".conf"))
+        }));
+    }
+    for f in files {
+        if f.is_file() {
+            done.push((f.clone(), Removal::Removed));
+            if !dry {
+                let _ = std::fs::remove_file(&f);
+            }
+        }
+    }
+    if !dry {
+        // Dossier des fragments vidé : retiré aussi.
+        let _ = std::fs::remove_dir(roots.hypr_theme_dir());
+    }
+    done
+}
+
 /// Avertissement d'inclusion manquante : la config principale existe mais ne
 /// référence pas le fragment généré (§8 : le moteur n'édite jamais
 /// hyprland.conf / hyprland.lua lui-même).
@@ -1495,6 +1653,63 @@ mod tests {
         std::os::unix::fs::symlink("/etc/passwd", root.join("dotfiles/config/waybar/y.css"))
             .unwrap();
         assert!(safe_output_path(&roots, "~/.config/waybar/y.css").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn désinstallation_retire_ce_que_le_moteur_a_posé() {
+        // MLG-230 : la désinstallation laissait le bloc GTK, gtk-4.0, Qt et
+        // les marqueurs du moteur.
+        let root = std::env::temp_dir().join(format!("hd-tgt-rm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        std::fs::create_dir_all(roots.config.join("gtk-3.0")).unwrap();
+        std::fs::create_dir_all(roots.config.join("kitty")).unwrap();
+        std::fs::write(roots.config.join("gtk-3.0/gtk.css"), "/* mes règles */\n").unwrap();
+        std::fs::write(roots.config.join("kitty/kitty.conf"), "font_size 11\n").unwrap();
+        let mut opts = super::super::apply::Options {
+            mode: super::super::apply::Mode::Persist,
+            origin: "cli".to_string(),
+            ..Default::default()
+        };
+        opts.target_opts.insert(
+            "kitty.conf".to_string(),
+            roots.config.join("kitty/kitty.conf").display().to_string(),
+        );
+        let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        let report = super::super::apply::apply(&r, None, &roots, &opts);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(roots.config.join("gtk-4.0/gtk.css").is_file());
+        assert!(read_or_empty(&roots.config.join("kitty/kitty.conf")).contains("include"));
+        // Essai à blanc : rien ne bouge.
+        let plan = remove_all(&roots, &opts.target_opts, true);
+        assert!(
+            plan.iter()
+                .any(|(p, r)| p.ends_with("gtk-4.0/gtk.css") && *r == Removal::Emptied)
+        );
+        assert!(!plan.is_empty());
+        assert!(roots.config.join("gtk-4.0/gtk.css").is_file());
+        remove_all(&roots, &opts.target_opts, false);
+        assert_eq!(
+            std::fs::read_to_string(roots.config.join("gtk-3.0/gtk.css")).unwrap(),
+            "/* mes règles */\n"
+        );
+        // gtk-4.0 n'avait que le thème : retiré.
+        assert!(!roots.config.join("gtk-4.0/gtk.css").exists());
+        assert_eq!(
+            std::fs::read_to_string(roots.config.join("kitty/kitty.conf")).unwrap(),
+            "font_size 11\n"
+        );
+        for f in [
+            "kitty/hyprdesk-theme.conf",
+            "gtk-3.0/hyprdesk-thunar.css",
+            "qt6ct/colors/hyprdesk-regle.conf",
+        ] {
+            assert!(!roots.config.join(f).exists(), "{f}");
+        }
+        assert!(!roots.hypr_theme_dir().exists());
+        // Rejouer ne fait plus rien.
+        assert!(remove_all(&roots, &opts.target_opts, false).is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

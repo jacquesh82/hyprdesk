@@ -123,9 +123,10 @@ hyprdesk_root_install_build() {
 }
 
 # Binaires dédiés installés à côté de hyprdesk : écran de verrouillage,
-# écran de connexion, agent polkit (chacun ne lie que son code).
+# écran de connexion, agent polkit, moteur de thème (chacun ne lie que son
+# code ; MLG-230 pour le moteur).
 # shellcheck disable=SC2034 # lue par les scripts qui sourcent celui-ci
-HYPRDESK_COMPANIONS=(hyprdesk-lock hyprdesk-greeter hyprdesk-polkit)
+HYPRDESK_COMPANIONS=(hyprdesk-lock hyprdesk-greeter hyprdesk-polkit hyprdesk-theme-engine)
 
 # hyprdesk_check_commit <dossier> <commit attendu> <nom> (MLG-154) : la copie
 # git est-elle au commit épinglé par scripts/versions.sh ? Commit attendu vide

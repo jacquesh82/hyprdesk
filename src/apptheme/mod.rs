@@ -93,6 +93,24 @@ pub struct Target {
     pub clear: fn(&Opts) -> Result<(), String>,
 }
 
+/// Options des cibles pour le moteur : `cible.clé` → valeur effective, et
+/// commandes de rechargement par cible (`:` quand elle est vidée).
+pub fn engine_options(o: &Opts) -> (BTreeMap<String, String>, BTreeMap<String, String>) {
+    let (mut target_opts, mut reload_commands) = (BTreeMap::new(), BTreeMap::new());
+    for t in TARGETS {
+        for op in t.options {
+            let v = opt(o, t.id, op);
+            if op.key == "reload" {
+                let cmd = if v.is_empty() { ":".to_string() } else { v };
+                reload_commands.insert(t.id.to_string(), cmd);
+            } else if !v.is_empty() {
+                target_opts.insert(format!("{}.{}", t.id, op.key), v);
+            }
+        }
+    }
+    (target_opts, reload_commands)
+}
+
 /// Registre des applications qui peuvent prendre le thème.
 pub const TARGETS: &[Target] = &[kitty::TARGET, thunar::TARGET, gtk::TARGET, qt::TARGET];
 
@@ -139,26 +157,12 @@ pub fn sync(
     }
     let roots = crate::theme_engine::paths::Roots::from_env();
     let (resolved, pack_dir) = crate::theme_engine::bridge::resolution_for(&roots, theme);
-    let mut target_opts = BTreeMap::new();
-    for (k, v) in opts {
-        target_opts.insert(k.clone(), v.clone());
-    }
-    // Rechargements configurés du poste : ils passent par `sh -c` côté
-    // moteur, jamais depuis un pack.
-    let mut reload_commands = BTreeMap::new();
-    let kitty_reload = opts
-        .get("kitty.reload")
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-        .unwrap_or("pkill -USR1 -x kitty");
-    reload_commands.insert("kitty".to_string(), kitty_reload.to_string());
-    if let Some(cmd) = opts
-        .get("thunar.reload")
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-    {
-        reload_commands.insert("thunar".to_string(), cmd.to_string());
-    }
+    // Options effectives de chaque cible, `~/` développé et défauts compris
+    // (le moteur ne connaît pas ces défauts : sans eux, l'inclusion dans
+    // kitty.conf n'était plus posée). Une commande de rechargement vidée
+    // veut dire « aucune » ; elle passe par `sh -c` côté moteur, c'est un
+    // réglage du poste, jamais un contenu de pack.
+    let (target_opts, reload_commands) = engine_options(opts);
     let options = crate::theme_engine::apply::Options {
         only: activées.clone(),
         origin: "daemon".to_string(),
@@ -346,5 +350,23 @@ mod tests {
             std::env::remove_var("XDG_CACHE_HOME");
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn options_effectives_pour_le_moteur() {
+        // Rien de réglé : défauts développés, inclusion dans kitty.conf.
+        let (opts, reloads) = engine_options(&Opts::new());
+        assert!(opts["kitty.conf"].ends_with("kitty/kitty.conf"), "{opts:?}");
+        assert!(!opts["kitty.file"].starts_with('~'));
+        assert_eq!(reloads["kitty"], "pkill -USR1 -x kitty");
+        // `~/` développé ; rechargement vidé : aucun.
+        let mut o = Opts::new();
+        o.insert("kitty.file".to_string(), "~/x/couleurs.conf".to_string());
+        o.insert("kitty.reload".to_string(), String::new());
+        o.insert("kitty.conf".to_string(), String::new());
+        let (opts, reloads) = engine_options(&o);
+        assert!(!opts["kitty.file"].starts_with('~'), "{opts:?}");
+        assert!(!opts.contains_key("kitty.conf"));
+        assert_eq!(reloads["kitty"], ":");
     }
 }

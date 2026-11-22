@@ -34,6 +34,11 @@ contents:
     dst: /usr/bin/hyprdesk-polkit
     file_info:
       mode: 0755
+  # Moteur de thème en ligne de commande (MLG-230).
+  - src: "@STAGE@/usr/bin/hyprdesk-theme-engine"
+    dst: /usr/bin/hyprdesk-theme-engine
+    file_info:
+      mode: 0755
   # Unit systemd utilisateur : ExecStart sur /usr/bin (la version de
   # scripts/install.sh vise ~/.local/bin).
   - src: "@STAGE@/usr/lib/systemd/user/hyprdesk.service"

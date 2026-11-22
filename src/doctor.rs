@@ -34,6 +34,13 @@ pub struct Dep {
 
 pub const DEPS: &[Dep] = &[
     Dep {
+        name: "hyprdesk-theme-engine",
+        probe: Probe::Program(&["hyprdesk-theme-engine"]),
+        package: "hyprdesk",
+        feature: "Moteur de thème en ligne de commande : packs, palette, outils de LYRA",
+        essential: false,
+    },
+    Dep {
         name: "curl",
         probe: Probe::Program(&["curl"]),
         package: "curl",

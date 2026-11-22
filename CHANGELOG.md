@@ -84,6 +84,22 @@ and this project adheres to
 
 ### Fixed
 
+- **Install, uninstall and restore with the theme engine** (MLG-230,
+  MLG-243 to MLG-246):
+  - `hyprdesk-theme-engine` is installed with the other dedicated binaries
+    (from source in `~/.local/bin`, in `/usr/bin` by the packages), removed
+    by the uninstaller and listed by `hyprdesk doctor`.
+  - Uninstalling removes what the theme engine set (GTK 3 and 4 blocks and
+    imports, kitty include, Thunar, Qt colours, Hyprland fragments) through
+    the new `hyprdesk app-theme remove [--dry-run]`, keeping your own rules;
+    GTK apps no longer keep hyprdesk's colours after an uninstall.
+  - `--restore` also puts back `gtk-4.0/gtk.css`, Qt colour schemes and the
+    GNOME settings the engine sets (colour scheme, accent, font, icons,
+    cursor, sounds); an older original state gets them recorded at the next
+    install, marked as late.
+  - App themes again pass effective options to the engine (`~/` expanded,
+    defaults applied): the kitty.conf include is set by default again, and
+    an emptied reload command means none.
 - **Theme engine** (MLG-221 to MLG-229):
   - `hyprdesk-theme-engine watch` no longer re-applies the theme in a loop
     (it woke on its own state files: about 250 reloads a second); it follows

@@ -73,8 +73,9 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/usr/bin" "$STAGE/usr/lib/systemd/user"
 install -m755 "$BIN" "$STAGE/usr/bin/hyprdesk"
 strip --strip-unneeded "$STAGE/usr/bin/hyprdesk" 2>/dev/null || true
-# Binaires dédiés : écran de verrouillage, écran de connexion, agent polkit.
-for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit; do
+# Binaires dédiés : écran de verrouillage, écran de connexion, agent polkit,
+# moteur de thème (MLG-230).
+for b in hyprdesk-lock hyprdesk-greeter hyprdesk-polkit hyprdesk-theme-engine; do
     [ -x "$(dirname "$BIN")/$b" ] || { echo "$(dirname "$BIN")/$b absent : lancer sans --no-build" >&2; exit 1; }
     install -m755 "$(dirname "$BIN")/$b" "$STAGE/usr/bin/$b"
     strip --strip-unneeded "$STAGE/usr/bin/$b" 2>/dev/null || true

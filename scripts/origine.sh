@@ -21,6 +21,10 @@
 #   paquets         paquets installés à l'origine (un par ligne)
 #   paquets-ajoutes paquets que install.sh a installés depuis (deps.sh)
 #   commandes       commandes présentes à l'origine (hyprpanel-chat, mymfa…)
+#   gsettings       réglages GNOME que le moteur de thème peut poser (schéma
+#                   clair/sombre, accent, police, icônes, curseur, sons) :
+#                   « schéma clé valeur » ; relevé après coup (« tardif ») sur
+#                   une origine plus ancienne que ce relevé
 
 ORIGINE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hyprdesk/origine"
 
@@ -31,6 +35,8 @@ ORIGINE_HOME_PATHS=(
     .config/kitty/hyprdesk-theme.conf
     .config/gtk-3.0/gtk.css
     .config/gtk-3.0/hyprdesk-thunar.css
+    .config/gtk-4.0/gtk.css
+    .config/qt6ct/colors
     .config/mimeapps.list
     .config/xdg-terminals.list
     .config/autostart
@@ -63,6 +69,32 @@ ORIGINE_CMDS=(hyprpanel-chat mymfa hyprlock hyprpaper)
 
 origine_t() { hyprdesk_t "$@"; }
 
+# Réglages GNOME que le moteur de thème peut poser (cibles gtk, fonts,
+# icons, cursors, sounds) : « schéma clé ».
+ORIGINE_GSETTINGS=(
+    "org.gnome.desktop.interface color-scheme"
+    "org.gnome.desktop.interface accent-color"
+    "org.gnome.desktop.interface font-name"
+    "org.gnome.desktop.interface icon-theme"
+    "org.gnome.desktop.interface cursor-theme"
+    "org.gnome.desktop.interface cursor-size"
+    "org.gnome.desktop.sound theme-name"
+)
+
+# origine_gsettings_capture <fichier> [tardif] : valeurs en place, une par ligne.
+origine_gsettings_capture() {
+    local out="$1" late="${2:-}" pair v
+    command -v gsettings >/dev/null 2>&1 || return 0
+    {
+        [[ -z "$late" ]] || echo "# tardif $(date -Iseconds)"
+        for pair in "${ORIGINE_GSETTINGS[@]}"; do
+            # shellcheck disable=SC2086 # « schéma clé » : deux mots voulus
+            v="$(gsettings get $pair 2>/dev/null)" || continue
+            echo "$pair $v"
+        done
+    } > "$out"
+}
+
 origine_exists() { [[ -f "$ORIGINE_DIR/manifest" ]]; }
 
 origine_pkgs() {
@@ -75,7 +107,13 @@ origine_pkgs() {
 
 # Photo de l'état d'origine, une seule fois. Rien n'est modifié ailleurs.
 origine_capture() {
-    origine_exists && { hd_ok "$(origine_t "état d'origine déjà gardé" "original state already kept") (${ORIGINE_DIR/#$HOME/\~})"; return 0; }
+    if origine_exists; then
+        hd_ok "$(origine_t "état d'origine déjà gardé" "original state already kept") (${ORIGINE_DIR/#$HOME/\~})"
+        # Origine d'avant le relevé des réglages GNOME : relevés maintenant,
+        # marqués « tardif » (ce qui est en place aujourd'hui).
+        [[ -f "$ORIGINE_DIR/gsettings" ]] || origine_gsettings_capture "$ORIGINE_DIR/gsettings" tardif
+        return 0
+    fi
     local tmp p
     tmp="$(mktemp -d "${ORIGINE_DIR%/*}/.origine-XXXXXX" 2>/dev/null)" || {
         mkdir -p "${ORIGINE_DIR%/*}" && tmp="$(mktemp -d "${ORIGINE_DIR%/*}/.origine-XXXXXX")"
@@ -127,6 +165,7 @@ origine_capture() {
     origine_pkgs > "$tmp/paquets" || true
     : > "$tmp/paquets-ajoutes"
     for p in "${ORIGINE_CMDS[@]}"; do command -v "$p" >/dev/null 2>&1 && echo "$p"; done > "$tmp/commandes"
+    origine_gsettings_capture "$tmp/gsettings"
     mv "$tmp" "$ORIGINE_DIR"
     hd_ok "$(origine_t "état d'origine gardé, pour tout remettre comme avant" "original state kept, to put everything back as it was") (${ORIGINE_DIR/#$HOME/\~})"
     if grep -q '^partielle' "$ORIGINE_DIR/manifest"; then
@@ -202,6 +241,26 @@ origine_restore() {
         fi
     done
     # La config de hyprdesk, rangée avec ~/.config/hypr, ne revient pas.
+
+    # -- Réglages GNOME (moteur de thème) ---------------------------------------------
+    if [[ -f "$ORIGINE_DIR/gsettings" ]] && command -v gsettings >/dev/null 2>&1; then
+        local schema key value
+        grep -q '^# tardif' "$ORIGINE_DIR/gsettings" \
+            && hd_note "$(origine_t "réglages GNOME relevés après l'installation de hyprdesk : remis à cet état-là" "GNOME settings recorded after hyprdesk was installed: put back to that state")"
+        while read -r schema key value; do
+            [[ -n "$schema" && "$schema" != \#* && -n "$value" ]] || continue
+            [[ "$(gsettings get "$schema" "$key" 2>/dev/null)" == "$value" ]] && continue
+            if [[ "$DRY" == 1 ]]; then
+                hd_info "$(origine_t "ferait : remis comme avant :" "would: put back:") $schema $key"
+            elif gsettings set "$schema" "$key" "$value" 2>/dev/null; then
+                hd_ok "$schema $key $(origine_t "remis comme avant" "put back as it was")"
+            else
+                hd_warn "$schema $key : $(origine_t "non remis" "not put back")"
+            fi
+        done < "$ORIGINE_DIR/gsettings"
+    else
+        hd_note "$(origine_t "réglages GNOME (schéma clair/sombre, accent) non gardés à l'origine : laissés tels quels" "GNOME settings (light/dark scheme, accent) not kept originally: left as they are")"
+    fi
 
     # -- Services de l'utilisateur ---------------------------------------------------
     # Activations et masques : des liens de ~/.config/systemd/user, remis ci-dessus.
