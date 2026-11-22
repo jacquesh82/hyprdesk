@@ -365,6 +365,8 @@ canal pour chaque sorte d'application.
   [intégrer une application au thème](docs/THEME-CLIENT.md)
 - [Écrire un plugin](docs/WRITING_PLUGINS.md) (anglais) et
   [plugins, widgets et lanceur](docs/PLUGINS.md) (conception interne)
+- [SDK](docs/SDK.md) : étendre hyprdesk, le piloter et s'y intégrer, et
+  référence du [socket de commande](docs/CONTROL.md)
 - [Journal des versions](CHANGELOG.md) (anglais)
 
 ## Contribuer

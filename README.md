@@ -346,6 +346,8 @@ right channel for each kind of app.
   [integrating an app with the theme](docs/THEME-CLIENT.md) (French)
 - [Writing a plugin](docs/WRITING_PLUGINS.md) and
   [plugin internals](docs/PLUGINS.en.md)
+- [SDK](docs/SDK.md): every way to extend, drive and integrate with
+  hyprdesk, and the [command socket](docs/CONTROL.md) reference (French)
 - [Changelog](CHANGELOG.md)
 
 ## Contributing
