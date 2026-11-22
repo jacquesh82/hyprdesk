@@ -346,6 +346,7 @@ impl Preview {
                 position: BarPosition::Top,
                 height: 44,
                 margin: 0,
+                ..Default::default()
             },
         );
         let mut cfg = Config::default();
@@ -404,6 +405,7 @@ impl Preview {
         controls.in_bar = true;
         cfg.widgets.push(controls);
         cfg.bar = Some(BarDef {
+            shape: Default::default(),
             monitors: None,
             position: BarPosition::Top,
             height: 44,
@@ -537,7 +539,12 @@ impl Preview {
                 Err(e) => eprintln!("HYPRDESK_PREVIEW_PACK={id} : {e}"),
             }
         }
-        let cfg = app.settings.apply_to(&cfg);
+        let mut cfg = app.settings.apply_to(&cfg);
+        // La barre de l'aperçu est posée en dur : sa forme vient des réglages
+        // (pack essayé, MLG-277).
+        if let (Some(b), Some(sb)) = (cfg.bar.as_mut(), app.settings.bar.as_ref()) {
+            b.shape = sb.shape;
+        }
         app.theme = make_theme(&cfg);
         app.cfg = Arc::new(cfg);
         // Permet de vérifier une surface sans recapturer tous les réglages.

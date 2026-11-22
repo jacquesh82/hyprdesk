@@ -781,6 +781,37 @@ pub enum BarPosition {
     #[default]
     Top,
     Bottom,
+    /// Barre verticale au bord gauche (MLG-277) : `height` en est la
+    /// largeur.
+    Left,
+    /// Barre verticale au bord droit.
+    Right,
+}
+
+impl BarPosition {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "top" => BarPosition::Top,
+            "bottom" => BarPosition::Bottom,
+            "left" => BarPosition::Left,
+            "right" => BarPosition::Right,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BarPosition::Top => "top",
+            BarPosition::Bottom => "bottom",
+            BarPosition::Left => "left",
+            BarPosition::Right => "right",
+        }
+    }
+
+    /// Barre verticale (bord gauche ou droit).
+    pub fn vertical(self) -> bool {
+        matches!(self, BarPosition::Left | BarPosition::Right)
+    }
 }
 
 /// Module de la barre : propre à la barre, ou widget (par son id).
@@ -844,6 +875,161 @@ pub struct BarDef {
     /// Couleurs propres à la barre (sinon celles du thème).
     pub colors: BarColors,
     pub convex: ConvexDef,
+    /// Forme, dimensions internes, visibilité, relations aux fenêtres
+    /// (MLG-277).
+    pub shape: BarShape,
+}
+
+/// Longueur de la barre le long de son bord.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum BarLength {
+    /// Tout le bord.
+    #[default]
+    Full,
+    /// Pixels logiques.
+    Fixed(u16),
+    /// Part du bord (0..1).
+    Percent(f32),
+    /// Selon le contenu (mesuré au rendu).
+    Content,
+}
+
+impl BarLength {
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        Some(match s {
+            "full" | "fill" => BarLength::Full,
+            "content" | "auto" | "shrink" => BarLength::Content,
+            _ if s.ends_with('%') => {
+                let v: f32 = s
+                    .trim_end_matches('%')
+                    .trim()
+                    .replace(',', ".")
+                    .parse()
+                    .ok()?;
+                if !(5.0..=100.0).contains(&v) {
+                    return None;
+                }
+                BarLength::Percent(v / 100.0)
+            }
+            _ => {
+                let v: u16 = s.trim_end_matches("px").trim().parse().ok()?;
+                if !(48..=8192).contains(&v) {
+                    return None;
+                }
+                BarLength::Fixed(v)
+            }
+        })
+    }
+
+    pub fn as_text(self) -> String {
+        match self {
+            BarLength::Full => "full".into(),
+            BarLength::Content => "content".into(),
+            BarLength::Percent(p) => format!("{}%", (p * 100.0).round()),
+            BarLength::Fixed(v) => v.to_string(),
+        }
+    }
+}
+
+/// Alignement d'une barre plus courte que son bord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarAlign {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+/// Visibilité de la barre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarVisibility {
+    #[default]
+    Always,
+    /// Masquée hors survol : une fine zone au bord la fait revenir.
+    AutoHide,
+}
+
+/// Couche de la barre par rapport aux fenêtres.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarLayer {
+    /// Au-dessus des fenêtres, sous une fenêtre en plein écran.
+    #[default]
+    Top,
+    /// Au-dessus de tout, plein écran compris.
+    Overlay,
+    /// Sous les fenêtres.
+    Bottom,
+}
+
+/// Forme de la barre (MLG-277). `None` : valeur du style.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarShape {
+    pub length: BarLength,
+    pub min_length: u16,
+    pub max_length: u16,
+    pub alignment: BarAlign,
+    /// Marges sur les côtés (barre flottante).
+    pub side_margin: u16,
+    /// Groupes détachés plutôt qu'une lame continue (Continuité).
+    pub groups: bool,
+    pub radius: Option<u16>,
+    pub padding: Option<u16>,
+    pub item_gap: Option<u16>,
+    pub icon_size: Option<u16>,
+    pub font_size: Option<f32>,
+    pub visibility: BarVisibility,
+    pub show_delay: u16,
+    pub hide_delay: u16,
+    pub reveal_zone: u16,
+    /// Les fenêtres laissent la place de la barre.
+    pub reserve_space: bool,
+    pub layer: BarLayer,
+}
+
+impl Default for BarShape {
+    fn default() -> Self {
+        Self {
+            length: BarLength::Full,
+            min_length: 0,
+            max_length: 0,
+            alignment: BarAlign::Center,
+            side_margin: 0,
+            groups: false,
+            radius: None,
+            padding: None,
+            item_gap: None,
+            icon_size: None,
+            font_size: None,
+            visibility: BarVisibility::Always,
+            show_delay: 120,
+            hide_delay: 600,
+            reveal_zone: 4,
+            reserve_space: true,
+            layer: BarLayer::Top,
+        }
+    }
+}
+
+impl BarShape {
+    /// Longueur en pixels sur un bord de `edge` pixels (`content` : largeur
+    /// mesurée du contenu, si connue).
+    pub fn length_on(&self, edge: f32, content: Option<f32>) -> f32 {
+        let raw = match self.length {
+            BarLength::Full => edge,
+            BarLength::Fixed(v) => f32::from(v),
+            BarLength::Percent(p) => edge * p,
+            BarLength::Content => content.unwrap_or(edge),
+        };
+        let mut l = raw;
+        if self.min_length > 0 {
+            l = l.max(f32::from(self.min_length));
+        }
+        if self.max_length > 0 {
+            l = l.min(f32::from(self.max_length));
+        }
+        l.min(edge - 2.0 * f32::from(self.side_margin)).max(48.0)
+    }
 }
 
 /// Géométrie du cadre Convex, en pixels logiques ; mouvement en millisecondes.

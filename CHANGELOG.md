@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **Bar shape** (MLG-277). Left and right edges (vertical bar: stacked
+  zones and workspaces, menus opening beside it); length (whole edge, fit
+  content, pixels or a percentage) with bounds and alignment; side margins
+  for a floating bar; detached groups; corner radius, inner padding, module
+  spacing, icon and text size; auto-hide on every style with show/hide
+  delays and a reveal zone; reserved space on or off; layer (over windows,
+  over fullscreen, under windows). New `bar.*` keys, `hd.bar { shape = … }`,
+  a Shape section in Settings → Bar, and pack `[bar]` keys.
 - **Theme packs carry shape and layout** (MLG-276). `[bar]`, `[dock]`,
   `[launcher]`, `[workspaces]`, `[lock]`, `[desktop]`, `[notifications]`,
   `[widgets]`, `[controls]` sections set hyprdesk settings (bar thickness and

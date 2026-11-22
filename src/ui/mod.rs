@@ -174,6 +174,10 @@ pub enum Msg {
     /// contenu de la barre, pour peindre pilules et niches derrière elles.
     /// `(0.0, 0.0)` : zone vide.
     BarLayout(Id, Vec<usize>, u32, [(f32, f32); 3]),
+    /// Pointeur sur une barre masquée hors survol (MLG-277).
+    BarReveal(Id, bool),
+    /// Délai écoulé : montrer ou masquer la barre (génération du survol).
+    BarRevealApply(Id, u64, bool),
     /// Région de saisie de la capsule Island ; les côtés restent traversants.
     BarIslandInput(Id, iced::Rectangle),
     ControlToggle(String),
@@ -526,6 +530,8 @@ pub struct App {
     control_actions: HashMap<String, Option<String>>,
     bar_hidden: HashMap<Id, Vec<usize>>,
     bar_full_width: HashMap<Id, u32>,
+    /// Barres masquées hors survol : montrée, génération du dernier survol.
+    bar_reveal: HashMap<Id, (bool, u64)>,
     /// Étendues mesurées des zones de chaque barre (voir `Msg::BarLayout`) :
     /// le fond de zones d'un style (pilules, niches) s'y peint derrière.
     bar_zone_extents: HashMap<Id, [(f32, f32); 3]>,
@@ -1049,6 +1055,7 @@ impl App {
             control_actions: HashMap::new(),
             bar_hidden: HashMap::new(),
             bar_full_width: HashMap::new(),
+            bar_reveal: HashMap::new(),
             bar_zone_extents: HashMap::new(),
             bar_preview: None,
             workspaces: Vec::new(),
@@ -4892,12 +4899,16 @@ impl App {
             }
             Msg::BarLayout(id, hidden, full, zones) => {
                 self.bar_hidden.insert(id, hidden);
+                let mut resize = Task::none();
                 if full > 0 {
                     self.bar_full_width.insert(id, full);
+                    resize = self.bar_fit_content(id, full);
                 }
                 self.bar_zone_extents.insert(id, zones);
-                self.refresh_popover_anchor()
+                Task::batch([resize, self.refresh_popover_anchor()])
             }
+            Msg::BarReveal(id, hover) => self.bar_hover(id, hover),
+            Msg::BarRevealApply(id, generation, show) => self.bar_reveal_apply(id, generation, show),
             Msg::BarIslandInput(id, bounds) => self.bar_input(id, Some(bounds)),
             Msg::ControlToggle(id) => {
                 if self.control_actions.get(&id).is_some_and(Option::is_none) {
@@ -6424,6 +6435,7 @@ mod regression_tests {
                 position: config::BarPosition::Top,
                 height: 44,
                 margin: 0,
+                ..Default::default()
             },
         );
         let _ = app.poll_widgets();
@@ -6903,6 +6915,7 @@ mod regression_tests {
         };
         app.monitors = vec![tall, wide];
         Arc::make_mut(&mut app.cfg).bar = Some(config::BarDef {
+            shape: Default::default(),
             monitors: None,
             position: config::BarPosition::Top,
             height: 40,

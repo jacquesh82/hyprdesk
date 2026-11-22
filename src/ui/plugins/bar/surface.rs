@@ -62,12 +62,16 @@ pub const STATIC_ICONS: &[&str] = &[
 ];
 
 /// Surface de barre : écran, position, hauteur et marge au bord à sa création.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct BarSurface {
     pub monitor: String,
     pub position: BarPosition,
     pub height: u16,
     pub margin: u16,
+    /// Forme posée à la création (MLG-277).
+    pub shape: crate::config::BarShape,
+    /// Largeur de la surface (0 : tout le bord).
+    pub width: u32,
 }
 
 /// Couleurs effectives de la barre.
@@ -559,27 +563,63 @@ impl App {
             .cfg
             .bar
             .as_ref()
-            .map(|b| (b.position, b.height, b.margin));
+            .map(|b| (b.position, b.height, b.margin, b.shape));
         let mut tasks = Vec::new();
         let mut changed = false;
         for (id, s) in self.bar_surfaces.clone() {
-            if !(want.contains(&s.monitor) && spec == Some((s.position, s.height, s.margin))) {
+            if !(want.contains(&s.monitor)
+                && spec == Some((s.position, s.height, s.margin, s.shape)))
+            {
                 self.bar_surfaces.remove(&id);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
         }
-        if let Some((position, height, margin)) = spec {
+        if let Some((position, height, margin, shape)) = spec {
             for mon in want {
                 if self.bar_surfaces.values().any(|s| s.monitor == mon) {
                     continue;
                 }
                 let id = Id::unique();
-                let edge = if position == BarPosition::Top {
-                    LsAnchor::Top
-                } else {
-                    LsAnchor::Bottom
+                let vertical = position.vertical();
+                let edge = match position {
+                    BarPosition::Top => LsAnchor::Top,
+                    BarPosition::Bottom => LsAnchor::Bottom,
+                    BarPosition::Left => LsAnchor::Left,
+                    BarPosition::Right => LsAnchor::Right,
                 };
+                // Le long du bord : gauche/droite pour une barre horizontale,
+                // haut/bas pour une verticale.
+                let (along_start, along_end) = if vertical {
+                    (LsAnchor::Top, LsAnchor::Bottom)
+                } else {
+                    (LsAnchor::Left, LsAnchor::Right)
+                };
+                // Forme (MLG-277) : longueur, alignement, marges latérales,
+                // place laissée par les fenêtres, couche.
+                let screen = self
+                    .monitors
+                    .iter()
+                    .find(|m| m.name == mon)
+                    .map_or(1920.0, |m| if vertical { m.height } else { m.width } as f32);
+                let content = self.bar_full_width.values().max().map(|w| *w as f32 + 16.0);
+                let full = shape.length == crate::config::BarLength::Full;
+                let width = if full {
+                    0
+                } else {
+                    shape.length_on(screen, content).round() as u32
+                };
+                let side = shape.side_margin as i32;
+                let anchor = if full {
+                    edge | along_start | along_end
+                } else {
+                    match shape.alignment {
+                        crate::config::BarAlign::Start => edge | along_start,
+                        crate::config::BarAlign::Center => edge,
+                        crate::config::BarAlign::End => edge | along_end,
+                    }
+                };
+                let autohide = shape.visibility == crate::config::BarVisibility::AutoHide;
                 self.bar_surfaces.insert(
                     id,
                     BarSurface {
@@ -587,20 +627,37 @@ impl App {
                         position,
                         height,
                         margin,
+                        shape,
+                        width,
                     },
                 );
                 tasks.push(Task::done(Msg::NewLayerShell {
                     settings: NewLayerShellSettings {
-                        size: Some((0, height as u32)),
-                        layer: Layer::Top,
-                        anchor: edge | LsAnchor::Left | LsAnchor::Right,
-                        // La zone réservée aux fenêtres compte la hauteur et la
-                        // marge : la lame flotte au-dessus du bord.
-                        exclusive_zone: Some(height as i32),
-                        margin: Some(if position == BarPosition::Top {
-                            (margin as i32, 0, 0, 0)
+                        size: Some(if vertical {
+                            (height as u32, width)
                         } else {
-                            (0, 0, margin as i32, 0)
+                            (width, height as u32)
+                        }),
+                        layer: match shape.layer {
+                            crate::config::BarLayer::Top => Layer::Top,
+                            crate::config::BarLayer::Overlay => Layer::Overlay,
+                            crate::config::BarLayer::Bottom => Layer::Bottom,
+                        },
+                        anchor,
+                        // La zone réservée aux fenêtres compte la hauteur et la
+                        // marge : la lame flotte au-dessus du bord. Masquée
+                        // hors survol ou sans réserve : les fenêtres passent
+                        // dessous.
+                        exclusive_zone: Some(if shape.reserve_space && !autohide {
+                            height as i32
+                        } else {
+                            0
+                        }),
+                        margin: Some(match position {
+                            BarPosition::Top => (margin as i32, side, 0, side),
+                            BarPosition::Bottom => (0, side, margin as i32, side),
+                            BarPosition::Left => (side, 0, side, margin as i32),
+                            BarPosition::Right => (side, margin as i32, side, 0),
                         }),
                         keyboard_interactivity: KeyboardInteractivity::None,
                         output_option: OutputOption::OutputName(mon),
@@ -609,6 +666,10 @@ impl App {
                     },
                     id,
                 }));
+                if autohide {
+                    // Montrée à l'apparition, masquée après le délai.
+                    tasks.push(Task::done(Msg::BarReveal(id, false)));
+                }
                 changed = true;
             }
             for name in STATIC_ICONS {
@@ -628,6 +689,8 @@ impl App {
             self.bar_anchors
                 .retain(|(id, _), _| self.bar_surfaces.contains_key(id));
             self.bar_hidden
+                .retain(|id, _| self.bar_surfaces.contains_key(id));
+            self.bar_reveal
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
             self.bar_full_width
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
@@ -775,15 +838,263 @@ impl App {
         pal
     }
 
+    /// Barre verticale (bord gauche ou droit, MLG-277) : les trois zones
+    /// en colonne (début, centre, fin), les espaces de travail empilés.
+    fn view_bar_vertical<'a>(&'a self, id: Id, s: &'a BarSurface) -> Element<'a, Msg> {
+        let Some(bar) = self.cfg.bar.as_ref() else {
+            return Space::new().into();
+        };
+        let pal = self.bar_palette();
+        let shape = bar.shape;
+        let gap = shape.item_gap.map_or(6.0, f32::from);
+        let fg = color(pal.fg, 0.92);
+        let accent = color(pal.accent, 1.0);
+        let item = |item: &'a BarItem| -> Element<'a, Msg> {
+            if *item == BarItem::Workspaces {
+                let ctx = crate::ui::plugins::bar::style::ws_ctx(self, s);
+                return iced::widget::Column::with_children(
+                    ctx.rows
+                        .into_iter()
+                        .map(|w| {
+                            let active = w.name == ctx.current;
+                            let label = truncate(&w.name, 3);
+                            button(
+                                container(
+                                    text(label)
+                                        .size(crate::ui::tokens::ts_label(12.0))
+                                        .font(self.ui_font(iced::font::Weight::Semibold))
+                                        .color(if active { color(pal.bg, 1.0) } else { fg }),
+                                )
+                                .center_x(Length::Fill),
+                            )
+                            .padding([4, 0])
+                            .width(Length::Fill)
+                            .on_press(Msg::BarWorkspace(ctx.monitor.clone(), w.name.clone()))
+                            .style(move |_, st| {
+                                let mut b = crate::ui::tokens::item(accent, fg, false, st, 8.0);
+                                if active {
+                                    b.background = Some(accent.into());
+                                } else if w.windows > 0 && b.background.is_none() {
+                                    b.background = Some(Color { a: 0.10, ..fg }.into());
+                                }
+                                b
+                            })
+                            .into()
+                        })
+                        .collect::<Vec<Element<'a, Msg>>>(),
+                )
+                .spacing(4)
+                .width(Length::Fill)
+                .into();
+            }
+            container(self.bar_item(id, s, item))
+                .width(Length::Fill)
+                .center_x(Length::Fill)
+                .clip(true)
+                .into()
+        };
+        let zone = |items: &'a [BarItem]| {
+            iced::widget::Column::with_children(items.iter().map(item).collect::<Vec<_>>())
+                .spacing(gap)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
+        };
+        let pad = shape.padding.map_or(8.0, f32::from);
+        let content = iced::widget::Column::with_children(vec![
+            zone(&bar.zones[0]).into(),
+            Space::new().height(Length::Fill).into(),
+            zone(&bar.zones[1]).into(),
+            Space::new().height(Length::Fill).into(),
+            zone(&bar.zones[2]).into(),
+        ])
+        .padding(Padding {
+            top: pad + 4.0,
+            bottom: pad + 4.0,
+            left: 4.0,
+            right: 4.0,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::Center);
+        // Coins arrondis côté fenêtres ; tous si la barre flotte.
+        let r = shape.radius.map_or(11.0, f32::from);
+        let floating = s.margin > 0 || shape.side_margin > 0 || s.width > 0;
+        let radius = if floating {
+            iced::border::radius(r)
+        } else if s.position == BarPosition::Left {
+            iced::border::right(r)
+        } else {
+            iced::border::left(r)
+        };
+        let mut surface = crate::ui::plugins::bar::style::surface(bar.style, &pal, true);
+        surface.border.radius = radius;
+        let bg = match surface.background {
+            Some(iced::Background::Color(c)) => c,
+            _ => color(pal.bg, pal.opacity),
+        };
+        let under = crate::ui::lens::available()
+            .then(|| {
+                let roi = self.bar_roi(s);
+                self.wall_backdrop(&s.monitor, iced::Point::new(roi.x, roi.y))
+            })
+            .flatten();
+        let el = crate::ui::glass::card(
+            content,
+            crate::config::Place::Bar,
+            radius,
+            color(pal.fg, 1.0),
+            bg,
+            surface,
+            true,
+            under,
+        );
+        if shape.visibility == crate::config::BarVisibility::AutoHide {
+            mouse_area(el)
+                .on_enter(Msg::BarReveal(id, true))
+                .on_exit(Msg::BarReveal(id, false))
+                .into()
+        } else {
+            el
+        }
+    }
+
+    /// Barre visible : toujours, ou montrée par le survol, ou tenue par son
+    /// menu ouvert (MLG-277).
+    pub(in crate::ui) fn bar_revealed(&self, id: Id) -> bool {
+        self.bar_reveal.get(&id).is_none_or(|r| r.0)
+            || self.popover.as_ref().is_some_and(|p| p.bar == id)
+    }
+
+    /// Pointeur entré sur la barre ou sorti : la montrer ou la masquer
+    /// après le délai réglé, si rien n'a changé entre-temps.
+    pub(in crate::ui) fn bar_hover(&mut self, id: Id, hover: bool) -> Task<Msg> {
+        let Some(s) = self.bar_surfaces.get(&id) else {
+            return Task::none();
+        };
+        if s.shape.visibility != crate::config::BarVisibility::AutoHide {
+            return Task::none();
+        }
+        let delay = u64::from(if hover {
+            s.shape.show_delay
+        } else {
+            s.shape.hide_delay
+        });
+        let e = self.bar_reveal.entry(id).or_insert((true, 0));
+        e.1 += 1;
+        let generation = e.1;
+        Task::perform(
+            tokio::time::sleep(Duration::from_millis(delay)),
+            move |_| Msg::BarRevealApply(id, generation, hover),
+        )
+    }
+
+    pub(in crate::ui) fn bar_reveal_apply(
+        &mut self,
+        id: Id,
+        generation: u64,
+        show: bool,
+    ) -> Task<Msg> {
+        let Some(s) = self.bar_surfaces.get(&id).cloned() else {
+            return Task::none();
+        };
+        let menu = self.popover.as_ref().is_some_and(|p| p.bar == id);
+        let Some(e) = self.bar_reveal.get_mut(&id) else {
+            return Task::none();
+        };
+        if e.1 != generation || (!show && menu) || e.0 == show {
+            return Task::none();
+        }
+        e.0 = show;
+        let h = if show {
+            u32::from(s.height)
+        } else {
+            u32::from(s.shape.reveal_zone)
+        };
+        Task::done(Msg::SizeChange {
+            id,
+            size: if s.position.vertical() {
+                (h, s.width)
+            } else {
+                (s.width, h)
+            },
+        })
+    }
+
+    /// Barre « selon le contenu » : sa largeur suit celle de ses modules
+    /// une fois mesurée (MLG-277).
+    pub(in crate::ui) fn bar_fit_content(&mut self, id: Id, full: u32) -> Task<Msg> {
+        let Some(s) = self.bar_surfaces.get(&id).cloned() else {
+            return Task::none();
+        };
+        if s.shape.length != crate::config::BarLength::Content || s.position.vertical() {
+            return Task::none();
+        }
+        let screen = self.monitor_size(&s.monitor).width;
+        let w = s.shape.length_on(screen, Some(full as f32 + 16.0)).round() as u32;
+        if w.abs_diff(s.width) < 4 {
+            return Task::none();
+        }
+        if let Some(b) = self.bar_surfaces.get_mut(&id) {
+            b.width = w;
+        }
+        let h = if self.bar_revealed(id) {
+            u32::from(s.height)
+        } else {
+            u32::from(s.shape.reveal_zone)
+        };
+        Task::done(Msg::SizeChange {
+            id,
+            size: if s.position.vertical() {
+                (h, w)
+            } else {
+                (w, h)
+            },
+        })
+    }
+
     /// Rectangle de la barre sur son écran (pour lire le fond derrière).
-    fn bar_roi(&self, s: &BarSurface) -> iced::Rectangle {
+    pub(in crate::ui) fn bar_roi(&self, s: &BarSurface) -> iced::Rectangle {
         let screen = self.monitor_size(&s.monitor);
         let h = f32::from(s.height);
+        // Barre verticale (MLG-277) : `height` est sa largeur.
+        if s.position.vertical() {
+            let side = f32::from(s.shape.side_margin);
+            let x = if s.position == BarPosition::Left {
+                f32::from(s.margin)
+            } else {
+                (screen.width - h - f32::from(s.margin)).max(0.0)
+            };
+            let len = if s.width == 0 {
+                (screen.height - 2.0 * side).max(1.0)
+            } else {
+                s.width as f32
+            };
+            let y = match s.shape.alignment {
+                crate::config::BarAlign::Start => side,
+                crate::config::BarAlign::Center => (screen.height - len) / 2.0,
+                crate::config::BarAlign::End => screen.height - len - side,
+            };
+            let y = if s.width == 0 { side } else { y };
+            return iced::Rectangle::new(iced::Point::new(x, y), iced::Size::new(h, len));
+        }
         let y = match s.position {
-            BarPosition::Top => f32::from(s.margin),
             BarPosition::Bottom => (screen.height - h - f32::from(s.margin)).max(0.0),
+            _ => f32::from(s.margin),
         };
-        iced::Rectangle::new(iced::Point::new(0.0, y), iced::Size::new(screen.width, h))
+        // Forme (MLG-277) : longueur, alignement, marges latérales.
+        let side = f32::from(s.shape.side_margin);
+        let (x, w) = if s.width == 0 {
+            (side, (screen.width - 2.0 * side).max(1.0))
+        } else {
+            let w = s.width as f32;
+            let x = match s.shape.alignment {
+                crate::config::BarAlign::Start => side,
+                crate::config::BarAlign::Center => (screen.width - w) / 2.0,
+                crate::config::BarAlign::End => screen.width - w - side,
+            };
+            (x, w)
+        };
+        iced::Rectangle::new(iced::Point::new(x, y), iced::Size::new(w, h))
     }
 
     fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
@@ -820,6 +1131,18 @@ impl App {
         let pal = self.bar_palette();
         let style = bar.style;
         let continuity = style == crate::config::BarStyle::Continuite;
+        // Forme (MLG-277) : espacement des modules.
+        let shape = bar.shape;
+        crate::ui::plugins::bar::layout::set_gap(shape.item_gap.map_or(2.0, f32::from));
+        // Masquée hors survol : une fine bande au bord la fait revenir.
+        if shape.visibility == crate::config::BarVisibility::AutoHide && !self.bar_revealed(id) {
+            return mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                .on_enter(Msg::BarReveal(id, true))
+                .into();
+        }
+        if s.position.vertical() {
+            return self.view_bar_vertical(id, s);
+        }
         let t = crate::ui::plugins::bar::style::durations(self);
         // Écran vertical : ses propres zones, si la barre en déclare.
         let (zones, zone_offset) = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
@@ -1076,10 +1399,11 @@ impl App {
             crate::config::BarStyle::Continuite => {
                 let inset =
                     crate::ui::plugins::bar::style::continuite::vertical_padding(s.height as f32);
+                let side = shape.padding.map_or(8.0, f32::from);
                 pad.top = inset;
                 pad.bottom = inset;
-                pad.left = 8.0;
-                pad.right = 8.0;
+                pad.left = side;
+                pad.right = side;
             }
         }
         // Fond de zones à path (Convex) : canvas sous le contenu, aux
@@ -1103,17 +1427,30 @@ impl App {
         // les niches dessinent leur propre verre. Vraie réfraction (MLG-275)
         // : la lame ne voit pas le fond derrière elle, la tranche de fond de
         // son écran est peinte dessous pour la lentille.
+        // Groupes détachés (MLG-277) : pas de lame, les groupes seuls.
+        let detached = continuity && shape.groups;
         let slab: Element<'_, Msg> = if matches!(
             style,
             crate::config::BarStyle::Continuite | crate::config::BarStyle::Graphite
-        ) {
-            // Continuité arrondit les coins côté fenêtres.
-            let radius = match (style, top) {
-                (crate::config::BarStyle::Continuite, true) => iced::border::bottom(11),
-                (crate::config::BarStyle::Continuite, false) => iced::border::top(11),
-                _ => iced::border::radius(0),
+        ) && !detached
+        {
+            // Continuité arrondit les coins côté fenêtres ; une barre
+            // flottante (décollée du bord ou plus courte que lui) les quatre.
+            let r = shape
+                .radius
+                .map_or(if continuity { 11.0 } else { 0.0 }, f32::from);
+            let floating = s.margin > 0 || shape.side_margin > 0 || s.width > 0;
+            let radius = if floating {
+                iced::border::radius(shape.radius.map_or(11.0, f32::from))
+            } else {
+                match (style, top) {
+                    (crate::config::BarStyle::Continuite, true) => iced::border::bottom(r),
+                    (crate::config::BarStyle::Continuite, false) => iced::border::top(r),
+                    _ => iced::border::radius(r),
+                }
             };
-            let surface = crate::ui::plugins::bar::style::surface(style, &pal, top);
+            let mut surface = crate::ui::plugins::bar::style::surface(style, &pal, top);
+            surface.border.radius = radius;
             let bg = match surface.background {
                 Some(iced::Background::Color(c)) => c,
                 _ => color(pal.bg, pal.opacity),
@@ -1142,10 +1479,16 @@ impl App {
                 .padding(pad)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .style(move |_| crate::ui::plugins::bar::style::surface(style, &pal, top))
+                .style(move |_| {
+                    let mut st = crate::ui::plugins::bar::style::surface(style, &pal, top);
+                    if detached {
+                        st.background = None;
+                    }
+                    st
+                })
                 .into()
         };
-        if graphite {
+        let bar_el: Element<'_, Msg> = if graphite {
             container(slab)
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -1156,6 +1499,16 @@ impl App {
                 .into()
         } else {
             slab
+        };
+        // Masquée hors survol (MLG-277) : le survol la garde, la sortie la
+        // masque après le délai.
+        if shape.visibility == crate::config::BarVisibility::AutoHide {
+            mouse_area(bar_el)
+                .on_enter(Msg::BarReveal(id, true))
+                .on_exit(Msg::BarReveal(id, false))
+                .into()
+        } else {
+            bar_el
         }
     }
 
@@ -1496,8 +1849,11 @@ impl App {
             .then(|| crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha));
         let fg = selected.unwrap_or_else(|| color(base, 0.92 * alpha));
         let dim = color(base, 0.65 * alpha);
-        let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
-        let isz = (size * 1.2).round();
+        let shape = self.cfg.bar.as_ref().map(|b| b.shape).unwrap_or_default();
+        let size = shape
+            .font_size
+            .unwrap_or((bar.height as f32 * 0.38).clamp(11.0, 18.0));
+        let isz = shape.icon_size.map_or((size * 1.2).round(), f32::from);
         let monitor = bar.monitor.clone();
         let compact = self.bar_compact(&monitor);
         match item {

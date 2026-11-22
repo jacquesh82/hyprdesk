@@ -83,6 +83,7 @@ mod tests {
                 position: BarPosition::Top,
                 height: 44,
                 margin: 0,
+                ..Default::default()
             },
         );
         Arc::make_mut(&mut app.cfg).general.transition = crate::config::Transition::Fade;
@@ -707,12 +708,24 @@ impl App {
         let duration = self.bar_duration(options.map_or(180, |o| o.duration as u64));
         let change_duration = self.bar_duration(160);
         let v = (GAP - SHADOW) as i32;
+        // Barre verticale (MLG-277) : le menu s'ouvre à côté d'elle, à la
+        // hauteur du module.
+        let side_top = if b.position.vertical() {
+            let roi = self.bar_roi(&b);
+            let top = (anchor.y + roi.y - m.reserved.1).max(0.0);
+            top.min((m.height as f32 - m.reserved.1 - m.reserved.3 - size.height).max(0.0)) as i32
+        } else {
+            0
+        };
         let margin = if let Some(a) = attached {
             (a.top as i32, 0, 0, left as i32)
-        } else if b.position == BarPosition::Top {
-            (v, 0, 0, left as i32)
         } else {
-            (0, 0, v, left as i32)
+            match b.position {
+                BarPosition::Top => (v, 0, 0, left as i32),
+                BarPosition::Bottom => (0, 0, v, left as i32),
+                BarPosition::Left => (side_top, 0, 0, v),
+                BarPosition::Right => (side_top, v, 0, 0),
+            }
         };
         let mut tasks = Vec::new();
         if wide {
@@ -800,10 +813,11 @@ impl App {
                 keyboard_interactivity: KeyboardInteractivity::None,
                 // La barre garde ses événements pour passer directement d'un
                 // menu à l'autre, sans traverser le capteur plein écran.
-                margin: Some(if b.position == BarPosition::Top {
-                    (b.height as i32, 0, 0, 0)
-                } else {
-                    (0, 0, b.height as i32, 0)
+                margin: Some(match b.position {
+                    BarPosition::Top => (b.height as i32, 0, 0, 0),
+                    BarPosition::Bottom => (0, 0, b.height as i32, 0),
+                    BarPosition::Left => (0, 0, 0, b.height as i32),
+                    BarPosition::Right => (0, b.height as i32, 0, 0),
                 }),
                 output_option: OutputOption::OutputName(m.name.clone()),
                 namespace: Some("hyprdesk-catcher".into()),
@@ -811,16 +825,21 @@ impl App {
             },
             id: catcher,
         }));
-        let edge = if attached.is_some() || b.position == BarPosition::Top {
+        let edge = if attached.is_some() || b.position != BarPosition::Bottom {
             LsAnchor::Top
         } else {
             LsAnchor::Bottom
+        };
+        let side = if b.position == BarPosition::Right {
+            LsAnchor::Right
+        } else {
+            LsAnchor::Left
         };
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
                 size: Some((size.width as u32, size.height as u32)),
                 layer: Layer::Overlay,
-                anchor: edge | LsAnchor::Left,
+                anchor: edge | side,
                 exclusive_zone: Some(if attached.is_some() { -1 } else { 0 }),
                 margin: Some(margin),
                 keyboard_interactivity: KeyboardInteractivity::Exclusive,

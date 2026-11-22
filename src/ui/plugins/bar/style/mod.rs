@@ -160,7 +160,7 @@ pub(in crate::ui) struct WsCtx {
     pub rows: Vec<WsRow>,
 }
 
-fn ws_ctx(app: &App, bar: &BarSurface) -> WsCtx {
+pub(in crate::ui) fn ws_ctx(app: &App, bar: &BarSurface) -> WsCtx {
     let monitor = bar.monitor.clone();
     let current = app
         .monitors

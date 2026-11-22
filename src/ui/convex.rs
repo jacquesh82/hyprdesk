@@ -505,6 +505,7 @@ mod tests {
                 position: crate::config::BarPosition::Top,
                 height: 48,
                 margin: 0,
+                ..Default::default()
             },
         );
         let _ = app.sync_convex_frames();
@@ -522,6 +523,7 @@ mod tests {
                 position: crate::config::BarPosition::Top,
                 height: 48,
                 margin: 0,
+                ..Default::default()
             },
         );
         let _ = app.sync_convex_frames();

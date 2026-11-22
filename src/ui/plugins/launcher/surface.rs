@@ -195,6 +195,8 @@ impl App {
             .map_or(self.cfg.general.launcher.position, |s| match s.position {
                 crate::config::BarPosition::Top => LauncherPosition::Top,
                 crate::config::BarPosition::Bottom => LauncherPosition::Bottom,
+                crate::config::BarPosition::Left => LauncherPosition::Left,
+                crate::config::BarPosition::Right => LauncherPosition::Right,
             })
     }
 
@@ -202,13 +204,19 @@ impl App {
         if self.launcher_in_bar(&m.name)
             && let Some(bar) = self.bar_surfaces.values().find(|s| s.monitor == m.name)
         {
-            let y = match bar.position {
-                crate::config::BarPosition::Top => bar.margin as f32,
-                crate::config::BarPosition::Bottom => {
-                    m.height as f32 - bar.height as f32 - bar.margin as f32
-                }
+            let offset = match bar.position {
+                crate::config::BarPosition::Top => iced::Vector::new(0.0, bar.margin as f32),
+                crate::config::BarPosition::Bottom => iced::Vector::new(
+                    0.0,
+                    m.height as f32 - bar.height as f32 - bar.margin as f32,
+                ),
+                crate::config::BarPosition::Left => iced::Vector::new(bar.margin as f32, 0.0),
+                crate::config::BarPosition::Right => iced::Vector::new(
+                    m.width as f32 - bar.height as f32 - bar.margin as f32,
+                    0.0,
+                ),
             };
-            return local + iced::Vector::new(0.0, y);
+            return local + offset;
         }
         let l = &self.cfg.general.launcher;
         lifecycle::screen_anchor(m, l.position, l.size, local)

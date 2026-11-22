@@ -2117,6 +2117,7 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
             "module_colors",
             "convex",
             "opacity",
+            "shape",
         ],
         CTX,
     )?;
@@ -2142,6 +2143,8 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         None => style.default_position(),
         Some("top") => BarPosition::Top,
         Some("bottom") => BarPosition::Bottom,
+        Some("left") => BarPosition::Left,
+        Some("right") => BarPosition::Right,
         Some(s) => {
             return Err(err(crate::tr!(
                 "{CTX} : position « {s} » inconnue (top, bottom)",
@@ -2294,6 +2297,10 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         convex.attached_panels = opt_bool(&c, "attached_panels", ctx)?.unwrap_or(true);
         convex.auto_hide = opt_bool(&c, "auto_hide", ctx)?.unwrap_or(true);
     }
+    let shape = match t.get::<Option<Table>>("shape")? {
+        Some(s) => bar_shape(&s)?,
+        None => crate::config::BarShape::default(),
+    };
     b.config.bar = Some(BarDef {
         monitors: string_list(t.get("monitor")?, "monitor", CTX)?,
         position,
@@ -2305,8 +2312,128 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         style,
         colors,
         convex,
+        shape,
     });
     Ok(())
+}
+
+/// `hd.bar { shape = { … } }` (MLG-277).
+fn bar_shape(t: &Table) -> mlua::Result<crate::config::BarShape> {
+    use crate::config::{BarAlign, BarLayer, BarLength, BarShape, BarVisibility};
+    let ctx = "hd.bar.shape";
+    check_keys(
+        t,
+        &[
+            "length",
+            "min_length",
+            "max_length",
+            "alignment",
+            "side_margin",
+            "layout",
+            "radius",
+            "padding",
+            "item_gap",
+            "icon_size",
+            "font_size",
+            "visibility",
+            "show_delay",
+            "hide_delay",
+            "reveal_zone",
+            "reserve_space",
+            "layer",
+        ],
+        ctx,
+    )?;
+    let d = BarShape::default();
+    let px = |key: &str, max: f64| -> mlua::Result<Option<u16>> {
+        Ok(opt_num(t, key, ctx)?.map(|v| v.clamp(0.0, max) as u16))
+    };
+    let length = match t.get::<mlua::Value>("length")? {
+        mlua::Value::Nil => Some(d.length),
+        mlua::Value::Integer(n) => BarLength::parse(&n.to_string()),
+        mlua::Value::Number(n) => BarLength::parse(&n.to_string()),
+        mlua::Value::String(s) => BarLength::parse(&s.to_str()?),
+        _ => None,
+    }
+    .map_or_else(
+        || {
+            Err(err(crate::tr!(
+                "{ctx} : « length » attend full, content, un pourcentage (« 60% ») ou des pixels",
+                ctx = ctx
+            )))
+        },
+        Ok,
+    )?;
+    let choice = |key: &str| opt_string(t, key, ctx);
+    let alignment = match choice("alignment")?.as_deref() {
+        None => d.alignment,
+        Some("start" | "left" | "top") => BarAlign::Start,
+        Some("center" | "centre") => BarAlign::Center,
+        Some("end" | "right" | "bottom") => BarAlign::End,
+        Some(o) => {
+            return Err(err(crate::tr!(
+                "{ctx} : alignement inconnu « {o} » (start, center, end)",
+                ctx = ctx,
+                o = o
+            )));
+        }
+    };
+    let groups = match choice("layout")?.as_deref() {
+        None => d.groups,
+        Some("continuous" | "continue") => false,
+        Some("groups" | "groupes") => true,
+        Some(o) => {
+            return Err(err(crate::tr!(
+                "{ctx} : disposition inconnue « {o} » (continuous, groups)",
+                ctx = ctx,
+                o = o
+            )));
+        }
+    };
+    let visibility = match choice("visibility")?.as_deref() {
+        None => d.visibility,
+        Some("always") => BarVisibility::Always,
+        Some("autohide" | "auto_hide" | "auto-hide") => BarVisibility::AutoHide,
+        Some(o) => {
+            return Err(err(crate::tr!(
+                "{ctx} : visibilité inconnue « {o} » (always, autohide)",
+                ctx = ctx,
+                o = o
+            )));
+        }
+    };
+    let layer = match choice("layer")?.as_deref() {
+        None => d.layer,
+        Some("top") => BarLayer::Top,
+        Some("overlay") => BarLayer::Overlay,
+        Some("bottom") => BarLayer::Bottom,
+        Some(o) => {
+            return Err(err(crate::tr!(
+                "{ctx} : couche inconnue « {o} » (top, overlay, bottom)",
+                ctx = ctx,
+                o = o
+            )));
+        }
+    };
+    Ok(BarShape {
+        length,
+        min_length: px("min_length", 8192.0)?.unwrap_or(d.min_length),
+        max_length: px("max_length", 8192.0)?.unwrap_or(d.max_length),
+        alignment,
+        side_margin: px("side_margin", 400.0)?.unwrap_or(d.side_margin),
+        groups,
+        radius: px("radius", 64.0)?,
+        padding: px("padding", 32.0)?,
+        item_gap: px("item_gap", 32.0)?,
+        icon_size: px("icon_size", 48.0)?.map(|v| v.max(10)),
+        font_size: opt_num(t, "font_size", ctx)?.map(|v| v.clamp(8.0, 32.0) as f32),
+        visibility,
+        show_delay: px("show_delay", 3000.0)?.unwrap_or(d.show_delay),
+        hide_delay: px("hide_delay", 10000.0)?.unwrap_or(d.hide_delay),
+        reveal_zone: px("reveal_zone", 40.0)?.unwrap_or(d.reveal_zone).max(1),
+        reserve_space: opt_bool(t, "reserve_space", ctx)?.unwrap_or(d.reserve_space),
+        layer,
+    })
 }
 
 fn hd_component(b: &mut Builder, name: &str, t: &Table) -> mlua::Result<()> {

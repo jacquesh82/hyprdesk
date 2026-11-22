@@ -90,6 +90,7 @@ pub fn pack_key(shape: &str) -> Option<&'static Key> {
         ("bar", "edge") => "bar.position",
         ("bar", "thickness") => "bar.height",
         ("bar", "edge_offset") => "bar.margin",
+        ("bar", "fullscreen_behavior" | "fullscreen") => "bar.layer",
         _ => return find_allowed(shape),
     };
     find_allowed(alias)
@@ -813,10 +814,10 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.bar.is_some()),
         |s, v, c| { bar(s, c).enabled = parse_bool(v)?; Ok(()) },
         |s| s.bar = None;
-    "bar.position", "bar", "top | bottom — bord de la barre",
-        |c| c.bar.as_ref().map(|b| if b.position == BarPosition::Top { "top" } else { "bottom" }.to_string()).unwrap_or_default(),
+    "bar.position", "bar", "top | bottom | left | right — bord de la barre",
+        |c| c.bar.as_ref().map(|b| b.position.as_str().to_string()).unwrap_or_default(),
         |s, v, c| {
-            bar(s, c).position = match v { "top" => BarPosition::Top, "bottom" => BarPosition::Bottom, _ => return Err(crate::tr!("« {v} » : top ou bottom", v = v)) };
+            bar(s, c).position = BarPosition::parse(v).ok_or_else(|| crate::tr!("« {v} » : top, bottom, left ou right", v = v))?;
             Ok(())
         },
         |s| { if let Some(b) = s.bar.as_mut() { b.position = BarPosition::Top; } };
@@ -882,6 +883,74 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| b.margin.to_string()).unwrap_or_default(),
         |s, v, c| { bar(s, c).margin = number(v, 0u16, 32)?; Ok(()) },
         |s| { if let Some(b) = s.bar.as_mut() { b.margin = BarSettings::default().margin; } };
+    "bar.length", "bar", "full | content | <pixels> | <n>% — longueur de la barre le long de son bord",
+        |c| c.bar.as_ref().map(|b| b.shape.length.as_text()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.length = choice(v, crate::config::BarLength::parse, "full, content, 48..8192, 5%..100%")?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.length = Default::default(); } };
+    "bar.min_length", "bar", "0..8192 — longueur minimale (0 : aucune)",
+        |c| c.bar.as_ref().map(|b| b.shape.min_length.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.min_length = number(v, 0u16, 8192)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.min_length = crate::config::BarShape::default().min_length; } };
+    "bar.max_length", "bar", "0..8192 — longueur maximale (0 : aucune)",
+        |c| c.bar.as_ref().map(|b| b.shape.max_length.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.max_length = number(v, 0u16, 8192)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.max_length = crate::config::BarShape::default().max_length; } };
+    "bar.alignment", "bar", "start | center | end — place d'une barre plus courte que son bord",
+        |c| c.bar.as_ref().map(|b| match b.shape.alignment { crate::config::BarAlign::Start => "start", crate::config::BarAlign::Center => "center", crate::config::BarAlign::End => "end" }.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.alignment = choice(v, |x| match x { "start" => Some(crate::config::BarAlign::Start), "center" => Some(crate::config::BarAlign::Center), "end" => Some(crate::config::BarAlign::End), _ => None }, "start, center, end")?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.alignment = Default::default(); } };
+    "bar.side_margin", "bar", "0..400 — marges sur les côtés (barre flottante)",
+        |c| c.bar.as_ref().map(|b| b.shape.side_margin.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.side_margin = number(v, 0u16, 400)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.side_margin = crate::config::BarShape::default().side_margin; } };
+    "bar.layout", "bar", "continuous | groups — lame continue ou groupes détachés (Continuité)",
+        |c| c.bar.as_ref().map(|b| if b.shape.groups { "groups" } else { "continuous" }.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.groups = choice(v, |x| match x { "continuous" => Some(false), "groups" => Some(true), _ => None }, "continuous, groups")?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.groups = false; } };
+    "bar.radius", "bar", "style | 0..64 — rayon des coins de la barre",
+        |c| c.bar.as_ref().and_then(|b| b.shape.radius).map(|v| v.to_string()).unwrap_or_else(|| "style".into()),
+        |s, v, c| { bar(s, c).shape.radius = if v.trim() == "style" { None } else { Some(number(v, 0u16, 64)?) }; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.radius = None; } };
+    "bar.padding", "bar", "style | 0..32 — marge intérieure de la barre",
+        |c| c.bar.as_ref().and_then(|b| b.shape.padding).map(|v| v.to_string()).unwrap_or_else(|| "style".into()),
+        |s, v, c| { bar(s, c).shape.padding = if v.trim() == "style" { None } else { Some(number(v, 0u16, 32)?) }; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.padding = None; } };
+    "bar.item_gap", "bar", "style | 0..32 — espacement des modules",
+        |c| c.bar.as_ref().and_then(|b| b.shape.item_gap).map(|v| v.to_string()).unwrap_or_else(|| "style".into()),
+        |s, v, c| { bar(s, c).shape.item_gap = if v.trim() == "style" { None } else { Some(number(v, 0u16, 32)?) }; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.item_gap = None; } };
+    "bar.icon_size", "bar", "style | 10..48 — taille des icônes de la barre",
+        |c| c.bar.as_ref().and_then(|b| b.shape.icon_size).map(|v| v.to_string()).unwrap_or_else(|| "style".into()),
+        |s, v, c| { bar(s, c).shape.icon_size = if v.trim() == "style" { None } else { Some(number(v, 10u16, 48)?) }; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.icon_size = None; } };
+    "bar.font_size", "bar", "style | 8..32 — taille du texte de la barre",
+        |c| c.bar.as_ref().and_then(|b| b.shape.font_size).map(|v| v.to_string()).unwrap_or_else(|| "style".into()),
+        |s, v, c| { bar(s, c).shape.font_size = if v.trim() == "style" { None } else { Some(number(v, 8.0f32, 32.0)?) }; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.font_size = None; } };
+    "bar.visibility", "bar", "always | autohide — barre toujours visible, ou masquée hors survol",
+        |c| c.bar.as_ref().map(|b| if b.shape.visibility == crate::config::BarVisibility::AutoHide { "autohide" } else { "always" }.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.visibility = choice(v, |x| match x { "always" => Some(crate::config::BarVisibility::Always), "autohide" => Some(crate::config::BarVisibility::AutoHide), _ => None }, "always, autohide")?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.visibility = Default::default(); } };
+    "bar.show_delay", "bar", "0..3000 — délai d'apparition au contact du bord (ms)",
+        |c| c.bar.as_ref().map(|b| b.shape.show_delay.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.show_delay = number(v, 0u16, 3000)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.show_delay = crate::config::BarShape::default().show_delay; } };
+    "bar.hide_delay", "bar", "0..10000 — délai avant de masquer (ms)",
+        |c| c.bar.as_ref().map(|b| b.shape.hide_delay.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.hide_delay = number(v, 0u16, 10000)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.hide_delay = crate::config::BarShape::default().hide_delay; } };
+    "bar.reveal_zone", "bar", "1..40 — épaisseur de la zone qui fait revenir la barre (px)",
+        |c| c.bar.as_ref().map(|b| b.shape.reveal_zone.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.reveal_zone = number(v, 1u16, 40)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.reveal_zone = crate::config::BarShape::default().reveal_zone; } };
+    "bar.reserve_space", "bar", "on | off — les fenêtres laissent la place de la barre",
+        |c| c.bar.as_ref().map(|b| on_off(b.shape.reserve_space)).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.reserve_space = parse_bool(v)?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.reserve_space = true; } };
+    "bar.layer", "bar", "top | overlay | bottom — au-dessus des fenêtres (sous le plein écran), de tout, ou dessous",
+        |c| c.bar.as_ref().map(|b| match b.shape.layer { crate::config::BarLayer::Top => "top", crate::config::BarLayer::Overlay => "overlay", crate::config::BarLayer::Bottom => "bottom" }.to_string()).unwrap_or_default(),
+        |s, v, c| { bar(s, c).shape.layer = choice(v, |x| match x { "top" => Some(crate::config::BarLayer::Top), "overlay" => Some(crate::config::BarLayer::Overlay), "bottom" => Some(crate::config::BarLayer::Bottom), _ => None }, "top, overlay, bottom")?; Ok(()) },
+        |s| { if let Some(b) = s.bar.as_mut() { b.shape.layer = Default::default(); } };
     "bar.opacity", "bar", "0..1 | theme — opacité du fond de la barre (0 : transparente)",
         |c| c.bar.as_ref().and_then(|b| b.colors.opacity).map(|o| format!("{}", (o * 100.0).round() / 100.0)).unwrap_or_else(|| "theme".into()),
         |s, v, c| {

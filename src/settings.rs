@@ -51,6 +51,8 @@ pub struct BarSettings {
     pub style: crate::config::BarStyle,
     pub colors: crate::config::BarColors,
     pub convex: crate::config::ConvexDef,
+    /// Forme de la barre (MLG-277).
+    pub shape: crate::config::BarShape,
 }
 
 impl crate::config::BarStyle {
@@ -87,8 +89,74 @@ impl Default for BarSettings {
             style: Default::default(),
             colors: Default::default(),
             convex: Default::default(),
+            shape: Default::default(),
         }
     }
+}
+
+/// `shape = { … }` d'une barre : les champs qui diffèrent du défaut.
+fn shape_lua(s: &crate::config::BarShape) -> Option<String> {
+    use crate::config::{BarAlign, BarLayer, BarShape, BarVisibility};
+    let d = BarShape::default();
+    let mut f = Vec::new();
+    if s.length != d.length {
+        f.push(format!("length = {}", q(&s.length.as_text())));
+    }
+    for (k, v, dv) in [
+        ("min_length", s.min_length, d.min_length),
+        ("max_length", s.max_length, d.max_length),
+        ("side_margin", s.side_margin, d.side_margin),
+        ("show_delay", s.show_delay, d.show_delay),
+        ("hide_delay", s.hide_delay, d.hide_delay),
+        ("reveal_zone", s.reveal_zone, d.reveal_zone),
+    ] {
+        if v != dv {
+            f.push(format!("{k} = {v}"));
+        }
+    }
+    if s.alignment != d.alignment {
+        f.push(format!(
+            "alignment = {}",
+            q(match s.alignment {
+                BarAlign::Start => "start",
+                BarAlign::Center => "center",
+                BarAlign::End => "end",
+            })
+        ));
+    }
+    if s.groups {
+        f.push(format!("layout = {}", q("groups")));
+    }
+    for (k, v) in [
+        ("radius", s.radius),
+        ("padding", s.padding),
+        ("item_gap", s.item_gap),
+        ("icon_size", s.icon_size),
+    ] {
+        if let Some(v) = v {
+            f.push(format!("{k} = {v}"));
+        }
+    }
+    if let Some(v) = s.font_size {
+        f.push(format!("font_size = {}", num(v)));
+    }
+    if s.visibility == BarVisibility::AutoHide {
+        f.push(format!("visibility = {}", q("autohide")));
+    }
+    if !s.reserve_space {
+        f.push("reserve_space = false".to_string());
+    }
+    if s.layer != d.layer {
+        f.push(format!(
+            "layer = {}",
+            q(match s.layer {
+                BarLayer::Top => "top",
+                BarLayer::Overlay => "overlay",
+                BarLayer::Bottom => "bottom",
+            })
+        ));
+    }
+    (!f.is_empty()).then(|| format!("shape = {{ {} }}", f.join(", ")))
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -284,6 +352,7 @@ impl BarSettings {
                 style: b.style,
                 colors: b.colors.clone(),
                 convex: b.convex,
+                shape: b.shape,
             },
         }
     }
@@ -1651,18 +1720,14 @@ impl Settings {
                 if let Some(m) = &b.monitors {
                     f.push(format!("monitor = {}", list(m)));
                 }
-                f.push(format!(
-                    "position = {}",
-                    q(if b.position == BarPosition::Top {
-                        "top"
-                    } else {
-                        "bottom"
-                    })
-                ));
+                f.push(format!("position = {}", q(b.position.as_str())));
                 f.push(format!("height = {}", b.height));
                 f.push(format!("margin = {}", b.margin));
                 if b.style != crate::config::BarStyle::default() {
                     f.push(format!("style = {}", q(b.style.as_str())));
+                }
+                if let Some(shape) = shape_lua(&b.shape) {
+                    f.push(shape);
                 }
                 if b.convex != crate::config::ConvexDef::default() {
                     let c = b.convex;
@@ -2828,6 +2893,45 @@ mod tests {
             lua.lines().all(|l| l.starts_with("--") || l.is_empty()),
             "{lua}"
         );
+    }
+
+    #[test]
+    fn forme_de_barre_aller_retour() {
+        use crate::config::{BarAlign, BarLayer, BarLength, BarShape, BarVisibility};
+        let b = BarSettings {
+            position: BarPosition::Left,
+            shape: BarShape {
+                length: BarLength::Percent(0.6),
+                min_length: 300,
+                alignment: BarAlign::End,
+                side_margin: 12,
+                groups: true,
+                radius: Some(18),
+                padding: Some(10),
+                item_gap: Some(6),
+                icon_size: Some(20),
+                font_size: Some(14.5),
+                visibility: BarVisibility::AutoHide,
+                hide_delay: 900,
+                reveal_zone: 6,
+                reserve_space: false,
+                layer: BarLayer::Overlay,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let settings = Settings {
+            bar: Some(b.clone()),
+            ..Default::default()
+        };
+        let loaded = crate::config::lua::load_chunks(
+            &[(settings.to_lua(), "settings.lua".into(), Origin::Settings)],
+            Path::new("/tmp/hyprdesk-shape-roundtrip"),
+        )
+        .unwrap();
+        let again = BarSettings::from_config(&loaded.config);
+        assert_eq!(again.shape, b.shape);
+        assert_eq!(again.position, BarPosition::Left);
     }
 
     #[test]

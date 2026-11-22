@@ -56,6 +56,9 @@ pub enum Msg {
     Height(u16),
     /// Marge au bord de l'écran (glissé).
     Margin(u16),
+    /// Forme de la barre (MLG-277) : longueur, alignement, marges,
+    /// groupes, rayon, visibilité, place, couche.
+    Shape(crate::config::BarShape, bool),
     /// Style visuel de la barre (`ui::plugins::bar::style`).
     Style(crate::config::BarStyle),
     ConvexFrame(u16),
@@ -118,6 +121,154 @@ impl std::fmt::Display for BarChoice {
 }
 
 impl App {
+    /// Forme de la barre (MLG-277) dans Réglages → Barre.
+    fn bar_shape_fields(
+        &self,
+        shape: crate::config::BarShape,
+        style: crate::config::BarStyle,
+    ) -> Element<'_, UiMsg> {
+        use crate::config::{BarAlign, BarLayer, BarLength, BarVisibility};
+        let font = self.font;
+        let set = move |f: &dyn Fn(&mut crate::config::BarShape), commit: bool| {
+            let mut s = shape;
+            f(&mut s);
+            wrap(Msg::Shape(s, commit))
+        };
+        let lengths: [(BarLength, &str); 5] = [
+            (BarLength::Full, "Bord entier"),
+            (BarLength::Content, "Selon le contenu"),
+            (BarLength::Percent(0.5), "50 %"),
+            (BarLength::Percent(0.7), "70 %"),
+            (BarLength::Percent(0.9), "90 %"),
+        ];
+        let current = lengths.iter().position(|(l, _)| *l == shape.length);
+        let length = row(lengths.into_iter().enumerate().map(|(i, (l, label))| {
+            radio(crate::i18n::tr(label), i, current, move |_| {
+                set(&|s: &mut crate::config::BarShape| s.length = l, true)
+            })
+            .font(font)
+            .size(crate::ui::tokens::ts(15.0))
+            .into()
+        }))
+        .spacing(14)
+        .wrap();
+        let mut col = column![self.field("Longueur", "", length)].spacing(18);
+        if shape.length != BarLength::Full {
+            let aligns: [(BarAlign, &str); 3] = [
+                (BarAlign::Start, "Début"),
+                (BarAlign::Center, "Centre"),
+                (BarAlign::End, "Fin"),
+            ];
+            col = col.push(
+                self.field(
+                    "Alignement",
+                    "",
+                    row(aligns.into_iter().map(|(a, label)| {
+                        radio(crate::i18n::tr(label), a, Some(shape.alignment), move |v| {
+                            set(&|s: &mut crate::config::BarShape| s.alignment = v, true)
+                        })
+                        .font(font)
+                        .size(crate::ui::tokens::ts(15.0))
+                        .into()
+                    }))
+                    .spacing(14),
+                ),
+            );
+        }
+        col = col.push(
+            self.field(
+                "Marges sur les côtés",
+                crate::i18n::tr("0 = d'un bord à l'autre ; au-delà, la barre flotte"),
+                row![
+                    slider(0..=200u16, shape.side_margin.min(200), move |v| {
+                        set(&|s: &mut crate::config::BarShape| s.side_margin = v, false)
+                    })
+                    .on_release(wrap(Msg::Commit))
+                    .width(260),
+                    text(format!("{} px", shape.side_margin))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                ]
+                .spacing(12),
+            ),
+        );
+        col = col.push(
+            self.field(
+                "Rayon des coins",
+                "",
+                row![
+                    slider(0..=32u16, shape.radius.unwrap_or(11).min(32), move |v| {
+                        set(&|s: &mut crate::config::BarShape| s.radius = Some(v), false)
+                    })
+                    .on_release(wrap(Msg::Commit))
+                    .width(260),
+                    text(format!("{} px", shape.radius.unwrap_or(11)))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                ]
+                .spacing(12),
+            ),
+        );
+        let mut toggles = column![
+            toggler(shape.visibility == BarVisibility::AutoHide)
+                .label(crate::i18n::tr(
+                    "Masquer hors survol (un contact du bord la fait revenir)"
+                ))
+                .font(font)
+                .on_toggle(move |v| set(
+                    &|s: &mut crate::config::BarShape| {
+                        s.visibility = if v {
+                            BarVisibility::AutoHide
+                        } else {
+                            BarVisibility::Always
+                        }
+                    },
+                    true
+                )),
+            toggler(shape.reserve_space)
+                .label(crate::i18n::tr(
+                    "Les fenêtres laissent la place de la barre"
+                ))
+                .font(font)
+                .on_toggle(move |v| set(
+                    &|s: &mut crate::config::BarShape| s.reserve_space = v,
+                    true
+                )),
+        ]
+        .spacing(10);
+        if style == crate::config::BarStyle::Continuite {
+            toggles = toggles.push(
+                toggler(shape.groups)
+                    .label(crate::i18n::tr("Groupes détachés (sans lame continue)"))
+                    .font(font)
+                    .on_toggle(move |v| set(&|s: &mut crate::config::BarShape| s.groups = v, true)),
+            );
+        }
+        col = col.push(self.field("Comportement", "", toggles));
+        let layers: [(BarLayer, &str); 3] = [
+            (BarLayer::Top, "Sur les fenêtres"),
+            (BarLayer::Overlay, "Sur tout, plein écran compris"),
+            (BarLayer::Bottom, "Sous les fenêtres"),
+        ];
+        col = col.push(
+            self.field(
+                "Couche",
+                "",
+                row(layers.into_iter().map(|(l, label)| {
+                    radio(crate::i18n::tr(label), l, Some(shape.layer), move |v| {
+                        set(&|s: &mut crate::config::BarShape| s.layer = v, true)
+                    })
+                    .font(font)
+                    .size(crate::ui::tokens::ts(15.0))
+                    .into()
+                }))
+                .spacing(14)
+                .wrap(),
+            ),
+        );
+        col.into()
+    }
+
     /// Même transaction pour les poignées de barre et la liste des réglages.
     pub(in crate::ui) fn finish_bar_drag(&mut self) -> bool {
         let Some((from, Some(to))) = self.bar_drag.take() else {
@@ -238,8 +389,24 @@ impl App {
                                 |v| { wrap(Msg::Pos(v)) }
                             )
                             .font(self.font),
+                            // Barre verticale (MLG-277).
+                            radio(
+                                crate::i18n::tr("À gauche"),
+                                BarPosition::Left,
+                                Some(b.position),
+                                |v| { wrap(Msg::Pos(v)) }
+                            )
+                            .font(self.font),
+                            radio(
+                                crate::i18n::tr("À droite"),
+                                BarPosition::Right,
+                                Some(b.position),
+                                |v| { wrap(Msg::Pos(v)) }
+                            )
+                            .font(self.font),
                         ]
-                        .spacing(16),
+                        .spacing(16)
+                        .wrap(),
                     ),
                 )
                 .push(
@@ -268,6 +435,7 @@ impl App {
                         .spacing(12),
                     ),
                 )
+                .push(self.bar_shape_fields(b.shape, b.style))
                 .push({
                     // Le style : un rendu complet, chaque style son geste.
                     use crate::config::{BarStyle, BAR_STYLES};
@@ -727,6 +895,14 @@ impl App {
                     .get_or_insert_with(Default::default)
                     .margin = m;
                 Task::none()
+            }
+            Msg::Shape(shape, commit) => {
+                self.settings.bar.get_or_insert_with(Default::default).shape = shape;
+                if commit {
+                    self.commit_reload()
+                } else {
+                    Task::none()
+                }
             }
             Msg::Style(s) => {
                 let b = self.settings.bar.get_or_insert_with(Default::default);

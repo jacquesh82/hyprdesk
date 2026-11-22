@@ -26,6 +26,19 @@ pub(in crate::ui) struct PillSkin {
 
 /// Débord de la pilule autour des modules mesurés, en pixels.
 const PILL_INSET: f32 = 12.0;
+
+/// Espacement des modules (`bar.item_gap`, MLG-277), posé par la barre
+/// avant sa mise en page ; 2 px sans réglage.
+static GAP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x4000_0000);
+
+/// Pose l'espacement des modules.
+pub(in crate::ui) fn set_gap(px: f32) {
+    GAP.store(px.max(0.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn gap() -> f32 {
+    f32::from_bits(GAP.load(std::sync::atomic::Ordering::Relaxed))
+}
 const IDLE_WIDTH: f32 = 112.0;
 const IDLE_HEIGHT: f32 = 28.0;
 pub(super) const GROUP_INSET: f32 = 3.0;
@@ -61,11 +74,11 @@ fn totals(widths: &[f32], zones: &[usize], visible: &[bool], more: f32) -> [f32;
     let mut out = [0.0; 3];
     for (i, width) in widths.iter().enumerate() {
         if visible[i] && *width > 0.0 {
-            out[zones[i]] += width + 2.0;
+            out[zones[i]] += width + gap();
         }
     }
     if more > 0.0 {
-        out[2] += more + 2.0;
+        out[2] += more + gap();
     }
     out
 }
@@ -225,7 +238,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
                 .zip(&self.zones)
                 .fold([0.0_f32; 2], |mut sides, (n, zone)| {
                     if *zone != 1 {
-                        sides[usize::from(*zone == 2)] += n.size().width + 2.0;
+                        sides[usize::from(*zone == 2)] += n.size().width + gap();
                     }
                     sides
                 });
@@ -234,7 +247,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
                 .zip(&self.zones)
                 .zip(&self.flexible)
                 .filter(|((_, zone), flexible)| **zone == 1 && !**flexible)
-                .map(|((node, _), _)| node.size().width + 2.0)
+                .map(|((node, _), _)| node.size().width + gap())
                 .sum();
             let budget = (size.width - 2.0 * sides[0].max(sides[1]) - fixed_center)
                 .max(48.0)
@@ -291,7 +304,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
                 let w = node.size().width;
                 let x0 = x[zone];
                 let pos = Point::new(x0, (size.height - node.size().height) / 2.0);
-                x[zone] += w + 2.0;
+                x[zone] += w + gap();
                 node.move_to_mut(pos);
                 let e = &mut extents[zone];
                 if e.0 == 0.0 && e.1 == 0.0 {

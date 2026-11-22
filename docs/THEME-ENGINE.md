@@ -284,11 +284,17 @@ L'aliasing vers les clés de réglage existantes est bijectif : `theme.fg` ↔ `
 
 Sections `[bar]`, `[dock]`, `[launcher]`, `[workspaces]`, `[notifications]`, `[widgets]`, `[lock]`, `[desktop]`, `[controls]` : chaque clé `<section>.<clé>` désigne un réglage de hyprdesk, écrit dans `settings.lua` quand le pack (ou sa variante) est choisi, comme son fond d'écran ; l'utilisateur peut tout retoucher ensuite. Les valeurs sont des textes, nombres, booléens (`on`/`off`) ou listes de textes, et passent par la clé de `hyprdesk config` correspondante, avec sa validation (`cli_config::pack_key`) : `bar.thickness` → `bar.height`, `bar.edge` → `bar.position`, `bar.edge_offset` → `bar.margin`, `dock.position`/`dock.size` → `launcher_position`/`launcher_size`, `launcher.style` → `apps_style`, `workspaces.selector` → `workspace_selector`, `lock.<clé>` → `lock_<clé>`, `desktop.mode`/`icon_size`/`cell`, sinon la clé de même nom. Liste blanche : apparence et disposition seulement — jamais de raccourci, de commande, d'application ni d'écran nommé ; une clé refusée est journalisée. La forme ne dépend pas de la variante.
 
+Barre (MLG-277) : `edge` (`top`, `bottom`, `left`, `right` — une barre verticale empile ses zones, ses espaces de travail, et ouvre ses menus à côté d'elle), `thickness`, `edge_offset`, `style`, `length` (`full`, `content`, pixels ou `60%`), `min_length`, `max_length`, `alignment` (`start`, `center`, `end`), `side_margin` (barre flottante : quatre coins arrondis), `layout` (`continuous`, `groups`), `radius`, `padding`, `item_gap`, `icon_size`, `font_size`, `visibility` (`always`, `autohide`) avec `show_delay`, `hide_delay`, `reveal_zone`, `reserve_space`, `layer` (`top`, `overlay` — au-dessus du plein écran —, `bottom`). Toutes sont aussi des clés `bar.*` de `hyprdesk config` et des réglages de Réglages → Barre.
+
 ```toml
 [bar]
 thickness = 42
 edge = "top"
 style = "continuity"
+length = "70%"
+side_margin = 12
+layout = "groups"
+visibility = "autohide"
 [dock]
 position = "bottom"
 size = 48
