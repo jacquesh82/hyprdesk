@@ -1236,6 +1236,14 @@ mod tests {
         d
     }
 
+    /// Les essais d'export et d'import partagent l'état du processus
+    /// (`layout.toml`, dossier personnel d'essai) : un import concurrent
+    /// écrasait la disposition qu'un autre vérifiait (échec aléatoire en CI).
+    fn état_partagé() -> std::sync::MutexGuard<'static, ()> {
+        static VERROU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        VERROU.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn lecture_des_require_et_des_chemins_cites() {
         let src = "require(\"binds\")\nrequire 'sub.mod'\n-- require(\"vieux\")\nlocal x = myrequire(\"non\")\n\
@@ -1264,6 +1272,7 @@ mod tests {
     /// posé (sans monitors.lua sauf demande), rien d'existant écrasé.
     #[test]
     fn tout_le_perimetre_voyage() {
+        let _état = état_partagé();
         let base = std::env::temp_dir().join(format!("hyprdesk-perimetre-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (a, b) = (base.join("a"), base.join("b"));
@@ -1366,6 +1375,7 @@ mod tests {
 
     #[test]
     fn exporter_puis_importer_ailleurs() {
+        let _état = état_partagé();
         let base =
             std::env::temp_dir().join(format!("hyprdesk-share-import-{}", std::process::id()));
         let (a, b) = (base.join("a"), base.join("b"));
@@ -1438,6 +1448,7 @@ mod tests {
 
     #[test]
     fn exporter_le_theme_seul() {
+        let _état = état_partagé();
         use crate::config::Place;
         let base = std::env::temp_dir().join(format!("hyprdesk-theme-{}", std::process::id()));
         let (a, b) = (base.join("a"), base.join("b"));
@@ -1521,6 +1532,7 @@ mod tests {
     /// (bac à sable) ne l'exécutent avec les droits de l'utilisateur.
     #[test]
     fn archive_piegee_sans_effet() {
+        let _état = état_partagé();
         let base = std::env::temp_dir().join(format!("hyprdesk-piege-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (stage, b) = (base.join("stage"), base.join("b"));
@@ -1646,6 +1658,7 @@ mod tests {
 
     #[test]
     fn lien_dans_l_archive_refuse() {
+        let _état = état_partagé();
         let base = std::env::temp_dir().join(format!("hyprdesk-lien-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(base.join("s/hyprdesk")).unwrap();
