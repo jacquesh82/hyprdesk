@@ -799,8 +799,9 @@ fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
         Fit::Fill => img.resize_exact(*w, *h, FilterType::Triangle),
         Fit::Center => img,
         Fit::Cover | Fit::Contain => {
+            // Remplir : zoom réglé (MLG-280).
             let s = if *fit == Fit::Cover {
-                (tw / iw).max(th / ih)
+                crate::wallpaper_fx::cover_scale((tw / iw).max(th / ih))
             } else {
                 (tw / iw).min(th / ih)
             };
@@ -811,8 +812,17 @@ fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
             img.resize_exact(nw, nh, FilterType::Triangle)
         }
     };
+    // Remplir : recadré autour du point focal réglé (MLG-280).
+    let img = if *fit == Fit::Cover && span.is_none() {
+        crate::wallpaper_fx::crop_focal(img, *w, *h)
+    } else {
+        img
+    };
     let img = if *blur { img.fast_blur(2.5) } else { img };
-    let rgba = img.to_rgba8();
+    // Traitement de l'image (luminosité, saturation, contraste, vignette),
+    // teinte moyenne pour le verre.
+    let rgba = crate::wallpaper_fx::grade(img.to_rgba8());
+    tokens::set_wall_color(crate::wallpaper_fx::average(&rgba));
     let backdrop = plugins::launcher::Backdrop::from_rgba(&rgba);
     Ok(DecodedWall {
         handle: image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()),
@@ -851,7 +861,12 @@ fn video_recipe(key: &WallKey) -> crate::video::Recipe {
         path: path.clone(),
         w,
         h,
-        fps: if *blur { 30 } else { 24 },
+        // Cadence réglée (MLG-280), 30 sous le flou.
+        fps: if *blur {
+            30
+        } else {
+            crate::wallpaper_fx::current().fps.clamp(5, 60)
+        },
         blur: (*blur).then_some(2.5),
         span: (*canvas).zip(*place),
         whole,
@@ -1234,6 +1249,11 @@ impl App {
         }
         if old.wallpapers != self.cfg.wallpapers {
             self.rot.clear();
+        }
+        // Cadrage ou traitement du fond changés (MLG-280) : à redécoder.
+        if crate::wallpaper_fx::set(crate::wallpaper_fx::Treatment::of(&self.cfg.general)) {
+            self.walls.clear();
+            self.shown.clear();
         }
         let mut tasks = Vec::new();
         tasks.push(self.apply_screen_colors());
@@ -3010,7 +3030,8 @@ impl App {
                 (Some(rule), Some(idx)) => match &rule.source {
                     WallSource::Color(c) => Wall::Color(*c),
                     WallSource::Path(p) => Wall::Image((
-                        p.clone(),
+                        // Fond propre au mode clair ou sombre (MLG-280).
+                        self.mode_wallpaper().unwrap_or_else(|| p.clone()),
                         m.width,
                         m.height,
                         rule.fit,

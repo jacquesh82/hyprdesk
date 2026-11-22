@@ -87,6 +87,11 @@ pub fn target_size(w: u32, h: u32, bound: u32) -> (u32, u32) {
 /// Chaîne de filtres : cadence, cadrage (ou part étalée), flou.
 fn filter(r: &Recipe) -> String {
     let mut f = format!("fps={}", r.fps.max(1));
+    // Vitesse réglée du fond vidéo (MLG-280).
+    let speed = crate::wallpaper_fx::current().speed;
+    if (speed - 1.0).abs() > 1e-3 {
+        f.push_str(&format!(",setpts=PTS/{speed}"));
+    }
     match r.span {
         Some(((cw, ch), (x, y, pw, ph))) => {
             // La vidéo couvre le canevas de la disposition, l'écran y prend

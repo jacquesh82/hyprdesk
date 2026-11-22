@@ -63,6 +63,10 @@ impl App {
             .find(|m| m.focused)
             .map_or(1080.0, |m| m.height as f32);
         super::apps_grid::set_shape(self.cfg.general.apps_launcher.shape, screen);
+        super::tokens::set_wall_tint(crate::design_options::num(
+            &self.cfg.general,
+            "wallpaper.glass_tint",
+        ) as f32);
         if first || theme_changed {
             // Couleurs d'état tout de suite, sans attendre le moteur.
             super::tokens::set_palette(resolve::from_theme(&self.cfg.general.theme).palette);

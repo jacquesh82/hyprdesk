@@ -18,6 +18,8 @@ pub enum Kind {
     Float(f64, f64),
     Bool,
     Choice(&'static [&'static str]),
+    /// Texte libre (chemin d'image).
+    Text,
 }
 
 /// Valeur par défaut d'une option.
@@ -225,6 +227,103 @@ pub static OPTIONS: &[Opt] = &[
         "Teinte tirée de la pochette",
         "on | off — la carte du média prend la teinte de la pochette",
     ),
+    // Fond d'écran (MLG-280).
+    opt(
+        "wallpaper",
+        "focal_x",
+        Kind::Float(0.0, 1.0),
+        Def::Num(0.5),
+        "Point focal horizontal",
+        "0..1 — part de l'image gardée au centre en largeur (remplir)",
+    ),
+    opt(
+        "wallpaper",
+        "focal_y",
+        Kind::Float(0.0, 1.0),
+        Def::Num(0.5),
+        "Point focal vertical",
+        "0..1 — part de l'image gardée au centre en hauteur (remplir)",
+    ),
+    opt(
+        "wallpaper",
+        "zoom",
+        Kind::Float(1.0, 3.0),
+        Def::Num(1.0),
+        "Zoom",
+        "1..3 — agrandissement de l'image (remplir)",
+    ),
+    opt(
+        "wallpaper",
+        "brightness",
+        Kind::Float(-0.5, 0.5),
+        Def::Num(0.0),
+        "Luminosité",
+        "-0.5..0.5 — luminosité du fond",
+    ),
+    opt(
+        "wallpaper",
+        "saturation",
+        Kind::Float(0.0, 2.0),
+        Def::Num(1.0),
+        "Saturation",
+        "0..2 — saturation du fond (0 : noir et blanc)",
+    ),
+    opt(
+        "wallpaper",
+        "contrast",
+        Kind::Float(0.5, 1.5),
+        Def::Num(1.0),
+        "Contraste",
+        "0.5..1.5 — contraste du fond",
+    ),
+    opt(
+        "wallpaper",
+        "vignette",
+        Kind::Float(0.0, 1.0),
+        Def::Num(0.0),
+        "Vignette",
+        "0..1 — assombrissement des bords",
+    ),
+    opt(
+        "wallpaper",
+        "speed",
+        Kind::Float(0.25, 4.0),
+        Def::Num(1.0),
+        "Vitesse de lecture",
+        "0.25..4 — vitesse d'un fond vidéo",
+    ),
+    opt(
+        "wallpaper",
+        "fps",
+        Kind::Int(5, 60),
+        Def::Num(24.0),
+        "Images par seconde",
+        "5..60 — cadence d'un fond vidéo",
+    ),
+    opt(
+        "wallpaper",
+        "glass_tint",
+        Kind::Float(0.0, 0.5),
+        Def::Num(0.0),
+        "Teinte du verre par le fond",
+        "0..0.5 — le verre prend la couleur moyenne du fond",
+    ),
+    opt(
+        "wallpaper",
+        "light_image",
+        Kind::Text,
+        Def::Str(""),
+        "Fond en mode clair",
+        "<chemin> — image de fond quand le thème est clair (vide : celle des règles)",
+    ),
+    opt(
+        "wallpaper",
+        "dark_image",
+        Kind::Text,
+        Def::Str(""),
+        "Fond en mode sombre",
+        "<chemin> — image de fond quand le thème est sombre (vide : celle des règles)",
+    ),
     // Verrouillage et connexion.
     opt(
         "lock",
@@ -300,6 +399,19 @@ impl Opt {
                 "off" | "false" | "no" | "non" | "0" => Ok(OptValue::Bool(false)),
                 _ => Err(crate::tr!("« {v} » : on ou off", v = t)),
             },
+            Kind::Text => {
+                if t.chars().any(char::is_control) || t.len() > 1024 {
+                    return Err(crate::tr!("« {v} » : texte d'une ligne attendu", v = t));
+                }
+                // `~/…` : dossier personnel.
+                let path = match (t.strip_prefix("~/"), std::env::var_os("HOME")) {
+                    (Some(rest), Some(home)) => {
+                        std::path::Path::new(&home).join(rest).display().to_string()
+                    }
+                    _ => t.to_string(),
+                };
+                Ok(OptValue::Str(path))
+            }
             Kind::Choice(list) => {
                 if list.contains(&t) {
                     Ok(OptValue::Str(t.to_string()))

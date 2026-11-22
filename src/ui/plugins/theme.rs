@@ -218,7 +218,7 @@ impl App {
         use crate::tiling::OptValue;
         let font = self.font;
         let g = &self.cfg.general;
-        let groups: [(&str, &str); 8] = [
+        let groups: [(&str, &str); 9] = [
             ("dock", "Dock"),
             ("workspaces", "Espaces de travail"),
             ("controls", "Réglages rapides"),
@@ -227,6 +227,7 @@ impl App {
             ("clock", "Horloge"),
             ("media", "Média"),
             ("lock", "Verrouillage"),
+            ("wallpaper", "Fond d'écran"),
         ];
         let mut col = column![
             self.section("Composants"),
@@ -303,6 +304,18 @@ impl App {
                         .spacing(12)
                         .align_y(Alignment::Center)
                         .into()
+                    }
+                    (Kind::Text, OptValue::Str(cur)) => {
+                        let (n, c) = (name.clone(), name.clone());
+                        let v = cur.clone();
+                        iced::widget::text_input(crate::i18n::tr("chemin d'une image"), &cur)
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .padding(6)
+                            .width(360)
+                            .on_input(move |x| wrap(Msg::DesignOpt(n.clone(), x, false)))
+                            .on_submit(wrap(Msg::DesignOpt(c, v, true)))
+                            .into()
                     }
                     _ => text("—").into(),
                 };

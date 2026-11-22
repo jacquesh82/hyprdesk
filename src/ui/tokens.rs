@@ -335,8 +335,35 @@ impl Shown for Theme {
     }
 }
 
+/// Couleur moyenne du fond d'écran affiché, et part qu'en prend le verre
+/// (`wallpaper.glass_tint`, MLG-280).
+static WALL_COLOR: RwLock<Option<Rgba>> = RwLock::new(None);
+static WALL_TINT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Couleur moyenne du dernier fond décodé.
+pub fn set_wall_color(c: Rgba) {
+    if let Ok(mut w) = WALL_COLOR.write() {
+        *w = Some(c);
+    }
+}
+
+/// Part du fond dans la teinte du verre.
+pub fn set_wall_tint(strength: f32) {
+    WALL_TINT.store(strength.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
+
 /// Fond d'une surface teinté par son verre (`tint`, `tint_strength`).
 pub fn tinted(bg: Rgba, p: Place) -> Rgba {
+    let bg = match (
+        f32::from_bits(WALL_TINT.load(Ordering::Relaxed)),
+        WALL_COLOR.read().ok().and_then(|c| *c),
+    ) {
+        (k, Some(c)) if k > 0.0 => {
+            let m = crate::theme_engine::color::mix(bg, c, f64::from(k));
+            Rgba(m.0, m.1, m.2, bg.3)
+        }
+        _ => bg,
+    };
     let g = glass(p);
     match g.tint_rgba() {
         Some(t) if g.tint_strength > 0.0 => {
@@ -502,6 +529,21 @@ pub fn disabled(c: Color) -> Color {
 }
 
 impl super::App {
+    /// Fond propre au mode du thème (`wallpaper.light_image`,
+    /// `wallpaper.dark_image`, MLG-280), s'il est réglé et lisible.
+    pub(super) fn mode_wallpaper(&self) -> Option<std::path::PathBuf> {
+        let g = &self.cfg.general;
+        let light = crate::theme_engine::color::luminance(g.theme.bg) > 0.4;
+        let key = if light {
+            "wallpaper.light_image"
+        } else {
+            "wallpaper.dark_image"
+        };
+        let p = crate::design_options::choice(g, key);
+        let p = std::path::PathBuf::from(p.trim());
+        (!p.as_os_str().is_empty() && p.is_file()).then_some(p)
+    }
+
     /// Fond peint sous le lanceur en plein bureau (MLG-275) : rien d'autre
     /// que le bureau n'est derrière lui, sa lentille réfracte le fond de
     /// l'écran actif. Ailleurs (fenêtres derrière), `None`.

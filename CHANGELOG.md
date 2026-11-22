@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- **Wallpaper framing and treatment** (MLG-280): focal point and zoom for
+  « fill », brightness, saturation, contrast and vignette applied when the
+  image is decoded; speed and frame rate of video wallpapers; glass tinted
+  by the wallpaper's average colour; a light-mode and a dark-mode wallpaper
+  in your own settings. `wallpaper.*` keys, Settings → Theme → Components,
+  and pack keys.
 - **Component appearance** (MLG-279), one registry for CLI keys, theme
   packs and Settings → Theme → Components: dock icon spacing, hover
   magnification, auto-hide and active-app marker; workspace selector as
