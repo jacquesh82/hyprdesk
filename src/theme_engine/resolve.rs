@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use crate::config::{Effect, Place, Rgba};
 
 use super::color;
-use super::manifest::{Fonts, PackTarget, VARIANTS};
+use super::manifest::{Cursors, Fonts, Named, PackTarget, VARIANTS};
 use super::packs::Pack;
 use super::{Error, Result};
 
@@ -32,8 +32,14 @@ pub struct Resolved {
     pub effects: BTreeMap<Place, Effect>,
     /// Options Hyprland de liste blanche, variante appliquée.
     pub hyprland_options: BTreeMap<String, String>,
-    /// Typographie déclarée (cible `fonts`, phase 2).
+    /// Typographie déclarée (cible `fonts`).
     pub fonts: Option<Fonts>,
+    /// Thème d'icônes (cible `icons`).
+    pub icons: Option<Named>,
+    /// Thème de curseur et taille (cible `cursors`).
+    pub cursors: Option<Cursors>,
+    /// Thème de sons (cible `sounds`).
+    pub sounds: Option<Named>,
     /// Cibles déclarées par la chaîne de packs : surcharges et cibles
     /// génériques tierces, fusionnées dans l'ordre (le pack gagne).
     pub pack_targets: BTreeMap<String, PackTarget>,
@@ -130,8 +136,11 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         }
     }
 
-    // Typographie : la dernière déclarée dans la chaîne gagne.
+    // Typographie, icônes, curseurs, sons : la dernière déclarée gagne.
     let fonts = chain.iter().find_map(|p| p.manifest.fonts.clone());
+    let icons = chain.iter().find_map(|p| p.manifest.icons.clone());
+    let cursors = chain.iter().find_map(|p| p.manifest.cursors.clone());
+    let sounds = chain.iter().find_map(|p| p.manifest.sounds.clone());
 
     // Cibles déclarées : fusion de la chaîne (le dernier pack gagne par id).
     let mut pack_targets: BTreeMap<String, PackTarget> = BTreeMap::new();
@@ -148,6 +157,9 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         effects,
         hyprland_options,
         fonts,
+        icons,
+        cursors,
+        sounds,
         pack_targets,
         warnings,
     })
@@ -229,6 +241,9 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
             .collect(),
         hyprland_options: BTreeMap::new(),
         fonts: None,
+        icons: None,
+        cursors: None,
+        sounds: None,
         pack_targets: BTreeMap::new(),
         warnings: Vec::new(),
     }

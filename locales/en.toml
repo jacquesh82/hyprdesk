@@ -4583,3 +4583,12 @@
 "aucun changement" = "no change"
 "thème « {n} » appliqué" = "theme \u201c{n}\u201d applied"
 "{a} : non installé" = "{a}: not installed"
+
+# Moteur de thème (cibles à réglages).
+"Polices" = "Fonts"
+"Police d'interface déclarée par le pack (gsettings)." = "Interface font declared by the pack (gsettings)."
+"Thème d'icônes déclaré par le pack (gsettings)." = "Icon theme declared by the pack (gsettings)."
+"Curseurs" = "Cursors"
+"Thème et taille de curseur déclarés par le pack (gsettings)." = "Cursor theme and size declared by the pack (gsettings)."
+"Sons" = "Sounds"
+"Thème de sons déclaré par le pack (gsettings)." = "Sound theme declared by the pack (gsettings)."

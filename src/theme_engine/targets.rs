@@ -102,6 +102,50 @@ fn builtin() -> Vec<Target> {
             installed: || in_path("thunar"),
         },
         Target {
+            id: "fonts".to_string(),
+            label: "Polices".to_string(),
+            summary: "Police d'interface déclarée par le pack (gsettings).".to_string(),
+            default_fmt: Fmt::Hex,
+            builtin_template: None,
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("gsettings"),
+        },
+        Target {
+            id: "icons".to_string(),
+            label: "Icônes".to_string(),
+            summary: "Thème d'icônes déclaré par le pack (gsettings).".to_string(),
+            default_fmt: Fmt::Hex,
+            builtin_template: None,
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("gsettings"),
+        },
+        Target {
+            id: "cursors".to_string(),
+            label: "Curseurs".to_string(),
+            summary: "Thème et taille de curseur déclarés par le pack (gsettings).".to_string(),
+            default_fmt: Fmt::Hex,
+            builtin_template: None,
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("gsettings"),
+        },
+        Target {
+            id: "sounds".to_string(),
+            label: "Sons".to_string(),
+            summary: "Thème de sons déclaré par le pack (gsettings).".to_string(),
+            default_fmt: Fmt::Hex,
+            builtin_template: None,
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("gsettings"),
+        },
+        Target {
             id: "qt".to_string(),
             label: "Qt".to_string(),
             summary: "Schéma de couleurs qt5/6ct (QPalette en #aarrggbb) ; vaut au relancement."
@@ -122,7 +166,9 @@ fn builtin() -> Vec<Target> {
 }
 
 /// Identifiants des cibles intégrées.
-const BUILTIN_IDS: [&str; 6] = ["hyprland", "hyprlock", "kitty", "gtk", "thunar", "qt"];
+const BUILTIN_IDS: [&str; 10] = [
+    "hyprland", "hyprlock", "kitty", "gtk", "thunar", "qt", "fonts", "icons", "cursors", "sounds",
+];
 
 /// Toutes les cibles à exécuter pour cette palette : les intégrées (avec
 /// leurs surcharges de pack), puis les génériques déclarées par le pack.
@@ -179,9 +225,10 @@ pub fn in_path(name: &str) -> bool {
 }
 
 /// Opération prévue sur un fichier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Op {
     /// Écriture complète du fichier (rendu du gabarit).
+    #[default]
     Write,
     /// Bloc marqué remplacé en fin de fichier (les règles de l'utilisateur
     /// restent devant).
@@ -190,14 +237,20 @@ pub enum Op {
     ImportFirst,
     /// Ligne ajoutée une fois en fin de fichier (`source =` hyprlang).
     AppendSource,
+    /// Réglage gsettings posé (ancienne valeur relevée pour le retour
+    /// arrière) ; `content` porte la valeur, `setting` le couple (schema, clé).
+    Setting,
 }
 
 /// Opération planifiée pour une cible.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Planned {
     pub path: PathBuf,
     pub content: String,
     pub op: Op,
+    /// Réglage d'environnement posé en plus (`schema`, `clé`) — les cibles
+    /// fonts/icons/cursors/sounds ne touchent pas au disque.
+    pub setting: Option<(String, String)>,
 }
 
 /// Marqueurs du bloc GTK dans gtk.css.
@@ -272,12 +325,20 @@ pub fn plan_opts(
     roots: &Roots,
     target_opts: &BTreeMap<String, String>,
 ) -> Result<Vec<Planned>> {
-    let content = render_for(target, resolved, pack_dir)?;
-    validate_css(&target.id, &content)?;
     if let Some(id) = builtin_id(&target.id) {
-        let out = plan_builtin(id, &content, resolved, roots, target_opts)?;
+        // Cibles à réglages seuls (fonts, icons, cursors, sounds) : aucun
+        // gabarit à rendre, leur plan dérive de la palette résolue.
+        let à_gabarits = !matches!(id, "fonts" | "icons" | "cursors" | "sounds");
+        let content = if à_gabarits {
+            Some(render_for(target, resolved, pack_dir)?)
+        } else {
+            None
+        };
+        let out = plan_builtin(id, content.as_deref(), resolved, roots, target_opts)?;
         return Ok(out);
     }
+    let content = render_for(target, resolved, pack_dir)?;
+    validate_css(&target.id, &content)?;
     // Cible générique : sortie déclarée en liste blanche, écriture simple.
     let out_str = target.output.as_deref().ok_or_else(|| {
         Error::Template(format!(
@@ -290,6 +351,7 @@ pub fn plan_opts(
         path,
         content,
         op: Op::Write,
+        ..Default::default()
     }])
 }
 
@@ -301,22 +363,25 @@ fn builtin_id(id: &str) -> Option<&'static str> {
 /// Plan des cibles intégrées (opérations déclaratives en dur).
 fn plan_builtin(
     id: &'static str,
-    content: &str,
+    content: Option<&str>,
     resolved: &Resolved,
     roots: &Roots,
     target_opts: &BTreeMap<String, String>,
 ) -> Result<Vec<Planned>> {
+    let rendu = || content.expect("gabarit manquant pour une cible à fichier");
     let out = match id {
         "hyprland" => vec![Planned {
             path: roots.hypr_theme_dir().join("hyprland.conf"),
-            content: content.to_string(),
+            content: rendu().to_string(),
             op: Op::Write,
+            ..Default::default()
         }],
         "hyprlock" => vec![
             Planned {
                 path: roots.hypr_theme_dir().join("hyprlock.conf"),
-                content: content.to_string(),
+                content: rendu().to_string(),
                 op: Op::Write,
+                ..Default::default()
             },
             Planned {
                 path: roots.config.join("hypr").join("hyprlock.conf"),
@@ -325,6 +390,7 @@ fn plan_builtin(
                     roots.hypr_theme_dir().join("hyprlock.conf").display()
                 ),
                 op: Op::AppendSource,
+                setting: None,
             },
         ],
         "kitty" => {
@@ -334,8 +400,9 @@ fn plan_builtin(
             };
             let mut out = vec![Planned {
                 path: file.clone(),
-                content: content.to_string(),
+                content: rendu().to_string(),
                 op: Op::Write,
+                ..Default::default()
             }];
             // Inclusion dans kitty.conf (option `kitty.conf`, vide : à faire
             // soi-même) — même mécanique que le démon historique.
@@ -351,6 +418,7 @@ fn plan_builtin(
                     path: conf,
                     content: line,
                     op: Op::AppendSource,
+                    ..Default::default()
                 });
             }
             out
@@ -359,8 +427,9 @@ fn plan_builtin(
             .iter()
             .map(|dir| Planned {
                 path: roots.config.join(dir).join("gtk.css"),
-                content: content.to_string(),
+                content: rendu().to_string(),
                 op: Op::UpsertBlock,
+                ..Default::default()
             })
             .collect(),
         "qt" => vec![Planned {
@@ -369,9 +438,102 @@ fn plan_builtin(
                 .join("qt6ct")
                 .join("colors")
                 .join(format!("hyprdesk-{}.conf", resolved.id)),
-            content: content.to_string(),
+            content: rendu().to_string(),
             op: Op::Write,
+            setting: None,
         }],
+        "fonts" => {
+            let Some(fonts) = &resolved.fonts else {
+                // Le pack ne déclare pas [fonts] : la cible n\'a rien à faire.
+                return Ok(Vec::new());
+            };
+            let Some(family) = &fonts.family else {
+                // Pas de police déclarée : rien à faire.
+                return Ok(Vec::new());
+            };
+            let value = match fonts.size {
+                Some(size) => format!("{family} {size}"),
+                None => family.clone(),
+            };
+            vec![Planned {
+                path: PathBuf::new(),
+                content: value,
+                op: Op::Setting,
+                setting: Some((
+                    "org.gnome.desktop.interface".to_string(),
+                    "font-name".to_string(),
+                )),
+            }]
+        }
+        "icons" => {
+            let Some(icons) = &resolved.icons else {
+                // Le pack ne déclare pas [icons] : la cible n\'a rien à faire.
+                return Ok(Vec::new());
+            };
+            let Some(theme) = &icons.theme else {
+                return Ok(Vec::new());
+            };
+            vec![Planned {
+                path: PathBuf::new(),
+                content: theme.clone(),
+                op: Op::Setting,
+                setting: Some((
+                    "org.gnome.desktop.interface".to_string(),
+                    "icon-theme".to_string(),
+                )),
+            }]
+        }
+        "cursors" => {
+            let Some(cursors) = &resolved.cursors else {
+                // Le pack ne déclare pas [cursors] : la cible n\'a rien à faire.
+                return Ok(Vec::new());
+            };
+            let mut out = Vec::new();
+            if let Some(theme) = &cursors.theme {
+                out.push(Planned {
+                    path: PathBuf::new(),
+                    content: theme.clone(),
+                    op: Op::Setting,
+                    setting: Some((
+                        "org.gnome.desktop.interface".to_string(),
+                        "cursor-theme".to_string(),
+                    )),
+                });
+            }
+            if let Some(size) = cursors.size {
+                out.push(Planned {
+                    path: PathBuf::new(),
+                    content: size.to_string(),
+                    op: Op::Setting,
+                    setting: Some((
+                        "org.gnome.desktop.interface".to_string(),
+                        "cursor-size".to_string(),
+                    )),
+                });
+            }
+            if out.is_empty() {
+                return Ok(Vec::new());
+            }
+            out
+        }
+        "sounds" => {
+            let Some(sounds) = &resolved.sounds else {
+                // Le pack ne déclare pas [sounds] : la cible n\'a rien à faire.
+                return Ok(Vec::new());
+            };
+            let Some(theme) = &sounds.theme else {
+                return Ok(Vec::new());
+            };
+            vec![Planned {
+                path: PathBuf::new(),
+                content: theme.clone(),
+                op: Op::Setting,
+                setting: Some((
+                    "org.gnome.desktop.sound".to_string(),
+                    "theme-name".to_string(),
+                )),
+            }]
+        }
         "thunar" => {
             let thunar_css = match target_opt(target_opts, "thunar.file") {
                 Some(f) => PathBuf::from(f),
@@ -394,13 +556,15 @@ fn plan_builtin(
             vec![
                 Planned {
                     path: thunar_css,
-                    content: content.to_string(),
+                    content: rendu().to_string(),
                     op: Op::Write,
+                    ..Default::default()
                 },
                 Planned {
                     path: gtk_css,
                     content: format!("@import url(\"{target}\");"),
                     op: Op::ImportFirst,
+                    setting: None,
                 },
             ]
         }
@@ -776,10 +940,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let roots = Roots::at(&root);
         let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        let à_réglages = ["fonts", "icons", "cursors", "sounds"];
         let toutes = all(&r);
         for t in &toutes {
             let planned = plan(t, &r, None, &roots).unwrap();
-            assert!(!planned.is_empty(), "{} : rien de planifié", t.id);
+            if !à_réglages.contains(&t.id.as_str()) {
+                assert!(!planned.is_empty(), "{} : rien de planifié", t.id);
+            }
             for p in &planned {
                 assert!(!p.content.is_empty(), "{} : rendu vide", t.id);
             }

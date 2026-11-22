@@ -296,12 +296,49 @@ fn commit_target(planned: Vec<Planned>, mode: Mode) -> (TargetReport, Vec<String
                 let needle = needle_for(&p.content);
                 targets::append_source_once(&targets::read_or_empty(&p.path), &needle, &p.content)
             }
+            // Réglage gsettings : le contenu à poser ; l'ancienne valeur est
+            // relevée maintenant pour le retour arrière.
+            Op::Setting => {
+                if let Some((schema, key)) = p.setting.clone() {
+                    let ancienne = valeur_gsettings(&schema, &key).unwrap_or_default();
+                    previous.insert(
+                        p.path.clone(),
+                        Some(format!("{schema}\u{1f}{key}\u{1f}{ancienne}")),
+                    );
+                }
+                p.content.clone()
+            }
         };
         if new_content == old.unwrap_or_default() && existed {
             files.push(FileOutcome {
                 path: path_text,
                 result: "inchangé".to_string(),
             });
+            continue;
+        }
+        if p.op == Op::Setting {
+            let Some((schema, key)) = p.setting.clone() else {
+                continue;
+            };
+            match poser_gsettings(&schema, &key, &new_content) {
+                Ok(()) => files.push(FileOutcome {
+                    path: format!("{schema}/{key}"),
+                    result: "réglage posé".to_string(),
+                }),
+                Err(e) => {
+                    // Retour arrière du réglage posé avant l'échec.
+                    for v in previous.values().flatten() {
+                        let mut parts = v.splitn(3, '\u{1f}');
+                        let (_s, _k, valeur) = (parts.next(), parts.next(), parts.next());
+                        if let Some(valeur) = valeur {
+                            let _ = poser_gsettings(&schema, &key, valeur);
+                        }
+                    }
+                    failed = Some(format!("{schema}/{key} : {e}"));
+                    status = "failed".to_string();
+                    break 'ops;
+                }
+            }
             continue;
         }
         if let Err(e) = commit_file(&p.path, &new_content) {
@@ -326,6 +363,7 @@ fn commit_target(planned: Vec<Planned>, mode: Mode) -> (TargetReport, Vec<String
                 Op::UpsertBlock => "bloc mis à jour".to_string(),
                 Op::ImportFirst => "import en tête".to_string(),
                 Op::AppendSource => "source ajoutée".to_string(),
+                Op::Setting => "réglage posé".to_string(),
             },
         });
     }
@@ -353,6 +391,30 @@ fn needle_for(line: &str) -> String {
     match p.parent().and_then(|d| d.file_name()) {
         Some(dir) => format!("{}/{name}", dir.to_string_lossy()),
         None => name.to_string(),
+    }
+}
+
+/// Valeur actuelle d'un réglage gsettings (vide si l'outil ne répond pas).
+fn valeur_gsettings(schema: &str, clé: &str) -> std::result::Result<String, String> {
+    match std::process::Command::new("gsettings")
+        .args(["get", schema, clé])
+        .output()
+    {
+        Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Pose un réglage gsettings.
+fn poser_gsettings(schema: &str, clé: &str, valeur: &str) -> std::result::Result<(), String> {
+    match std::process::Command::new("gsettings")
+        .args(["set", schema, clé, valeur])
+        .output()
+    {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
