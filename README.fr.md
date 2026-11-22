@@ -54,6 +54,19 @@ d'avant revient. Un changement d'écrans s'annule seul au bout de
 12 secondes si vous ne le gardez pas, et 30 jours d'instantanés de la
 configuration permettent de revenir à n'importe quel point.
 
+### Un thème, toutes les applications
+
+Choisissez un thème : Hyprland, hyprdesk, les applications GTK 3 et 4
+(Brave et Firefox compris), les applications Qt, kitty et Thunar le suivent
+à chaud, jusqu'aux polices, icônes, curseurs et sons. Sept packs sont
+livrés (Ardoise, Clair, Verre, Ambre, Encre, Forêt, Contraste élevé), et
+n'importe quelle image peut en donner un nouveau. Un pack n'est que des
+données, jamais du code : une archive `.hyprtheme` venue d'ailleurs
+s'installe sans risque. Si une application ne prend pas le thème, ses
+fichiers et réglages reviennent en arrière. Vos propres applications
+peuvent lire la palette elles aussi : voir
+[Intégrer une application au thème](docs/THEME-CLIENT.md).
+
 ### Panorama : une seconde vie pour les écrans bandeau et tactiles
 
 Un écran très allongé (2560×720, 1920×480…), tactile ou non, devient un
@@ -63,7 +76,8 @@ gestionnaire de tâches, des horloges et des raccourcis tactiles. Les
 compositions sont libres (forest, telemetry, studio, cinématique) et
 l'écran se découpe jusqu'à neuf zones. Pas d'écran bandeau ? Réservez une
 bande Panorama sur un écran ordinaire, ou essayez-le en fenêtre avec
-`hyprdesk panorama preview`.
+`hyprdesk panorama preview`. Une vidéo en lecture dans le Panorama
+retient la veille, image dans l'image comprise.
 
 | ![Panorama sur un bandeau 2560×720 en trois zones : lecteur, horloge et cartes système](assets/screenshots/panorama-split.png) | ![Composition Forest : graphiques du processeur, de la mémoire, du disque et de la charge à côté d'une horloge à aiguilles](assets/screenshots/panorama-forest.png) |
 | --- | --- |
@@ -232,6 +246,7 @@ La [référence de configuration](docs/ADVANCED.md#configuration-reference)
 | `hyprdesk panorama [show\|hide\|preview]` | Pilote le Panorama, ou l'essaie en fenêtre |
 | `hyprdesk assistant` / `ask <titre> <texte>` | Ouvre LYRA, ou lance une conversation depuis un script |
 | `hyprdesk config get\|set\|list\|history\|reset` | Lit et change les réglages, parcourt les instantanés, revient aux valeurs par défaut |
+| `hyprdesk-theme-engine list` / `use <pack>` | Liste les packs de thème, ou change de thème depuis un script |
 | `hyprdesk export` / `import <archive>` | Partage ou restaure un setup entier (`--theme` pour le thème seul) |
 | `hyprdesk check [fichier]` | Vérifie une configuration Lua sans toucher au démon |
 | `hyprdesk status` / `doctor` | État de la session, ou diagnostic des dépendances |
@@ -244,6 +259,8 @@ La [référence de configuration](docs/ADVANCED.md#configuration-reference)
 - [Composer un bandeau Panorama](docs/PANORAMA.md)
 - [Guide avancé](docs/ADVANCED.md) (anglais) : architecture et référence de
   configuration
+- [Moteur de thème](docs/THEME-ENGINE.md) et
+  [intégrer une application au thème](docs/THEME-CLIENT.md)
 - [Écrire un plugin](docs/WRITING_PLUGINS.md) (anglais) et
   [plugins, widgets et lanceur](docs/PLUGINS.md) (conception interne)
 - [Journal des versions](CHANGELOG.md) (anglais)
@@ -265,8 +282,9 @@ cargo run --locked -- preview
 
 Le dépôt est un espace de travail Cargo : le paquet `hyprdesk`
 (bibliothèque, binaire principal et binaires dédiés de `src/bin/`), plus
-`crates/hyprdesk-auth` (PAM, fprintd) et `crates/hyprdesk-i18n`
-(traductions). Le [guide de développement](docs/ADVANCED.md#development) et
+`crates/hyprdesk-auth` (PAM, fprintd), `crates/hyprdesk-i18n`
+(traductions) et `crates/hyprdesk-theme-client` (la palette du thème pour
+les autres applications). Le [guide de développement](docs/ADVANCED.md#development) et
 le [guide de contribution](CONTRIBUTING.md) (en anglais) couvrent build,
 vérifications et pull requests.
 

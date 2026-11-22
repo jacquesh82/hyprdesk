@@ -51,6 +51,17 @@ Hyprland reports a new error, the previous file comes back. Screen changes
 revert after 12 seconds unless you keep them, and 30 days of configuration
 snapshots let you go back to any point.
 
+### One theme, every app
+
+Pick a theme and Hyprland, hyprdesk, GTK 3 and 4 apps (Brave and Firefox
+included), Qt apps, kitty, and Thunar follow it live, down to fonts, icons,
+cursors, and sounds. Seven packs ship with hyprdesk (Ardoise, Clair, Verre,
+Ambre, Encre, Forêt, Contraste élevé), and any image can become a new one.
+Packs are plain data, never code, so a `.hyprtheme` archive from someone
+else is safe to install. If an app fails to take the theme, its files and
+settings roll back. Your own apps can read the palette too: see
+[Integrating an app with the theme](docs/THEME-CLIENT.md).
+
 ### Panorama: a second life for strip and touch screens
 
 A very wide screen (2560×720, 1920×480…), touch or not, becomes a full
@@ -59,10 +70,11 @@ music services, web radios, system graphs with a task manager, clocks, and
 touch shortcuts. Compositions are free (forest, telemetry, studio,
 cinematic) and the screen splits into up to nine zones. No strip screen?
 Reserve a Panorama band on an ordinary monitor, or try it in a window with
-`hyprdesk panorama preview`.
+`hyprdesk panorama preview`. A video playing in the Panorama keeps the
+session awake, picture-in-picture included.
 
 | ![Panorama on a 2560×720 strip split into three zones: media player, clock, and system cards](assets/screenshots/panorama-split.png) | ![Forest composition: CPU, memory, disk, and load graphs next to an analog clock](assets/screenshots/panorama-forest.png) |
-| --- | --- |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 
 ### LYRA, an assistant that knows your session
 
@@ -108,18 +120,18 @@ images) into one archive to import on another machine.
 <details>
 <summary>More screenshots</summary>
 
-| Desktop and dock | Settings and appearance |
-| --- | --- |
-| ![Monitor arrangement and display settings](assets/screenshots/screens.png) | ![Widget settings with clock, calendar, and system stats on the desktop](assets/screenshots/widgets.png) |
-| ![Launcher-only mode](assets/screenshots/mode-launcher.png) | ![Desktop settings](assets/screenshots/settings-desktop.png) |
-| ![Hidden desktop mode](assets/screenshots/mode-hidden.png) | ![Keyboard and mouse settings](assets/screenshots/settings-input.png) |
-| ![Bar settings](assets/screenshots/bar.png) | ![Workspace layouts](assets/screenshots/layouts.png) |
-| ![App launcher](assets/screenshots/launcher.png) | ![Animation settings](assets/screenshots/settings-animations.png) |
-| ![Desktop icons](assets/screenshots/icons.png) | ![Dock settings](assets/screenshots/settings-launcher.png) |
-| ![Wallpaper settings](assets/screenshots/wallpaper.png) | ![Theme settings](assets/screenshots/theme.png) |
-| ![Desktop transitions and wallpaper crossfade](assets/screenshots/effects.png) | ![About and system information](assets/screenshots/settings-about.png) |
-| ![Telemetry composition: flip clock, player, and circular gauges](assets/screenshots/panorama-telemetry.png) | ![Studio composition: large clock and the player](assets/screenshots/panorama-studio.png) |
-| ![LYRA’s drawer showing a live preview and an approval prompt for a command](assets/screenshots/assistant-chat.png) | ![SmartUI icon generation settings](assets/screenshots/settings-smartui.png) |
+| Desktop and dock                                                                                                    | Settings and appearance                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| ![Monitor arrangement and display settings](assets/screenshots/screens.png)                                         | ![Widget settings with clock, calendar, and system stats on the desktop](assets/screenshots/widgets.png) |
+| ![Launcher-only mode](assets/screenshots/mode-launcher.png)                                                         | ![Desktop settings](assets/screenshots/settings-desktop.png)                                             |
+| ![Hidden desktop mode](assets/screenshots/mode-hidden.png)                                                          | ![Keyboard and mouse settings](assets/screenshots/settings-input.png)                                    |
+| ![Bar settings](assets/screenshots/bar.png)                                                                         | ![Workspace layouts](assets/screenshots/layouts.png)                                                     |
+| ![App launcher](assets/screenshots/launcher.png)                                                                    | ![Animation settings](assets/screenshots/settings-animations.png)                                        |
+| ![Desktop icons](assets/screenshots/icons.png)                                                                      | ![Dock settings](assets/screenshots/settings-launcher.png)                                               |
+| ![Wallpaper settings](assets/screenshots/wallpaper.png)                                                             | ![Theme settings](assets/screenshots/theme.png)                                                          |
+| ![Desktop transitions and wallpaper crossfade](assets/screenshots/effects.png)                                      | ![About and system information](assets/screenshots/settings-about.png)                                   |
+| ![Telemetry composition: flip clock, player, and circular gauges](assets/screenshots/panorama-telemetry.png)        | ![Studio composition: large clock and the player](assets/screenshots/panorama-studio.png)                |
+| ![LYRA’s drawer showing a live preview and an approval prompt for a command](assets/screenshots/assistant-chat.png) | ![SmartUI icon generation settings](assets/screenshots/settings-smartui.png)                             |
 
 </details>
 
@@ -128,12 +140,12 @@ images) into one archive to import on another machine.
 Run the installer from a terminal in your Hyprland session. It checks your
 system and shows the selected options before making changes.
 
-| Requirement | Details |
-| --- | --- |
-| System | Linux on x86_64 or aarch64, systemd, a regular user session, and `sudo` access |
-| Desktop | Hyprland 0.57+ and a Vulkan or GL driver |
-| Package manager | pacman (Arch), apt (Debian/Ubuntu), dnf (Fedora), or zypper (openSUSE) |
-| Build | Rust and ~4 GiB free, only to build the repository or LYRA and myMFA |
+| Requirement     | Details                                                                        |
+| --------------- | ------------------------------------------------------------------------------ |
+| System          | Linux on x86_64 or aarch64, systemd, a regular user session, and `sudo` access |
+| Desktop         | Hyprland 0.57+ and a Vulkan or GL driver                                       |
+| Package manager | pacman (Arch), apt (Debian/Ubuntu), dnf (Fedora), or zypper (openSUSE)         |
+| Build           | Rust and ~4 GiB free, only to build the repository or LYRA and myMFA           |
 
 ```bash
 git clone https://github.com/jacquesh82/hyprdesk
@@ -150,11 +162,11 @@ integrations. By default it installs the desktop only: the login screen,
 LYRA, and myMFA stay off until you pick them. On first launch, a visual
 wizard walks through screens, keyboard, theme, bar, and default apps.
 
-| Distribution | 0.1.9 release package |
-| --- | --- |
-| Debian, Ubuntu (amd64) | [hyprdesk_0.1.9-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk_0.1.9-1_amd64.deb) |
-| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.9-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1.x86_64.rpm) |
-| Arch Linux (x86_64) | [hyprdesk-0.1.9-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1-x86_64.pkg.tar.zst), or the [AUR package](https://aur.archlinux.org/packages/hyprdesk) |
+| Distribution              | 0.1.9 release package                                                                                                                                                                   |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Debian, Ubuntu (amd64)    | [hyprdesk_0.1.9-1_amd64.deb](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk_0.1.9-1_amd64.deb)                                                                |
+| Fedora, openSUSE (x86_64) | [hyprdesk-0.1.9-1.x86_64.rpm](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1.x86_64.rpm)                                                              |
+| Arch Linux (x86_64)       | [hyprdesk-0.1.9-1-x86_64.pkg.tar.zst](https://github.com/jacquesh82/hyprdesk/releases/download/v0.1.9/hyprdesk-0.1.9-1-x86_64.pkg.tar.zst), or the [AUR package](https://aur.archlinux.org/packages/hyprdesk) |
 
 ### Update and uninstall
 
@@ -170,19 +182,19 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 
 ## Quick start
 
-| Shortcut | Action |
-| --- | --- |
-| `SUPER + D` | Next mode: hidden → dock → full desktop → hidden |
-| `SUPER + ALT + D` | Toggle the dock and keep windows in place |
-| `SUPER + CTRL + D` | Hide the desktop and dock |
-| `SUPER + SHIFT + D` | Open Settings |
-| `SUPER + SHIFT + L` | Open or close LYRA, the AI assistant |
-| `SUPER + R` | Search apps. `:f` searches files, `:clip` the clipboard history, `:2fa` and `:mdp` the myMFA keyring |
-| `ALT + Tab` | Switch windows |
-| `SUPER + Tab` | Workspaces overview: drag windows between workspaces |
-| `Print` / `SUPER + Print` / `ALT + Print` | Capture an area, the screen, or a window |
-| `SUPER + L` | Lock the session |
-| `SUPER + Escape` | Emergency exit |
+| Shortcut                                  | Action                                                                                               |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SUPER + D`                               | Next mode: hidden → dock → full desktop → hidden                                                     |
+| `SUPER + ALT + D`                         | Toggle the dock and keep windows in place                                                            |
+| `SUPER + CTRL + D`                        | Hide the desktop and dock                                                                            |
+| `SUPER + SHIFT + D`                       | Open Settings                                                                                        |
+| `SUPER + SHIFT + L`                       | Open or close LYRA, the AI assistant                                                                 |
+| `SUPER + R`                               | Search apps. `:f` searches files, `:clip` the clipboard history, `:2fa` and `:mdp` the myMFA keyring |
+| `ALT + Tab`                               | Switch windows                                                                                       |
+| `SUPER + Tab`                             | Workspaces overview: drag windows between workspaces                                                 |
+| `Print` / `SUPER + Print` / `ALT + Print` | Capture an area, the screen, or a window                                                             |
+| `SUPER + L`                               | Lock the session                                                                                     |
+| `SUPER + Escape`                          | Emergency exit                                                                                       |
 
 hyprdesk respects the shortcuts already in `hyprland.lua`. Where an
 essential one is missing (workspaces 1 to 10, maximize, pin, next screen…),
@@ -211,18 +223,19 @@ widgets and bar modules.
 
 ### Command line
 
-| Command | Use it to |
-| --- | --- |
-| `hyprdesk show` / `launcher-only` / `hide` | Set the workspace's desktop mode |
-| `hyprdesk settings [page]` | Open Settings, or jump to a page |
-| `hyprdesk files` / `index query <word>` | Search files from the dock's loupe, or in the terminal |
-| `hyprdesk panorama [show\|hide\|preview]` | Drive the Panorama, or try it in a window |
-| `hyprdesk assistant` / `ask <title> <text>` | Open LYRA, or start a conversation from a script |
+| Command                                          | Use it to                                                      |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| `hyprdesk show` / `launcher-only` / `hide`       | Set the workspace's desktop mode                               |
+| `hyprdesk settings [page]`                       | Open Settings, or jump to a page                               |
+| `hyprdesk files` / `index query <word>`          | Search files from the dock's loupe, or in the terminal         |
+| `hyprdesk panorama [show\|hide\|preview]`        | Drive the Panorama, or try it in a window                      |
+| `hyprdesk assistant` / `ask <title> <text>`      | Open LYRA, or start a conversation from a script               |
 | `hyprdesk config get\|set\|list\|history\|reset` | Read and change settings, browse snapshots, return to defaults |
-| `hyprdesk export` / `import <archive>` | Share or restore a whole setup (`--theme` for the theme only) |
-| `hyprdesk check [file]` | Validate a Lua configuration without touching the daemon |
-| `hyprdesk status` / `doctor` | Inspect the session, or diagnose missing dependencies |
-| `hyprdesk --help` | See every command |
+| `hyprdesk-theme-engine list` / `use <pack>`      | List theme packs, or switch the theme from a script            |
+| `hyprdesk export` / `import <archive>`           | Share or restore a whole setup (`--theme` for the theme only)  |
+| `hyprdesk check [file]`                          | Validate a Lua configuration without touching the daemon       |
+| `hyprdesk status` / `doctor`                     | Inspect the session, or diagnose missing dependencies          |
+| `hyprdesk --help`                                | See every command                                              |
 
 ## Documentation
 
@@ -231,6 +244,8 @@ widgets and bar modules.
 - [Panorama configuration](docs/PANORAMA.md) (French)
 - [Advanced guide](docs/ADVANCED.md): architecture and configuration
   reference
+- [Theme engine](docs/THEME-ENGINE.md) and
+  [integrating an app with the theme](docs/THEME-CLIENT.md) (French)
 - [Writing a plugin](docs/WRITING_PLUGINS.md) and
   [plugin internals](docs/PLUGINS.en.md)
 - [Changelog](CHANGELOG.md)
@@ -252,7 +267,8 @@ cargo run --locked -- preview
 
 The repository is a Cargo workspace: the `hyprdesk` package (library, main
 binary, and the dedicated binaries in `src/bin/`), plus `crates/hyprdesk-auth`
-(PAM, fprintd) and `crates/hyprdesk-i18n` (translations). The
+(PAM, fprintd), `crates/hyprdesk-i18n` (translations), and
+`crates/hyprdesk-theme-client` (the theme palette for other apps). The
 [development guide](docs/ADVANCED.md#development) and the
 [contributing guide](CONTRIBUTING.md) cover builds, checks, and pull
 requests.

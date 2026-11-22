@@ -314,6 +314,8 @@ Les applications sont lancées par Hyprland (`hl.dsp.exec_cmd`), pas par le dém
 
 ### 9.3 Crate cliente iced — `hyprdesk-theme-client`
 
+Guide d'intégration pour une application tierce (canaux, règles, critères de réussite) : [THEME-CLIENT.md](THEME-CLIENT.md).
+
 Nouvelle crate du workspace (`crates/hyprdesk-theme-client`, même modèle que hyprdesk-i18n et hyprdesk-auth) : elle ne lie ni le démon, ni iced, ni mlua — serde et inotify suffisent.
 
 ```rust
