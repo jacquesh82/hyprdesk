@@ -25,7 +25,7 @@ la configuration de Hyprland à votre place : raccourcis, clavier, écrans,
 layouts. Hyprland vérifie chaque écriture, et tout changement peut être
 annulé.
 
-[Points forts](#points-forts) · [Installation](#installation) · [Prise en main](#prise-en-main) · [Configuration](#configuration) · [Guide d'utilisation](docs/GUIDE.fr.md) · [Contribuer](#contribuer)
+[Points forts](#points-forts) · [Installation](#installation) · [Prise en main](#prise-en-main) · [Configuration](#configuration) · [Moteur de thème](#moteur-de-thème) · [Guide d'utilisation](docs/GUIDE.fr.md) · [Contribuer](#contribuer)
 
 ![bureau hyprdesk : barre en haut, raccourcis d'applications, horloge, calendrier, widgets système, et un dock](assets/screenshots/desktop.png)
 
@@ -62,10 +62,8 @@ Choisissez un thème : Hyprland, hyprdesk, les applications GTK 3 et 4
 livrés (Ardoise, Clair, Verre, Ambre, Encre, Forêt, Contraste élevé), et
 n'importe quelle image peut en donner un nouveau. Un pack n'est que des
 données, jamais du code : une archive `.hyprtheme` venue d'ailleurs
-s'installe sans risque. Si une application ne prend pas le thème, ses
-fichiers et réglages reviennent en arrière. Vos propres applications
-peuvent lire la palette elles aussi : voir
-[Intégrer une application au thème](docs/THEME-CLIENT.md).
+s'installe sans risque, et vos propres applications peuvent suivre la
+palette elles aussi. Voir le chapitre [Moteur de thème](#moteur-de-thème).
 
 ### Panorama : une seconde vie pour les écrans bandeau et tactiles
 
@@ -251,6 +249,110 @@ La [référence de configuration](docs/ADVANCED.md#configuration-reference)
 | `hyprdesk check [fichier]` | Vérifie une configuration Lua sans toucher au démon |
 | `hyprdesk status` / `doctor` | État de la session, ou diagnostic des dépendances |
 | `hyprdesk --help` | Toutes les commandes |
+
+## Moteur de thème
+
+`hyprdesk-theme-engine` est un petit binaire dédié qui tient le thème. Il
+trouve les packs, calcule la palette complète, écrit les fichiers de chaque
+application, les recharge et rend compte de ce qu'il a fait. Réglages →
+Thème, l'assistant de premier lancement, `hyprdesk config set theme.*` et
+LYRA passent tous par lui : le pack actif fait foi, les réglages `theme.*`
+en sont le miroir. Un thème posé en ligne de commande apparaît dans les
+Réglages, et inversement.
+
+### Ce qui suit le thème
+
+| Application | Ce que le moteur écrit | Quand ça se voit |
+| --- | --- | --- |
+| Hyprland | Un fragment généré : bordures, espacements, arrondis, flou, animations | Aussitôt (`hyprctl reload`) ; `--mode hot` montre un aperçu sans rien écrire |
+| hyprdesk, verrouillage et connexion | Rien : ils lisent la palette publiée | Aussitôt |
+| GTK 3 et 4 | Votre thème GTK de base recoloré au pack, installé sous `hyprdesk-<pack>` | Aussitôt dans les applications GTK 3 ouvertes, Brave et Firefox compris |
+| Qt | `qt6ct/colors/hyprdesk.conf` (et sa copie qt5ct) ; à choisir une fois dans qt6ct | Au relancement de l'application |
+| kitty, Thunar, hyprlock | Un fichier inclus, une feuille GTK, un fragment sourcé | Aussitôt, avec GTK, au prochain verrouillage |
+| Polices, icônes, curseurs, sons | Les réglages GNOME et les clés de hyprdesk | Aussitôt ; les curseurs à la session suivante |
+| Toute autre application | Un fichier déclaré par le pack (`[targets.<nom>]`) | Par un rechargement borné : signal, socket, gsettings |
+
+Les applications qui prennent le thème se choisissent dans **Réglages →
+Thème des applications**. La désinstallation retire tout ce que le moteur a
+écrit et remet votre thème GTK de base.
+
+### Les packs
+
+Sept packs sont livrés : **Ardoise** (par défaut), **Clair**, **Verre**,
+**Ambre**, **Encre**, **Forêt** et **Contraste élevé**. Un pack est un
+dossier avec un manifeste `theme.toml`, et au besoin des gabarits et des
+fonds d'écran. Il fixe des couleurs sémantiques (fond, surface, texte,
+accent, réussite, attention, danger…) pour une variante sombre et une
+claire, l'opacité et le flou de chaque surface de hyprdesk, quelques
+options de Hyprland, les polices, icônes, curseurs et sons. Les couleurs
+absentes sont dérivées avec un contraste lisible, et un pack peut hériter
+d'un autre.
+
+```toml
+[meta]
+id = "sauge"
+name = "Sauge"
+version = "1.0.0"
+
+[inherits]
+themes = ["ardoise"]
+
+[palette]
+bg = "#18201b"
+fg = "#eef3ee"
+accent = "#8fbf9a"
+
+[variant.light]
+palette.bg = "#f3f6f2"
+palette.fg = "#18201b"
+
+[effects.bar]
+opacity = 0.80
+blur = true
+```
+
+Vos packs vont dans `~/.local/share/hyprdesk/themes/<id>/` et passent avant
+ceux du système et ceux livrés. Quand `hyprdesk-theme-engine watch` tourne,
+le thème actif suit chaque enregistrement.
+
+**Un pack n'exécute jamais de code.** Les rechargements sont pris dans une
+liste fermée (signal, socket kitty, gsettings, hyprctl), les options de
+Hyprland viennent d'une liste blanche et tiennent sur une ligne, et les
+fichiers rendus sont vérifiés ligne à ligne : ni `exec`, ni `source`, ni
+`bind`, ni `env`. Une archive `.hyprtheme` est bornée en taille : un pack
+venu d'ailleurs s'installe sans risque. Si une application ne prend pas le
+thème, ses fichiers et réglages reviennent en arrière ; les autres gardent
+le nouveau.
+
+### Commandes
+
+```bash
+hyprdesk-theme-engine list                        # packs, origine, pack actif
+hyprdesk-theme-engine use verre --variant light   # changer de thème
+hyprdesk-theme-engine use foret --mode dry-run    # voir ce qui changerait, sans rien écrire
+hyprdesk-theme-engine verify                      # contrôler le contraste du texte et de l'accent
+hyprdesk-theme-engine recolor --from ~/Images/mer.jpg   # construire un pack depuis une image
+hyprdesk-theme-engine install sauge.hyprtheme     # ajouter un pack (archive ou dossier)
+hyprdesk-theme-engine export sauge --out sauge.hyprtheme
+hyprdesk-theme-engine palette --format css        # la palette en json, env, css ou hex
+```
+
+`HYPRDESK_THEME=clair:light` impose un thème le temps d'une commande, comme
+`GTK_THEME`. `hyprdesk-theme-engine --help` liste toutes les commandes, et
+la [spécification](docs/THEME-ENGINE.md) détaille le manifeste, les
+gabarits et les cibles.
+
+### Vos propres applications
+
+À chaque changement de thème, le moteur publie la palette résolue dans
+`~/.local/state/hyprdesk/theme-engine/palette.json`, avec un numéro de
+révision qui ne bouge que si les couleurs changent. Les applications lancées
+depuis hyprdesk reçoivent aussi `HYPRDESK_BG`, `HYPRDESK_FG`,
+`HYPRDESK_ACCENT` et les autres variables `HYPRDESK_*`. Une application Rust
+suit le thème à chaud avec la crate `hyprdesk-theme-client`, qui ne dépend
+ni du démon ni d'iced.
+[Intégrer une application au thème](docs/THEME-CLIENT.md) indique le bon
+canal pour chaque sorte d'application.
 
 ## Documentation
 
