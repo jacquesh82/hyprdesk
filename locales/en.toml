@@ -4635,3 +4635,11 @@
 "                    compare un effet à l'œil : chaque valeur posée en direct et" = "                    compares an effect by eye: each value set live and"
 "                    nommée à l'écran (ex. : fx compare blur.variant 4,5,6)," = "                    named on screen (e.g. fx compare blur.variant 4,5,6),"
 "                    puis la valeur d'origine remise" = "                    then the original value restored"
+
+# Transparence adaptative (MLG-261).
+"Adaptatif" = "Adaptive"
+"Densifié selon le fond d'écran pour rester lisible." = "Thickened over the wallpaper to stay readable."
+"Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %." = "Thickened up to {max} % when the wallpaper hurts readability — {now} % right now."
+"Densifié jusqu'à {max} % si le fond gêne la lecture." = "Thickened up to {max} % when the wallpaper hurts readability."
+"off | on | 0..1 (plafond) — verre densifié selon le fond d'écran : {place}" = "off | on | 0..1 (cap) — glass thickened over the wallpaper: {place}"
+"{ctx} : « adaptive » attend un plafond d'opacité (0 à 1) ou true/false, pas {p0}" = "{ctx}: “adaptive” expects an opacity cap (0 to 1) or true/false, not {p0}"

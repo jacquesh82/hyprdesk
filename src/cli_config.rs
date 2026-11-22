@@ -1344,12 +1344,12 @@ fn known_slot(slot: &str) -> bool {
     palette_slots().iter().any(|s| s == slot)
 }
 
-/// Effet d'une clé `theme.effects.<endroit>.<opacity|blur>`.
+/// Effet d'une clé `theme.effects.<endroit>.<opacity|blur|adaptive>`.
 fn effect_key(key: &str) -> Option<(Place, &str)> {
     let rest = key.strip_prefix("theme.effects.")?;
     let (place, field) = rest.split_once('.')?;
     let place = Place::parse(place)?;
-    matches!(field, "opacity" | "blur").then_some((place, field))
+    matches!(field, "opacity" | "blur" | "adaptive").then_some((place, field))
 }
 
 /// Couleur de la barre : `bar.color.<emplacement>` ou `bar.module_color.<module>`.
@@ -1372,7 +1372,7 @@ fn bar_color_key(key: &str) -> Option<BarColorKey<'_>> {
 
 /// Clés dynamiques : `apps.<rôle>`, `assign.<app>` (workspaces), `widget.<type>`
 /// (widgets), `bar.color.<emplacement>`, `bar.module_color.<module>` (barre) et
-/// `theme.effects.<endroit>.<opacity|blur>` (thème).
+/// `theme.effects.<endroit>.<opacity|blur|adaptive>` (thème).
 fn dynamic_get(key: &str, c: &Config) -> Option<String> {
     if let Some(k) = bar_color_key(key) {
         let colors = c.bar.as_ref().map(|b| &b.colors);
@@ -1384,10 +1384,13 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
     }
     if let Some((place, field)) = effect_key(key) {
         let e = c.general.theme.effect(place);
-        return Some(if field == "blur" {
-            on_off(e.blur)
-        } else {
-            format!("{}", (e.opacity * 100.0).round() / 100.0)
+        return Some(match field {
+            "blur" => on_off(e.blur),
+            "adaptive" => e.adaptive.map_or_else(
+                || "off".to_string(),
+                |m| format!("{}", (m * 100.0).round() / 100.0),
+            ),
+            _ => format!("{}", (e.opacity * 100.0).round() / 100.0),
         });
     }
     // Layouts : `layout.<workspace>`, `<dwindle|master|scrolling>.<option>`.
@@ -1563,6 +1566,11 @@ fn dynamic_help(key: &str, c: &Config) -> String {
                 "on | off — flou derrière : {place}",
                 place = tr(place.label())
             )
+        } else if field == "adaptive" {
+            crate::tr!(
+                "off | on | 0..1 (plafond) — verre densifié selon le fond d'écran : {place}",
+                place = tr(place.label())
+            )
         } else {
             crate::tr!(
                 "0..1 — opacité du fond : {place}",
@@ -1707,6 +1715,14 @@ fn dynamic_set(
             "blur" => match parse_bool(v) {
                 Ok(b) => e.blur = b,
                 Err(err) => return Some(Err(err)),
+            },
+            "adaptive" => match v.trim() {
+                "off" | "false" | "no" => e.adaptive = None,
+                "on" | "true" | "yes" => e.adaptive = Some(1.0),
+                n => match number(n, 0.0f32, 1.0) {
+                    Ok(m) => e.adaptive = Some(m),
+                    Err(err) => return Some(Err(err)),
+                },
             },
             _ => match number(v, 0.0f32, 1.0) {
                 Ok(n) => e.opacity = n,
@@ -2272,7 +2288,12 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                         .flat_map(|p| {
                             let o = format!("theme.effects.{p0}.opacity", p0 = p.as_str());
                             let b = format!("theme.effects.{p0}.blur", p0 = p.as_str());
-                            if p.blurrable() { vec![o, b] } else { vec![o] }
+                            let a = format!("theme.effects.{p0}.adaptive", p0 = p.as_str());
+                            if p.blurrable() {
+                                vec![o, b, a]
+                            } else {
+                                vec![o, a]
+                            }
                         })
                         .collect(),
                     _ => Vec::new(),
@@ -2720,6 +2741,33 @@ mod tests {
         assert!(run_s(&p, &["set", "bar.convex.frame_width", "21"]).is_err());
         run_s(&p, &["unset", "bar.convex.radius"]).unwrap();
         assert_eq!(run_s(&p, &["get", "bar.convex.radius"]).unwrap(), "44");
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// Transparence adaptative d'une surface (MLG-261).
+    #[test]
+    fn transparence_adaptative() {
+        let p = tmp();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.bar.adaptive"]).unwrap(),
+            "off"
+        );
+        run_s(&p, &["set", "theme.effects.bar.adaptive", "0.9"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.bar.adaptive"]).unwrap(),
+            "0.9"
+        );
+        run_s(&p, &["set", "theme.effects.widgets.adaptive", "on"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.widgets.adaptive"]).unwrap(),
+            "1"
+        );
+        assert!(run_s(&p, &["set", "theme.effects.bar.adaptive", "2"]).is_err());
+        run_s(&p, &["set", "theme.effects.bar.adaptive", "off"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.bar.adaptive"]).unwrap(),
+            "off"
+        );
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

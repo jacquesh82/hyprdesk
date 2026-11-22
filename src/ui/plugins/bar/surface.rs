@@ -707,10 +707,53 @@ impl App {
     }
 
     pub(in crate::ui) fn bar_palette(&self) -> BarPalette {
-        BarPalette::resolve(
+        let mut pal = BarPalette::resolve(
             &self.cfg.general.theme,
             self.cfg.bar.as_ref().map(|bar| &bar.colors),
-        )
+        );
+        // Transparence adaptative (MLG-261) : le verre se densifie sur un
+        // fond qui gênerait la lecture — la plus forte des barres, pour un
+        // même verre partout. Une opacité réglée pour la barre l'emporte.
+        let fixed = self
+            .cfg
+            .bar
+            .as_ref()
+            .is_some_and(|b| b.colors.opacity.is_some());
+        if !fixed
+            && self
+                .cfg
+                .general
+                .theme
+                .effect(crate::config::Place::Bar)
+                .adaptive
+                .is_some()
+        {
+            let base = pal.opacity;
+            pal.opacity = self
+                .bar_surfaces
+                .values()
+                .map(|s| {
+                    self.adaptive_opacity(
+                        crate::config::Place::Bar,
+                        base,
+                        &s.monitor,
+                        self.bar_roi(s),
+                    )
+                })
+                .fold(base, f32::max);
+        }
+        pal
+    }
+
+    /// Rectangle de la barre sur son écran (pour lire le fond derrière).
+    fn bar_roi(&self, s: &BarSurface) -> iced::Rectangle {
+        let screen = self.monitor_size(&s.monitor);
+        let h = f32::from(s.height);
+        let y = match s.position {
+            BarPosition::Top => f32::from(s.margin),
+            BarPosition::Bottom => (screen.height - h - f32::from(s.margin)).max(0.0),
+        };
+        iced::Rectangle::new(iced::Point::new(0.0, y), iced::Size::new(screen.width, h))
     }
 
     fn bar_item_is_launcher(&self, item: &BarItem) -> bool {

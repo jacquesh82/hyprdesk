@@ -1429,10 +1429,13 @@ impl Settings {
                 .iter()
                 .map(|(p, e)| {
                     format!(
-                        "{} = {{ opacity = {}, blur = {} }}",
+                        "{} = {{ opacity = {}, blur = {}{} }}",
                         p.as_str(),
                         num(e.opacity),
-                        e.blur
+                        e.blur,
+                        e.adaptive
+                            .map(|m| format!(", adaptive = {}", num(m)))
+                            .unwrap_or_default()
                     )
                 })
                 .collect();
@@ -2277,7 +2280,16 @@ mod tests {
             "volume".into(),
             crate::config::ColorRef::Slot("focus".into()),
         );
+        s.effects.insert(
+            crate::config::Place::Bar,
+            crate::config::Effect {
+                opacity: 0.58,
+                blur: true,
+                adaptive: Some(0.92),
+            },
+        );
         let lua = s.to_lua();
+        assert!(lua.contains("adaptive = 0.92"), "{lua}");
         assert!(lua.contains("accent = \"active\""), "{lua}");
         assert!(lua.contains("\"#1c2028/#f5f7fa\""), "{lua}");
         assert!(lua.contains("opacity = 0.35"), "{lua}");
@@ -2287,6 +2299,11 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}\n{lua}"))
         .config;
+        assert_eq!(
+            cfg.general.theme.effect(crate::config::Place::Bar).adaptive,
+            Some(0.92),
+            "\n{lua}"
+        );
         let back = Settings::from_config(&cfg).bar.unwrap().colors;
         assert_eq!(back, s.bar.unwrap().colors, "\n{lua}");
         // Clé inconnue refusée.

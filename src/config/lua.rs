@@ -1489,13 +1489,28 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                     continue;
                 };
                 let ctx = format!("{E}.{}", place.as_str());
-                check_keys(&e, &["opacity", "blur"], &ctx)?;
+                check_keys(&e, &["opacity", "blur", "adaptive"], &ctx)?;
                 let mut cur = g.theme.effect(place);
                 if let Some(v) = opt_num(&e, "opacity", &ctx)? {
                     cur.opacity = v.clamp(0.0, 1.0) as f32;
                 }
                 if let Some(v) = opt_bool(&e, "blur", &ctx)? {
                     cur.blur = v;
+                }
+                // Transparence adaptative (MLG-261) : plafond d'opacité,
+                // `true` (jusqu'à opaque) ou `false`.
+                match e.get::<Value>("adaptive")? {
+                    Value::Nil => {}
+                    Value::Boolean(b) => cur.adaptive = b.then_some(1.0),
+                    Value::Integer(n) => cur.adaptive = Some((n as f32).clamp(0.0, 1.0)),
+                    Value::Number(n) => cur.adaptive = Some((n as f32).clamp(0.0, 1.0)),
+                    other => {
+                        return Err(err(crate::tr!(
+                            "{ctx} : « adaptive » attend un plafond d'opacité (0 à 1) ou true/false, pas {p0}",
+                            ctx = ctx,
+                            p0 = other.type_name()
+                        )));
+                    }
                 }
                 g.theme.effects.insert(place, cur);
             }

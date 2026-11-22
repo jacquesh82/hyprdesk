@@ -637,6 +637,7 @@ impl Place {
         Effect {
             opacity,
             blur: self.blurrable(),
+            adaptive: None,
         }
     }
 
@@ -667,6 +668,10 @@ impl Place {
 pub struct Effect {
     pub opacity: f32,
     pub blur: bool,
+    /// Transparence adaptative (MLG-261) : plafond d'opacité jusqu'où le
+    /// verre se densifie quand le fond d'écran derrière rendrait le texte
+    /// illisible (4,5:1) ; `None` : opacité fixe.
+    pub adaptive: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

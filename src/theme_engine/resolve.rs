@@ -116,6 +116,17 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
                         Effect {
                             opacity: e.opacity as f32,
                             blur: e.blur.unwrap_or(current.blur),
+                            // Adaptatif : déclaré ici, sinon hérité ; un
+                            // plafond seul relève celui d'un parent adaptatif.
+                            adaptive: match e.adaptive {
+                                Some(false) => None,
+                                Some(true) => {
+                                    Some(e.opacity_max.unwrap_or(1.0).clamp(0.0, 1.0) as f32)
+                                }
+                                None => current
+                                    .adaptive
+                                    .map(|m| e.opacity_max.map_or(m, |x| x.clamp(0.0, 1.0) as f32)),
+                            },
                         },
                     );
                 }
@@ -431,6 +442,30 @@ mod tests {
         let r = resolve(&[base], "dark").unwrap();
         assert!((r.effects[&Place::Bar].opacity - 0.5).abs() < 1e-6);
         assert!(r.effects[&Place::Settings].opacity > 0.9);
+    }
+
+    #[test]
+    fn transparence_adaptative_déclarée_héritée_coupée() {
+        // MLG-261 : `adaptive` + `opacity_max` ; une variante qui ne dit
+        // rien en hérite, une variante peut la couper.
+        let (manifest, _) = Manifest::parse(
+            "base",
+            "[meta]\nid = \"base\"\nname = \"base\"\nversion = \"1\"\n[palette]\nbg = \"#000000\"\nfg = \"#ffffff\"\naccent = \"#111111\"\n[effects.bar]\nopacity = 0.6\nadaptive = true\nopacity_max = 0.9\n[effects.widgets]\nopacity = 0.8\nadaptive = true\n[variant.light.effects.bar]\nopacity = 0.5\n[variant.light.effects.widgets]\nopacity = 0.8\nadaptive = false\n",
+        )
+        .unwrap();
+        let base = use_manifest(manifest);
+        let sombre = resolve(std::slice::from_ref(&base), "dark").unwrap();
+        assert_eq!(sombre.effects[&Place::Bar].adaptive, Some(0.9));
+        assert_eq!(sombre.effects[&Place::Widgets].adaptive, Some(1.0));
+        assert_eq!(sombre.effects[&Place::Menus].adaptive, None);
+        let clair = resolve(&[base], "light").unwrap();
+        assert_eq!(clair.effects[&Place::Bar].adaptive, Some(0.9));
+        assert!((clair.effects[&Place::Bar].opacity - 0.5).abs() < 1e-6);
+        assert_eq!(clair.effects[&Place::Widgets].adaptive, None);
+        // Le thème réglé qui en découle garde l'adaptatif (pack perso du
+        // pont, aller-retour par le manifeste).
+        let t = super::super::bridge::to_theme(&sombre);
+        assert_eq!(t.effect(Place::Bar).adaptive, Some(0.9));
     }
 
     #[test]

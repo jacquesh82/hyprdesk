@@ -55,7 +55,7 @@ GTK dispose d'un moteur de thème : découverte dans des dossiers standards, `in
                      └─────────────────────────────┘
 ```
 
-Cinq étapes, toutes journalisées. À chaque application réussie, la palette résolue est en outre publiée pour les applications tierces (§9). `apply --mode dry-run` exécute les deux premières et affiche le rapport sans rien écrire ; `apply --mode hot` applique Hyprland uniquement en `hyprctl keyword` (non persistant), comme un aperçu.
+Cinq étapes, toutes journalisées. À chaque application réussie, la palette résolue est en outre publiée pour les applications tierces (§9). `apply --mode dry-run` (comme `use --mode dry-run`) exécute les deux premières et affiche le rapport sans rien écrire, pas même le thème actif ; `apply --mode hot` applique Hyprland uniquement en `hyprctl keyword` (non persistant), comme un aperçu.
 
 ---
 
@@ -125,6 +125,8 @@ palette.bg = "#f2f4fc"
 [effects.bar]
 opacity = 0.72
 blur = true
+adaptive = true          # verre densifié selon le fond d'écran (MLG-261)
+opacity_max = 0.92       # plafond (défaut 1)
 [effects.menus]
 opacity = 0.94
 blur = true
@@ -211,6 +213,8 @@ L'aliasing vers les clés de réglage existantes est bijectif : `theme.fg` ↔ `
 
 - **Héritage** : `[inherits].themes`, ordre = priorité croissante (le dernier de la liste gagne pour chaque slot ou gabarit non défini localement). Profondeur maximale 4, cycle détecté → erreur `circular_inheritance`. Un parent manquant : avertissement, résolution continue.
 - **Variantes** : sections `[variant.dark]` / `[variant.light]` (noms réservés) qui surchargent palette, effets et options Hyprland. Une variante ne peut hériter que de l'autre si le pack le déclare (`variant.light.inherits = "dark"` est refusé : les variantes sont plates, l'héritage est l'affaire des packs).
+- **Gabarits hérités** : un gabarit déclaré (`[targets.<id>].template`) se lit dans le dossier du pack qui l'a déclaré ; un gabarit de convention (`templates/<id>.tmpl`) se cherche chez le pack, puis chez ses ancêtres du plus proche au plus lointain. Un pack qui hérite n'a donc pas à recopier les gabarits de son parent. Les déclarations de cible fusionnent champ par champ : un enfant qui ne redéclare que `reload` garde le gabarit du parent (MLG-259).
+- **Transparence adaptative** (`adaptive`, `opacity_max` d'une surface) : pour les surfaces posées sur le fond d'écran (`bar`, `widgets` ; le lanceur l'est toujours), hyprdesk mesure à chaque fond décodé la zone de l'image derrière la surface et relève l'opacité juste assez pour que le texte reste à 4,5:1 sur sa partie la plus défavorable, sans dépasser `opacity_max`. Rien n'est mesuré en continu ; les menus et Réglages, qui passent devant des fenêtres, gardent leur opacité. Hérité comme les autres champs d'effet, coupé par `adaptive = false` (MLG-261).
 - **`theme.variant`** : réglage utilisateur `dark | light | auto`. En `auto`, suit `org.freedesktop.appearance color-scheme` (portail), relu à chaque événement du portail. La variante effective fait partie du rapport d'application.
 
 ---
@@ -418,6 +422,9 @@ hyprdesk-theme-engine use <id> [--variant dark|light|auto] [--targets a,b]
                             [--mode persist|hot|dry-run]
 hyprdesk-theme-engine apply [--targets a,b] [--mode …]        # réapplique l'actif
 hyprdesk-theme-engine generate [--variant …] [--out <dir>]    # rend les gabarits sans appliquer
+                            # variante du thème actif par défaut ; un fichier par sortie,
+                            # nommé d'après sa racine (.config--…, .local--share--…),
+                            # réglages gsettings dans gsettings.txt
 hyprdesk-theme-engine palette [--format json|env|css|hex] [--variant …]
 hyprdesk-theme-engine verify [<id>] [--wcag] [--json]         # contraste, dépendances, cohérence
 hyprdesk-theme-engine preview <id> [--variant …] --out <png>  # mire de palette (style assets/colors/mire.png)

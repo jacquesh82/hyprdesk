@@ -177,7 +177,19 @@ impl App {
                 self.view_value(self.values.get(&w.id), size, fg, dim)
             }
         };
-        let card_bg = color(th.bg, th.effect(crate::config::Place::Widgets).opacity * t);
+        // Transparence adaptative (MLG-261) : la carte se densifie sur un
+        // fond chargé, d'après la zone d'ancrage du widget.
+        let card_opacity = {
+            let base = th.effect(crate::config::Place::Widgets).opacity;
+            match self.monitor(win) {
+                Some(m) if th.effect(crate::config::Place::Widgets).adaptive.is_some() => {
+                    let roi = widget_roi(self.monitor_size(&m.name), w.anchor, (w.x, w.y));
+                    self.adaptive_opacity(crate::config::Place::Widgets, base, &m.name, roi)
+                }
+                _ => base,
+            }
+        };
+        let card_bg = color(th.bg, card_opacity * t);
         let boxed: Element<'_, Msg> = if w.card {
             container(content)
                 .padding(16)
@@ -403,6 +415,30 @@ pub(super) fn month_days(first: chrono::NaiveDate) -> u32 {
 /// Semaines (lignes) du calendrier de ce mois, lundi d'abord.
 pub(super) fn month_weeks(first: chrono::NaiveDate) -> u32 {
     (first.weekday().num_days_from_monday() + month_days(first)).div_ceil(7)
+}
+
+/// Zone approximative d'un widget sur son écran, d'après son ancrage et son
+/// décalage (sa taille n'est connue qu'après la mise en page) : une carte
+/// de 360×220 au point d'ancrage, de quoi lire le fond qu'il couvre.
+fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced::Rectangle {
+    let (w, h, margin) = (360.0_f32, 220.0_f32, 32.0_f32);
+    let x = match anchor {
+        Anchor::TopLeft | Anchor::Left | Anchor::BottomLeft => margin + dx,
+        Anchor::Top | Anchor::Center | Anchor::Bottom => (screen.width - w) / 2.0 + dx,
+        Anchor::TopRight | Anchor::Right | Anchor::BottomRight => screen.width - w - margin + dx,
+    };
+    let y = match anchor {
+        Anchor::TopLeft | Anchor::Top | Anchor::TopRight => margin + dy,
+        Anchor::Left | Anchor::Center | Anchor::Right => (screen.height - h) / 2.0 + dy,
+        Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight => screen.height - h - 120.0 + dy,
+    };
+    iced::Rectangle::new(
+        iced::Point::new(
+            x.clamp(0.0, (screen.width - w).max(0.0)),
+            y.clamp(0.0, (screen.height - h).max(0.0)),
+        ),
+        iced::Size::new(w.min(screen.width), h.min(screen.height)),
+    )
 }
 
 #[cfg(test)]

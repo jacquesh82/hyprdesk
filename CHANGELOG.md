@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **Adaptive transparency** (MLG-261). A theme pack can declare
+  `adaptive = true` (and an `opacity_max` cap) on a surface: over a busy or
+  bright wallpaper, the bar and desktop widgets thicken their glass just
+  enough to keep text at 4.5:1 where the wallpaper behind them is least
+  favourable, measured once per wallpaper. Settings → Theme → Transparency
+  has an **Adaptive** switch for the bar and widgets and shows the cap and
+  the bar's current opacity; CLI key `theme.effects.<surface>.adaptive`
+  (`off`, `on` or a cap). The launcher already adapted and still does.
 - **Bar colours that follow light/dark mode** (MLG-263). A bar or module
   colour can name a slot of the theme pack's palette (`active`, `focus`…),
   which changes with the variant, or a fixed dark/light pair

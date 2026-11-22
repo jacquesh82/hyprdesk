@@ -110,6 +110,11 @@ pub struct VariantSpec {
 pub struct EffectSpec {
     pub opacity: f64,
     pub blur: Option<bool>,
+    /// Transparence adaptative (MLG-261) : le verre se densifie selon le
+    /// fond d'écran, jusqu'à `opacity_max` (absent : hérité).
+    pub adaptive: Option<bool>,
+    /// Plafond de la transparence adaptative (défaut 1, opaque).
+    pub opacity_max: Option<f64>,
 }
 
 impl Default for EffectSpec {
@@ -117,6 +122,8 @@ impl Default for EffectSpec {
         Self {
             opacity: 1.0,
             blur: None,
+            adaptive: None,
+            opacity_max: None,
         }
     }
 }

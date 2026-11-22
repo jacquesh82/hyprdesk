@@ -142,6 +142,8 @@ pub enum Msg {
     Applied(Result<String, String>),
     Opacity(Place, f32),
     Blur(Place, bool),
+    /// Transparence adaptative d'une surface posée sur le fond (MLG-261).
+    Adaptive(Place, bool),
     Mode(Mode),
     GlassOpacity(f32),
     LockBlur(bool),
@@ -459,7 +461,41 @@ impl App {
                         .on_toggle(move |v| wrap(Msg::Blur(place, v))),
                 );
             }
+            // Transparence adaptative : les surfaces posées sur le fond
+            // d'écran (le lanceur l'est toujours ; menus et Réglages
+            // passent devant des fenêtres, invisibles pour hyprdesk).
+            let adaptable = matches!(place, Place::Bar | Place::Widgets);
+            if adaptable {
+                line = line.push(
+                    toggler(e.adaptive.is_some())
+                        .label(crate::i18n::tr("Adaptatif"))
+                        .font(font)
+                        .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
+                );
+            }
             let mut cell = column![line].spacing(4);
+            let note = match (place, e.adaptive) {
+                (Place::Launcher, _) => Some(
+                    crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
+                        .to_string(),
+                ),
+                (Place::Bar, Some(max)) => {
+                    let now = self.bar_palette().opacity;
+                    Some(crate::tr!(
+                        "Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %.",
+                        max = (max * 100.0).round() as i32,
+                        now = (now * 100.0).round() as i32
+                    ))
+                }
+                (Place::Widgets, Some(max)) => Some(crate::tr!(
+                    "Densifié jusqu'à {max} % si le fond gêne la lecture.",
+                    max = (max * 100.0).round() as i32
+                )),
+                _ => None,
+            };
+            if let Some(n) = note {
+                cell = cell.push(text(n).font(font).size(11).color(self.ink().dim));
+            }
             if place == Place::Settings && self.hypr_blur_off() {
                 cell = cell.push(
                     text("Opaque tant que le flou de Hyprland est coupé (Performance).")
@@ -894,6 +930,14 @@ impl App {
             Msg::Blur(place, v) => {
                 let mut e = self.theme_effect(place);
                 e.blur = v;
+                self.settings.effects.insert(place, e);
+                self.commit()
+            }
+            Msg::Adaptive(place, v) => {
+                let mut e = self.theme_effect(place);
+                // Plafond : celui du thème s'il en avait un, sinon presque
+                // opaque (le verre reste du verre).
+                e.adaptive = v.then(|| e.adaptive.unwrap_or(0.95).max(e.opacity));
                 self.settings.effects.insert(place, e);
                 self.commit()
             }

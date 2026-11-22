@@ -103,7 +103,13 @@ pub(super) fn readable_opacity(fg: Color, bg: Color, behind: (f32, f32), base: f
     material_opacity(fg, bg, behind, base, 0.84 / 0.88)
 }
 
-fn material_opacity(fg: Color, bg: Color, behind: (f32, f32), base: f32, ratio: f32) -> f32 {
+pub(in crate::ui) fn material_opacity(
+    fg: Color,
+    bg: Color,
+    behind: (f32, f32),
+    base: f32,
+    ratio: f32,
+) -> f32 {
     let fg = luminance(fg);
     let bg = luminance(bg);
     // Inclut le reflet en haut et le creux d'opacité au milieu du verre.
@@ -148,6 +154,49 @@ impl App {
     pub(super) fn launcher_material_opacity(&self, monitor: &str, roi: Rectangle) -> f32 {
         let g = &self.cfg.general;
         let base = g.theme.effect(crate::config::Place::Launcher).opacity;
+        let behind = self.wall_range(monitor, roi);
+        readable_opacity(color(g.theme.fg, 1.0), color(g.theme.bg, 1.0), behind, base)
+    }
+
+    /// Taille logique d'un écran (1920×1080 s'il est inconnu).
+    pub(in crate::ui) fn monitor_size(&self, monitor: &str) -> Size {
+        self.monitors
+            .iter()
+            .find(|m| m.name == monitor)
+            .map_or(Size::new(1920.0, 1080.0), |m| {
+                Size::new(m.width as f32, m.height as f32)
+            })
+    }
+
+    /// Transparence adaptative (MLG-261) : opacité d'une surface posée sur
+    /// le fond d'écran, relevée juste assez pour garder son texte à 4,5:1
+    /// sur la partie la plus défavorable du fond derrière `roi`, sans
+    /// dépasser le plafond du thème. Surface non adaptative : `base`.
+    pub(in crate::ui) fn adaptive_opacity(
+        &self,
+        place: crate::config::Place,
+        base: f32,
+        monitor: &str,
+        roi: Rectangle,
+    ) -> f32 {
+        let g = &self.cfg.general;
+        let Some(max) = g.theme.effect(place).adaptive else {
+            return base;
+        };
+        let needed = material_opacity(
+            color(g.theme.fg, 1.0),
+            color(g.theme.bg, 1.0),
+            self.wall_range(monitor, roi),
+            base,
+            1.0,
+        );
+        needed.min(max.max(base))
+    }
+
+    /// Luminances extrêmes du fond d'écran derrière `roi` (fondu entre deux
+    /// fonds compris), d'après l'analyse faite au décodage.
+    pub(in crate::ui) fn wall_range(&self, monitor: &str, roi: Rectangle) -> (f32, f32) {
+        let g = &self.cfg.general;
         let fallback = luminance(color(g.background, 1.0));
         let screen = self
             .monitors
@@ -182,7 +231,7 @@ impl App {
                     })
             }
         };
-        let behind = self.shown.get(monitor).map_or((fallback, fallback), |s| {
+        self.shown.get(monitor).map_or((fallback, fallback), |s| {
             let current = sample(&s.current);
             if let Some(prev) = &s.prev {
                 let previous = sample(prev);
@@ -199,14 +248,25 @@ impl App {
             } else {
                 current
             }
-        });
-        readable_opacity(color(g.theme.fg, 1.0), color(g.theme.bg, 1.0), behind, base)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verre_adaptatif_densifié_sur_fond_clair_seulement() {
+        // MLG-261 : verre sombre à 0,58 — rien à faire sur un fond sombre,
+        // relevé sur un fond blanc, borné par le plafond du thème.
+        let fg = Color::from_rgb8(0xf5, 0xf7, 0xfa);
+        let bg = Color::from_rgb8(0x1c, 0x20, 0x28);
+        assert_eq!(material_opacity(fg, bg, (0.0, 0.05), 0.58, 1.0), 0.58);
+        let clair = material_opacity(fg, bg, (0.0, 1.0), 0.58, 1.0);
+        assert!(clair > 0.7 && clair < 1.0, "{clair}");
+        assert!(clair.min(0.92) <= 0.92);
+    }
 
     #[test]
     fn transparent_dark_glass_gets_more_cover_on_a_bright_wall() {

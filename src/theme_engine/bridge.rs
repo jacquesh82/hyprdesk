@@ -91,7 +91,13 @@ pub fn same_look(a: &Theme, b: &Theme) -> bool {
         && a.accent == b.accent
         && Place::ALL.iter().all(|p| {
             let (x, y) = (a.effect(*p), b.effect(*p));
-            x.blur == y.blur && (x.opacity - y.opacity).abs() < 1e-3
+            x.blur == y.blur
+                && (x.opacity - y.opacity).abs() < 1e-3
+                && match (x.adaptive, y.adaptive) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => (a - b).abs() < 1e-3,
+                    _ => false,
+                }
         })
 }
 
@@ -306,13 +312,19 @@ pub fn write_custom(roots: &Roots, theme: &Theme) -> Result<PathBuf> {
     }
     let mut effects = toml::Table::new();
     for p in Place::ALL.iter().copied() {
-        let Effect { opacity, blur } = theme.effect(p);
+        let Effect {
+            opacity,
+            blur,
+            adaptive,
+        } = theme.effect(p);
         let mut e = toml::Table::new();
-        e.insert(
-            "opacity".into(),
-            ((f64::from(opacity) * 10_000.0).round() / 10_000.0).into(),
-        );
+        let round = |v: f32| (f64::from(v) * 10_000.0).round() / 10_000.0;
+        e.insert("opacity".into(), round(opacity).into());
         e.insert("blur".into(), blur.into());
+        if let Some(max) = adaptive {
+            e.insert("adaptive".into(), true.into());
+            e.insert("opacity_max".into(), round(max).into());
+        }
         effects.insert(p.as_str().into(), e.into());
     }
     let mut doc = toml::Table::new();

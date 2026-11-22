@@ -39,6 +39,7 @@ impl Preset {
                     Effect {
                         opacity,
                         blur: self.blur && p.blurrable(),
+                        adaptive: None,
                     },
                 )
             })
@@ -719,6 +720,7 @@ pub fn from_scene(image: &Path, name: &str) -> Result<Settings, String> {
                 Effect {
                     opacity,
                     blur: p.blurrable(),
+                    adaptive: None,
                 },
             )
         })
@@ -815,6 +817,7 @@ mod tests {
             Effect {
                 opacity: 0.5,
                 blur: false,
+                adaptive: None,
             },
         );
         let t = Settings::theme_of(&cfg);
