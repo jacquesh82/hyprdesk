@@ -582,6 +582,32 @@ mod tests {
     }
 
     #[test]
+    fn palette_publiée_relue_par_la_création_cliente() {
+        // Fin de chaîne : ce que le moteur publie, la crate cliente
+        // `hyprdesk-theme-client` le lit sans dépendre du démon.
+        let root = std::env::temp_dir().join(format!("hd-apply-9-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let report = apply(&ardoise(), None, &roots, &opts(Mode::Persist));
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        let client =
+            hyprdesk_theme_client::ThemeClient::from_path(roots.state_dir().join("palette.json"));
+        let pal = client.palette().unwrap();
+        assert_eq!(pal.pack, "regle");
+        assert_eq!(pal.revision, report.revision);
+        let accent = pal.slot("accent").unwrap();
+        assert_eq!(
+            (accent.r, accent.g, accent.b),
+            (
+                crate::config::Theme::default().accent.0,
+                crate::config::Theme::default().accent.1,
+                crate::config::Theme::default().accent.2
+            )
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn rapport_json_et_résumé() {
         let root = std::env::temp_dir().join(format!("hd-apply-8-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

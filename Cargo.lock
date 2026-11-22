@@ -1641,6 +1641,7 @@ dependencies = [
  "freedesktop-icons",
  "hyprdesk-auth",
  "hyprdesk-i18n",
+ "hyprdesk-theme-client",
  "hyprpanel-core",
  "iced",
  "iced_layershell",
@@ -1690,6 +1691,17 @@ dependencies = [
  "chrono",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "hyprdesk-theme-client"
+version = "0.1.0"
+dependencies = [
+ "notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

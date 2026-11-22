@@ -39,7 +39,7 @@ path = "src/bin/hyprdesk-theme-engine.rs"
 [workspace]
 # Crates du dépôt ; vendor/ reste hors de l'espace de travail (copies
 # vérifiées de crates.io, branchées par [patch.crates-io]).
-members = ["crates/hyprdesk-i18n", "crates/hyprdesk-auth"]
+members = ["crates/hyprdesk-i18n", "crates/hyprdesk-auth", "crates/hyprdesk-theme-client"]
 exclude = ["vendor"]
 
 [dependencies]
@@ -110,6 +110,8 @@ sessionlockev = { path = "vendor/sessionlockev" }
 [dev-dependencies]
 # Tests : langue source figée (ils lisent des textes français).
 hyprdesk-i18n = { path = "crates/hyprdesk-i18n", features = ["fixed-lang"] }
+# Fin de chaîne du moteur de thème : la palette publiée relue par la cliente.
+hyprdesk-theme-client = { path = "crates/hyprdesk-theme-client" }
 
 # Binaires sans table de symboles : 88 → 69 Mo pour hyprdesk, sans coût de
 # compilation (les paquets les strippaient déjà). Les traces de panique

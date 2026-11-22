@@ -4545,3 +4545,12 @@
 "Scannez le code : la télécommande s'ouvre sur le téléphone. Dans Disney+, HBO Max, Netflix… touchez Partager → Copier le lien, puis collez-le dans la page : le titre s'ouvre ici, avec votre compte." = "Scan the code: the remote opens on the phone. In Disney+, HBO Max, Netflix… tap Share → Copy link, then paste it in the page: the title opens here, with your account."
 "Téléphone" = "Phone"
 "Ou depuis le téléphone : touchez ici pour afficher le code à scanner (Disney+, HBO Max… par Partager ; YouTube par l'icône cast)." = "Or from the phone: tap here to show the code to scan (Disney+, HBO Max… via Share; YouTube via the cast icon)."
+
+# Moteur de thème (cibles de hyprdesk-theme-engine).
+"Fragment hyprlang : bordures, ombre, options du pack ; inclus par source=." = "Hyprlang fragment: borders, shadow, pack options; included via source=."
+"Variables $hd_* pour hyprlock.conf, inclus par source=." = "$hd_* variables for hyprlock.conf, included via source=."
+"Fichier de couleurs inclus en fin de kitty.conf, relu par SIGUSR1." = "Colour file appended at the end of kitty.conf, reloaded on SIGUSR1."
+"Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) + schéma clair/sombre." = "Named gtk-3.0 and gtk-4.0 colors (marked block) + light/dark scheme."
+"Feuille limitée à .thunar, importée en tête de gtk.css." = "Stylesheet scoped to .thunar, imported at the top of gtk.css."
+"GTK" = "GTK"
+"Hyprlock" = "Hyprlock"

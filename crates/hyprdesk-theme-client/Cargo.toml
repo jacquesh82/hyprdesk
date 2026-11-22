@@ -1,0 +1,18 @@
+[package]
+name = "hyprdesk-theme-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+description = "Palette de thème de hyprdesk pour les applications tierces : lecture et abonnement à palette.json (docs/THEME-ENGINE.md §9)"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# Changements de la palette publiée, sans dépendre du démon hyprdesk.
+notify = "8.2"
+
+[dev-dependencies]
+tempfile = "3"
