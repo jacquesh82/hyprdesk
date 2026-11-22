@@ -240,6 +240,12 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..
             }) => Some(PreviewMsg::Ui(Box::new(Msg::BarDragCancel))),
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
+                Some(PreviewMsg::Ui(Box::new(Msg::Key(Id::unique(), key))))
+            }
+            Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                Some(PreviewMsg::Ui(Box::new(Msg::Modifiers(modifiers))))
+            }
             _ => None,
         });
         Subscription::batch([frames, capture])
@@ -498,11 +504,16 @@ impl Preview {
                 fullscreen: false,
             })
             .collect();
-        let mut cfg = app.settings.apply_to(&cfg);
-        if std::env::var("HYPRDESK_PREVIEW_THEME").as_deref() == Ok("light") {
-            cfg.general.theme.fg = config::Rgba(0x24, 0x25, 0x35, 0xff);
-            cfg.general.theme.bg = config::Rgba(0xf2, 0xf4, 0xfa, 0xff);
+        if let Ok(name) = std::env::var("HYPRDESK_PREVIEW_THEME") {
+            let name = if name == "light" { "Clair" } else { &name };
+            if let Some(preset) = crate::theme::PRESETS
+                .iter()
+                .find(|preset| preset.name.eq_ignore_ascii_case(name))
+            {
+                app.settings.apply_preset(preset);
+            }
         }
+        let cfg = app.settings.apply_to(&cfg);
         app.theme = make_theme(&cfg);
         app.cfg = Arc::new(cfg);
         // Permet de vérifier une surface sans recapturer tous les réglages.
@@ -585,10 +596,15 @@ impl Preview {
         self.app.overview = None;
         self.app.bar_preview = None;
         self.app.convex_runtime = Default::default();
+        self.app
+            .toasts
+            .history
+            .retain(|notification| notification.id < u32::MAX - 1);
         self.app.workspaces.retain(|w| w.id <= 4);
         let cfg = Arc::make_mut(&mut self.app.cfg);
         cfg.widgets
             .retain(|w| !w.id.starts_with("preview-module-") && w.id != "barlauncher");
+        cfg.general.clipboard_history = SCENES[self.scene] == "bar-controls";
         if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
             w.kind = WidgetKind::Clock {
                 format: "%a %-d %b  ·  %H:%M".into(),
@@ -2095,6 +2111,7 @@ impl Preview {
                     "barcontrols".into(),
                     popover::Kind::Widget("barcontrols".into()),
                 );
+                self.demo_controls();
             }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis
             // mode détaillé (jauge et %), côte à côte.
@@ -2441,6 +2458,78 @@ impl Preview {
         }
     }
 
+    fn demo_controls(&mut self) {
+        let Some(dashboard) = self.app.popover.as_mut().and_then(|p| p.dashboard.as_mut()) else {
+            return;
+        };
+        for i in 0..24 {
+            let wave = (i as f32 * 1.15).sin();
+            let ratio = (i as f32 * 0.47).sin() * 0.10 + wave * 0.035;
+            dashboard.update(popover::continuity::Sample {
+                media: Some(crate::widgets::media::Status {
+                    title: "Night Walk".into(),
+                    artist: "Kudasai".into(),
+                    playing: true,
+                    position: Some(84),
+                    length: Some(237),
+                    ..Default::default()
+                }),
+                system: [
+                    ("CPU", "28 %", 0.28 + ratio),
+                    ("GPU", "41 %", 0.41 - ratio * 0.5),
+                    ("RAM", "6,7 / 16 Gio", 0.42),
+                ]
+                .into_iter()
+                .map(|(label, value, ratio)| widgets::SysLine {
+                    label: label.into(),
+                    value: value.into(),
+                    ratio: Some(ratio),
+                })
+                .collect(),
+                network: Some((12_400_000.0 + 2_400_000.0 * wave, 2_100_000.0)),
+            });
+        }
+        if SCENES[self.scene] != "bar-controls" {
+            return;
+        }
+        let cfg = Arc::make_mut(&mut self.app.cfg);
+        for (type_id, value) in [
+            ("meteo", widgets::Value::Text("Paris · 8 °C".into())),
+            (
+                "battery",
+                widgets::Value::Rich(config::Rendered {
+                    text: "76 %".into(),
+                    ..Default::default()
+                }),
+            ),
+        ] {
+            let id = format!("preview-module-controls-{type_id}");
+            let mut source = widget(&id, WidgetKind::Calendar, Anchor::TopLeft);
+            source.type_id = type_id.into();
+            source.in_bar = true;
+            cfg.widgets.push(source);
+            self.app.values.insert(id, value);
+        }
+        self.app.toasts.history = [
+            (u32::MAX - 1, "Mise à jour disponible", "Hyprdesk"),
+            (u32::MAX, "Capture enregistrée", "Hyprland"),
+        ]
+        .into_iter()
+        .map(|(id, title, app)| {
+            crate::notifications::build(
+                id,
+                app,
+                "",
+                crate::i18n::tr(title),
+                "",
+                &[],
+                &Default::default(),
+                -1,
+            )
+        })
+        .collect();
+    }
+
     /// Fenêtres de démonstration sur les espaces 1 à 3 : clients (icônes
     /// d'activité) et géométries (miniatures du sélecteur, écran d'organisation).
     #[allow(clippy::type_complexity)]
@@ -2604,6 +2693,20 @@ impl Preview {
 
     fn update_ui(&mut self, message: Msg) -> Task<PreviewMsg> {
         match message {
+            Msg::Key(_, key)
+                if self
+                    .app
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.dashboard.is_some()) =>
+            {
+                popover::continuity::handle_key(&key, self.app.mods.shift())
+                    .map(|m| PreviewMsg::Ui(Box::new(m)))
+            }
+            Msg::Modifiers(modifiers) => {
+                self.app.mods = modifiers;
+                Task::none()
+            }
             Msg::Panorama(m) => {
                 use panorama::PMsg;
                 match m {
@@ -2720,6 +2823,10 @@ impl Preview {
                     control::Command::Show => DesktopMode::FullDesktop,
                     control::Command::Hide => DesktopMode::NoDesktop,
                     control::Command::LauncherOnly => DesktopMode::LauncherOnly,
+                    control::Command::Notifications(action) => {
+                        self.app.toasts.command(&action);
+                        return Task::none();
+                    }
                     _ => return Task::none(),
                 };
                 self.app
@@ -2739,6 +2846,30 @@ impl Preview {
             Msg::VolumeMute => {
                 if let Some((_, muted)) = self.app.volume.as_mut() {
                     *muted = !*muted;
+                }
+                Task::none()
+            }
+            Msg::MicSet(value) => {
+                if let Some((volume, _)) = self.app.audio.mic.as_mut() {
+                    *volume = value;
+                }
+                Task::none()
+            }
+            Msg::MicMute => {
+                if let Some((_, muted)) = self.app.audio.mic.as_mut() {
+                    *muted = !*muted;
+                }
+                Task::none()
+            }
+            Msg::Media(_, "PlayPause") => {
+                if let Some(media) = self
+                    .app
+                    .popover
+                    .as_mut()
+                    .and_then(|p| p.dashboard.as_mut())
+                    .and_then(|dashboard| dashboard.media.as_mut())
+                {
+                    media.playing = !media.playing;
                 }
                 Task::none()
             }

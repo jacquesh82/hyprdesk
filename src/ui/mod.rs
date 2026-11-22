@@ -232,6 +232,8 @@ pub enum Msg {
     PopoverReady(u64, Id, String, popover::Kind),
     ClosePopover,
     PopoverMeasured(Id, f32),
+    DashboardSample(Id, Box<popover::continuity::Sample>),
+    DashboardCommand(control::Command),
     Popover(popover::PMsg),
     /// Appelle une fonction Lua d'un widget (on_click, on_scroll) puis le relève.
     LuaCall(String, usize, Option<i64>),
@@ -4802,6 +4804,19 @@ impl App {
                 self.close_popover()
             }
             Msg::PopoverMeasured(win, height) => self.fit_popover(win, height),
+            Msg::DashboardSample(id, sample) => {
+                if let Some(dashboard) = self.popover.as_mut().and_then(|p| p.dashboard.as_mut())
+                    && dashboard.id == id
+                {
+                    dashboard.update(*sample);
+                }
+                Task::none()
+            }
+            Msg::DashboardCommand(command) => {
+                self.menu_request += 1;
+                let close = self.destroy_popover();
+                Task::batch([close, self.update_inner(Msg::Control(command))])
+            }
             Msg::Popover(m) => self.popover_update(m),
             Msg::LuaCall(widget, func, arg) => {
                 let lua = self.lua.clone();
@@ -5256,6 +5271,13 @@ impl App {
                     self.selected = None;
                     return Task::none();
                 }
+                if self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.win == id && p.dashboard.is_some())
+                {
+                    return popover::continuity::handle_key(&key, self.mods.shift());
+                }
                 // Le panneau a ses propres champs de saisie : pas de navigation
                 // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
                 if self.panel.is_some() || self.chat_shown() {
@@ -5396,6 +5418,17 @@ impl App {
             iced::window::resize_events().map(|(id, s)| Msg::Resized(id, s)),
             iced::window::close_events().map(Msg::Closed),
         ];
+        if let Some(dashboard) = self
+            .popover
+            .as_ref()
+            .filter(|p| !p.closing())
+            .and_then(|p| p.dashboard.as_ref())
+        {
+            subs.push(Subscription::run_with(
+                dashboard.id,
+                popover::continuity::samples,
+            ));
+        }
         // Cast vers la zone vidéo (MLG-217, MLG-218) : page du téléphone et
         // récepteur YouTube, tant qu'un écran Panorama est là.
         if self.cfg.plugin_on("panorama")

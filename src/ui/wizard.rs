@@ -1666,7 +1666,7 @@ impl App {
             (
                 BarStyle::Continuite,
                 "Continuité",
-                "Verre fumé, capsules au survol.",
+                "Groupes arrondis et sélection glissante.",
             ),
             (
                 BarStyle::Graphite,
@@ -2710,7 +2710,7 @@ mod tests {
     fn textes_traduits() {
         let mut all: Vec<&str> = LAYOUTS.iter().map(|l| l.1).collect();
         all.extend([
-            "Verre fumé, capsules au survol.",
+            "Groupes arrondis et sélection glissante.",
             "Barre des tâches en bas, lanceur centré.",
             "Capsule centrée, discrète au repos.",
             "Lame sculptée de trois niches.",

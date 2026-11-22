@@ -17,6 +17,7 @@ use crate::config::{BarPosition, MenuEntry};
 use crate::ui::plugins::bar::style::convexe::Edge;
 use crate::ui::{App, Fade, Msg, color, format_now};
 mod bar_menus;
+pub(in crate::ui) mod continuity;
 
 pub const POPOVER_NAMESPACE: &str = "hyprdesk-popover";
 /// Marge transparente autour de la carte, pour son ombre.
@@ -247,6 +248,38 @@ mod tests {
         assert_eq!(app.popover.as_ref().unwrap().win, win);
         assert!(app.popover.as_ref().unwrap().left > 500.0);
     }
+
+    #[test]
+    fn continuity_controls_use_the_output_width_and_other_menus_keep_their_size() {
+        let (mut app, bar) = app();
+        let loaded = crate::config::lua::load_source(
+            "hd.widget('controls', {id='controls'}); hd.bar({style='continuity', right={'controls'}})",
+            "test.lua",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        app.cfg = Arc::new(loaded.config);
+        let widget = app
+            .cfg
+            .widgets
+            .iter()
+            .find(|w| matches!(w.kind, crate::config::WidgetKind::Controls))
+            .unwrap()
+            .id
+            .clone();
+        let _ = app.open_popover(bar, widget.clone(), Kind::Widget(widget));
+        let p = app.popover.as_ref().unwrap();
+        assert!(p.dashboard.is_some());
+        assert_eq!((p.left, p.size.width), (8.0, 884.0));
+        let win = p.win;
+        let _ = app.fit_popover(win, 80.0);
+        assert_eq!(app.popover.as_ref().unwrap().size.height, 576.0);
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let p = app.popover.as_ref().unwrap();
+        assert_eq!(p.win, win);
+        assert!(p.dashboard.is_none());
+        assert_eq!(p.size.width, WIDTH + 2.0 * SHADOW);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +344,7 @@ pub struct Popover {
     anchor_key: String,
     pub kind: Kind,
     pub size: Size,
+    pub(in crate::ui) dashboard: Option<continuity::Dashboard>,
     /// Dernière relecture du menu (menus du tray : suivis ouverts).
     pub refreshed: std::time::Instant,
     max_height: f32,
@@ -361,6 +395,13 @@ pub(in crate::ui) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f
     let left = card_left - SHADOW;
     let origin = ((anchor.center_x() - left) / (width + 2.0 * SHADOW)).clamp(0.05, 0.95);
     (left, width + 2.0 * SHADOW, origin)
+}
+
+fn dashboard_placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
+    let width = (screen_width - 16.0).clamp(80.0, 1600.0);
+    let left = (screen_width - width) * 0.5;
+    let origin = ((anchor.center_x() - left) / width).clamp(0.05, 0.95);
+    (left, width, origin)
 }
 
 /// Les commandes latérales ouvrent un tiroir depuis leur bord ; le groupe
@@ -537,7 +578,17 @@ impl App {
                 Task::none()
             };
         }
-        let (left, width, origin) = placement(m.width as f32, anchor);
+        let (left, width, origin) = if p.dashboard.is_some() {
+            dashboard_placement(m.width as f32, anchor)
+        } else {
+            placement(m.width as f32, anchor)
+        };
+        let height = if p.dashboard.is_some() {
+            let max_height = (m.height as f32 - bar.height as f32 - 2.0 * GAP).max(80.0);
+            (self.dashboard_height(width - 2.0 * SHADOW) + 2.0 * SHADOW).min(max_height)
+        } else {
+            p.size.height
+        };
         let p = self.popover.as_mut().unwrap();
         p.origin = origin;
         let mut tasks = Vec::new();
@@ -556,11 +607,11 @@ impl App {
                 },
             }));
         }
-        if (p.size.width - width).abs() > 0.5 {
-            p.size.width = width;
+        if (p.size.width - width).abs() > 0.5 || (p.size.height - height).abs() > 0.5 {
+            p.size = Size::new(width, height);
             tasks.push(Task::done(Msg::SizeChange {
                 id: p.win,
-                size: (width as u32, p.size.height as u32),
+                size: (width as u32, height as u32),
             }));
         }
         Task::batch(tasks)
@@ -603,17 +654,30 @@ impl App {
         if matches!(kind, Kind::Notifications) {
             anchor.x = m.width as f32 * 0.5 - anchor.width * 0.5;
         }
-        let (mut left, width, origin) = placement(m.width as f32, anchor);
+        let wide = self.cfg.bar.as_ref().is_some_and(|bar| {
+            bar.style == crate::config::BarStyle::Continuite
+                && matches!(&kind, Kind::Widget(id) if self.cfg.widgets.iter().any(|w| w.id == *id
+                    && matches!(w.kind, crate::config::WidgetKind::Controls)))
+        });
+        let (mut left, width, origin) = if wide {
+            dashboard_placement(m.width as f32, anchor)
+        } else {
+            placement(m.width as f32, anchor)
+        };
         let options = self.convex_options().filter(|o| o.attached_panels);
         let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(80.0);
-        let h = (card_height(&kind, None, &self.audio, &self.light)
-            + 2.0 * SHADOW
-            + if options.is_some() {
-                b.height as f32
-            } else {
-                0.0
-            })
-        .min(max_height);
+        let h = if wide {
+            (self.dashboard_height(width - 2.0 * SHADOW) + 2.0 * SHADOW).min(max_height)
+        } else {
+            (card_height(&kind, None, &self.audio, &self.light)
+                + 2.0 * SHADOW
+                + if options.is_some() {
+                    b.height as f32
+                } else {
+                    0.0
+                })
+            .min(max_height)
+        };
         let mut size = Size::new(width, h);
         let attached = options.map(|_| {
             let (x, s, a) =
@@ -650,6 +714,9 @@ impl App {
             (0, 0, v, left as i32)
         };
         let mut tasks = Vec::new();
+        if wide {
+            tasks.extend(continuity::ICONS.iter().map(|name| self.want_icon(name)));
+        }
         if let Kind::Menu { entries, .. } = &kind {
             for e in entries {
                 if let MenuEntry::Item { icon: Some(i), .. } = e {
@@ -675,7 +742,9 @@ impl App {
                 dur: duration,
             };
             if !reversing {
-                p.previous = Some(std::mem::replace(&mut p.kind, kind));
+                let previous = std::mem::replace(&mut p.kind, kind);
+                p.previous = (!wide && p.dashboard.is_none()).then_some(previous);
+                p.dashboard = wide.then(continuity::Dashboard::new);
                 p.change = Some(Fade {
                     from: 0.0,
                     to: 1.0,
@@ -775,6 +844,7 @@ impl App {
             anchor_key,
             kind,
             size,
+            dashboard: wide.then(continuity::Dashboard::new),
             refreshed: std::time::Instant::now(),
             max_height,
             confirm: None,
@@ -1021,7 +1091,11 @@ impl App {
         if !content_height.is_finite() || content_height <= 0.0 {
             return Task::none();
         }
-        let Some(p) = self.popover.as_mut().filter(|p| p.win == win) else {
+        let Some(p) = self
+            .popover
+            .as_mut()
+            .filter(|p| p.win == win && p.dashboard.is_none())
+        else {
             return Task::none();
         };
         let header = p
@@ -1154,20 +1228,22 @@ impl App {
             th.effect(crate::config::Place::Menus).opacity * alpha,
         );
         let win = p.win;
-        let content_alpha = if p.attached.is_some() { 1.0 } else { alpha };
-        let current =
-            iced::widget::sensor(self.pop_content(&p.kind, p.confirm, content_alpha * mix))
-                .key(win)
-                .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
-        let mut content = iced::widget::stack![];
-        if let Some(previous) = &p.previous {
-            content = content.push(crate::ui::plugins::bar::motion::inert(self.pop_content(
-                previous,
-                None,
-                content_alpha * (1.0 - mix),
-            )));
-        }
-        content = content.push(current);
+        let content = || {
+            let content_alpha = if p.attached.is_some() { 1.0 } else { alpha };
+            let current =
+                iced::widget::sensor(self.pop_content(&p.kind, p.confirm, content_alpha * mix))
+                    .key(win)
+                    .on_resize(move |size| Msg::PopoverMeasured(win, size.height));
+            let mut stack = iced::widget::stack![];
+            if let Some(previous) = &p.previous {
+                stack = stack.push(crate::ui::plugins::bar::motion::inert(self.pop_content(
+                    previous,
+                    None,
+                    content_alpha * (1.0 - mix),
+                )));
+            }
+            stack.push(current)
+        };
         if let Some(a) = p.attached {
             let header = if matches!(a.edge, Edge::Top | Edge::Bottom) {
                 a.bar_height
@@ -1175,7 +1251,7 @@ impl App {
                 0.0
             };
             let shape_height = a.from_height + (a.height - a.from_height) * mix;
-            let body = container(iced::widget::scrollable(content).height(Length::Fill))
+            let body = container(iced::widget::scrollable(content()).height(Length::Fill))
                 .padding(Padding {
                     top: 24.0 + header,
                     bottom: 24.0,
@@ -1225,8 +1301,10 @@ impl App {
             .on_show(move |_| Msg::PopoverShown(win))
             .into();
         }
-        let card: Element<'_, Msg> =
-            container(iced::widget::scrollable(content).height(Length::Fill))
+        let card: Element<'_, Msg> = if let Some(dashboard) = &p.dashboard {
+            self.continuity_dashboard(p, dashboard, alpha)
+        } else {
+            container(iced::widget::scrollable(content()).height(Length::Fill))
                 .padding(12)
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -1236,7 +1314,8 @@ impl App {
                     style.shadow.color.a *= alpha;
                     style
                 })
-                .into();
+                .into()
+        };
         let card = if p.closing() {
             crate::ui::plugins::bar::motion::inert(card)
         } else {
@@ -1252,10 +1331,15 @@ impl App {
         } else {
             iced::Point::new(p.origin, 1.0)
         };
+        let scale = if p.dashboard.is_some() {
+            1.0
+        } else {
+            0.975 + 0.025 * alpha
+        };
         iced::widget::sensor(
             container(crate::ui::plugins::bar::motion::surface(
                 card,
-                0.975 + 0.025 * alpha,
+                scale,
                 Vector::new(p.slide_from * (1.0 - mix), direction * 6.0 * (1.0 - alpha)),
                 origin,
             ))

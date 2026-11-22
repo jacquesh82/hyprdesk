@@ -553,9 +553,6 @@ mod tests {
         let _ = app.convex_frame_tick();
         assert!(!app.convex_animating());
         assert_eq!(app.convex_progress("A", Part::Dock), 0.0);
-        let pal = app.bar_palette();
-        assert_eq!(pal.bg, crate::config::Rgba(12, 12, 16, 255));
-        assert_eq!(pal.opacity, 1.0);
     }
     #[test]
     fn leaving_the_wake_strip_upward_keeps_the_dock_open() {

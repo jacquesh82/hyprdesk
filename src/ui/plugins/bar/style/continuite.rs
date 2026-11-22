@@ -1,11 +1,9 @@
-//! Style « Continuité » : le rendu d'origine de la barre — verre fumé dérivé
-//! du thème, capsule de survol, capsule glissante sur l'espace actif
-//! (`design-plans/barre-continuite.md`). Extrait tel quel de `ui::bar` le jour
-//! où les styles sont devenus un choix ; comportement inchangé.
-use iced::widget::{Space, button, container, mouse_area, row};
+//! Déclinaisons du thème pour la barre Continuité et son centre de contrôle.
+use iced::widget::{Space, button, container, mouse_area, pin, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, window::Id};
 
 use super::{Tokens, WsCtx, color, urgent_mark};
+use crate::config::BarStyle;
 use crate::ui::plugins::bar::motion;
 use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, scroll_dir};
 use crate::ui::{App, Msg, design};
@@ -16,32 +14,97 @@ pub(super) const TOKENS: Tokens = Tokens {
     switch: 180,
 };
 
-/// Verre fumé : reflet issu du texte du thème, filet d'un pixel côté fenêtres.
-pub(super) fn surface(pal: &BarPalette, top: bool) -> iced::widget::container::Style {
-    design::bar_surface(color(pal.bg, pal.opacity), color(pal.fg, 1.0), top)
+pub(super) fn surface(pal: &BarPalette, top: bool) -> container::Style {
+    let radius = if top {
+        iced::border::bottom(11)
+    } else {
+        iced::border::top(11)
+    };
+    container::Style {
+        background: Some(frame(pal, pal.opacity).into()),
+        border: Border::default().rounded(radius),
+        text_color: Some(color(pal.fg, 1.0)),
+        ..Default::default()
+    }
 }
 
-/// Capsules : teinte du texte posée par-dessus le fond, plus forte à l'appui.
+pub(super) fn groups<'a>(
+    pal: &BarPalette,
+    height: f32,
+    extents: [(f32, f32); 3],
+) -> Element<'a, Msg> {
+    use crate::ui::plugins::bar::layout::GROUP_INSET;
+
+    let fill = color(pal.bg, pal.opacity);
+    let height = (height - 2.0 * vertical_padding(height)).max(0.0);
+    let mut groups = iced::widget::stack![Space::new().width(Length::Fill).height(Length::Fill)];
+    for (left, right) in extents {
+        if right > left {
+            let group = container(Space::new())
+                .width(right - left + 2.0 * GROUP_INSET)
+                .height(height)
+                .style(move |_| container::Style {
+                    background: Some(fill.into()),
+                    border: Border::default().rounded((height / 2.0).min(13.0)),
+                    ..Default::default()
+                });
+            groups = groups.push(pin(group).x(left - GROUP_INSET));
+        }
+    }
+    groups.into()
+}
+
+pub(in crate::ui) fn vertical_padding(height: f32) -> f32 {
+    if height < 32.0 { 2.0 } else { 3.0 }
+}
+
+pub(in crate::ui) fn frame(pal: &BarPalette, alpha: f32) -> Color {
+    tone(pal, 0.16, alpha)
+}
+
+pub(in crate::ui) fn tone(pal: &BarPalette, amount: f64, alpha: f32) -> Color {
+    let mut tint = crate::theme::mix(pal.bg, pal.fg, amount);
+    tint.3 = pal.bg.3;
+    color(tint, alpha)
+}
+
+pub(in crate::ui) fn selected_ink(pal: &BarPalette, alpha: f32) -> Color {
+    let accent = color(pal.accent, 1.0);
+    let ink = design::on_accent(accent, color(pal.fg, 1.0), color(pal.bg, 1.0));
+    let ink = if accent.relative_contrast(ink) >= 4.5 {
+        ink
+    } else {
+        design::on_accent(accent, Color::WHITE, Color::BLACK)
+    };
+    Color { a: alpha, ..ink }
+}
+
 pub(super) fn module_button(
+    pal: &BarPalette,
     alpha: f32,
-    fg: Color,
     active: bool,
     st: button::Status,
 ) -> button::Style {
-    let a = match st {
-        button::Status::Pressed => 0.18,
-        _ if active => 0.12,
-        _ => 0.0,
+    let accent = color(pal.accent, alpha);
+    let background = match (active, st) {
+        (true, button::Status::Pressed) => Some(accent.scale_alpha(0.82).into()),
+        (true, _) => Some(accent.into()),
+        (false, button::Status::Pressed) => Some(tone(pal, 0.20, alpha).into()),
+        _ => None,
     };
     button::Style {
-        background: (a > 0.0).then_some(Background::Color(Color { a: a * alpha, ..fg })),
-        text_color: fg,
+        background,
+        text_color: if active {
+            selected_ink(pal, alpha)
+        } else {
+            color(pal.fg, alpha)
+        },
         border: Border::default().rounded(design::SMALL_RADIUS),
         ..Default::default()
     }
 }
 
-/// Pills d'espaces de travail sous une capsule glissante d'accent.
+/// Rail configuré avec des touches séparées et sa capsule glissante.
 pub(super) fn workspaces<'a>(
     app: &'a App,
     bar_id: Id,
@@ -50,13 +113,18 @@ pub(super) fn workspaces<'a>(
     alpha: f32,
 ) -> Element<'a, Msg> {
     let pal = app.bar_palette();
+    let continuity = app
+        .cfg
+        .bar
+        .as_ref()
+        .is_some_and(|b| b.style == BarStyle::Continuite);
     let accent = color(pal.accent, alpha);
     let selected = ctx.rows.iter().position(|w| w.name == ctx.current);
-    let fg = color(pal.fg, 0.92 * alpha);
-    let dim = color(pal.fg, 0.65 * alpha);
     let base = app
         .bar_item_color(&crate::config::BarItem::Workspaces)
         .unwrap_or(pal.fg);
+    let fg = color(base, 0.92 * alpha);
+    let dim = color(base, 0.65 * alpha);
     let fgc = color(base, alpha);
     let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
     let mut pills: Vec<Element<'_, Msg>> = ctx
@@ -64,7 +132,13 @@ pub(super) fn workspaces<'a>(
         .iter()
         .map(|w| {
             let active = w.name == ctx.current;
-            let txt = if active || w.windows > 0 { fg } else { dim };
+            let txt = if active && continuity {
+                selected_ink(&pal, alpha)
+            } else if active || w.windows > 0 {
+                fg
+            } else {
+                dim
+            };
             let h = (bar.height as f32 * 0.6).round();
             let mut content = row![app.label(w.name.clone(), size * 0.92, txt)]
                 .spacing(4)
@@ -153,14 +227,14 @@ pub(super) fn workspaces<'a>(
         }
         segments.push(pill);
     }
-    let selected = selected.map(|i| i * 2);
+    let selected = selected.map(|i| if ctx.folded { i } else { i * 2 });
     mouse_area(
         container(motion::rail(
             row(segments).spacing(3).align_y(Alignment::Center),
             selected,
             Vec::new(),
             motion::RailLook::Fill(Color {
-                a: 0.27 * alpha,
+                a: if continuity { alpha } else { 0.27 * alpha },
                 ..accent
             }),
             app.bar_duration(TOKENS.switch),

@@ -4,7 +4,6 @@ use iced::widget::{Space, button, column, container, mouse_area, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, window::Id};
 
 use super::{Tokens, WsCtx, color, urgent_mark};
-use crate::config::Rgba;
 use crate::ui::plugins::bar::motion;
 use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, scroll_dir};
 use crate::ui::{App, Msg, design};
@@ -15,20 +14,9 @@ pub(super) const TOKENS: Tokens = Tokens {
     switch: 170,
 };
 
-/// Opacité de référence ; une valeur Lua explicite reste prioritaire.
-pub(crate) const ACRYLIC: f32 = 0.94;
 /// Rayon des touches et sièges gravés.
 const KEY_RADIUS: f32 = 6.0;
 
-/// Le gris du graphite : la luminance du thème, sans sa teinte. La lame est
-/// neutre — le menu Démarrer de Windows 11 n'est jamais bleu parce que le
-/// fond d'écran l'est.
-pub(crate) fn neutral(c: Rgba) -> Rgba {
-    let l = (0.2126 * c.0 as f32 + 0.7152 * c.1 as f32 + 0.0722 * c.2 as f32).round() as u8;
-    Rgba(l, l, l, c.3)
-}
-
-/// Mélange monochrome de deux couleurs.
 fn mix(a: Color, b: Color, t: f32) -> Color {
     Color {
         r: a.r + (b.r - a.r) * t,

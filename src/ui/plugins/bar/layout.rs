@@ -28,6 +28,7 @@ pub(in crate::ui) struct PillSkin {
 const PILL_INSET: f32 = 12.0;
 const IDLE_WIDTH: f32 = 112.0;
 const IDLE_HEIGHT: f32 = 28.0;
+pub(super) const GROUP_INSET: f32 = 3.0;
 
 pub(in crate::ui) fn strip<'a>(
     id: iced::window::Id,
@@ -36,6 +37,7 @@ pub(in crate::ui) fn strip<'a>(
     compact: bool,
     adaptive_center: bool,
     pill: Option<PillSkin>,
+    grouped: bool,
 ) -> Element<'a, Msg> {
     let zones = slots.iter().map(|s| s.zone).collect();
     let priorities = slots.iter().map(|s| s.priority).collect();
@@ -51,6 +53,7 @@ pub(in crate::ui) fn strip<'a>(
         compact,
         adaptive_center,
         pill,
+        grouped,
     })
 }
 
@@ -183,6 +186,7 @@ struct Strip<'a> {
     adaptive_center: bool,
     /// Peindre et révéler la capsule centrale Island.
     pill: Option<PillSkin>,
+    grouped: bool,
 }
 
 impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
@@ -250,10 +254,11 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             .map(|n| n.size().width)
             .collect();
         let more = nodes.last().map_or(0.0, |n| n.size().width);
+        let group_inset = if self.grouped { GROUP_INSET } else { 0.0 };
         let budget = if self.pill.is_some() {
             (size.width - 2.0 * PILL_INSET - 16.0).max(0.0)
         } else {
-            size.width
+            (size.width - 6.0 * group_inset).max(0.0)
         };
         let (mut visible, full) = fit(&widths, &self.zones, &self.priorities, budget, more);
         let overflow = visible.contains(&false);
@@ -263,7 +268,11 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
             &visible,
             if overflow { more } else { 0.0 },
         );
-        let mut x = [0.0, (size.width - totals[1]) / 2.0, size.width - totals[2]];
+        let mut x = [
+            group_inset,
+            (size.width - totals[1]) / 2.0,
+            size.width - totals[2] - group_inset,
+        ];
         if self.pill.is_some() {
             // Les trois zones restent configurables, mais occupent une seule
             // capsule centrale. L'horloge conserve son centrage géométrique.
@@ -297,7 +306,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Strip<'_> {
         }
         let state = tree.state.downcast_mut::<State>();
         state.visible = visible;
-        state.full = full;
+        state.full = full + 6.0 * group_inset;
         state.extents = extents;
         layout::Node::with_children(size, nodes)
     }

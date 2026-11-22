@@ -23,13 +23,11 @@ use crate::ui::plugins::bar::motion;
 use crate::ui::plugins::bar::surface::{BarPalette, BarSurface, URGENT_ICON};
 use crate::ui::{App, Msg};
 
-mod continuite;
+pub(in crate::ui) mod continuite;
 pub(in crate::ui) mod convexe;
 mod graphite;
 mod island;
 
-/// Matière neutre et opacité de référence de la barre Graphite.
-pub(in crate::ui) use graphite::{ACRYLIC, neutral};
 mod selector;
 
 /// Durées de mouvement d'un style, en millisecondes (le coupe-circuit
@@ -79,7 +77,7 @@ pub(in crate::ui) fn surface(
 /// Island peint sa capsule centrale dans le strip (`PillSkin`, quads du
 /// renderer : rayon plein et ombre portée). Convex rend un canvas à niches
 /// posé sous le strip ; un changement d’étendues le repositionne à l’image
-/// suivante. `None` : lame pleine (Continuité, Graphite), rien à peindre.
+/// suivante. Continuité peint trois fonds à partir des mêmes mesures.
 pub(in crate::ui) fn zone_pill(
     style: BarStyle,
     pal: &BarPalette,
@@ -90,7 +88,7 @@ pub(in crate::ui) fn zone_pill(
     }
 }
 
-/// Canvas de fond pour les styles à path (Convex) ; `None` sinon.
+/// Fond des groupes mesurés ou des niches, derrière le rail de survol.
 pub(in crate::ui) fn zone_underlay<'a>(
     style: BarStyle,
     pal: &BarPalette,
@@ -99,6 +97,7 @@ pub(in crate::ui) fn zone_underlay<'a>(
     top: bool,
 ) -> Option<Element<'a, Msg>> {
     match style {
+        BarStyle::Continuite => Some(continuite::groups(pal, height, extents)),
         BarStyle::Convexe => Some(convexe::underlay(pal, height, extents, top)),
         _ => None,
     }
@@ -107,14 +106,15 @@ pub(in crate::ui) fn zone_underlay<'a>(
 /// Chrome d’un bouton de module (survol, appui, module actif).
 pub(in crate::ui) fn module_button(
     style: BarStyle,
+    pal: &BarPalette,
     alpha: f32,
-    fg: Color,
-    bg: Color,
     active: bool,
     st: iced::widget::button::Status,
 ) -> iced::widget::button::Style {
+    let fg = color(pal.fg, alpha);
+    let bg = color(pal.bg, 1.0);
     match style {
-        BarStyle::Continuite => continuite::module_button(alpha, fg, active, st),
+        BarStyle::Continuite => continuite::module_button(pal, alpha, active, st),
         BarStyle::Graphite => graphite::module_button(alpha, fg, bg, active, st),
         BarStyle::Island => island::module_button(alpha, fg, active, st),
         BarStyle::Convexe => convexe::module_button(alpha, fg, bg, active, st),
@@ -124,7 +124,7 @@ pub(in crate::ui) fn module_button(
 /// Aspect de la capsule qui suit le module survolé autour du ruban entier.
 pub(in crate::ui) fn rail_look(style: BarStyle, pal: &BarPalette) -> motion::RailLook {
     match style {
-        BarStyle::Continuite => motion::RailLook::Fill(crate::ui::color(pal.fg, 0.08)),
+        BarStyle::Continuite => motion::RailLook::Fill(continuite::tone(pal, 0.12, 1.0)),
         BarStyle::Graphite => motion::RailLook::Fill(color(pal.fg, 0.07)),
         BarStyle::Island => motion::RailLook::Fill(color(pal.fg, 0.08)),
         BarStyle::Convexe => motion::RailLook::Fill(color(pal.fg, 0.07)),

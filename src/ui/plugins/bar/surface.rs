@@ -81,6 +81,29 @@ pub(in crate::ui) struct BarPalette {
     pub opacity: f32,
 }
 
+impl BarPalette {
+    pub(in crate::ui) fn resolve(
+        theme: &crate::config::Theme,
+        colors: Option<&crate::config::BarColors>,
+    ) -> Self {
+        use crate::config::{BarColors, Place};
+
+        let pick =
+            |f: fn(&BarColors) -> Option<Rgba>, fallback| colors.and_then(f).unwrap_or(fallback);
+        Self {
+            fg: pick(|c| c.text, theme.fg),
+            bg: pick(|c| c.background, theme.bg),
+            accent: pick(|c| c.accent, theme.accent),
+            warning: pick(|c| c.warning, BarColors::WARNING),
+            critical: pick(|c| c.critical, BarColors::CRITICAL),
+            opacity: colors
+                .and_then(|c| c.opacity)
+                .unwrap_or_else(|| theme.effect(Place::Bar).opacity)
+                .clamp(0.0, 1.0),
+        }
+    }
+}
+
 /// Clé d'un module propre à la barre (couleur par module, `module_colors`).
 pub fn bar_item_key(item: &BarItem) -> &str {
     match item {
@@ -665,63 +688,11 @@ impl App {
         )
     }
 
-    /// Couleurs de la barre : les siennes, sinon celles du thème.
     pub(in crate::ui) fn bar_palette(&self) -> BarPalette {
-        use crate::config::BarStyle;
-        let th = &self.cfg.general.theme;
-        let c = self.cfg.bar.as_ref().map(|b| &b.colors);
-        let pick =
-            |f: fn(&crate::config::BarColors) -> Option<Rgba>, d: Rgba| c.and_then(f).unwrap_or(d);
-        // La matière Graphite : le gris du thème, sans sa teinte — la lame
-        // reste neutre quel que soit le fond d'écran (les couleurs posées
-        // explicitement pour la barre restent celles de l'utilisateur).
-        let graphite = self
-            .cfg
-            .bar
-            .as_ref()
-            .is_some_and(|b| b.style == BarStyle::Graphite);
-        let island = self
-            .cfg
-            .bar
-            .as_ref()
-            .is_some_and(|b| b.style == BarStyle::Island);
-        let neutre = |v: Rgba| {
-            if graphite {
-                crate::ui::plugins::bar::style::neutral(v)
-            } else {
-                v
-            }
-        };
-        BarPalette {
-            fg: pick(
-                |c| c.text,
-                if self.convex_options().is_some() || island {
-                    Rgba(246, 247, 255, 255)
-                } else {
-                    neutre(th.fg)
-                },
-            ),
-            bg: pick(
-                |c| c.background,
-                if island {
-                    Rgba(8, 8, 10, 255)
-                } else if self.convex_options().is_some() {
-                    Rgba(12, 12, 16, 255)
-                } else {
-                    neutre(th.bg)
-                },
-            ),
-            accent: pick(|c| c.accent, th.accent),
-            warning: pick(|c| c.warning, crate::config::BarColors::WARNING),
-            critical: pick(|c| c.critical, crate::config::BarColors::CRITICAL),
-            // Graphite privilégie un fond stable sur tout fond d’écran.
-            opacity: match c.and_then(|c| c.opacity) {
-                Some(o) => o.clamp(0.0, 1.0),
-                None if graphite => crate::ui::plugins::bar::style::ACRYLIC,
-                None if self.convex_options().is_some() || island => 1.0,
-                None => th.effect(crate::config::Place::Bar).opacity.clamp(0.0, 1.0),
-            },
-        }
+        BarPalette::resolve(
+            &self.cfg.general.theme,
+            self.cfg.bar.as_ref().map(|bar| &bar.colors),
+        )
     }
 
     fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
@@ -756,6 +727,7 @@ impl App {
         };
         let pal = self.bar_palette();
         let style = bar.style;
+        let continuity = style == crate::config::BarStyle::Continuite;
         let t = crate::ui::plugins::bar::style::durations(self);
         // Écran vertical : ses propres zones, si la barre en déclare.
         let (zones, zone_offset) = match (&bar.portrait, self.bar_vertical(&s.monitor)) {
@@ -900,6 +872,12 @@ impl App {
             if style == crate::config::BarStyle::Island {
                 eligible.fill(false);
             }
+            let more_open = self.bar_menu_open(id, "overflow");
+            let more_fg = if continuity && more_open {
+                crate::ui::plugins::bar::style::continuite::selected_ink(&pal, 1.0)
+            } else {
+                color(pal.fg, 1.0)
+            };
             let mut more_content = row![].spacing(5).align_y(Alignment::Center);
             if self.bar_overflow_items(id).contains(&BarItem::Workspaces)
                 && let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor)
@@ -907,12 +885,16 @@ impl App {
                 more_content = more_content.push(self.label(
                     truncate(&m.workspace, 8),
                     13.0,
-                    crate::ui::plugins::bar::style::ink(style, &pal),
+                    if more_open && continuity {
+                        more_fg
+                    } else {
+                        crate::ui::plugins::bar::style::ink(style, &pal)
+                    },
                 ));
             }
             more_content = more_content.push(
-                self.icon_named("view-more-symbolic", 18.0, color(pal.fg, 1.0))
-                    .unwrap_or_else(|| self.label("…", 18.0, color(pal.fg, 1.0))),
+                self.icon_named("view-more-symbolic", 18.0, more_fg)
+                    .unwrap_or_else(|| self.label("…", 18.0, more_fg)),
             );
             let more = motion::anchor(
                 self.module(
@@ -924,9 +906,7 @@ impl App {
                     None,
                     None,
                     Some(crate::i18n::tr("Autres commandes").into()),
-                    self.popover
-                        .as_ref()
-                        .is_some_and(|p| p.key == "overflow" && !p.closing()),
+                    more_open,
                 ),
                 id,
                 "overflow".into(),
@@ -952,6 +932,7 @@ impl App {
                         skin.duration = self.bar_duration(180);
                         skin
                     }),
+                    continuity,
                 ),
                 self.bar_preview
                     .filter(|_| style != crate::config::BarStyle::Island)
@@ -1001,21 +982,28 @@ impl App {
             // Convex : bord à bord, les niches partent des bords de l'écran.
             crate::config::BarStyle::Convexe => {}
             crate::config::BarStyle::Continuite => {
-                pad.top = if top { 0.0 } else { 1.0 };
-                pad.bottom = if top { 1.0 } else { 0.0 };
+                let inset =
+                    crate::ui::plugins::bar::style::continuite::vertical_padding(s.height as f32);
+                pad.top = inset;
+                pad.bottom = inset;
                 pad.left = 8.0;
                 pad.right = 8.0;
             }
         }
         // Fond de zones à path (Convex) : canvas sous le contenu, aux
         // étendues mesurées des zones.
-        let content = match crate::ui::plugins::bar::style::zone_underlay(
-            style,
-            &pal,
-            s.height as f32,
-            self.bar_zone_extents.get(&id).copied().unwrap_or_default(),
-            top,
-        ) {
+        let underlay = (!continuity || !edit)
+            .then(|| {
+                crate::ui::plugins::bar::style::zone_underlay(
+                    style,
+                    &pal,
+                    s.height as f32,
+                    self.bar_zone_extents.get(&id).copied().unwrap_or_default(),
+                    top,
+                )
+            })
+            .flatten();
+        let content = match underlay {
             Some(underlay) => iced::widget::stack([underlay, content]).into(),
             None => content,
         };
@@ -1217,7 +1205,7 @@ impl App {
         }
         r = r.push(marker((z, items.len())));
         // Bout de zone (et zone vide) : on peut y déposer.
-        r.push(
+        let row = r.push(
             mouse_area(
                 Space::new()
                     .width(if items.is_empty() { 48 } else { 16 })
@@ -1225,8 +1213,17 @@ impl App {
             )
             .on_enter(Msg::BarDragOver(z, items.len()))
             .on_release(Msg::BarDragEnd),
-        )
-        .into()
+        );
+        container(row)
+            .padding([0, 3])
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                background: Some(color(pal.bg, pal.opacity).into()),
+                border: Border::default().rounded(12),
+                ..Default::default()
+            })
+            .into()
     }
 
     /// Module de barre : capsule au survol, clics gauche/droit/milieu, molette,
@@ -1258,14 +1255,7 @@ impl App {
         .padding([0, 9])
         .on_press_maybe(left.or(interactive.then_some(Msg::Noop)))
         .style(move |_, st| {
-            crate::ui::plugins::bar::style::module_button(
-                style,
-                alpha,
-                fg,
-                color(pal.bg, 1.0),
-                active,
-                st,
-            )
+            crate::ui::plugins::bar::style::module_button(style, &pal, alpha, active, st)
         });
         let mut m = mouse_area(b);
         if let Some(r) = right {
@@ -1352,7 +1342,10 @@ impl App {
         let t = crate::ui::plugins::bar::style::durations(self);
         // Couleur du module, sinon le texte de la barre.
         let base = self.bar_item_color(item).unwrap_or(pal.fg);
-        let fg = color(base, 0.92 * alpha);
+        let open = self.bar_menu_open(bar_id, bar_item_key(item));
+        let selected = (style == crate::config::BarStyle::Continuite && open)
+            .then(|| crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha));
+        let fg = selected.unwrap_or_else(|| color(base, 0.92 * alpha));
         let dim = color(base, 0.65 * alpha);
         let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
         let isz = (size * 1.2).round();
@@ -1398,8 +1391,11 @@ impl App {
                 // un clic le change pour cet écran.
                 let mode = self.monitor_mode(&monitor);
                 let accent = color(pal.accent, alpha);
-                let on_accent =
-                    design::on_accent(accent, color(pal.fg, alpha), color(pal.bg, alpha));
+                let on_accent = if style == crate::config::BarStyle::Continuite {
+                    crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha)
+                } else {
+                    design::on_accent(accent, color(pal.fg, alpha), color(pal.bg, alpha))
+                };
                 let fgc = color(base, alpha);
                 let h = (bar.height as f32 * 0.66).round();
                 let seg = |m: M, icon: &str, cmd: control::Command, tip: &'static str| {
@@ -1519,9 +1515,7 @@ impl App {
                     Some(Msg::VolumeMute),
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
                     None,
-                    self.popover
-                        .as_ref()
-                        .is_some_and(|p| p.key == "volume" && !p.closing()),
+                    open,
                 )
             }
             BarItem::Brightness => {
@@ -1554,14 +1548,19 @@ impl App {
                             as Box<dyn Fn(i64) -> Msg>
                     }),
                     Some(crate::i18n::tr("Luminosité").to_string()),
-                    self.popover
-                        .as_ref()
-                        .is_some_and(|p| p.key == "brightness" && !p.closing()),
+                    open,
                 )
             }
             BarItem::Tray => {
                 let count = self.tray.len();
                 let icons = self.tray.iter().map(|t| {
+                    let key = format!("tray:{}", t.key);
+                    let open = self.bar_menu_open(bar_id, &key);
+                    let fg = if open && style == crate::config::BarStyle::Continuite {
+                        crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha)
+                    } else {
+                        fg
+                    };
                     // Sans image : icône générique plutôt qu'un « ? ».
                     let img: Element<'_, Msg> = self
                         .tray_icon(t, isz, alpha)
@@ -1580,7 +1579,7 @@ impl App {
                     let menu = t.menu.clone().map(|mp| {
                         Msg::OpenPopover(
                             bar_id,
-                            format!("tray:{}", t.key),
+                            key.clone(),
                             Request::Tray {
                                 bus: t.bus.clone(),
                                 menu_path: mp,
@@ -1611,19 +1610,12 @@ impl App {
                         )),
                         None,
                         Some(t.title.clone()),
-                        self.popover
-                            .as_ref()
-                            .is_some_and(|p| p.key == format!("tray:{}", t.key) && !p.closing()),
+                        open,
                     );
                     if self.bar_overflow_items(bar_id).contains(&BarItem::Tray) {
                         module
                     } else {
-                        motion::anchor(
-                            module,
-                            bar_id,
-                            format!("tray:{}", t.key),
-                            self.bar_duration(140),
-                        )
+                        motion::anchor(module, bar_id, key, self.bar_duration(140))
                     }
                 });
                 motion::rail(
@@ -1639,10 +1631,6 @@ impl App {
                     return Space::new().into();
                 };
                 let value = self.values.get(id);
-                let open = self
-                    .popover
-                    .as_ref()
-                    .is_some_and(|p| &p.key == id && !p.closing());
                 match &w.kind {
                     WidgetKind::Launcher => self
                         .monitors
@@ -1830,11 +1818,17 @@ impl App {
                         }
                         // État « actif » : la couleur choisie pour le module l'emporte
                         // sur l'accent ; avertissement et critique restent visibles.
-                        let tint = match r.state {
-                            RenderState::Active if self.bar_item_color(item).is_some() => {
-                                color(base, alpha)
-                            }
-                            s => self.state_color(s, color(base, 0.92)).scale_alpha(alpha),
+                        let toggled =
+                            style == crate::config::BarStyle::Continuite && r.toggled == Some(true);
+                        let tint = if toggled {
+                            crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha)
+                        } else {
+                            selected.unwrap_or_else(|| match r.state {
+                                RenderState::Active if self.bar_item_color(item).is_some() => {
+                                    color(base, alpha)
+                                }
+                                s => self.state_color(s, color(base, 0.92)).scale_alpha(alpha),
+                            })
                         };
                         let mut content = row![].spacing(6).align_y(Alignment::Center);
                         let mut has_icon = false;
@@ -1894,12 +1888,18 @@ impl App {
                             None,
                             scroll_cb,
                             r.tooltip.clone(),
-                            open,
+                            open || toggled,
                         )
                     }
                 }
             }
         }
+    }
+
+    fn bar_menu_open(&self, bar: Id, key: &str) -> bool {
+        self.popover
+            .as_ref()
+            .is_some_and(|p| p.bar == bar && p.key == key && !p.closing())
     }
 
     fn tray_icon(
@@ -1938,6 +1938,55 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn chaque_style_suit_le_theme_actif_et_les_couleurs_explicites() {
+        use crate::config::{BAR_STYLES, Place, Theme};
+        use std::sync::Arc;
+
+        let path = std::path::PathBuf::from("/tmp/hyprdesk-bar-themes/config.lua");
+        let (mut app, _) = App::boot_with(path, true);
+        let loaded = crate::config::lua::load_source(
+            "hd.bar({})",
+            "bar-themes.lua",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        app.cfg = Arc::new(loaded.config);
+        for &(style, _, _) in BAR_STYLES {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            let bar = cfg.bar.as_mut().unwrap();
+            bar.style = style;
+            bar.colors = Default::default();
+            for preset in crate::theme::PRESETS {
+                Arc::make_mut(&mut app.cfg).general.theme = Theme {
+                    name: preset.name.into(),
+                    fg: preset.fg,
+                    bg: preset.bg,
+                    accent: preset.accent,
+                    effects: preset.effects(),
+                };
+                let pal = app.bar_palette();
+                assert_eq!(
+                    (pal.fg, pal.bg, pal.accent),
+                    (preset.fg, preset.bg, preset.accent)
+                );
+                assert_eq!(
+                    pal.opacity,
+                    app.cfg.general.theme.effect(Place::Bar).opacity
+                );
+            }
+            let cfg = Arc::make_mut(&mut app.cfg);
+            let colors = &mut cfg.bar.as_mut().unwrap().colors;
+            let explicit_bg = Rgba(31, 92, 75, 255);
+            colors.background = Some(explicit_bg);
+            colors.opacity = Some(0.55);
+            let pal = app.bar_palette();
+            assert_eq!(pal.bg, explicit_bg);
+            assert_eq!(pal.opacity, 0.55);
+            assert_eq!(pal.accent, app.cfg.general.theme.accent);
+        }
+    }
 
     #[test]
     fn peripheriques_wpctl() {

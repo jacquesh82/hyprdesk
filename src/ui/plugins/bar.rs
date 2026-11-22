@@ -268,7 +268,7 @@ impl App {
                         "Style",
                         match b.style {
                             BarStyle::Continuite => {
-                                crate::i18n::tr("Verre fumé, capsules au survol, capsule glissante sur l'espace actif.")
+                                crate::i18n::tr("Groupes arrondis et sélection glissante.")
                             }
                             BarStyle::Graphite => crate::i18n::tr(
                                 "Barre des tâches : lanceur centré, widgets à droite, surface rectangulaire au bord inférieur.",
@@ -793,29 +793,23 @@ impl App {
         }
     }
 
-    /// Couleur que la barre emploie pour cette clé : la sienne, sinon celle du thème.
+    /// Couleur affichée dans les réglages et valeur de départ du sélecteur.
     fn bar_color_shown(&self, key: &str) -> Rgba {
         let b = self
             .settings
             .bar
             .clone()
             .unwrap_or_else(|| crate::settings::BarSettings::from_config(&self.cfg));
-        let th = &self.cfg.general.theme;
+        let pal = surface::BarPalette::resolve(&self.cfg.general.theme, Some(&b.colors));
         match key.strip_prefix("mod:") {
-            Some(m) => b
-                .colors
-                .modules
-                .get(m)
-                .copied()
-                .or(b.colors.text)
-                .unwrap_or(th.fg),
-            None => b.colors.slot(key).unwrap_or(match key {
-                "background" => th.bg,
-                "accent" => th.accent,
-                "warning" => BarColors::WARNING,
-                "critical" => BarColors::CRITICAL,
-                _ => th.fg,
-            }),
+            Some(m) => b.colors.modules.get(m).copied().unwrap_or(pal.fg),
+            None => match key {
+                "background" => pal.bg,
+                "accent" => pal.accent,
+                "warning" => pal.warning,
+                "critical" => pal.critical,
+                _ => pal.fg,
+            },
         }
     }
 
@@ -961,17 +955,10 @@ impl App {
             c.into()
         };
         let pal = self.bar_palette();
-        let defaults = [
-            ("text", th.fg),
-            ("background", th.bg),
-            ("accent", th.accent),
-            ("warning", BarColors::WARNING),
-            ("critical", BarColors::CRITICAL),
-        ];
         let mut col = column![
             self.section("Couleurs de la barre"),
             text(crate::i18n::tr(
-                "Sans couleur choisie, la barre suit le thème (et en change avec lui). Les pastilles proposent les couleurs du thème en place ; « Choisir… » ouvre le sélecteur."
+                "Par défaut, les couleurs de la barre suivent le thème actif."
             ))
             .font(font)
             .size(12)
@@ -979,11 +966,8 @@ impl App {
         ]
         .spacing(12);
         for (k, label) in BAR_COLOR_SLOTS {
-            let d = defaults
-                .iter()
-                .find(|(d, _)| d == k)
-                .map_or(th.fg, |(_, c)| *c);
-            col = col.push(self.field(label, "", line(k.to_string(), b.colors.slot(k), d)));
+            let shown = self.bar_color_shown(k);
+            col = col.push(self.field(label, "", line(k.to_string(), b.colors.slot(k), shown)));
         }
         // Transparence du fond.
         let theme_opacity = th.effect(crate::config::Place::Bar).opacity;

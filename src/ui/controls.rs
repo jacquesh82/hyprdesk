@@ -9,7 +9,7 @@ use crate::ui::{App, DesktopMode, Msg, color, design};
 use crate::widgets::Value;
 
 impl App {
-    fn control_source(&self, type_id: &str) -> Option<&WidgetDef> {
+    pub(in crate::ui) fn control_source(&self, type_id: &str) -> Option<&WidgetDef> {
         self.cfg
             .widgets
             .iter()
