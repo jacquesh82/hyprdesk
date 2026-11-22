@@ -41,6 +41,12 @@ pub struct Policy {
     pub index_removable: Option<bool>,
     /// `Some(false)` : l'historique du presse-papiers ne démarre pas.
     pub clipboard_history: Option<bool>,
+    /// `Some(false)` : LYRA n'a aucun outil de thème
+    /// (docs/THEME-ENGINE.md §17, surface d'outils du moteur).
+    pub theme_engine_ai: Option<bool>,
+    /// `Some(false)` : LYRA peut lire et préparer des thèmes, jamais
+    /// appliquer ni installer.
+    pub theme_engine_ai_apply: Option<bool>,
 }
 
 impl Policy {
@@ -55,6 +61,14 @@ impl Policy {
     }
     pub fn clipboard_allowed(&self) -> bool {
         self.clipboard_history != Some(false)
+    }
+    /// Surface d'outils de thème de LYRA : lecture et préparation.
+    pub fn ai_theme_allowed(&self) -> bool {
+        self.theme_engine_ai != Some(false)
+    }
+    /// LYRA applique-t-elle des thèmes (classe « application ») ?
+    pub fn ai_theme_apply_allowed(&self) -> bool {
+        self.ai_theme_allowed() && self.theme_engine_ai_apply != Some(false)
     }
     /// Délai de verrouillage effectif : celui de l'utilisateur, borné par la
     /// politique (`0` = jamais, remplacé par le maximum imposé).

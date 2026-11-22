@@ -28,6 +28,8 @@ pub enum Fmt {
     Hsl,
     /// `rgba(rrggbbaa)` (hyprlang).
     Hypr,
+    /// `#aarrggbb` (QPalette de Qt, schémas qt5/6ct).
+    Argb,
 }
 
 impl Fmt {
@@ -38,6 +40,7 @@ impl Fmt {
             "rgb" => Self::Rgb,
             "hsl" => Self::Hsl,
             "hypr" => Self::Hypr,
+            "argb" => Self::Argb,
             _ => return None,
         })
     }
@@ -264,6 +267,7 @@ pub fn fmt(c: Rgba, f: Fmt) -> String {
             )
         }
         Fmt::Hypr => format!("rgba({:02x}{:02x}{:02x}{:02x})", c.0, c.1, c.2, c.3),
+        Fmt::Argb => format!("#{:02x}{:02x}{:02x}{:02x}", c.3, c.0, c.1, c.2),
     }
 }
 

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use crate::config::{Effect, Place, Rgba};
 
 use super::color;
-use super::manifest::{Fonts, VARIANTS};
+use super::manifest::{Fonts, PackTarget, VARIANTS};
 use super::packs::Pack;
 use super::{Error, Result};
 
@@ -34,6 +34,9 @@ pub struct Resolved {
     pub hyprland_options: BTreeMap<String, String>,
     /// Typographie déclarée (cible `fonts`, phase 2).
     pub fonts: Option<Fonts>,
+    /// Cibles déclarées par la chaîne de packs : surcharges et cibles
+    /// génériques tierces, fusionnées dans l'ordre (le pack gagne).
+    pub pack_targets: BTreeMap<String, PackTarget>,
     /// Avertissements non bloquants (parents manquants, clés d'effet
     /// inconnues).
     pub warnings: Vec<String>,
@@ -130,6 +133,12 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
     // Typographie : la dernière déclarée dans la chaîne gagne.
     let fonts = chain.iter().find_map(|p| p.manifest.fonts.clone());
 
+    // Cibles déclarées : fusion de la chaîne (le dernier pack gagne par id).
+    let mut pack_targets: BTreeMap<String, PackTarget> = BTreeMap::new();
+    for pack in chain {
+        pack_targets.extend(pack.manifest.targets.clone());
+    }
+
     Ok(Resolved {
         id: top.manifest.meta.id.clone(),
         name: top.manifest.meta.name.clone(),
@@ -139,6 +148,7 @@ pub fn resolve(chain: &[Pack], variant: &str) -> Result<Resolved> {
         effects,
         hyprland_options,
         fonts,
+        pack_targets,
         warnings,
     })
 }
@@ -219,6 +229,7 @@ pub fn from_adjusted(fg: Rgba, bg: Rgba, accent: Rgba, background: Rgba) -> Reso
             .collect(),
         hyprland_options: BTreeMap::new(),
         fonts: None,
+        pack_targets: BTreeMap::new(),
         warnings: Vec::new(),
     }
 }

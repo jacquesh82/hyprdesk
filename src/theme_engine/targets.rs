@@ -20,64 +20,151 @@ use super::resolve::Resolved;
 use super::template::{self, Context};
 use super::{Error, Result};
 
-/// Une cible : identifiant stable, gabarit intégré, sortie par défaut.
+/// Une cible à exécuter : intégrée (le plan code ses opérations) ou
+/// générique, déclarée par le pack (gabarit + sortie + rechargement borné).
+#[derive(Debug, Clone)]
 pub struct Target {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub summary: &'static str,
+    pub id: String,
+    pub label: String,
+    pub summary: String,
     pub default_fmt: Fmt,
-    pub builtin_template: &'static str,
+    /// Gabarit intégré (cibles intégrées seulement).
+    pub builtin_template: Option<&'static str>,
+    /// Gabarit déclaré par le pack, chemin relatif au dossier du pack.
+    pub pack_template: Option<String>,
+    /// Sortie déclarée (cibles génériques seulement, en liste blanche).
+    pub output: Option<String>,
+    /// Rechargement borné déclaré par le pack (cibles génériques).
+    pub reload: Option<String>,
     /// Présence du logiciel dans le `PATH`.
     pub installed: fn() -> bool,
 }
 
-/// Registre des cibles, dans l'ordre d'application.
-pub const TARGETS: &[Target] = &[
-    Target {
-        id: "hyprland",
-        label: "Hyprland",
-        summary: "Fragment hyprlang : bordures, ombre, options du pack ; inclus par source=.",
-        default_fmt: Fmt::Hypr,
-        builtin_template: include_str!("templates/hyprland.conf.tmpl"),
-        installed: || in_path("hyprctl"),
-    },
-    Target {
-        id: "hyprlock",
-        label: "Hyprlock",
-        summary: "Variables $hd_* pour hyprlock.conf, inclus par source=.",
-        default_fmt: Fmt::Hypr,
-        builtin_template: include_str!("templates/hyprlock.conf.tmpl"),
-        installed: || in_path("hyprlock"),
-    },
-    Target {
-        id: "kitty",
-        label: "Kitty",
-        summary: "Fichier de couleurs inclus en fin de kitty.conf, relu par SIGUSR1.",
-        default_fmt: Fmt::Hex,
-        builtin_template: include_str!("templates/kitty.conf.tmpl"),
-        installed: || in_path("kitty"),
-    },
-    Target {
-        id: "gtk",
-        label: "GTK",
-        summary: "Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) + schéma clair/sombre.",
-        default_fmt: Fmt::Rgb,
-        builtin_template: include_str!("templates/gtk.css.tmpl"),
-        installed: || in_path("gsettings"),
-    },
-    Target {
-        id: "thunar",
-        label: "Thunar",
-        summary: "Feuille limitée à .thunar, importée en tête de gtk.css.",
-        default_fmt: Fmt::Rgb,
-        builtin_template: include_str!("templates/thunar.css.tmpl"),
-        installed: || in_path("thunar"),
-    },
-];
+fn builtin() -> Vec<Target> {
+    vec![
+        Target {
+            id: "hyprland".to_string(),
+            label: "Hyprland".to_string(),
+            summary: "Fragment hyprlang : bordures, ombre, options du pack ; inclus par source=."
+                .to_string(),
+            default_fmt: Fmt::Hypr,
+            builtin_template: Some(include_str!("templates/hyprland.conf.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("hyprctl"),
+        },
+        Target {
+            id: "hyprlock".to_string(),
+            label: "Hyprlock".to_string(),
+            summary: "Variables $hd_* pour hyprlock.conf, inclus par source=.".to_string(),
+            default_fmt: Fmt::Hypr,
+            builtin_template: Some(include_str!("templates/hyprlock.conf.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("hyprlock"),
+        },
+        Target {
+            id: "kitty".to_string(),
+            label: "Kitty".to_string(),
+            summary: "Fichier de couleurs inclus en fin de kitty.conf, relu par SIGUSR1."
+                .to_string(),
+            default_fmt: Fmt::Hex,
+            builtin_template: Some(include_str!("templates/kitty.conf.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("kitty"),
+        },
+        Target {
+            id: "gtk".to_string(),
+            label: "GTK".to_string(),
+            summary: "Couleurs nommées gtk-3.0 et gtk-4.0 (bloc marqué) + schéma clair/sombre."
+                .to_string(),
+            default_fmt: Fmt::Rgb,
+            builtin_template: Some(include_str!("templates/gtk.css.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("gsettings"),
+        },
+        Target {
+            id: "thunar".to_string(),
+            label: "Thunar".to_string(),
+            summary: "Feuille limitée à .thunar, importée en tête de gtk.css.".to_string(),
+            default_fmt: Fmt::Rgb,
+            builtin_template: Some(include_str!("templates/thunar.css.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || in_path("thunar"),
+        },
+        Target {
+            id: "qt".to_string(),
+            label: "Qt".to_string(),
+            summary: "Schéma de couleurs qt5/6ct (QPalette en #aarrggbb) ; vaut au relancement."
+                .to_string(),
+            default_fmt: Fmt::Argb,
+            builtin_template: Some(include_str!("templates/qt6ct.conf.tmpl")),
+            pack_template: None,
+            output: None,
+            reload: None,
+            installed: || {
+                in_path("qt6ct")
+                    || std::env::var("HOME")
+                        .map(|h| Path::new(&h).join(".config/qt6ct").is_dir())
+                        .unwrap_or(false)
+            },
+        },
+    ]
+}
 
-/// Cible par identifiant.
-pub fn find(id: &str) -> Option<&'static Target> {
-    TARGETS.iter().find(|t| t.id == id)
+/// Identifiants des cibles intégrées.
+const BUILTIN_IDS: [&str; 6] = ["hyprland", "hyprlock", "kitty", "gtk", "thunar", "qt"];
+
+/// Toutes les cibles à exécuter pour cette palette : les intégrées (avec
+/// leurs surcharges de pack), puis les génériques déclarées par le pack.
+pub fn all(resolved: &Resolved) -> Vec<Target> {
+    let mut out = builtin();
+    for t in &mut out {
+        if let Some(decl) = resolved.pack_targets.get(&t.id) {
+            t.pack_template = decl.template.clone();
+            t.reload = decl.reload.clone();
+        }
+    }
+    out.retain(|t| {
+        resolved
+            .pack_targets
+            .get(&t.id)
+            .and_then(|d| d.enabled)
+            .unwrap_or(true)
+    });
+    for (id, decl) in &resolved.pack_targets {
+        if BUILTIN_IDS.contains(&id.as_str()) {
+            continue;
+        }
+        out.push(Target {
+            id: id.clone(),
+            label: id.clone(),
+            summary: format!(
+                "cible générique du pack {} (rechargement borné)",
+                resolved.id
+            ),
+            default_fmt: Fmt::Hex,
+            builtin_template: None,
+            pack_template: decl.template.clone(),
+            output: decl.output.clone(),
+            reload: decl.reload.clone(),
+            installed: || true,
+        });
+    }
+    out
+}
+
+/// Cible intégrée par identifiant.
+pub fn find(id: &str) -> Option<Target> {
+    builtin().into_iter().find(|t| t.id == id)
 }
 
 /// Programme présent dans le `PATH` ? (doublet local : le binaire dédié ne
@@ -123,20 +210,38 @@ pub const IMPORT_MARKER: &str = "/* [hyprdesk-theme-engine] import du thème de 
 /// Marqueur des lignes `source =` ajoutées aux configurations hyprlang.
 pub const SOURCE_MARKER: &str = "# [hyprdesk-theme-engine] thème de hyprdesk";
 
-/// Rendu du gabarit de la cible : celui du pack (`templates/<id>.tmpl`) s'il
-/// existe, sinon le gabarit intégré.
+/// Rendu du gabarit de la cible, par priorité : gabarit déclaré dans le
+/// manifeste (`[targets.<id>].template`), fichier de convention
+/// `templates/<id>.tmpl`, puis gabarit intégré.
 pub fn render_for(target: &Target, resolved: &Resolved, pack_dir: Option<&Path>) -> Result<String> {
-    let pack_template = pack_dir
+    let source = pack_dir
         .and_then(|dir| {
+            if let Some(rel) = &target.pack_template {
+                let p = dir.join(rel);
+                return Some(std::fs::read_to_string(p).map_err(|e| {
+                    Error::Template(format!(
+                        "cible {} : gabarit du pack illisible ({e})",
+                        target.id
+                    ))
+                }));
+            }
+            // Convention : templates/<id>.tmpl à côté du manifeste.
             let p = dir.join("templates").join(format!("{}.tmpl", target.id));
-            std::fs::read_to_string(p).ok()
+            std::fs::read_to_string(p).ok().map(Ok)
         })
-        .unwrap_or_else(|| target.builtin_template.to_string());
+        .transpose()?
+        .or_else(|| target.builtin_template.map(str::to_string))
+        .ok_or_else(|| {
+            Error::Template(format!(
+                "cible {} : aucun gabarit (le pack doit déclarer [targets.{}].template)",
+                target.id, target.id
+            ))
+        })?;
     let ctx = Context {
         resolved,
         default_fmt: target.default_fmt,
     };
-    template::render(&pack_template, &ctx)
+    template::render(&source, &ctx)
 }
 
 /// Planifie les opérations d'une cible (rendus + chemins), sans rien écrire.
@@ -147,17 +252,48 @@ pub fn plan(
     roots: &Roots,
 ) -> Result<Vec<Planned>> {
     let content = render_for(target, resolved, pack_dir)?;
-    validate_css(target.id, &content)?;
-    let out = match target.id {
+    validate_css(&target.id, &content)?;
+    if let Some(id) = builtin_id(&target.id) {
+        let out = plan_builtin(id, &content, resolved, roots)?;
+        return Ok(out);
+    }
+    // Cible générique : sortie déclarée en liste blanche, écriture simple.
+    let out_str = target.output.as_deref().ok_or_else(|| {
+        Error::Template(format!(
+            "cible {} : sortie requise ([targets.{}].output)",
+            target.id, target.id
+        ))
+    })?;
+    let path = safe_output_path(roots, out_str)?;
+    Ok(vec![Planned {
+        path,
+        content,
+        op: Op::Write,
+    }])
+}
+
+/// Identifiant de cible intégrée, pour router le plan.
+fn builtin_id(id: &str) -> Option<&'static str> {
+    BUILTIN_IDS.iter().copied().find(|b| *b == id)
+}
+
+/// Plan des cibles intégrées (opérations déclaratives en dur).
+fn plan_builtin(
+    id: &'static str,
+    content: &str,
+    resolved: &Resolved,
+    roots: &Roots,
+) -> Result<Vec<Planned>> {
+    let out = match id {
         "hyprland" => vec![Planned {
             path: roots.hypr_theme_dir().join("hyprland.conf"),
-            content: with_hypr_options(&content, resolved),
+            content: content.to_string(),
             op: Op::Write,
         }],
         "hyprlock" => vec![
             Planned {
                 path: roots.hypr_theme_dir().join("hyprlock.conf"),
-                content,
+                content: content.to_string(),
                 op: Op::Write,
             },
             Planned {
@@ -171,17 +307,26 @@ pub fn plan(
         ],
         "kitty" => vec![Planned {
             path: roots.config.join("kitty").join("hyprdesk-theme.conf"),
-            content,
+            content: content.to_string(),
             op: Op::Write,
         }],
         "gtk" => ["gtk-3.0", "gtk-4.0"]
             .iter()
             .map(|dir| Planned {
                 path: roots.config.join(dir).join("gtk.css"),
-                content: content.clone(),
+                content: content.to_string(),
                 op: Op::UpsertBlock,
             })
             .collect(),
+        "qt" => vec![Planned {
+            path: roots
+                .config
+                .join("qt6ct")
+                .join("colors")
+                .join(format!("hyprdesk-{}.conf", resolved.id)),
+            content: content.to_string(),
+            op: Op::Write,
+        }],
         "thunar" => {
             let thunar_css = roots.config.join("gtk-3.0").join("hyprdesk-thunar.css");
             let gtk_css = roots.config.join("gtk-3.0").join("gtk.css");
@@ -198,7 +343,7 @@ pub fn plan(
             vec![
                 Planned {
                     path: thunar_css,
-                    content,
+                    content: content.to_string(),
                     op: Op::Write,
                 },
                 Planned {
@@ -211,6 +356,42 @@ pub fn plan(
         other => return Err(Error::Template(format!("cible inconnue : {other}"))),
     };
     Ok(out)
+}
+
+/// Sortie de cible générique : `~/` développé d'après les racines XDG du
+/// contexte (pas le HOME brut), confiné à `~/.config` et `~/.local/share`
+/// (§13), sans traverser de lien symbolique.
+pub fn safe_output_path(roots: &Roots, declared: &str) -> Result<PathBuf> {
+    let expanded = if let Some(rest) = declared.strip_prefix("~/.config/") {
+        roots.config.join(rest)
+    } else if let Some(rest) = declared.strip_prefix("~/.local/share/") {
+        roots.data.join(rest)
+    } else if declared.starts_with("~/") {
+        return Err(Error::Template(format!(
+            "sortie hors liste blanche : {declared} (attendu : sous ~/.config ou ~/.local/share)"
+        )));
+    } else {
+        PathBuf::from(declared)
+    };
+    if !expanded.starts_with(&roots.config) && !expanded.starts_with(&roots.data) {
+        return Err(Error::Template(format!(
+            "sortie hors liste blanche : {declared} (attendu : sous ~/.config ou ~/.local/share)"
+        )));
+    }
+    // Aucun parent ne peut être un lien symbolique qui sortirait du périmètre.
+    let mut ancêtre: Option<&Path> = Some(expanded.as_path());
+    while let Some(a) = ancêtre {
+        if let Ok(meta) = std::fs::symlink_metadata(a)
+            && meta.is_symlink()
+        {
+            return Err(Error::Template(format!(
+                "sortie refusée : traverserait le lien symbolique {}",
+                a.display()
+            )));
+        }
+        ancêtre = a.parent();
+    }
+    Ok(expanded)
 }
 
 /// Ajoute au fragment hyprland les options de liste blanche du pack,
@@ -231,7 +412,7 @@ fn with_hypr_options(content: &str, resolved: &Resolved) -> String {
 /// (`clé = valeur`) puis options du pack.
 pub fn hot_keywords(resolved: &Resolved, pack_dir: Option<&Path>) -> Result<Vec<(String, String)>> {
     let target = find("hyprland").ok_or_else(|| Error::Missing("hyprland".to_string()))?;
-    let content = render_for(target, resolved, pack_dir)?;
+    let content = render_for(&target, resolved, pack_dir)?;
     let content = with_hypr_options(&content, resolved);
     let mut out = Vec::new();
     for line in content.lines() {
@@ -262,12 +443,16 @@ fn validate_css(id: &str, content: &str) -> Result<()> {
 }
 
 /// Rechargement prévu par cible.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reload {
     None,
     Hyprctl,
     GsettingsScheme,
     KittySignal,
+    /// Cible générique : signal borné à un processus (§8).
+    Signal(String, String),
+    /// Cible générique : kitty rechargé par son socket de contrôle distant.
+    KittySocket,
 }
 
 pub fn reload_of(id: &str) -> Reload {
@@ -279,27 +464,55 @@ pub fn reload_of(id: &str) -> Reload {
     }
 }
 
+/// Rechargement d'une cible générique, d'après sa déclaration déjà validée.
+pub fn reload_generic(declared: &str) -> Result<Reload> {
+    let decl = super::manifest::PackTarget {
+        reload: Some(declared.to_string()),
+        ..Default::default()
+    };
+    match decl.reload_kind().map_err(Error::Template)? {
+        Some(super::manifest::ReloadSpec::None) => Ok(Reload::None),
+        Some(super::manifest::ReloadSpec::Signal(p, s)) => Ok(Reload::Signal(p, s)),
+        Some(super::manifest::ReloadSpec::Gsettings) => Ok(Reload::GsettingsScheme),
+        Some(super::manifest::ReloadSpec::Hyprctl) => Ok(Reload::Hyprctl),
+        Some(super::manifest::ReloadSpec::KittySocket) => Ok(Reload::KittySocket),
+        Some(super::manifest::ReloadSpec::Daemon) => Ok(Reload::None),
+        None => Ok(Reload::None),
+    }
+}
+
 /// Exécute le rechargement prévu ; `Ok(Some(texte))` = fait, `Ok(None)` =
 /// rien à faire, `Err` = échec signalé dans le rapport (l'écriture reste
 /// valable).
 pub fn run_reload(r: Reload, variant: &str) -> std::result::Result<Option<String>, String> {
-    let (prog, args) = match r {
+    let (prog, args): (&str, Vec<String>) = match r {
         Reload::None => return Ok(None),
-        Reload::Hyprctl => ("hyprctl", vec!["reload"]),
+        Reload::Hyprctl => ("hyprctl", vec!["reload".to_string()]),
         Reload::GsettingsScheme => (
             "gsettings",
             vec![
-                "set",
-                "org.gnome.desktop.interface",
-                "color-scheme",
+                "set".to_string(),
+                "org.gnome.desktop.interface".to_string(),
+                "color-scheme".to_string(),
                 if variant == "light" {
-                    "prefer-light"
+                    "prefer-light".to_string()
                 } else {
-                    "prefer-dark"
+                    "prefer-dark".to_string()
                 },
             ],
         ),
-        Reload::KittySignal => ("pkill", vec!["-USR1", "-x", "kitty"]),
+        Reload::KittySignal => (
+            "pkill",
+            vec!["-USR1".to_string(), "-x".to_string(), "kitty".to_string()],
+        ),
+        Reload::Signal(name, sig) => (
+            "pkill",
+            vec![format!("-{sig}"), "-x".to_string(), name.clone()],
+        ),
+        Reload::KittySocket => (
+            "kitty",
+            vec!["@@".replace("@@", "@"), "load-config".to_string()],
+        ),
     };
     match Command::new(prog).args(&args).output() {
         Ok(out) if out.status.success() => Ok(Some(format!("{prog} ok"))),
@@ -479,7 +692,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let roots = Roots::at(&root);
         let r = super::super::resolve::from_theme(&crate::config::Theme::default());
-        for t in TARGETS {
+        let toutes = all(&r);
+        for t in &toutes {
             let planned = plan(t, &r, None, &roots).unwrap();
             assert!(!planned.is_empty(), "{} : rien de planifié", t.id);
             for p in &planned {
@@ -487,10 +701,10 @@ mod tests {
             }
         }
         // hyprlock ajoute la ligne source ; gtk touche les deux versions.
-        let lock = plan(find("hyprlock").unwrap(), &r, None, &roots).unwrap();
+        let lock = plan(&find("hyprlock").unwrap(), &r, None, &roots).unwrap();
         assert_eq!(lock.len(), 2);
         assert!(matches!(lock[1].op, Op::AppendSource));
-        let gtk = plan(find("gtk").unwrap(), &r, None, &roots).unwrap();
+        let gtk = plan(&find("gtk").unwrap(), &r, None, &roots).unwrap();
         assert_eq!(gtk.len(), 2);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -510,6 +724,105 @@ mod tests {
             kw.contains(&("decoration:rounding".to_string(), "10".to_string())),
             "{kw:?}"
         );
+    }
+
+    #[test]
+    fn cible_générique_planifiée_avec_sortie_et_signal() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-gen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let pack = root.join("pack");
+        std::fs::create_dir_all(pack.join("templates")).unwrap();
+        std::fs::write(
+            pack.join("templates/waybar.tmpl"),
+            "/* {{meta.name}} */\n@define-color accent {{palette.accent}};\n",
+        )
+        .unwrap();
+        let mut r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        r.pack_targets.insert(
+            "waybar".to_string(),
+            super::super::manifest::PackTarget {
+                template: Some("templates/waybar.tmpl".to_string()),
+                output: Some("~/.config/waybar/hyprdesk.css".to_string()),
+                reload: Some("signal:waybar:USR1".to_string()),
+                enabled: None,
+            },
+        );
+        let cibles = all(&r);
+        let waybar = cibles.iter().find(|t| t.id == "waybar").unwrap();
+        let planned = plan(waybar, &r, Some(&pack), &roots).unwrap();
+        assert_eq!(
+            planned[0].path,
+            roots.config.join("waybar/hyprdesk.css"),
+            "~ développé"
+        );
+        assert!(
+            planned[0].content.contains("@define-color accent"),
+            "{}",
+            planned[0].content
+        );
+        // Rechargement borné reconnu.
+        assert_eq!(
+            reload_generic("signal:waybar:USR1").unwrap(),
+            Reload::Signal("waybar".to_string(), "USR1".to_string())
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sortie_hors_liste_blanche_et_liens_symboliques_refusés() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-safe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        assert!(safe_output_path(&roots, "~/.ssh/evil").is_err());
+        assert!(safe_output_path(&roots, "/etc/hypr/evil").is_err());
+        assert!(safe_output_path(&roots, "~/.config/waybar/x.css").is_ok());
+        assert!(safe_output_path(&roots, "~/.local/share/app/x").is_ok());
+        // Un parent symlink fait refuser la sortie.
+        std::fs::create_dir_all(roots.config.join("sortie")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc", roots.config.join("sortie/lien")).unwrap();
+        assert!(safe_output_path(&roots, "~/.config/sortie/lien/x.css").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cible_désactivée_par_le_pack() {
+        let mut r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        r.pack_targets.insert(
+            "kitty".to_string(),
+            super::super::manifest::PackTarget {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(all(&r).iter().all(|t| t.id != "kitty")); // all(&r) vit assez pour l'itération
+        // (itération directe sur la valeur retournée : E0716 évité ci-après)
+        r.pack_targets.get_mut("kitty").unwrap().enabled = Some(true);
+        let cibles = all(&r);
+        assert!(cibles.iter().any(|t| t.id == "kitty"));
+    }
+
+    #[test]
+    fn gabarit_qt_en_argb() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-qt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        let cibles = all(&r);
+        let qt = cibles.iter().find(|t| t.id == "qt").unwrap();
+        let planned = plan(qt, &r, None, &roots).unwrap();
+        let c = &planned[0];
+        assert!(
+            c.path.ends_with("qt6ct/colors/hyprdesk-regle.conf"),
+            "{}",
+            c.path.display()
+        );
+        assert!(c.content.contains("[ColorScheme]"), "{}", c.content);
+        // Le fond en #aarrggbb opaque.
+        assert!(c.content.contains("#ff171b27"), "{}", c.content);
+        assert!(c.content.matches(',').count() >= 3 * 19);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

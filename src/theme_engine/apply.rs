@@ -164,13 +164,13 @@ pub fn apply(
         rolled_back: Vec::new(),
     };
 
-    for target in targets::TARGETS {
-        if !opts.only.is_empty() && !opts.only.iter().any(|o| o == target.id) {
+    for target in targets::all(resolved) {
+        if !opts.only.is_empty() && !opts.only.iter().any(|o| o == &target.id) {
             continue;
         }
         if opts.check_installed && !(target.installed)() {
             report.targets.push(TargetReport {
-                id: target.id.to_string(),
+                id: target.id.clone(),
                 status: "skipped".to_string(),
                 files: Vec::new(),
                 reload: "aucun".to_string(),
@@ -178,7 +178,7 @@ pub fn apply(
             });
             continue;
         }
-        let planned = match targets::plan(target, resolved, pack_dir, roots) {
+        let planned = match targets::plan(&target, resolved, pack_dir, roots) {
             Ok(p) => p,
             Err(e) => {
                 report.errors.push(format!("{} : {e}", target.id));
@@ -205,7 +205,7 @@ pub fn apply(
             } else if opts.mode == Mode::Hot && target.id == "hyprland" {
                 hot_apply(resolved, pack_dir)
             } else {
-                match targets::run_reload(targets::reload_of(target.id), &resolved.variant) {
+                match targets::run_reload(targets::reload_of(&target.id), &resolved.variant) {
                     Ok(Some(text)) => text,
                     Ok(None) => "aucun".to_string(),
                     Err(e) => format!("échec : {e}"),
@@ -350,8 +350,23 @@ fn needle_for(line: &str) -> String {
     }
 }
 
-/// Sauvegarde une fois puis écriture atomique.
+/// Sauvegarde une fois puis écriture atomique ; la sortie ne doit traverser
+/// aucun lien symbolique (§13, cibles génériques surtout).
 fn commit_file(path: &Path, content: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        let mut ancêtre = Some(parent);
+        while let Some(a) = ancêtre {
+            if let Ok(meta) = std::fs::symlink_metadata(a)
+                && meta.is_symlink()
+            {
+                return Err(Error::Template(format!(
+                    "sortie refusée : traverserait le lien symbolique {}",
+                    a.display()
+                )));
+            }
+            ancêtre = a.parent();
+        }
+    }
     targets::backup_once(path)?;
     super::state::atomic_write(path, content)
 }

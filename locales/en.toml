@@ -4556,3 +4556,7 @@
 "Feuille limitée à .thunar, importée en tête de gtk.css." = "Stylesheet scoped to .thunar, imported at the top of gtk.css."
 "GTK" = "GTK"
 "Hyprlock" = "Hyprlock"
+
+# Moteur de thème (cible Qt).
+"Qt" = "Qt"
+"Schéma de couleurs qt5/6ct (QPalette en #aarrggbb) ; vaut au relancement." = "qt5/6ct colour scheme (QPalette as #aarrggbb); applies on relaunch."

@@ -69,6 +69,10 @@ pub struct Manifest {
     /// Options Hyprland en liste blanche (§8).
     #[serde(default)]
     pub hyprland: HyprlandSpec,
+    /// Cibles déclarées du pack : surcharge d'une cible intégrée (gabarit)
+    /// ou cible générique tierce (gabarit + sortie + rechargement borné).
+    #[serde(default)]
+    pub targets: BTreeMap<String, PackTarget>,
     /// Typographie (cible `fonts`, phase 2).
     #[serde(default)]
     pub fonts: Option<Fonts>,
@@ -133,6 +137,75 @@ pub struct Fonts {
     pub size: Option<f64>,
 }
 
+/// Cible déclarée par le pack (§4) : surcharge ou cible générique.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct PackTarget {
+    /// Gabarit du pack, chemin relatif au dossier du pack.
+    pub template: Option<String>,
+    /// Chemin de sortie (requis pour une cible générique ; `~/` accepté).
+    pub output: Option<String>,
+    /// Rechargement borné (§8) : none, signal:<processus>:<SIGUSR1|SIGUSR2|SIGHUP>,
+    /// socket:kitty, gsettings, hyprctl, daemon.
+    pub reload: Option<String>,
+    /// Cible désactivée par le pack (défaut : active).
+    pub enabled: Option<bool>,
+}
+
+impl PackTarget {
+    /// Rechargement analysé, hors liste blanche refusé dès la validation.
+    pub fn reload_kind(&self) -> std::result::Result<Option<ReloadSpec>, String> {
+        let Some(text) = &self.reload else {
+            return Ok(None);
+        };
+        let t = text.trim();
+        Ok(Some(match t {
+            "none" | "" => ReloadSpec::None,
+            "gsettings" => ReloadSpec::Gsettings,
+            "hyprctl" => ReloadSpec::Hyprctl,
+            "daemon" => ReloadSpec::Daemon,
+            "socket:kitty" => ReloadSpec::KittySocket,
+            _ if t.starts_with("signal:") => {
+                let rest = t.strip_prefix("signal:").unwrap_or("");
+                let (proc, sig) = rest
+                    .split_once(':')
+                    .ok_or("signal attendu : signal:<processus>:<SIG>")?;
+                let sig = match sig.trim() {
+                    "SIGUSR1" | "USR1" => "USR1",
+                    "SIGUSR2" | "USR2" => "USR2",
+                    "SIGHUP" | "HUP" => "HUP",
+                    other => return Err(format!("signal non accepté : {other}")),
+                };
+                let name = proc.trim();
+                if name.is_empty()
+                    || !name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                {
+                    return Err(format!("nom de processus non accepté : {name}"));
+                }
+                ReloadSpec::Signal(name.to_string(), sig.to_string())
+            }
+            other => {
+                return Err(format!(
+                    "rechargement hors liste blanche : {other} (pack = des données, pas du shell)"
+                ));
+            }
+        }))
+    }
+}
+
+/// Rechargement analysé d'une cible de pack.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReloadSpec {
+    None,
+    Signal(String, String),
+    Gsettings,
+    Hyprctl,
+    KittySocket,
+    Daemon,
+}
+
 /// Thème nommé générique (icônes, sons).
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]
@@ -188,7 +261,10 @@ impl Manifest {
     /// défaut connue, options Hyprland en liste blanche, slots décodables.
     pub fn validate(&self, id: &str) -> Result<()> {
         let meta = &self.meta;
-        if meta.id != id {
+        // Identifiant vide : appelant qui ne connaît pas encore l'id (lecture
+        // d'archive) — la correspondance est alors ignorée, la validation
+        // du format reste entière.
+        if !id.is_empty() && meta.id != id {
             return Err(Error::Manifest(
                 id.to_string(),
                 format!(
@@ -223,6 +299,32 @@ impl Manifest {
                     id.to_string(),
                     format!("option Hyprland hors liste blanche : {key}"),
                 ));
+            }
+        }
+        for (name, t) in &self.targets {
+            if !valid_id(name)
+                && !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                return Err(Error::Manifest(
+                    id.to_string(),
+                    format!("nom de cible non accepté : {name}"),
+                ));
+            }
+            if let Some(out) = &t.output
+                && (out.contains("..")
+                    || (out.starts_with("~/")
+                        && !out.starts_with("~/.config/")
+                        && !out.starts_with("~/.local/share/")))
+            {
+                return Err(Error::Manifest(
+                    id.to_string(),
+                    format!("sortie hors liste blanche pour la cible {name} : {out}"),
+                ));
+            }
+            if let Err(e) = t.reload_kind() {
+                return Err(Error::Manifest(id.to_string(), e));
             }
         }
         for (key, value) in self
@@ -353,5 +455,49 @@ blur = true
     #[test]
     fn manifeste_vide_reffusé_sans_meta() {
         assert!(Manifest::parse("x", "").is_err());
+    }
+
+    #[test]
+    fn rechargement_borné_des_cibles_de_pack() {
+        // Accepté : signal borné, formes de la liste blanche.
+        let m = format!(
+            "{ARDOISE}\n[targets.waybar]\ntemplate = \"templates/waybar.css.tmpl\"\noutput = \"~/.config/waybar/hyprdesk.css\"\nreload = \"signal:waybar:USR1\"\n"
+        );
+        let (m, _) = Manifest::parse("ardoise", &m).unwrap();
+        let waybar = &m.targets["waybar"];
+        assert_eq!(
+            waybar.output.as_deref(),
+            Some("~/.config/waybar/hyprdesk.css")
+        );
+        assert_eq!(
+            waybar.reload_kind().unwrap(),
+            Some(super::ReloadSpec::Signal(
+                "waybar".to_string(),
+                "USR1".to_string()
+            ))
+        );
+        // Refusé : commande arbitraire (un pack reste des données).
+        for bad in [
+            "pkill waybar",
+            "signal:waybar:SIGKILL",
+            "signal:../evil:USR1",
+            "exec:rm -rf",
+        ] {
+            let m = format!(
+                "{ARDOISE}\n[targets.waybar]\noutput = \"~/.config/w.css\"\nreload = \"{bad}\"\n"
+            );
+            assert!(
+                Manifest::parse("ardoise", &m).is_err(),
+                "rechargement accepté : {bad}"
+            );
+        }
+        // Refusé : sortie qui sort du périmètre.
+        let m = format!(
+            "{ARDOISE}\n[targets.waybar]\ntemplate = \"t.tmpl\"\noutput = \"~/.ssh/evil\"\n"
+        );
+        assert!(
+            Manifest::parse("ardoise", &m).is_err(),
+            "sortie acceptée hors config"
+        );
     }
 }

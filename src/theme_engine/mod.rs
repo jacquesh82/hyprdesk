@@ -21,11 +21,14 @@
 //! - [`paths`] : emplacements XDG, paramétrables pour les essais.
 
 pub mod apply;
+pub mod archive;
 pub mod bundled;
 pub mod color;
+pub mod intent;
 pub mod manifest;
 pub mod packs;
 pub mod paths;
+pub mod recolor;
 pub mod resolve;
 pub mod state;
 pub mod targets;

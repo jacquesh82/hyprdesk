@@ -7,14 +7,14 @@
 //! sont `persist`, `hot` et `dry-run`. La variable `HYPRDESK_THEME=id[:variante]`
 //! surcharge le thème actif (équivalent de `GTK_THEME`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use hyprdesk::theme_engine::{
     apply::{self, Mode, Options},
-    bundled, color, packs,
+    archive, bundled, color, intent, packs,
     paths::Roots,
-    resolve, state,
+    recolor, resolve, state,
 };
 
 /// Paire code de sortie / message d'erreur.
@@ -55,6 +55,12 @@ fn run(args: &[String]) -> Result<u8, Failure> {
             "--origin" => flags.origin = Some(arg_value(args, &mut i, "--origin")?),
             "--out" => flags.out = Some(PathBuf::from(arg_value(args, &mut i, "--out")?)),
             "--format" => flags.format = Some(arg_value(args, &mut i, "--format")?),
+            "--from" => flags.from = Some(arg_value(args, &mut i, "--from")?),
+            "--scheme" => flags.scheme = Some(arg_value(args, &mut i, "--scheme")?),
+            "--hue-lock" => {
+                flags.hue_lock = Some(arg_value(args, &mut i, "--hue-lock")?);
+            }
+            "--intent" => flags.intent = Some(arg_value(args, &mut i, "--intent")?),
             _ if a.starts_with('-') => {
                 return Err((1, format!("option inconnue : {a} (--help pour l'usage)")));
             }
@@ -77,6 +83,12 @@ fn run(args: &[String]) -> Result<u8, Failure> {
         "palette" => palette(&roots, &flags),
         "verify" => verify(&roots, &flags),
         "doctor" => doctor(&roots, &flags),
+        "export" => export(&roots, &flags, rest),
+        "install" => install(&roots, rest, flags.origin.as_deref()),
+        "remove" => remove(&roots, rest, flags.origin.as_deref()),
+        "build" => build(&roots, &flags),
+        "recolor" => recolor_cmd(&roots, &flags),
+        "tools" => tools(&flags),
         other => Err((
             1,
             format!("commande inconnue : {other} (--help pour l'usage)"),
@@ -94,6 +106,10 @@ struct Flags {
     origin: Option<String>,
     out: Option<PathBuf>,
     format: Option<String>,
+    from: Option<String>,
+    scheme: Option<String>,
+    hue_lock: Option<String>,
+    intent: Option<String>,
 }
 
 fn arg_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, Failure> {
@@ -288,6 +304,8 @@ fn use_pack(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure
         .cloned()
         .or_else(|| env_theme().map(|(id, _)| id))
         .ok_or_else(|| (1u8, "usage : use <id>".to_string()))?;
+    let origin = flags.origin.clone().unwrap_or_else(|| "cli".to_string());
+    policy_gate(&origin, true)?;
     let (resolved, dir) = resolved_of(roots, flags, &id)?;
     // Pack embarqué : installé dans le dossier utilisateur à la sélection.
     let dir = match dir {
@@ -367,7 +385,8 @@ fn generate(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
     // Racines factices : generate écrit dans --out, pas aux emplacements
     // réels ; les chemins planifiés ne servent qu'à nommer les fichiers.
     let dummy = Roots::at(&std::env::temp_dir());
-    for target in hyprdesk::theme_engine::targets::TARGETS {
+    let cibles = hyprdesk::theme_engine::targets::all(&resolved);
+    for target in &cibles {
         let planned =
             hyprdesk::theme_engine::targets::plan(target, &resolved, dir.as_deref(), &dummy)
                 .map_err(|e| (2u8, e.to_string()))?;
@@ -528,6 +547,265 @@ fn doctor(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
     Ok(0)
 }
 
+/// Surface d'outils de LYRA (§17.1) : le manifeste que le démon passe au
+/// modèle (function calling). Les classes bornent ce qui demande une
+/// confirmation ; la policy du poste peut tout couper.
+const TOOLS: &str = r#"[
+  {"outil": "theme_list", "arguments": {}, "classe": "lecture", "effet": "packs, origine, variante active"},
+  {"outil": "theme_info", "arguments": {"id": "…"}, "classe": "lecture", "effet": "manifeste résolu"},
+  {"outil": "theme_palette", "arguments": {"format": "json|env|css|hex"}, "classe": "lecture", "effet": "palette publiée + révision"},
+  {"outil": "theme_verify", "arguments": {"id": "…?"}, "classe": "lecture", "effet": "contraste, dépendances, cohérence"},
+  {"outil": "theme_diff", "arguments": {"a": "…", "b": "…"}, "classe": "lecture", "effet": "slots et gabarits divergents"},
+  {"outil": "theme_preview", "arguments": {"id": "…", "variante": "dark|light"}, "classe": "préparation", "effet": "mire + aperçu, rien d'appliqué"},
+  {"outil": "theme_build", "arguments": {"intent": {"name": "…", "variant": "dark|light", "hue": "…", "mood": "calme|vif|contraste", "contrast": "aa|aaa", "accent": "auto|#…"}}, "classe": "préparation", "effet": "construit un pack dans builds/, sans l'installer"},
+  {"outil": "theme_recolor", "arguments": {"image": "…", "scheme": "vibrant|material|pastel", "variante": "dark|light"}, "classe": "préparation", "effet": "palette depuis le fond d'écran"},
+  {"outil": "theme_use", "arguments": {"id": "…", "variante": "…", "mode": "persist|hot"}, "classe": "application", "effet": "installe et pose le thème (confirmé)"},
+  {"outil": "theme_apply", "arguments": {"cibles": "…?", "mode": "…"}, "classe": "application", "effet": "réapplique l'actif (confirmé)"},
+  {"outil": "theme_install", "arguments": {"chemin": "…"}, "classe": "application", "effet": "promeut un pack de builds/ ou une archive"},
+  {"outil": "theme_remove", "arguments": {"id": "…"}, "classe": "application", "effet": "retire un pack"}
+]"#;
+
+fn tools(flags: &Flags) -> Result<u8, Failure> {
+    if flags.json {
+        println!("{TOOLS}");
+        return Ok(0);
+    }
+    for item in serde_json::from_str::<serde_json::Value>(TOOLS)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+    {
+        println!(
+            "{:<14} {:<12} {}",
+            item["outil"].as_str().unwrap_or_default(),
+            item["classe"].as_str().unwrap_or_default(),
+            item["effet"].as_str().unwrap_or_default()
+        );
+    }
+    Ok(0)
+}
+
+/// Garde de policy pour les commandes pilotées par LYRA (§17.2) : la classe
+/// « application » exige `theme_engine_ai_apply`, les autres
+/// `theme_engine_ai`.
+fn policy_gate(origin: &str, application: bool) -> Result<(), Failure> {
+    if origin != "lyra" {
+        return Ok(());
+    }
+    let policy = hyprdesk::policy::get();
+    let ok = if application {
+        policy.ai_theme_apply_allowed()
+    } else {
+        policy.ai_theme_allowed()
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err((
+            4,
+            "politique du poste (/etc/hyprdesk/policy.toml) : outils de thème refusés à LYRA"
+                .to_string(),
+        ))
+    }
+}
+
+/// `build --intent <fichier.json>` : palette par intention, pack écrit dans
+/// `builds/` — ni installé ni appliqué (§17.3).
+fn build(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
+    let origin = flags.origin.clone().unwrap_or_else(|| "cli".to_string());
+    policy_gate(&origin, false)?;
+    let intent_path = flags
+        .intent
+        .clone()
+        .or_else(|| flags.from.clone())
+        .ok_or_else(|| {
+            (
+                1u8,
+                "usage : build --intent <fichier.json> [--out <dir>]".to_string(),
+            )
+        })?;
+    let text = std::fs::read_to_string(&intent_path).map_err(io_err)?;
+    let value: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| (2u8, format!("intent : {e}")))?;
+    let i = intent::Intent::parse(&value).map_err(engine_err)?;
+    let resolved = i.build();
+    let pack_dir = flags.out.clone().unwrap_or_else(|| {
+        roots
+            .cache_dir()
+            .join("builds")
+            .join(intent::pack_id(&i.name))
+    });
+    std::fs::create_dir_all(&pack_dir).map_err(io_err)?;
+    std::fs::write(pack_dir.join("theme.toml"), i.manifest()).map_err(io_err)?;
+    if flags.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "pack": resolved.id,
+                "variant": resolved.variant,
+                "dossier": pack_dir.display().to_string(),
+                "prochaine_etape": "theme_preview puis theme_use (confirmation)",
+            }))
+            .map_err(json_err)?
+        );
+    } else {
+        println!("pack {} construit dans {}", resolved.id, pack_dir.display());
+        for (k, c) in &resolved.palette {
+            println!("  {k:<16} {}", color::fmt(*c, color::Fmt::Hex));
+        }
+        println!(
+            "aperçu puis, après confirmation : `hyprdesk-theme-engine use {} --origin lyra`",
+            resolved.id
+        );
+    }
+    Ok(0)
+}
+
+/// `recolor --from <image>` : palette depuis le fond d'écran, même parcours
+/// que `build` (pack dans builds/, jamais appliqué seul).
+fn recolor_cmd(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
+    let origin = flags.origin.clone().unwrap_or_else(|| "cli".to_string());
+    policy_gate(&origin, false)?;
+    let image = flags.from.clone().ok_or_else(|| {
+        (
+            1u8,
+            "usage : recolor --from <image> [--scheme vibrant|material|pastel]".to_string(),
+        )
+    })?;
+    let scheme = match flags.scheme.as_deref() {
+        Some(s) => recolor::Scheme::parse(s).ok_or_else(|| {
+            (
+                1u8,
+                "schéma inconnu (vibrant, material, pastel)".to_string(),
+            )
+        })?,
+        None => recolor::Scheme::Vibrant,
+    };
+    let variant = flags.variant.clone().unwrap_or_else(|| "dark".to_string());
+    let hue_lock = flags
+        .hue_lock
+        .as_deref()
+        .map(|s| s.trim().parse::<f64>())
+        .transpose()
+        .map_err(|e| (1u8, format!("--hue-lock : {e}")))?;
+    let resolved =
+        recolor::from_image(Path::new(&image), &variant, &scheme, hue_lock).map_err(engine_err)?;
+    let pack_dir = flags.out.clone().unwrap_or_else(|| {
+        roots
+            .cache_dir()
+            .join("builds")
+            .join(recolor::pack_id_for(Path::new(&image)))
+    });
+    std::fs::create_dir_all(&pack_dir).map_err(io_err)?;
+    // Le pack image : mêmes couleurs que la palette construite, posées
+    // directement (les gabarits intégrés font le reste).
+    let hex = |c: &hyprdesk::config::Rgba| color::fmt(*c, color::Fmt::Hex);
+    let schéma = match scheme {
+        recolor::Scheme::Vibrant => "vibrant",
+        recolor::Scheme::Material => "material",
+        recolor::Scheme::Pastel => "pastel",
+    };
+    let manifest = format!(
+        "[meta]\nid = \"{}\"\nname = \"LYRA — {}\"\nversion = \"0.1.0\"\ndescription = \"Palette depuis l'image {image} (schéma {schéma}, variante {variant}).\"\nlicense = \"MIT\"\n\n[palette]\nbg = \"{}\"\nfg = \"{}\"\naccent = \"{}\"\n",
+        resolved.id,
+        recolor::pack_id_for(Path::new(&image)).trim_start_matches("lyra-"),
+        hex(&resolved.palette["bg"]),
+        hex(&resolved.palette["fg"]),
+        hex(&resolved.palette["accent"])
+    );
+    std::fs::write(pack_dir.join("theme.toml"), &manifest).map_err(io_err)?;
+    if flags.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "pack": resolved.id,
+                "variant": resolved.variant,
+                "dossier": pack_dir.display().to_string(),
+            }))
+            .map_err(json_err)?
+        );
+    } else {
+        println!("pack {} construit dans {}", resolved.id, pack_dir.display());
+        for (k, c) in &resolved.palette {
+            println!("  {k:<16} {}", hex(c));
+        }
+    }
+    Ok(0)
+}
+
+/// `export <id> --out <archive>` : pack installé ou embarqué → `.hyprtheme`.
+fn export(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure> {
+    let id = rest
+        .first()
+        .ok_or_else(|| (1u8, "usage : export <id> --out <archive>".to_string()))?;
+    let out = flags.out.clone().ok_or_else(|| {
+        (
+            1u8,
+            "usage : export <id> --out <archive.hyprtheme>".to_string(),
+        )
+    })?;
+    let (all, _) = packs::discover(roots, &bundled::packs()).map_err(|e| (2u8, e.to_string()))?;
+    let pack = packs::find(&all, id).ok_or_else(|| (2u8, format!("pack introuvable : {id}")))?;
+    let n = match &pack.dir {
+        Some(dir) => archive::export_pack(dir, &out).map_err(engine_err)?,
+        None => {
+            // Pack embarqué : le manifeste seul suffit (installable tel quel).
+            let entries = vec![archive::Entry {
+                path: archive::MANIFEST_AT_ROOT.to_string(),
+                data: bundled::manifest_text(id)
+                    .ok_or_else(|| (2u8, format!("pack embarqué introuvable : {id}")))?
+                    .as_bytes()
+                    .to_vec(),
+            }];
+            archive::write(&out, &entries).map_err(engine_err)?;
+            1
+        }
+    };
+    if flags.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": id, "archive": out.display().to_string(), "fichiers": n,
+            }))
+            .map_err(json_err)?
+        );
+    } else {
+        println!("{} fichiers → {}", n, out.display());
+    }
+    Ok(0)
+}
+
+/// `install <archive|dossier>` : validation complète avant la première écriture.
+fn install(roots: &Roots, rest: &[String], origin: Option<&str>) -> Result<u8, Failure> {
+    let source = rest.first().ok_or_else(|| {
+        (
+            1u8,
+            "usage : install <archive.hyprtheme|dossier>".to_string(),
+        )
+    })?;
+    if let Some(o) = origin {
+        policy_gate(o, true)?;
+    }
+    let id = archive::install(Path::new(source), roots).map_err(engine_err)?;
+    let _ = hyprdesk::theme_engine::state::journal(roots, &format!("install {id} depuis {source}"));
+    println!("{id} installé dans ~/.local/share/hyprdesk/themes/{id}/");
+    Ok(0)
+}
+
+/// `remove <id>` : un pack utilisateur seulement.
+fn remove(roots: &Roots, rest: &[String], origin: Option<&str>) -> Result<u8, Failure> {
+    let id = rest
+        .first()
+        .ok_or_else(|| (1u8, "usage : remove <id>".to_string()))?;
+    if let Some(o) = origin {
+        policy_gate(o, true)?;
+    }
+    archive::remove(id, roots).map_err(engine_err)?;
+    let _ = hyprdesk::theme_engine::state::journal(roots, &format!("remove {id}"));
+    println!("{id} retiré");
+    Ok(0)
+}
+
 fn print_report(report: &apply::Report, flags: &Flags) -> Result<(), Failure> {
     if flags.json {
         println!("{}", report.to_json().map_err(|e| (2u8, e.to_string()))?);
@@ -548,7 +826,13 @@ USAGE :\n\
   hyprdesk-theme-engine generate [--out <dossier>]\n\
   hyprdesk-theme-engine palette [--format json|hex|env|css]\n\
   hyprdesk-theme-engine verify [--json]\n\
-  hyprdesk-theme-engine doctor [--json]\n\n\
+  hyprdesk-theme-engine doctor [--json]\n\
+  hyprdesk-theme-engine export <id> --out <archive.hyprtheme>\n\
+  hyprdesk-theme-engine build --intent <fichier.json> [--out <dir>]\n\
+  hyprdesk-theme-engine recolor --from <image> [--scheme …] [--variant …]\n\
+  hyprdesk-theme-engine tools [--json]\n\
+  hyprdesk-theme-engine install <archive|dossier>\n\
+  hyprdesk-theme-engine remove <id>\n\n\
 ENVIRONNEMENT :\n\
   HYPRDESK_THEME=id[:variante]   surcharge le thème actif (équivalent GTK_THEME)"
     );
