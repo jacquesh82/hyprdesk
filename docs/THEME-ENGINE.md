@@ -268,9 +268,14 @@ La cible généralise le contrat `apptheme::Target` (`src/apptheme/mod.rs`) : id
 
 Valeurs autorisées pour `reload` : `none`, `signal:<nom_de_processus>:<SIGUSR1|SIGUSR2|SIGHUP>`, `socket:kitty`, `gsettings`, `hyprctl`, `daemon`. Tout le reste (commande shell arbitraire, script) est **refusé à la validation du pack** : un pack ne peut pas exécuter de code.
 
+Ordre de choix du rechargement d'une cible : commande configurée sur le poste (réglages `kitty.reload`, `thunar.reload` du démon, passée à `sh -c` — un réglage du poste, jamais un contenu de pack), puis rechargement déclaré par le pack, puis rechargement intégré. Les options de fichiers du démon (`kitty.file`, `kitty.conf`, `thunar.file`, `thunar.conf`) s'appliquent à chaque `apply`.
+
+Rechargement `gsettings` : un appel par clé — `color-scheme` (`prefer-dark` / `prefer-light`), puis `accent-color`, qui est une couleur nommée de GNOME (`blue`, `teal`, `green`, `yellow`, `orange`, `red`, `pink`, `purple`, `slate`) : la plus proche de l'accent du thème en teinte OKLCH, `slate` pour un accent presque neutre. Une clé `accent-color` absente (GNOME < 47) est signalée, pas un échec.
+
 ### Cible `hyprland` en détail
 
-- Le fragment généré ne touche que la liste blanche d'options décoratives : `decoration:*`, `general:gaps_*`, `general:border*`, `animation:*` par nom d'animation, `misc:*` pour le flou. Toute autre option dans `[hyprland.options]` → erreur de validation.
+- Le fragment généré ne touche que la liste blanche d'options décoratives : `decoration:*`, `general:gaps_*`, `general:border*`, `animation:*` par nom d'animation, `misc:*` pour le flou. Toute autre option dans `[hyprland.options]` ou `[variant.*.hyprland_options]` → erreur de validation ; une valeur doit tenir sur une ligne, sans caractère de contrôle, 256 caractères au plus.
+- Les options du pack sont écrites dans le fragment persistant comme en mode `hot`. Le fragment rendu (gabarit du pack compris) est validé ligne à ligne : des `clé = valeur` en liste blanche (plus `general:col.*` et `group:col.*`) et des commentaires, rien d'autre — ni `exec`, ni `source`, ni `bind`, ni `env`, ni variable.
 - L'inclusion du fragment est faite une fois dans `hyprland.lua` par le démon (pattern existant `hyprsrc.rs`/`genfiles.rs` : écriture idempotente, inclusion unique avec copie de sauvegarde). Le moteur n'édite jamais `hyprland.lua` lui-même : il écrit le fragment et signale l'inclusion manquante dans le rapport (`warning: include_missing`).
 - Mode `hot` : batch `hyprctl keyword` des mêmes options, sans écrire de fichier — c'est l'aperçu en direct, aligné sur le comportement de `hypr_set_option_live`.
 
@@ -317,6 +322,7 @@ let pal = client.palette();                    // slots typés en Rgba + effets
 client.subscribe(move |pal| /* callbacks hors thread UI */);
 ```
 
+- Suivi sans sondage : la crate surveille le **dossier** de `palette.json` (le moteur publie par renommage, un suivi du fichier lui-même perdrait l'inode remplacé), filtre le nom du fichier et compare la révision avant d'appeler le rappel.
 - `Palette` expose les slots du §5, les effets et la révision ; méthodes utilitaires (`is_dark()`, `contrast_ratio(a, b)`).
 - Intégration iced : le callback hors thread UI est converti par l'application en `Task`/`Message` (pattern hyprdesk : rechargement local des seules surfaces touchées, `transition = "none"` respecté). L'application mappe `Palette` vers ses propres couleurs ; un helper `hyprdesk_theme_client::iced_palette(&pal)` fournit un point de départ (`iced::Color` par slot).
 - mindlog et les autres applications du dépôt l'adoptent comme implémentation de référence ; une application tierce ne dépend que de cette crate, jamais du démon.
@@ -385,7 +391,9 @@ Rollback : si la validation d'une cible échoue après des écritures locales, l
 - **déclencheurs** : changement de fond (paquet Fond d'écran du démon → socket), événement `color-scheme` du portail (`theme.variant = auto`), changement de réglage `theme.*` signalé par le démon, minuteurs planifiés (§20 heure du jour) ;
 - **actions** : re-résolution, re-génération différentielle (hash), rechargement des cibles touchées uniquement.
 
-Un seul `watch` à la fois : prise de socket exclusive, deuxième instance → `apply` one-shot puis sortie.
+Un seul `watch` à la fois : prise de socket exclusive, deuxième instance → `apply` one-shot puis sortie (un socket mort, laissé par une veille tuée, est repris).
+
+Réveils par fichiers : inotify sur tous les packs de l'utilisateur (le pack actif peut changer, un parent hérité compte aussi) et sur `active.json` seul — jamais sur `palette.json`, `last-applied.json` ni `journal.log`, que chaque application réécrit elle-même ; les lectures ne réveillent pas. Une rafale (enregistrement d'éditeur) est regroupée en une application.
 
 ---
 
@@ -442,9 +450,10 @@ Variable d'environnement `HYPRDESK_THEME=<id>[:<variante>]` : surcharge globale 
 
 ## 14. Sécurité
 
-- **Un pack est des données** : pas de Lua, pas de shell, pas d'inclusion de fichiers, pas d'accès environnement dans les gabarits. La liste des filtres est close (§7), le langage de rechargement est borné (§8).
-- **Chemins de sortie en liste blanche** par cible ; la cible générique est confinée à `~/.config/` et `~/.local/share/`, sans symlink sortant (les symlinks rencontrés en chemin de sortie sont refusés).
-- **Limites** : manifeste 64 Kio, pack 50 Mio, gabarit 1 Mio, 2000 fichiers, héritage profondeur 4, recolor sur image ≤ 100 Mio décodée.
+- **Un pack est des données** : pas de Lua, pas de shell, pas d'inclusion de fichiers, pas d'accès environnement dans les gabarits. La liste des filtres est close (§7), le langage de rechargement est borné (§8). Les rendus des cibles qui pourraient lancer un programme sont validés : `hyprland` (§8), `hyprlock` (ni `cmd[…]`, ni `exec`, ni `source`), `kitty` (couleurs, opacité et polices seulement : ni `shell`, `launch`, `map`, `include`, `watcher`, `scrollback_pager`…).
+- **Chemins de sortie en liste blanche** par cible ; la cible générique est confinée à `~/.config/` et `~/.local/share/`, vérifiée sur le chemin réel : une racine XDG en lien (dotfiles) est admise, un lien qui ferait sortir l'écriture du périmètre est refusé. Les emplacements d'où une commande peut partir sont refusés : `autostart`, `systemd`, `environment.d`, `uwsm`, `hypr`, `kitty`, `fish`, `nushell`, `plasma-workspace`, `xdg-desktop-portal`, `Thunar`, `hyprdesk` sous `~/.config` ; `applications`, `dbus-1`, `systemd`, `flatpak`, `nautilus`, `hyprdesk` sous `~/.local/share` ; et partout les extensions de lanceurs et de scripts (`.desktop`, `.service`, `.timer`, `.socket`, `.path`, `.sh`, `.bash`, `.zsh`, `.fish`, `.nu`, `.lua`, `.py`, `.pl`, `.rb`, `.js`, `.vim`, `.el`, `.so`). Liste au mieux : une sortie de pack reste un fichier de style lu par une application configurée pour le lire.
+- **Écriture** : un fichier cible qui est un lien (dotfiles gérés par stow) est écrit à travers le lien, jamais remplacé par un fichier ordinaire ; écriture temporaire propre au processus, données forcées sur le disque, droits du fichier remplacé conservés. La révision de `palette.json` est calculée sous verrou (`flock`) : le démon et le binaire peuvent publier en même temps.
+- **Limites** : manifeste 64 Kio, pack 50 Mio, gabarit 1 Mio, 2000 fichiers, héritage profondeur 4, recolor sur image ≤ 100 Mio décodée. À la lecture d'une archive, les en-têtes étendus (nom long GNU, pax) et les dossiers sont bornés à 64 Kio avant toute allocation, le nombre d'entrées à 8000 et le flux décompressé à son budget : une bombe de décompression est refusée, jamais lue jusqu'au bout.
 - **Aucun réseau** en v1 ; signature minisign des archives en phase 3.
 - **LYRA** : l'assistante passe par la même surface (`tools`, même liste blanche, mêmes confirmations) ; jamais d'écriture directe de fichier, jamais de shell ; une clé de `policy.toml` peut tout couper (§17).
 - Décodage d'image avec budget mémoire borné (protecteur déjà en place côté démon, à réutiliser).

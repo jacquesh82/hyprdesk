@@ -370,16 +370,25 @@ fn plan_builtin(
 ) -> Result<Vec<Planned>> {
     let rendu = || content.expect("gabarit manquant pour une cible à fichier");
     let out = match id {
-        "hyprland" => vec![Planned {
-            path: roots.hypr_theme_dir().join("hyprland.conf"),
-            content: rendu().to_string(),
-            op: Op::Write,
-            ..Default::default()
-        }],
+        "hyprland" => {
+            // Options du pack (liste blanche) comprises : le fragment
+            // persistant porte ce que le mode `hot` pose en direct.
+            let content = with_hypr_options(rendu(), resolved);
+            validate_hypr_fragment(&content)?;
+            vec![Planned {
+                path: roots.hypr_theme_dir().join("hyprland.conf"),
+                content,
+                op: Op::Write,
+                ..Default::default()
+            }]
+        }
         "hyprlock" => vec![
             Planned {
                 path: roots.hypr_theme_dir().join("hyprlock.conf"),
-                content: rendu().to_string(),
+                content: {
+                    validate_hyprlock(rendu())?;
+                    rendu().to_string()
+                },
                 op: Op::Write,
                 ..Default::default()
             },
@@ -398,6 +407,7 @@ fn plan_builtin(
                 Some(f) => PathBuf::from(f),
                 None => roots.config.join("kitty").join("hyprdesk-theme.conf"),
             };
+            validate_kitty(rendu())?;
             let mut out = vec![Planned {
                 path: file.clone(),
                 content: rendu().to_string(),
@@ -575,38 +585,130 @@ fn plan_builtin(
 
 /// Sortie de cible générique : `~/` développé d'après les racines XDG du
 /// contexte (pas le HOME brut), confiné à `~/.config` et `~/.local/share`
-/// (§13), sans traverser de lien symbolique.
+/// (§13). Le périmètre est vérifié sur le chemin réel : une racine XDG qui
+/// est elle-même un lien (dotfiles) reste admise, un lien qui ferait sortir
+/// l'écriture du périmètre non. Les emplacements d'où une commande peut être
+/// lancée (démarrage, services, scripts, configuration de Hyprland) sont
+/// refusés : un pack est fait de données.
 pub fn safe_output_path(roots: &Roots, declared: &str) -> Result<PathBuf> {
+    let refus =
+        |why: &str| Error::Template(format!("sortie hors liste blanche : {declared} ({why})"));
     let expanded = if let Some(rest) = declared.strip_prefix("~/.config/") {
         roots.config.join(rest)
     } else if let Some(rest) = declared.strip_prefix("~/.local/share/") {
         roots.data.join(rest)
     } else if declared.starts_with("~/") {
-        return Err(Error::Template(format!(
-            "sortie hors liste blanche : {declared} (attendu : sous ~/.config ou ~/.local/share)"
-        )));
+        return Err(refus("attendu : sous ~/.config ou ~/.local/share"));
     } else {
         PathBuf::from(declared)
     };
-    if !expanded.starts_with(&roots.config) && !expanded.starts_with(&roots.data) {
-        return Err(Error::Template(format!(
-            "sortie hors liste blanche : {declared} (attendu : sous ~/.config ou ~/.local/share)"
-        )));
+    if expanded
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(refus("tronçon .. refusé"));
     }
-    // Aucun parent ne peut être un lien symbolique qui sortirait du périmètre.
-    let mut ancêtre: Option<&Path> = Some(expanded.as_path());
-    while let Some(a) = ancêtre {
-        if let Ok(meta) = std::fs::symlink_metadata(a)
-            && meta.is_symlink()
-        {
-            return Err(Error::Template(format!(
-                "sortie refusée : traverserait le lien symbolique {}",
-                a.display()
-            )));
-        }
-        ancêtre = a.parent();
+    let réel = real_path(&expanded);
+    let racines = [
+        (real_path(&roots.config), false),
+        (real_path(&roots.data), true),
+    ];
+    let Some((rel, données)) = racines
+        .iter()
+        .find_map(|(r, d)| réel.strip_prefix(r).ok().map(|rel| (rel.to_path_buf(), *d)))
+    else {
+        return Err(refus(
+            "attendu : sous ~/.config ou ~/.local/share, sans lien qui en sorte",
+        ));
+    };
+    if rel.as_os_str().is_empty() {
+        return Err(refus("un fichier est attendu, pas la racine"));
+    }
+    if let Some(why) = emplacement_refusé(&rel, données) {
+        return Err(refus(why));
     }
     Ok(expanded)
+}
+
+/// Dossiers de `~/.config` d'où une écriture peut lancer une commande.
+const CONFIG_REFUSÉS: &[&str] = &[
+    "autostart",
+    "systemd",
+    "environment.d",
+    "uwsm",
+    "hypr",
+    "kitty",
+    "fish",
+    "nushell",
+    "plasma-workspace",
+    "xdg-desktop-portal",
+    "Thunar",
+    "hyprdesk",
+];
+
+/// Dossiers de `~/.local/share` refusés pour la même raison (lanceurs,
+/// services D-Bus, packs et état du moteur).
+const DATA_REFUSÉS: &[&str] = &[
+    "applications",
+    "dbus-1",
+    "systemd",
+    "flatpak",
+    "nautilus",
+    "hyprdesk",
+];
+
+/// Extensions de fichiers exécutables ou de lanceurs.
+const EXTENSIONS_REFUSÉES: &[&str] = &[
+    "desktop", "service", "timer", "socket", "path", "sh", "bash", "zsh", "fish", "nu", "lua",
+    "py", "pl", "rb", "js", "vim", "el", "so",
+];
+
+fn emplacement_refusé(rel: &Path, données: bool) -> Option<&'static str> {
+    let premier = rel
+        .components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .unwrap_or_default();
+    let dossiers = if données {
+        DATA_REFUSÉS
+    } else {
+        CONFIG_REFUSÉS
+    };
+    if dossiers.contains(&premier.as_str()) {
+        return Some("emplacement réservé : démarrage, services, scripts ou cible intégrée");
+    }
+    let ext = rel
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if EXTENSIONS_REFUSÉES.contains(&ext.as_str()) {
+        return Some("type de fichier exécutable ou lanceur refusé");
+    }
+    None
+}
+
+/// Chemin réel d'une sortie, même inexistante : liens finaux suivis, plus
+/// proche ancêtre existant rendu canonique, reste du chemin rattaché.
+fn real_path(path: &Path) -> PathBuf {
+    let suivi = super::state::real_target(path);
+    let mut existant = suivi.as_path();
+    let mut reste = Vec::new();
+    loop {
+        if let Ok(c) = std::fs::canonicalize(existant) {
+            let mut out = c;
+            for part in reste.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+        match (existant.parent(), existant.file_name()) {
+            (Some(parent), Some(name)) => {
+                reste.push(name.to_os_string());
+                existant = parent;
+            }
+            _ => return suivi,
+        }
+    }
 }
 
 /// Ajoute au fragment hyprland les options de liste blanche du pack,
@@ -629,6 +731,7 @@ pub fn hot_keywords(resolved: &Resolved, pack_dir: Option<&Path>) -> Result<Vec<
     let target = find("hyprland").ok_or_else(|| Error::Missing("hyprland".to_string()))?;
     let content = render_for(&target, resolved, pack_dir)?;
     let content = with_hypr_options(&content, resolved);
+    validate_hypr_fragment(&content)?;
     let mut out = Vec::new();
     for line in content.lines() {
         let line = line.trim();
@@ -640,6 +743,106 @@ pub fn hot_keywords(resolved: &Resolved, pack_dir: Option<&Path>) -> Result<Vec<
         }
     }
     Ok(out)
+}
+
+/// Fragment Hyprland : des options `clé = valeur` et des commentaires, rien
+/// d'autre. Un gabarit de pack ne peut ni lancer de commande (`exec`), ni
+/// sourcer un fichier, ni poser un raccourci ou une variable d'environnement.
+pub fn validate_hypr_fragment(content: &str) -> Result<()> {
+    for (n, line) in content.lines().enumerate() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = l.split_once('=') else {
+            return Err(Error::Template(format!(
+                "cible hyprland, ligne {} : « {l} » n'est pas une option clé = valeur",
+                n + 1
+            )));
+        };
+        let key = key.trim();
+        // Couleurs des fenêtres : posées par le gabarit intégré, admises en
+        // plus de la liste blanche des packs.
+        let couleur_fenêtre = super::manifest::valid_option_path(key)
+            && (key.starts_with("general:col.") || key.starts_with("group:col."));
+        if !(couleur_fenêtre || super::manifest::allowed_hyprland_key(key)) {
+            return Err(Error::Template(format!(
+                "cible hyprland, ligne {} : option hors liste blanche : {key}",
+                n + 1
+            )));
+        }
+        if value.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(Error::Template(format!(
+                "cible hyprland, ligne {} : caractère de contrôle dans la valeur",
+                n + 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Fragment hyprlock : variables et widgets, sans commande. `cmd[…]` (texte
+/// d'un label calculé par le shell), `exec` et `source` sont refusés.
+pub fn validate_hyprlock(content: &str) -> Result<()> {
+    for (n, line) in content.lines().enumerate() {
+        let l = line.trim();
+        if l.starts_with('#') {
+            continue;
+        }
+        let key = l.split('=').next().unwrap_or_default().trim();
+        if l.contains("cmd[") || key == "source" || key.starts_with("exec") {
+            return Err(Error::Template(format!(
+                "cible hyprlock, ligne {} : commande refusée dans un gabarit de pack (« {l} »)",
+                n + 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Directives kitty admises : couleurs, opacité, polices. Les directives qui
+/// lancent un programme (`shell`, `launch`, `map`, `watcher`,
+/// `scrollback_pager`, `include`…) sont refusées.
+pub fn validate_kitty(content: &str) -> Result<()> {
+    const EXACTES: &[&str] = &[
+        "foreground",
+        "background",
+        "cursor",
+        "background_opacity",
+        "background_blur",
+        "dynamic_background_opacity",
+        "background_tint",
+        "font_family",
+        "bold_font",
+        "italic_font",
+        "bold_italic_font",
+        "font_size",
+        "active_tab_font_style",
+        "inactive_tab_font_style",
+        "tab_bar_style",
+    ];
+    for (n, line) in content.lines().enumerate() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let key = l.split_whitespace().next().unwrap_or_default();
+        let admise = EXACTES.contains(&key)
+            || key.strip_prefix("color").is_some_and(|d| {
+                !d.is_empty() && d.len() <= 3 && d.chars().all(|c| c.is_ascii_digit())
+            })
+            || key.starts_with("selection_")
+            || ["_color", "_foreground", "_background"]
+                .iter()
+                .any(|s| key.ends_with(s));
+        if !admise || l.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(Error::Template(format!(
+                "cible kitty, ligne {} : directive refusée : {key} (couleurs, opacité et polices seulement)",
+                n + 1
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Validation légère d'un rendu CSS : accolades équilibrées (les gabarits
@@ -668,6 +871,9 @@ pub enum Reload {
     Signal(String, String),
     /// Cible générique : kitty rechargé par son socket de contrôle distant.
     KittySocket,
+    /// Commande configurée sur le poste (réglage du démon, jamais un
+    /// contenu de pack), passée à `sh -c`.
+    Command(String),
 }
 
 pub fn reload_of(id: &str) -> Reload {
@@ -703,48 +909,44 @@ pub fn reload_generic(declared: &str) -> Result<Reload> {
 /// et les applications GNOME — le canal standard sans service de portail.
 pub fn run_reload(r: Reload, resolved: &Resolved) -> std::result::Result<Option<String>, String> {
     let variant = resolved.variant.as_str();
-    let (prog, args): (&str, Vec<String>) = match r {
-        Reload::None => return Ok(None),
-        Reload::Hyprctl => ("hyprctl", vec!["reload".to_string()]),
+    match r {
+        Reload::None => Ok(None),
+        Reload::Hyprctl => run("hyprctl", &["reload"]).map(Some),
         Reload::GsettingsScheme => {
-            let accent = super::color::fmt(resolved.palette["accent"], Fmt::Rgb);
-            (
+            // Un appel par clé : gsettings n'en pose qu'une à la fois.
+            let schéma = if variant == "light" {
+                "prefer-light"
+            } else {
+                "prefer-dark"
+            };
+            run(
                 "gsettings",
-                vec![
-                    "set".to_string(),
-                    "org.gnome.desktop.interface".to_string(),
-                    "color-scheme".to_string(),
-                    if variant == "light" {
-                        "prefer-light".to_string()
-                    } else {
-                        "prefer-dark".to_string()
-                    },
-                ]
-                .into_iter()
-                .chain([
-                    "set".to_string(),
-                    "org.gnome.desktop.interface".to_string(),
-                    "accent-color".to_string(),
-                    format!("'{accent}'"),
-                ])
-                .collect(),
-            )
+                &["set", "org.gnome.desktop.interface", "color-scheme", schéma],
+            )?;
+            // L'accent de GNOME est une couleur nommée : la plus proche de
+            // celle du thème. Une clé absente (GNOME < 47) n'est pas un échec.
+            let accent = gnome_accent(resolved.palette["accent"]);
+            match run(
+                "gsettings",
+                &["set", "org.gnome.desktop.interface", "accent-color", accent],
+            ) {
+                Ok(_) => Ok(Some(format!("gsettings ok ({schéma}, accent {accent})"))),
+                Err(e) => Ok(Some(format!(
+                    "gsettings ok ({schéma}) ; accent non posé : {e}"
+                ))),
+            }
         }
-        Reload::KittySignal => (
-            "pkill",
-            vec!["-USR1".to_string(), "-x".to_string(), "kitty".to_string()],
-        ),
-        Reload::Signal(name, sig) => (
-            "pkill",
-            vec![format!("-{sig}"), "-x".to_string(), name.clone()],
-        ),
-        Reload::KittySocket => (
-            "kitty",
-            vec!["@@".replace("@@", "@"), "load-config".to_string()],
-        ),
-    };
-    match Command::new(prog).args(&args).output() {
-        Ok(out) if out.status.success() => Ok(Some(format!("{prog} ok"))),
+        Reload::KittySignal => run("pkill", &["-USR1", "-x", "kitty"]).map(Some),
+        Reload::Signal(name, sig) => run("pkill", &[&format!("-{sig}"), "-x", &name]).map(Some),
+        Reload::KittySocket => run("kitty", &["@", "load-config"]).map(Some),
+        Reload::Command(cmd) => run("sh", &["-c", &cmd]).map(Some),
+    }
+}
+
+/// Lance un programme de rechargement ; texte court en cas de succès.
+fn run(prog: &str, args: &[&str]) -> std::result::Result<String, String> {
+    match Command::new(prog).args(args).output() {
+        Ok(out) if out.status.success() => Ok(format!("{prog} ok")),
         Ok(out) => Err(format!(
             "{prog} {} : {}",
             args.join(" "),
@@ -752,6 +954,42 @@ pub fn run_reload(r: Reload, resolved: &Resolved) -> std::result::Result<Option<
         )),
         Err(e) => Err(format!("{prog} : {e}")),
     }
+}
+
+/// Couleurs d'accent nommées de GNOME (libadwaita 1.6), dans l'ordre de
+/// l'énumération `accent-color`.
+const GNOME_ACCENTS: [(&str, &str); 9] = [
+    ("blue", "#3584e4"),
+    ("teal", "#2190a4"),
+    ("green", "#3a944a"),
+    ("yellow", "#c88800"),
+    ("orange", "#ed5b00"),
+    ("red", "#e62d42"),
+    ("pink", "#d56199"),
+    ("purple", "#9141ac"),
+    ("slate", "#6f8396"),
+];
+
+/// Accent GNOME le plus proche d'une couleur : `slate` pour une couleur
+/// presque neutre, sinon la teinte OKLCH la plus proche.
+pub fn gnome_accent(c: crate::config::Rgba) -> &'static str {
+    let o = super::color::to_oklch(c);
+    if o.c < 0.04 {
+        return "slate";
+    }
+    let écart = |h: f64| {
+        let d = (o.h - h).rem_euclid(360.0);
+        d.min(360.0 - d)
+    };
+    GNOME_ACCENTS
+        .iter()
+        .filter(|(nom, _)| *nom != "slate")
+        .filter_map(|(nom, hex)| {
+            super::color::parse(hex).map(|rgba| (*nom, super::color::to_oklch(rgba).h))
+        })
+        .min_by(|a, b| écart(a.1).total_cmp(&écart(b.1)))
+        .map(|(nom, _)| nom)
+        .unwrap_or("blue")
 }
 
 /// Contenu du fichier, ou vide s'il n'existe pas.
@@ -1122,5 +1360,141 @@ mod tests {
     fn chemin_present_dans_le_path() {
         assert!(in_path("sh") || in_path("ls"));
         assert!(!in_path("programme-inexistant-xyz"));
+    }
+
+    #[test]
+    fn fragment_hyprland_sans_commande() {
+        // MLG-224 : un gabarit de pack ne pose que des options admises.
+        assert!(
+            validate_hypr_fragment(
+                "# c\ngeneral:col.active_border = rgba(ffffffff)\ndecoration:rounding = 8\n"
+            )
+            .is_ok()
+        );
+        for mauvais in [
+            "exec = touch /tmp/x",
+            "exec-once = x",
+            "source = ~/.config/autre.conf",
+            "bind = SUPER, Q, exec, x",
+            "env = A,B",
+            "$var = 1",
+            "general {",
+        ] {
+            assert!(validate_hypr_fragment(mauvais).is_err(), "{mauvais}");
+        }
+    }
+
+    #[test]
+    fn hot_n_envoie_pas_de_commande_glissée_dans_un_gabarit() {
+        let root = std::env::temp_dir().join(format!("hd-tgt-hot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let pack = root.join("pack");
+        std::fs::create_dir_all(pack.join("templates")).unwrap();
+        std::fs::write(
+            pack.join("templates/hyprland.tmpl"),
+            "decoration:rounding = 8\nexec = touch /tmp/PWNED\n",
+        )
+        .unwrap();
+        let r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        assert!(hot_keywords(&r, Some(&pack)).is_err());
+        let roots = Roots::at(&root);
+        assert!(plan(&find("hyprland").unwrap(), &r, Some(&pack), &roots).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn options_du_pack_dans_le_fragment_persistant() {
+        // MLG-224 : les options n'étaient posées qu'en mode hot.
+        let root = std::env::temp_dir().join(format!("hd-tgt-opts-{}", std::process::id()));
+        let roots = Roots::at(&root);
+        let mut r = super::super::resolve::from_theme(&crate::config::Theme::default());
+        r.hyprland_options
+            .insert("decoration:rounding".to_string(), "10".to_string());
+        let planned = plan(&find("hyprland").unwrap(), &r, None, &roots).unwrap();
+        assert!(
+            planned[0].content.contains("decoration:rounding = 10"),
+            "{}",
+            planned[0].content
+        );
+    }
+
+    #[test]
+    fn gabarits_hyprlock_et_kitty_sans_commande() {
+        assert!(validate_hyprlock("$hd_fg = rgb(1,2,3)\nlabel {\n  text = Bonjour\n}\n").is_ok());
+        assert!(validate_hyprlock("label {\n  text = cmd[update:1000] curl x | sh\n}\n").is_err());
+        assert!(validate_hyprlock("source = /tmp/x.conf").is_err());
+        // Le gabarit intégré passe.
+        assert!(validate_kitty(include_str!("templates/kitty.conf.tmpl")).is_ok());
+        assert!(
+            validate_kitty("foreground #ffffff\ncolor12 #000000\nbackground_opacity 0.9\n").is_ok()
+        );
+        for mauvais in [
+            "shell /bin/sh -c 'touch /tmp/x'",
+            "map ctrl+a launch touch /tmp/x",
+            "include /tmp/x.conf",
+            "watcher /tmp/x.py",
+            "scrollback_pager sh -c x",
+            "active_tab_title_template {x}",
+        ] {
+            assert!(validate_kitty(mauvais).is_err(), "{mauvais}");
+        }
+    }
+
+    #[test]
+    fn accent_gnome_le_plus_proche() {
+        // MLG-222 : accent-color est une énumération, pas rgb().
+        use crate::config::Rgba;
+        assert_eq!(gnome_accent(Rgba(0xe6, 0x2d, 0x42, 255)), "red");
+        assert_eq!(gnome_accent(Rgba(0x35, 0x84, 0xe4, 255)), "blue");
+        assert_eq!(gnome_accent(Rgba(0x3a, 0x94, 0x4a, 255)), "green");
+        assert_eq!(gnome_accent(Rgba(0x80, 0x80, 0x80, 255)), "slate");
+        assert_eq!(gnome_accent(Rgba(0x91, 0x41, 0xac, 255)), "purple");
+        for (nom, _) in GNOME_ACCENTS {
+            assert!(nom.chars().all(|c| c.is_ascii_lowercase()));
+        }
+    }
+
+    #[test]
+    fn sorties_qui_lancent_des_commandes_refusées() {
+        // MLG-224 : un pack ne pose ni lanceur, ni service, ni script.
+        let root = std::env::temp_dir().join(format!("hd-tgt-deny-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        for mauvais in [
+            "~/.config/autostart/x.desktop",
+            "~/.config/systemd/user/x.service",
+            "~/.config/hypr/hyprland.conf",
+            "~/.config/kitty/kitty.conf",
+            "~/.config/waybar/script.sh",
+            "~/.config/nvim/init.lua",
+            "~/.local/share/applications/x.desktop",
+            "~/.local/share/dbus-1/services/x.service",
+            "~/.local/share/hyprdesk/themes/autre/theme.toml",
+            "~/.config/waybar/../autostart/x",
+        ] {
+            assert!(safe_output_path(&roots, mauvais).is_err(), "{mauvais}");
+        }
+        assert!(safe_output_path(&roots, "~/.config/rofi/hyprdesk.rasi").is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn racine_xdg_en_lien_admise() {
+        // MLG-226 : ~/.config en lien (dotfiles) ne bloque plus les sorties ;
+        // un lien qui sort du périmètre reste refusé.
+        let root = std::env::temp_dir().join(format!("hd-tgt-lnroot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("dotfiles/config")).unwrap();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("dotfiles/config"), root.join("config")).unwrap();
+        let roots = Roots::at(&root);
+        assert!(safe_output_path(&roots, "~/.config/waybar/x.css").is_ok());
+        std::fs::create_dir_all(root.join("dotfiles/config/waybar")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc/passwd", root.join("dotfiles/config/waybar/y.css"))
+            .unwrap();
+        assert!(safe_output_path(&roots, "~/.config/waybar/y.css").is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

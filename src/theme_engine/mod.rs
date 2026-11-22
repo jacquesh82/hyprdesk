@@ -56,6 +56,8 @@ pub enum Error {
     Slot(String),
     #[error("variante inconnue : {0} (attendu : dark ou light)")]
     Variant(String),
+    #[error("veille : {0}")]
+    Watch(String),
     #[error("lecture ou écriture : {0}")]
     Io(#[from] std::io::Error),
     #[error("manifeste illisible : {0}")]

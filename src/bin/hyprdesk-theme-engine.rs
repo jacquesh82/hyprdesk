@@ -636,7 +636,17 @@ fn preview(roots: &Roots, flags: &Flags, rest: &[String]) -> Result<u8, Failure>
 }
 
 /// `watch` : réapplication déclenchée (inotify, socket, SIGHUP).
-fn watch_cmd(roots: &Roots, _flags: &Flags) -> Result<u8, Failure> {
+fn watch_cmd(roots: &Roots, flags: &Flags) -> Result<u8, Failure> {
+    // Une veille tourne déjà : application ponctuelle, puis sortie (§11).
+    if watch::running() {
+        eprintln!(
+            "veille déjà en cours ({}) : application ponctuelle",
+            watch::socket_path().display()
+        );
+        let report = watch::trigger_once(roots, "cli").map_err(|e| (4u8, e.to_string()))?;
+        print_report(&report, flags)?;
+        return Ok(if report.errors.is_empty() { 0 } else { 3 });
+    }
     eprintln!(
         "veille : {} — réveil par fichiers, socket ou SIGHUP",
         watch::socket_path().display()

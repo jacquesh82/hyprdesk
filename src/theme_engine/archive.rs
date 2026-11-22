@@ -27,6 +27,16 @@ pub const MAX_FILES: usize = 2000;
 /// Taille maximale d'un gabarit (§14 : 1 Mio).
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
+/// Taille maximale d'un en-tête étendu (nom long GNU, en-têtes pax) ou d'un
+/// contenu de dossier : rien n'y justifie plus de 64 Kio.
+pub const MAX_HEADER_BYTES: u64 = 64 * 1024;
+
+/// Flux décompressé lisible au plus : le contenu admis, plus de quoi porter
+/// les en-têtes et le bourrage de chaque entrée. Au-delà, l'archive est
+/// refusée (bombe de décompression).
+pub const MAX_STREAM_BYTES: u64 =
+    MAX_ARCHIVE_BYTES + 4 * MAX_FILES as u64 * 1024 + MAX_HEADER_BYTES;
+
 /// Fichier à la racine d'une archive : le manifeste du pack.
 pub const MANIFEST_AT_ROOT: &str = packs::MANIFEST_FILE;
 
@@ -132,18 +142,34 @@ pub fn read(archive: &Path) -> Result<(Vec<Entry>, Manifest)> {
             format!("archive trop grande : {} octets", raw.len()),
         ));
     }
-    let gz = GzDecoder::new(&raw[..]);
-    let mut r = gz;
+    let mut r = Budget {
+        inner: GzDecoder::new(&raw[..]),
+        left: MAX_STREAM_BYTES,
+    };
     let mut entries: Vec<Entry> = Vec::new();
     let mut total: u64 = 0;
+    let mut headers: usize = 0;
     let mut manifest: Option<Manifest> = None;
     let mut long_name: Option<String> = None;
     let mut header = [0u8; 512];
-    // Fin de flux = fin d'archive (une archive tronquée sans bloc nul final
-    // est tolérée : les entrées déjà lues restent validées).
-    while r.read_exact(&mut header).is_ok() {
+    loop {
+        // Fin de flux = fin d'archive (une archive tronquée sans bloc nul
+        // final est tolérée : les entrées déjà lues restent validées) ; un
+        // flux qui dépasse son budget est une erreur, jamais une fin.
+        match r.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(Error::Manifest("archive".to_string(), e.to_string())),
+        }
         if header == [0u8; 512] {
             break;
+        }
+        headers += 1;
+        if headers > 4 * MAX_FILES {
+            return Err(Error::Manifest(
+                "archive".to_string(),
+                format!("trop d'entrées (> {})", 4 * MAX_FILES),
+            ));
         }
         let typeflag = header[156];
         let size = octal_field(&header[124..136])?;
@@ -159,20 +185,7 @@ pub fn read(archive: &Path) -> Result<(Vec<Entry>, Manifest)> {
         match typeflag {
             // Fichier régulier ('0' ou NUL historique).
             b'0' | 0 => {
-                if size > MAX_FILE_BYTES {
-                    return Err(Error::Manifest(
-                        "archive".to_string(),
-                        format!("fichier trop grand : {name} ({size} > {MAX_FILE_BYTES} octets)"),
-                    ));
-                }
-                let mut data = vec![0u8; size as usize];
-                r.read_exact(&mut data)
-                    .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                let pad = ((512 - size as usize % 512) % 512) as u64;
-                if pad > 0 {
-                    std::io::copy(&mut r.by_ref().take(pad), &mut std::io::sink())
-                        .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                }
+                let data = payload(&mut r, size, MAX_FILE_BYTES, &name)?;
                 if !valid_path(&name) {
                     return Err(Error::Manifest(
                         "archive".to_string(),
@@ -201,32 +214,17 @@ pub fn read(archive: &Path) -> Result<(Vec<Entry>, Manifest)> {
             }
             // Longname GNU : le prochain fichier porte ce nom.
             b'L' => {
-                let mut data = vec![0u8; size as usize];
-                r.read_exact(&mut data)
-                    .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                let pad = ((512 - size as usize % 512) % 512) as u64;
-                if pad > 0 {
-                    std::io::copy(&mut r.by_ref().take(pad), &mut std::io::sink())
-                        .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                }
+                let data = payload(&mut r, size, MAX_HEADER_BYTES, "nom long GNU")?;
                 long_name = Some(
                     String::from_utf8_lossy(&data)
                         .trim_end_matches('\0')
                         .to_string(),
                 );
             }
-            // Dossiers et en-têtes pax : sans contenu utile ici.
+            // Dossiers et en-têtes pax : sans contenu utile ici, mais lus
+            // dans la même limite.
             b'5' | b'x' | b'g' => {
-                if size > 0 {
-                    let mut data = vec![0u8; size as usize];
-                    r.read_exact(&mut data)
-                        .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                    let pad = ((512 - size as usize % 512) % 512) as u64;
-                    if pad > 0 {
-                        std::io::copy(&mut r.by_ref().take(pad), &mut std::io::sink())
-                            .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
-                    }
-                }
+                payload(&mut r, size, MAX_HEADER_BYTES, &name)?;
             }
             // Symlinks, liens durs, devices : refusés (§13).
             other => {
@@ -248,6 +246,54 @@ pub fn read(archive: &Path) -> Result<(Vec<Entry>, Manifest)> {
         )
     })?;
     Ok((entries, manifest))
+}
+
+/// Lecteur borné : au-delà de `left` octets, une erreur (pas une fin de
+/// flux, qui passerait pour une archive tronquée).
+struct Budget<R> {
+    inner: R,
+    left: u64,
+}
+
+impl<R: Read> Read for Budget<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            // Fin réelle du flux : rien à lire, ce n'est pas un dépassement.
+            let mut sonde = [0u8; 1];
+            return match self.inner.read(&mut sonde)? {
+                0 => Ok(0),
+                _ => Err(std::io::Error::other(format!(
+                    "archive trop grande une fois décompressée (> {MAX_STREAM_BYTES} octets)"
+                ))),
+            };
+        }
+        let max = buf
+            .len()
+            .min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        let n = self.inner.read(&mut buf[..max])?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+/// Contenu d'une entrée et son bourrage : la taille annoncée est bornée
+/// AVANT toute allocation.
+fn payload<R: Read>(r: &mut R, size: u64, max: u64, name: &str) -> Result<Vec<u8>> {
+    if size > max {
+        return Err(Error::Manifest(
+            "archive".to_string(),
+            format!("entrée trop grande : {name} ({size} > {max} octets)"),
+        ));
+    }
+    let mut data = vec![0u8; size as usize];
+    r.read_exact(&mut data)
+        .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
+    let pad = (512 - size % 512) % 512;
+    if pad > 0 {
+        std::io::copy(&mut r.by_ref().take(pad), &mut std::io::sink())
+            .map_err(|e| Error::Manifest("archive".to_string(), e.to_string()))?;
+    }
+    Ok(data)
 }
 
 /// Libellé du type refusé, pour le message d'erreur.
@@ -561,6 +607,54 @@ accent = "#00ff00"
         .unwrap();
         let err = export_pack(&src, &dir.join("lourd.hyprtheme")).unwrap_err();
         assert!(err.to_string().contains("trop grand"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tar_gz(blocks: &[u8]) -> Vec<u8> {
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(blocks).unwrap();
+        gz.finish().unwrap()
+    }
+
+    fn header(name: &str, typeflag: u8, size: u64) -> [u8; 512] {
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[124..136].copy_from_slice(&octal(size, 12));
+        h[156] = typeflag;
+        h
+    }
+
+    #[test]
+    fn en_tête_étendu_géant_refusé_avant_allocation() {
+        // MLG-227 : un nom long GNU annonçant 8 Gio était alloué tel quel.
+        let dir = std::env::temp_dir().join(format!("hd-arch-6-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for flag in *b"Lxg5" {
+            let path = dir.join("geant.hyprtheme");
+            std::fs::write(&path, tar_gz(&header("x", flag, 0o77777777777))).unwrap();
+            let err = read(&path).unwrap_err();
+            assert!(
+                err.to_string().contains("trop grande"),
+                "{} : {err}",
+                flag as char
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bombe_de_décompression_refusée() {
+        // MLG-227 : des dossiers vides à l'infini ne comptaient pour rien.
+        let dir = std::env::temp_dir().join(format!("hd-arch-7-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut blocks = Vec::new();
+        for i in 0..(4 * MAX_FILES + 1) {
+            blocks.extend_from_slice(&header(&format!("d{i}/"), b'5', 0));
+        }
+        let path = dir.join("bombe.hyprtheme");
+        std::fs::write(&path, tar_gz(&blocks)).unwrap();
+        let err = read(&path).unwrap_err();
+        assert!(err.to_string().contains("trop d'entrées"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

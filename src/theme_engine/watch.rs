@@ -1,19 +1,22 @@
 //! Veille du moteur (§10 de la spécification) : réapplication déclenchée.
 //!
 //! Déclencheurs, sans dépendre du démon :
-//! - inotify sur le pack actif et sur `active.json` (le pack ou la variante
-//!   change) ;
+//! - inotify sur les packs de l'utilisateur et sur `active.json` (le pack ou
+//!   la variante change) — jamais sur les autres fichiers d'état, que chaque
+//!   application réécrit elle-même ;
 //! - socket Unix `$XDG_RUNTIME_DIR/hyprdesk-theme-engine.sock` : une
 //!   connexion (une ligne JSON `{reason: …}` ou rien) est un réveil — le
 //!   démon ou LYRA pousse ainsi un changement de réglage ;
 //! - `SIGHUP` : réveil manuel.
 //!
 //! Une seule veille à la fois : la prise exclusive du socket en est le
-//! verrou. Chaque réapplication suit le parcours complet transactionnel
+//! verrou ; une seconde instance applique une fois et sort (voir
+//! [`running`]). Chaque réapplication suit le parcours complet transactionnel
 //! (rapport, palette publiée, journal).
 
-use std::os::unix::net::UnixListener;
-use std::path::PathBuf;
+use std::io::{BufRead as _, Write as _};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -63,13 +66,56 @@ pub fn socket_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/tmp/hyprdesk-theme-engine.sock"))
 }
 
+/// Ligne de sonde : une connexion qui l'envoie vérifie qu'une veille tourne,
+/// sans la réveiller.
+const PING: &str = "ping";
+
+/// Une veille tourne-t-elle déjà (socket vivant) ?
+pub fn running() -> bool {
+    match UnixStream::connect(socket_path()) {
+        Ok(mut s) => {
+            let _ = writeln!(s, "{PING}");
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Événement inotify qui doit réveiller la veille : création, modification
+/// ou suppression dans un pack de l'utilisateur, ou `active.json`. Les
+/// lectures (le moteur relit le pack à chaque application) et les autres
+/// fichiers d'état (palette, rapport, journal, réécrits par l'application
+/// elle-même) n'en sont pas : sans ce filtre, chaque application en
+/// déclenche une autre.
+pub fn wakes(event: &notify::Event, themes: &Path, state: &Path) -> bool {
+    use notify::EventKind;
+    if !matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) {
+        return false;
+    }
+    event.paths.iter().any(|p| {
+        if p.starts_with(state) {
+            p.file_name().is_some_and(|n| n == "active.json")
+        } else {
+            p.starts_with(themes)
+        }
+    })
+}
+
 /// Lance la veille : bloque jusqu'à une erreur fatale. `on_apply` reçoit le
 /// rapport de chaque réapplication (CLI : résumé imprimé).
 pub fn watch(roots: &Roots, mut on_apply: impl FnMut(&super::apply::Report)) -> Result<()> {
     let path = socket_path();
+    // Socket vivant : une veille tourne déjà, on ne lui vole pas sa place.
+    // Socket mort (veille tuée) : il est repris.
+    if running() {
+        return Err(Error::Watch(format!("déjà en cours ({})", path.display())));
+    }
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path)
-        .map_err(|e| Error::Missing(format!("veille déjà en cours ou socket pris ({e})")))?;
+        .map_err(|e| Error::Watch(format!("socket {} indisponible ({e})", path.display())))?;
     // Le démon de veille sort proprement : le socket saute à la fin.
     let cleanup = path.clone();
     struct Guard(PathBuf);
@@ -81,7 +127,7 @@ pub fn watch(roots: &Roots, mut on_apply: impl FnMut(&super::apply::Report)) -> 
     let _guard = Guard(cleanup);
 
     let (tx, rx) = mpsc::channel::<&'static str>();
-    // Fil socket : chaque connexion est un réveil.
+    // Fil socket : chaque connexion est un réveil, sauf la sonde `ping`.
     std::thread::Builder::new()
         .name("hyprdesk-theme-watch-socket".to_string())
         .spawn({
@@ -89,59 +135,57 @@ pub fn watch(roots: &Roots, mut on_apply: impl FnMut(&super::apply::Report)) -> 
             move || {
                 for conn in listener.incoming() {
                     let Ok(conn) = conn else { continue };
-                    // Une ligne au plus, ignorée : seul le réveil compte.
-                    drop(conn);
+                    let _ = conn.set_read_timeout(Some(Duration::from_millis(200)));
+                    let mut line = String::new();
+                    let _ = std::io::BufReader::new(&conn).read_line(&mut line);
+                    if line.trim() == PING {
+                        continue;
+                    }
                     if tx.send("socket").is_err() {
                         return;
                     }
                 }
             }
         })
-        .map_err(|e| Error::Missing(format!("fil de veille : {e}")))?;
-    // Fil inotify : pack actif et active.json (racines clonées : le fil vit
-    // au-delà de l'emprunt de `watch`).
+        .map_err(|e| Error::Watch(format!("fil du socket : {e}")))?;
+    // Fil inotify : tous les packs de l'utilisateur (le pack actif peut
+    // changer, et un parent hérité compte aussi) et `active.json`. Les
+    // dossiers sont créés au besoin : sans thème actif au démarrage, la
+    // veille suit quand même le premier `use`.
+    let themes = roots.themes_dir();
+    std::fs::create_dir_all(&themes)?;
+    let state_dir = state::ensure_state_dir(roots)?;
     std::thread::Builder::new()
         .name("hyprdesk-theme-watch-fs".to_string())
         .spawn({
             let tx = tx.clone();
-            let roots = roots.clone();
             move || {
-                let (event_tx, event_rx) = mpsc::channel::<&'static str>();
+                let (event_tx, event_rx) = mpsc::channel::<()>();
+                let (t, st) = (themes.clone(), state_dir.clone());
                 let Ok(mut watcher) = notify::recommended_watcher(
                     move |event: std::result::Result<notify::Event, notify::Error>| {
-                        if event.is_ok() {
-                            let _ = event_tx.send("fichiers");
+                        if let Ok(ev) = event
+                            && wakes(&ev, &t, &st)
+                        {
+                            let _ = event_tx.send(());
                         }
                     },
                 ) else {
                     return;
                 };
                 use notify::Watcher as _;
-                if let Some(active) = state::read_active(&roots) {
-                    let pack_dir = roots.themes_dir().join(&active.pack);
-                    let _ = watcher.watch(&pack_dir, notify::RecursiveMode::Recursive);
-                    let _ = watcher.watch(&roots.state_dir(), notify::RecursiveMode::NonRecursive);
-                }
-                // Boucle de maintien : les événements traversent le second
-                // canal ; la perte du canal principal arrête le fil.
-                loop {
-                    match event_rx.recv_timeout(Duration::from_millis(200)) {
-                        Ok("fichiers") => {
-                            if tx.send("fichiers").is_err() {
-                                return;
-                            }
-                        }
-                        Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            if tx.send("keepalive").is_err() {
-                                return;
-                            }
-                        }
+                let _ = watcher.watch(&themes, notify::RecursiveMode::Recursive);
+                let _ = watcher.watch(&state_dir, notify::RecursiveMode::NonRecursive);
+                // Le watcher vit tant que ce fil relaie ; la perte du canal
+                // principal arrête le fil.
+                while event_rx.recv().is_ok() {
+                    if tx.send("fichiers").is_err() {
+                        return;
                     }
                 }
             }
         })
-        .map_err(|e| Error::Missing(format!("fil de veille : {e}")))?;
+        .map_err(|e| Error::Watch(format!("fil de veille : {e}")))?;
     // SIGHUP : réveil manuel, sans thread dédié.
     unsafe {
         libc::signal(libc::SIGHUP, on_sighup as *const () as libc::sighandler_t);
@@ -158,12 +202,13 @@ pub fn watch(roots: &Roots, mut on_apply: impl FnMut(&super::apply::Report)) -> 
         match rx.recv_timeout(DEBOUNCE) {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(Error::Missing("fils de veille terminés".to_string()));
+                return Err(Error::Watch("fils de veille terminés".to_string()));
             }
             Ok(_) => {}
         }
-        // Antirebond : vider les réveils en attente.
-        while rx.try_recv().is_ok() {}
+        // Antirebond : attendre que la rafale se calme (un enregistrement
+        // d'éditeur touche plusieurs fois le fichier), puis appliquer une fois.
+        while rx.recv_timeout(DEBOUNCE).is_ok() {}
         match trigger_once(roots, "daemon") {
             Ok(r) => on_apply(&r),
             Err(Error::Missing(_)) => {} // pas encore de thème actif : on attend
@@ -369,5 +414,46 @@ mod tests {
         let meta = std::fs::metadata(&out).unwrap();
         assert!(meta.len() > 1000, "mire trop petite : {}", meta.len());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn la_veille_ignore_ses_propres_écritures() {
+        // MLG-221 : palette, rapport et journal réécrits par chaque
+        // application relançaient une application, en boucle.
+        use notify::event::{AccessKind, CreateKind, EventKind, ModifyKind};
+        let themes = Path::new("/r/data/hyprdesk/themes");
+        let state = Path::new("/r/state/hyprdesk/theme-engine");
+        let ev = |kind, p: &str| notify::Event::new(kind).add_path(PathBuf::from(p));
+        let modif = EventKind::Modify(ModifyKind::Any);
+        for p in [
+            "/r/state/hyprdesk/theme-engine/palette.json",
+            "/r/state/hyprdesk/theme-engine/.palette.json.12.0.tmp",
+            "/r/state/hyprdesk/theme-engine/last-applied.json",
+            "/r/state/hyprdesk/theme-engine/journal.log",
+        ] {
+            assert!(!wakes(&ev(modif, p), themes, state), "{p}");
+        }
+        assert!(wakes(
+            &ev(modif, "/r/state/hyprdesk/theme-engine/active.json"),
+            themes,
+            state
+        ));
+        assert!(wakes(
+            &ev(
+                EventKind::Create(CreateKind::File),
+                "/r/data/hyprdesk/themes/ardoise/theme.toml"
+            ),
+            themes,
+            state
+        ));
+        // Lecture du pack par l'application : pas un réveil.
+        assert!(!wakes(
+            &ev(
+                EventKind::Access(AccessKind::Any),
+                "/r/data/hyprdesk/themes/ardoise/theme.toml"
+            ),
+            themes,
+            state
+        ));
     }
 }

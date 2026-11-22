@@ -63,6 +63,35 @@ and this project adheres to
   calibration file and reference image (Screen colours); adding a
   third-party plugin; each bar module's colour.
 
+### Fixed
+
+- **Theme engine** (MLG-221 to MLG-229):
+  - `hyprdesk-theme-engine watch` no longer re-applies the theme in a loop
+    (it woke on its own state files: about 250 reloads a second); it follows
+    every user pack, starts without an active theme, and a second instance
+    applies once and exits instead of taking over the socket.
+  - The GTK reload sets `color-scheme` and `accent-color` with one
+    `gsettings` call each; the accent becomes the nearest GNOME named
+    colour (it was always failing).
+  - The daemon's file options (`kitty.file`, `kitty.conf`, `thunar.file`,
+    `thunar.conf`) and reload commands are honoured again, and a pack's
+    declared reload runs for its own targets.
+  - Packs can no longer run commands: Hyprland option values must fit on one
+    line, variant options go through the allow-list, and rendered
+    `hyprland`, `hyprlock` and `kitty` templates are checked line by line;
+    generic outputs refuse autostart, services, scripts and launchers.
+    Pack options now reach the persistent fragment; `--mode hot` no longer
+    writes it.
+  - Failed settings roll back to their own previous value, together with the
+    files of the same target.
+  - Symlinked dotfiles are written through instead of being replaced, and a
+    symlinked `~/.config` no longer blocks every write.
+  - Archive headers and the decompressed stream are bounded (a crafted
+    `.hyprtheme` could ask for gigabytes).
+  - `hyprdesk-theme-client` follows `palette.json` without polling.
+  - Atomic writes use a per-process temporary file and reach the disk; the
+    palette revision is computed under a lock.
+
 ## [0.1.9] - 2026-11-21
 
 Safe to try and easy to undo: original state restored in one command, the

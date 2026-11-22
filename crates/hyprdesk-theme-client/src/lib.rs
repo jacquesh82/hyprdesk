@@ -229,35 +229,62 @@ impl ThemeClient {
     /// Suit les changements de la palette : le rappel est appelé hors thread
     /// de l'application, une fois par révision nouvelle. Le [`Watcher`] retenu
     /// vit tant que l'abonnement est voulu.
+    ///
+    /// Le moteur publie par renommage atomique : c'est le dossier qui est
+    /// suivi (un suivi du fichier lui-même perdrait l'inode remplacé dès la
+    /// première publication), sans boucle de sondage. Le dossier est créé
+    /// s'il n'existe pas encore.
     pub fn subscribe<F>(&self, mut callback: F) -> Result<Watcher>
     where
         F: FnMut(&Palette) + Send + 'static,
     {
+        let dir = self
+            .path
+            .parent()
+            .filter(|d| !d.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| Error::Watch(format!("{} ({e})", dir.display())))?;
+        let name = self.path.file_name().map(|n| n.to_os_string());
         let (tx, rx) = mpsc::channel();
         let mut watcher = notify::recommended_watcher(
             move |event: std::result::Result<notify::Event, notify::Error>| {
-                // Chaque événement du système de fichiers réveille le fil de
-                // lecture ; c'est lui qui déduplique par révision.
-                if event.is_ok() {
+                // Seuls les événements qui touchent la palette réveillent le
+                // fil de lecture ; c'est lui qui déduplique par révision.
+                let Ok(event) = event else { return };
+                if matches!(event.kind, notify::EventKind::Access(_)) {
+                    return;
+                }
+                if event
+                    .paths
+                    .iter()
+                    .any(|p| p.file_name().map(|n| n.to_os_string()) == name)
+                {
                     let _ = tx.send(());
                 }
             },
         )
         .map_err(|e| Error::Watch(e.to_string()))?;
         watcher
-            .watch(&self.path, notify::RecursiveMode::NonRecursive)
+            .watch(&dir, notify::RecursiveMode::NonRecursive)
             .map_err(|e| Error::Watch(e.to_string()))?;
         let path = self.path.clone();
         let mut last = self.revision();
         let handle = std::thread::Builder::new()
             .name("hyprdesk-theme-client".to_string())
             .spawn(move || {
-                loop {
+                // Bloquant : aucun réveil tant que rien ne change ; la perte
+                // du watcher ferme le canal et termine le fil.
+                while rx.recv().is_ok() {
                     // Antirebond : le fichier est souvent touché plusieurs
                     // fois de suite (écriture temporaire, renommage).
-                    match rx.recv_timeout(Duration::from_millis(250)) {
-                        Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    loop {
+                        match rx.recv_timeout(Duration::from_millis(100)) {
+                            Ok(()) => continue,
+                            Err(mpsc::RecvTimeoutError::Timeout) => break,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        }
                     }
                     let revision = revision_of(&path);
                     if revision.is_some() && revision != last {
@@ -402,20 +429,27 @@ mod tests {
         // Révision identique : rien ne part.
         std::thread::sleep(Duration::from_millis(400));
         assert!(rx.try_recv().is_err());
-        // Révision nouvelle : un rappel, une seule fois par révision.
-        std::fs::write(
-            &path,
-            FIXTURE.replace("\"revision\": 12", "\"revision\": 13"),
-        )
-        .unwrap();
+        // Révision nouvelle, publiée par renommage comme le fait le moteur :
+        // un rappel, une seule fois par révision.
+        let publish = |rev: u32| {
+            let tmp = path.with_file_name(".palette.json.tmp");
+            std::fs::write(
+                &tmp,
+                FIXTURE.replace("\"revision\": 12", &format!("\"revision\": {rev}")),
+            )
+            .unwrap();
+            std::fs::rename(&tmp, &path).unwrap();
+        };
+        publish(13);
         let got = rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_eq!(got, 13);
+        // Seconde publication par renommage : le suivi tient toujours
+        // (un suivi du fichier aurait perdu l'inode remplacé).
+        publish(14);
+        let got = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(got, 14);
         // Écriture sans changement de révision : pas de rappel.
-        std::fs::write(
-            &path,
-            FIXTURE.replace("\"revision\": 12", "\"revision\": 13"),
-        )
-        .unwrap();
+        publish(14);
         std::thread::sleep(Duration::from_millis(600));
         assert!(rx.try_recv().is_err());
         watcher.stop();

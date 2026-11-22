@@ -67,6 +67,9 @@ pub fn write_active(roots: &Roots, active: &ActiveTheme) -> Result<()> {
 pub fn publish_palette(roots: &Roots, resolved: &Resolved) -> Result<u64> {
     let dir = ensure_state_dir(roots)?;
     let path = dir.join("palette.json");
+    // Lire, comparer, réécrire : le démon et le binaire peuvent publier en
+    // même temps, le verrou garde la révision monotone.
+    let _verrou = Verrou::prendre(&dir.join("palette.lock"))?;
     let colors: BTreeMap<String, String> = resolved
         .palette
         .iter()
@@ -152,20 +155,88 @@ pub fn ensure_state_dir(roots: &Roots) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Écriture atomique : fichier temporaire voisin puis renommage.
+/// Verrou exclusif (`flock`) tenu le temps d'une section : relâché à la
+/// fermeture du fichier.
+struct Verrou(#[allow(dead_code)] std::fs::File);
+
+impl Verrou {
+    fn prendre(path: &std::path::Path) -> Result<Self> {
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            // SAFETY : descripteur valide, tenu par `f` pendant l'appel.
+            if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+        Ok(Self(f))
+    }
+}
+
+/// Chemin réellement écrit : un lien symbolique final (dotfiles gérés par
+/// stow, par exemple) est suivi jusqu'à sa cible, pour ne pas être remplacé
+/// par un fichier ordinaire au renommage.
+pub fn real_target(path: &std::path::Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    // Chaîne de liens bornée : un cycle ne boucle pas.
+    for _ in 0..16 {
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) if meta.is_symlink() => match std::fs::read_link(&current) {
+                Ok(next) => {
+                    current = if next.is_absolute() {
+                        next
+                    } else {
+                        current.parent().map(|p| p.join(&next)).unwrap_or(next)
+                    };
+                }
+                Err(_) => break,
+            },
+            _ => break,
+        }
+    }
+    current
+}
+
+/// Écriture atomique : fichier temporaire voisin (nom propre au processus),
+/// données forcées sur le disque, puis renommage. Un lien final est suivi.
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<()> {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COMPTEUR: AtomicU64 = AtomicU64::new(0);
+
+    let path = real_target(path);
     let dir = path
         .parent()
+        .filter(|d| !d.as_os_str().is_empty())
         .ok_or_else(|| super::Error::Io(std::io::Error::other("chemin sans dossier")))?;
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(
-        ".{}.tmp",
+        ".{}.{}.{}.tmp",
         path.file_name()
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "fichier".to_string())
+            .unwrap_or_else(|| "fichier".to_string()),
+        std::process::id(),
+        COMPTEUR.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::write(&tmp, content)?;
-    std::fs::rename(&tmp, path)?;
+    let écrit = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        // Droits du fichier remplacé conservés (une config en 0600 le reste).
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let _ = f.set_permissions(meta.permissions());
+        }
+        f.write_all(content.as_bytes())?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, &path)
+    })();
+    if let Err(e) = écrit {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -261,6 +332,53 @@ mod tests {
         .unwrap();
         let doc = read_palette(&roots).unwrap();
         assert_eq!(doc.colors["fg"], "#f2f4fc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn lien_final_suivi_pas_remplacé() {
+        // MLG-226 : un fichier en lien (stow) reste un lien, sa cible change.
+        let root = std::env::temp_dir().join(format!("hd-state-lien-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("dotfiles")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(root.join("dotfiles/gtk.css"), "avant").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("dotfiles/gtk.css"), root.join("config/gtk.css"))
+            .unwrap();
+        atomic_write(&root.join("config/gtk.css"), "après").unwrap();
+        assert!(
+            std::fs::symlink_metadata(root.join("config/gtk.css"))
+                .unwrap()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("dotfiles/gtk.css")).unwrap(),
+            "après"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn révision_monotone_sous_publications_concurrentes() {
+        // MLG-229 : verrou autour de lire-comparer-réécrire.
+        let root = std::env::temp_dir().join(format!("hd-state-conc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let fils: Vec<_> = (0..8u8)
+            .map(|i| {
+                let roots = roots.clone();
+                std::thread::spawn(move || {
+                    let mut r = resolved();
+                    r.palette.insert("accent".to_string(), Rgba(i, 0, 0, 255));
+                    publish_palette(&roots, &r).unwrap()
+                })
+            })
+            .collect();
+        let mut revs: Vec<u64> = fils.into_iter().map(|f| f.join().unwrap()).collect();
+        revs.sort_unstable();
+        // Huit palettes distinctes : huit révisions distinctes, 1 à 8.
+        assert_eq!(revs, (1..=8).collect::<Vec<_>>());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

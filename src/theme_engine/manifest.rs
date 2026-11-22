@@ -293,11 +293,26 @@ impl Manifest {
                 format!("variante par défaut inconnue : {v}"),
             ));
         }
-        for key in self.hyprland.options.keys() {
+        // Options du pack et de ses variantes : clé en liste blanche, valeur
+        // sur une ligne (un saut de ligne glisserait une directive hyprlang,
+        // `exec` compris, dans le fragment ou dans `hyprctl keyword`).
+        for (key, value) in self.hyprland.options.iter().chain(
+            self.variant
+                .values()
+                .flat_map(|v| v.hyprland_options.iter()),
+        ) {
             if !allowed_hyprland_key(key) {
                 return Err(Error::Manifest(
                     id.to_string(),
                     format!("option Hyprland hors liste blanche : {key}"),
+                ));
+            }
+            if !safe_hyprland_value(value) {
+                return Err(Error::Manifest(
+                    id.to_string(),
+                    format!(
+                        "valeur refusée pour l'option Hyprland {key} : une ligne, sans caractère de contrôle, {MAX_HYPR_VALUE} caractères au plus"
+                    ),
                 ));
             }
         }
@@ -360,9 +375,30 @@ pub fn valid_id(id: &str) -> bool {
         && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
+/// Longueur maximale d'une valeur d'option Hyprland déclarée par un pack.
+pub const MAX_HYPR_VALUE: usize = 256;
+
+/// Valeur d'option Hyprland acceptable : une seule ligne, sans caractère de
+/// contrôle, bornée.
+pub fn safe_hyprland_value(value: &str) -> bool {
+    value.chars().count() <= MAX_HYPR_VALUE && !value.chars().any(char::is_control)
+}
+
+/// Chemin d'option Hyprland bien formé, rien d'autre : pas d'espace, de `=`
+/// ni de saut de ligne qui ferait d'une clé admise une seconde directive.
+pub fn valid_option_path(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-'))
+}
+
 /// Liste blanche des options Hyprland que peut régler un pack (§8) :
 /// décoration, espacement et bordures, animations, comportement du flou.
 pub fn allowed_hyprland_key(key: &str) -> bool {
+    if !valid_option_path(key) {
+        return false;
+    }
     key.starts_with("decoration:")
         || key.starts_with("general:gaps_")
         || key.starts_with("general:border")
@@ -499,5 +535,34 @@ blur = true
             Manifest::parse("ardoise", &m).is_err(),
             "sortie acceptée hors config"
         );
+    }
+
+    #[test]
+    fn valeur_hyprland_sur_plusieurs_lignes_rejetée() {
+        // MLG-224 : un saut de ligne glisserait `exec` dans le fragment.
+        let m = ARDOISE.replace(
+            "\"decoration:rounding\" = \"10\"",
+            "\"decoration:rounding\" = \"8\\nexec = touch /tmp/x\"",
+        );
+        assert_ne!(m, ARDOISE);
+        let err = Manifest::parse("ardoise", &m).unwrap_err();
+        assert!(err.to_string().contains("valeur refusée"), "{err}");
+        // La valeur ordinaire du fixture passe.
+        assert!(Manifest::parse("ardoise", ARDOISE).is_ok());
+    }
+
+    #[test]
+    fn options_hyprland_des_variantes_en_liste_blanche() {
+        // MLG-224 : les variantes passaient sans contrôle des clés.
+        let m =
+            format!("{ARDOISE}\n[variant.dark.hyprland_options]\n\"exec\" = \"touch /tmp/x\"\n");
+        assert!(Manifest::parse("ardoise", &m).is_err());
+        let m = format!(
+            "{ARDOISE}\n[variant.dark.hyprland_options]\n\"decoration:rounding\" = \"4\\nexec = x\"\n"
+        );
+        assert!(Manifest::parse("ardoise", &m).is_err());
+        assert!(!allowed_hyprland_key("misc:x\nexec"));
+        assert!(!allowed_hyprland_key("decoration:rounding = 1"));
+        assert!(allowed_hyprland_key("decoration:blur:size"));
     }
 }

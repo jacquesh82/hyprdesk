@@ -5,7 +5,7 @@
 //! n'apporte rien), chaque écriture est atomique, chaque cible garde ses
 //! contenus précédents pour un retour arrière ciblé en cas d'échec d'écriture.
 //! Le mode `dry-run` n'écrit rien ; le mode `hot` ne touche Hyprland qu'en
-//! `hyprctl keyword`, sans persister.
+//! `hyprctl keyword`, sans écrire son fragment.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -184,36 +184,68 @@ pub fn apply(
             });
             continue;
         }
-        let planned = match targets::plan(&target, resolved, pack_dir, roots) {
-            Ok(p) => p,
-            Err(e) => {
-                report.errors.push(format!("{} : {e}", target.id));
-                report.targets.push(TargetReport {
-                    id: target.id.to_string(),
-                    status: "failed".to_string(),
-                    files: Vec::new(),
+        let planned =
+            match targets::plan_opts(&target, resolved, pack_dir, roots, &opts.target_opts) {
+                Ok(p) => p,
+                Err(e) => {
+                    report.errors.push(format!("{} : {e}", target.id));
+                    report.targets.push(TargetReport {
+                        id: target.id.to_string(),
+                        status: "failed".to_string(),
+                        files: Vec::new(),
+                        reload: "aucun".to_string(),
+                        warnings: Vec::new(),
+                    });
+                    continue;
+                }
+            };
+        // Mode `hot` : Hyprland reçoit ses options en direct, sans fichier
+        // écrit (aperçu non persistant) ; les autres cibles persistent.
+        let hot_hyprland = opts.mode == Mode::Hot && target.id == "hyprland";
+        let (target_report, rolled) = if hot_hyprland {
+            (
+                TargetReport {
+                    id: String::new(),
+                    status: "ok".to_string(),
+                    files: planned
+                        .iter()
+                        .map(|p| FileOutcome {
+                            path: p.path.display().to_string(),
+                            result: "non écrit (hot)".to_string(),
+                        })
+                        .collect(),
                     reload: "aucun".to_string(),
                     warnings: Vec::new(),
-                });
-                continue;
-            }
+                },
+                Vec::new(),
+            )
+        } else {
+            commit_target(planned, opts.mode, &Gsettings)
         };
-        let (target_report, rolled) = commit_target(planned, opts.mode);
-        if !rolled.is_empty() {
-            report
-                .errors
-                .push(format!("{} : écriture en échec, retour arrière", target.id));
+        if !rolled.is_empty() || target_report.status == "failed" {
+            report.errors.push(format!(
+                "{} : échec, retour arrière{}",
+                target.id,
+                target_report
+                    .warnings
+                    .first()
+                    .map(|w| format!(" ({w})"))
+                    .unwrap_or_default()
+            ));
             report.rolled_back.extend(rolled);
         }
         let reload_text =
             if target_report.status != "ok" || opts.mode == Mode::DryRun || !opts.reload {
                 "aucun".to_string()
-            } else if opts.mode == Mode::Hot && target.id == "hyprland" {
+            } else if hot_hyprland {
                 hot_apply(resolved, pack_dir)
             } else {
-                match targets::run_reload(targets::reload_of(&target.id), resolved) {
-                    Ok(Some(text)) => text,
-                    Ok(None) => "aucun".to_string(),
+                match reload_for(&target, opts) {
+                    Ok(r) => match targets::run_reload(r, resolved) {
+                        Ok(Some(text)) => text,
+                        Ok(None) => "aucun".to_string(),
+                        Err(e) => format!("échec : {e}"),
+                    },
                     Err(e) => format!("échec : {e}"),
                 }
             };
@@ -258,61 +290,54 @@ pub fn apply(
     report
 }
 
-/// Exécute les opérations d'une cible : écritures atomiques, contenu
-/// précédent retenu pour un retour arrière ciblé.
-fn commit_target(planned: Vec<Planned>, mode: Mode) -> (TargetReport, Vec<String>) {
+/// Rechargement d'une cible, par priorité : commande configurée sur le
+/// poste (réglage du démon), rechargement borné déclaré par le pack, puis
+/// rechargement intégré.
+fn reload_for(target: &targets::Target, opts: &Options) -> Result<targets::Reload> {
+    if let Some(cmd) = opts
+        .reload_commands
+        .get(&target.id)
+        .map(|c| c.trim())
+        .filter(|c| !c.is_empty())
+    {
+        return Ok(targets::Reload::Command(cmd.to_string()));
+    }
+    if let Some(decl) = target.reload.as_deref() {
+        return targets::reload_generic(decl);
+    }
+    Ok(targets::reload_of(&target.id))
+}
+
+/// Libellé d'une opération planifiée dans le rapport.
+fn label_of(p: &Planned) -> String {
+    match &p.setting {
+        Some((schema, key)) if p.op == Op::Setting => format!("{schema}/{key}"),
+        _ => p.path.display().to_string(),
+    }
+}
+
+/// Exécute les opérations d'une cible : écritures atomiques et réglages
+/// posés, état précédent retenu pour un retour arrière complet de la cible
+/// (fichiers restaurés ou supprimés, réglages remis à leur valeur).
+fn commit_target(
+    planned: Vec<Planned>,
+    mode: Mode,
+    réglages: &dyn Réglages,
+) -> (TargetReport, Vec<String>) {
     let mut files = Vec::new();
     let mut warnings = Vec::new();
-    let mut previous: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
-    let mut rolled_back = Vec::new();
-    let mut status = "ok".to_string();
+    // Fichiers : contenu d'avant (None : fichier créé par cette passe).
+    let mut fichiers_avant: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+    // Réglages posés : (schéma, clé, valeur d'avant), dans l'ordre.
+    let mut réglages_avant: Vec<(String, String, String)> = Vec::new();
     let mut failed: Option<String> = None;
 
-    'ops: for p in planned {
-        let path_text = p.path.display().to_string();
+    for p in planned {
+        let label = label_of(&p);
         if mode == Mode::DryRun {
             files.push(FileOutcome {
-                path: path_text,
+                path: label,
                 result: "généré (dry-run)".to_string(),
-            });
-            continue;
-        }
-        if !previous.contains_key(&p.path) {
-            let existed = p.path.is_file();
-            previous.insert(
-                p.path.clone(),
-                existed.then(|| targets::read_or_empty(&p.path)),
-            );
-        }
-        let old = previous.get(&p.path).cloned().flatten();
-        let existed = old.is_some() || p.path.is_file();
-        let new_content: String = match p.op {
-            Op::Write => p.content.clone(),
-            Op::UpsertBlock => targets::upsert_block(&targets::read_or_empty(&p.path), &p.content),
-            Op::ImportFirst => targets::include_first(&targets::read_or_empty(&p.path), &p.content),
-            Op::AppendSource => {
-                // Une ligne source par cible : reconnue par le tronçon
-                // « theme/<fragment> » de son chemin, stable partout.
-                let needle = needle_for(&p.content);
-                targets::append_source_once(&targets::read_or_empty(&p.path), &needle, &p.content)
-            }
-            // Réglage gsettings : le contenu à poser ; l'ancienne valeur est
-            // relevée maintenant pour le retour arrière.
-            Op::Setting => {
-                if let Some((schema, key)) = p.setting.clone() {
-                    let ancienne = valeur_gsettings(&schema, &key).unwrap_or_default();
-                    previous.insert(
-                        p.path.clone(),
-                        Some(format!("{schema}\u{1f}{key}\u{1f}{ancienne}")),
-                    );
-                }
-                p.content.clone()
-            }
-        };
-        if new_content == old.unwrap_or_default() && existed {
-            files.push(FileOutcome {
-                path: path_text,
-                result: "inchangé".to_string(),
             });
             continue;
         }
@@ -320,66 +345,126 @@ fn commit_target(planned: Vec<Planned>, mode: Mode) -> (TargetReport, Vec<String
             let Some((schema, key)) = p.setting.clone() else {
                 continue;
             };
-            match poser_gsettings(&schema, &key, &new_content) {
-                Ok(()) => files.push(FileOutcome {
-                    path: format!("{schema}/{key}"),
-                    result: "réglage posé".to_string(),
-                }),
+            let actuelle = match réglages.lire(&schema, &key) {
+                Ok(v) => v,
                 Err(e) => {
-                    // Retour arrière du réglage posé avant l'échec.
-                    for v in previous.values().flatten() {
-                        let mut parts = v.splitn(3, '\u{1f}');
-                        let (_s, _k, valeur) = (parts.next(), parts.next(), parts.next());
-                        if let Some(valeur) = valeur {
-                            let _ = poser_gsettings(&schema, &key, valeur);
-                        }
-                    }
-                    failed = Some(format!("{schema}/{key} : {e}"));
-                    status = "failed".to_string();
-                    break 'ops;
+                    failed = Some(format!("{label} : lecture impossible ({e})"));
+                    break;
                 }
+            };
+            if normalise_gsettings(&actuelle) == normalise_gsettings(&p.content) {
+                files.push(FileOutcome {
+                    path: label,
+                    result: "inchangé".to_string(),
+                });
+                continue;
             }
+            if let Err(e) = réglages.poser(&schema, &key, &p.content) {
+                failed = Some(format!("{label} : {e}"));
+                break;
+            }
+            réglages_avant.push((schema, key, actuelle));
+            files.push(FileOutcome {
+                path: label,
+                result: "réglage posé".to_string(),
+            });
+            continue;
+        }
+        let existed = p.path.is_file();
+        let old = existed.then(|| targets::read_or_empty(&p.path));
+        let current = old.clone().unwrap_or_default();
+        let new_content: String = match p.op {
+            Op::Write => p.content.clone(),
+            Op::UpsertBlock => targets::upsert_block(&current, &p.content),
+            Op::ImportFirst => targets::include_first(&current, &p.content),
+            Op::AppendSource => {
+                // Une ligne source par cible : reconnue par le tronçon
+                // « theme/<fragment> » de son chemin, stable partout.
+                let needle = needle_for(&p.content);
+                targets::append_source_once(&current, &needle, &p.content)
+            }
+            Op::Setting => unreachable!("réglage traité plus haut"),
+        };
+        if existed && new_content == current {
+            files.push(FileOutcome {
+                path: label,
+                result: "inchangé".to_string(),
+            });
             continue;
         }
         if let Err(e) = commit_file(&p.path, &new_content) {
-            // Retour arrière de cette cible : restauration de tous les
-            // contenus précédents, suppression des fichiers créés.
-            failed = Some(format!("{} : {e}", path_text));
-            status = "failed".to_string();
-            for (path, old) in &previous {
-                rolled_back.push(path.display().to_string());
-                let _ = match old {
-                    Some(content) => super::state::atomic_write(path, content).is_ok(),
-                    None => std::fs::remove_file(path).is_ok(),
-                };
-            }
-            let _ = failed;
-            break 'ops;
+            // Écriture atomique : le fichier en échec est resté tel quel.
+            failed = Some(format!("{label} : {e}"));
+            break;
         }
+        // Seuls les fichiers réellement écrits sont à remettre en cas
+        // d'échec plus loin ; le premier état connu fait foi.
+        fichiers_avant.entry(p.path.clone()).or_insert(old);
         files.push(FileOutcome {
-            path: path_text,
+            path: label,
             result: match p.op {
-                Op::Write => "écrit".to_string(),
-                Op::UpsertBlock => "bloc mis à jour".to_string(),
-                Op::ImportFirst => "import en tête".to_string(),
-                Op::AppendSource => "source ajoutée".to_string(),
-                Op::Setting => "réglage posé".to_string(),
-            },
+                Op::Write => "écrit",
+                Op::UpsertBlock => "bloc mis à jour",
+                Op::ImportFirst => "import en tête",
+                Op::AppendSource => "source ajoutée",
+                Op::Setting => "réglage posé",
+            }
+            .to_string(),
         });
     }
-    if let Some(f) = failed {
-        warnings.push(f);
-    }
+
+    let mut rolled_back = Vec::new();
+    let status = if let Some(f) = failed {
+        // Retour arrière de toute la cible : fichiers remis (ou supprimés
+        // s'ils ont été créés), réglages remis à leur valeur, du dernier au
+        // premier.
+        for (path, old) in &fichiers_avant {
+            let restauré = match old {
+                Some(content) => {
+                    targets::read_or_empty(path) == *content
+                        || super::state::atomic_write(path, content).is_ok()
+                }
+                None => !path.exists() || std::fs::remove_file(path).is_ok(),
+            };
+            if restauré {
+                rolled_back.push(path.display().to_string());
+            } else {
+                warnings.push(format!("retour arrière impossible : {}", path.display()));
+            }
+        }
+        for (schema, key, avant) in réglages_avant.iter().rev() {
+            match réglages.poser(schema, key, avant) {
+                Ok(()) => rolled_back.push(format!("{schema}/{key}")),
+                Err(e) => {
+                    warnings.push(format!("retour arrière impossible : {schema}/{key} ({e})"))
+                }
+            }
+        }
+        warnings.insert(0, f);
+        "failed"
+    } else {
+        "ok"
+    };
     (
         TargetReport {
             id: String::new(),
-            status,
+            status: status.to_string(),
             files,
             reload: "aucun".to_string(),
             warnings,
         },
         rolled_back,
     )
+}
+
+/// Valeur gsettings comparable : `'Adwaita'` (sortie de `get`) et `Adwaita`
+/// (valeur à poser) sont la même.
+fn normalise_gsettings(v: &str) -> String {
+    let v = v.trim();
+    v.strip_prefix('\'')
+        .and_then(|x| x.strip_suffix('\''))
+        .unwrap_or(v)
+        .to_string()
 }
 
 /// Aiguille d'une ligne `source =` : les deux derniers tronçons du chemin du
@@ -394,7 +479,26 @@ fn needle_for(line: &str) -> String {
     }
 }
 
-/// Valeur actuelle d'un réglage gsettings (vide si l'outil ne répond pas).
+/// Magasin de réglages de bureau : gsettings en vrai, un double en essai
+/// (les essais ne touchent jamais au dconf de la session).
+trait Réglages {
+    fn lire(&self, schema: &str, clé: &str) -> std::result::Result<String, String>;
+    fn poser(&self, schema: &str, clé: &str, valeur: &str) -> std::result::Result<(), String>;
+}
+
+/// Réglages par l'outil `gsettings`.
+struct Gsettings;
+
+impl Réglages for Gsettings {
+    fn lire(&self, schema: &str, clé: &str) -> std::result::Result<String, String> {
+        valeur_gsettings(schema, clé)
+    }
+    fn poser(&self, schema: &str, clé: &str, valeur: &str) -> std::result::Result<(), String> {
+        poser_gsettings(schema, clé, valeur)
+    }
+}
+
+/// Valeur actuelle d'un réglage gsettings.
 fn valeur_gsettings(schema: &str, clé: &str) -> std::result::Result<String, String> {
     match std::process::Command::new("gsettings")
         .args(["get", schema, clé])
@@ -418,24 +522,12 @@ fn poser_gsettings(schema: &str, clé: &str, valeur: &str) -> std::result::Resul
     }
 }
 
-/// Sauvegarde une fois puis écriture atomique ; la sortie ne doit traverser
-/// aucun lien symbolique (§13, cibles génériques surtout).
+/// Sauvegarde une fois puis écriture atomique. Le périmètre des sorties de
+/// pack est vérifié à la planification sur le chemin réel
+/// (`targets::safe_output_path`) ; un lien final (dotfiles) est suivi, pas
+/// remplacé.
 fn commit_file(path: &Path, content: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        let mut ancêtre = Some(parent);
-        while let Some(a) = ancêtre {
-            if let Ok(meta) = std::fs::symlink_metadata(a)
-                && meta.is_symlink()
-            {
-                return Err(Error::Template(format!(
-                    "sortie refusée : traverserait le lien symbolique {}",
-                    a.display()
-                )));
-            }
-            ancêtre = a.parent();
-        }
-    }
-    targets::backup_once(path)?;
+    targets::backup_once(&super::state::real_target(path))?;
     super::state::atomic_write(path, content)
 }
 
@@ -701,6 +793,194 @@ mod tests {
         let json = report.to_json().unwrap();
         assert!(json.contains("\"pack\": \"regle\""), "{json}");
         assert!(report.summary().contains("kitty"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    use std::cell::RefCell;
+
+    /// Double de gsettings : valeurs en mémoire, une clé qui refuse.
+    struct Faux {
+        valeurs: RefCell<BTreeMap<String, String>>,
+        refuse: &'static str,
+    }
+
+    impl Réglages for Faux {
+        fn lire(&self, s: &str, k: &str) -> std::result::Result<String, String> {
+            Ok(self
+                .valeurs
+                .borrow()
+                .get(&format!("{s}/{k}"))
+                .cloned()
+                .unwrap_or_default())
+        }
+        fn poser(&self, s: &str, k: &str, v: &str) -> std::result::Result<(), String> {
+            if k == self.refuse {
+                return Err("refusé".to_string());
+            }
+            self.valeurs
+                .borrow_mut()
+                .insert(format!("{s}/{k}"), v.to_string());
+            Ok(())
+        }
+    }
+
+    fn réglage(clé: &str, valeur: &str) -> Planned {
+        Planned {
+            path: PathBuf::new(),
+            content: valeur.to_string(),
+            op: Op::Setting,
+            setting: Some(("org.gnome.desktop.interface".to_string(), clé.to_string())),
+        }
+    }
+
+    #[test]
+    fn retour_arrière_des_réglages_sur_leur_propre_clé() {
+        // MLG-225 : chaque ancienne valeur était reposée sur la clé en échec.
+        let faux = Faux {
+            valeurs: RefCell::new(BTreeMap::from([
+                (
+                    "org.gnome.desktop.interface/cursor-theme".to_string(),
+                    "'Adwaita'".to_string(),
+                ),
+                (
+                    "org.gnome.desktop.interface/cursor-size".to_string(),
+                    "24".to_string(),
+                ),
+            ])),
+            refuse: "icon-theme",
+        };
+        let (rapport, annulés) = commit_target(
+            vec![
+                réglage("cursor-theme", "Bibata"),
+                réglage("cursor-size", "32"),
+                réglage("icon-theme", "Papirus"),
+            ],
+            Mode::Persist,
+            &faux,
+        );
+        assert_eq!(rapport.status, "failed");
+        let v = faux.valeurs.borrow();
+        assert_eq!(v["org.gnome.desktop.interface/cursor-theme"], "'Adwaita'");
+        assert_eq!(v["org.gnome.desktop.interface/cursor-size"], "24");
+        assert!(!v.contains_key("org.gnome.desktop.interface/icon-theme"));
+        assert_eq!(annulés.len(), 2, "{annulés:?}");
+        // Rapport lisible : schéma/clé, pas un chemin vide.
+        assert!(
+            rapport
+                .files
+                .iter()
+                .all(|f| f.path.contains("org.gnome.desktop.interface/"))
+        );
+    }
+
+    #[test]
+    fn réglage_déjà_en_place_inchangé() {
+        let faux = Faux {
+            valeurs: RefCell::new(BTreeMap::from([(
+                "org.gnome.desktop.interface/icon-theme".to_string(),
+                "'Papirus'".to_string(),
+            )])),
+            refuse: "",
+        };
+        let (rapport, _) =
+            commit_target(vec![réglage("icon-theme", "Papirus")], Mode::Persist, &faux);
+        assert_eq!(rapport.files[0].result, "inchangé");
+    }
+
+    #[test]
+    fn échec_de_fichier_remet_aussi_les_réglages() {
+        let root = std::env::temp_dir().join(format!("hd-apply-10-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("dossier.conf")).unwrap();
+        let faux = Faux {
+            valeurs: RefCell::new(BTreeMap::new()),
+            refuse: "",
+        };
+        let (rapport, _) = commit_target(
+            vec![
+                réglage("cursor-theme", "Bibata"),
+                Planned {
+                    path: root.join("dossier.conf"),
+                    content: "x".to_string(),
+                    op: Op::Write,
+                    setting: None,
+                },
+            ],
+            Mode::Persist,
+            &faux,
+        );
+        assert_eq!(rapport.status, "failed");
+        assert_eq!(
+            faux.valeurs.borrow()["org.gnome.desktop.interface/cursor-theme"],
+            ""
+        );
+        assert!(root.join("dossier.conf").is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn options_du_démon_honorées() {
+        // MLG-223 : kitty.file et kitty.conf étaient ignorés par apply.
+        let root = std::env::temp_dir().join(format!("hd-apply-11-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let mut o = opts(Mode::Persist);
+        o.only = vec!["kitty".to_string()];
+        o.target_opts.insert(
+            "kitty.file".to_string(),
+            root.join("perso/couleurs.conf").display().to_string(),
+        );
+        o.target_opts.insert(
+            "kitty.conf".to_string(),
+            root.join("perso/kitty.conf").display().to_string(),
+        );
+        let report = apply(&ardoise(), None, &roots, &o);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(root.join("perso/couleurs.conf").is_file());
+        assert!(!roots.config.join("kitty/hyprdesk-theme.conf").exists());
+        let conf = std::fs::read_to_string(root.join("perso/kitty.conf")).unwrap();
+        assert!(conf.contains("include couleurs.conf"), "{conf}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rechargement_du_poste_puis_du_pack_puis_intégré() {
+        // MLG-223 : reload_commands et le rechargement déclaré d'un pack
+        // n'étaient jamais exécutés.
+        let mut o = opts(Mode::Persist);
+        o.reload_commands
+            .insert("kitty".to_string(), "kitty @ load-config".to_string());
+        let kitty = targets::find("kitty").unwrap();
+        assert_eq!(
+            reload_for(&kitty, &o).unwrap(),
+            targets::Reload::Command("kitty @ load-config".to_string())
+        );
+        let mut générique = kitty.clone();
+        générique.id = "waybar".to_string();
+        générique.reload = Some("signal:waybar:USR2".to_string());
+        assert_eq!(
+            reload_for(&générique, &o).unwrap(),
+            targets::Reload::Signal("waybar".to_string(), "USR2".to_string())
+        );
+        assert_eq!(
+            reload_for(&targets::find("gtk").unwrap(), &o).unwrap(),
+            targets::Reload::GsettingsScheme
+        );
+    }
+
+    #[test]
+    fn hot_n_écrit_pas_le_fragment_hyprland() {
+        // MLG-224 : le mode hot persistait hyprland.conf.
+        let root = std::env::temp_dir().join(format!("hd-apply-12-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roots = Roots::at(&root);
+        let mut o = opts(Mode::Hot);
+        o.only = vec!["hyprland".to_string(), "kitty".to_string()];
+        let report = apply(&ardoise(), None, &roots, &o);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(!roots.hypr_theme_dir().join("hyprland.conf").exists());
+        // Les autres cibles persistent.
+        assert!(roots.config.join("kitty/hyprdesk-theme.conf").is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
 }
