@@ -211,6 +211,10 @@ pub(in crate::ui) fn workspaces<'a>(
             selector::miniatures(app, bar_id, bar, &ctx, alpha)
         }
         crate::config::WsSelector::Icones => selector::icones(app, bar_id, bar, &ctx, alpha),
+        crate::config::WsSelector::Numeros => {
+            selector::compact(app, bar_id, bar, &ctx, alpha, false)
+        }
+        crate::config::WsSelector::Points => selector::compact(app, bar_id, bar, &ctx, alpha, true),
     }
 }
 

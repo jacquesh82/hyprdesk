@@ -120,12 +120,18 @@ pub struct Toast {
 impl Toast {
     /// Délai d'affichage ; `None` : reste jusqu'à ce qu'on la ferme.
     pub fn lifetime(&self) -> Option<Duration> {
+        self.lifetime_or(DEFAULT_TIMEOUT)
+    }
+
+    /// Délai d'affichage, `default` quand l'application n'en demande pas
+    /// (réglé : `notifications.timeout`, MLG-279).
+    pub fn lifetime_or(&self, default: Duration) -> Option<Duration> {
         if self.n.urgency == Urgency::Critical {
             return None;
         }
         match self.n.timeout_ms {
             0 => None,
-            t if t < 0 => Some(DEFAULT_TIMEOUT),
+            t if t < 0 => Some(default),
             t => Some(Duration::from_millis(t as u64)),
         }
     }
@@ -193,8 +199,35 @@ impl Toasts {
 }
 
 fn height(n: usize) -> u32 {
-    let n = n.min(VISIBLE) as f32;
+    height_of(n, VISIBLE)
+}
+
+fn height_of(n: usize, visible: usize) -> u32 {
+    let n = n.min(visible.max(1)) as f32;
     (n * CARD + (n - 1.0).max(0.0) * GAP + 2.0 * SHADOW).ceil() as u32
+}
+
+/// Notifications réglées (MLG-279) : largeur, nombre visible, coin,
+/// sens d'empilement, durée.
+struct Layout {
+    width: f32,
+    visible: usize,
+    corner: String,
+    up: bool,
+    timeout: Duration,
+}
+
+impl Layout {
+    fn of(g: &crate::config::General) -> Self {
+        use crate::design_options::{choice, num};
+        Self {
+            width: num(g, "notifications.width") as f32,
+            visible: num(g, "notifications.max_visible").max(1.0) as usize,
+            corner: choice(g, "notifications.corner"),
+            up: choice(g, "notifications.stack") == "up",
+            timeout: Duration::from_secs(num(g, "notifications.timeout").max(1.0) as u64),
+        }
+    }
 }
 
 impl App {
@@ -260,11 +293,15 @@ impl App {
                 self.sync_toasts()
             }
             TMsg::Tick => {
+                let default = Layout::of(&self.cfg.general).timeout;
                 let expired: Vec<u32> = self
                     .toasts
                     .list
                     .iter()
-                    .filter(|t| t.lifetime().is_some_and(|l| t.since.elapsed() >= l))
+                    .filter(|t| {
+                        t.lifetime_or(default)
+                            .is_some_and(|l| t.since.elapsed() >= l)
+                    })
                     .map(|t| t.n.id)
                     .collect();
                 if expired.is_empty() {
@@ -392,25 +429,51 @@ impl App {
                 iced::window::close(win)
             }
             (None, 0) => Task::none(),
-            (Some(win), n) => Task::done(Msg::SizeChange {
-                id: win,
-                size: ((WIDTH + 2.0 * SHADOW) as u32, height(n)),
-            }),
+            (Some(win), n) => {
+                let l = Layout::of(&self.cfg.general);
+                Task::done(Msg::SizeChange {
+                    id: win,
+                    size: ((l.width + 2.0 * SHADOW) as u32, height_of(n, l.visible)),
+                })
+            }
             (None, n) => {
                 let win = Id::unique();
                 self.toasts.win = Some(win);
-                // Sous la barre si elle est en haut.
-                let top = match &self.cfg.bar {
-                    Some(b) if b.position == crate::config::BarPosition::Top => b.height as i32,
+                let l = Layout::of(&self.cfg.general);
+                // Sous la barre si elle est sur le même bord.
+                let bar = |p: crate::config::BarPosition| match &self.cfg.bar {
+                    Some(b) if b.position == p => b.height as i32,
                     _ => 0,
+                };
+                let (anchor, margin) = match l.corner.as_str() {
+                    "top-left" => (
+                        LsAnchor::Top | LsAnchor::Left,
+                        (bar(crate::config::BarPosition::Top), 0, 0, 0),
+                    ),
+                    "bottom-right" => (
+                        LsAnchor::Bottom | LsAnchor::Right,
+                        (0, 0, bar(crate::config::BarPosition::Bottom), 0),
+                    ),
+                    "bottom-left" => (
+                        LsAnchor::Bottom | LsAnchor::Left,
+                        (0, 0, bar(crate::config::BarPosition::Bottom), 0),
+                    ),
+                    "top-center" => (
+                        LsAnchor::Top,
+                        (bar(crate::config::BarPosition::Top), 0, 0, 0),
+                    ),
+                    _ => (
+                        LsAnchor::Top | LsAnchor::Right,
+                        (bar(crate::config::BarPosition::Top), 0, 0, 0),
+                    ),
                 };
                 Task::done(Msg::NewLayerShell {
                     settings: NewLayerShellSettings {
-                        size: Some(((WIDTH + 2.0 * SHADOW) as u32, height(n))),
+                        size: Some(((l.width + 2.0 * SHADOW) as u32, height_of(n, l.visible))),
                         layer: Layer::Overlay,
-                        anchor: LsAnchor::Top | LsAnchor::Right,
+                        anchor,
                         exclusive_zone: Some(-1),
-                        margin: Some((top, 0, 0, 0)),
+                        margin: Some(margin),
                         keyboard_interactivity: KeyboardInteractivity::None,
                         output_option: OutputOption::Active,
                         namespace: Some(NAMESPACE.into()),
@@ -507,7 +570,7 @@ impl App {
         }
         let card = container(col)
             .padding([10, 14])
-            .width(WIDTH)
+            .width(Layout::of(&self.cfg.general).width)
             .height(CARD)
             .clip(true)
             .style(move |_| {
@@ -589,8 +652,17 @@ impl App {
         } else {
             &self.toasts.list
         };
-        for t in visible.iter().take(VISIBLE) {
-            col = col.push(self.view_toast(t));
+        let l = Layout::of(&self.cfg.general);
+        let shown: Vec<&Toast> = visible.iter().take(l.visible).collect();
+        // Empilement vers le haut : la plus récente en bas.
+        if l.up {
+            for t in shown.into_iter().rev() {
+                col = col.push(self.view_toast(t));
+            }
+        } else {
+            for t in shown {
+                col = col.push(self.view_toast(t));
+            }
         }
         if self.convex_options().is_some() {
             use super::{

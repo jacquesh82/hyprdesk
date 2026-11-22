@@ -581,7 +581,12 @@ impl Lock {
         let mut col = column![].align_x(side).spacing(4);
         // En bandeau, l'heure va à côté de la colonne (voir `body`).
         let mut clock = Some(clock);
-        if !strip && let Some(c) = clock.take() {
+        // Horloge ailleurs qu'au centre (MLG-279) : posée à part, plus bas.
+        let apart = !strip && st.clock_position != "center";
+        let mut placed_clock = None;
+        if apart {
+            placed_clock = clock.take();
+        } else if !strip && let Some(c) = clock.take() {
             col = col.push(c).push(Space::new().height(28));
         }
         if st.show_user {
@@ -620,7 +625,8 @@ impl Lock {
         } else {
             accent
         };
-        let bg = rgba(st.background, 0.55);
+        // Densité réglée du panneau de saisie (MLG-279).
+        let bg = rgba(st.background, st.panel_opacity);
         let wait = self.wait_secs();
         let input = text_input(
             if self.checking {
@@ -808,6 +814,22 @@ impl Lock {
                 .into(),
         );
         layers.push(content.into());
+        if let Some(c) = placed_clock {
+            let (ax, ay) = if st.clock_position == "top" {
+                (Alignment::Center, Alignment::Start)
+            } else {
+                (Alignment::Start, Alignment::End)
+            };
+            layers.push(
+                container(c)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(ax)
+                    .align_y(ay)
+                    .padding(64)
+                    .into(),
+            );
+        }
         layers.push(footer.into());
         stack(layers)
             .width(Length::Fill)

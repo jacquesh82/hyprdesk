@@ -33,6 +33,7 @@ pub const TABS: &[super::SubTab] = &[
     ("couleurs", "Couleurs"),
     ("texte", "Texte"),
     ("transparence", "Transparence"),
+    ("composants", "Composants"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -144,6 +145,9 @@ pub enum Msg {
     Blur(Place, bool),
     /// Transparence adaptative d'une surface posée sur le fond (MLG-261).
     Adaptive(Place, bool),
+    /// Option d'apparence d'un composant (MLG-279) : nom, valeur, à
+    /// enregistrer.
+    DesignOpt(String, String, bool),
     /// Transparence réduite (MLG-269).
     ReducedTransparency(bool),
     /// Mouvement réduit (MLG-271).
@@ -206,6 +210,108 @@ fn shown_catalog(st: &State) -> Vec<crate::theme_engine::bridge::Entry> {
 }
 
 impl App {
+    /// Apparence des composants (MLG-279) : dock, espaces de travail,
+    /// réglages rapides, notifications, monitoring, horloge, média,
+    /// verrouillage — les options du registre, regroupées.
+    fn design_components(&self) -> Element<'_, UiMsg> {
+        use crate::design_options::{Kind, OPTIONS};
+        use crate::tiling::OptValue;
+        let font = self.font;
+        let g = &self.cfg.general;
+        let groups: [(&str, &str); 8] = [
+            ("dock", "Dock"),
+            ("workspaces", "Espaces de travail"),
+            ("controls", "Réglages rapides"),
+            ("notifications", "Notifications"),
+            ("monitoring", "Monitoring"),
+            ("clock", "Horloge"),
+            ("media", "Média"),
+            ("lock", "Verrouillage"),
+        ];
+        let mut col = column![
+            self.section("Composants"),
+            text(crate::i18n::tr(
+                "Apparence de chaque composant du bureau ; aussi réglable par un thème ou par hyprdesk config set <composant>.<option>."
+            ))
+            .font(font)
+            .size(crate::ui::tokens::ts(12.0))
+            .color(self.ink().dim),
+        ]
+        .spacing(14);
+        for (component, title) in groups {
+            col = col.push(self.section(title));
+            for o in OPTIONS.iter().filter(|o| o.component == component) {
+                let name = o.name();
+                let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
+                    (Kind::Bool, OptValue::Bool(b)) => {
+                        let n = name.clone();
+                        toggler(b)
+                            .on_toggle(move |v| {
+                                wrap(Msg::DesignOpt(
+                                    n.clone(),
+                                    if v { "on" } else { "off" }.into(),
+                                    true,
+                                ))
+                            })
+                            .into()
+                    }
+                    (Kind::Choice(list), OptValue::Str(cur)) => {
+                        row(list.iter().enumerate().map(|(i, c)| {
+                            let n = name.clone();
+                            let current = list.iter().position(|x| *x == cur);
+                            radio(*c, i, current, move |v| {
+                                wrap(Msg::DesignOpt(n.clone(), list[v].to_string(), true))
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .into()
+                        }))
+                        .spacing(12)
+                        .wrap()
+                        .into()
+                    }
+                    (Kind::Int(lo, hi), OptValue::Num(v)) => {
+                        let (n, c) = (name.clone(), name.clone());
+                        row![
+                            slider(lo as f64..=hi as f64, v, move |x| {
+                                wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
+                            })
+                            .step(1.0)
+                            .on_release(wrap(Msg::DesignOpt(c, format!("{}", v.round()), true)))
+                            .width(220),
+                            text(format!("{}", v.round()))
+                                .font(font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center)
+                        .into()
+                    }
+                    (Kind::Float(lo, hi), OptValue::Num(v)) => {
+                        let (n, c) = (name.clone(), name.clone());
+                        row![
+                            slider(lo..=hi, v, move |x| {
+                                wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false))
+                            })
+                            .step((hi - lo) / 100.0)
+                            .on_release(wrap(Msg::DesignOpt(c, format!("{v:.2}"), true)))
+                            .width(220),
+                            text(format!("{v:.2}"))
+                                .font(font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center)
+                        .into()
+                    }
+                    _ => text("—").into(),
+                };
+                col = col.push(self.field(o.label, "", field));
+            }
+        }
+        col.into()
+    }
+
     pub(in crate::ui) fn theme_page(&self) -> Element<'_, UiMsg> {
         let Some(p) = &self.panel else {
             return text("").into();
@@ -739,6 +845,7 @@ impl App {
                     .into();
             }
             "texte" => return self.typography(),
+            "composants" => return self.design_components(),
             "transparence" => {
                 return column![
                     self.section("Transparence"),
@@ -1068,6 +1175,15 @@ impl App {
                 e.adaptive = v.then(|| e.adaptive.unwrap_or(0.95).max(e.opacity));
                 self.settings.effects.insert(place, e);
                 self.commit()
+            }
+            Msg::DesignOpt(name, value, commit) => {
+                if let Err(e) =
+                    crate::design_options::set(&mut self.settings, &self.cfg, &name, &value)
+                {
+                    tracing::warn!("{name} : {e}");
+                    return Task::none();
+                }
+                if commit { self.commit() } else { self.apply() }
             }
             Msg::ReducedTransparency(v) => {
                 self.settings.reduced_transparency = Some(v);

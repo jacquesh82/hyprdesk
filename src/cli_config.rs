@@ -149,6 +149,10 @@ pub fn apply_pack_value(
     value: &str,
     cfg: &Config,
 ) -> Result<(), String> {
+    // Options d'apparence des composants (MLG-279) : toutes admises.
+    if crate::design_options::find(shape).is_some() {
+        return crate::design_options::set(s, cfg, shape, value);
+    }
     let key = pack_key(shape)
         .ok_or_else(|| crate::tr!("clé de forme non admise pour un pack : {k}", k = shape))?;
     (key.set)(s, value, cfg)
@@ -1496,9 +1500,9 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.workspaces = None;
-    "workspace_selector", "workspaces", "relief | rail | thumbnails | icons — style du sélecteur de la barre",
+    "workspace_selector", "workspaces", "relief | rail | thumbnails | icons | numbers | dots — style du sélecteur de la barre",
         |c| c.general.workspace_selector.as_str().into(),
-        |s, v, c| { s.workspace_selector = Some(choice(v, crate::config::WsSelector::parse, "relief, rail, thumbnails, icons")?); Ok(()) },
+        |s, v, c| { s.workspace_selector = Some(choice(v, crate::config::WsSelector::parse, "relief, rail, thumbnails, icons, numbers, dots")?); Ok(()) },
         |s| s.workspace_selector = None;
     "workspace_dedicated", "workspaces", "écran,écran,… | none — écrans dédiés (seulement leurs workspaces)",
         |c| c.general.workspace_dedicated.iter().cloned().collect::<Vec<_>>().join(","),
@@ -1628,6 +1632,10 @@ fn bar_color_key(key: &str) -> Option<BarColorKey<'_>> {
 /// (widgets), `bar.color.<emplacement>`, `bar.module_color.<module>` (barre) et
 /// `theme.effects.<endroit>.<opacity|blur|adaptive>` (thème).
 fn dynamic_get(key: &str, c: &Config) -> Option<String> {
+    // Options d'apparence des composants (MLG-279).
+    if let Some(o) = crate::design_options::find(key) {
+        return Some(o.shown(c));
+    }
     if let Some(k) = bar_color_key(key) {
         let colors = c.bar.as_ref().map(|b| &b.colors);
         let v = match k {
@@ -1796,6 +1804,9 @@ fn kind_values(k: &crate::tiling::Kind) -> String {
 /// Aide d'une clé dynamique (`hyprdesk config list`) : valeurs admises, puis
 /// ce qu'elle règle, comme pour les clés fixes.
 fn dynamic_help(key: &str, c: &Config) -> String {
+    if let Some(o) = crate::design_options::find(key) {
+        return tr(o.help).to_string();
+    }
     use crate::i18n::tr;
     if let Some(k) = bar_color_key(key) {
         return match k {
@@ -1915,6 +1926,15 @@ fn dynamic_set(
     s: &mut Settings,
     c: &Config,
 ) -> Option<Result<(), String>> {
+    if crate::design_options::find(key).is_some() {
+        return Some(match v {
+            Some(v) => crate::design_options::set(s, c, key, v),
+            None => {
+                crate::design_options::unset(s, c, key);
+                Ok(())
+            }
+        });
+    }
     if let Some(k) = bar_color_key(key) {
         let value = match v.map(str::trim) {
             None | Some("theme" | "none" | "") => None,

@@ -37,6 +37,10 @@ pub struct MediaInfo {
     pub title: String,
     pub artist: String,
     pub playing: bool,
+    /// Pochette (`mpris:artUrl`), fichier local seulement (MLG-279).
+    pub art: Option<std::path::PathBuf>,
+    /// Teinte moyenne de la pochette.
+    pub tint: Option<crate::config::Rgba>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

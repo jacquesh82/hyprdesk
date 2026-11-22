@@ -377,12 +377,17 @@ impl App {
         for (id, s) in &self.launcher_surfaces {
             tasks.push(Task::done(UiMsg::ExclusiveZoneChange {
                 id: *id,
-                zone_size: if self.convex_auto_hide() {
+                // Masqué hors survol (MLG-279) : les fenêtres prennent la place.
+                zone_size: if self.convex_auto_hide() || self.dock_autohide() {
                     0
                 } else {
                     s.thickness as i32
                 },
             }));
+            if self.dock_autohide() && !self.bar_reveal.contains_key(id) {
+                // Montré à l'apparition, masqué après le délai.
+                tasks.push(Task::done(UiMsg::BarReveal(*id, false)));
+            }
             tasks.push(self.convex_dock_input(*id));
         }
         if changed {
@@ -605,9 +610,13 @@ impl App {
                     self.bar_duration(135),
                 )
             } else {
+                // Grossissement au survol réglé (MLG-279), 9 % au moins.
                 motion::face(
                     container(face).center(size),
-                    1.0 + 0.09 * motion,
+                    1.0 + (crate::design_options::num(&self.cfg.general, "dock.magnify") as f32
+                        - 1.0)
+                        .max(0.09)
+                        * motion,
                     lift,
                     self.motion_duration(),
                 )
@@ -627,9 +636,15 @@ impl App {
                 .into();
             let command = embedded && key.starts_with("dock-btn:");
             // La piste est réservée même pour une application fermée.
+            // Repère de l'application active réglé (MLG-279) : point, barre
+            // ou rien.
+            let marker = crate::design_options::choice(&self.cfg.general, "dock.active_marker");
+            let active = active && marker != "none";
             let mark = container(Space::new())
                 .width(if vertical {
                     4.0
+                } else if active && marker == "bar" {
+                    size * 0.6
                 } else if active || launching.is_some() || pret {
                     if embedded { 16.0 } else { 12.0 }
                 } else {
@@ -781,10 +796,12 @@ impl App {
         if items.is_empty() {
             return iced::widget::Space::new().into();
         }
+        // Espacement réglé des icônes (MLG-279).
+        let gap = crate::design_options::num(&self.cfg.general, "dock.spacing") as f32;
         let inner: Element<'a, UiMsg> = if vertical {
-            column(items).spacing(4).align_x(Alignment::Center).into()
+            column(items).spacing(gap).align_x(Alignment::Center).into()
         } else {
-            row(items).spacing(4).align_y(Alignment::Center).into()
+            row(items).spacing(gap).align_y(Alignment::Center).into()
         };
         if embedded {
             return iced::widget::scrollable(inner)

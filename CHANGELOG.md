@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **Component appearance** (MLG-279), one registry for CLI keys, theme
+  packs and Settings → Theme → Components: dock icon spacing, hover
+  magnification, auto-hide and active-app marker; workspace selector as
+  numbers or dots, capsule width, wheel switching, occupied marker;
+  quick-settings columns and width; notification corner, width, visible
+  count, display time and stacking; monitoring alert threshold and gauges;
+  clock date line; media cover art (size, card tint from the cover); lock
+  screen clock position and panel density.
 - **Launcher shape** (MLG-278): card width and maximum height (results
   scroll inside), corner radius, padding, grid columns, row height, visible
   results; what shows before typing (most launched, pinned apps, or the

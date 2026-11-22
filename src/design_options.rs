@@ -1,0 +1,456 @@
+//! Options d'apparence des composants du bureau (MLG-279) : dock, espaces
+//! de travail, réglages rapides, notifications, monitoring, horloge et
+//! média, verrouillage.
+//!
+//! Un seul registre décrit chaque option (type, bornes, défaut, libellé) ;
+//! les valeurs vivent dans `general.plugin_options["ui.<composant>"]`, déjà
+//! lu et écrit par `settings.lua`. Le registre sert au CLI
+//! (`hyprdesk config set dock.spacing 8`), aux packs (`[dock] spacing = 8`)
+//! et aux Réglages, qui en tirent leurs champs.
+
+use crate::config::{Config, General};
+use crate::tiling::OptValue;
+
+/// Nature d'une option et ce qu'elle admet.
+#[derive(Debug, Clone, Copy)]
+pub enum Kind {
+    Int(i64, i64),
+    Float(f64, f64),
+    Bool,
+    Choice(&'static [&'static str]),
+}
+
+/// Valeur par défaut d'une option.
+#[derive(Debug, Clone, Copy)]
+pub enum Def {
+    Num(f64),
+    Bool(bool),
+    Str(&'static str),
+}
+
+/// Option d'apparence d'un composant.
+#[derive(Debug, Clone, Copy)]
+pub struct Opt {
+    pub component: &'static str,
+    pub key: &'static str,
+    pub kind: Kind,
+    pub default: Def,
+    /// Libellé des Réglages.
+    pub label: &'static str,
+    /// Aide du CLI : valeurs admises, puis à quoi sert l'option.
+    pub help: &'static str,
+}
+
+const fn opt(
+    component: &'static str,
+    key: &'static str,
+    kind: Kind,
+    default: Def,
+    label: &'static str,
+    help: &'static str,
+) -> Opt {
+    Opt {
+        component,
+        key,
+        kind,
+        default,
+        label,
+        help,
+    }
+}
+
+/// Le registre.
+pub static OPTIONS: &[Opt] = &[
+    // Dock.
+    opt(
+        "dock",
+        "spacing",
+        Kind::Int(0, 24),
+        Def::Num(4.0),
+        "Espacement des icônes",
+        "0..24 — espacement des icônes du dock (px)",
+    ),
+    opt(
+        "dock",
+        "magnify",
+        Kind::Float(1.0, 2.0),
+        Def::Num(1.0),
+        "Grossissement au survol",
+        "1..2 — grossissement de l'icône survolée (1 : aucun)",
+    ),
+    opt(
+        "dock",
+        "autohide",
+        Kind::Bool,
+        Def::Bool(false),
+        "Masquer hors survol",
+        "on | off — dock masqué hors survol, révélé au contact du bord",
+    ),
+    opt(
+        "dock",
+        "active_marker",
+        Kind::Choice(&["dot", "bar", "none"]),
+        Def::Str("dot"),
+        "Repère de l'application active",
+        "dot | bar | none — repère sous l'application au premier plan",
+    ),
+    // Espaces de travail.
+    opt(
+        "workspaces",
+        "capsule_width",
+        Kind::Int(16, 64),
+        Def::Num(28.0),
+        "Largeur des capsules",
+        "16..64 — largeur d'une capsule d'espace (px, numéros et points)",
+    ),
+    opt(
+        "workspaces",
+        "wheel",
+        Kind::Bool,
+        Def::Bool(true),
+        "Molette : espace suivant",
+        "on | off — la molette sur le sélecteur change d'espace",
+    ),
+    opt(
+        "workspaces",
+        "occupied_marker",
+        Kind::Bool,
+        Def::Bool(true),
+        "Repère des espaces occupés",
+        "on | off — marque les espaces qui ont des fenêtres",
+    ),
+    // Réglages rapides.
+    opt(
+        "controls",
+        "columns",
+        Kind::Int(1, 4),
+        Def::Num(2.0),
+        "Colonnes",
+        "1..4 — colonnes des tuiles des réglages rapides",
+    ),
+    opt(
+        "controls",
+        "width",
+        Kind::Int(240, 560),
+        Def::Num(304.0),
+        "Largeur du panneau",
+        "240..560 — largeur des réglages rapides (px)",
+    ),
+    // Notifications.
+    opt(
+        "notifications",
+        "corner",
+        Kind::Choice(&[
+            "top-right",
+            "top-left",
+            "bottom-right",
+            "bottom-left",
+            "top-center",
+        ]),
+        Def::Str("top-right"),
+        "Coin",
+        "top-right | top-left | bottom-right | bottom-left | top-center — coin des notifications",
+    ),
+    opt(
+        "notifications",
+        "width",
+        Kind::Int(260, 560),
+        Def::Num(360.0),
+        "Largeur des cartes",
+        "260..560 — largeur d'une notification (px)",
+    ),
+    opt(
+        "notifications",
+        "max_visible",
+        Kind::Int(1, 8),
+        Def::Num(4.0),
+        "Nombre visible",
+        "1..8 — notifications affichées à la fois",
+    ),
+    opt(
+        "notifications",
+        "timeout",
+        Kind::Int(2, 60),
+        Def::Num(6.0),
+        "Durée d'affichage",
+        "2..60 — durée d'affichage (s) sans délai demandé par l'application",
+    ),
+    opt(
+        "notifications",
+        "stack",
+        Kind::Choice(&["down", "up"]),
+        Def::Str("down"),
+        "Empilement",
+        "down | up — sens d'empilement",
+    ),
+    // Monitoring.
+    opt(
+        "monitoring",
+        "threshold",
+        Kind::Float(0.5, 1.0),
+        Def::Num(0.85),
+        "Seuil d'alerte",
+        "0.5..1 — jauge au-delà de laquelle la mesure passe en alerte",
+    ),
+    opt(
+        "monitoring",
+        "bars",
+        Kind::Bool,
+        Def::Bool(true),
+        "Jauges",
+        "on | off — jauges sous les mesures",
+    ),
+    // Horloge et média.
+    opt(
+        "clock",
+        "date",
+        Kind::Bool,
+        Def::Bool(true),
+        "Date sous l'heure",
+        "on | off — date sous l'heure de l'horloge du bureau",
+    ),
+    opt(
+        "media",
+        "cover_size",
+        Kind::Int(32, 160),
+        Def::Num(64.0),
+        "Taille de la pochette",
+        "32..160 — taille de la pochette (px)",
+    ),
+    opt(
+        "media",
+        "cover_tint",
+        Kind::Bool,
+        Def::Bool(false),
+        "Teinte tirée de la pochette",
+        "on | off — la carte du média prend la teinte de la pochette",
+    ),
+    // Verrouillage et connexion.
+    opt(
+        "lock",
+        "clock_position",
+        Kind::Choice(&["top", "center", "bottom-left"]),
+        Def::Str("center"),
+        "Place de l'horloge",
+        "top | center | bottom-left — place de l'horloge de l'écran de verrouillage",
+    ),
+    opt(
+        "lock",
+        "panel_opacity",
+        Kind::Float(0.0, 1.0),
+        Def::Num(0.55),
+        "Densité du panneau",
+        "0..1 — densité du panneau de connexion",
+    ),
+];
+
+/// Clé de `plugin_options` qui porte un composant.
+pub fn store(component: &str) -> String {
+    format!("ui.{component}")
+}
+
+/// Option `<composant>.<clé>`.
+pub fn find(name: &str) -> Option<&'static Opt> {
+    let (c, k) = name.split_once('.')?;
+    OPTIONS.iter().find(|o| o.component == c && o.key == k)
+}
+
+impl Opt {
+    /// Nom complet `<composant>.<clé>`.
+    pub fn name(&self) -> String {
+        format!("{}.{}", self.component, self.key)
+    }
+
+    /// Valeur lue d'un texte (CLI, pack), bornée ou refusée.
+    pub fn parse(&self, text: &str) -> Result<OptValue, String> {
+        let t = text.trim();
+        match self.kind {
+            Kind::Int(lo, hi) => {
+                let v: f64 = t
+                    .replace(',', ".")
+                    .parse()
+                    .map_err(|_| crate::tr!("« {v} » : nombre attendu", v = t))?;
+                if v < lo as f64 || v > hi as f64 {
+                    return Err(crate::tr!(
+                        "« {v} » : entre {lo} et {hi}",
+                        v = t,
+                        lo = lo,
+                        hi = hi
+                    ));
+                }
+                Ok(OptValue::Num(v.round()))
+            }
+            Kind::Float(lo, hi) => {
+                let v: f64 = t
+                    .replace(',', ".")
+                    .parse()
+                    .map_err(|_| crate::tr!("« {v} » : nombre attendu", v = t))?;
+                if !(lo..=hi).contains(&v) {
+                    return Err(crate::tr!(
+                        "« {v} » : entre {lo} et {hi}",
+                        v = t,
+                        lo = lo,
+                        hi = hi
+                    ));
+                }
+                Ok(OptValue::Num(v))
+            }
+            Kind::Bool => match t {
+                "on" | "true" | "yes" | "oui" | "1" => Ok(OptValue::Bool(true)),
+                "off" | "false" | "no" | "non" | "0" => Ok(OptValue::Bool(false)),
+                _ => Err(crate::tr!("« {v} » : on ou off", v = t)),
+            },
+            Kind::Choice(list) => {
+                if list.contains(&t) {
+                    Ok(OptValue::Str(t.to_string()))
+                } else {
+                    Err(crate::tr!(
+                        "« {v} » : valeurs admises {allowed}",
+                        v = t,
+                        allowed = list.join(", ")
+                    ))
+                }
+            }
+        }
+    }
+
+    fn default_value(&self) -> OptValue {
+        match self.default {
+            Def::Num(n) => OptValue::Num(n),
+            Def::Bool(b) => OptValue::Bool(b),
+            Def::Str(s) => OptValue::Str(s.to_string()),
+        }
+    }
+
+    /// Valeur en place (réglée, sinon défaut).
+    pub fn value(&self, g: &General) -> OptValue {
+        g.plugin_options
+            .get(&store(self.component))
+            .and_then(|m| m.get(self.key))
+            .cloned()
+            .unwrap_or_else(|| self.default_value())
+    }
+
+    /// Valeur affichée par `hyprdesk config get`.
+    pub fn shown(&self, c: &Config) -> String {
+        match self.value(&c.general) {
+            OptValue::Bool(b) => if b { "on" } else { "off" }.to_string(),
+            OptValue::Num(n) => {
+                if matches!(self.kind, Kind::Int(..)) {
+                    format!("{}", n.round() as i64)
+                } else {
+                    format!("{n}")
+                }
+            }
+            OptValue::Str(s) => s,
+            other => other.display(),
+        }
+    }
+}
+
+/// Nombre d'une option (défaut si absente ou d'un autre type).
+pub fn num(g: &General, name: &str) -> f64 {
+    let Some(o) = find(name) else { return 0.0 };
+    match (o.value(g), o.default) {
+        (OptValue::Num(n), _) => n,
+        (_, Def::Num(n)) => n,
+        _ => 0.0,
+    }
+}
+
+/// Booléen d'une option.
+pub fn flag(g: &General, name: &str) -> bool {
+    let Some(o) = find(name) else { return false };
+    match (o.value(g), o.default) {
+        (OptValue::Bool(b), _) => b,
+        (_, Def::Bool(b)) => b,
+        _ => false,
+    }
+}
+
+/// Choix d'une option.
+pub fn choice(g: &General, name: &str) -> String {
+    let Some(o) = find(name) else {
+        return String::new();
+    };
+    match (o.value(g), o.default) {
+        (OptValue::Str(s), _) => s,
+        (_, Def::Str(s)) => s.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Pose une option dans des réglages.
+pub fn set(
+    s: &mut crate::settings::Settings,
+    cfg: &Config,
+    name: &str,
+    text: &str,
+) -> Result<(), String> {
+    let o = find(name).ok_or_else(|| crate::tr!("option inconnue : {k}", k = name))?;
+    let v = o.parse(text)?;
+    let all = s
+        .plugin_options
+        .get_or_insert_with(|| cfg.general.plugin_options.clone());
+    all.entry(store(o.component))
+        .or_default()
+        .insert(o.key.to_string(), v);
+    Ok(())
+}
+
+/// Retire une option (retour au défaut).
+pub fn unset(s: &mut crate::settings::Settings, cfg: &Config, name: &str) {
+    let Some(o) = find(name) else { return };
+    let all = s
+        .plugin_options
+        .get_or_insert_with(|| cfg.general.plugin_options.clone());
+    if let Some(m) = all.get_mut(&store(o.component)) {
+        m.remove(o.key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registre_cohérent() {
+        let mut seen = std::collections::BTreeSet::new();
+        for o in OPTIONS {
+            assert!(seen.insert(o.name()), "en double : {}", o.name());
+            // Le défaut passe sa propre validation.
+            let text = match o.default {
+                Def::Num(n) => n.to_string(),
+                Def::Bool(b) => if b { "on" } else { "off" }.to_string(),
+                Def::Str(s) => s.to_string(),
+            };
+            o.parse(&text)
+                .unwrap_or_else(|e| panic!("{} : {e}", o.name()));
+        }
+        assert!(find("dock.spacing").is_some());
+        assert!(find("dock.inconnu").is_none());
+        assert!(find("dock.magnify").unwrap().parse("3").is_err());
+        assert!(
+            find("notifications.corner")
+                .unwrap()
+                .parse("milieu")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn réglées_puis_lues() {
+        let cfg = Config::default();
+        let mut s = crate::settings::Settings::default();
+        set(&mut s, &cfg, "dock.spacing", "10").unwrap();
+        set(&mut s, &cfg, "notifications.corner", "bottom-left").unwrap();
+        let mut g = cfg.general.clone();
+        g.plugin_options = s.plugin_options.clone().unwrap();
+        assert_eq!(num(&g, "dock.spacing"), 10.0);
+        assert_eq!(choice(&g, "notifications.corner"), "bottom-left");
+        assert!(flag(&g, "workspaces.wheel"));
+        unset(&mut s, &cfg, "dock.spacing");
+        g.plugin_options = s.plugin_options.clone().unwrap();
+        assert_eq!(num(&g, "dock.spacing"), 4.0);
+    }
+}

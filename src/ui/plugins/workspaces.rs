@@ -255,6 +255,8 @@ impl App {
                         "Icônes d'activité — l'icône d'une application ouverte dans chaque espace",
                         WsSelector::Icones
                     ),
+                    choice("Numéros — une capsule numérotée par espace", WsSelector::Numeros),
+                    choice("Points — un point par espace, l'actif allongé", WsSelector::Points),
                     text(crate::i18n::tr(
                         "La barre change aussitôt. Les miniatures et les icônes suivent les fenêtres de chaque espace."
                     ))

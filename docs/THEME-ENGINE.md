@@ -288,6 +288,8 @@ Barre (MLG-277) : `edge` (`top`, `bottom`, `left`, `right` — une barre vertica
 
 Lanceur (MLG-278) : `style` (`auto`, `sheet`, `spotlight`), `width`, `max_height` (part de l'écran : les résultats défilent dans la carte), `radius`, `padding`, `columns`, `row_height`, `max_results`, `empty_view` (`suggestions`, `favorites`, `field`), `backdrop_dim` (voile ; sous 0,2 Hyprland ne floute plus derrière), `open_effect` (`fade`, `scale`, `slide`, `none`), `open_duration`, `anchor` (`center`, `top`), `offset`, `selection_radius`, `border`, `shadow`, `close_on_outside_click`, `effects_quality` (`low` : sans lentille ni reflet ; `medium` : reflet fixe ; `high`), `close_on_launch`. Aussi `launcher.*` de `hyprdesk config` et Réglages → Lanceur → Forme du lanceur.
 
+Composants (MLG-279, registre `design_options`) : `[dock]` `spacing`, `magnify`, `autohide`, `active_marker` ; `[workspaces]` `selector` (dont `numbers`, `dots`), `capsule_width`, `wheel`, `occupied_marker` ; `[controls]` `columns`, `width` ; `[notifications]` `corner`, `width`, `max_visible`, `timeout`, `stack` ; `[monitoring]` `threshold`, `bars` ; `[clock]` `date` ; `[media]` `cover_size`, `cover_tint` ; `[lock]` `clock_position`, `panel_opacity`. Mêmes clés dans `hyprdesk config` (`dock.spacing`…) et Réglages → Thème → Composants.
+
 ```toml
 [bar]
 thickness = 42

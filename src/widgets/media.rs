@@ -67,12 +67,73 @@ fn media_from_props(bus: &str, props: &HashMap<String, OwnedValue>) -> MediaInfo
         .and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok())
         .map(|a| a.join(", "))
         .unwrap_or_default();
+    // Pochette : un fichier local (`file://…`) ; une adresse web n'est pas
+    // téléchargée.
+    let art = meta
+        .get("mpris:artUrl")
+        .and_then(|v| String::try_from(v.try_clone().ok()?).ok())
+        .and_then(|u| {
+            u.strip_prefix("file://")
+                .map(|p| std::path::PathBuf::from(percent_decode(p)))
+        })
+        .filter(|p| p.is_file());
+    let tint = art.as_deref().and_then(art_tint);
     MediaInfo {
         bus: bus.to_string(),
         title,
         artist,
         playing,
+        art,
+        tint,
     }
+}
+
+/// Teinte moyenne d'une pochette, gardée par fichier (MLG-279).
+fn art_tint(path: &std::path::Path) -> Option<crate::config::Rgba> {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<(std::path::PathBuf, Option<crate::config::Rgba>)>> =
+        Mutex::new(None);
+    if let Ok(c) = CACHE.lock()
+        && let Some((p, t)) = c.as_ref()
+        && p == path
+    {
+        return *t;
+    }
+    let tint = ::image::open(path).ok().map(|img| {
+        let small = img.thumbnail(8, 8).to_rgb8();
+        let n = (small.width() * small.height()).max(1) as u64;
+        let (mut r, mut g, mut b) = (0u64, 0u64, 0u64);
+        for p in small.pixels() {
+            r += u64::from(p[0]);
+            g += u64::from(p[1]);
+            b += u64::from(p[2]);
+        }
+        crate::config::Rgba((r / n) as u8, (g / n) as u8, (b / n) as u8, 255)
+    });
+    if let Ok(mut c) = CACHE.lock() {
+        *c = Some((path.to_path_buf(), tint));
+    }
+    tint
+}
+
+/// `%20` et consorts d'une adresse `file://`.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Met en pause tous les lecteurs qui jouent (avant d'en lancer un autre :

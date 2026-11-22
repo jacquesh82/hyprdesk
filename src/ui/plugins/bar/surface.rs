@@ -958,6 +958,12 @@ impl App {
         }
     }
 
+    /// Dock masqué hors survol (`dock.autohide`, MLG-279), hors mode convexe
+    /// qui a le sien.
+    pub(in crate::ui) fn dock_autohide(&self) -> bool {
+        !self.convex_auto_hide() && crate::design_options::flag(&self.cfg.general, "dock.autohide")
+    }
+
     /// Barre visible : toujours, ou montrée par le survol, ou tenue par son
     /// menu ouvert (MLG-277).
     pub(in crate::ui) fn bar_revealed(&self, id: Id) -> bool {
@@ -968,17 +974,22 @@ impl App {
     /// Pointeur entré sur la barre ou sorti : la montrer ou la masquer
     /// après le délai réglé, si rien n'a changé entre-temps.
     pub(in crate::ui) fn bar_hover(&mut self, id: Id, hover: bool) -> Task<Msg> {
-        let Some(s) = self.bar_surfaces.get(&id) else {
-            return Task::none();
-        };
-        if s.shape.visibility != crate::config::BarVisibility::AutoHide {
-            return Task::none();
-        }
-        let delay = u64::from(if hover {
-            s.shape.show_delay
+        // Le dock masqué hors survol suit le même geste (MLG-279).
+        let delay = if self.launcher_surfaces.contains_key(&id) && self.dock_autohide() {
+            if hover { 120 } else { 600 }
         } else {
-            s.shape.hide_delay
-        });
+            let Some(s) = self.bar_surfaces.get(&id) else {
+                return Task::none();
+            };
+            if s.shape.visibility != crate::config::BarVisibility::AutoHide {
+                return Task::none();
+            }
+            u64::from(if hover {
+                s.shape.show_delay
+            } else {
+                s.shape.hide_delay
+            })
+        };
         let e = self.bar_reveal.entry(id).or_insert((true, 0));
         e.1 += 1;
         let generation = e.1;
@@ -994,6 +1005,24 @@ impl App {
         generation: u64,
         show: bool,
     ) -> Task<Msg> {
+        if let Some(d) = self.launcher_surfaces.get(&id).cloned() {
+            let Some(e) = self.bar_reveal.get_mut(&id) else {
+                return Task::none();
+            };
+            if e.1 != generation || e.0 == show {
+                return Task::none();
+            }
+            e.0 = show;
+            let th = if show { d.thickness } else { 4 };
+            let vertical = matches!(
+                d.position,
+                crate::config::LauncherPosition::Left | crate::config::LauncherPosition::Right
+            );
+            return Task::done(Msg::SizeChange {
+                id,
+                size: if vertical { (th, 0) } else { (0, th) },
+            });
+        }
         let Some(s) = self.bar_surfaces.get(&id).cloned() else {
             return Task::none();
         };

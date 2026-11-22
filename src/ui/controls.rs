@@ -235,15 +235,18 @@ impl App {
                 .find(|(_, b)| b.monitor == monitor)
                 .map(|(id, _)| *id)
         });
-        let mut col = column![
-            header,
-            row![
-                self.control_tile(alpha, "network", crate::i18n::tr("Wi-Fi"), menu_bar),
-                self.control_tile(alpha, "bluetooth", crate::i18n::tr("Bluetooth"), menu_bar)
-            ]
-            .spacing(8)
-        ]
-        .spacing(14);
+        // Tuiles en colonnes réglées (MLG-279) : une seule colonne les empile.
+        let tiles = [
+            self.control_tile(alpha, "network", crate::i18n::tr("Wi-Fi"), menu_bar),
+            self.control_tile(alpha, "bluetooth", crate::i18n::tr("Bluetooth"), menu_bar),
+        ];
+        let tiles: Element<'_, Msg> =
+            if crate::design_options::num(&self.cfg.general, "controls.columns") <= 1.0 {
+                iced::widget::Column::with_children(tiles).spacing(8).into()
+            } else {
+                iced::widget::Row::with_children(tiles).spacing(8).into()
+            };
+        let mut col = column![header, tiles].spacing(14);
         if let Some(target) = self.light.target_for(monitor) {
             col = col
                 .push(self.pop_header(alpha, crate::i18n::tr("Luminosité").into()))

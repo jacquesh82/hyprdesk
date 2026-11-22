@@ -134,6 +134,10 @@ pub enum WsSelector {
     Miniatures,
     /// Icône de l'application au premier plan de chaque workspace.
     Icones,
+    /// Numéros dans des capsules (MLG-279).
+    Numeros,
+    /// Points, l'actif allongé (MLG-279).
+    Points,
 }
 
 impl WsSelector {
@@ -144,6 +148,8 @@ impl WsSelector {
             // Anciens noms (français) toujours lus.
             "thumbnails" | "miniatures" => WsSelector::Miniatures,
             "icons" | "icones" => WsSelector::Icones,
+            "numbers" | "numeros" => WsSelector::Numeros,
+            "dots" | "points" => WsSelector::Points,
             _ => return None,
         })
     }
@@ -153,6 +159,8 @@ impl WsSelector {
             WsSelector::Rail => "rail",
             WsSelector::Miniatures => "thumbnails",
             WsSelector::Icones => "icons",
+            WsSelector::Numeros => "numbers",
+            WsSelector::Points => "dots",
         }
     }
 }

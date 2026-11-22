@@ -8,6 +8,7 @@
 pub mod adopt;
 pub mod ai_services;
 pub mod apps;
+pub mod design_options;
 pub mod apptheme;
 pub mod assistant;
 pub mod autostart;

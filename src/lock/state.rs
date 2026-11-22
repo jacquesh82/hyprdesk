@@ -24,6 +24,12 @@ pub struct LockState {
     pub show_user: bool,
     pub show_battery: bool,
     pub show_media: bool,
+    /// Place de l'horloge : `top`, `center`, `bottom-left` (MLG-279).
+    #[serde(default = "center")]
+    pub clock_position: String,
+    /// Densité du panneau de saisie (MLG-279).
+    #[serde(default = "panel")]
+    pub panel_opacity: f32,
     /// Scène étalée sur les écrans au verrouillage (règle `span` ou `span = "lock"`).
     pub span: bool,
     /// Fond de chaque écran, préparé par le démon (ordre de Hyprland) : sa part
@@ -65,6 +71,8 @@ impl Default for LockState {
             show_user: g.lock.show_user,
             show_battery: g.lock.show_battery,
             show_media: g.lock.show_media,
+            clock_position: center(),
+            panel_opacity: panel(),
             fingerprint: g.lock.fingerprint,
             span: false,
             outputs: Vec::new(),
@@ -121,6 +129,8 @@ pub fn from_config(cfg: &Config, monitor: &str, workspace: &str) -> LockState {
         show_user: l.show_user,
         show_battery: l.show_battery,
         show_media: l.show_media,
+        clock_position: crate::design_options::choice(g, "lock.clock_position"),
+        panel_opacity: crate::design_options::num(g, "lock.panel_opacity") as f32,
         fingerprint: l.fingerprint,
         span,
         outputs: Vec::new(),
@@ -251,6 +261,14 @@ pub fn read() -> LockState {
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
+}
+
+fn center() -> String {
+    "center".to_string()
+}
+
+fn panel() -> f32 {
+    0.55
 }
 
 #[cfg(test)]

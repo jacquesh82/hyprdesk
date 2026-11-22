@@ -254,6 +254,120 @@ pub(super) fn icones<'a>(
     ws_row(app, bar_id, bar, ctx, alpha, chips, fg, size)
 }
 
+/// Numéros ou points (MLG-279) : capsules de largeur réglée, l'active
+/// pleine d'accent (un point allongé), les occupées marquées si demandé.
+pub(super) fn compact<'a>(
+    app: &'a App,
+    bar_id: Id,
+    bar: &'a BarSurface,
+    ctx: &WsCtx,
+    alpha: f32,
+    dots: bool,
+) -> Element<'a, Msg> {
+    let pal = app.bar_palette();
+    let fg = color(pal.fg, 0.92 * alpha);
+    let accent = color(pal.accent, alpha);
+    let on_accent = color(pal.bg, alpha);
+    let warning = color(pal.warning, alpha);
+    let g = &app.cfg.general;
+    let width = crate::design_options::num(g, "workspaces.capsule_width") as f32;
+    let occupied = crate::design_options::flag(g, "workspaces.occupied_marker");
+    let size = (bar.height as f32 * 0.38).clamp(11.0, 18.0);
+    let h = (bar.height as f32 * 0.62).round();
+    let press = app.bar_duration(super::durations(app).press);
+    let chips: Vec<Element<'_, Msg>> = ctx
+        .rows
+        .iter()
+        .map(|w| {
+            let active = w.name == ctx.current;
+            let notif = app.bar_notif(&ctx.monitor, &w.name);
+            let used = occupied && w.windows > 0;
+            let content: Element<'_, Msg> = if dots {
+                let (dw, dh) = if active {
+                    (width * 0.6, 8.0)
+                } else {
+                    (8.0, 8.0)
+                };
+                container(
+                    Space::new()
+                        .width(Length::Fixed(dw))
+                        .height(Length::Fixed(dh)),
+                )
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(if notif {
+                        warning
+                    } else if active {
+                        accent
+                    } else if used {
+                        fg
+                    } else {
+                        Color {
+                            a: 0.35 * alpha,
+                            ..fg
+                        }
+                    })),
+                    border: Border::default().rounded(4.0),
+                    ..Default::default()
+                })
+                .into()
+            } else {
+                iced::widget::text(w.id.to_string())
+                    .size(crate::ui::tokens::ts_label(size))
+                    .font(app.ui_font(iced::font::Weight::Semibold))
+                    .color(if active {
+                        on_accent
+                    } else if used || notif {
+                        fg
+                    } else {
+                        Color {
+                            a: 0.5 * alpha,
+                            ..fg
+                        }
+                    })
+                    .into()
+            };
+            let chip = motion::press(
+                iced::widget::button(container(content).center(Length::Fill))
+                    .width(Length::Fixed(if dots { width * 0.75 } else { width }))
+                    .height(h)
+                    .padding(0)
+                    .on_press(Msg::BarWorkspace(ctx.monitor.clone(), w.name.clone()))
+                    .style(move |_, st| iced::widget::button::Style {
+                        background: if active && !dots {
+                            Some(Background::Color(accent))
+                        } else if matches!(st, iced::widget::button::Status::Hovered) {
+                            Some(Background::Color(Color {
+                                a: 0.12 * alpha,
+                                ..fg
+                            }))
+                        } else if used && !dots {
+                            Some(Background::Color(Color {
+                                a: 0.08 * alpha,
+                                ..fg
+                            }))
+                        } else {
+                            None
+                        },
+                        text_color: fg,
+                        border: Border::default()
+                            .rounded(h / 2.0)
+                            .width(if notif && !dots { 1.5 } else { 0.0 })
+                            .color(warning),
+                        ..Default::default()
+                    }),
+                press,
+            );
+            let label = if w.name == w.id.to_string() {
+                w.name.clone()
+            } else {
+                format!("{} · {}", w.id, w.name)
+            };
+            with_urgent(app, bar, w, alpha, bar_tooltip(app, bar, chip, label))
+        })
+        .collect();
+    ws_row(app, bar_id, bar, ctx, alpha, chips, fg, size)
+}
+
 /// Info-bulle sous la barre (au-dessus si la barre est en bas).
 fn bar_tooltip<'a>(
     app: &'a App,

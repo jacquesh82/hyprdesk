@@ -38,7 +38,8 @@ impl App {
                 self.monitor(win).map_or("", |m| m.name.as_str()),
                 None,
             ))
-            .width(304)
+            // Largeur réglée des réglages rapides (MLG-279).
+            .width(crate::design_options::num(g, "controls.width") as f32)
             .into(),
             WidgetKind::Clock { format } => {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
@@ -46,7 +47,8 @@ impl App {
                     .font(self.numeric_font(iced::font::Weight::Light))
                     .size(crate::ui::tokens::ts_metric(size))
                     .color(fg);
-                if format == "%H:%M" {
+                // Date sous l'heure, au choix (MLG-279).
+                if format == "%H:%M" && crate::design_options::flag(g, "clock.date") {
                     column![
                         time,
                         text(format_now("%A %-d %B"))
@@ -85,8 +87,23 @@ impl App {
                                 .color(fg)
                                 .font(self.numeric_font(font.weight)),
                         ]];
-                        if let Some(r) = l.ratio {
-                            let (track, bar) = (color(th.fg, 0.15 * t), accent);
+                        // Monitoring (MLG-279) : jauges au choix, en alerte
+                        // au-delà du seuil réglé.
+                        if let Some(r) = l
+                            .ratio
+                            .filter(|_| crate::design_options::flag(g, "monitoring.bars"))
+                        {
+                            let alert = f64::from(r)
+                                >= crate::design_options::num(g, "monitoring.threshold");
+                            let bar = if alert {
+                                Color {
+                                    a: t,
+                                    ..crate::ui::tone::warning()
+                                }
+                            } else {
+                                accent
+                            };
+                            let track = color(th.fg, 0.15 * t);
                             c = c.push(
                                 progress_bar(0.0..=1.0, r)
                                     .girth(4)
@@ -133,7 +150,21 @@ impl App {
                                     ..Default::default()
                                 })
                         };
-                        column![
+                        // Pochette (MLG-279) : taille réglée ; la carte peut
+                        // en prendre la teinte (voir plus bas).
+                        let cover: Element<'_, Msg> = match &mi.art {
+                            Some(p) => {
+                                let s = crate::design_options::num(g, "media.cover_size") as f32;
+                                iced::widget::image(iced::widget::image::Handle::from_path(p))
+                                    .width(s)
+                                    .height(s)
+                                    .content_fit(iced::ContentFit::Cover)
+                                    .border_radius(8.0)
+                                    .into()
+                            }
+                            None => Space::new().width(0).into(),
+                        };
+                        let info = column![
                             text(if mi.title.is_empty() {
                                 "—".to_string()
                             } else {
@@ -160,8 +191,11 @@ impl App {
                             .spacing(6),
                         ]
                         .spacing(4)
-                        .max_width(size * 26.0)
-                        .into()
+                        .max_width(size * 26.0);
+                        row![cover, info]
+                            .spacing(12)
+                            .align_y(iced::Alignment::Center)
+                            .into()
                     }
                     Some(widgets::Value::Media(None)) => text("Aucun lecteur")
                         .font(self.font)
@@ -189,10 +223,24 @@ impl App {
                 _ => base,
             }
         };
-        let card_bg = color(
-            super::tokens::tinted(th.bg, crate::config::Place::Widgets),
-            card_opacity * t,
-        );
+        // Média (MLG-279) : la carte peut prendre la teinte de la pochette.
+        let cover_tint = match (&w.kind, self.values.get(&w.id)) {
+            (WidgetKind::Media { .. }, Some(widgets::Value::Media(Some(mi))))
+                if crate::design_options::flag(g, "media.cover_tint") =>
+            {
+                mi.tint
+            }
+            _ => None,
+        };
+        let base_bg = super::tokens::tinted(th.bg, crate::config::Place::Widgets);
+        let base_bg = match cover_tint {
+            Some(c) => {
+                let m = crate::theme_engine::color::mix(base_bg, c, 0.35);
+                crate::config::Rgba(m.0, m.1, m.2, base_bg.3)
+            }
+            None => base_bg,
+        };
+        let card_bg = color(base_bg, card_opacity * t);
         let boxed: Element<'_, Msg> = if w.card {
             // Verre du thème (MLG-268) au rayon de la carte ; vraie
             // réfraction du fond d'écran et des icônes derrière elle

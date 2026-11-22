@@ -4014,6 +4014,12 @@ impl App {
                 );
                 Task::batch([focus, self.close_popover()])
             }
+            // Molette sur le sélecteur : coupée par le réglage (MLG-279).
+            Msg::BarScroll(..)
+                if !crate::design_options::flag(&self.cfg.general, "workspaces.wheel") =>
+            {
+                Task::none()
+            }
             Msg::BarScroll(mon, dir) => Task::perform(
                 async move {
                     let _ = tokio::task::spawn_blocking(move || {
@@ -5745,7 +5751,20 @@ impl App {
             let Some(m) = self.monitors.iter().find(|m| m.name == s.monitor) else {
                 return Space::new().into();
             };
-            return self.view_launcher(m, self.fade_value());
+            // Dock masqué hors survol (MLG-279) : une fine bande au bord.
+            if self.dock_autohide() && !self.bar_revealed(id) {
+                return iced::widget::mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                    .on_enter(Msg::BarReveal(id, true))
+                    .into();
+            }
+            let dock = self.view_launcher(m, self.fade_value());
+            if self.dock_autohide() {
+                return iced::widget::mouse_area(dock)
+                    .on_enter(Msg::BarReveal(id, true))
+                    .on_exit(Msg::BarReveal(id, false))
+                    .into();
+            }
+            return dock;
         }
         if self.osd.as_ref().is_some_and(|o| o.win == id) {
             return self.view_osd();
