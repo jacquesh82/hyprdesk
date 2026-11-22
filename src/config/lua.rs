@@ -646,6 +646,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "apps_unified",
             "apps_style",
             "apps_suggestions",
+            "launcher_shape",
             "apps_categories",
             "lock_blur",
             "lock_dim",
@@ -1060,6 +1061,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_num(t, "apps_suggestions", CTX)? {
         g.apps_launcher.suggestions = v.clamp(0.0, 16.0) as u8;
+    }
+    if let Some(s) = t.get::<Option<Table>>("launcher_shape")? {
+        g.apps_launcher.shape = launcher_shape(&s)?;
     }
     if let Some(v) = opt_bool(t, "apps_categories", CTX)? {
         g.apps_launcher.categories = v;
@@ -2315,6 +2319,96 @@ fn hd_bar(lua: &Lua, b: &mut Builder, v: Value) -> mlua::Result<()> {
         shape,
     });
     Ok(())
+}
+
+/// `launcher_shape = { … }` (MLG-278).
+fn launcher_shape(t: &Table) -> mlua::Result<crate::config::LauncherShape> {
+    use crate::config::{EffectsQuality, EmptyView, LauncherShape, OpenEffect};
+    let ctx = "launcher_shape";
+    check_keys(
+        t,
+        &[
+            "width",
+            "max_height",
+            "radius",
+            "padding",
+            "columns",
+            "row_height",
+            "max_results",
+            "empty_view",
+            "backdrop_dim",
+            "open_effect",
+            "open_duration",
+            "anchor",
+            "offset",
+            "selection_radius",
+            "border",
+            "shadow",
+            "close_on_outside_click",
+            "effects_quality",
+        ],
+        ctx,
+    )?;
+    let d = LauncherShape::default();
+    let n = |k: &str, lo: f64, hi: f64| -> mlua::Result<Option<f64>> {
+        Ok(opt_num(t, k, ctx)?.map(|v| v.clamp(lo, hi)))
+    };
+    let pick = |k: &str| opt_string(t, k, ctx);
+    let bad = |k: &str, v: &str, allowed: &str| {
+        err(crate::tr!(
+            "{ctx} : {k} « {v} » inconnu ({allowed})",
+            ctx = ctx,
+            k = k,
+            v = v,
+            allowed = allowed
+        ))
+    };
+    Ok(LauncherShape {
+        width: n("width", 360.0, 2000.0)?.map_or(d.width, |v| v as u16),
+        max_height: n("max_height", 0.0, 1.0)?.map_or(d.max_height, |v| v as f32),
+        radius: n("radius", 0.0, 64.0)?.map_or(d.radius, |v| v as u16),
+        padding: n("padding", 0.0, 64.0)?.map_or(d.padding, |v| v as u16),
+        columns: n("columns", 2.0, 12.0)?.map_or(d.columns, |v| v as u8),
+        row_height: n("row_height", 28.0, 96.0)?.map_or(d.row_height, |v| v as u16),
+        max_results: n("max_results", 1.0, 30.0)?.map_or(d.max_results, |v| v as u8),
+        empty_view: match pick("empty_view")?.as_deref() {
+            None => d.empty_view,
+            Some("suggestions" | "recent") => EmptyView::Suggestions,
+            Some("favorites") => EmptyView::Favorites,
+            Some("field") => EmptyView::Field,
+            Some(o) => return Err(bad("empty_view", o, "suggestions, favorites, field")),
+        },
+        backdrop_dim: n("backdrop_dim", 0.0, 0.9)?.map_or(d.backdrop_dim, |v| v as f32),
+        open_effect: match pick("open_effect")?.as_deref() {
+            None => d.open_effect,
+            Some("fade") => OpenEffect::Fade,
+            Some("scale") => OpenEffect::Scale,
+            Some("slide") => OpenEffect::Slide,
+            Some("none") => OpenEffect::None,
+            Some(o) => return Err(bad("open_effect", o, "fade, scale, slide, none")),
+        },
+        open_duration: n("open_duration", 0.0, 1500.0)?.map_or(d.open_duration, |v| v as u16),
+        top: match pick("anchor")?.as_deref() {
+            None => d.top,
+            Some("center") => false,
+            Some("top") => true,
+            Some(o) => return Err(bad("anchor", o, "center, top")),
+        },
+        offset: n("offset", -800.0, 800.0)?.map_or(d.offset, |v| v as i16),
+        selection_radius: n("selection_radius", 0.0, 32.0)?
+            .map_or(d.selection_radius, |v| v as u16),
+        border: n("border", 0.0, 1.0)?.map_or(d.border, |v| v as f32),
+        shadow: n("shadow", 0.0, 1.0)?.map_or(d.shadow, |v| v as f32),
+        close_on_outside_click: opt_bool(t, "close_on_outside_click", ctx)?
+            .unwrap_or(d.close_on_outside_click),
+        quality: match pick("effects_quality")?.as_deref() {
+            None => d.quality,
+            Some("low") => EffectsQuality::Low,
+            Some("medium") => EffectsQuality::Medium,
+            Some("high") => EffectsQuality::High,
+            Some(o) => return Err(bad("effects_quality", o, "low, medium, high")),
+        },
+    })
 }
 
 /// `hd.bar { shape = { … } }` (MLG-277).

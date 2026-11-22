@@ -94,6 +94,57 @@ impl Default for BarSettings {
     }
 }
 
+/// `launcher_shape = { … }` (MLG-278).
+fn launcher_shape_lua(s: &crate::config::LauncherShape) -> String {
+    use crate::config::{EffectsQuality, EmptyView, OpenEffect};
+    let mut f = vec![
+        format!("width = {}", s.width),
+        format!("max_height = {}", num(s.max_height)),
+        format!("radius = {}", s.radius),
+        format!("padding = {}", s.padding),
+        format!("columns = {}", s.columns),
+        format!("row_height = {}", s.row_height),
+        format!("max_results = {}", s.max_results),
+        format!("backdrop_dim = {}", num(s.backdrop_dim)),
+        format!("open_duration = {}", s.open_duration),
+        format!("offset = {}", s.offset),
+        format!("selection_radius = {}", s.selection_radius),
+        format!("border = {}", num(s.border)),
+        format!("shadow = {}", num(s.shadow)),
+        format!("close_on_outside_click = {}", s.close_on_outside_click),
+    ];
+    f.push(format!(
+        "empty_view = {}",
+        q(match s.empty_view {
+            EmptyView::Suggestions => "suggestions",
+            EmptyView::Favorites => "favorites",
+            EmptyView::Field => "field",
+        })
+    ));
+    f.push(format!(
+        "open_effect = {}",
+        q(match s.open_effect {
+            OpenEffect::Fade => "fade",
+            OpenEffect::Scale => "scale",
+            OpenEffect::Slide => "slide",
+            OpenEffect::None => "none",
+        })
+    ));
+    f.push(format!(
+        "anchor = {}",
+        q(if s.top { "top" } else { "center" })
+    ));
+    f.push(format!(
+        "effects_quality = {}",
+        q(match s.quality {
+            EffectsQuality::Low => "low",
+            EffectsQuality::Medium => "medium",
+            EffectsQuality::High => "high",
+        })
+    ));
+    format!("launcher_shape = {{ {} }}", f.join(", "))
+}
+
 /// `shape = { … }` d'une barre : les champs qui diffèrent du défaut.
 fn shape_lua(s: &crate::config::BarShape) -> Option<String> {
     use crate::config::{BarAlign, BarLayer, BarShape, BarVisibility};
@@ -222,6 +273,8 @@ pub struct Settings {
     pub launcher_show_assistant: Option<bool>,
     pub apps_style: Option<crate::config::AppsStyle>,
     pub apps_suggestions: Option<u8>,
+    /// Forme du lanceur (MLG-278).
+    pub launcher_shape: Option<crate::config::LauncherShape>,
     pub apps_categories: Option<bool>,
     pub apps_unified: Option<bool>,
     pub lock_blur: Option<bool>,
@@ -501,6 +554,7 @@ impl Settings {
                 .then_some(g.launcher.show_assistant),
             apps_style: has("apps_style").then_some(g.apps_launcher.style),
             apps_suggestions: has("apps_suggestions").then_some(g.apps_launcher.suggestions),
+            launcher_shape: has("launcher_shape").then_some(g.apps_launcher.shape),
             apps_categories: has("apps_categories").then_some(g.apps_launcher.categories),
             apps_unified: has("apps_unified").then_some(g.apps_launcher.unified),
             icon_theme: if has("icon_theme") {
@@ -801,6 +855,7 @@ impl Settings {
         set!(launcher_position, "launcher_position", g.launcher.position);
         set!(launcher_size, "launcher_size", g.launcher.size);
         set!(apps_style, "apps_style", g.apps_launcher.style);
+        set!(launcher_shape, "launcher_shape", g.apps_launcher.shape);
         set!(
             apps_suggestions,
             "apps_suggestions",
@@ -1443,6 +1498,9 @@ impl Settings {
         }
         if let Some(v) = self.apps_suggestions {
             cfg.push(format!("apps_suggestions = {v}"));
+        }
+        if let Some(v) = &self.launcher_shape {
+            cfg.push(launcher_shape_lua(v));
         }
         if let Some(v) = self.apps_categories {
             cfg.push(format!("apps_categories = {v}"));

@@ -206,15 +206,13 @@ impl App {
         {
             let offset = match bar.position {
                 crate::config::BarPosition::Top => iced::Vector::new(0.0, bar.margin as f32),
-                crate::config::BarPosition::Bottom => iced::Vector::new(
-                    0.0,
-                    m.height as f32 - bar.height as f32 - bar.margin as f32,
-                ),
+                crate::config::BarPosition::Bottom => {
+                    iced::Vector::new(0.0, m.height as f32 - bar.height as f32 - bar.margin as f32)
+                }
                 crate::config::BarPosition::Left => iced::Vector::new(bar.margin as f32, 0.0),
-                crate::config::BarPosition::Right => iced::Vector::new(
-                    m.width as f32 - bar.height as f32 - bar.margin as f32,
-                    0.0,
-                ),
+                crate::config::BarPosition::Right => {
+                    iced::Vector::new(m.width as f32 - bar.height as f32 - bar.margin as f32, 0.0)
+                }
             };
             return local + offset;
         }

@@ -286,6 +286,8 @@ Sections `[bar]`, `[dock]`, `[launcher]`, `[workspaces]`, `[notifications]`, `[w
 
 Barre (MLG-277) : `edge` (`top`, `bottom`, `left`, `right` — une barre verticale empile ses zones, ses espaces de travail, et ouvre ses menus à côté d'elle), `thickness`, `edge_offset`, `style`, `length` (`full`, `content`, pixels ou `60%`), `min_length`, `max_length`, `alignment` (`start`, `center`, `end`), `side_margin` (barre flottante : quatre coins arrondis), `layout` (`continuous`, `groups`), `radius`, `padding`, `item_gap`, `icon_size`, `font_size`, `visibility` (`always`, `autohide`) avec `show_delay`, `hide_delay`, `reveal_zone`, `reserve_space`, `layer` (`top`, `overlay` — au-dessus du plein écran —, `bottom`). Toutes sont aussi des clés `bar.*` de `hyprdesk config` et des réglages de Réglages → Barre.
 
+Lanceur (MLG-278) : `style` (`auto`, `sheet`, `spotlight`), `width`, `max_height` (part de l'écran : les résultats défilent dans la carte), `radius`, `padding`, `columns`, `row_height`, `max_results`, `empty_view` (`suggestions`, `favorites`, `field`), `backdrop_dim` (voile ; sous 0,2 Hyprland ne floute plus derrière), `open_effect` (`fade`, `scale`, `slide`, `none`), `open_duration`, `anchor` (`center`, `top`), `offset`, `selection_radius`, `border`, `shadow`, `close_on_outside_click`, `effects_quality` (`low` : sans lentille ni reflet ; `medium` : reflet fixe ; `high`), `close_on_launch`. Aussi `launcher.*` de `hyprdesk config` et Réglages → Lanceur → Forme du lanceur.
+
 ```toml
 [bar]
 thickness = 42

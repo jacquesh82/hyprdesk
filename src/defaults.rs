@@ -131,7 +131,7 @@ components! {
     "launcher" => [
         running_apps, launcher_group, launcher_position, launcher_size,
         launcher_pinned, launcher_show_settings, launcher_show_assistant,
-        apps_style, apps_suggestions, apps_categories, apps_unified,
+        apps_style, apps_suggestions, apps_categories, apps_unified, launcher_shape,
     ] + [Launches];
     "index" => [
         index_paths, index_exclude, index_exclude_regex, index_exclude_ext,

@@ -2574,6 +2574,15 @@ impl App {
             return true;
         }
 
+        // Ouverture du lanceur (MLG-278).
+        if self
+            .search
+            .as_ref()
+            .and_then(|s| s.opening)
+            .is_some_and(|f| !f.done(Instant::now()))
+        {
+            return true;
+        }
         (self.convex_options().is_none() && self.launcher_animating()) || self.fade.is_some()
             || self.shown.values().any(|s| s.prev.is_some())
             // Jusqu'à ce que Frame solde le fondu (fermeture comprise).

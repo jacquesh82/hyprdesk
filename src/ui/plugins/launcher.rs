@@ -73,6 +73,8 @@ pub enum Msg {
     /// Lanceur d'applications : présentation, suggestions, catégories.
     AppsStyle(crate::config::AppsStyle),
     AppsSuggestions(u8),
+    /// Forme du lanceur (MLG-278) ; `true` : enregistrer.
+    AppsShape(crate::config::LauncherShape, bool),
     AppsSuggestionsCommit,
     AppsCategories(bool),
     /// keys.search = SUPER + R (à la place d'un autre lanceur).
@@ -194,6 +196,166 @@ impl App {
         (outside, inside)
     }
 
+    /// Forme du lanceur (MLG-278) : dimensions, état initial, ouverture,
+    /// voile, place, fermeture, effets.
+    fn launcher_shape_fields(&self, shape: crate::config::LauncherShape) -> Element<'_, UiMsg> {
+        use crate::config::{EffectsQuality, EmptyView, OpenEffect};
+        let font = self.font;
+        let set = move |f: &dyn Fn(&mut crate::config::LauncherShape), commit: bool| {
+            let mut s = shape;
+            f(&mut s);
+            wrap(Msg::AppsShape(s, commit))
+        };
+        let commit = wrap(Msg::AppsShape(shape, true));
+        let slider_row =
+            |label: &'static str,
+             range: std::ops::RangeInclusive<f32>,
+             value: f32,
+             shown: String,
+             apply: fn(&mut crate::config::LauncherShape, f32)| {
+                self.field(
+                    label,
+                    "",
+                    row![
+                        iced::widget::slider(range, value, move |v| set(
+                            &|s: &mut crate::config::LauncherShape| apply(s, v),
+                            false
+                        ))
+                        .on_release(commit.clone())
+                        .width(220),
+                        text(shown).font(font).size(crate::ui::tokens::ts(13.0)),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                )
+            };
+        let radios = |label: &'static str,
+                      items: Vec<(&'static str, u8)>,
+                      current: u8,
+                      apply: fn(&mut crate::config::LauncherShape, u8)| {
+            self.field(
+                label,
+                "",
+                row(items.into_iter().map(|(l, v)| {
+                    radio(crate::i18n::tr(l), v, Some(current), move |v| {
+                        set(&|s: &mut crate::config::LauncherShape| apply(s, v), true)
+                    })
+                    .font(font)
+                    .into()
+                }))
+                .spacing(14)
+                .wrap(),
+            )
+        };
+        column![
+            self.section("Forme du lanceur"),
+            slider_row(
+                "Largeur de la carte",
+                480.0..=1200.0,
+                f32::from(shape.width),
+                format!("{} px", shape.width),
+                |s, v| s.width = v.round() as u16
+            ),
+            slider_row(
+                "Résultats visibles",
+                3.0..=16.0,
+                f32::from(shape.max_results),
+                shape.max_results.to_string(),
+                |s, v| s.max_results = v.round() as u8
+            ),
+            slider_row(
+                "Colonnes de la feuille",
+                4.0..=10.0,
+                f32::from(shape.columns),
+                shape.columns.to_string(),
+                |s, v| s.columns = v.round() as u8
+            ),
+            slider_row(
+                "Rayon des coins",
+                0.0..=48.0,
+                f32::from(shape.radius),
+                format!("{} px", shape.radius),
+                |s, v| s.radius = v.round() as u16
+            ),
+            slider_row(
+                "Voile derrière",
+                0.0..=0.8,
+                shape.backdrop_dim,
+                format!("{} %", (shape.backdrop_dim * 100.0).round()),
+                |s, v| s.backdrop_dim = v
+            ),
+            radios(
+                "Avant la saisie",
+                vec![
+                    ("Les plus lancées", 0),
+                    ("Les épinglées", 1),
+                    ("Le champ seul", 2)
+                ],
+                match shape.empty_view {
+                    EmptyView::Suggestions => 0,
+                    EmptyView::Favorites => 1,
+                    EmptyView::Field => 2,
+                },
+                |s, v| s.empty_view = match v {
+                    1 => EmptyView::Favorites,
+                    2 => EmptyView::Field,
+                    _ => EmptyView::Suggestions,
+                },
+            ),
+            radios(
+                "Ouverture",
+                vec![
+                    ("Fondu", 0),
+                    ("Agrandissement", 1),
+                    ("Glissement", 2),
+                    ("Immédiate", 3)
+                ],
+                match shape.open_effect {
+                    OpenEffect::Fade => 0,
+                    OpenEffect::Scale => 1,
+                    OpenEffect::Slide => 2,
+                    OpenEffect::None => 3,
+                },
+                |s, v| s.open_effect = match v {
+                    1 => OpenEffect::Scale,
+                    2 => OpenEffect::Slide,
+                    3 => OpenEffect::None,
+                    _ => OpenEffect::Fade,
+                },
+            ),
+            radios(
+                "Place de la carte",
+                vec![("Au centre", 0), ("En haut", 1)],
+                u8::from(shape.top),
+                |s, v| s.top = v == 1,
+            ),
+            radios(
+                "Effets du verre",
+                vec![("Complets", 2), ("Moyens", 1), ("Réduits", 0)],
+                match shape.quality {
+                    EffectsQuality::Low => 0,
+                    EffectsQuality::Medium => 1,
+                    EffectsQuality::High => 2,
+                },
+                |s, v| s.quality = match v {
+                    0 => EffectsQuality::Low,
+                    1 => EffectsQuality::Medium,
+                    _ => EffectsQuality::High,
+                },
+            ),
+            self.field(
+                "Un clic hors de la carte la ferme",
+                "",
+                iced::widget::toggler(shape.close_on_outside_click).on_toggle(move |v| set(
+                    &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
+                    true
+                )),
+            ),
+        ]
+        .spacing(14)
+        .into()
+    }
+
     /// Réglages d'apparence : bord, taille, applications épinglées, boutons.
     /// Onglet Applications : le lanceur d'applications.
     fn launcher_apps_tab(&self) -> Element<'_, UiMsg> {
@@ -251,6 +413,7 @@ impl App {
                 "apps_categories",
                 iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
             ),
+            self.launcher_shape_fields(a.shape),
             self.section("Raccourci"),
             self.field(
                 "Le même lanceur dans tous les modes",
@@ -555,6 +718,10 @@ impl App {
             Msg::AppsSuggestions(v) => {
                 self.settings.apps_suggestions = Some(v);
                 self.apply()
+            }
+            Msg::AppsShape(shape, commit) => {
+                self.settings.launcher_shape = Some(shape);
+                if commit { self.commit() } else { self.apply() }
             }
             Msg::AppsSuggestionsCommit => self.commit(),
             Msg::AppsCategories(v) => {

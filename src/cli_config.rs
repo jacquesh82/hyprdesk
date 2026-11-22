@@ -76,6 +76,7 @@ pub fn pack_key(shape: &str) -> Option<&'static Key> {
         ("dock", "show_settings") => "launcher_show_settings",
         ("dock", "show_assistant") => "launcher_show_assistant",
         ("launcher", "style" | "view") => "apps_style",
+        ("launcher", "close_on_launch") => "close_on_launch",
         ("launcher", "suggestions" | "show_recent") => "apps_suggestions",
         ("launcher", "categories") => "apps_categories",
         ("launcher", "unified") => "apps_unified",
@@ -126,6 +127,7 @@ const PACK_KEYS: &[&str] = &[
     "controls.",
     "lock.",
     "wallpaper.fit",
+    "close_on_launch",
 ];
 
 fn find_allowed(name: &str) -> Option<&'static Key> {
@@ -150,6 +152,12 @@ pub fn apply_pack_value(
     let key = pack_key(shape)
         .ok_or_else(|| crate::tr!("clé de forme non admise pour un pack : {k}", k = shape))?;
     (key.set)(s, value, cfg)
+}
+
+/// Forme du lanceur à modifier (MLG-278), partie de celle en place.
+fn ls<'a>(s: &'a mut Settings, c: &Config) -> &'a mut crate::config::LauncherShape {
+    s.launcher_shape
+        .get_or_insert(c.general.apps_launcher.shape)
 }
 
 pub fn parse_bool(v: &str) -> Result<bool, String> {
@@ -951,6 +959,78 @@ pub static KEYS: &[Key] = keys![
         |c| c.bar.as_ref().map(|b| match b.shape.layer { crate::config::BarLayer::Top => "top", crate::config::BarLayer::Overlay => "overlay", crate::config::BarLayer::Bottom => "bottom" }.to_string()).unwrap_or_default(),
         |s, v, c| { bar(s, c).shape.layer = choice(v, |x| match x { "top" => Some(crate::config::BarLayer::Top), "overlay" => Some(crate::config::BarLayer::Overlay), "bottom" => Some(crate::config::BarLayer::Bottom), _ => None }, "top, overlay, bottom")?; Ok(()) },
         |s| { if let Some(b) = s.bar.as_mut() { b.shape.layer = Default::default(); } };
+    "launcher.width", "launcher", "360..2000 — largeur de la carte du lanceur (px)",
+        |c| c.general.apps_launcher.shape.width.to_string(),
+        |s, v, c| { ls(s, c).width = number(v, 360u16, 2000)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.width = crate::config::LauncherShape::default().width; } };
+    "launcher.max_height", "launcher", "0..1 — hauteur maximale, part de l'écran (0 : celle du lanceur)",
+        |c| c.general.apps_launcher.shape.max_height.to_string(),
+        |s, v, c| { ls(s, c).max_height = number(v, 0.0f32, 1.0)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.max_height = crate::config::LauncherShape::default().max_height; } };
+    "launcher.radius", "launcher", "0..64 — rayon des coins de la carte",
+        |c| c.general.apps_launcher.shape.radius.to_string(),
+        |s, v, c| { ls(s, c).radius = number(v, 0u16, 64)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.radius = crate::config::LauncherShape::default().radius; } };
+    "launcher.padding", "launcher", "0..64 — marge intérieure de la carte",
+        |c| c.general.apps_launcher.shape.padding.to_string(),
+        |s, v, c| { ls(s, c).padding = number(v, 0u16, 64)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.padding = crate::config::LauncherShape::default().padding; } };
+    "launcher.columns", "launcher", "2..12 — colonnes de la grille d'applications",
+        |c| c.general.apps_launcher.shape.columns.to_string(),
+        |s, v, c| { ls(s, c).columns = number(v, 2u8, 12)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.columns = crate::config::LauncherShape::default().columns; } };
+    "launcher.row_height", "launcher", "28..96 — hauteur d'une ligne de résultat (px)",
+        |c| c.general.apps_launcher.shape.row_height.to_string(),
+        |s, v, c| { ls(s, c).row_height = number(v, 28u16, 96)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.row_height = crate::config::LauncherShape::default().row_height; } };
+    "launcher.max_results", "launcher", "1..30 — résultats visibles",
+        |c| c.general.apps_launcher.shape.max_results.to_string(),
+        |s, v, c| { ls(s, c).max_results = number(v, 1u8, 30)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.max_results = crate::config::LauncherShape::default().max_results; } };
+    "launcher.backdrop_dim", "launcher", "0..0.9 — voile sur le bureau derrière le lanceur",
+        |c| c.general.apps_launcher.shape.backdrop_dim.to_string(),
+        |s, v, c| { ls(s, c).backdrop_dim = number(v, 0.0f32, 0.9)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.backdrop_dim = crate::config::LauncherShape::default().backdrop_dim; } };
+    "launcher.open_duration", "launcher", "0..1500 — durée d'ouverture (ms, 0 : celle du thème)",
+        |c| c.general.apps_launcher.shape.open_duration.to_string(),
+        |s, v, c| { ls(s, c).open_duration = number(v, 0u16, 1500)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.open_duration = crate::config::LauncherShape::default().open_duration; } };
+    "launcher.offset", "launcher", "-800..800 — décalage vertical de la carte (px)",
+        |c| c.general.apps_launcher.shape.offset.to_string(),
+        |s, v, c| { ls(s, c).offset = number(v, -800i16, 800)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.offset = crate::config::LauncherShape::default().offset; } };
+    "launcher.selection_radius", "launcher", "0..32 — rayon du résultat choisi",
+        |c| c.general.apps_launcher.shape.selection_radius.to_string(),
+        |s, v, c| { ls(s, c).selection_radius = number(v, 0u16, 32)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.selection_radius = crate::config::LauncherShape::default().selection_radius; } };
+    "launcher.border", "launcher", "0..1 — opacité du filet de la carte",
+        |c| c.general.apps_launcher.shape.border.to_string(),
+        |s, v, c| { ls(s, c).border = number(v, 0.0f32, 1.0)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.border = crate::config::LauncherShape::default().border; } };
+    "launcher.shadow", "launcher", "0..1 — opacité de l'ombre de la carte",
+        |c| c.general.apps_launcher.shape.shadow.to_string(),
+        |s, v, c| { ls(s, c).shadow = number(v, 0.0f32, 1.0)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.shadow = crate::config::LauncherShape::default().shadow; } };
+    "launcher.empty_view", "launcher", "suggestions | favorites | field — avant la saisie : les plus lancées, les épinglées, ou le champ seul",
+        |c| { let x = c.general.apps_launcher.shape.empty_view; match x { crate::config::EmptyView::Suggestions => "suggestions", crate::config::EmptyView::Favorites => "favorites", crate::config::EmptyView::Field => "field" }.to_string() },
+        |s, v, c| { ls(s, c).empty_view = choice(v, |x| match x { "suggestions" => Some(crate::config::EmptyView::Suggestions), "favorites" => Some(crate::config::EmptyView::Favorites), "field" => Some(crate::config::EmptyView::Field), _ => None }, "suggestions, favorites, field")?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.empty_view = crate::config::LauncherShape::default().empty_view; } };
+    "launcher.open_effect", "launcher", "fade | scale | slide | none — effet d'ouverture",
+        |c| { let x = c.general.apps_launcher.shape.open_effect; match x { crate::config::OpenEffect::Fade => "fade", crate::config::OpenEffect::Scale => "scale", crate::config::OpenEffect::Slide => "slide", crate::config::OpenEffect::None => "none" }.to_string() },
+        |s, v, c| { ls(s, c).open_effect = choice(v, |x| match x { "fade" => Some(crate::config::OpenEffect::Fade), "scale" => Some(crate::config::OpenEffect::Scale), "slide" => Some(crate::config::OpenEffect::Slide), "none" => Some(crate::config::OpenEffect::None), _ => None }, "fade, scale, slide, none")?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.open_effect = crate::config::LauncherShape::default().open_effect; } };
+    "launcher.anchor", "launcher", "center | top — carte au centre ou en haut de l'écran",
+        |c| { let x = c.general.apps_launcher.shape.top; if x { "top" } else { "center" }.to_string() },
+        |s, v, c| { ls(s, c).top = choice(v, |x| match x { "center" => Some(false), "top" => Some(true), _ => None }, "center, top")?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.top = crate::config::LauncherShape::default().top; } };
+    "launcher.effects_quality", "launcher", "low | medium | high — effets du verre (low : sans lentille ni reflet)",
+        |c| { let x = c.general.apps_launcher.shape.quality; match x { crate::config::EffectsQuality::Low => "low", crate::config::EffectsQuality::Medium => "medium", crate::config::EffectsQuality::High => "high" }.to_string() },
+        |s, v, c| { ls(s, c).quality = choice(v, |x| match x { "low" => Some(crate::config::EffectsQuality::Low), "medium" => Some(crate::config::EffectsQuality::Medium), "high" => Some(crate::config::EffectsQuality::High), _ => None }, "low, medium, high")?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.quality = crate::config::LauncherShape::default().quality; } };
+    "launcher.close_on_outside_click", "launcher", "on | off — un clic hors de la carte ferme le lanceur",
+        |c| on_off(c.general.apps_launcher.shape.close_on_outside_click),
+        |s, v, c| { ls(s, c).close_on_outside_click = parse_bool(v)?; Ok(()) },
+        |s| { if let Some(l) = s.launcher_shape.as_mut() { l.close_on_outside_click = true; } };
     "bar.opacity", "bar", "0..1 | theme — opacité du fond de la barre (0 : transparente)",
         |c| c.bar.as_ref().and_then(|b| b.colors.opacity).map(|o| format!("{}", (o * 100.0).round() / 100.0)).unwrap_or_else(|| "theme".into()),
         |s, v, c| {

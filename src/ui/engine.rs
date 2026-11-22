@@ -56,6 +56,13 @@ impl App {
         ) {
             self.theme = super::make_theme(&self.cfg);
         }
+        // Forme du lanceur (MLG-278), à la hauteur de l'écran actif.
+        let screen = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map_or(1080.0, |m| m.height as f32);
+        super::apps_grid::set_shape(self.cfg.general.apps_launcher.shape, screen);
         if first || theme_changed {
             // Couleurs d'état tout de suite, sans attendre le moteur.
             super::tokens::set_palette(resolve::from_theme(&self.cfg.general.theme).palette);

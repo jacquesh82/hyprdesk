@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **Launcher shape** (MLG-278): card width and maximum height (results
+  scroll inside), corner radius, padding, grid columns, row height, visible
+  results; what shows before typing (most launched, pinned apps, or the
+  field alone); backdrop dimming; opening effect (fade, grow, slide,
+  instant) and duration; card at the centre or the top with an offset;
+  selection radius, outline and shadow; clicking outside to close; glass
+  effect quality. `launcher.*` keys, `launcher_shape = { … }`, Settings →
+  Launcher → Launcher shape, and pack `[launcher]` keys.
 - **Bar shape** (MLG-277). Left and right edges (vertical bar: stacked
   zones and workspaces, menus opening beside it); length (whole edge, fit
   content, pixels or a percentage) with bounds and alignment; side margins

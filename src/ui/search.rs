@@ -32,11 +32,6 @@ pub(super) const INPUT_ID: &str = "hyprdesk-search-input";
 pub const SHOWN: usize = 8;
 const ROW: f32 = 46.0;
 const SHADOW: f32 = 18.0;
-/// Voile derrière la carte centrée et derrière la feuille : assez opaque
-/// pour que Hyprland floute ce qu'il recouvre (règle de calque du thème,
-/// `ignore_alpha = 0.2`, `crate::hypr`).
-const BACKDROP: f32 = 0.30;
-const SHEET_BACKDROP: f32 = 0.45;
 /// Icône des éléments de l'historique du presse-papiers.
 const CLIP_ICON: &str = "edit-paste-symbolic";
 /// Icône des codes et mots de passe du coffre.
@@ -74,6 +69,8 @@ pub enum MfaList {
 
 pub struct Search {
     pub(super) visibility: Option<super::Fade>,
+    /// Ouverture hors mode convexe (MLG-278) : effet réglé.
+    pub(super) opening: Option<super::Fade>,
     pub(super) shown: bool,
     pub win: Id,
     pub query: String,
@@ -266,6 +263,22 @@ impl App {
     /// par celles épinglées au dock (au premier usage, rien n'est encore noté).
     pub(super) fn launcher_suggestions(&self) -> Vec<usize> {
         let n = self.cfg.general.apps_launcher.suggestions as usize;
+        // Avant la saisie (MLG-278) : champ seul, ou les épinglées.
+        match self.cfg.general.apps_launcher.shape.empty_view {
+            crate::config::EmptyView::Field => return Vec::new(),
+            crate::config::EmptyView::Favorites => {
+                return self
+                    .cfg
+                    .general
+                    .launcher
+                    .pinned
+                    .iter()
+                    .filter_map(|id| self.apps.iter().position(|a| &a.id == id))
+                    .take(n.max(8))
+                    .collect();
+            }
+            crate::config::EmptyView::Suggestions => {}
+        }
         if n == 0 {
             return Vec::new();
         }
@@ -366,6 +379,21 @@ impl App {
                 start: std::time::Instant::now(),
                 dur: self.bar_duration(o.duration as u64),
             }),
+            opening: {
+                let shape = self.cfg.general.apps_launcher.shape;
+                (convex.is_none() && shape.open_effect != crate::config::OpenEffect::None).then(
+                    || super::Fade {
+                        from: 0.0,
+                        to: 1.0,
+                        start: std::time::Instant::now(),
+                        dur: if shape.open_duration > 0 {
+                            super::tokens::duration(u64::from(shape.open_duration))
+                        } else {
+                            self.bar_duration(220)
+                        },
+                    },
+                )
+            },
             win,
             query: String::new(),
             results,
@@ -498,7 +526,9 @@ impl App {
         .height(height)
         .clip(true);
         // Le voile s'éclaircit avec le tiroir : le flou part avec lui.
-        let catch = backdrop(BACKDROP * track.value(std::time::Instant::now()));
+        let catch = backdrop(
+            super::apps_grid::shape().backdrop_dim * track.value(std::time::Instant::now()),
+        );
         iced::widget::stack![
             catch,
             container(drawer)
@@ -517,7 +547,7 @@ impl App {
             .search
             .as_ref()
             .filter(|s| s.grid)
-            .map(|_| super::apps_grid::COLUMNS as i64)
+            .map(|_| super::apps_grid::columns() as i64)
             .unwrap_or(1);
         self.search_step(if down { step } else { -step })
     }
@@ -1031,8 +1061,51 @@ impl App {
         {
             card
         } else {
-            let alpha = if s.grid { SHEET_BACKDROP } else { BACKDROP };
-            iced::widget::stack![backdrop(alpha), container(card).center(Length::Fill)].into()
+            // Voile réglé (MLG-278), plus dense sous la feuille.
+            let shape = super::apps_grid::shape();
+            let dim = shape.backdrop_dim;
+            let alpha = if s.grid { (dim * 1.5).min(0.9) } else { dim };
+            // Ouverture (MLG-278) : effet et durée réglés, mouvement du thème.
+            let p = s
+                .opening
+                .map_or(1.0, |f| f.value(std::time::Instant::now()));
+            let mo = super::tokens::motion();
+            let (scale, dy) = match shape.open_effect {
+                crate::config::OpenEffect::Fade => (1.0, mo.offset * (1.0 - p)),
+                crate::config::OpenEffect::Scale => {
+                    (mo.scale.min(0.94) + (1.0 - mo.scale.min(0.94)) * p, 0.0)
+                }
+                crate::config::OpenEffect::Slide => (1.0, 48.0 * (1.0 - p)),
+                crate::config::OpenEffect::None => (1.0, 0.0),
+            };
+            let card = crate::ui::plugins::bar::motion::surface(
+                card,
+                scale,
+                iced::Vector::new(0.0, dy),
+                iced::Point::new(0.5, 0.5),
+            );
+            // Place : centre de l'écran, ou en haut (décalage réglé).
+            let placed: Element<'_, Msg> = if shape.top {
+                container(card)
+                    .center_x(Length::Fill)
+                    .height(Length::Fill)
+                    .align_y(Alignment::Start)
+                    .padding(iced::Padding {
+                        top: f32::from(shape.offset.max(0)) + 48.0,
+                        ..iced::Padding::ZERO
+                    })
+                    .into()
+            } else {
+                container(card)
+                    .center(Length::Fill)
+                    .padding(iced::Padding {
+                        top: f32::from(shape.offset.max(0)) * 2.0,
+                        bottom: f32::from((-shape.offset).max(0)) * 2.0,
+                        ..iced::Padding::ZERO
+                    })
+                    .into()
+            };
+            iced::widget::stack![backdrop(alpha * p), placed].into()
         };
         iced::widget::sensor(content)
             .key(format!("{:?}", s.win))
@@ -1273,7 +1346,15 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
+                .style(move |_, status| {
+                    crate::ui::tokens::item(
+                        accent,
+                        fg,
+                        selected,
+                        status,
+                        f32::from(super::apps_grid::shape().selection_radius).min(10.0),
+                    )
+                })
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1374,7 +1455,15 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
+                .style(move |_, status| {
+                    crate::ui::tokens::item(
+                        accent,
+                        fg,
+                        selected,
+                        status,
+                        f32::from(super::apps_grid::shape().selection_radius).min(10.0),
+                    )
+                })
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1434,7 +1523,15 @@ impl App {
                 .padding([8, 12])
                 .width(Length::Fill)
                 .height(ROW)
-                .style(move |_, status| crate::ui::tokens::item(accent, fg, selected, status, 10.0))
+                .style(move |_, status| {
+                    crate::ui::tokens::item(
+                        accent,
+                        fg,
+                        selected,
+                        status,
+                        f32::from(super::apps_grid::shape().selection_radius).min(10.0),
+                    )
+                })
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -1455,7 +1552,7 @@ impl App {
                 column![iced::widget::scrollable(list).height(Length::Fill), input]
                     .spacing(12)
                     .into(),
-                super::apps_grid::SPOT_WIDTH,
+                super::apps_grid::spot_width(),
                 super::apps_grid::spot_height(!_s.suggested.is_empty()),
             );
         }
@@ -1468,7 +1565,7 @@ impl App {
                 .spacing(12),
             )
             .padding(16)
-            .width(super::apps_grid::SPOT_WIDTH)
+            .width(super::apps_grid::spot_width())
             .height(super::apps_grid::spot_height(!_s.suggested.is_empty())),
             crate::config::Place::Launcher,
             super::design::RADIUS,
@@ -1496,7 +1593,7 @@ impl App {
 
 /// Voile plein écran derrière le lanceur ; un clic dessus le referme.
 fn backdrop<'a>(alpha: f32) -> Element<'a, Msg> {
-    iced::widget::mouse_area(
+    let area = iced::widget::mouse_area(
         container(iced::widget::Space::new())
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1504,7 +1601,11 @@ fn backdrop<'a>(alpha: f32) -> Element<'a, Msg> {
                 background: Some(Color::from_rgba(0.0, 0.0, 0.0, alpha).into()),
                 ..Default::default()
             }),
-    )
-    .on_press(Msg::Search(SMsg::Close))
-    .into()
+    );
+    // Un clic hors de la carte la ferme, sauf réglage contraire (MLG-278).
+    if super::apps_grid::shape().close_on_outside_click {
+        area.on_press(Msg::Search(SMsg::Close)).into()
+    } else {
+        area.on_press(Msg::Noop).into()
+    }
 }

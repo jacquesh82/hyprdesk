@@ -22,13 +22,56 @@ use super::{App, Msg, color};
 /// Applications au plus dans la grille.
 pub const LIMIT: usize = 400;
 /// Colonnes de la grille (les flèches haut et bas sautent d'une rangée).
-pub const COLUMNS: usize = 7;
+/// Forme du lanceur (MLG-278) et hauteur de l'écran actif, posées à
+/// chaque config installée.
+static SHAPE: std::sync::RwLock<Option<(crate::config::LauncherShape, f32)>> =
+    std::sync::RwLock::new(None);
+
+/// Pose la forme du lanceur.
+pub(super) fn set_shape(shape: crate::config::LauncherShape, screen_height: f32) {
+    if let Ok(mut w) = SHAPE.write() {
+        *w = Some((shape, screen_height));
+    }
+}
+
+/// Forme du lanceur en place.
+pub(super) fn shape() -> crate::config::LauncherShape {
+    SHAPE
+        .read()
+        .ok()
+        .and_then(|s| s.map(|(s, _)| s))
+        .unwrap_or_default()
+}
+
+fn screen_height() -> f32 {
+    SHAPE
+        .read()
+        .ok()
+        .and_then(|s| s.map(|(_, h)| h))
+        .unwrap_or(1080.0)
+}
+
+/// Colonnes de la grille d'applications.
+pub fn columns() -> usize {
+    usize::from(shape().columns.max(2))
+}
 const TILE: f32 = 128.0;
 const ICON: f32 = 60.0;
 /// Carte centrée : largeur, lignes de résultats.
-pub const SPOT_WIDTH: f32 = 680.0;
-const SPOT_ROW: f32 = 48.0;
-const SPOT_ROWS: usize = 8;
+/// Largeur de la carte centrée.
+pub fn spot_width() -> f32 {
+    f32::from(shape().width)
+}
+
+/// Hauteur d'une ligne de résultat.
+fn spot_row() -> f32 {
+    f32::from(shape().row_height)
+}
+
+/// Résultats visibles en tapant.
+fn spot_rows() -> usize {
+    usize::from(shape().max_results.max(1))
+}
 /// Suggestions de la carte centrée : tuile, icône.
 const SPOT_TILE: f32 = 76.0;
 const SPOT_ICON: f32 = 46.0;
@@ -36,15 +79,24 @@ const SPOT_ICON: f32 = 46.0;
 /// Hauteur de la carte centrée (avec ou sans bandeau de suggestions).
 pub fn spot_height(suggestions: bool) -> f32 {
     let field = 58.0;
-    let list = SPOT_ROWS as f32 * SPOT_ROW;
+    let list = spot_rows() as f32 * spot_row();
     let sugg = if suggestions {
         22.0 + SPOT_TILE + 30.0 + 18.0
     } else {
         0.0
     };
     // Sans requête : suggestions + 5 lignes ; en tapant : 8 lignes.
-    let body = (sugg + 22.0 + 5.0 * SPOT_ROW).max(list);
-    field + 16.0 + body + 2.0 * 22.0
+    let pad = f32::from(shape().padding);
+    let body = (sugg + 22.0 + 5.0_f32.min(spot_rows() as f32) * spot_row()).max(list);
+    let h = field + 16.0 + body + 2.0 * pad;
+    // Hauteur plafonnée à une part de l'écran (MLG-278) : les résultats
+    // défilent dans la carte.
+    let cap = shape().max_height;
+    if cap > 0.0 {
+        h.min(screen_height() * cap).max(field + 2.0 * pad + 60.0)
+    } else {
+        h
+    }
 }
 
 /// Catégories proposées : libellé, catégories freedesktop qui en relèvent.
@@ -366,12 +418,12 @@ impl App {
                 k == s.selected,
                 Msg::Search(SMsg::Launch(k)),
             ));
-            if (k + 1).is_multiple_of(COLUMNS) {
+            if (k + 1).is_multiple_of(columns()) {
                 grid = grid.push(cur);
                 cur = row![].spacing(6);
             }
         }
-        if !s.results.len().is_multiple_of(COLUMNS) {
+        if !s.results.len().is_multiple_of(columns()) {
             grid = grid.push(cur);
         }
         let heading = if s.query.trim().is_empty() {
@@ -408,17 +460,23 @@ impl App {
         let sheet = crate::ui::glass::card(
             container(body)
                 .padding([28, 32])
-                .max_width(COLUMNS as f32 * (TILE + 6.0) + 64.0)
+                .max_width(columns() as f32 * (TILE + 6.0) + 64.0)
                 .height(Length::Fill),
             crate::config::Place::Launcher,
-            32.0,
+            f32::from(crate::ui::apps_grid::shape().radius) + 4.0,
             fg,
             self.launcher_tint(surface),
             container::Style {
                 background: Some(surface.into()),
-                border: Border::default().rounded(32).width(1).color(edge),
+                border: Border::default()
+                    .rounded(f32::from(shape().radius) + 4.0)
+                    .width(1)
+                    .color(Color {
+                        a: edge.a * shape().border,
+                        ..edge
+                    }),
                 shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                    color: Color::from_rgba(0.0, 0.0, 0.0, shape().shadow),
                     offset: Vector::new(0.0, 18.0),
                     blur_radius: 48.0,
                 },
@@ -457,7 +515,7 @@ impl App {
         let mut body = if convex {
             column![]
         } else {
-            column![self.launcher_field(s, SPOT_WIDTH - 44.0, 20.0)]
+            column![self.launcher_field(s, spot_width() - 44.0, 20.0)]
         }
         .spacing(16);
         if !typing && !s.suggested.is_empty() {
@@ -474,7 +532,7 @@ impl App {
             .spacing(4);
             body = body.push(column![self.launcher_heading("Suggestions"), tiles].spacing(8));
         }
-        let rows = if typing { SPOT_ROWS } else { 5 };
+        let rows = if typing { spot_rows() } else { 5 };
         let mut list = column![].spacing(2);
         if s.results.is_empty() {
             list = list.push(
@@ -511,8 +569,16 @@ impl App {
                 )
                 .padding([8, 12])
                 .width(Length::Fill)
-                .height(SPOT_ROW)
-                .style(move |_, st| crate::ui::tokens::item(accent, fg, selected, st, 12.0))
+                .height(spot_row())
+                .style(move |_, st| {
+                    crate::ui::tokens::item(
+                        accent,
+                        fg,
+                        selected,
+                        st,
+                        f32::from(shape().selection_radius),
+                    )
+                })
                 .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
@@ -527,30 +593,36 @@ impl App {
         if convex {
             let body = column![
                 scrollable(body).height(Length::Fill),
-                self.launcher_field(s, SPOT_WIDTH - 80.0, 16.0)
+                self.launcher_field(s, spot_width() - 80.0, 16.0)
             ]
             .spacing(16);
             return self.convex_search_surface(
                 s,
                 body.into(),
-                SPOT_WIDTH,
+                spot_width(),
                 spot_height(!s.suggested.is_empty()),
             );
         }
         let card = crate::ui::glass::card(
             container(body)
-                .padding(22)
-                .width(SPOT_WIDTH)
+                .padding(shape().padding)
+                .width(spot_width())
                 .height(spot_height(!s.suggested.is_empty())),
             crate::config::Place::Launcher,
-            28.0,
+            f32::from(shape().radius),
             fg,
             self.launcher_tint(bg),
             container::Style {
                 background: Some(bg.into()),
-                border: Border::default().rounded(28).width(1).color(edge),
+                border: Border::default()
+                    .rounded(f32::from(shape().radius))
+                    .width(1)
+                    .color(Color {
+                        a: edge.a * shape().border,
+                        ..edge
+                    }),
                 shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                    color: Color::from_rgba(0.0, 0.0, 0.0, shape().shadow),
                     offset: Vector::new(0.0, 12.0),
                     blur_radius: 32.0,
                 },

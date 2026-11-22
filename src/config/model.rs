@@ -489,6 +489,8 @@ pub struct AppsCfg {
     /// Applications mises en avant (les plus lancées), 0 : aucune.
     pub suggestions: u8,
     pub categories: bool,
+    /// Forme du lanceur (MLG-278).
+    pub shape: LauncherShape,
 }
 
 impl Default for AppsCfg {
@@ -498,6 +500,100 @@ impl Default for AppsCfg {
             style: AppsStyle::Auto,
             suggestions: 8,
             categories: true,
+            shape: LauncherShape::default(),
+        }
+    }
+}
+
+/// Ce que montre le lanceur avant la saisie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmptyView {
+    /// Les applications les plus lancées.
+    #[default]
+    Suggestions,
+    /// Les applications épinglées au dock.
+    Favorites,
+    /// Le champ seul.
+    Field,
+}
+
+/// Effet d'ouverture du lanceur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OpenEffect {
+    /// Fondu avec léger déplacement (mouvement du thème).
+    #[default]
+    Fade,
+    /// Agrandissement depuis le centre.
+    Scale,
+    /// Glissement depuis le bas.
+    Slide,
+    /// Ouverture immédiate.
+    None,
+}
+
+/// Qualité des effets du verre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EffectsQuality {
+    /// Flou et teinte, sans lentille ni reflet.
+    Low,
+    /// Lentille sans aberration.
+    Medium,
+    #[default]
+    High,
+}
+
+/// Forme du lanceur (MLG-278) : dimensions, résultats, état initial,
+/// arrière-plan, ouverture, sélection, fermeture, effets.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LauncherShape {
+    pub width: u16,
+    /// Hauteur maximale, part de l'écran (0 : celle du lanceur).
+    pub max_height: f32,
+    pub radius: u16,
+    pub padding: u16,
+    pub columns: u8,
+    pub row_height: u16,
+    pub max_results: u8,
+    pub empty_view: EmptyView,
+    /// Voile sur le bureau derrière la carte (0..1), une fois et demie
+    /// sous la feuille : sous 0,2, Hyprland ne floute plus ce qu'il recouvre
+    /// (règle de calque `ignore_alpha = 0.2`, `crate::hypr`).
+    pub backdrop_dim: f32,
+    pub open_effect: OpenEffect,
+    /// Durée d'ouverture (ms, 0 : celle du thème).
+    pub open_duration: u16,
+    /// Carte en haut de l'écran plutôt qu'au centre, à `offset` px.
+    pub top: bool,
+    pub offset: i16,
+    pub selection_radius: u16,
+    /// Opacités du filet et de l'ombre de la carte.
+    pub border: f32,
+    pub shadow: f32,
+    pub close_on_outside_click: bool,
+    pub quality: EffectsQuality,
+}
+
+impl Default for LauncherShape {
+    fn default() -> Self {
+        Self {
+            width: 680,
+            max_height: 0.0,
+            radius: 28,
+            padding: 22,
+            columns: 7,
+            row_height: 48,
+            max_results: 8,
+            empty_view: EmptyView::Suggestions,
+            backdrop_dim: 0.30,
+            open_effect: OpenEffect::Fade,
+            open_duration: 0,
+            top: false,
+            offset: 0,
+            selection_radius: 12,
+            border: 1.0,
+            shadow: 0.5,
+            close_on_outside_click: true,
+            quality: EffectsQuality::High,
         }
     }
 }

@@ -286,6 +286,14 @@ pub fn glass(p: Place) -> Glass {
     } else {
         g
     };
+    // Qualité des effets du lanceur (MLG-278).
+    if p == Place::Launcher {
+        match super::apps_grid::shape().quality {
+            crate::config::EffectsQuality::Low => g = g.reduced(),
+            crate::config::EffectsQuality::Medium => g.pointer_response = false,
+            crate::config::EffectsQuality::High => {}
+        }
+    }
     if increase_contrast() {
         g.border = g.border.max(0.3);
     }
