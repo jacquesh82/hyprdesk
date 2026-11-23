@@ -39,10 +39,37 @@ const EDIT_WIDTH: f32 = 220.0;
 /// Largeur de la carte des propriétés.
 const PROPS_WIDTH: f32 = 400.0;
 const ROW: f32 = 34.0;
-const SHADOW: f32 = 16.0;
+pub(in crate::ui) const SHADOW: f32 = 16.0;
 /// Marge intérieure de la carte d'un menu.
 const PAD: f32 = 6.0;
 const INPUT_ID: &str = "hyprdesk-icon-rename";
+/// Défilement des lignes d'une carte plafonnée à l'écran (HIG MENU-02).
+const SCROLL: &str = "hyprdesk-icon-menu-list";
+
+/// Hauteur de la surface d'une carte de `full` pixels dans un écran de
+/// `screen` : toute la carte, ou l'écran quand elle le dépasse. Ses lignes
+/// défilent alors dans la carte, comme dans les menus de la barre.
+fn window_height(full: f32, screen: f32) -> (f32, bool) {
+    if full > screen {
+        (screen, true)
+    } else {
+        (full, false)
+    }
+}
+
+/// Décalage qui rend visible la ligne `[top, top + row]` d'un contenu de
+/// `content` pixels montré dans une fenêtre de `view` pixels, depuis le
+/// décalage `from` : le plus court, sans sortir du contenu.
+fn follow(from: f32, view: f32, content: f32, top: f32, row: f32) -> f32 {
+    let to = if top + row > from + view {
+        top + row - view
+    } else if top < from {
+        top
+    } else {
+        from
+    };
+    to.clamp(0.0, (content - view).max(0.0))
+}
 
 /// Ce que vise le menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +143,13 @@ pub struct IconMenu {
     pub origin: Point,
     /// Entrée choisie au clavier (rang dans les lignes).
     pub hover: Option<usize>,
+    /// La carte dépasse l'écran : la surface est plafonnée et ses lignes
+    /// défilent (HIG MENU-02).
+    pub scrolls: bool,
+    /// Carte plafonnée : hauteur visible des lignes, et décalage du
+    /// défilement que le clavier a demandé en dernier.
+    pub viewport: f32,
+    pub offset: f32,
     /// Entrée `.desktop` de l'application visée : ses actions, son terminal.
     pub entry: Option<crate::launch::DesktopEntry>,
     /// « Partager… » : les destinations, à la place des entrées.
@@ -141,9 +175,30 @@ impl IconMenu {
             monitor: String::new(),
             origin: Point::ORIGIN,
             hover: None,
+            scrolls: false,
+            viewport: 0.0,
+            offset: 0.0,
             entry: None,
             share: None,
         }
+    }
+
+    /// Carte de `full` pixels sur un écran de `screen` : hauteur de sa
+    /// surface — l'écran quand la carte le dépasse, ses lignes défilent
+    /// alors (HIG MENU-02). Sans écran connu, la carte garde sa taille.
+    pub(in crate::ui) fn cap(&mut self, full: f32, screen: Option<f32>) -> f32 {
+        let (h, scrolls) = match screen {
+            Some(screen) => window_height(full, screen),
+            None => (full, false),
+        };
+        self.scrolls = scrolls;
+        self.viewport = if scrolls {
+            h - 2.0 * (SHADOW + PAD)
+        } else {
+            0.0
+        };
+        self.offset = 0.0;
+        h
     }
 }
 
@@ -914,7 +969,7 @@ impl App {
         }
     }
 
-    fn icon_menu_height(&self, m: &IconMenu) -> f32 {
+    pub(in crate::ui) fn icon_menu_height(&self, m: &IconMenu) -> f32 {
         if let Some(props) = &m.props {
             return props_height(props);
         }
@@ -1004,14 +1059,18 @@ impl App {
         } else {
             0.0
         };
-        let h = self.icon_menu_height(&menu) + room + 2.0 * SHADOW;
+        let full = self.icon_menu_height(&menu) + room + 2.0 * SHADOW;
         let w = Self::icon_menu_width(&menu) + 2.0 * SHADOW;
         let (mut x, mut y) = if exact {
             (at.x, at.y)
         } else {
             (at.x - SHADOW, at.y - SHADOW)
         };
-        if let Some(m) = self.monitors.iter().find(|m| m.name == menu.monitor) {
+        // Carte plus haute que l'écran (dock : toutes ses fenêtres, toutes ses
+        // actions) : la surface est plafonnée et le contenu défile (HIG MENU-02).
+        let screen = self.monitors.iter().find(|m| m.name == menu.monitor);
+        let h = menu.cap(full, screen.map(|m| m.height as f32));
+        if let Some(m) = screen {
             x = x.min(m.width as f32 - w).max(0.0);
             y = y.min(m.height as f32 - h).max(0.0);
         }
@@ -1167,19 +1226,33 @@ impl App {
     }
 
     /// Clavier dans un menu ouvert : flèches et Début/Fin choisissent une
-    /// entrée, Entrée (ou Espace) la prend, Échap ferme. Le champ de
-    /// renommage garde ses touches.
-    pub(super) fn icon_menu_key(&mut self, key: &iced::keyboard::Key) -> Option<Task<Msg>> {
+    /// entrée, Entrée (ou Espace) la prend, Échap ferme. Tab avance, Maj+Tab
+    /// recule comme la flèche haut (HIG ENT-05). Le champ de renommage garde
+    /// ses touches. Dans une carte plafonnée à l'écran, l'entrée choisie
+    /// reste visible.
+    pub(super) fn icon_menu_key(
+        &mut self,
+        key: &iced::keyboard::Key,
+        shift: bool,
+    ) -> Option<Task<Msg>> {
         use iced::keyboard::{Key, key::Named};
+        use iced::widget::operation::{AbsoluteOffset, scroll_to};
         let m = self.icon_menu.as_ref()?;
         if m.rename.is_some() || m.props.is_some() {
             return None;
         }
         let lines = self.icon_menu_lines(m);
+        let head = if self.icon_menu_title(m).is_empty() {
+            0.0
+        } else {
+            super::menu::HEADER
+        };
+        let scrolls = m.scrolls;
         let hover = m.hover;
         let next = match key {
             Key::Named(Named::Escape) => return Some(self.close_icon_menu()),
-            Key::Named(Named::ArrowDown | Named::Tab) => super::menu::step(&lines, hover, true),
+            Key::Named(Named::Tab) => super::menu::step(&lines, hover, !shift),
+            Key::Named(Named::ArrowDown) => super::menu::step(&lines, hover, true),
             Key::Named(Named::ArrowUp) => super::menu::step(&lines, hover, false),
             Key::Named(Named::Home | Named::PageUp) => super::menu::edge(&lines, true),
             Key::Named(Named::End | Named::PageDown) => super::menu::edge(&lines, false),
@@ -1195,8 +1268,27 @@ impl App {
             }
             _ => return None,
         };
-        if let Some(m) = self.icon_menu.as_mut() {
-            m.hover = next;
+        let Some(m) = self.icon_menu.as_mut() else {
+            return Some(Task::none());
+        };
+        m.hover = next;
+        // Carte plafonnée : le défilement suit l'entrée choisie.
+        if let (true, Some(i)) = (scrolls, next) {
+            let top = super::menu::height;
+            m.offset = follow(
+                m.offset,
+                m.viewport,
+                head + top(&lines),
+                head + top(&lines[..i]),
+                top(&lines[i..i + 1]),
+            );
+            return Some(scroll_to(
+                SCROLL,
+                AbsoluteOffset {
+                    x: 0.0,
+                    y: m.offset,
+                },
+            ));
         }
         Some(Task::none())
     }
@@ -1764,6 +1856,7 @@ impl App {
         &'a self,
         name: &str,
         props: &'a [(String, String)],
+        scrolls: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
@@ -1781,8 +1874,9 @@ impl App {
                 .height(ROW)
         ]
         .spacing(6);
+        let mut list = column![].spacing(6);
         for (k, v) in props {
-            col = col.push(
+            list = list.push(
                 column![
                     text(k.clone())
                         .font(self.font)
@@ -1797,6 +1891,18 @@ impl App {
                 .spacing(1),
             );
         }
+        // Carte plafonnée à l'écran : les propriétés défilent, le titre et les
+        // commandes restent (HIG MENU-02).
+        let list: Element<'_, Msg> = if scrolls {
+            iced::widget::scrollable(list)
+                .id(SCROLL)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else {
+            list.into()
+        };
+        col = col.push(list);
         let btn = |label: &'static str, msg: CMsg| {
             button(
                 text(crate::i18n::tr(label))
@@ -1834,6 +1940,11 @@ impl App {
         let card = container(col)
             .padding(14)
             .width(PROPS_WIDTH)
+            .height(if scrolls {
+                Length::Fill
+            } else {
+                Length::Shrink
+            })
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
@@ -1848,7 +1959,12 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
-        container(card).padding(SHADOW).into()
+        let card = container(card).padding(SHADOW);
+        if scrolls {
+            card.height(Length::Fill).into()
+        } else {
+            card.into()
+        }
     }
 
     pub(super) fn view_icon_catcher(&self) -> Element<'_, Msg> {
@@ -1874,7 +1990,7 @@ impl App {
         );
         let name = self.icon_menu_title(m);
         if let Some(props) = &m.props {
-            return self.view_properties(&name, props);
+            return self.view_properties(&name, props, m.scrolls);
         }
         let ink = self.menu_ink(1.0);
         let mut col = column![].spacing(0);
@@ -1882,6 +1998,20 @@ impl App {
             col = col.push(self.menu_header(ink, name));
         }
         col = col.push(self.menu_lines(ink, &self.icon_menu_lines(m), m.hover, Msg::IconMenu));
+        // Carte plafonnée à l'écran : les lignes défilent dans la carte, qui
+        // garde son coin et son ombre ; le renommage, lui, reste en bas.
+        let scrolls = m.scrolls;
+        let mut col = if scrolls {
+            column![
+                iced::widget::scrollable(col)
+                    .id(SCROLL)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            ]
+            .spacing(0)
+        } else {
+            col
+        };
         if let Some(r) = &m.rename {
             col = col.push(
                 text_input(crate::i18n::tr("Nouveau nom"), r)
@@ -1904,6 +2034,11 @@ impl App {
         let card = container(col)
             .padding(PAD)
             .width(Self::icon_menu_width(m))
+            .height(if scrolls {
+                Length::Fill
+            } else {
+                Length::Shrink
+            })
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
@@ -1919,7 +2054,12 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
-        container(card).padding(SHADOW).into()
+        let card = container(card).padding(SHADOW);
+        if scrolls {
+            card.height(Length::Fill).into()
+        } else {
+            card.into()
+        }
     }
 }
 
@@ -1952,6 +2092,124 @@ mod tests {
         assert!(!valid_name("  "));
         assert!(!valid_name("a/b"));
         assert!(!valid_name(".."));
+    }
+
+    fn ecran(height: u32) -> crate::hypr::Monitor {
+        crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1920,
+            height,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    /// Le dock : `n` fenêtres d'une même application.
+    fn dock_et_ses_fenetres(n: usize) -> (App, IconMenu) {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.clients = (0..n)
+            .map(|k| crate::hypr::Client {
+                address: format!("0x{k:x}"),
+                class: "firefox".into(),
+                title: format!("Fenêtre {k}"),
+                workspace: "1".into(),
+                monitor: "A".into(),
+            })
+            .collect();
+        let mut m = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some("firefox".into()),
+                class: None,
+                name: "Firefox".into(),
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        (app, m)
+    }
+
+    /// Une carte plus haute que l'écran (dock : toutes ses fenêtres) est
+    /// plafonnée à l'écran et défile ; une carte qui tient garde sa taille
+    /// et sa surface fixe (HIG MENU-02).
+    #[test]
+    fn carte_plafonnee_a_l_ecran() {
+        assert_eq!(window_height(400.0, 1080.0), (400.0, false));
+        assert_eq!(window_height(2000.0, 1080.0), (1080.0, true));
+
+        let (mut app, m) = dock_et_ses_fenetres(2);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert!(!menu.scrolls && menu.viewport == 0.0);
+
+        let (mut app, m) = dock_et_ses_fenetres(80);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert!(menu.scrolls);
+        // La surface occupe l'écran ; la carte y garde son ombre et sa marge.
+        assert!((menu.viewport - (1080.0 - 2.0 * (SHADOW + PAD))).abs() < 0.5);
+        assert!(menu.origin.y >= 0.0 && menu.origin.y <= 2.0 * SHADOW);
+    }
+
+    #[test]
+    fn le_defilement_suite_l_entre_choisie() {
+        // Déjà visible : rien ne bouge.
+        assert_eq!(follow(0.0, 300.0, 900.0, 100.0, 30.0), 0.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 610.0, 30.0), 600.0);
+        // Sous la fenêtre : elle en devient le bas ; au-dessus : le haut.
+        assert_eq!(follow(0.0, 300.0, 900.0, 290.0, 30.0), 20.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 590.0, 30.0), 590.0);
+        // Jamais au-delà du contenu.
+        assert_eq!(follow(0.0, 300.0, 900.0, 880.0, 30.0), 600.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 0.0, 30.0), 0.0);
+    }
+
+    /// Tab avance, Maj+Tab recule comme la flèche haut (HIG ENT-05) ; dans
+    /// une carte plafonnée, le défilement mène l'entrée choisie.
+    #[test]
+    fn maj_tab_recule_et_la_carte_suite() {
+        use super::super::menu::{HEADER, height};
+        use iced::keyboard::key::Named;
+        let key = iced::keyboard::Key::Named;
+        let hover = |a: &App| a.icon_menu.as_ref().and_then(|m| m.hover);
+
+        let (mut app, m) = dock_et_ses_fenetres(2);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let _ = app.icon_menu_key(&key(Named::Tab), false);
+        assert_eq!(hover(&app), Some(0));
+        let _ = app.icon_menu_key(&key(Named::Tab), false);
+        assert_eq!(hover(&app), Some(1));
+        let _ = app.icon_menu_key(&key(Named::Tab), true);
+        assert_eq!(hover(&app), Some(0));
+        let up = app.icon_menu_key(&key(Named::Tab), true).is_some();
+        let last = {
+            let menu = app.icon_menu.as_ref().unwrap();
+            super::super::menu::edge(&app.icon_menu_lines(menu), false)
+        };
+        assert!(up && hover(&app) == last, "Maj+Tab boucle sur la dernière");
+
+        let (mut app, m) = dock_et_ses_fenetres(80);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let _ = app.icon_menu_key(&key(Named::ArrowDown), false);
+        let _ = app.icon_menu_key(&key(Named::ArrowDown), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert_eq!(menu.hover, Some(1));
+        assert_eq!(menu.offset, 0.0, "les premières entrées sont visibles");
+        let _ = app.icon_menu_key(&key(Named::End), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        let lines = app.icon_menu_lines(menu);
+        let head = if app.icon_menu_title(menu).is_empty() {
+            0.0
+        } else {
+            HEADER
+        };
+        assert_eq!(menu.offset, head + height(&lines) - menu.viewport);
     }
 
     fn app() -> App {

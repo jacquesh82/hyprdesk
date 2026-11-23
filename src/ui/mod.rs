@@ -5295,8 +5295,8 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
-                // Menu ouvert : flèches, Entrée et Échap sont à lui (MLG-306).
-                if let Some(t) = self.icon_menu_key(&key) {
+                // Menu ouvert : flèches, Tab, Entrée et Échap sont à lui (MLG-306).
+                if let Some(t) = self.icon_menu_key(&key, self.mods.shift()) {
                     return t;
                 }
                 if self.bar_drag.is_some()
@@ -5342,9 +5342,10 @@ impl App {
                     return self.mfa_update(mymfa::MMsg::Tab);
                 }
                 // Écran « Espaces de travail » : Échap referme (ou annule le
-                // renommage), Entrée ouvre l'espace choisi, les flèches choisissent.
+                // renommage), Entrée ouvre l'espace choisi, les flèches et Tab
+                // choisissent.
                 if self.overview.is_some() {
-                    return self.overview_key(&key);
+                    return self.overview_key(&key, self.mods.shift());
                 }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {

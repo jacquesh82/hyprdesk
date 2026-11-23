@@ -535,8 +535,9 @@ impl App {
     }
 
     /// Clavier de l'écran : Échap referme (annule d'abord le renommage),
-    /// Entrée ouvre l'espace choisi, les flèches déplacent le choix.
-    pub(super) fn overview_key(&mut self, key: &keyboard::Key) -> Task<Msg> {
+    /// Entrée ouvre l'espace choisi, les flèches déplacent le choix ; Tab
+    /// descend, Maj+Tab remonte comme la flèche haut (HIG ENT-05).
+    pub(super) fn overview_key(&mut self, key: &keyboard::Key, shift: bool) -> Task<Msg> {
         use keyboard::key::Named;
         // Renommage : Échap annule, la saisie garde le reste (Entrée soumet).
         if self.overview.as_ref().is_some_and(|o| o.renaming.is_some()) {
@@ -564,14 +565,16 @@ impl App {
                 };
                 self.overview_update(OMsg::Pick(card.name.clone()))
             }
-            keyboard::Key::Named(Named::ArrowDown | Named::Tab) => {
-                let cols = (n as f32).sqrt().ceil() as usize;
-                self.overview_select((selected + cols).min(n - 1));
+            keyboard::Key::Named(Named::Tab) => {
+                self.overview_select(row_step(selected, n, !shift));
+                Task::none()
+            }
+            keyboard::Key::Named(Named::ArrowDown) => {
+                self.overview_select(row_step(selected, n, true));
                 Task::none()
             }
             keyboard::Key::Named(Named::ArrowUp) => {
-                let cols = (n as f32).sqrt().ceil() as usize;
-                self.overview_select(selected.saturating_sub(cols.max(1)));
+                self.overview_select(row_step(selected, n, false));
                 Task::none()
             }
             keyboard::Key::Named(Named::ArrowLeft) => {
@@ -591,6 +594,24 @@ impl App {
             o.selected = i;
         }
     }
+}
+
+/// Carte d'un rang en dessous (ou au-dessus) parmi `n` cartes en grille
+/// presque carrée : même colonne ; aux extrémités, on reste.
+fn row_step(selected: usize, n: usize, down: bool) -> usize {
+    let cols = (n as f32).sqrt().ceil() as usize;
+    if down {
+        (selected + cols).min(n - 1)
+    } else {
+        selected.saturating_sub(cols.max(1))
+    }
+}
+
+/// Carte qui reçoit la fenêtre glissée : sous le curseur, et autre que celle
+/// d'où elle vient — y déposer ne fait rien, elle ne se montre donc pas comme
+/// une cible (HIG DAT-08).
+fn is_drop_target(dragging: Option<&Press>, card: usize, under: bool) -> bool {
+    under && dragging.is_some_and(|p| p.card != card)
 }
 
 /// Va au workspace (hors du fil de l'interface).
@@ -867,13 +888,16 @@ impl App {
         let card_bg = color(th.bg, 0.94 * alpha);
         let i = index;
         let selected = o.selected == i;
-        // Cible du dépôt : la carte sous le curseur pendant un glisser.
-        let drop_target = dragging.is_some()
-            && self
-                .cursor
+        // Cible du dépôt : la carte sous le curseur pendant un glisser, sauf
+        // celle d'origine de la fenêtre glissée (HIG DAT-08).
+        let drop_target = is_drop_target(
+            dragging.as_ref(),
+            i,
+            self.cursor
                 .get(&o.win)
                 .copied()
-                .is_some_and(|p| rect.contains(p));
+                .is_some_and(|p| rect.contains(p)),
+        );
         let active = card.active;
 
         // Titre : renommage en cours, ou « Nom » (+ écran si plusieurs).
@@ -1156,5 +1180,40 @@ mod tests {
             assert_eq!(v.as_str(), s);
         }
         assert_eq!(WsSelector::parse("inconnu"), None);
+    }
+
+    /// Cinq espaces en grille de trois colonnes : Tab descend d'un rang,
+    /// Maj+Tab remonte comme la flèche haut (HIG ENT-05) ; aux bords, on reste.
+    #[test]
+    fn tab_et_maj_tab_changent_de_rang() {
+        assert_eq!(row_step(0, 5, true), 3);
+        assert_eq!(row_step(1, 5, true), 4);
+        assert_eq!(row_step(4, 5, true), 4);
+        assert_eq!(row_step(4, 5, false), 1);
+        assert_eq!(row_step(0, 5, false), 0);
+        assert_eq!(row_step(0, 1, false), 0);
+    }
+
+    /// Seule une carte autre que celle d'origine se montre comme cible du
+    /// dépôt, et seulement sous le curseur (HIG DAT-08).
+    #[test]
+    fn la_carte_d_origine_n_est_pas_une_cible() {
+        let presse = |card| {
+            Some(Press {
+                card,
+                window: None,
+                start: Point::ORIGIN,
+                title: false,
+            })
+        };
+        let glisse = presse(1);
+        let glisse = glisse.as_ref();
+        assert!(!is_drop_target(None, 2, true), "sans glisser");
+        assert!(is_drop_target(glisse, 2, true));
+        assert!(
+            !is_drop_target(glisse, 1, true),
+            "la carte d'où vient la fenêtre"
+        );
+        assert!(!is_drop_target(glisse, 2, false), "hors du curseur");
     }
 }

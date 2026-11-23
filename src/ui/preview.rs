@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 158] = [
+const SCENES: [&str; 159] = [
     "desktop",
     "typography",
     "icons",
@@ -77,6 +77,7 @@ const SCENES: [&str; 158] = [
     "menu-icone",
     "proprietes",
     "menu-dock",
+    "menu-dock-long",
     "menu-edition",
     "fenetres",
     "connexion",
@@ -1714,23 +1715,25 @@ impl Preview {
         } else if SCENES[self.scene] == "menu-dock" {
             // Menu d'une application du dock (MLG-307) : ses fenêtres, ses
             // actions `.desktop`, l'épingler, la fermer.
-            let mut m = super::context::IconMenu::new(
-                super::context::MenuTarget::App(super::context::AppRef {
-                    id: Some("firefox".into()),
-                    class: Some("firefox".into()),
-                    name: "Firefox".into(),
-                }),
-                iced::window::Id::unique(),
-            );
-            m.entry = crate::launch::parse_desktop_entry(
-                "[Desktop Entry]\nName=Firefox\nExec=firefox %u\n\
-                 Actions=new-window;new-private-window;\n\
-                 [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window %u\n\
-                 [Desktop Action new-private-window]\nName=Nouvelle fenêtre de navigation privée\n\
-                 Exec=firefox --private-window %u\n",
-                "fr_FR",
-            );
-            m.hover = Some(3);
+            self.app.icon_menu = Some(Self::menu_dock_app());
+        } else if SCENES[self.scene] == "menu-dock-long" {
+            // Le même menu, plus haut que l'écran (HIG MENU-02) : la carte est
+            // plafonnée à l'écran et ses lignes défilent à l'intérieur.
+            let monitor = self.app.monitors[0].name.clone();
+            self.app.clients = (1..=60)
+                .map(|k| crate::hypr::Client {
+                    address: format!("0x{k:x}"),
+                    class: "firefox".into(),
+                    title: format!("Fenêtre {k}"),
+                    workspace: "1".into(),
+                    monitor: monitor.clone(),
+                })
+                .collect();
+            let mut m = Self::menu_dock_app();
+            m.monitor = monitor;
+            let full = self.app.icon_menu_height(&m) + 2.0 * super::context::SHADOW;
+            let screen = self.app.monitors[0].height as f32;
+            m.cap(full, Some(screen));
             self.app.icon_menu = Some(m);
         } else if SCENES[self.scene] == "menu-edition" {
             // Menu d'édition d'un champ (MLG-309), sélection faite.
@@ -2537,6 +2540,29 @@ impl Preview {
                 dur: Duration::ZERO,
             };
         }
+    }
+
+    /// Menu d'une application du dock (MLG-307) : ses fenêtres, ses actions
+    /// `.desktop`, l'épingler, la fermer.
+    fn menu_dock_app() -> super::context::IconMenu {
+        let mut m = super::context::IconMenu::new(
+            super::context::MenuTarget::App(super::context::AppRef {
+                id: Some("firefox".into()),
+                class: Some("firefox".into()),
+                name: "Firefox".into(),
+            }),
+            iced::window::Id::unique(),
+        );
+        m.entry = crate::launch::parse_desktop_entry(
+            "[Desktop Entry]\nName=Firefox\nExec=firefox %u\n\
+             Actions=new-window;new-private-window;\n\
+             [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window %u\n\
+             [Desktop Action new-private-window]\nName=Nouvelle fenêtre de navigation privée\n\
+             Exec=firefox --private-window %u\n",
+            "fr_FR",
+        );
+        m.hover = Some(3);
+        m
     }
 
     fn demo_controls(&mut self) {
