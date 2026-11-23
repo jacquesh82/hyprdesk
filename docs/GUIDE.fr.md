@@ -276,7 +276,9 @@ application : `hyprdesk binds generate --write`.
   Hyprland** (hyprpm : activer ou couper chaque plugin, mettre à jour,
   ajouter un dépôt, recharger au démarrage) et les **permissions**
   (autoriser, refuser ou demander pour la capture d'écran, le chargement de
-  plugins et les claviers, les conseillées en un clic).
+  plugins et les claviers, les conseillées en un clic). Dans les listes de
+  règles, un champ numérique refuse tout autre texte : la saisie reste au
+  champ et l'erreur s'affiche dessous.
 - **Performance.** Un profil de rendu (Performance, Équilibré ou Rendu
   graphique) échange les effets contre la charge du processeur et de la
   carte graphique. **Réglages → Performance → Carte graphique** montre la

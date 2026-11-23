@@ -315,6 +315,45 @@ pub fn json_set(v: &mut serde_json::Value, path: &str, val: Option<serde_json::V
     go(v, &parts, val);
 }
 
+/// Clé d'un champ d'élément dans les saisies en cours et refusées (`opt_drafts`,
+/// `opt_errors`, partagés avec les options de Hyprland), par exemple
+/// `Rules(Window)#3.match.class`. Le `#` la distingue d'un chemin d'option
+/// (`general:gaps_in`).
+fn spec_key(list: List, i: usize, path: &str) -> String {
+    format!("{list:?}#{i}.{path}")
+}
+
+/// Saisie d'un champ, telle qu'elle entre dans l'élément : `Ok(None)` quand le
+/// champ est vidé (valeur retirée). Un champ numérique qui reçoit autre chose
+/// qu'un nombre est refusé (`Err`, le message) : l'élément et Hyprland ne
+/// changent pas, la saisie reste au champ avec l'erreur.
+fn spec_input(kind: Field, s: &str) -> Result<Option<serde_json::Value>, String> {
+    use serde_json::Value as J;
+    if s.is_empty() {
+        return Ok(None);
+    }
+    let num = || {
+        s.trim()
+            .replace(',', ".")
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .map(|n| {
+                if n.fract() == 0.0 && n.abs() < 1e15 {
+                    J::from(n as i64)
+                } else {
+                    serde_json::Number::from_f64(n).map_or(J::Null, J::Number)
+                }
+            })
+    };
+    let v = match kind {
+        Field::Num => num().ok_or_else(|| crate::tr!("« {v} » : nombre attendu", v = s.trim()))?,
+        Field::TextOrNum => num().unwrap_or_else(|| J::String(s.to_string())),
+        _ => J::String(s.to_string()),
+    };
+    Ok(Some(v))
+}
+
 /// Élément `i` d'une liste.
 fn item_mut(h: &mut Hypr, list: List, i: usize) -> Option<&mut serde_json::Value> {
     match list {
@@ -414,6 +453,22 @@ impl App {
                 .spacing(10)
                 .align_y(Alignment::Center),
             );
+            // Saisie refusée : l'erreur sous le champ, alignée sur lui,
+            // comme les options.
+            if let Some(e) = self.opt_errors.get(&spec_key(list, i, path)) {
+                card = card.push(
+                    container(
+                        text(e.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(crate::ui::tone::danger()),
+                    )
+                    .padding(iced::Padding {
+                        left: 270.0,
+                        ..iced::Padding::ZERO
+                    }),
+                );
+            }
         }
         let accent = color(self.cfg.general.theme.accent, 1.0);
         container(card)
@@ -509,32 +564,21 @@ impl App {
                 .into()
             }
             Field::Text | Field::Num | Field::TextOrNum => {
-                let shown = match cur {
-                    Some(J::String(s)) => s.clone(),
-                    Some(J::Null) | None => String::new(),
-                    Some(v) => v.to_string(),
-                };
+                // Saisie refusée : elle reste au champ, l'erreur à côté.
+                let key = spec_key(list, i, path);
+                let shown = self
+                    .opt_drafts
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| match cur {
+                        Some(J::String(s)) => s.clone(),
+                        Some(J::Null) | None => String::new(),
+                        Some(v) => v.to_string(),
+                    });
                 text_input("", &shown)
-                    .on_input(move |s| {
-                        let num = || {
-                            s.trim().replace(',', ".").parse::<f64>().ok().map(|n| {
-                                if n.fract() == 0.0 && n.abs() < 1e15 {
-                                    J::from(n as i64)
-                                } else {
-                                    serde_json::Number::from_f64(n).map_or(J::Null, J::Number)
-                                }
-                            })
-                        };
-                        let v = if s.is_empty() {
-                            None
-                        } else {
-                            match kind {
-                                Field::Num => num().or(Some(J::String(s.clone()))),
-                                Field::TextOrNum => num().or(Some(J::String(s.clone()))),
-                                _ => Some(J::String(s.clone())),
-                            }
-                        };
-                        wrap(Msg::SpecText(list, i, path.to_string(), v))
+                    .on_input(move |s| match spec_input(kind, &s) {
+                        Ok(v) => wrap(Msg::SpecText(list, i, path.to_string(), v)),
+                        Err(e) => wrap(Msg::SpecDraft(list, i, path.to_string(), s, e)),
                     })
                     .on_submit(wrap(Msg::Commit))
                     .font(self.font)
@@ -973,6 +1017,13 @@ impl App {
         col.push(Space::new().height(4)).into()
     }
 
+    /// Oublie les saisies refusées des listes : leur clé porte l'indice de
+    /// l'élément, qu'un retrait ou un déplacement change.
+    fn forget_spec_inputs(&mut self) {
+        self.opt_drafts.retain(|k, _| !k.contains('#'));
+        self.opt_errors.retain(|k, _| !k.contains('#'));
+    }
+
     /// Messages des listes ; `None` : message d'un autre éditeur.
     pub(in crate::ui) fn hyprlists_update(&mut self, msg: Msg) -> Result<Task<UiMsg>, Msg> {
         Ok(match msg {
@@ -985,12 +1036,23 @@ impl App {
                 self.commit()
             }
             Msg::SpecText(list, i, path, v) => {
+                // Saisie recevable : une saisie refusée de ce champ tombe.
+                let key = spec_key(list, i, &path);
+                self.opt_drafts.remove(&key);
+                self.opt_errors.remove(&key);
                 self.edit_hypr(|h| {
                     if let Some(b) = item_mut(h, list, i) {
                         json_set(b, &path, v);
                     }
                 });
                 self.apply()
+            }
+            Msg::SpecDraft(list, i, path, s, e) => {
+                // Refusée : rien d'écrit, rien d'appliqué ; le texte et l'erreur restent.
+                let key = spec_key(list, i, &path);
+                self.opt_drafts.insert(key.clone(), s);
+                self.opt_errors.insert(key, e);
+                Task::none()
             }
             Msg::SpecAdd(list) => {
                 let detected: Vec<String> = self
@@ -1032,6 +1094,8 @@ impl App {
                 self.commit()
             }
             Msg::SpecDel(list, i) => {
+                // Les indices bougent : une saisie refusée ne désignerait plus son champ.
+                self.forget_spec_inputs();
                 self.edit_hypr(|h| match list {
                     List::Rules(_) if i < h.rules.len() => {
                         h.rules.remove(i);
@@ -1047,6 +1111,7 @@ impl App {
                 self.commit()
             }
             Msg::SpecMove(list, i, d) => {
+                self.forget_spec_inputs();
                 self.edit_hypr(|h| match list {
                     // Avec la voisine de la même sorte.
                     List::Rules(kind) => {
@@ -1146,6 +1211,40 @@ mod tests {
         assert_eq!(v["match"]["namespace"], "^bar$");
         json_set(&mut v, "match.namespace", None);
         assert!(v.get("match").is_none(), "objet vidé retiré");
+    }
+
+    #[test]
+    fn champ_numerique_refuse_le_texte() {
+        use serde_json::Value as J;
+        let num = |s| spec_input(Field::Num, s);
+        assert_eq!(num("12"), Ok(Some(J::from(12))));
+        assert_eq!(num(" 0,5 "), Ok(Some(serde_json::json!(0.5))));
+        assert_eq!(num("-3"), Ok(Some(J::from(-3))));
+        assert_eq!(num(""), Ok(None), "champ vidé : valeur retirée");
+        for s in ["abc", "1 2", "1..2", "inf", "nan"] {
+            let e = num(s).expect_err("refusée");
+            assert!(e.contains(s), "{s:?} → {e}");
+        }
+        // Les autres champs gardent la chaîne.
+        assert_eq!(
+            spec_input(Field::Text, "abc"),
+            Ok(Some(J::String("abc".into())))
+        );
+        assert_eq!(
+            spec_input(Field::TextOrNum, "1 0"),
+            Ok(Some(J::String("1 0".into())))
+        );
+        assert_eq!(
+            spec_input(Field::TextOrNum, "0.5"),
+            Ok(Some(serde_json::json!(0.5)))
+        );
+    }
+
+    #[test]
+    fn cle_d_un_champ_d_element() {
+        let k = spec_key(List::Rules(RuleKind::Window), 3, "match.class");
+        assert_eq!(k, "Rules(Window)#3.match.class");
+        assert!(k.contains('#'), "se distingue d'un chemin d'option");
     }
 
     #[test]

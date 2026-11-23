@@ -266,7 +266,8 @@ and disabled bindings are kept. A hand-written file is copied
   variables, **Hyprland plugins** (hyprpm: enable or disable each plugin,
   update, add a repository, reload at startup) and **permissions** (allow,
   deny or ask for screen capture, plugin loading and keyboards, with the
-  recommended ones in one click).
+  recommended ones in one click). In the rule lists, a numeric field refuses
+  any other text: the entry stays in the field and the error shows underneath.
 - **Performance.** Pick a rendering profile (Performance, Balanced, or
   Visual quality) to trade effects for CPU and GPU load. **Settings →
   Performance → Graphics card** shows which card Hyprland renders on and

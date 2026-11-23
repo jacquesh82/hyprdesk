@@ -61,6 +61,9 @@ pub enum Msg {
         String,
         Option<serde_json::Value>,
     ),
+    /// Saisie refusée d'un champ d'élément (nombre attendu) : (liste, indice,
+    /// chemin pointé, texte, message). Le texte reste au champ, rien n'est écrit.
+    SpecDraft(super::hyprlists::List, usize, String, String, String),
     SpecAdd(super::hyprlists::List),
     SpecDel(super::hyprlists::List, usize),
     /// Déplace un élément (−1 : vers le haut, +1 : vers le bas).
