@@ -108,12 +108,25 @@ pub fn stream() -> impl Stream<Item = Event> {
                         }
                     }
                     Some(c) = cmds.recv() => {
+                        let action = matches!(c, Cmd::Invoke(..));
                         let r = match c {
                             Cmd::Invoke(id, key) => h.invoke(id, &key).await,
                             Cmd::Dismiss(id, reason) => h.dismiss(id, reason).await,
                         };
                         if let Err(e) = r {
                             tracing::warn!("{}", crate::tr!("notifications : {e}", e = e));
+                            // L'échec est montré, pas seulement journalisé
+                            // (HIG PAT-11) ; la bulle de Hyprland est hors de
+                            // ce serveur : elle ne se répond pas à elle-même.
+                            let msg = if action {
+                                crate::tr!("Action de la notification impossible : {e}", e = e)
+                            } else {
+                                crate::tr!(
+                                    "Fermeture d'une notification non signalée à son application : {e}",
+                                    e = e
+                                )
+                            };
+                            tokio::task::spawn_blocking(move || crate::hypr::notify(0, 8000, &msg));
                         }
                     }
                 }

@@ -173,7 +173,9 @@ When hyprdesk serves notifications, each one appears at the top right of the
 active screen, in a card of the theme. A critical notification stays there
 until it is closed; a low-urgency notification shows no bubble and goes
 straight to the history (the `notifications` widget), like every notification
-under Do Not Disturb, except the critical one.
+under Do Not Disturb, except the critical one. An action or a dismissal its
+application did not receive is reported by a Hyprland notification, with its
+cause.
 
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
@@ -362,6 +364,10 @@ regular expression, ignored extensions and categories, maximum file size.
 From a terminal: `hyprdesk index query <word>`, `index status` (JSON), and
 `index rebuild`; add `--json` for structured results.
 
+An opening that cannot be carried out (no application for this kind of
+file, an unreachable path…) is reported by a Hyprland notification, with
+its cause.
+
 ## Panorama
 
 A very wide screen (2560×720, 1920×480, 1280×400…, landscape or portrait),
@@ -464,7 +470,8 @@ log in. hyprdesk is its interface:
   hyprdesk’s own style answers applications asking for the vault.
 - **The launcher** finds codes and passwords with `:2fa` and `:mdp`. The
   daemon itself does the copying, and a copied password clears from the
-  clipboard after 30 seconds.
+  clipboard after 30 seconds. A refused copy is reported by a Hyprland
+  notification, with its cause.
 - **Settings → Passwords** creates the vault, or installs the backup of the
   [myMFA web app](https://app.mymfa.mindlog.today). It can also take the
   Secret Service over from gnome-keyring (importing its secrets, then

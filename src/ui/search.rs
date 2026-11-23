@@ -740,6 +740,13 @@ impl App {
                 let report = |r: Result<(), String>| {
                     if let Err(e) = r {
                         tracing::warn!("{}", crate::tr!("myMFA : {e}", e = e));
+                        // L'échec est montré, pas seulement journalisé (HIG
+                        // PAT-11).
+                        crate::hypr::notify(
+                            0,
+                            8000,
+                            &crate::tr!("Copie depuis myMFA impossible : {e}", e = e),
+                        );
                     }
                     Msg::Noop
                 };
@@ -907,6 +914,13 @@ impl App {
                     |r| {
                         if let Err(e) = r {
                             tracing::warn!("{}", crate::tr!("ouverture : {e}", e = e));
+                            // L'échec est montré, pas seulement journalisé
+                            // (HIG PAT-11) ; la cause nomme le chemin.
+                            crate::hypr::notify(
+                                0,
+                                8000,
+                                &crate::tr!("Ouverture impossible : {e}", e = e),
+                            );
                         }
                         Msg::Noop
                     },

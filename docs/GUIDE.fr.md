@@ -176,7 +176,9 @@ Quand hyprdesk tient les notifications, chacune s'affiche en haut à droite de
 l'écran actif, dans une carte du thème. Une notification critique y reste
 jusqu'à ce qu'on la ferme ; une notification de basse urgence ne montre pas de
 bulle et va directement à l'historique (widget `notifications`), comme toute
-notification sous Ne pas déranger, sauf la critique.
+notification sous Ne pas déranger, sauf la critique. Une action ou une
+fermeture que son application n'a pas reçue est annoncée par une notification
+de Hyprland, avec sa cause.
 
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
@@ -378,6 +380,10 @@ ignorer, taille maximale par fichier. Au terminal :
 `hyprdesk index query <mot>`, `index status` (JSON) et `index rebuild` ;
 `--json` donne des résultats structurés.
 
+Une ouverture impossible (aucune application pour ce type de fichier,
+chemin injoignable…) est annoncée par une notification de Hyprland, avec
+sa cause.
+
 ## Panorama
 
 Un écran très allongé (2560×720, 1920×480, 1280×400…, à l'horizontale ou à
@@ -486,7 +492,8 @@ hyprdesk en est l'interface :
   applications qui le réclament.
 - **Le lanceur** trouve codes et mots de passe avec `:2fa` et `:mdp`. La
   copie est faite par le démon lui-même, et un mot de passe copié s'efface
-  du presse-papiers au bout de 30 secondes.
+  du presse-papiers au bout de 30 secondes. Une copie refusée est annoncée
+  par une notification de Hyprland, avec sa cause.
 - **Réglages → Mots de passe** crée le coffre, ou installe la sauvegarde de
   [l'application web myMFA](https://app.mymfa.mindlog.today). Il peut aussi
   reprendre le Secret Service de gnome-keyring (import de ses secrets, puis
