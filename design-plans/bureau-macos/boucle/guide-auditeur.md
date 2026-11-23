@@ -8,7 +8,7 @@ Comparer l'implémentation de hyprdesk au chapitre de spécification HIG de TA f
 
 ## Lectures obligatoires, dans l'ordre
 
-1. `orientation-hyprdesk.md` (même dossier) (architecture, décisions d'identité, méthode).
+1. `orientation-hyprdesk.md` (architecture, décisions d’identité, méthode).
 2. Le chapitre de spécification de ta famille, EN ENTIER.
 3. Le code de hyprdesk, en lecture seule absolue : aucun fichier du dépôt modifié, aucun build, test ou installation, aucune configuration touchée.
 
