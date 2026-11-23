@@ -217,6 +217,19 @@ impl App {
         self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0)
     }
 
+    /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son
+    /// verre réfracte. Les fenêtres n'y figurent pas, comme sous le dock.
+    fn panel_backdrop(&self) -> Option<Element<'_, Msg>> {
+        let win = self.panel.as_ref()?.win;
+        let name = self.surfaces.get(&win)?;
+        let m = self.monitors.iter().find(|m| &m.name == name)?;
+        let origin = iced::Point::new(
+            m.width as f32 - m.reserved.2 - self.panel_width(),
+            m.reserved.1,
+        );
+        self.wall_backdrop(name, origin)
+    }
+
     /// Crée la surface du tiroir sur `monitor`.
     pub(super) fn panel_surface(&self, id: Id, monitor: String) -> Task<Msg> {
         Task::done(Msg::NewLayerShell {
@@ -260,28 +273,10 @@ impl App {
             None => {
                 let id = Id::unique();
                 let monitor = self.surfaces.get(&win).cloned().unwrap_or_default();
-                self.behind = None;
-                // Vraie réfraction (MLG-275) : l'écran est capturé avant que
-                // le tiroir n'existe, puis le tiroir est créé.
-                create = match self
-                    .monitors
-                    .iter()
-                    .find(|m| m.name == monitor)
-                    .filter(|_| super::behind::wanted(crate::config::Place::Settings))
-                {
-                    Some(m) => {
-                        let origin = iced::Point::new(
-                            m.width as f32 - m.reserved.2 - self.panel_width(),
-                            m.reserved.1,
-                        );
-                        let screen = iced::Size::new(m.width as f32, m.height as f32);
-                        let output = m.name.clone();
-                        Task::perform(super::behind::grab(output, origin, screen), move |b| {
-                            Msg::PanelBehind(id, monitor.clone(), b)
-                        })
-                    }
-                    None => self.panel_surface(id, monitor),
-                };
+                // Pas de capture de l'écran sous le tiroir : figée à
+                // l'ouverture, elle gardait le lanceur ou des fenêtres qui
+                // n'y étaient plus. Le verre réfracte le fond d'écran.
+                create = self.panel_surface(id, monitor);
                 id
             }
         };
@@ -1076,9 +1071,7 @@ impl App {
             ),
             super::design::panel_surface(&self.theme, opacity),
             true,
-            self.panel
-                .as_ref()
-                .and_then(|p| self.behind_backdrop(p.surface)),
+            self.panel_backdrop(),
         );
         let progress = self
             .panel_fade

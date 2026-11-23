@@ -1,4 +1,5 @@
-//! Ce qu'il y a derrière un menu ou les Réglages (MLG-275).
+//! Ce qu'il y a derrière un menu (MLG-275). Les Réglages n'en usent plus :
+//! leur verre réfracte le fond d'écran (MLG-312).
 //!
 //! Hyprdesk ne voit jamais les fenêtres : pour que la lentille d'une
 //! surface posée sur elles réfracte quelque chose de vrai, l'écran est
@@ -81,17 +82,6 @@ pub async fn capture(
     Some(Arc::new(Behind {
         handle,
         origin: Point::new(x - monitor.x, y - monitor.y),
-        screen,
-    }))
-}
-
-/// Capture l'écran `output` avant d'y créer une surface dont la place
-/// `origin` est connue d'avance (Réglages, ancrés au bord droit).
-pub async fn grab(output: String, origin: Point, screen: Size) -> Option<Arc<Behind>> {
-    let handle = shot(&output).await?;
-    Some(Arc::new(Behind {
-        handle,
-        origin,
         screen,
     }))
 }

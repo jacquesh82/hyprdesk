@@ -267,8 +267,6 @@ pub enum Msg {
     /// Capture de l'écran sous une surface (menu, Réglages) : le fond de sa
     /// lentille (MLG-275).
     Behind(Id, Option<Arc<behind::Behind>>),
-    /// Capture faite avant le tiroir des Réglages : le crée ensuite.
-    PanelBehind(Id, String, Option<Arc<behind::Behind>>),
     /// Trame suivante d'un fond vidéo (boucle ffmpeg, par clé de fond).
     VideoFrame(WallKey, crate::video::Frame),
     Rotate,
@@ -4535,19 +4533,6 @@ impl App {
                 self.behind = b.map(|b| (id, b));
                 Task::none()
             }
-            Msg::PanelBehind(id, monitor, b) => {
-                self.behind = b.map(|b| (id, b));
-                // Tiroir refermé entre-temps : rien à créer. Sinon son
-                // glissement part maintenant, pas pendant la capture.
-                if self.panel.as_ref().is_some_and(|p| p.surface == id) {
-                    if let Some(f) = self.panel_fade.as_mut().filter(|f| f.to >= 1.0) {
-                        f.start = std::time::Instant::now();
-                    }
-                    self.panel_surface(id, monitor)
-                } else {
-                    Task::none()
-                }
-            }
             Msg::WallLoaded(key, r) => {
                 self.loading.remove(&key);
                 match r {
@@ -6239,7 +6224,6 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::AudioValue(_) => "AudioValue",
         Msg::WallLoaded(..) => "WallLoaded",
         Msg::Behind(..) => "Behind",
-        Msg::PanelBehind(..) => "PanelBehind",
         Msg::DrawerFullscreen(..) => "DrawerFullscreen",
         Msg::DrawerFloats(..) => "DrawerFloats",
         Msg::Noop => "Noop",
