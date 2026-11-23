@@ -38,7 +38,7 @@ Marge de manœuvre accordée : « Modifie, déplace les widgets ; rien de ce qui
 3. **Arbre propre** : `git status --porcelain` doit être vide. Sinon, une itération précédente a été interrompue : inscrire les fichiers en remarque du registre (« à reprendre : … »), puis `git reset --hard HEAD` et `git clean -fd`, dans le worktree seulement.
 4. **Synchronisation avec main** : si `git merge-base --is-ancestor main HEAD` échoue, `main` a avancé : `git merge --no-edit main`. En cas de conflit : `git merge --abort`, ajouter une ligne « bloqué : conflit avec main » au journal du registre, committer le registre, retirer le verrou, appeler `CronPauseSelf`, terminer.
 5. **Consigne de référence** : le `CONSIGNE.md` du worktree fait foi, il peut avoir été amendée. Le lire.
-6. **État de référence** : si le hash noté « Référence verte » dans le registre n'est pas HEAD, lancer `bash scripts/verify.sh` avant toute modification. Échec : ne rien traiter, ajouter « référence cassée » au journal (avec le compteur), retirer le verrou, terminer. Troisième échec consécutif : appeler `CronPauseSelf`. Succès : mettre « Référence verte » à jour.
+6. **État de référence** : seulement si `main` vient d'être fusionné (étape 4), ou si la ligne « Référence verte » manque au registre. Lancer alors `bash scripts/verify.sh` avant toute modification. Échec : ne rien traiter, ajouter « référence cassée » au journal (avec le compteur), retirer le verrou, terminer. Troisième échec consécutif : appeler `CronPauseSelf`. Succès : mettre « Référence verte » à HEAD et annuler le compteur.
 
 ## 4. Choix du lot
 
