@@ -1102,12 +1102,7 @@ impl App {
             items = items.push(
                 container(
                     row![
-                        self.dash_icon(
-                            "preferences-system-notifications-symbolic",
-                            "•",
-                            18.0,
-                            pal.muted
-                        ),
+                        self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
                         column![
                             self.dash_label(title, 14.0, pal.fg).font(self.title_font()),
                             self.dash_label(detail, 12.0, pal.muted)
@@ -1115,7 +1110,7 @@ impl App {
                         .spacing(2)
                     ]
                     .align_y(Alignment::Center)
-                    .spacing(9),
+                    .spacing(12),
                 )
                 .width(Length::Fill)
                 .padding([8, 10])

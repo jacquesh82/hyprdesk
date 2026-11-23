@@ -970,6 +970,16 @@ impl Preview {
             let _ = self
                 .app
                 .want_icon("preferences-system-notifications-symbolic");
+            // Icône de l'application de la bulle, résolue tout de suite
+            // (pas de tâche dans l'aperçu).
+            if !self.app.named_icons.contains_key("firefox") {
+                let path = launch::lookup_icon("firefox", None, 32)
+                    .or_else(|| launch::lookup_icon("firefox", Some("Adwaita"), 32));
+                let gen_ = self.app.icons_gen;
+                let _ = self
+                    .app
+                    .update_inner(Msg::IconResolved(gen_, "firefox".into(), path));
+            }
             self.app.toasts.list = vec![
                 super::toasts::Toast {
                     n: crate::notifications::build(
@@ -988,7 +998,7 @@ impl Preview {
                     n: crate::notifications::build(
                         1,
                         "Firefox",
-                        "",
+                        "firefox",
                         "Téléchargement terminé",
                         "rapport-annuel.pdf (2,4 Mo)",
                         &[],

@@ -32,8 +32,12 @@ const WIDTH: f32 = 380.0;
 const CARD: f32 = 104.0;
 const GAP: f32 = 8.0;
 const SHADOW: f32 = 18.0;
-/// Icône d'en-tête des bulles (jeu d'icônes de hyprdesk).
+/// Cloche de repli, quand l'application n'a pas donné d'icône (jeu de hyprdesk).
 const ICON: &str = "preferences-system-notifications-symbolic";
+/// Côté de l'icône de l'application dans une bulle.
+const APP_ICON: f32 = 36.0;
+/// Côté de l'icône de l'application dans une carte du centre.
+pub(super) const CARD_ICON: f32 = 28.0;
 
 /// Demande de l'interface au serveur.
 #[derive(Debug, Clone)]
@@ -256,9 +260,16 @@ impl App {
                     self.toasts.history.truncate(crate::notifications::HISTORY);
                     self.toasts.publish();
                 }
+                // Icône de l'application émettrice, pour la bulle et le centre.
+                // Demandée aussi sous Silence : le centre montre la carte.
+                let app_icon = if n.icon.is_empty() {
+                    Task::none()
+                } else {
+                    self.want_icon(&n.icon)
+                };
                 // Ne pas déranger : dans l'historique seulement, sauf critique.
                 if self.toasts.dnd && n.urgency != Urgency::Critical {
-                    return Task::none();
+                    return app_icon;
                 }
                 let t = Toast {
                     n,
@@ -269,7 +280,7 @@ impl App {
                     None => self.toasts.list.insert(0, t),
                 }
                 let icon = self.want_icon(ICON);
-                Task::batch([icon, self.sync_toasts()])
+                Task::batch([icon, app_icon, self.sync_toasts()])
             }
             TMsg::Event(Event::Closed(id)) => {
                 self.toasts.list.retain(|t| t.n.id != id);
@@ -485,6 +496,26 @@ impl App {
         }
     }
 
+    /// Icône de l'application émettrice, `size` de côté. La cloche générique
+    /// lui sert de repli et occupe la même place : le texte ne bouge pas
+    /// quand l'icône arrive.
+    pub(super) fn notif_icon<'a>(
+        &'a self,
+        n: &Notification,
+        size: f32,
+        tint: Color,
+    ) -> Element<'a, Msg> {
+        self.icon_named(&n.icon, size, tint).unwrap_or_else(|| {
+            container(
+                self.icon_named(ICON, 18.0, tint)
+                    .unwrap_or_else(|| iced::widget::Space::new().width(18).into()),
+            )
+            .width(size)
+            .align_x(Alignment::Center)
+            .into()
+        })
+    }
+
     fn view_toast<'a>(&'a self, t: &'a Toast) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let convex = self.convex_options().is_some();
@@ -501,11 +532,9 @@ impl App {
             Color { a: 0.12, ..fg }
         };
         let id = t.n.id;
-        let icon: Element<'_, Msg> = self
-            .icon_named(ICON, 18.0, dim)
-            .unwrap_or_else(|| iced::widget::Space::new().width(18).into());
+        // Icône de l'application, en grand au bord gauche de la carte.
+        let glyph: Element<'_, Msg> = self.notif_icon(&t.n, APP_ICON, dim);
         let head = row![
-            icon,
             text(if t.n.app.is_empty() {
                 crate::i18n::tr("Notification").to_string()
             } else {
@@ -535,7 +564,8 @@ impl App {
                 .color(fg)
                 .wrapping(text::Wrapping::None),
         ]
-        .spacing(4);
+        .spacing(4)
+        .width(Length::Fill);
         if !t.n.body.is_empty() {
             // Deux lignes au plus (la carte a une hauteur fixe).
             let body: String = t.n.body.lines().take(2).collect::<Vec<_>>().join("\n");
@@ -568,7 +598,7 @@ impl App {
             }
             col = col.push(r);
         }
-        let card = container(col)
+        let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
             .padding([10, 14])
             .width(Layout::of(&self.cfg.general).width)
             .height(CARD)
@@ -624,22 +654,28 @@ impl App {
         }
         for n in self.toasts.history.iter().take(30) {
             col = col.push(
-                column![
-                    text(n.app.clone())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(11.0))
-                        .color(fg),
-                    text(n.summary.clone())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .color(fg),
-                    text(n.body.clone())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .line_height(crate::ui::tokens::line_height())
-                        .color(fg)
+                row![
+                    self.notif_icon(n, CARD_ICON, fg),
+                    column![
+                        text(n.app.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(fg),
+                        text(n.summary.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
+                        text(n.body.clone())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .line_height(crate::ui::tokens::line_height())
+                            .color(fg)
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
                 ]
-                .spacing(4),
+                .spacing(12)
+                .align_y(Alignment::Start),
             );
         }
         col.into()
@@ -780,5 +816,42 @@ mod tests {
     fn hauteur_de_la_surface() {
         assert_eq!(height(1), (CARD + 2.0 * SHADOW).ceil() as u32);
         assert_eq!(height(9), height(VISIBLE));
+    }
+
+    #[test]
+    fn l_icone_de_l_application_est_demandee_meme_sous_silence() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let demandee = |app: &App, nom: &str| {
+            app.named_icons.contains_key(nom) || app.named_pending.contains(nom)
+        };
+        let n = crate::notifications::build(
+            7,
+            "Firefox",
+            "firefox",
+            "s",
+            "b",
+            &[],
+            &HashMap::new(),
+            -1,
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(n)));
+        assert!(
+            demandee(&app, "firefox"),
+            "l'icône de l'application doit être demandée"
+        );
+
+        // Sous Silence : pas de bulle, mais le centre montre la carte.
+        app.toasts.dnd = true;
+        let n = crate::notifications::build(8, "a", "calendar", "s", "b", &[], &HashMap::new(), -1);
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(n)));
+        assert_eq!(app.toasts.list.len(), 1, "Silence : pas de nouvelle bulle");
+        assert_eq!(app.toasts.history.len(), 2, "Silence : l'historique garde");
+        assert!(
+            demandee(&app, "calendar"),
+            "l'icône est demandée sous Silence aussi"
+        );
     }
 }
