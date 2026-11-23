@@ -215,6 +215,10 @@ complet.
 
 ## Raccourcis et binds.lua
 
+Partout où hyprdesk écrit un raccourci, les modificateurs viennent dans cet
+ordre : CTRL, ALT, SHIFT, SUPER. La configuration accepte une combinaison dans
+n'importe quel ordre.
+
 **Réglages → Raccourcis** et `hyprdesk keys` montrent toutes les liaisons
 actives, hors plein bureau et bureau affiché, avec leur ligne d'origine dans
 `hyprland.lua`. hyprdesk respecte les liaisons en place, sauf celles que vous

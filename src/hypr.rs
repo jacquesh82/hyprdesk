@@ -548,6 +548,18 @@ fn modifier_bit(m: &str) -> Option<u32> {
     })
 }
 
+/// Modificateurs à l'écrit, dans l'ordre de la HIG : CTRL, ALT, SHIFT, SUPER
+/// (HIG ENT-04).
+pub const MODIFIER_ORDER: [(u32, &str); 4] = [(4, "CTRL"), (8, "ALT"), (1, "SHIFT"), (64, "SUPER")];
+
+/// Rang d'écriture d'un modificateur d'une combinaison ; ce qui n'en est pas
+/// un vient en dernier, dans son ordre d'écriture.
+pub fn modifier_rank(name: &str) -> usize {
+    modifier_bit(name)
+        .and_then(|bit| MODIFIER_ORDER.iter().position(|(b, _)| *b == bit))
+        .unwrap_or(MODIFIER_ORDER.len())
+}
+
 /// `"SUPER + SHIFT + D"` → (modmask, touche en minuscules).
 pub fn parse_combo(s: &str) -> Option<(u32, String)> {
     let parts: Vec<&str> = s
@@ -569,7 +581,7 @@ pub fn parse_combo(s: &str) -> Option<(u32, String)> {
 /// Raccourcis de Hyprland marqués `submap_universal` : ils restent actifs
 /// sur le bureau. Rendus lisibles (« SUPER + eacute → focus »).
 pub fn universal_binds(binds: &Value) -> Vec<String> {
-    let names = [(64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT")];
+    let names = MODIFIER_ORDER;
     binds
         .as_array()
         .map(|l| {
@@ -997,11 +1009,11 @@ pub fn workspace_modifier(binds: &Value) -> String {
     modmask_name(mask)
 }
 
-/// Masque de modificateurs de Hyprland → « SUPER + ALT ».
+/// Masque de modificateurs de Hyprland → « ALT + SUPER ».
 pub fn modmask_name(mask: u64) -> String {
     let mut parts = Vec::new();
-    for (bit, name) in [(64, "SUPER"), (8, "ALT"), (4, "CTRL"), (1, "SHIFT")] {
-        if mask & bit != 0 {
+    for (bit, name) in MODIFIER_ORDER {
+        if mask & u64::from(bit) != 0 {
             parts.push(name);
         }
     }
@@ -2915,7 +2927,7 @@ mod tests {
         let alt = serde_json::json!([
             { "submap": "", "dispatcher": "HL.Dispatcher(focus)", "key": "code:11", "modmask": 72 },
         ]);
-        assert_eq!(workspace_modifier(&alt), "SUPER + ALT");
+        assert_eq!(workspace_modifier(&alt), "ALT + SUPER");
         assert_eq!(workspace_modifier(&serde_json::json!([])), "SUPER");
         let k = crate::config::Keys::default();
         let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");

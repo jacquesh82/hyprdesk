@@ -484,7 +484,7 @@ impl App {
                     .to_string();
                 if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
                     p.launcher.desk_error = Some(crate::tr!(
-                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        "« {v} » : raccourci illisible (ex. SHIFT + SUPER + D)",
                         v = v
                     ));
                     return Task::none();

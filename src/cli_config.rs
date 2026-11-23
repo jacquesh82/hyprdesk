@@ -213,7 +213,7 @@ fn combo(v: &str) -> Result<String, String> {
         .map(|_| v.to_string())
         .ok_or_else(|| {
             crate::tr!(
-                "« {v} » : raccourci illisible (ex. \"SUPER + SHIFT + D\")",
+                "« {v} » : raccourci illisible (ex. \"SHIFT + SUPER + D\")",
                 v = v
             )
         })

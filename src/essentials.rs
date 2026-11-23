@@ -962,6 +962,9 @@ pub fn pretty(combo: &str) -> String {
     let Some((key, mods)) = parts.split_last() else {
         return combo.to_string();
     };
+    // Plusieurs modificateurs : toujours CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+    let mut mods = mods.to_vec();
+    mods.sort_by_key(|m| crate::hypr::modifier_rank(m));
     let k = key.to_lowercase();
     let row = "1234567890";
     let shown: String = if let Some(c) = k
@@ -1339,11 +1342,12 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
         let ws8 = find(&lines, "ws", "8");
         assert_eq!(ws8.state, State::Installed);
         assert_eq!(ws8.combo, "SUPER + code:17");
-        // Envoyer au workspace : le modificateur de hyprland.lua (SUPER + ALT).
-        assert_eq!(find(&lines, "ws-move", "8").combo, "SUPER + ALT + code:17");
+        // Envoyer au workspace : le modificateur de hyprland.lua (SUPER + ALT),
+        // écrit CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+        assert_eq!(find(&lines, "ws-move", "8").combo, "ALT + SUPER + code:17");
         // Échanger : les touches du focus, avec CTRL.
-        assert_eq!(find(&lines, "swap", "gauche").combo, "SUPER + CTRL + h");
-        assert_eq!(find(&lines, "swap", "droite").combo, "SUPER + CTRL + m");
+        assert_eq!(find(&lines, "swap", "gauche").combo, "CTRL + SUPER + h");
+        assert_eq!(find(&lines, "swap", "droite").combo, "CTRL + SUPER + m");
         // Envoyer à l'écran : SHIFT + 1 en AZERTY est mort, hyprdesk pose le sien.
         let mon = find(&lines, "mon-window", "");
         assert_eq!(mon.state, State::Installed);
@@ -1351,7 +1355,7 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
             mon.note
                 .as_deref()
                 .unwrap_or("")
-                .contains("SUPER + SHIFT + 1")
+                .contains("SHIFT + SUPER + 1")
         );
         // Molette : tenue par un message du layout scrolling, inutilisé.
         match &find(&lines, "ws-wheel", "suivant").state {
@@ -1476,10 +1480,17 @@ hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }))
     #[test]
     fn combinaisons_lisibles() {
         assert_eq!(pretty("SUPER + code:17"), "SUPER + 8");
-        assert_eq!(pretty("SUPER + ALT + code:19"), "SUPER + ALT + 0");
+        assert_eq!(pretty("SUPER + ALT + code:19"), "ALT + SUPER + 0");
         assert_eq!(pretty("SUPER + code:49"), "SUPER + ²");
         assert_eq!(pretty("super + ampersand"), "SUPER + &");
-        assert_eq!(pretty("SUPER + SHIFT + left"), "SUPER + SHIFT + ←");
+        assert_eq!(pretty("SUPER + SHIFT + left"), "SHIFT + SUPER + ←");
+        // Quel que soit l'ordre écrit, CTRL, ALT, SHIFT, SUPER (HIG ENT-04) ;
+        // chaque modificateur garde le nom écrit, en majuscules.
+        assert_eq!(
+            pretty("super + shift + control + alt + D"),
+            "CONTROL + ALT + SHIFT + SUPER + D"
+        );
+        assert_eq!(pretty("WIN + CONTROL + Q"), "CONTROL + WIN + Q");
         assert_eq!(pretty("SUPER + q"), "SUPER + Q");
         assert_eq!(pretty("XF86AudioMute"), "XF86AudioMute");
         assert_eq!(

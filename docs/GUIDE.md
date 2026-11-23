@@ -211,6 +211,9 @@ to the full desktop.
 
 ## Shortcuts and binds.lua
 
+Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,
+ALT, SHIFT, SUPER. The configuration accepts a combination in any order.
+
 **Settings → Shortcuts** and `hyprdesk keys` show every active binding,
 outside the full desktop and with the desktop shown, with its source line in
 `hyprland.lua`. hyprdesk respects existing bindings unless you assign them to

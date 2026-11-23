@@ -414,19 +414,19 @@ pub fn combo_of(key: &Key, physical: &Physical, mods: Modifiers) -> Result<Optio
             }
         }
     };
-    let mut parts: Vec<&str> = Vec::new();
-    if mods.logo() {
-        parts.push("SUPER");
-    }
-    if mods.alt() {
-        parts.push("ALT");
-    }
-    if mods.control() {
-        parts.push("CTRL");
-    }
-    if mods.shift() {
-        parts.push("SHIFT");
-    }
+    // Toujours dans cet ordre : CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+    let held = |bit: u32| match bit {
+        1 => mods.shift(),
+        4 => mods.control(),
+        8 => mods.alt(),
+        64 => mods.logo(),
+        _ => false,
+    };
+    let mut parts: Vec<&str> = crate::hypr::MODIFIER_ORDER
+        .iter()
+        .filter(|(bit, _)| held(*bit))
+        .map(|(_, name)| *name)
+        .collect();
     // Sans SUPER, ALT ni CTRL, une touche d'écriture ne servirait plus à écrire.
     if !bare && !(mods.logo() || mods.alt() || mods.control()) {
         return Err(crate::i18n::tr(
@@ -2093,7 +2093,7 @@ impl App {
                     .to_string();
                 if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
                     panel.keys.key_error = Some(crate::tr!(
-                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        "« {v} » : raccourci illisible (ex. SHIFT + SUPER + D)",
                         v = v
                     ));
                     return Task::none();
@@ -2186,10 +2186,18 @@ mod tests {
     fn capture() {
         let sup = Modifiers::LOGO;
         let none = Physical::Unidentified(iced::keyboard::key::NativeCode::Unidentified);
-        // Lettre : en minuscules, avec SUPER.
+        // Lettre : en minuscules, avec SUPER ; CTRL, ALT, SHIFT, SUPER dans cet ordre (HIG ENT-04).
         assert_eq!(
             combo_of(&ch("d"), &none, sup | Modifiers::SHIFT),
-            Ok(Some("SUPER + SHIFT + d".into()))
+            Ok(Some("SHIFT + SUPER + d".into()))
+        );
+        assert_eq!(
+            combo_of(
+                &ch("d"),
+                &none,
+                sup | Modifiers::SHIFT | Modifiers::ALT | Modifiers::CTRL
+            ),
+            Ok(Some("CTRL + ALT + SHIFT + SUPER + d".into()))
         );
         // Rangée des chiffres (AZERTY : « & ») : par code physique.
         assert_eq!(
@@ -2198,7 +2206,7 @@ mod tests {
                 &Physical::Code(Code::Digit1),
                 sup | Modifiers::ALT
             ),
-            Ok(Some("SUPER + ALT + code:10".into()))
+            Ok(Some("ALT + SUPER + code:10".into()))
         );
         // Ponctuation : son keysym.
         assert_eq!(
@@ -2212,7 +2220,7 @@ mod tests {
         // Flèches, F5 seul, Impr. écran seul.
         assert_eq!(
             combo_of(&Key::Named(Named::ArrowLeft), &none, sup | Modifiers::CTRL),
-            Ok(Some("SUPER + CTRL + left".into()))
+            Ok(Some("CTRL + SUPER + left".into()))
         );
         assert_eq!(
             combo_of(&Key::Named(Named::F5), &none, Modifiers::empty()),
