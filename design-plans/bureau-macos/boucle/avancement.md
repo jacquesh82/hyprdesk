@@ -31,6 +31,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-24 | C1 | MENU-02, ENT-05, DAT-08 traités (travail de l'itération interrompue par la panne de quota, repris et mis au point) ; il en reste 40 dans ce couloir |
+| 2026-11-24 | C2 | ENT-04 traité ; il en reste 39 dans ce couloir |
 
 Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` le 23 novembre 2026 à 23 h 17 : code de sortie 0 ; précédente référence : `4d5193d`).
 
@@ -55,7 +56,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | NAV-02 | Champ de recherche des Réglages | ÉCART | S | haute | à faire | — | — |
 | NAV-03 | Icône Search | ÉCART | S | haute | à faire | — | — |
 | PAT-09 | Dernier volet des Réglages | ÉCART | S | haute | à faire | — | — |
-| ENT-04 | Ordre des modificatrices affichées | ÉCART | S | haute | à faire | — | — |
+| ENT-04 | Ordre des modificatrices affichées | ÉCART | S | haute | fait | 1a09503 | Une seule table, `hypr::MODIFIER_ORDER` (CTRL, ALT, SHIFT, SUPER), et un rang partagé `modifier_rank` (synonymes de `modifier_bit` : CONTROL, WIN, LOGO, META, MOD1, MOD4). `essentials::pretty` ordonne les modificateurs de toute combinaison affichée, chacun gardant le nom écrit ; la capture des Réglages (`combo_of`, `keys.rs`), `modmask_name` et `universal_binds` construisent dans cet ordre. La configuration, ses valeurs par défaut (`SUPER + ALT + D`) et l'aide de `hyprdesk config` gardent leur écriture : l'analyse (`parse_combo`, `same_text`) ne dépend jamais de l'ordre. L'exemple des trois messages « raccourci illisible » (`keys.rs`, `launcher.rs`, `cli_config.rs`, `locales/en.toml`) passe au nouvel ordre ; une phrase dans les deux guides et dans `DESIGN.md`. Tests : attentes de `capture`, `combinaisons_lisibles` (plus deux cas d'ordre quelconque), `essentiels_face_a_hyprland_lua`, `workspaces_bureau_affiche`. Preuve à HEAD juste. |
 | ENT-05 | MAJ+Tab dans les menus et la vue d'ensemble | ÉCART | S | haute | fait | fee0adc | `icon_menu_key` et `overview_key` reçoivent l'état de Maj (`self.mods.shift()`) : Tab avance, Maj+Tab recule comme la flèche haut, dans les menus du clic droit comme dans l'aperçu des espaces. Même changement que MENU-02 pour les menus (mêmes fonctions). Tests `maj_tab_recule_et_la_carte_suite`, `tab_et_maj_tab_changent_de_rang`. |
 | PRES-01 | Alertes problème et polkit | ÉCART | S | haute | à faire | — | — |
 | PAT-08 | Échec d'un lancement | ÉCART | S | haute | fait | 0dad66c | une entrée sans commande (`LaunchEnd::Unresolved`) ou une commande refusée par Hyprland (`LaunchEnd::Refused` : la cause remonte de `run_from_desktop_on`, `src/ui/mod.rs`) affiche une notification de Hyprland qui nomme l'application et la cause (`launcher_launch_ended`, `src/ui/plugins/dock/lifecycle.rs`), comme le renommage d'espace. Même lot que STA-01. |
