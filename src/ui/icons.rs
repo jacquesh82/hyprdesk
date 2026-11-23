@@ -181,6 +181,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "hyprdesk-task-view" => {
             r#"<rect x="3" y="7" width="14" height="14" rx="2"/><rect x="7" y="3" width="14" height="14" rx="2"/>"#
         }
+        // Lanceur d'applications : la grille de ses tuiles.
+        "hyprdesk-apps" => {
+            r#"<rect x="3" y="3" width="5" height="5" rx="1.5"/><rect x="9.5" y="3" width="5" height="5" rx="1.5"/><rect x="16" y="3" width="5" height="5" rx="1.5"/><rect x="3" y="9.5" width="5" height="5" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1.5"/><rect x="16" y="9.5" width="5" height="5" rx="1.5"/><rect x="3" y="16" width="5" height="5" rx="1.5"/><rect x="9.5" y="16" width="5" height="5" rx="1.5"/><rect x="16" y="16" width="5" height="5" rx="1.5"/>"#
+        }
         "view-app-grid" => {
             r#"<rect x="3" y="15" width="18" height="6" rx="3"/><rect x="5" y="9" width="4" height="4" rx="1"/><rect x="10" y="9" width="4" height="4" rx="1"/><rect x="15" y="9" width="4" height="4" rx="1"/>"#
         }

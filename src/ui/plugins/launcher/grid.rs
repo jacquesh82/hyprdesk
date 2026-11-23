@@ -16,26 +16,26 @@ use iced::widget::{
 };
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Vector};
 
-use super::search::{SMsg, Search};
-use super::{App, Msg, color};
+use crate::ui::search::{SMsg, Search};
+use crate::ui::{App, Msg, color};
 
 /// Applications au plus dans la grille.
 pub const LIMIT: usize = 400;
 /// Colonnes de la grille (les flèches haut et bas sautent d'une rangée).
 /// Forme du lanceur (MLG-278) et hauteur de l'écran actif, posées à
 /// chaque config installée.
-static SHAPE: std::sync::RwLock<Option<(crate::config::LauncherShape, f32)>> =
+pub(in crate::ui) static SHAPE: std::sync::RwLock<Option<(crate::config::LauncherShape, f32)>> =
     std::sync::RwLock::new(None);
 
 /// Pose la forme du lanceur.
-pub(super) fn set_shape(shape: crate::config::LauncherShape, screen_height: f32) {
+pub(in crate::ui) fn set_shape(shape: crate::config::LauncherShape, screen_height: f32) {
     if let Ok(mut w) = SHAPE.write() {
         *w = Some((shape, screen_height));
     }
 }
 
 /// Forme du lanceur en place.
-pub(super) fn shape() -> crate::config::LauncherShape {
+pub(in crate::ui) fn shape() -> crate::config::LauncherShape {
     SHAPE
         .read()
         .ok()
@@ -43,7 +43,7 @@ pub(super) fn shape() -> crate::config::LauncherShape {
         .unwrap_or_default()
 }
 
-fn screen_height() -> f32 {
+pub(in crate::ui) fn screen_height() -> f32 {
     SHAPE
         .read()
         .ok()
@@ -55,8 +55,8 @@ fn screen_height() -> f32 {
 pub fn columns() -> usize {
     usize::from(shape().columns.max(2))
 }
-const TILE: f32 = 128.0;
-const ICON: f32 = 60.0;
+pub(in crate::ui) const TILE: f32 = 128.0;
+pub(in crate::ui) const ICON: f32 = 60.0;
 /// Carte centrée : largeur, lignes de résultats.
 /// Largeur de la carte centrée.
 pub fn spot_width() -> f32 {
@@ -64,17 +64,17 @@ pub fn spot_width() -> f32 {
 }
 
 /// Hauteur d'une ligne de résultat.
-fn spot_row() -> f32 {
+pub(in crate::ui) fn spot_row() -> f32 {
     f32::from(shape().row_height)
 }
 
 /// Résultats visibles en tapant.
-fn spot_rows() -> usize {
+pub(in crate::ui) fn spot_rows() -> usize {
     usize::from(shape().max_results.max(1))
 }
 /// Suggestions de la carte centrée : tuile, icône.
-const SPOT_TILE: f32 = 76.0;
-const SPOT_ICON: f32 = 46.0;
+pub(in crate::ui) const SPOT_TILE: f32 = 76.0;
+pub(in crate::ui) const SPOT_ICON: f32 = 46.0;
 
 /// Hauteur de la carte centrée (avec ou sans bandeau de suggestions).
 pub fn spot_height(suggestions: bool) -> f32 {
@@ -129,7 +129,7 @@ pub fn in_category(cats: &[String], c: usize) -> bool {
 
 impl App {
     /// Couleurs lisibles du lanceur (thème, contrastes WCAG AA).
-    fn launcher_palette(&self) -> (crate::theme::Readable, Color) {
+    pub(in crate::ui) fn launcher_palette(&self) -> (crate::theme::Readable, Color) {
         let th = &self.cfg.general.theme;
         (
             crate::theme::readable(th.fg, th.bg, th.accent),
@@ -142,7 +142,12 @@ impl App {
     }
 
     /// Champ de recherche en pastille, loupe à gauche.
-    fn launcher_field<'a>(&'a self, s: &'a Search, width: f32, size: f32) -> Element<'a, Msg> {
+    pub(in crate::ui) fn launcher_field<'a>(
+        &'a self,
+        s: &'a Search,
+        width: f32,
+        size: f32,
+    ) -> Element<'a, Msg> {
         let (r, bg) = self.launcher_palette();
         let (fg, dim, edge, focus) = (
             color(r.fg, 1.0),
@@ -158,7 +163,7 @@ impl App {
             crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
             &s.query,
         )
-        .id(super::search::INPUT_ID)
+        .id(crate::ui::search::INPUT_ID)
         .on_input(|q| Msg::Search(SMsg::Query(q)))
         .on_submit(Msg::Search(SMsg::Launch(s.selected)))
         .font(self.font)
@@ -185,8 +190,8 @@ impl App {
             selection: Color { a: 0.35, ..focus },
         });
         let _ = bg;
-        let glass: Element<'_, Msg> = super::icons::get("edit-find")
-            .or_else(|| super::icons::get("system-search"))
+        let glass: Element<'_, Msg> = crate::ui::icons::get("edit-find")
+            .or_else(|| crate::ui::icons::get("system-search"))
             .map(|h| {
                 iced::widget::svg(h)
                     .width(18)
@@ -214,7 +219,7 @@ impl App {
     }
 
     /// Icône d'une application, sinon son initiale sur une pastille d'accent.
-    fn app_icon<'a>(&'a self, i: usize, size: f32) -> Element<'a, Msg> {
+    pub(in crate::ui) fn app_icon<'a>(&'a self, i: usize, size: f32) -> Element<'a, Msg> {
         let (r, _) = self.launcher_palette();
         let a = &self.apps[i];
         a.icon
@@ -248,7 +253,7 @@ impl App {
     }
 
     /// Tuile : icône, nom dessous (deux lignes au plus) ; `msg` au clic.
-    fn app_tile<'a>(
+    pub(in crate::ui) fn app_tile<'a>(
         &'a self,
         i: usize,
         tile: f32,
@@ -297,7 +302,7 @@ impl App {
     }
 
     /// Titre de section du lanceur (« Suggestions », « Toutes les applications »).
-    fn launcher_heading<'a>(&'a self, label: &str) -> Element<'a, Msg> {
+    pub(in crate::ui) fn launcher_heading<'a>(&'a self, label: &str) -> Element<'a, Msg> {
         let (r, _) = self.launcher_palette();
         text(crate::i18n::tr(label).to_string())
             .font(self.title_font())
@@ -307,7 +312,7 @@ impl App {
     }
 
     /// Plein bureau : la grande feuille.
-    pub(super) fn view_apps_grid<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
+    pub(in crate::ui) fn view_apps_grid<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
         let (r, bg) = self.launcher_palette();
         let (fg, dim, edge, accent) = (
             color(r.fg, 1.0),
@@ -497,12 +502,12 @@ impl App {
             .height(Length::Fill);
         // Le voile flouté est posé dessous (`view_search`).
         mouse_area(page)
-            .on_press(Msg::Control(super::control::Command::Apps))
+            .on_press(Msg::Control(crate::control::Command::Apps))
             .into()
     }
 
     /// Autres modes : la carte centrée.
-    pub(super) fn view_spotlight<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
+    pub(in crate::ui) fn view_spotlight<'a>(&'a self, s: &'a Search) -> Element<'a, Msg> {
         let (r, bg) = self.launcher_palette();
         let (fg, dim, edge, accent) = (
             color(r.fg, 1.0),

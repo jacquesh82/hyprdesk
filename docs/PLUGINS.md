@@ -12,11 +12,12 @@ widget, et la place du lanceur.
 | **Paquet de réglages** | `src/ui/plugins/<id>.rs` | une entrée de l'écran Réglages : manifeste, messages, état, vue, mise à jour, clés CLI |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | un élément posé sur le bureau ou dans la barre, alimenté par une source de données |
 | **Plugin de widget** | `~/.config/hypr/hyprdesk/widgets/<nom>.lua` | un widget écrit en Lua, détecté sans recompiler |
-| **Lanceur** | `src/ui/plugins/launcher.rs`, `launcher/` | le dock du bureau : widget autonome, seul contrôle du mode `launcher-only` |
+| **Dock** | `src/ui/plugins/dock.rs`, `dock/` | le dock du bureau : widget autonome, seul contrôle du mode `launcher-only` |
+| **Lanceur** | `src/ui/plugins/launcher.rs`, `launcher/` | le lanceur d'applications (grande feuille ou carte centrée), du cœur |
 
-### Plugins à surface : Barre, Lanceur, Panorama
+### Plugins à surface : Barre, Dock, Lanceur, Panorama
 
-Trois paquets posent une surface à l'écran en plus de leur page de Réglages.
+Quatre paquets posent une surface à l'écran en plus de leur page de Réglages.
 Chacun tient dans son dossier, rangé de la même façon :
 
 | Chemin | Rôle |
@@ -30,11 +31,16 @@ Chacun tient dans son dossier, rangé de la même façon :
   débordement), `motion.rs` (mouvement local), `style/` (Continuité,
   Graphite, Island, Convexe), `popover.rs` + `popover/` (menus déroulants).
   `src/bar_offer.rs` ajoute à la barre réglée les modules livrés après coup.
-- **Lanceur** : `surface.rs` (le dock et la carte des fenêtres),
-  `lifecycle.rs`, `keyboard.rs`, `motion.rs`, `contrast.rs`. La grille
-  d'applications (`ui/apps_grid.rs`, `hyprdesk apps`) reste hors du plugin :
-  couper le Lanceur ne la coupe pas ; ses options sont dans l'onglet
-  Applications de la page Lanceur.
+- **Dock** : `surface.rs` (le dock et la carte des fenêtres),
+  `lifecycle.rs`, `keyboard.rs`, `motion.rs`, `contrast.rs`. Sa page :
+  Contenu, Apparence (avec le style : options `dock.*` du registre
+  `design_options`), Épinglées. Le couper retire le dock de tous les écrans
+  et de la barre ; un ancien `disabled_plugins = { "launcher" }` est lu comme
+  `"dock"`.
+- **Lanceur** : `grid.rs` (grande feuille et carte centrée, `hyprdesk apps`,
+  bouton du dock, `keys.search`) ; le moteur de recherche (`ui/search.rs`)
+  reste partagé. Sa page : Applications, Forme, Raccourci. Il fait partie du
+  cœur (`CORE_PLUGINS`) : couper le dock ne le coupe pas.
 - **Panorama** : `surface/` (pages, gestes, tuiles dans `surface/modules/`),
   `design.rs` et `modules.rs` (onglets de Réglages) ; logique dans
   `src/panorama/` (voir [PANORAMA.md](PANORAMA.md)).
@@ -135,7 +141,8 @@ Clés par paquet :
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
 | `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
-| `launcher` | `running_apps`, `launcher_group` |
+| `dock` | `running_apps`, `launcher_group` |
+| `launcher` | `apps_style`, `apps_suggestions`, `apps_categories`, `apps_unified`, `launcher.<forme>` |
 | `wallpaper` | `wallpaper` (image ou `#couleur`, tous les bureaux), `wallpaper.fit`, `wallpaper.span` (`on` : étalée sur tous les écrans) |
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, ou des écrans séparés par des virgules) |
@@ -145,7 +152,7 @@ Clés par paquet :
 | `apptheme` | `app_themes` (`kitty`, `gtk`, `qt`, `none` ; toutes par défaut) |
 | `animations` (onglet Bureau) | `transition`, `fade_ms`, `crossfade_ms` |
 | `theme` | `theme.preset` (pack du moteur de thème : nom ou identifiant), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<endroit>.opacity` (0..1), `theme.effects.<endroit>.blur` (endroits : `bar`, `menus`, `launcher`, `settings`, `widgets` — sans flou) |
-| `launcher` (apparence) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
+| `dock` (apparence) | `dock.<style>`, `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<rôle>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
 | `assistant` | `assistant_mode` (`window`, `terminal`) |
 | `plugins` | `plugin.<id>` (`on` / `off`) |
@@ -192,7 +199,8 @@ sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
 | Fenêtres | Apparence · Comportement ● · Règles (fenêtres ; couches et workspaces en avancé) · Groupes ● |
 | Clavier et souris | Clavier · Souris · Pavé tactile · Curseur · Gestes · Périphériques ● |
 | Configuration de Hyprland | Ménage · Environnement ● · Plugins Hyprland ● · Permissions ● · Avancé ● |
-| Lanceur | Contenu · Apparence · Épinglées |
+| Dock | Contenu · Apparence · Épinglées |
+| Lanceur | Applications · Forme · Raccourci |
 | Barre | Général · Modules |
 | Écrans | Disposition · Écran (un clic sur le plan y mène) |
 | Workspaces | Nombre et écrans · Applications |
@@ -230,7 +238,8 @@ chaque clé CLI pointe vers un paquet existant.
 | `desktop` | Bureau | écrans où le bureau s'affiche, mode, police, session | `config::General` |
 | `keys` | Raccourcis | tous les raccourcis actifs (hors plein bureau, bureau affiché), ceux de hyprdesk, essentiels de fenêtres, de workspaces et d'écrans posés par hyprdesk | `keymap.rs`, `essentials.rs` |
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
-| `launcher` | Lanceur | fenêtres affichées, regroupement | — (widget, § 3) |
+| `dock` | Dock | fenêtres affichées, regroupement, style | — (widget, § 3) |
+| `launcher` | Lanceur | présentation, suggestions, forme, raccourci | `search.rs` |
 | `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
 | `apptheme` | Modules du thème | les modules du moteur de thème qui portent le thème jusqu'à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
@@ -380,10 +389,11 @@ Les modules sont mesurés avant leur placement. L'horloge reste au centre géom�
 
 `controls` est un **widget intégré**, enregistré dans le catalogue Widgets. Il peut être activé et placé sur le bureau avec `hd.widget("controls", { anchor = "top-right" })`, ou ajouté dans une zone de `hd.bar` comme tout widget. Il se retire et se sauvegarde par les réglages ordinaires des widgets et de la barre. Sa désactivation arrête ses relevés ; ses sources partagées continuent uniquement si un autre widget actif les utilise. Il réutilise les widgets `network`, `bluetooth` et `battery` déjà présents. Si l'un manque, une instance interne est créée, sans carte supplémentaire sur le bureau. Les opérations audio et luminosité restent celles des modules natifs. Un plugin peut exposer `on_toggle(o)` et rendre `toggled = true | false` pour proposer un interrupteur confirmé dans cette composition ; ses clics et menus habituels gardent leur rôle.
 
-## 3. Le lanceur
+## 3. Le dock
 
-Le lanceur était jusqu'ici un morceau du bureau. C'est désormais un **widget
-autonome**, avec son paquet (`launcher`) :
+Le dock était jusqu'ici un morceau du bureau, puis du paquet Lanceur. C'est
+désormais un **widget autonome**, avec son paquet (`dock`) ; le lanceur
+d'applications qu'ouvre son bouton est le paquet `launcher` :
 
 - **Rôle.** C'est le dock en bas au centre, avec les fenêtres ouvertes puis le
   bouton ⚙. C'est le seul contrôle du mode `launcher-only`, où les fenêtres

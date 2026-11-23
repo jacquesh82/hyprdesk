@@ -128,9 +128,11 @@ components! {
     ] + [Binds];
     "icons" => [icons, icon_scope, icon_double_click, icon_theme, icon_size, cell]
         + [IconPositions];
-    "launcher" => [
+    "dock" => [
         running_apps, launcher_group, launcher_position, launcher_size,
         launcher_pinned, launcher_show_settings, launcher_show_assistant,
+    ];
+    "launcher" => [
         apps_style, apps_suggestions, apps_categories, apps_unified, launcher_shape,
     ] + [Launches];
     "index" => [

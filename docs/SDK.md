@@ -49,7 +49,7 @@ Version décrite : hyprdesk **0.2.0**, `hyprdesk-theme-client` **0.1.0**.
 | clés de `hyprdesk config` | **documenté**, non versionné | `hyprdesk config list`, [ADVANCED.md](ADVANCED.md#configuration-reference) |
 | socket de commande | **documenté**, non versionné, réponses en texte traduit | [CONTROL.md](CONTROL.md) |
 | `hyprdesk status`, sortie lisible du CLI | **non stable** : pour un humain, ne pas l'analyser | — |
-| plugins Rust intégrés (Barre, Lanceur, Panorama et ses modules), `src/` | **interne** | — |
+| plugins Rust intégrés (Barre, Dock, Lanceur, Panorama et ses modules), `src/` | **interne** | — |
 
 Une surface **documentée** peut changer d'une version à l'autre. Les
 changements sont annoncés dans le [CHANGELOG](../CHANGELOG.md). Une surface

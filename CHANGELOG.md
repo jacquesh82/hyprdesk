@@ -126,6 +126,16 @@ and this project adheres to
   Hyprland notification, then puts yours back (Ctrl-C too). Settings →
   Animations → Effects has a **Compare on screen** button.
 
+### Changed
+
+- **The dock is a plugin of its own** (MLG-305): Settings → Dock (Content,
+  Appearance with its style — spacing, magnification, auto-hide, active
+  marker, formerly in Theme → Components —, Pinned), turned off on its own
+  (`hyprdesk config set plugin.dock off`). The Launcher plugin now only
+  holds the application launcher (Applications, Shape, Shortcut) and is
+  part of the core. An old `disabled_plugins = { "launcher" }` turns the
+  dock off, as before.
+
 ### Fixed
 
 - **Theme engine** (MLG-266): a pack's `[wallpaper]` was documented but

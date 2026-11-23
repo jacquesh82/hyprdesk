@@ -334,7 +334,7 @@ impl App {
         }
         let mut v = vec![("Ouvrir", CMsg::Open)];
         if let Some(a) = &m.app
-            && self.cfg.plugin_on("launcher")
+            && self.cfg.plugin_on("dock")
         {
             v.push(if self.pinned().contains(a) {
                 ("Retirer du dock", CMsg::Pin)

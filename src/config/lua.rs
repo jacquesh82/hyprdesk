@@ -1308,7 +1308,18 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
         })?;
     }
     if let Some(list) = string_list(t.get("disabled_plugins")?, "disabled_plugins", CTX)? {
-        g.disabled_plugins = list.into_iter().collect();
+        // Avant le plugin Dock, couper « launcher » coupait le dock : il
+        // reste coupé (le lanceur d'applications, lui, est du cœur).
+        g.disabled_plugins = list
+            .into_iter()
+            .map(|p| {
+                if p == "launcher" {
+                    "dock".to_string()
+                } else {
+                    p
+                }
+            })
+            .collect();
     }
     if let Some(apps) = t.get::<Option<Table>>("apps")? {
         const C: &str = "hd.config.apps";
@@ -3732,6 +3743,21 @@ mod tests {
 
     fn load(src: &str) -> Result<Loaded, String> {
         load_source(src, "test.lua", Path::new("/cfg"))
+    }
+
+    /// Plugin Dock : un ancien « launcher » coupé coupe le dock ; le lanceur
+    /// d'applications, du cœur, reste actif.
+    #[test]
+    fn ancien_lanceur_coupe_devient_dock_coupe() {
+        let c = load(r#"hd.config({ disabled_plugins = { "launcher", "bar" } })"#)
+            .unwrap()
+            .config;
+        assert!(!c.plugin_on("dock") && !c.plugin_on("bar"));
+        assert!(c.plugin_on("launcher"));
+        let c = load(r#"hd.config({ disabled_plugins = { "dock" } })"#)
+            .unwrap()
+            .config;
+        assert!(!c.plugin_on("dock") && c.plugin_on("launcher"));
     }
 
     /// MLG-134 : services D-Bus joignables, le `render` périodique des widgets

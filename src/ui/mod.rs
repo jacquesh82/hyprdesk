@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
-mod apps_grid;
+use plugins::launcher::grid as apps_grid;
 mod behind;
 mod chat;
 pub(crate) mod color_picker;
@@ -214,7 +214,7 @@ pub enum Msg {
     /// Demande à LYRA (titre de la conversation, texte) : régler un conflit.
     AskLyra(String, String),
     /// Lanceur : survol d'une entrée (écran, clé, contenu de la bulle), ou sortie.
-    LauncherHover(Option<(String, String, plugins::launcher::PopupContent, usize)>),
+    LauncherHover(Option<(String, String, plugins::dock::PopupContent, usize)>),
     /// Position relative dans le dock (écran, rang continu), ou sortie du dock.
     LauncherPointer(String, Option<f32>),
     LauncherAnchor(String, String, iced::Rectangle),
@@ -594,10 +594,10 @@ pub struct App {
     color_test: plugins::colors::ColorTest,
     identify_gen: u64,
     /// Surfaces du lanceur, une par écran où le bureau est affiché.
-    launcher_surfaces: HashMap<Id, plugins::launcher::LauncherSurface>,
-    launcher_runtime: plugins::launcher::Runtime,
+    launcher_surfaces: HashMap<Id, plugins::dock::LauncherSurface>,
+    launcher_runtime: plugins::dock::Runtime,
     /// Bulle du lanceur (nom d'une entrée, ou fenêtres d'une application).
-    launcher_popup: Option<plugins::launcher::Popup>,
+    launcher_popup: Option<plugins::dock::Popup>,
     launcher_popup_token: u64,
     launcher_popup_hover: bool,
     /// Lanceur regroupé par application : rang de la prochaine fenêtre, par classe.
@@ -767,7 +767,7 @@ fn list_images(dir: &std::path::Path, videos: bool) -> Vec<PathBuf> {
 #[derive(Debug, Clone)]
 pub struct DecodedWall {
     handle: image::Handle,
-    backdrop: plugins::launcher::Backdrop,
+    backdrop: plugins::dock::Backdrop,
 }
 
 fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
@@ -825,7 +825,7 @@ fn decode_wall(key: &WallKey) -> Result<DecodedWall, String> {
     // teinte moyenne pour le verre.
     let rgba = crate::wallpaper_fx::grade(img.to_rgba8());
     tokens::set_wall_color(crate::wallpaper_fx::average(&rgba));
-    let backdrop = plugins::launcher::Backdrop::from_rgba(&rgba);
+    let backdrop = plugins::dock::Backdrop::from_rgba(&rgba);
     Ok(DecodedWall {
         handle: image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()),
         backdrop,
@@ -1114,7 +1114,7 @@ impl App {
             color_test: Default::default(),
             identify_gen: 0,
             launcher_surfaces: HashMap::new(),
-            launcher_runtime: plugins::launcher::Runtime::default(),
+            launcher_runtime: plugins::dock::Runtime::default(),
             launcher_popup: None,
             launcher_popup_token: 0,
             launcher_popup_hover: false,

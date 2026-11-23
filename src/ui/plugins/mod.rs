@@ -24,6 +24,7 @@ pub mod bluetooth;
 pub mod colors;
 pub mod datetime;
 pub mod desktop;
+pub mod dock;
 pub mod effects;
 pub mod energy;
 pub mod history;
@@ -72,6 +73,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     desktop::INFO,
     keys::INFO,
     icons::INFO,
+    dock::INFO,
     launcher::INFO,
     index::INFO,
     apps::INFO,
@@ -127,7 +129,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         label: "Plugins",
         ids: &[
-            "bar", "launcher", "panorama", "modules", "widgets", "plugins",
+            "bar", "dock", "launcher", "panorama", "modules", "widgets", "plugins",
         ],
     },
     Group {
@@ -364,6 +366,7 @@ pub fn tabs(id: &str) -> &'static [SubTab] {
         "keys" => keys::TABS,
         "theme" => theme::TABS,
         "screens" => screens::TABS,
+        "dock" => dock::TABS,
         "launcher" => launcher::TABS,
         "bar" => bar::TABS,
         "panorama" => panorama::TABS,
@@ -507,7 +510,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "couleurs-ecrans" | "couleurs-écrans" | "calibration" | "gamma" | "icc" | "mire" => {
             "colors"
         }
-        "lanceur" | "dock" => "launcher",
+        "lanceur" | "apps-launcher" => "launcher",
         "layout" | "tiling" | "agencement" | "agencements" => "layouts",
         "fx" | "animation" | "anim" => "animations",
         "perf" | "performances" | "rendu" | "gpu" | "cpu" => "performance",
@@ -550,6 +553,7 @@ pub enum PluginMsg {
     Desktop(desktop::Msg),
     Keys(keys::Msg),
     Icons(icons::Msg),
+    Dock(dock::Msg),
     Launcher(launcher::Msg),
     Index(index::Msg),
     Apps(apps::Msg),
@@ -588,6 +592,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Desktop(m) => app.desktop_update(m),
         PluginMsg::Keys(m) => app.keys_update(m),
         PluginMsg::Icons(m) => app.icons_update(m),
+        PluginMsg::Dock(m) => app.dock_update(m),
         PluginMsg::Launcher(m) => app.launcher_update(m),
         PluginMsg::Index(m) => app.index_update(m),
         PluginMsg::Apps(m) => app.apps_update(m),
@@ -653,6 +658,7 @@ fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
     match id {
         "icons" => app.tab_icons(p),
         "keys" => app.keys_page(),
+        "dock" => app.dock_page(),
         "launcher" => app.launcher_page(),
         "index" => app.index_page(),
         "apps" => app.apps_page(),
@@ -956,7 +962,7 @@ mod tests {
         assert_eq!(
             g.ids,
             &[
-                "bar", "launcher", "panorama", "modules", "widgets", "plugins"
+                "bar", "dock", "launcher", "panorama", "modules", "widgets", "plugins"
             ]
         );
         assert!(g.ids.iter().all(|id| visible(id, false)));
@@ -984,7 +990,8 @@ mod tests {
             find_tab("keys", "Fenetres et workspaces"),
             Some("essentiels")
         );
-        assert_eq!(find_tab("launcher", "épinglées"), Some("epinglees"));
+        assert_eq!(find_tab("dock", "épinglées"), Some("epinglees"));
+        assert_eq!(find_tab("launcher", "forme"), Some("forme"));
         assert_eq!(find_tab("screens", "ÉCRAN"), Some("ecran"));
         assert_eq!(find_tab("theme", "texte"), Some("texte"));
         assert_eq!(find_tab("keys", "overview"), Some("ensemble"));

@@ -348,7 +348,7 @@ fn widen_pipe(pipe: &tokio::process::ChildStdout) {
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub tiles: Tiles,
-    pub backdrop: Option<crate::ui::plugins::launcher::contrast::Backdrop>,
+    pub backdrop: Option<crate::ui::plugins::dock::contrast::Backdrop>,
 }
 
 /// Boucle de lecture : trames tant que quelqu'un écoute, une par créneau de
@@ -433,7 +433,7 @@ pub fn frames(r: Recipe) -> impl Stream<Item = Frame> {
                 let Some(img) = image::RgbaImage::from_raw(w, h, data) else {
                     break;
                 };
-                let backdrop = crate::ui::plugins::launcher::contrast::Backdrop::from_rgba(&img);
+                let backdrop = crate::ui::plugins::dock::contrast::Backdrop::from_rgba(&img);
                 let tiles = Tiles::from_bytes(w, h, pool.bytes(img.into_raw()));
                 if tx
                     .send(Frame {

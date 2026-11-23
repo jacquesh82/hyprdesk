@@ -1,28 +1,14 @@
-//! Plugin « Lanceur » : le dock en bas du bureau — widget autonome, seul
-//! contrôle du mode `launcher-only` — et sa page de réglages.
+//! Plugin « Lanceur » : le lanceur d'applications — grande feuille en plein
+//! bureau, carte centrée sinon (`grid`, MLG-32 ; `hyprdesk apps`,
+//! `hyprdesk search`, bouton du dock, keys.search) — et sa page de réglages :
+//! présentation et suggestions, forme (MLG-278), raccourci.
 //!
-//! - `surface` : le dock, posé sur chaque écran ou dans la barre, et la carte
-//!   des fenêtres d'une application ;
-//! - `lifecycle`, `keyboard`, `motion`, `contrast` : transitions et
-//!   lancements, clavier, vague du survol, lisibilité sur le fond ;
-//! - ce fichier : manifeste et page de Réglages.
-//!
-//! Le lanceur affiche les fenêtres ouvertes (aucune, celles du workspace
-//! affiché, ou toutes), regroupées au choix : une entrée par fenêtre, une par
-//! application (classe de fenêtre, donc par binaire), ou par workspace. Le
-//! bouton ⚙ termine la rangée. L'utiliser ne change jamais le mode du bureau.
+//! Le dock est un autre plugin (`super::dock`). Le lanceur fait partie du
+//! cœur : il reste ouvrable même dock coupé.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
-pub(crate) mod contrast;
-mod keyboard;
-mod lifecycle;
-mod motion;
-mod surface;
-
-pub(in crate::ui) use contrast::Backdrop;
-pub(in crate::ui) use lifecycle::{Placement, Runtime};
-pub(in crate::ui) use surface::{LauncherSurface, Popup, PopupContent, thickness};
+pub(in crate::ui) mod grid;
 
 use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
@@ -31,46 +17,30 @@ use iced::{Alignment, Element, Length, Task};
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
-use crate::config::{LauncherGroup, LauncherPosition, RunningApps};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "launcher",
     label: "Lanceur",
-    icon: "view-app-grid",
-    summary: "Dock du bureau et lanceur d'applications (grande feuille ou carte centrée, suggestions).",
+    icon: "hyprdesk-apps",
+    summary: "Lanceur d'applications : grande feuille ou carte centrée, suggestions, raccourci.",
     builtin: true,
 };
 
-/// Message de ce paquet, enveloppé pour l'application.
 /// Onglets du paquet.
 pub const TABS: &[super::SubTab] = &[
-    ("contenu", "Contenu"),
-    ("apparence", "Apparence"),
-    ("epinglees", "Épinglées"),
     ("applications", "Applications"),
+    ("forme", "Forme"),
+    ("raccourci", "Raccourci"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Launcher(m)))
 }
 
+/// Message de ce paquet, enveloppé pour l'application.
 #[derive(Debug, Clone)]
 pub enum Msg {
-    /// Fenêtres affichées : aucune, celles du workspace, toutes.
-    Running(RunningApps),
-    Group(LauncherGroup),
-    Position(LauncherPosition),
-    /// Taille des icônes (pendant le glissé), puis enregistrement.
-    Size(u16),
-    SizeCommit,
-    PinFilter(String),
-    Pin(String),
-    Unpin(usize),
-    /// Déplace une application épinglée (-1 avant, +1 après).
-    MovePin(usize, i32),
-    ShowSettings(bool),
-    ShowAssistant(bool),
-    /// Lanceur d'applications : présentation, suggestions, catégories.
+    /// Présentation, suggestions, catégories.
     AppsStyle(crate::config::AppsStyle),
     AppsSuggestions(u8),
     /// Forme du lanceur (MLG-278) ; `true` : enregistrer.
@@ -86,76 +56,22 @@ pub enum Msg {
     DeskKeySubmit,
 }
 
-/// État d'écran : recherche d'une application à épingler.
+/// État d'écran : raccourci du plein bureau en cours de saisie, et son erreur.
 #[derive(Default)]
 pub struct State {
-    pub pin_filter: String,
-    /// Raccourci du plein bureau en cours de saisie, et son erreur.
     pub desk_key: Option<String>,
     pub desk_error: Option<String>,
 }
 
 impl App {
     pub(in crate::ui) fn launcher_page(&self) -> Element<'_, UiMsg> {
-        let g = &self.cfg.general;
-        let dim = self.ink().dim;
-        let running = |label: &'static str, v: RunningApps| {
-            radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
-                wrap(Msg::Running(v))
-            })
-            .font(self.font)
-        };
-        let group = |label: &'static str, v: LauncherGroup| {
-            radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
-                wrap(Msg::Group(v))
-            })
-            .font(self.font)
-        };
-        if self.on_subtab(INFO.id, "applications") {
-            return self.launcher_apps_tab();
+        if self.on_subtab(INFO.id, "forme") {
+            return self.launcher_shape_fields(self.cfg.general.apps_launcher.shape);
         }
-        if !self.on_subtab(INFO.id, "contenu") {
-            return self.launcher_look();
+        if self.on_subtab(INFO.id, "raccourci") {
+            return self.launcher_keys_tab();
         }
-        column![
-            self.section("Fenêtres"),
-            self.field(
-                "Fenêtres ouvertes dans le lanceur",
-                "running_apps",
-                column![
-                    running(crate::i18n::tr("Aucune (épingles et boutons uniquement)"), RunningApps::Off),
-                    running(crate::i18n::tr("Celles du workspace affiché"), RunningApps::Workspace),
-                    running(crate::i18n::tr("Toutes"), RunningApps::All),
-                ]
-                .spacing(8),
-            ),
-            self.section("Regroupement"),
-            self.field(
-                "Regrouper les fenêtres",
-                "launcher_group",
-                column![
-                    group(crate::i18n::tr("Aucun : une entrée par fenêtre"), LauncherGroup::None),
-                    group(
-                        crate::i18n::tr("Par application (binaire) : une entrée, un clic passe de l'une à l'autre"),
-                        LauncherGroup::App
-                    ),
-                    group(
-                        crate::i18n::tr("Par workspace : rangées sous leur numéro"),
-                        LauncherGroup::Workspace
-                    ),
-                ]
-                .spacing(8),
-            ),
-            text(
-                "Le lanceur a sa propre couche, au-dessus des fenêtres : en launcher-only, \
-                 les fenêtres lui laissent sa place. L'utiliser ne change jamais le mode du bureau."
-            )
-            .font(self.font)
-            .size(crate::ui::tokens::ts(12.0))
-            .color(dim),
-        ]
-        .spacing(14)
-        .into()
+        self.launcher_apps_tab()
     }
 
     /// Ce qu'ouvre le raccourci du lanceur hors plein bureau, puis en plein bureau.
@@ -356,28 +272,19 @@ impl App {
         .into()
     }
 
-    /// Réglages d'apparence : bord, taille, applications épinglées, boutons.
     /// Onglet Applications : le lanceur d'applications.
     fn launcher_apps_tab(&self) -> Element<'_, UiMsg> {
         use crate::config::AppsStyle;
         let g = &self.cfg.general;
         let a = g.apps_launcher;
-        let fg = color(g.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let warn = crate::ui::tone::warning();
         let style = |label: &'static str, v: AppsStyle| {
             radio(crate::i18n::tr(label), v, Some(a.style), |v| {
                 wrap(Msg::AppsStyle(v))
             })
             .font(self.font)
         };
-        let (outside, inside) = self.launcher_keys_text();
-        let desk_input = self
-            .panel
-            .as_ref()
-            .and_then(|p| p.launcher.desk_key.clone())
-            .unwrap_or_else(|| g.keys.search_desktop.clone());
-        let mut col = column![
+        column![
             self.section("Lanceur d'applications"),
             text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant.")
                 .font(self.font)
@@ -413,15 +320,46 @@ impl App {
                 "apps_categories",
                 iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
             ),
-            self.launcher_shape_fields(a.shape),
+            button(
+                text(crate::i18n::tr("Ouvrir le lanceur"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+            )
+            .padding([6, 14])
+            .on_press(UiMsg::Control(crate::control::Command::Apps)),
+        ]
+        .spacing(12)
+        .into()
+    }
+
+    /// Onglet Raccourci : ce qu'ouvre le lanceur, et ses conflits.
+    fn launcher_keys_tab(&self) -> Element<'_, UiMsg> {
+        let g = &self.cfg.general;
+        let a = g.apps_launcher;
+        let fg = color(g.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let warn = crate::ui::tone::warning();
+        let (outside, inside) = self.launcher_keys_text();
+        let desk_input = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.launcher.desk_key.clone())
+            .unwrap_or_else(|| g.keys.search_desktop.clone());
+        let mut col = column![
             self.section("Raccourci"),
             self.field(
                 "Le même lanceur dans tous les modes",
                 "apps_unified",
                 iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v))),
             ),
-            text(outside).font(self.font).size(crate::ui::tokens::ts(13.0)).color(fg),
-            text(inside).font(self.font).size(crate::ui::tokens::ts(13.0)).color(fg),
+            text(outside)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg),
+            text(inside)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg),
             self.field(
                 "Plein bureau : un autre raccourci",
                 "keys.search_desktop",
@@ -484,18 +422,8 @@ impl App {
             ));
             col = col.push(line);
         }
-        let mut actions = row![
-            button(
-                text(crate::i18n::tr("Ouvrir le lanceur"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-            )
-            .padding([6, 14])
-            .on_press(UiMsg::Control(crate::control::Command::Apps)),
-        ]
-        .spacing(10);
         if g.keys.search != "SUPER + R" {
-            actions = actions.push(
+            col = col.push(
                 button(
                     text(crate::i18n::tr("Utiliser SUPER + R"))
                         .font(self.font)
@@ -506,211 +434,11 @@ impl App {
                 .on_press(wrap(Msg::UseSuperR)),
             );
         }
-        col.push(actions).into()
-    }
-
-    fn launcher_look(&self) -> Element<'_, UiMsg> {
-        let g = &self.cfg.general;
-        let l = &g.launcher;
-        let dim = self.ink().dim;
-        let filter = self
-            .panel
-            .as_ref()
-            .map(|p| p.launcher.pin_filter.clone())
-            .unwrap_or_default();
-        let position = |label: &'static str, v: LauncherPosition| {
-            radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font)
-        };
-        let name = |id: &str| {
-            self.apps
-                .iter()
-                .find(|a| a.id == id)
-                .map_or(id.to_string(), |a| a.name.clone())
-        };
-        let mut pins = column![].spacing(6);
-        if l.pinned.is_empty() {
-            pins = pins.push(
-                text("Aucune application épinglée.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-                    .color(dim),
-            );
-        }
-        for (i, id) in l.pinned.iter().enumerate() {
-            let small = |label: &'static str, msg: Option<UiMsg>| {
-                button(
-                    text(label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([3, 8])
-                .style(button::secondary)
-                .on_press_maybe(msg)
-            };
-            pins = pins.push(
-                row![
-                    text(name(id))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .width(Length::Fill),
-                    small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
-                    small(
-                        "↓",
-                        (i + 1 < l.pinned.len()).then(|| wrap(Msg::MovePin(i, 1)))
-                    ),
-                    small("Retirer", Some(wrap(Msg::Unpin(i)))),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-        }
-        let f = filter.to_lowercase();
-        let mut found = column![].spacing(2);
-        if !f.is_empty() {
-            for a in self
-                .apps
-                .iter()
-                .filter(|a| {
-                    !l.pinned.contains(&a.id)
-                        && (a.name.to_lowercase().contains(&f) || a.id.to_lowercase().contains(&f))
-                })
-                .take(8)
-            {
-                found = found.push(
-                    button(
-                        row![
-                            text(a.name.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
-                                .width(Length::Fill),
-                            text(a.id.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim),
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Pin(a.id.clone()))),
-                );
-            }
-        }
-        if self.on_subtab(INFO.id, "epinglees") {
-            return column![
-                self.section("Applications épinglées"),
-                text("Toujours dans le lanceur ; un clic les lance si elles ne sont pas ouvertes.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                pins,
-                iced::widget::text_input(
-                    crate::i18n::tr("Épingler une application (firefox, terminal…)"),
-                    &filter
-                )
-                .font(self.font)
-                .on_input(|v| wrap(Msg::PinFilter(v)))
-                .padding(8),
-                found,
-            ]
-            .spacing(14)
-            .into();
-        }
-        column![
-            self.section("Apparence"),
-            self.field(
-                "Bord de l'écran",
-                "launcher_position",
-                row![
-                    position("En bas", LauncherPosition::Bottom),
-                    position("En haut", LauncherPosition::Top),
-                    position(crate::i18n::tr("À gauche"), LauncherPosition::Left),
-                    position(crate::i18n::tr("À droite"), LauncherPosition::Right),
-                ]
-                .spacing(16),
-            ),
-            self.field(
-                "Taille des icônes",
-                "launcher_size",
-                row![
-                    iced::widget::slider(24..=96u16, l.size, |v| wrap(Msg::Size(v)))
-                        .on_release(wrap(Msg::SizeCommit))
-                        .width(260),
-                    text(format!("{} px", l.size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
-            ),
-            self.field(
-                "Boutons",
-                "",
-                column![
-                    iced::widget::toggler(l.show_assistant)
-                        .label(crate::i18n::tr("Assistant IA (LYRA)"))
-                        .on_toggle(|v| wrap(Msg::ShowAssistant(v))),
-                    iced::widget::toggler(l.show_settings)
-                        .label(crate::i18n::tr("Réglages"))
-                        .on_toggle(|v| wrap(Msg::ShowSettings(v))),
-                ]
-                .spacing(8),
-            ),
-            // SmartUI design : les icônes se créent et se valident dans
-            // Réglages → IA → Autres services IA.
-            self.field(
-                "Icônes",
-                "launcher_smartui",
-                row![
-                    iced::widget::toggler(l.smartui)
-                        .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
-                        .on_toggle(
-                            |v| super::assistant::wrap(super::assistant::Msg::SmartToggle(v))
-                        ),
-                    button(
-                        text("Créer et valider les icônes…")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices)),
-                ]
-                .spacing(14)
-                .align_y(Alignment::Center),
-            ),
-        ]
-        .spacing(14)
-        .into()
+        col.into()
     }
 
     pub(in crate::ui) fn launcher_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
-            Msg::Running(v) => {
-                self.settings.running_apps = Some(v);
-                self.commit()
-            }
-            Msg::Group(v) => {
-                self.settings.launcher_group = Some(v);
-                self.commit()
-            }
-            Msg::Position(v) => {
-                self.settings.launcher_position = Some(v);
-                self.commit()
-            }
-            Msg::Size(v) => {
-                self.settings.launcher_size = Some(v);
-                self.apply()
-            }
-            Msg::SizeCommit => self.commit(),
-            Msg::ShowSettings(v) => {
-                self.settings.launcher_show_settings = Some(v);
-                self.commit()
-            }
-            Msg::ShowAssistant(v) => {
-                self.settings.launcher_show_assistant = Some(v);
-                self.commit()
-            }
             Msg::AppsStyle(v) => {
                 self.settings.apps_style = Some(v);
                 self.commit()
@@ -781,40 +509,6 @@ impl App {
                 // Saisi aussi dans Bureau → Raccourcis : le champ suit.
                 p.keys.keys[9] = v.clone();
                 self.settings.key_search_desktop = Some(v);
-                self.commit()
-            }
-            Msg::PinFilter(f) => {
-                if let Some(p) = self.panel.as_mut() {
-                    p.launcher.pin_filter = f;
-                }
-                Task::none()
-            }
-            Msg::Pin(id) => {
-                let mut l = self.cfg.general.launcher.pinned.clone();
-                if !l.contains(&id) {
-                    l.push(id);
-                }
-                if let Some(p) = self.panel.as_mut() {
-                    p.launcher.pin_filter.clear();
-                }
-                self.settings.launcher_pinned = Some(l);
-                self.commit()
-            }
-            Msg::Unpin(i) => {
-                let mut l = self.cfg.general.launcher.pinned.clone();
-                if i < l.len() {
-                    l.remove(i);
-                }
-                self.settings.launcher_pinned = Some(l);
-                self.commit()
-            }
-            Msg::MovePin(i, d) => {
-                let mut l = self.cfg.general.launcher.pinned.clone();
-                let j = i as i64 + d as i64;
-                if i < l.len() && j >= 0 && (j as usize) < l.len() {
-                    l.swap(i, j as usize);
-                }
-                self.settings.launcher_pinned = Some(l);
                 self.commit()
             }
         }

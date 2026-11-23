@@ -709,7 +709,7 @@ impl Preview {
                 cfg.general.background = config::General::default().background;
                 cfg.general.theme.effects.remove(&config::Place::Launcher);
             }
-            let thickness = plugins::launcher::thickness(cfg.general.launcher.size) as f32;
+            let thickness = plugins::dock::thickness(cfg.general.launcher.size) as f32;
             self.app.monitors[0].reserved = match cfg.general.launcher.position {
                 LauncherPosition::Bottom => (0.0, 44.0, 0.0, thickness),
                 LauncherPosition::Top => (0.0, 44.0 + thickness, 0.0, 0.0),
@@ -738,19 +738,19 @@ impl Preview {
                     .launcher_pointer(crate::i18n::tr("APERÇU"), Some(1.15));
             }
             if matches!(self.scene, 21 | 26 | 30) {
-                self.app.launcher_popup = Some(plugins::launcher::Popup {
+                self.app.launcher_popup = Some(plugins::dock::Popup {
                     shown: true,
                     id: Id::unique(),
                     monitor: crate::i18n::tr("APERÇU").into(),
                     key: "dock-pin:firefox".into(),
-                    content: plugins::launcher::PopupContent::Windows("firefox".into()),
+                    content: plugins::dock::PopupContent::Windows("firefox".into()),
                     fade: self.app.launcher_transition(
                         if self.scene == 26 { 0.5 } else { 1.0 },
                         if self.scene == 26 { 0.5 } else { 1.0 },
                         0,
                     ),
                     max_height: self.size.height - 160.0,
-                    placement: plugins::launcher::Placement {
+                    placement: plugins::dock::Placement {
                         bounds: iced::Rectangle::new(
                             Point::new((self.size.width - 416.0) / 2.0, self.size.height - 204.0),
                             Size::new(416.0, 102.0),
@@ -3426,7 +3426,7 @@ impl Preview {
         let outline = color(fg, 0.14);
         let card_bg = color(g.theme.bg, 1.0);
         // La mosaïque laisse au dock la place que le compositeur lui réserve.
-        let bottom = plugins::launcher::thickness(g.launcher.size) as f32 + 16.0;
+        let bottom = plugins::dock::thickness(g.launcher.size) as f32 + 16.0;
         let card = move |title: &'static str| -> Element<'_, Msg> {
             let mut body = column([]).spacing(10).width(Length::Fill);
             for portion in [92u16, 68, 45] {

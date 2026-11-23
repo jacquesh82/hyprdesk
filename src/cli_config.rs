@@ -619,23 +619,23 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.icon_theme.clone().unwrap_or_default(),
         |s, v, c| { s.icon_theme = Some(v.to_string()); Ok(()) },
         |s| s.icon_theme = None;
-    "running_apps", "launcher", "off | workspace | all — fenêtres du lanceur",
+    "running_apps", "dock", "off | workspace | all — fenêtres du dock",
         |c| c.general.running_apps.as_str().into(),
         |s, v, c| { s.running_apps = Some(choice(v, RunningApps::parse, "off, workspace, all")?); Ok(()) },
         |s| s.running_apps = None;
-    "launcher_group", "launcher", "none | app | workspace — regroupement du lanceur",
+    "launcher_group", "dock", "none | app | workspace — regroupement du dock",
         |c| c.general.launcher_group.as_str().into(),
         |s, v, c| { s.launcher_group = Some(choice(v, LauncherGroup::parse, "none, app, workspace")?); Ok(()) },
         |s| s.launcher_group = None;
-    "launcher_position", "launcher", "bottom | top | left | right — bord du lanceur",
+    "launcher_position", "dock", "bottom | top | left | right — bord du dock",
         |c| c.general.launcher.position.as_str().into(),
         |s, v, c| { s.launcher_position = Some(choice(v, crate::config::LauncherPosition::parse, "bottom, top, left, right")?); Ok(()) },
         |s| s.launcher_position = None;
-    "launcher_size", "launcher", "24..96 — taille des icônes du lanceur",
+    "launcher_size", "dock", "24..96 — taille des icônes du dock",
         |c| c.general.launcher.size.to_string(),
         |s, v, c| { s.launcher_size = Some(number(v, 24u16, 96)?); Ok(()) },
         |s| s.launcher_size = None;
-    "launcher_pinned", "launcher", "app,app,… | none — applications épinglées (ids .desktop)",
+    "launcher_pinned", "dock", "app,app,… | none — applications épinglées (ids .desktop)",
         |c| c.general.launcher.pinned.join(","),
         |s, v, c| {
             s.launcher_pinned = Some(if v == "none" { Vec::new() } else {
@@ -644,11 +644,11 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.launcher_pinned = None;
-    "launcher_show_settings", "launcher", "on | off — bouton des réglages dans le lanceur",
+    "launcher_show_settings", "dock", "on | off — bouton des réglages dans le dock",
         |c| on_off(c.general.launcher.show_settings),
         |s, v, c| { s.launcher_show_settings = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_show_settings = None;
-    "launcher_show_assistant", "launcher", "on | off — bouton de l'assistant IA dans le lanceur",
+    "launcher_show_assistant", "dock", "on | off — bouton de l'assistant IA dans le dock",
         |c| on_off(c.general.launcher.show_assistant),
         |s, v, c| { s.launcher_show_assistant = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_show_assistant = None;

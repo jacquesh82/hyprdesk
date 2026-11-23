@@ -210,16 +210,13 @@ fn shown_catalog(st: &State) -> Vec<crate::theme_engine::bridge::Entry> {
 }
 
 impl App {
-    /// Apparence des composants (MLG-279) : dock, espaces de travail,
+    /// Apparence des composants (MLG-279) : espaces de travail,
     /// réglages rapides, notifications, monitoring, horloge, média,
     /// verrouillage — les options du registre, regroupées.
     fn design_components(&self) -> Element<'_, UiMsg> {
-        use crate::design_options::{Kind, OPTIONS};
-        use crate::tiling::OptValue;
         let font = self.font;
-        let g = &self.cfg.general;
-        let groups: [(&str, &str); 9] = [
-            ("dock", "Dock"),
+        // Le dock a ses options dans son plugin (Réglages → Dock → Apparence).
+        let groups: [(&str, &str); 8] = [
             ("workspaces", "Espaces de travail"),
             ("controls", "Réglages rapides"),
             ("notifications", "Notifications"),
@@ -240,89 +237,110 @@ impl App {
         ]
         .spacing(14);
         for (component, title) in groups {
-            col = col.push(self.section(title));
-            for o in OPTIONS.iter().filter(|o| o.component == component) {
-                let name = o.name();
-                let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
-                    (Kind::Bool, OptValue::Bool(b)) => {
-                        let n = name.clone();
-                        toggler(b)
-                            .on_toggle(move |v| {
-                                wrap(Msg::DesignOpt(
-                                    n.clone(),
-                                    if v { "on" } else { "off" }.into(),
-                                    true,
-                                ))
-                            })
-                            .into()
-                    }
-                    (Kind::Choice(list), OptValue::Str(cur)) => {
-                        row(list.iter().enumerate().map(|(i, c)| {
-                            let n = name.clone();
-                            let current = list.iter().position(|x| *x == cur);
-                            radio(*c, i, current, move |v| {
-                                wrap(Msg::DesignOpt(n.clone(), list[v].to_string(), true))
-                            })
-                            .font(font)
-                            .size(crate::ui::tokens::ts(14.0))
-                            .into()
-                        }))
-                        .spacing(12)
-                        .wrap()
-                        .into()
-                    }
-                    (Kind::Int(lo, hi), OptValue::Num(v)) => {
-                        let (n, c) = (name.clone(), name.clone());
-                        row![
-                            slider(lo as f64..=hi as f64, v, move |x| {
-                                wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
-                            })
-                            .step(1.0)
-                            .on_release(wrap(Msg::DesignOpt(c, format!("{}", v.round()), true)))
-                            .width(220),
-                            text(format!("{}", v.round()))
-                                .font(font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12)
-                        .align_y(Alignment::Center)
-                        .into()
-                    }
-                    (Kind::Float(lo, hi), OptValue::Num(v)) => {
-                        let (n, c) = (name.clone(), name.clone());
-                        row![
-                            slider(lo..=hi, v, move |x| {
-                                wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false))
-                            })
-                            .step((hi - lo) / 100.0)
-                            .on_release(wrap(Msg::DesignOpt(c, format!("{v:.2}"), true)))
-                            .width(220),
-                            text(format!("{v:.2}"))
-                                .font(font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12)
-                        .align_y(Alignment::Center)
-                        .into()
-                    }
-                    (Kind::Text, OptValue::Str(cur)) => {
-                        let (n, c) = (name.clone(), name.clone());
-                        let v = cur.clone();
-                        iced::widget::text_input(crate::i18n::tr("chemin d'une image"), &cur)
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .padding(6)
-                            .width(360)
-                            .on_input(move |x| wrap(Msg::DesignOpt(n.clone(), x, false)))
-                            .on_submit(wrap(Msg::DesignOpt(c, v, true)))
-                            .into()
-                    }
-                    _ => text("—").into(),
-                };
-                col = col.push(self.field(o.label, "", field));
-            }
+            col = col.push(self.design_fields(component, title));
         }
+        col = col.push(
+            text(crate::i18n::tr("Le dock : Réglages → Dock → Apparence."))
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(self.ink().dim),
+        );
         col.into()
+    }
+
+    /// Options du registre `design_options` d'un composant, sous un titre :
+    /// Thème → Composants, et la page de son plugin (Dock → Apparence).
+    pub(in crate::ui) fn design_fields(
+        &self,
+        component: &str,
+        title: &'static str,
+    ) -> iced::widget::Column<'_, UiMsg> {
+        use crate::design_options::{Kind, OPTIONS};
+        use crate::tiling::OptValue;
+        let font = self.font;
+        let g = &self.cfg.general;
+        let mut col = column![self.section(title)].spacing(14);
+        for o in OPTIONS.iter().filter(|o| o.component == component) {
+            let name = o.name();
+            let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
+                (Kind::Bool, OptValue::Bool(b)) => {
+                    let n = name.clone();
+                    toggler(b)
+                        .on_toggle(move |v| {
+                            wrap(Msg::DesignOpt(
+                                n.clone(),
+                                if v { "on" } else { "off" }.into(),
+                                true,
+                            ))
+                        })
+                        .into()
+                }
+                (Kind::Choice(list), OptValue::Str(cur)) => {
+                    row(list.iter().enumerate().map(|(i, c)| {
+                        let n = name.clone();
+                        let current = list.iter().position(|x| *x == cur);
+                        radio(*c, i, current, move |v| {
+                            wrap(Msg::DesignOpt(n.clone(), list[v].to_string(), true))
+                        })
+                        .font(font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .into()
+                    }))
+                    .spacing(12)
+                    .wrap()
+                    .into()
+                }
+                (Kind::Int(lo, hi), OptValue::Num(v)) => {
+                    let (n, c) = (name.clone(), name.clone());
+                    row![
+                        slider(lo as f64..=hi as f64, v, move |x| {
+                            wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
+                        })
+                        .step(1.0)
+                        .on_release(wrap(Msg::DesignOpt(c, format!("{}", v.round()), true)))
+                        .width(220),
+                        text(format!("{}", v.round()))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                    .into()
+                }
+                (Kind::Float(lo, hi), OptValue::Num(v)) => {
+                    let (n, c) = (name.clone(), name.clone());
+                    row![
+                        slider(lo..=hi, v, move |x| {
+                            wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false))
+                        })
+                        .step((hi - lo) / 100.0)
+                        .on_release(wrap(Msg::DesignOpt(c, format!("{v:.2}"), true)))
+                        .width(220),
+                        text(format!("{v:.2}"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                    .into()
+                }
+                (Kind::Text, OptValue::Str(cur)) => {
+                    let (n, c) = (name.clone(), name.clone());
+                    let v = cur.clone();
+                    iced::widget::text_input(crate::i18n::tr("chemin d'une image"), &cur)
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .padding(6)
+                        .width(360)
+                        .on_input(move |x| wrap(Msg::DesignOpt(n.clone(), x, false)))
+                        .on_submit(wrap(Msg::DesignOpt(c, v, true)))
+                        .into()
+                }
+                _ => text("—").into(),
+            };
+            col = col.push(self.field(o.label, "", field));
+        }
+        col
     }
 
     pub(in crate::ui) fn theme_page(&self) -> Element<'_, UiMsg> {

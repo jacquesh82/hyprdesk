@@ -13,11 +13,11 @@ a widget, and where the launcher fits.
 | **Settings package** | `src/ui/plugins/<id>.rs` | an entry of the Settings screen: manifest, messages, state, view, update, CLI keys |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | an element placed on the desktop or in the bar, fed by a data source |
 | **Widget plugin** | `~/.config/hypr/hyprdesk/widgets/<name>.lua` | a widget written in Lua, detected without recompiling |
-| **Launcher** | `src/ui/plugins/launcher.rs`, `launcher/` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
+| **Dock** | `src/ui/plugins/dock.rs`, `dock/` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
 
-### Plugins with a surface: Bar, Launcher, Panorama
+### Plugins with a surface: Bar, Dock, Launcher, Panorama
 
-Three packages put a surface on screen on top of their Settings page. Each
+Four packages put a surface on screen on top of their Settings page. Each
 lives in its own folder, laid out the same way:
 
 | Path | Role |
@@ -31,11 +31,15 @@ lives in its own folder, laid out the same way:
   overflow), `motion.rs` (local motion), `style/` (Continuité, Graphite,
   Island, Convexe), `popover.rs` + `popover/` (drop-down menus).
   `src/bar_offer.rs` adds modules shipped later to the configured bar.
-- **Launcher**: `surface.rs` (the dock and the window card), `lifecycle.rs`,
-  `keyboard.rs`, `motion.rs`, `contrast.rs`. The app grid
-  (`ui/apps_grid.rs`, `hyprdesk apps`) stays outside the plugin: turning the
-  Launcher off does not turn it off; its options are in the Applications tab
-  of the Launcher page.
+- **Dock**: `surface.rs` (the dock and the window card), `lifecycle.rs`,
+  `keyboard.rs`, `motion.rs`, `contrast.rs`. Its page: Content, Appearance
+  (with the style: `dock.*` options from the `design_options` registry),
+  Pinned. Turning it off removes the dock from every screen and from the
+  bar; an old `disabled_plugins = { "launcher" }` is read as `"dock"`.
+- **Launcher**: `grid.rs` (large sheet and centered card, `hyprdesk apps`,
+  dock button, `keys.search`); the search engine (`ui/search.rs`) stays
+  shared. Its page: Applications, Shape, Shortcut. It is part of the core
+  (`CORE_PLUGINS`): turning the dock off does not turn it off.
 - **Panorama**: `surface/` (pages, gestures, tiles in `surface/modules/`),
   `design.rs` and `modules.rs` (Settings tabs); logic in `src/panorama/`.
 
@@ -136,7 +140,8 @@ Keys per package:
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
 | `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
-| `launcher` | `running_apps`, `launcher_group` |
+| `dock` | `running_apps`, `launcher_group` |
+| `launcher` | `apps_style`, `apps_suggestions`, `apps_categories`, `apps_unified`, `launcher.<shape>` |
 | `wallpaper` | `wallpaper` (image or `#rrggbb`, all desktops), `wallpaper.fit`, `wallpaper.span` (`on`: spread across all screens) |
 | `widgets` | `widget.<type>` (`on` / `off`) |
 | `bar` | `bar`, `bar.position`, `bar.height`, `bar.monitor` (`all`, `primary`, or comma-separated screens) |
@@ -146,7 +151,7 @@ Keys per package:
 | `apptheme` | `app_themes` (`kitty`, `gtk`, `qt`, `none`; all by default) |
 | `animations` (Desktop tab) | `transition`, `fade_ms`, `crossfade_ms` |
 | `theme` | `theme.preset` (theme engine pack: name or id), `theme.name`, `theme.fg`, `theme.bg`, `theme.accent`, `background`, `theme.effects.<place>.opacity` (0..1), `theme.effects.<place>.blur` (places: `bar`, `menus`, `launcher`, `settings`, `widgets` — no blur) |
-| `launcher` (appearance) | `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
+| `dock` (appearance) | `dock.<style>`, `launcher_position`, `launcher_size`, `launcher_pinned`, `launcher_show_settings`, `launcher_show_assistant` |
 | `apps` | `apps.<role>` (`browser`, `terminal`, `files`, `editor`, `image`, `video`, `audio`, `pdf`, `mail`, `ai`) |
 | `assistant` | `assistant_mode` (`window`, `terminal`), `ai_services`, `ai_use` |
 | `plugins` | `plugin.<id>` (`on` / `off`) |
@@ -190,7 +195,8 @@ Hyprland options (`hyprset::GROUPS` outside `BASIC_GROUPS`) are framed by
 | Windows | Appearance · Behaviour ● · Rules (windows; layers and workspaces when advanced) · Groups ● |
 | Keyboard and mouse | Keyboard · Mouse · Touchpad · Cursor · Gestures · Devices ● |
 | Hyprland configuration | Cleanup · Environment ● · Hyprland plugins ● · Permissions ● · Advanced ● |
-| Launcher | Content · Appearance · Pinned |
+| Dock | Content · Appearance · Pinned |
+| Launcher | Applications · Shape · Shortcut |
 | Bar | General · Modules |
 | Screens | Layout · Screen (clicking on the map leads there) |
 | Workspaces | Count and screens · Applications |
@@ -228,7 +234,8 @@ each CLI key points to an existing package.
 | `desktop` | Desktop | screens the desktop is shown on, mode, font, session | `config::General` |
 | `keys` | Shortcuts | every active shortcut (outside the full desktop, desktop shown), hyprdesk's own, essential window, workspace and screen shortcuts set by hyprdesk | `keymap.rs`, `essentials.rs` |
 | `icons` | Icons | application shortcuts, size, theme | `launch.rs`, `layout.rs` |
-| `launcher` | Launcher | windows shown, grouping | — (widget, § 3) |
+| `dock` | Dock | windows shown, grouping, style | — (widget, § 3) |
+| `launcher` | Launcher | presentation, suggestions, shape, shortcut | `search.rs` |
 | `theme` | Theme | colors, backgrounds, effect of each place (opacity, blur), desktop mode, lock screen veil; shipped themes and “My themes” | `theme.rs`, `config::Theme` |
 | `apptheme` | Theme modules | the theme engine modules that carry the theme to other software (kitty: `~/.config/kitty/hyprdesk-theme.conf`, included at the end of kitty.conf, reloaded with SIGUSR1) | `apptheme.rs` |
 | `wallpaper` | Wallpaper | image, slideshow, color; scope | `config::WallpaperRule` |
@@ -375,10 +382,11 @@ The bar adapts to each screen:
 
 Each zone is clipped: even when too long, they no longer overlap.
 
-## 3. The launcher
+## 3. The dock
 
-The launcher used to be a part of the desktop. It is now a **standalone
-widget**, with its own package (`launcher`):
+The dock used to be a part of the desktop, then of the Launcher package. It
+is now a **standalone widget**, with its own package (`dock`); the
+application launcher its button opens is the `launcher` package:
 
 - **Role.** It is the dock at the bottom center, with the open windows followed
   by the ⚙ button. It is the only control in `launcher-only` mode, where tiled

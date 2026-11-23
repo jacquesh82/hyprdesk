@@ -178,7 +178,7 @@ impl App {
     /// Le même plugin est hébergé par la barre Graphite de cet écran.
     pub(in crate::ui) fn launcher_in_bar(&self, monitor: &str) -> bool {
         self.cfg.plugin_on("bar")
-            && self.cfg.plugin_on("launcher")
+            && self.cfg.plugin_on("dock")
             && self
                 .cfg
                 .bar
@@ -293,7 +293,7 @@ impl App {
             Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
         };
         let l = &self.cfg.general.launcher;
-        let want: Vec<String> = if self.visible && self.cfg.plugin_on("launcher") {
+        let want: Vec<String> = if self.visible && self.cfg.plugin_on("dock") {
             self.surfaces
                 .iter()
                 .filter(|(id, mon)| self.raised.contains(id) && !self.launcher_in_bar(mon))
@@ -420,7 +420,7 @@ impl App {
         m: &Monitor,
         t: f32,
     ) -> Element<'a, UiMsg> {
-        if !self.cfg.plugin_on("launcher") {
+        if !self.cfg.plugin_on("dock") {
             return Space::new().into();
         }
         self.view_launcher_content(m, t, true)
@@ -1298,7 +1298,7 @@ impl App {
                 .pending
                 .as_ref()
                 .is_some_and(|p| self.launcher_in_bar(&p.monitor)))
-            || !self.cfg.plugin_on("launcher")
+            || !self.cfg.plugin_on("dock")
             || token != self.launcher_popup_token
             || !self
                 .launcher_runtime

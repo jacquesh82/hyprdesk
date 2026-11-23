@@ -118,7 +118,7 @@ pub const STEPS: &[Step] = &[
                  notifications, session…",
             ),
             it(
-                "launcher",
+                "dock",
                 "Le dock",
                 "Les fenêtres ouvertes, regroupées par application ou par workspace, et vos \
                  applications épinglées. Au survol d'un groupe, on choisit la fenêtre voulue.",

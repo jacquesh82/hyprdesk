@@ -119,7 +119,7 @@ impl App {
     /// `windows` : les fenêtres restent en place, le clavier doit pouvoir
     /// leur revenir sans passer par le dock (prise à la demande).
     pub(in crate::ui) fn launcher_grab(&mut self, monitor: &str, windows: bool) -> Task<UiMsg> {
-        if !self.cfg.plugin_on("launcher") {
+        if !self.cfg.plugin_on("dock") {
             return Task::none();
         }
         let Some(m) = self.monitors.iter().find(|m| m.name == monitor).cloned() else {
