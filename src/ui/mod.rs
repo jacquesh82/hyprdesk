@@ -4975,7 +4975,9 @@ impl App {
                 Task::batch([resize, self.refresh_popover_anchor()])
             }
             Msg::BarReveal(id, hover) => self.bar_hover(id, hover),
-            Msg::BarRevealApply(id, generation, show) => self.bar_reveal_apply(id, generation, show),
+            Msg::BarRevealApply(id, generation, show) => {
+                self.bar_reveal_apply(id, generation, show)
+            }
             Msg::BarIslandInput(id, bounds) => self.bar_input(id, Some(bounds)),
             Msg::ControlToggle(id) => {
                 if self.control_actions.get(&id).is_some_and(Option::is_none) {
@@ -5815,9 +5817,11 @@ impl App {
             };
             // Dock masqué hors survol (MLG-279) : une fine bande au bord.
             if self.dock_autohide() && !self.bar_revealed(id) {
-                return iced::widget::mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
-                    .on_enter(Msg::BarReveal(id, true))
-                    .into();
+                return iced::widget::mouse_area(
+                    Space::new().width(Length::Fill).height(Length::Fill),
+                )
+                .on_enter(Msg::BarReveal(id, true))
+                .into();
             }
             let dock = self.view_launcher(m, self.fade_value());
             if self.dock_autohide() {
