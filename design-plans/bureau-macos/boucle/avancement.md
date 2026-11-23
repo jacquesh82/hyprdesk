@@ -1,16 +1,33 @@
 # Registre d'avancement de la boucle HIG
 
-> Une ligne par écart, dans l'ordre de traitement. Le document fait foi : `CONSIGNE.md`, section 6.
+> Une ligne par écart, dans l'ordre de traitement. Trois couloirs (A, B, C) le traitent en parallèle ; la consigne qui fait foi est `.zcode/hig-boucle/CONSIGNE.md` du dépôt principal, sa section 7 dit comment publier.
 > Les identifiants renvoient au tableau d'écarts du document de famille (`../<famille>.md`).
 > Statuts : `à faire`, `fait`, `à reprendre`, `bloqué`, `sans objet`, `hors plan`, `identité`.
 
 ## Journal de la boucle
+
+### Avant les couloirs
 
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-23 | mise en place | worktree créé, mise en forme rustfmt (edbb517), registre initial de 213 écarts ; décisions D1 à D7 approuvées |
 | 2026-11-23 | 1 | AUDIT-A11Y, SYS-01 traités ; il en reste 152 |
 | 2026-11-23 | 2 | SYS-04, FON-02, LAY-03 traités ; il en reste 149 |
+
+### Couloir A
+
+| Date | Itération | Résultat |
+| --- | --- | --- |
+
+### Couloir B
+
+| Date | Itération | Résultat |
+| --- | --- | --- |
+
+### Couloir C
+
+| Date | Itération | Résultat |
+| --- | --- | --- |
 
 Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` le 23 novembre 2026 à 23 h 17 : code de sortie 0 ; précédente référence : `4d5193d`).
 
