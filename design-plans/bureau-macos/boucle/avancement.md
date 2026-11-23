@@ -9,6 +9,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-23 | mise en place | worktree créé, mise en forme rustfmt (edbb517), registre initial de 213 écarts ; décisions D1 à D7 approuvées |
+| 2026-11-23 | 1 | AUDIT-A11Y traité ; il en reste 153 |
 
 Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scripts/verify.sh` le 23 novembre 2026 à 21 h 49 : code de sortie 0).
 
@@ -16,7 +17,7 @@ Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scrip
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| AUDIT-A11Y | Audit du code face à la page HIG « Accessibility » (`../00b-fondations-structure.md`, première partie), écrit dans `../audit-accessibilite.md` ; ses écarts `ACC-xx` entrent ensuite au registre, en fin de phase 1 | audit | M | — | à faire | — | — |
+| AUDIT-A11Y | Audit du code face à la page HIG « Accessibility » (`../00b-fondations-structure.md`, première partie), écrit dans `../audit-accessibilite.md` ; ses écarts `ACC-xx` entrent ensuite au registre, en fin de phase 1 | audit | M | — | fait | c9ad686 | `../audit-accessibilite.md` écrit à `be6cf05` : 10 écarts prouvés (1 ABSENT, 6 ÉCART, 3 PISTE), classés par importance, ajoutés en fin de phase 1 ; convention des cotes : 1 pt = 1 px logique ; ACC-01 (lecteur d'écran) est coté L et se traite sans dépendance nouvelle (`zbus` déjà directe) |
 
 ## Phase 0 — Corrections rapides
 
@@ -68,6 +69,16 @@ Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scrip
 | PAT-07 | Réglages des notifications | ABSENT | L | haute | à faire | — | — |
 | SYS-03 | Réglages des notifications | ABSENT | L | haute | à faire | — | — |
 | PAT-20 | Résumé programmé | PISTE | M | moyenne | à faire | — | — |
+| ACC-01 | Lecteur d'écran : arbre d'accessibilité (AT-SPI) | ABSENT | L | haute | à faire | — | traiter en dernier ; pont au-dessus de `zbus`, déjà dépendance directe |
+| ACC-02 | Verrouillage : contraste sur l'image de fond | ÉCART | S | haute (mécanisme) ; ratios calculés | à faire | — | — |
+| ACC-03 | Verrouillage : texte estompé au repos | ÉCART | S | moyenne | à faire | — | — |
+| ACC-04 | Bulles de notification : fermeture et actions sous 20 px | ÉCART | S | haute | à faire | — | — |
+| ACC-05 | Verrouillage : dérive continue malgré « Mouvement réduit » | ÉCART | S | haute | à faire | — | — |
+| ACC-06 | Verrouillage et écran de connexion : texte hors de l'échelle | ÉCART | S | haute | à faire | — | — |
+| ACC-07 | Notifications : délai demandé par l'application, sans plancher | PISTE | S | haute | à faire | — | recouvre SYS-03 et PAT-07 |
+| ACC-08 | Verrouillage : lecture et pause à la souris seulement | PISTE | S | moyenne | à faire | — | — |
+| ACC-09 | Barre : plancher de cible de 16 px | PISTE | S | haute | à faire | — | — |
+| ACC-10 | Boutons sans bordure trop rapprochés | PISTE | S | moyenne | à faire | — | — |
 
 ## Phase 2 — Menus du shell et clavier
 
