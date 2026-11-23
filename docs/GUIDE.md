@@ -359,6 +359,10 @@ name, path, or category: answers come back in a few milliseconds. Filter by
 kind (files, folders, links) and by category (documents, images, videos,
 programs…).
 
+The launcher's search field carries the loupe in every mode (including `:f`,
+`:clip`, `:2fa`, `:mdp`) and, as soon as it holds a query, a Clear button on
+the right: one click erases the query and returns to the field.
+
 The index runs in the background, kept fresh by inotify and a periodic
 rescan. Tune it in **Settings → File index**: roots, exclusions by name or
 regular expression, ignored extensions and categories, maximum file size.

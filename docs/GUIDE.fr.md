@@ -375,6 +375,10 @@ par nom, chemin ou catégorie : réponse en quelques millisecondes. Filtrez par
 nature (fichiers, dossiers, liens) et par catégorie (documents, images,
 vidéos, programmes…).
 
+Le champ de recherche du lanceur porte la loupe dans tous ses modes (`:f`,
+`:clip`, `:2fa`, `:mdp` compris) et, dès qu'il contient une requête, un bouton
+Clear à droite : un clic efface la requête et rend la main au champ.
+
 L'index vit en arrière-plan, tenu à jour par inotify et un rescan
 périodique. Il se règle dans **Réglages → Index de fichiers** : racines,
 exclusions par nom ou par expression régulière, extensions et catégories à

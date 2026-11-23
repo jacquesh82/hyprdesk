@@ -141,12 +141,25 @@ impl App {
         )
     }
 
-    /// Champ de recherche en pastille, loupe à gauche.
+    /// Champ du lanceur d'applications, avec son texte de substitution.
+    fn apps_field<'a>(&'a self, s: &'a Search, width: f32, size: f32) -> Element<'a, Msg> {
+        self.launcher_field(
+            s,
+            Length::Fixed(width),
+            size,
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
+        )
+    }
+
+    /// Champ de recherche en pastille, seul propriétaire des quatre modes du
+    /// lanceur : loupe à gauche, bouton Clear à droite dès que la requête n'est
+    /// pas vide.
     pub(in crate::ui) fn launcher_field<'a>(
         &'a self,
         s: &'a Search,
-        width: f32,
+        width: Length,
         size: f32,
+        placeholder: &'a str,
     ) -> Element<'a, Msg> {
         let (r, bg) = self.launcher_palette();
         let (fg, dim, edge, focus) = (
@@ -159,36 +172,35 @@ impl App {
             crate::theme::mix(self.cfg.general.theme.bg, r.fg, 0.06),
             1.0,
         );
-        let input = text_input(
-            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
-            &s.query,
-        )
-        .id(crate::ui::search::INPUT_ID)
-        .on_input(|q| Msg::Search(SMsg::Query(q)))
-        .on_submit(Msg::Search(SMsg::Launch(s.selected)))
-        .font(self.font)
-        .size(crate::ui::tokens::ts(size))
-        .padding(Padding {
-            top: 14.0,
-            bottom: 14.0,
-            left: 44.0,
-            right: 16.0,
-        })
-        .width(width)
-        .style(move |_, st| iced::widget::text_input::Style {
-            background: field_bg.into(),
-            border: Border::default().rounded(999).width(2).color(
-                if matches!(st, iced::widget::text_input::Status::Focused { .. }) {
-                    focus
-                } else {
-                    edge
-                },
-            ),
-            icon: fg,
-            placeholder: dim,
-            value: fg,
-            selection: Color { a: 0.35, ..focus },
-        });
+        let clear = !s.query.is_empty();
+        let input = text_input(placeholder, &s.query)
+            .id(crate::ui::search::INPUT_ID)
+            .on_input(|q| Msg::Search(SMsg::Query(q)))
+            .on_submit(Msg::Search(SMsg::Launch(s.selected)))
+            .font(self.font)
+            .size(crate::ui::tokens::ts(size))
+            // À droite comme à gauche, le texte s'arrête avant le ou les glyphes.
+            .padding(Padding {
+                top: 14.0,
+                bottom: 14.0,
+                left: 44.0,
+                right: if clear { 44.0 } else { 16.0 },
+            })
+            .width(width)
+            .style(move |_, st| iced::widget::text_input::Style {
+                background: field_bg.into(),
+                border: Border::default().rounded(999).width(2).color(
+                    if matches!(st, iced::widget::text_input::Status::Focused { .. }) {
+                        focus
+                    } else {
+                        edge
+                    },
+                ),
+                icon: fg,
+                placeholder: dim,
+                value: fg,
+                selection: Color { a: 0.35, ..focus },
+            });
         let _ = bg;
         let glass: Element<'_, Msg> = crate::ui::icons::get("edit-find")
             .or_else(|| crate::ui::icons::get("system-search"))
@@ -205,17 +217,57 @@ impl App {
                     .color(dim)
                     .into()
             });
-        iced::widget::stack![
-            input,
+        let mut layers: Vec<Element<'a, Msg>> = vec![
+            input.into(),
             container(glass)
                 .padding(Padding {
                     left: 16.0,
                     ..Padding::ZERO
                 })
                 .height(Length::Fill)
-                .center_y(Length::Fill),
-        ]
-        .into()
+                .center_y(Length::Fill)
+                .into(),
+        ];
+        if clear {
+            let glyph: Element<'a, Msg> = crate::ui::icons::get("window-close")
+                .map(|h| {
+                    iced::widget::svg(h)
+                        .width(20)
+                        .height(20)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(dim) })
+                        .into()
+                })
+                .unwrap_or_else(|| {
+                    text("×")
+                        .size(crate::ui::tokens::ts(16.0))
+                        .color(dim)
+                        .into()
+                });
+            layers.push(
+                container(iced::widget::tooltip(
+                    button(glyph)
+                        .padding(2)
+                        .style(button::text)
+                        .on_press(Msg::Search(SMsg::Clear)),
+                    text(crate::i18n::tr("Effacer la recherche"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                    iced::widget::tooltip::Position::Top,
+                ))
+                // La couche occupe tout le champ : sans elle, l'empilement pose
+                // le bouton à gauche, sur la loupe.
+                .width(Length::Fill)
+                .align_x(Alignment::End)
+                .padding(Padding {
+                    right: 10.0,
+                    ..Padding::ZERO
+                })
+                .height(Length::Fill)
+                .center_y(Length::Fill)
+                .into(),
+            );
+        }
+        iced::widget::Stack::with_children(layers).into()
     }
 
     /// Icône d'une application, sinon son initiale sur une pastille d'accent.
@@ -328,10 +380,9 @@ impl App {
             crate::theme::mix(self.cfg.general.theme.bg, r.focus, 0.10),
             1.0,
         );
-        let mut body =
-            column![container(self.launcher_field(s, 560.0, 18.0)).center_x(Length::Fill)]
-                .spacing(22)
-                .align_x(Alignment::Center);
+        let mut body = column![container(self.apps_field(s, 560.0, 18.0)).center_x(Length::Fill)]
+            .spacing(22)
+            .align_x(Alignment::Center);
         // Suggestions : les plus lancées, dans un bandeau teinté (sans requête).
         if s.query.trim().is_empty() && s.category.is_none() && !s.suggested.is_empty() {
             let tiles = row(s.suggested.iter().map(|&i| {
@@ -523,7 +574,7 @@ impl App {
         let mut body = if convex {
             column![]
         } else {
-            column![self.launcher_field(s, spot_width() - 44.0, 20.0)]
+            column![self.apps_field(s, spot_width() - 44.0, 20.0)]
         }
         .spacing(16);
         if !typing && !s.suggested.is_empty() {
@@ -601,7 +652,7 @@ impl App {
         if convex {
             let body = column![
                 scrollable(body).height(Length::Fill),
-                self.launcher_field(s, spot_width() - 80.0, 16.0)
+                self.apps_field(s, spot_width() - 80.0, 16.0)
             ]
             .spacing(16);
             return self.convex_search_surface(

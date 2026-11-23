@@ -17,7 +17,7 @@
 
 use std::path::Path;
 
-use iced::widget::{button, column, container, row, text, text_input};
+use iced::widget::{button, column, container, row, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Task, Vector};
 use iced_layershell::reexport::{
@@ -192,6 +192,8 @@ pub enum SMsg {
     CatFilter(Option<u8>),
     /// Carte affichée : le champ prend le focus (la surface existe enfin).
     Shown,
+    /// Bouton Clear du champ : la requête est vidée et le champ reprend le focus.
+    Clear,
 }
 
 impl App {
@@ -1023,6 +1025,11 @@ impl App {
                 }
                 Task::batch(tasks)
             }
+            SMsg::Clear => {
+                // Le bouton disparaît avec la requête : le champ reprend le focus.
+                let cleared = self.search_update(SMsg::Query(String::new()));
+                Task::batch([cleared, iced::widget::operation::focus(INPUT_ID)])
+            }
             SMsg::Launch(k) => {
                 let Some(&i) = self.search.as_ref().and_then(|s| s.results.get(k)) else {
                     return Task::none();
@@ -1137,17 +1144,12 @@ impl App {
             let r = crate::theme::readable(th.fg, th.bg, th.accent);
             let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
             let bg = color(th.bg, 1.0);
-            let input = text_input(
+            let input = self.launcher_field(
+                s,
+                Length::Fill,
+                20.0,
                 crate::i18n::tr("Rechercher un fichier ou un dossier…"),
-                &s.query,
-            )
-            .id(INPUT_ID)
-            .on_input(|q| Msg::Search(SMsg::Query(q)))
-            .on_submit(Msg::Search(SMsg::Launch(s.selected)))
-            .font(self.font)
-            .size(crate::ui::tokens::ts(20.0))
-            .padding(14)
-            .width(Length::Fill);
+            );
             return container(self.search_card(
                 s,
                 input,
@@ -1172,17 +1174,12 @@ impl App {
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
         let bg = color(th.bg, 1.0);
-        let input = text_input(
+        let input = self.launcher_field(
+            s,
+            Length::Fill,
+            20.0,
             crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
-            &s.query,
-        )
-        .id(INPUT_ID)
-        .on_input(|q| Msg::Search(SMsg::Query(q)))
-        .on_submit(Msg::Search(SMsg::Launch(s.selected)))
-        .font(self.font)
-        .size(crate::ui::tokens::ts(20.0))
-        .padding(14)
-        .width(Length::Fill);
+        );
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
@@ -1381,17 +1378,12 @@ impl App {
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
         let bg = color(th.bg, 1.0);
-        let input = text_input(
+        let input = self.launcher_field(
+            s,
+            Length::Fill,
+            20.0,
             crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
-            &s.query,
-        )
-        .id(INPUT_ID)
-        .on_input(|q| Msg::Search(SMsg::Query(q)))
-        .on_submit(Msg::Search(SMsg::Launch(s.selected)))
-        .font(self.font)
-        .size(crate::ui::tokens::ts(20.0))
-        .padding(14)
-        .width(Length::Fill);
+        );
         use crate::i18n::tr;
         let mut list = column![].spacing(2);
         let note = match s.mfa.as_ref().map(|(_, l)| l) {
@@ -1555,7 +1547,7 @@ impl App {
     fn search_card<'a>(
         &'a self,
         _s: &'a Search,
-        input: iced::widget::TextInput<'a, Msg>,
+        input: Element<'a, Msg>,
         list: Element<'a, Msg>,
         bg: Color,
         fg: Color,

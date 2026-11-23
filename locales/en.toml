@@ -3087,6 +3087,7 @@
 "index : {m}" = "index: {m}"
 # Loupe du dock : recherche de fichiers + état de l'index
 "Rechercher un fichier ou un dossier…" = "Search a file or folder…"
+"Effacer la recherche" = "Clear the search"
 "Recherche de fichiers — indexation en cours…" = "File search — indexing…"
 "Recherche de fichiers — index prêt ({n} fichiers)" = "File search — index ready ({n} files)"
 "Recherche de fichiers — index arrêté (démarre au premier « :f »)" = "File search — index down (starts on the first \":f\")"
