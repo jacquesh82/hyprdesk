@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 2026-11-23 | mise en place | worktree créé, mise en forme rustfmt (edbb517), registre initial de 213 écarts ; décisions D1 à D7 approuvées |
 
-Référence verte : à établir par la première itération (`CONSIGNE.md`, section 3.6).
+Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scripts/verify.sh` le 23 novembre 2026 à 21 h 49 : code de sortie 0).
 
 ## Préalable — audit accessibilité (décision D7)
 

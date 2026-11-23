@@ -5,7 +5,8 @@
 
 ## 1. Où l'on travaille — et où l'on ne touche pas
 
-- **Le worktree** : celui dont la branche est `hig/plan-d-action`. Le trouver par `git worktree list`, exécuté depuis le dépôt principal. Tout s'y passe : lecture, modification, compilation, commits. Toutes les commandes ci-dessous s'y exécutent.
+- **Le worktree** : celui dont la branche est `hig/plan-d-action`. Le trouver par `git worktree list`, exécuté depuis le dépôt principal. Tout s'y passe : lecture, modification, compilation, commits.
+- **Chaque commande shell repart du dépôt principal.** Commencer chaque commande par `cd <chemin du worktree> &&`, et éditer les fichiers par leur chemin absolu dans le worktree. Une commande lancée sans cette précaution agit sur `main` : c'est interdit.
 - **Interdits absolus** :
   - toute écriture dans le dépôt principal, celui de la branche `main` ;
   - tout `push`, toute force, tout `reset --hard` ou `clean` hors du worktree ;
