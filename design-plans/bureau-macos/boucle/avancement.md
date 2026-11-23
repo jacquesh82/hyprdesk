@@ -9,7 +9,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-23 | mise en place | worktree créé, mise en forme rustfmt (edbb517), registre initial de 213 écarts ; décisions D1 à D7 approuvées |
-| 2026-11-23 | 1 | AUDIT-A11Y traité ; il en reste 153 |
+| 2026-11-23 | 1 | AUDIT-A11Y, SYS-01 traités ; il en reste 152 |
 
 Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scripts/verify.sh` le 23 novembre 2026 à 21 h 49 : code de sortie 0).
 
@@ -23,7 +23,7 @@ Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scrip
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| SYS-01 | Icône de l'app dans la bulle et le centre | ABSENT | S | haute | à reprendre | — | échec 1 : la nouvelle méthode `app_icon` portait le nom d'une méthode du lanceur (`src/ui/plugins/launcher/grid.rs:222`), `scripts/verify.sh` en échec à la compilation |
+| SYS-01 | Icône de l'app dans la bulle et le centre | ABSENT | S | haute | fait | 4d5193d | échec 1 (bed7073), puis réussite : `notif_icon` (`src/ui/toasts.rs`) dessine l'icône de l'application, demandée à l'arrivée de la notification, même sous Silence ; 36 px au bord gauche de la bulle, 28 px à gauche des cartes du centre de la barre et du centre de contrôle Continuité ; la cloche reste le repli, dans la même place. Test `l_icone_de_l_application_est_demandee_meme_sous_silence`, captures `notifications` à 1440 et 640 regardées. Aucun propriétaire partagé modifié. Documentation : rien à mettre à jour, la bulle n'y est pas décrite. |
 | SYS-04 | Clic sur une notification du centre | ABSENT | S | haute | à faire | — | — |
 | FON-02 | Notification critique | ÉCART | S | haute | à faire | — | — |
 | LAY-03 | Labels — carte Notifications de la barre | ÉCART | S | haute | à faire | — | — |
@@ -56,7 +56,7 @@ Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scrip
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | LAY-04 | Lists and tables — corps des notifications | ÉCART | S | moyenne | à faire | — | — |
 | SYS-14 | Barre Island : icône de l'app | ÉCART | S | haute | à faire | — | — |
-| ICO-03 | Bulle de notification | ABSENT | S | haute | à faire | — | — |
+| ICO-03 | Bulle de notification | ABSENT | S | haute | à faire | — | bulle faite avec SYS-01 (4d5193d) ; reste le repli sur l'icône de la classe quand `n.icon` est vide |
 | PAT-04 | Durée du Silence | ABSENT | S | haute | à faire | — | — |
 | SYS-05 | Aperçus masquables | ABSENT | S | haute | à faire | — | — |
 | SYS-17 | Actions destructrices | ABSENT | S | moyenne | à faire | — | — |
