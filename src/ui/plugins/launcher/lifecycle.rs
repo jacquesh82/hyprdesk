@@ -22,6 +22,9 @@ pub(in crate::ui) struct Runtime {
     pub backdrops: HashMap<crate::ui::WallKey, super::contrast::Backdrop>,
     /// Dock qui tient le clavier : écran et rang de la case choisie.
     pub focus: Option<(String, usize)>,
+    /// Le dock tient le clavier « à la demande » (fenêtres en place) : il le
+    /// rend dès que la souris ou un clic désigne une fenêtre.
+    pub on_demand: bool,
 }
 
 #[derive(Clone, Debug)]

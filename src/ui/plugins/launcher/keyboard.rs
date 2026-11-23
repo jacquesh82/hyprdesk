@@ -2,6 +2,10 @@
 //! (`launcher-only`, ou Tab depuis le plein bureau). Flèches, Tab et
 //! Maj + Tab passent d'une case à l'autre, Début et Fin vont aux bouts,
 //! Entrée ou Espace activent la case, Échap rend le clavier.
+//!
+//! Fenêtres en place (`launcher-only`), le dock tient le clavier « à la
+//! demande » : Hyprland le rend à la fenêtre que la souris ou un clic
+//! désigne. Exclusif, il empêcherait toute fenêtre de le reprendre.
 use iced::Task;
 use iced::keyboard::{Key, key::Named};
 use iced::window::Id;
@@ -99,19 +103,22 @@ impl App {
         }
     }
 
-    /// Le dock de l'écran actif prend le clavier, première case choisie. Sa
-    /// surface, si elle n'existe pas encore, naîtra avec le clavier.
+    /// Le dock de l'écran actif prend le clavier, première case choisie,
+    /// fenêtres en place (raccourci du mode lanceur). Sa surface, si elle
+    /// n'existe pas encore, naîtra avec le clavier.
     pub(in crate::ui) fn launcher_grab_focused(&mut self) -> Task<UiMsg> {
         match self.monitors.iter().find(|m| m.focused) {
             Some(m) => {
                 let name = m.name.clone();
-                self.launcher_grab(&name)
+                self.launcher_grab(&name, true)
             }
             None => Task::none(),
         }
     }
 
-    pub(in crate::ui) fn launcher_grab(&mut self, monitor: &str) -> Task<UiMsg> {
+    /// `windows` : les fenêtres restent en place, le clavier doit pouvoir
+    /// leur revenir sans passer par le dock (prise à la demande).
+    pub(in crate::ui) fn launcher_grab(&mut self, monitor: &str, windows: bool) -> Task<UiMsg> {
         if !self.cfg.plugin_on("launcher") {
             return Task::none();
         }
@@ -122,18 +129,60 @@ impl App {
         let Some(first) = step(&buttons(&slots), None, Step::First) else {
             return Task::none();
         };
+        // Le dock de la barre Graphite n'a pas sa propre surface : il ne
+        // peut renaître, la prise reste exclusive.
+        let on_demand = windows && !self.launcher_in_bar(monitor);
+        self.launcher_runtime.on_demand = on_demand;
         let mut tasks = vec![self.launcher_select(monitor, first, &slots)];
-        if let Some(id) = self.launcher_surface_of(monitor) {
-            tasks.push(Task::done(UiMsg::KeyboardInteractivityChange {
-                id,
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
-            }));
+        let dock = self
+            .launcher_surfaces
+            .iter()
+            .find(|(_, s)| s.monitor == monitor)
+            .map(|(id, _)| *id);
+        match dock {
+            // Hyprland ne donne le clavier à une couche « à la demande »
+            // qu'à son apparition : le dock déjà affiché renaît.
+            Some(id) if on_demand => {
+                self.launcher_surfaces.remove(&id);
+                self.launcher_runtime.docks.remove(monitor);
+                self.launcher_runtime
+                    .anchors
+                    .retain(|(m, _), _| m != monitor);
+                tasks.push(iced::window::close(id));
+                tasks.push(self.sync_launchers());
+            }
+            // Pas encore de dock : sync_launchers le fera naître avec le clavier.
+            None if on_demand => {}
+            _ => {
+                if let Some(id) = self.launcher_surface_of(monitor) {
+                    tasks.push(Task::done(UiMsg::KeyboardInteractivityChange {
+                        id,
+                        keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                    }));
+                }
+            }
         }
         Task::batch(tasks)
     }
 
+    /// Une surface a perdu le clavier : si c'est le dock tenu à la demande,
+    /// une fenêtre l'a repris (souris ou clic) ; la sélection s'efface.
+    pub(in crate::ui) fn launcher_keyboard_left(&mut self, id: Id) -> Task<UiMsg> {
+        let holder = self
+            .launcher_runtime
+            .focus
+            .as_ref()
+            .and_then(|(m, _)| self.launcher_surface_of(m));
+        if self.launcher_runtime.on_demand && holder == Some(id) {
+            self.launcher_release()
+        } else {
+            Task::none()
+        }
+    }
+
     /// Le dock rend le clavier (aux fenêtres, ou au bureau dessous).
     pub(in crate::ui) fn launcher_release(&mut self) -> Task<UiMsg> {
+        self.launcher_runtime.on_demand = false;
         let Some((monitor, _)) = self.launcher_runtime.focus.take() else {
             return Task::none();
         };
@@ -320,7 +369,7 @@ mod tests {
             "no second dock or exclusive zone"
         );
         assert!(app.launcher_in_bar("A"));
-        let _ = app.launcher_grab("A");
+        let _ = app.launcher_grab("A", true);
         assert!(app.listens_to_events());
         assert_eq!(app.launcher_surface_of("A"), Some(bar));
         assert_eq!(selected(&app).as_deref(), Some("dock-btn:apps"));
@@ -443,5 +492,49 @@ mod tests {
         ))));
         assert!(app.launcher_runtime.focus.is_none());
         assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+    }
+
+    /// Ouvert au raccourci, fenêtres en place : le dock tient le clavier à
+    /// la demande, et une fenêtre qui le reprend (souris, clic) efface la
+    /// sélection sans changer de mode.
+    #[test]
+    fn a_window_can_take_the_keyboard_back_from_the_dock() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::Control(crate::control::Command::LauncherOnly));
+        assert!(app.launcher_runtime.on_demand);
+        let id = dock(&app);
+        let _ = app.update_inner(Msg::KeyboardLeft(id));
+        assert!(app.launcher_runtime.focus.is_none());
+        assert!(!app.launcher_runtime.on_demand);
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+    }
+
+    /// Depuis le plein bureau (fenêtres masquées), Tab garde la prise
+    /// exclusive : perdre le clavier n'y efface rien.
+    #[test]
+    fn tab_from_the_full_desktop_keeps_an_exclusive_grab() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::Control(crate::control::Command::Show));
+        let desk = *app.surfaces.keys().next().unwrap();
+        let _ = app.update_inner(Msg::Key(desk, Key::Named(Named::Tab)));
+        assert!(!app.launcher_runtime.on_demand);
+        let id = dock(&app);
+        let _ = app.update_inner(Msg::KeyboardLeft(id));
+        assert!(selected(&app).is_some());
+    }
+
+    /// Plein bureau puis raccourci du lanceur : le dock déjà affiché renaît,
+    /// seul moyen d'obtenir le clavier à la demande sous Hyprland.
+    #[test]
+    fn the_shown_dock_is_reborn_to_take_the_keyboard_on_demand() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::Control(crate::control::Command::Show));
+        let before = dock(&app);
+        let _ = app.update_inner(Msg::Control(crate::control::Command::ToggleLauncher));
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        assert_eq!(app.launcher_surfaces.len(), 1);
+        assert_ne!(dock(&app), before);
+        assert!(app.launcher_runtime.on_demand);
+        assert_eq!(selected(&app).as_deref(), Some("dock:0x1"));
     }
 }

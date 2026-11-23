@@ -316,6 +316,8 @@ pub enum Msg {
     Drop(Id, DropEvent),
     Released,
     Key(Id, keyboard::Key),
+    /// Une surface a perdu le clavier (le dock ouvert au clavier le rend).
+    KeyboardLeft(Id),
     IconPress(Id, usize),
     /// Clic sur un widget, réglages ouverts : sélection et début de glissé.
     WidgetPress(Id, String),
@@ -967,6 +969,7 @@ fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::Released),
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => Some(Msg::Key(id, key)),
         Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::Modifiers(m)),
+        Event::Window(iced::window::Event::Unfocused) => Some(Msg::KeyboardLeft(id)),
         _ => None,
     }
 }
@@ -5227,6 +5230,7 @@ impl App {
                     Task::none()
                 }
             }
+            Msg::KeyboardLeft(id) => self.launcher_keyboard_left(id),
             Msg::Released if self.bar_drag.is_some() => self.update_inner(Msg::BarDragEnd),
             Msg::Released => match self.drag.take() {
                 Some(d) if d.active => {
@@ -5385,7 +5389,7 @@ impl App {
                 if key == keyboard::Key::Named(keyboard::key::Named::Tab)
                     && let Some(monitor) = self.surfaces.get(&id).cloned()
                 {
-                    return self.launcher_grab(&monitor);
+                    return self.launcher_grab(&monitor, false);
                 }
                 self.navigate(id, &key)
             }

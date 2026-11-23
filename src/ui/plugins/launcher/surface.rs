@@ -360,9 +360,14 @@ impl App {
                     } else {
                         th as i32
                     }),
-                    // Ouvert au clavier (launcher-only) : il prend le clavier d'emblée.
+                    // Ouvert au clavier : il prend le clavier d'emblée, à la
+                    // demande si les fenêtres restent en place (launcher-only).
                     keyboard_interactivity: if grabbed.as_deref() == Some(mon.as_str()) {
-                        KeyboardInteractivity::Exclusive
+                        if self.launcher_runtime.on_demand {
+                            KeyboardInteractivity::OnDemand
+                        } else {
+                            KeyboardInteractivity::Exclusive
+                        }
                     } else {
                         KeyboardInteractivity::None
                     },
