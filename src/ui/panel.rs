@@ -23,6 +23,10 @@ use crate::launch::{self};
 /// Onglet du tiroir : l'identifiant d'un paquet de réglages (`plugins::BUILTIN`).
 pub type Tab = &'static str;
 
+/// Identifiant du champ de recherche des Réglages : il reprend le focus après
+/// un effacement.
+const SEARCH_ID: &str = "hyprdesk-panel-search";
+
 /// Messages du tiroir : ceux de la coquille, et ceux des paquets (enveloppés).
 #[derive(Debug, Clone)]
 pub enum PanelMsg {
@@ -479,7 +483,8 @@ impl App {
                     p.search.clear();
                     p.search_list = false;
                 }
-                Task::none()
+                // Le champ reprend le focus : une nouvelle recherche s'écrit.
+                iced::widget::operation::focus(SEARCH_ID)
             }
             PanelMsg::Tour(m) => self.tour_update(m),
             PanelMsg::Advanced(v) => {
@@ -916,21 +921,69 @@ impl App {
         // Tiroir étroit : la ligne des actions ne tient plus à côté du titre
         // (la recherche passait sur « Réglages ») ; elle passe dessous.
         let one_line = self.panel_width() >= 880.0;
-        let actions = row![
-            iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
-                .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
-                .on_submit(match found.first() {
-                    Some(e) => Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)),
-                    None => Msg::Noop,
+        // Bouton Clear dans le champ, dès que la requête n'est pas vide.
+        let clear = !p.search.is_empty();
+        let input = iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
+            .id(SEARCH_ID)
+            .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
+            .on_submit(match found.first() {
+                Some(e) => Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)),
+                None => Msg::Noop,
+            })
+            // Le texte s'arrête avant le glyphe.
+            .padding(iced::Padding {
+                right: if clear { 30.0 } else { 10.0 },
+                ..iced::Padding::from([6, 10])
+            })
+            .size(crate::ui::tokens::ts(13.0))
+            .font(self.font)
+            .width(if one_line {
+                Length::Fixed(230.0)
+            } else {
+                Length::Fill
+            });
+        let mut layers: Vec<Element<'_, Msg>> = vec![input.into()];
+        if clear {
+            let glyph: Element<'_, Msg> = super::icons::get("window-close")
+                .map(|h| {
+                    iced::widget::svg(h)
+                        .width(14)
+                        .height(14)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(dim) })
+                        .into()
                 })
-                .padding([6, 10])
-                .size(crate::ui::tokens::ts(13.0))
-                .font(self.font)
-                .width(if one_line {
-                    Length::Fixed(230.0)
-                } else {
-                    Length::Fill
-                }),
+                .unwrap_or_else(|| {
+                    text("×")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim)
+                        .into()
+                });
+            layers.push(
+                container(tooltip(
+                    button(glyph)
+                        .padding(2)
+                        .style(button::text)
+                        .on_press(Msg::Panel(PanelMsg::SearchClear)),
+                    text(crate::i18n::tr("Effacer la recherche")).font(self.font),
+                    // En-tête du tiroir : la bulle s'ouvre dessous.
+                    iced::widget::tooltip::Position::Bottom,
+                ))
+                // La couche occupe tout le champ : sinon l'empilement pose le
+                // bouton à gauche.
+                .width(Length::Fill)
+                .align_x(Alignment::End)
+                .padding(iced::Padding {
+                    right: 6.0,
+                    ..iced::Padding::ZERO
+                })
+                .height(Length::Fill)
+                .center_y(Length::Fill)
+                .into(),
+            );
+        }
+        let actions = row![
+            iced::widget::Stack::with_children(layers),
             button(
                 text(crate::i18n::tr("Visite guidée"))
                     .font(self.font)

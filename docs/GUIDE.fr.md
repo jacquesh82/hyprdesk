@@ -250,6 +250,9 @@ application : `hyprdesk binds generate --write`.
 
 ## Régler Hyprland depuis les Réglages
 
+- **Trouver un réglage.** Le champ de recherche de l'en-tête des Réglages
+  filtre les réglages dès la frappe. Dès qu'il contient une requête, un
+  bouton Clear à droite l'efface et rend la main au champ.
 - **Faites le bureau vôtre.** Fonds d'écran et diaporamas par écran ou par
   workspace, raccourcis d'applications et de fichiers, thème tiré d'une
   image. Les modules de la barre se réorganisent au glisser, le dock
