@@ -22,6 +22,7 @@ use iced_layershell::reexport::{
 
 use super::{App, Msg, color};
 use crate::notifications::{Event, Notification, Reason, Urgency};
+use crate::ui::plugins::bar::surface::URGENT_ICON;
 
 pub const NAMESPACE: &str = "hyprdesk-notifications";
 /// Bulles visibles à la fois (les plus récentes).
@@ -38,6 +39,11 @@ const ICON: &str = "preferences-system-notifications-symbolic";
 const APP_ICON: f32 = 36.0;
 /// Côté de l'icône de l'application dans une carte du centre.
 pub(super) const CARD_ICON: f32 = 28.0;
+/// Texte secondaire (application, corps) : la couleur du texte courant à
+/// cette opacité, dans la bulle comme dans la carte du centre.
+const DIM: f32 = 0.65;
+/// Côté du repère d'une notification critique dans la bulle.
+const CRITICAL_MARK: f32 = 10.0;
 
 /// Demande de l'interface au serveur.
 #[derive(Debug, Clone)]
@@ -141,11 +147,66 @@ impl Toast {
     }
 }
 
+/// Ce que fait un clic sur une carte du centre : l'action `default` quand
+/// l'application en propose une, sinon l'ouverture de l'application si elle
+/// est connue (`desktop-entry`). `None` : la carte ne mène nulle part.
+#[derive(Debug, Clone, PartialEq)]
+enum CardClick {
+    Default,
+    Open(String),
+}
+
+/// Identifiant d'application d'un hint `desktop-entry` : le suffixe
+/// `.desktop` est toléré (les deux formes circulent). `None` si le hint
+/// n'en est pas un (vide, ou un chemin : il ne doit pas mener hors des
+/// dossiers `applications`).
+fn app_id(entry: &str) -> Option<&str> {
+    let id = entry.strip_suffix(".desktop").unwrap_or(entry);
+    (!id.is_empty() && !id.contains('/')).then_some(id)
+}
+
+fn card_click(n: &Notification) -> Option<CardClick> {
+    if n.actions.iter().any(|(k, _)| k == "default") {
+        return Some(CardClick::Default);
+    }
+    Some(CardClick::Open(
+        app_id(n.desktop_entry.as_deref()?)?.to_string(),
+    ))
+}
+
+/// Message d'un clic sur une carte du centre ; `None` : rien à ouvrir, la
+/// carte n'est pas cliquable.
+pub(super) fn card_press(n: &Notification) -> Option<Msg> {
+    card_click(n).map(|_| Msg::Toasts(TMsg::Card(n.id)))
+}
+
+/// Ouvre l'application d'origine par son identifiant `desktop-entry`, et
+/// seulement si son entrée est installée. Le hint arrive par le bus : il ne
+/// doit jamais servir de commande (le lanceur tente l'identifiant seul quand
+/// l'entrée manque). La recherche lit des dossiers : hors du thread de
+/// l'interface.
+fn open_app(entry: String) -> Task<Msg> {
+    Task::perform(
+        async move {
+            let found = tokio::task::spawn_blocking({
+                let e = entry.clone();
+                move || crate::launch::find_desktop_file(&e).is_some()
+            })
+            .await
+            .unwrap_or(false);
+            found.then_some(entry)
+        },
+        |entry| entry.map_or(Msg::Noop, Msg::LauncherLaunch),
+    )
+}
+
 #[derive(Debug, Clone)]
 pub enum TMsg {
     Event(Event),
     /// Clic sur une action (`default` : la bulle elle-même).
     Invoke(u32, String),
+    /// Clic sur une carte du centre de notifications.
+    Card(u32),
     Close(u32),
     Tick,
     Shown(Id),
@@ -271,6 +332,12 @@ impl App {
                 if self.toasts.dnd && n.urgency != Urgency::Critical {
                     return app_icon;
                 }
+                // Urgence critique : son repère doit être prêt dès la première image.
+                let alert = if n.urgency == Urgency::Critical {
+                    self.want_icon(URGENT_ICON)
+                } else {
+                    Task::none()
+                };
                 let t = Toast {
                     n,
                     since: Instant::now(),
@@ -280,7 +347,7 @@ impl App {
                     None => self.toasts.list.insert(0, t),
                 }
                 let icon = self.want_icon(ICON);
-                Task::batch([icon, app_icon, self.sync_toasts()])
+                Task::batch([icon, app_icon, alert, self.sync_toasts()])
             }
             TMsg::Event(Event::Closed(id)) => {
                 self.toasts.list.retain(|t| t.n.id != id);
@@ -297,6 +364,24 @@ impl App {
                     self.toasts.list.retain(|t| t.n.id != id);
                 }
                 self.sync_toasts()
+            }
+            // Carte du centre : ce qu'elle ouvre, puis le centre se referme.
+            TMsg::Card(id) => {
+                let click = self
+                    .toasts
+                    .history
+                    .iter()
+                    .find(|n| n.id == id)
+                    .and_then(card_click);
+                let close = self.close_popover();
+                match click {
+                    Some(CardClick::Default) => Task::batch([
+                        close,
+                        self.toasts_update(TMsg::Invoke(id, "default".into())),
+                    ]),
+                    Some(CardClick::Open(entry)) => Task::batch([close, open_app(entry)]),
+                    None => close,
+                }
             }
             TMsg::Close(id) => {
                 send(Cmd::Dismiss(id, Reason::Dismissed));
@@ -520,42 +605,59 @@ impl App {
         let th = &self.cfg.general.theme;
         let convex = self.convex_options().is_some();
         let fg = color(if convex { self.bar_palette().fg } else { th.fg }, 1.0);
-        let dim = Color { a: 0.65, ..fg };
-        let accent = color(th.accent, 1.0);
+        let dim = Color { a: DIM, ..fg };
         let bg = color(
             th.bg,
             th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
-        let edge = if t.n.urgency == Urgency::Critical {
-            accent
+        // Urgence critique : le ton « attention » porte le filet et le losange
+        // de l'urgence. L'accent reste à la sélection et aux actions, et la
+        // forme du repère dit l'urgence sans la couleur.
+        let critical = t.n.urgency == Urgency::Critical;
+        let warning = crate::ui::tone::warning();
+        let edge = if critical {
+            warning
         } else {
             Color { a: 0.12, ..fg }
         };
         let id = t.n.id;
         // Icône de l'application, en grand au bord gauche de la carte.
         let glyph: Element<'_, Msg> = self.notif_icon(&t.n, APP_ICON, dim);
-        let head = row![
-            text(if t.n.app.is_empty() {
-                crate::i18n::tr("Notification").to_string()
-            } else {
-                t.n.app.clone()
-            })
-            .font(self.font)
-            .size(crate::ui::tokens::ts(11.0))
-            .color(dim)
-            .width(Length::Fill),
-            button(
-                text("✕")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim)
+        let mut head = row![].spacing(8).align_y(Alignment::Center);
+        if critical {
+            head = head.push(
+                self.icon_named(URGENT_ICON, CRITICAL_MARK, warning)
+                    .unwrap_or_else(|| {
+                        iced::widget::Space::new()
+                            .width(CRITICAL_MARK)
+                            .height(CRITICAL_MARK)
+                            .into()
+                    }),
+            );
+        }
+        let head = head
+            .push(
+                text(if t.n.app.is_empty() {
+                    crate::i18n::tr("Notification").to_string()
+                } else {
+                    t.n.app.clone()
+                })
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(dim)
+                .width(Length::Fill),
             )
-            .padding([0, 6])
-            .style(button::text)
-            .on_press(Msg::Toasts(TMsg::Close(id))),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
+            .push(
+                button(
+                    text("✕")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                )
+                .padding([0, 6])
+                .style(button::text)
+                .on_press(Msg::Toasts(TMsg::Close(id))),
+            );
         let mut col = column![
             head,
             text(t.n.summary.clone())
@@ -636,8 +738,14 @@ impl App {
         }
     }
 
+    /// Carte Notifications de la barre : les dernières notifications. Titre
+    /// dans la couleur du texte, application et corps en secondaire.
     pub(super) fn view_notification_history(&self, alpha: f32) -> Element<'_, Msg> {
         let fg = color(self.bar_palette().fg, alpha);
+        let dim = Color {
+            a: alpha * DIM,
+            ..fg
+        };
         let mut col = column![
             text(crate::i18n::tr("Notifications"))
                 .font(self.font)
@@ -653,30 +761,38 @@ impl App {
             );
         }
         for n in self.toasts.history.iter().take(30) {
-            col = col.push(
-                row![
-                    self.notif_icon(n, CARD_ICON, fg),
-                    column![
-                        text(n.app.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(11.0))
-                            .color(fg),
-                        text(n.summary.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
-                            .color(fg),
-                        text(n.body.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .line_height(crate::ui::tokens::line_height())
-                            .color(fg)
-                    ]
-                    .spacing(4)
-                    .width(Length::Fill),
+            let card: Element<'_, Msg> = row![
+                self.notif_icon(n, CARD_ICON, fg),
+                column![
+                    text(n.app.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(dim),
+                    text(n.summary.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                        .color(fg),
+                    text(n.body.clone())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .line_height(crate::ui::tokens::line_height())
+                        .color(dim)
                 ]
-                .spacing(12)
-                .align_y(Alignment::Start),
-            );
+                .spacing(4)
+                .width(Length::Fill),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Start)
+            .into();
+            // Carte cliquable quand elle mène quelque part : l'action de
+            // l'application, ou l'application elle-même.
+            col = col.push(match card_press(n) {
+                Some(press) => mouse_area(card)
+                    .interaction(iced::mouse::Interaction::Pointer)
+                    .on_press(press)
+                    .into(),
+                None => card,
+            });
         }
         col.into()
     }
@@ -852,6 +968,85 @@ mod tests {
         assert!(
             demandee(&app, "calendar"),
             "l'icône est demandée sous Silence aussi"
+        );
+    }
+
+    /// Une notification « a » avec ou sans action `default`, avec ou sans
+    /// application d'origine (`desktop-entry`).
+    fn carte(actions: &[&str], entry: Option<&str>) -> Notification {
+        let mut h = HashMap::new();
+        if let Some(e) = entry {
+            h.insert(
+                "desktop-entry".to_string(),
+                zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(e)).unwrap(),
+            );
+        }
+        let acts: Vec<String> = actions.iter().map(|s| s.to_string()).collect();
+        crate::notifications::build(1, "a", "", "s", "b", &acts, &h, -1)
+    }
+
+    #[test]
+    fn un_clic_sur_une_carte_du_centre_sait_ou_mener() {
+        // L'action `default` de l'application passe avant tout.
+        assert_eq!(
+            card_click(&carte(&["default", "Ouvrir"], Some("firefox"))),
+            Some(CardClick::Default)
+        );
+        // Sans elle : l'application d'origine, suffixe `.desktop` toléré.
+        assert_eq!(
+            card_click(&carte(&[], Some("firefox.desktop"))),
+            Some(CardClick::Open("firefox".into()))
+        );
+        assert_eq!(
+            card_click(&carte(&["reply", "Répondre"], Some("org.mozilla.firefox"))),
+            Some(CardClick::Open("org.mozilla.firefox".into()))
+        );
+        // Ni action ni application connue : rien à ouvrir, la carte n'est pas
+        // cliquable. Un chemin ne désigne jamais une application installée.
+        assert_eq!(card_click(&carte(&[], None)), None);
+        assert_eq!(card_click(&carte(&[], Some(""))), None);
+        assert_eq!(
+            card_click(&carte(&[], Some("../../partage/piege.desktop"))),
+            None
+        );
+        assert!(card_press(&carte(&[], None)).is_none());
+        assert!(matches!(
+            card_press(&carte(&[], Some("firefox"))),
+            Some(Msg::Toasts(TMsg::Card(1)))
+        ));
+    }
+
+    #[test]
+    fn la_carte_du_centre_lance_l_action_par_defaut() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(carte(
+            &["default", "Ouvrir"],
+            Some("firefox"),
+        ))));
+        assert_eq!(app.toasts.list.len(), 1);
+        assert_eq!(app.toasts.history.len(), 1);
+        // Un clic sur la carte vaut un clic sur la bulle : l'action est
+        // demandée, la bulle se ferme, l'historique garde la carte.
+        let _ = app.toasts_update(TMsg::Card(1));
+        assert!(app.toasts.list.is_empty());
+        assert_eq!(app.toasts.history.len(), 1);
+    }
+
+    #[test]
+    fn seule_une_notification_critique_demande_son_repere() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(toast(1, -1).n)));
+        assert!(!app.named_icons.contains_key(URGENT_ICON));
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(toast(2, -1).n)));
+        assert!(
+            app.named_icons.contains_key(URGENT_ICON),
+            "le repère de l'urgence critique est prêt dès la première image"
         );
     }
 }

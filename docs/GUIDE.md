@@ -493,7 +493,7 @@ To add a Lua widget or plugin, see [Writing a plugin](WRITING_PLUGINS.md).
 | `removable` | Open and eject removable drives | udisks2 |
 | `nightlight` | Night light on demand or on a schedule | hyprsunset |
 | `vkbd` | On-screen keyboard | wvkbd |
-| `notifications` | Recent notifications and Do Not Disturb | hyprdesk or wayle |
+| `notifications` | Recent notifications (click one to run its default action, or to open its app) and Do Not Disturb | hyprdesk or wayle |
 | `session` | Lock, suspend, log out, reboot, and power off | systemd, hyprdesk lock |
 | `gpu` | Switch a passthrough GPU live between VFIO and the NVIDIA driver (hidden without passthrough) | vfio-pci, nvidia |
 

@@ -515,7 +515,7 @@ en Lua : [Écrire un plugin](WRITING_PLUGINS.md) (en anglais).
 | `removable` | Ouvrir et éjecter les disques amovibles | udisks2 |
 | `nightlight` | Éclairage nocturne, à la demande ou selon un horaire | hyprsunset |
 | `vkbd` | Clavier virtuel | wvkbd |
-| `notifications` | Dernières notifications et Ne pas déranger | hyprdesk ou wayle |
+| `notifications` | Dernières notifications (un clic sur l'une d'elles lance son action par défaut, ou ouvre son application) et Ne pas déranger | hyprdesk ou wayle |
 | `session` | Verrouiller, mettre en veille, déconnecter, redémarrer, éteindre | systemd, verrouillage hyprdesk |
 | `gpu` | Bascule à chaud une carte en passthrough entre VFIO et le pilote NVIDIA (masqué sans passthrough) | vfio-pci, nvidia |
 

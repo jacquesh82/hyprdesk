@@ -970,6 +970,10 @@ impl Preview {
             let _ = self
                 .app
                 .want_icon("preferences-system-notifications-symbolic");
+            // Repère de la bulle critique : un dessin de hyprdesk, posé tout de suite.
+            let _ = self
+                .app
+                .want_icon(crate::ui::plugins::bar::surface::URGENT_ICON);
             // Icône de l'application de la bulle, résolue tout de suite
             // (pas de tâche dans l'aperçu).
             if !self.app.named_icons.contains_key("firefox") {

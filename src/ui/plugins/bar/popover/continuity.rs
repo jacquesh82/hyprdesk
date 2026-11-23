@@ -1099,23 +1099,39 @@ impl App {
             } else {
                 super::super::surface::truncate(&n.body.replace('\n', " "), 74)
             };
-            items = items.push(
-                container(
-                    row![
-                        self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
-                        column![
-                            self.dash_label(title, 14.0, pal.fg).font(self.title_font()),
-                            self.dash_label(detail, 12.0, pal.muted)
-                        ]
-                        .spacing(2)
+            // Carte cliquable quand elle mène quelque part : l'action de
+            // l'application, ou l'application elle-même. Une tuile du centre
+            // comme les autres, au clavier aussi.
+            let press = crate::ui::toasts::card_press(n);
+            let card = button(
+                row![
+                    self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
+                    column![
+                        self.dash_label(title, 14.0, pal.fg).font(self.title_font()),
+                        self.dash_label(detail, 12.0, pal.muted)
                     ]
-                    .align_y(Alignment::Center)
-                    .spacing(12),
-                )
-                .width(Length::Fill)
-                .padding([8, 10])
-                .style(move |_| pal.surface(pal.inset, 12.0)),
-            );
+                    .spacing(2)
+                ]
+                .align_y(Alignment::Center)
+                .spacing(12),
+            )
+            .width(Length::Fill)
+            .padding([8, 10])
+            .on_press_maybe(press.clone())
+            .style(move |_, status: button::Status| {
+                let bg = if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    pal.hover
+                } else {
+                    pal.inset
+                };
+                button::Style {
+                    background: Some(bg.into()),
+                    border: Border::default().rounded(12.0),
+                    text_color: pal.fg,
+                    ..Default::default()
+                }
+            });
+            items = items.push(keyboard::press(card, press, pal.fg));
         }
         let body: Element<'_, Msg> = if self.toasts.history.is_empty() {
             let (icon, label) = if dnd {
