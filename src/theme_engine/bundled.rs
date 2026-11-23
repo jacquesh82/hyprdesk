@@ -126,6 +126,29 @@ mod tests {
     }
 
     #[test]
+    fn barre_et_widgets_des_packs_livrés_se_densifient() {
+        // HIG FON-01 : les packs livrés ne disent rien de `adaptive` pour la
+        // barre et les widgets ; ils héritent du défaut, qui les densifie
+        // selon le fond d'écran, plafond 0,95.
+        for p in packs() {
+            for variant in ["dark", "light"] {
+                let r = super::super::resolve::resolve(std::slice::from_ref(&p), variant).unwrap();
+                let id = &p.manifest.meta.id;
+                assert_eq!(
+                    r.effects[&crate::config::Place::Bar].adaptive,
+                    Some(0.95),
+                    "{id} {variant}"
+                );
+                assert_eq!(
+                    r.effects[&crate::config::Place::Widgets].adaptive,
+                    Some(0.95),
+                    "{id} {variant}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn packs_livrés_complets_sans_avertissement() {
         // MLG-254 : métadonnées complètes, variante déclarée et cohérente
         // avec le fond, aucun champ inconnu.

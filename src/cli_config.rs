@@ -3080,8 +3080,14 @@ mod tests {
     #[test]
     fn transparence_adaptative() {
         let p = tmp();
+        // La barre, posée sur le fond d'écran, se densifie par défaut
+        // (HIG FON-01) ; un menu, qui passe devant les fenêtres, non.
         assert_eq!(
             run_s(&p, &["get", "theme.effects.bar.adaptive"]).unwrap(),
+            "0.95"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.menus.adaptive"]).unwrap(),
             "off"
         );
         run_s(&p, &["set", "theme.effects.bar.adaptive", "0.9"]).unwrap();

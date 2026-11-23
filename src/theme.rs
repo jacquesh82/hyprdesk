@@ -39,7 +39,8 @@ impl Preset {
                     Effect {
                         opacity,
                         blur: self.blur && p.blurrable(),
-                        adaptive: None,
+                        // Même règle que `Place::default_effect` (HIG FON-01).
+                        adaptive: matches!(p, Place::Bar | Place::Widgets).then_some(0.95),
                     },
                 )
             })

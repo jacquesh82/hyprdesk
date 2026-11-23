@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::i18n::text;
 use iced::widget::{button, column, container, pick_list, row, slider, toggler};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -146,7 +146,6 @@ impl App {
 
     /// « réglé ici » + Rétablir, ou l'origine hyprland.lua.
     fn fx_origin(&self, ours: bool, reset: UiMsg) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         if ours {
             row![
                 text(crate::i18n::tr("réglé ici"))
@@ -169,7 +168,7 @@ impl App {
             text(crate::i18n::tr("hyprland.lua"))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
-                .color(Color { a: 0.6, ..fg })
+                .color(self.ink().dim)
                 .into()
         }
     }
@@ -206,7 +205,6 @@ impl App {
     }
 
     fn fx_effects(&self) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         let mut col = column![
             text(crate::i18n::tr(
                 "Effets dessinés par Hyprland autour et derrière les fenêtres. Seuls les \
@@ -215,7 +213,7 @@ impl App {
             ))
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
-            .color(Color { a: 0.6, ..fg }),
+            .color(self.ink().dim),
         ]
         .spacing(14);
         for (title, keys) in fx::GROUPS {

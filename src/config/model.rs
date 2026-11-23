@@ -749,7 +749,10 @@ impl Place {
         Effect {
             opacity,
             blur: self.blurrable(),
-            adaptive: None,
+            // Barre et widgets sont posés sur le fond d'écran : ils se
+            // densifient jusqu'à ce plafond quand le fond rendrait leur texte
+            // illisible (HIG FON-01) ; le lanceur l'est toujours.
+            adaptive: matches!(self, Place::Bar | Place::Widgets).then_some(0.95),
         }
     }
 
@@ -2309,5 +2312,21 @@ mod tests {
         );
         assert_eq!(SysItem::parse("cpu"), Some(SysItem::Cpu));
         assert_eq!(SysItem::parse("gpu"), None);
+    }
+
+    #[test]
+    fn barre_et_widgets_se_densifient_sur_le_fond_par_defaut() {
+        // HIG FON-01 : les surfaces posées sur le fond d'écran s'adaptent
+        // par défaut ; celles qui passent devant les fenêtres gardent une
+        // opacité fixe.
+        for p in [Place::Bar, Place::Widgets] {
+            assert_eq!(p.default_effect().adaptive, Some(0.95));
+        }
+        for p in [Place::Menus, Place::Launcher, Place::Settings] {
+            assert_eq!(p.default_effect().adaptive, None);
+        }
+        let theme = Theme::default();
+        assert_eq!(theme.effect(Place::Bar).adaptive, Some(0.95));
+        assert_eq!(theme.effect(Place::Widgets).adaptive, Some(0.95));
     }
 }

@@ -124,6 +124,8 @@ impl Picker {
         &'a self,
         font: Font,
         fg: Color,
+        // Encre du texte secondaire (`ink().dim`), tenue à 4,5:1.
+        dim: Color,
         wrap: impl Fn(PickerMsg) -> M + Clone + 'a,
         apply: M,
         cancel: M,
@@ -219,7 +221,7 @@ impl Picker {
                 text(crate::i18n::tr(label))
                     .font(font)
                     .size(crate::ui::tokens::ts(11.0))
-                    .color(Color { a: 0.6, ..fg }),
+                    .color(dim),
             ]
             .spacing(3)
             .align_x(Alignment::Center)

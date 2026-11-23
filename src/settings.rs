@@ -1583,14 +1583,20 @@ impl Settings {
                 .effects
                 .iter()
                 .map(|(p, e)| {
+                    // `adaptive` s'écrit dès qu'il diffère du défaut : un
+                    // plafond, ou `false` là où le défaut en a un (barre et
+                    // widgets, HIG FON-01) — absent, il serait hérité.
+                    let adaptive = match e.adaptive {
+                        m if m == p.default_effect().adaptive => String::new(),
+                        Some(m) => format!(", adaptive = {}", num(m)),
+                        None => ", adaptive = false".to_string(),
+                    };
                     format!(
                         "{} = {{ opacity = {}, blur = {}{} }}",
                         p.as_str(),
                         num(e.opacity),
                         e.blur,
-                        e.adaptive
-                            .map(|m| format!(", adaptive = {}", num(m)))
-                            .unwrap_or_default()
+                        adaptive
                     )
                 })
                 .collect();
@@ -2440,6 +2446,22 @@ mod tests {
             },
         );
         let lua = s.to_lua();
+        assert!(lua.contains("adaptive = 0.92"), "{lua}");
+        // Un plafond coupé là où le défaut en a un s'écrit `false` : absent,
+        // il serait hérité (HIG FON-01).
+        s.effects.insert(
+            crate::config::Place::Widgets,
+            crate::config::Effect {
+                opacity: 0.8,
+                blur: false,
+                adaptive: None,
+            },
+        );
+        let lua = s.to_lua();
+        assert!(
+            lua.contains("widgets = { opacity = 0.8, blur = false, adaptive = false }"),
+            "{lua}"
+        );
         assert!(lua.contains("adaptive = 0.92"), "{lua}");
         assert!(lua.contains("accent = \"active\""), "{lua}");
         assert!(lua.contains("\"#1c2028/#f5f7fa\""), "{lua}");

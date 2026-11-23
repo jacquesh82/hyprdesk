@@ -1291,6 +1291,7 @@ impl App {
                 c = c.push(pk.view(
                     font,
                     fg,
+                    dim,
                     |m| wrap(Msg::Picker(m)),
                     wrap(Msg::PickerApply),
                     wrap(Msg::PickerCancel),
