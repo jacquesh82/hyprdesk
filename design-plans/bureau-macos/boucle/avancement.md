@@ -24,9 +24,9 @@ Référence verte : `4d5193d` (code vérifié par `scripts/verify.sh --visual` l
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | SYS-01 | Icône de l'app dans la bulle et le centre | ABSENT | S | haute | fait | 4d5193d | échec 1 (bed7073), puis réussite : `notif_icon` (`src/ui/toasts.rs`) dessine l'icône de l'application, demandée à l'arrivée de la notification, même sous Silence ; 36 px au bord gauche de la bulle, 28 px à gauche des cartes du centre de la barre et du centre de contrôle Continuité ; la cloche reste le repli, dans la même place. Test `l_icone_de_l_application_est_demandee_meme_sous_silence`, captures `notifications` à 1440 et 640 regardées. Aucun propriétaire partagé modifié. Documentation : rien à mettre à jour, la bulle n'y est pas décrite. |
-| SYS-04 | Clic sur une notification du centre | ABSENT | S | haute | à faire | — | — |
-| FON-02 | Notification critique | ÉCART | S | haute | à faire | — | — |
-| LAY-03 | Labels — carte Notifications de la barre | ÉCART | S | haute | à faire | — | — |
+| SYS-04 | Clic sur une notification du centre | ABSENT | S | haute | à reprendre | — | échec 1 : la porte complète s'arrête à clippy sur le lot (SYS-04, FON-02, LAY-03), `obfuscated_if_else` dans `src/ui/toasts.rs` ; le contrôle rapide (`cargo check`) ne voit pas clippy. |
+| FON-02 | Notification critique | ÉCART | S | haute | à reprendre | — | échec 1 : la porte complète s'arrête à clippy sur le lot (SYS-04, FON-02, LAY-03), `obfuscated_if_else` dans `src/ui/toasts.rs` ; le contrôle rapide (`cargo check`) ne voit pas clippy. |
+| LAY-03 | Labels — carte Notifications de la barre | ÉCART | S | haute | à reprendre | — | échec 1 : la porte complète s'arrête à clippy sur le lot (SYS-04, FON-02, LAY-03), `obfuscated_if_else` dans `src/ui/toasts.rs` ; le contrôle rapide (`cargo check`) ne voit pas clippy. |
 | PAT-06 | Urgence basse | ÉCART | S | haute | à faire | — | — |
 | MENU-02 | Menus contextuels (bureau, icônes, widgets, dock, grille, édition) | ÉCART | S | haute | à faire | — | — |
 | SEL-01 | Champ numérique des listes de règles Hyprland | ÉCART | S | haute | à faire | — | — |
