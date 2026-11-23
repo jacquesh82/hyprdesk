@@ -23,7 +23,7 @@ Référence verte : `cf18961` (code identique à `edbb517`, vérifié par `scrip
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| SYS-01 | Icône de l'app dans la bulle et le centre | ABSENT | S | haute | à faire | — | — |
+| SYS-01 | Icône de l'app dans la bulle et le centre | ABSENT | S | haute | à reprendre | — | échec 1 : la nouvelle méthode `app_icon` portait le nom d'une méthode du lanceur (`src/ui/plugins/launcher/grid.rs:222`), `scripts/verify.sh` en échec à la compilation |
 | SYS-04 | Clic sur une notification du centre | ABSENT | S | haute | à faire | — | — |
 | FON-02 | Notification critique | ÉCART | S | haute | à faire | — | — |
 | LAY-03 | Labels — carte Notifications de la barre | ÉCART | S | haute | à faire | — | — |
