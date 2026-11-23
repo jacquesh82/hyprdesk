@@ -19,6 +19,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-23 | A1 | PAT-06, PAT-08, PAT-11, STA-01 traités ; il en reste 45 dans ce couloir |
+| 2026-11-24 | A2 | FON-01, FON-03 traités ; il en reste 43 dans ce couloir |
 
 ### Couloir B
 
@@ -65,8 +66,8 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | TYP-03 | Écriture — renommage d'une icône du bureau | ÉCART | S | haute | à faire | — | — |
 | TYP-01 | Typographie — plancher de taille de texte | ÉCART | S | haute | à faire | — | — |
 | TYP-07 | Typographie — corps sous le minimum | ÉCART | S | haute | à faire | — | — |
-| FON-01 | Barre et widgets du bureau : lisibilité sur fond clair | ÉCART | S | haute (mécanisme) ; ratios estimés | à faire | — | — |
-| FON-03 | Texte secondaire dessiné à alpha fixe | ÉCART | S | haute | à faire | — | — |
+| FON-01 | Barre et widgets du bureau : lisibilité sur fond clair | ÉCART | S | haute (mécanisme) ; ratios estimés | fait | 01f93b2 | échec 1 (test du défaut `transparence_adaptative`), puis réussite : `Place::default_effect` active la densification de `bar` et `widgets`, plafond 0,95 (celui du lanceur ; le préréglage `glass_regular` du code est à 0,94, la preuve annonçait 0,95). Au-delà de la colonne Correction, requis par le changement : `Preset::effects` suit la même règle ; la rédaction des réglages écrit `adaptive = false` quand le plafond est coupé là où le défaut en a un, sans quoi « off » n'était plus conservé au rechargement. Les packs livrés restent tels quels : une surface qui n'en dit rien hérite du défaut (`apply_effect`). Tests `barre_et_widgets_se_densifient_sur_le_fond_par_defaut` et `barre_et_widgets_des_packs_livrés_se_densifient`. Porte visuelle passée ; les scènes sont sur fond sombre, la densification n'y est pas visible. |
+| FON-03 | Texte secondaire dessiné à alpha fixe | ÉCART | S | haute | fait | 01f93b2 | les trois textes secondaires à alpha fixe prennent `ink().dim` : `fx_origin` et `fx_effects` (`src/ui/plugins/animations.rs`), les libellés des nuances du sélecteur de couleurs (`src/ui/color_picker.rs`, qui reçoit `dim` de la page Couleurs de la barre). Capture `animations-effets` regardée : texte lisible. |
 | ICO-02 | Commandes média et volume, bouton Réglages du dock | ÉCART | S | haute | à faire | — | — |
 | ICO-07 | Fermeture, lecture et pause | ÉCART | S | haute | à faire | — | — |
 | ICO-09 | Icône de remplacement (application sans icône) | ÉCART | S | haute | à faire | — | — |
