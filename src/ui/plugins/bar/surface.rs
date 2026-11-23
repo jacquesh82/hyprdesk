@@ -1927,16 +1927,27 @@ impl App {
                     .as_ref()
                     .map(|(c, t)| if t.is_empty() { c.clone() } else { t.clone() })
                     .unwrap_or_default();
-                container(
-                    text(truncate(&t, if compact { 18 } else { 36 }))
-                        .wrapping(iced::widget::text::Wrapping::None)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(size))
-                        .color(dim)
-                        .font(self.ui_font(iced::font::Weight::Normal)),
+                let title = text(truncate(&t, if compact { 18 } else { 36 }))
+                    .wrapping(iced::widget::text::Wrapping::None)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(size))
+                    .color(if open { fg } else { dim })
+                    .font(self.ui_font(iced::font::Weight::Normal));
+                if t.is_empty() {
+                    return container(title).padding([0, 8]).into();
+                }
+                // Clic : le menu de la fenêtre (MLG-311).
+                self.module(
+                    bar,
+                    alpha,
+                    title.into(),
+                    Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
+                    None,
+                    None,
+                    None,
+                    None,
+                    open,
                 )
-                .padding([0, 8])
-                .into()
             }
             // Interrupteur à trois états : no-desktop, launcher-only,
             // full-desktop ; le mode en cours en couleur d'accent, un clic

@@ -28,9 +28,23 @@ pub struct DesktopEntry {
     /// Types de fichiers ouverts (`MimeType`).
     pub mime_types: Vec<String>,
     pub categories: Vec<String>,
+    /// Actions de l'application, dans l'ordre de `Actions=` (MLG-308).
+    pub actions: Vec<DesktopAction>,
 }
 
-/// Lit la section `[Desktop Entry]`, avec le nom localisé si la langue le permet.
+/// Action d'une application (`[Desktop Action <id>]`, listée par `Actions=`) :
+/// « Nouvelle fenêtre », « Nouvelle fenêtre privée »… Les menus du dock, de
+/// la grille du Lanceur et des icônes du bureau les proposent (MLG-308).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DesktopAction {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub exec: String,
+}
+
+/// Lit la section `[Desktop Entry]`, avec le nom localisé si la langue le
+/// permet, et les actions qu'elle liste (`[Desktop Action <id>]`).
 pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
     let (lang_full, lang_short) = {
         let base = lang.split('.').next().unwrap_or("");
@@ -39,61 +53,145 @@ pub fn parse_desktop_entry(src: &str, lang: &str) -> Option<DesktopEntry> {
             base.split('_').next().unwrap_or("").to_string(),
         )
     };
-    let mut in_section = false;
+    enum Section {
+        Entry,
+        Action(usize),
+        Other,
+    }
+    let mut section = Section::Other;
     let mut e = DesktopEntry::default();
+    let mut listed: Vec<String> = Vec::new();
+    // Actions trouvées, avec leurs noms localisés (complet, court).
+    let mut actions: Vec<(DesktopAction, Option<String>, Option<String>)> = Vec::new();
     let (mut name_full, mut name_short) = (None, None);
     for line in src.lines() {
         let line = line.trim();
-        if line.starts_with('[') {
-            in_section = line == "[Desktop Entry]";
+        if let Some(head) = line.strip_prefix('[') {
+            let head = head.trim_end_matches(']');
+            section = if head == "Desktop Entry" {
+                Section::Entry
+            } else if let Some(id) = head.strip_prefix("Desktop Action ") {
+                actions.push((
+                    DesktopAction {
+                        id: id.trim().to_string(),
+                        ..Default::default()
+                    },
+                    None,
+                    None,
+                ));
+                Section::Action(actions.len() - 1)
+            } else {
+                Section::Other
+            };
             continue;
         }
-        if !in_section || line.starts_with('#') {
+        if line.starts_with('#') {
             continue;
         }
         let Some((k, v)) = line.split_once('=') else {
             continue;
         };
         let (k, v) = (k.trim(), v.trim());
-        match k {
-            "Name" => e.name = v.to_string(),
-            "Icon" => e.icon = Some(v.to_string()),
-            "Exec" => e.exec = v.to_string(),
-            "TryExec" => e.try_exec = Some(v.to_string()),
-            "Terminal" => e.terminal = v == "true",
-            "NoDisplay" | "Hidden" => e.hidden |= v == "true",
-            "StartupWMClass" => e.wm_class = Some(v.to_string()),
-            "MimeType" => {
-                e.mime_types = v
-                    .split(';')
-                    .filter(|m| !m.is_empty())
-                    .map(String::from)
-                    .collect()
+        let localized = |k: &str, key: &str| -> Option<bool> {
+            if !lang_full.is_empty() && k == format!("{key}[{lang_full}]") {
+                Some(true)
+            } else if !lang_short.is_empty() && k == format!("{key}[{lang_short}]") {
+                Some(false)
+            } else {
+                None
             }
-            "Categories" => {
-                e.categories = v
-                    .split(';')
-                    .filter(|c| !c.is_empty())
-                    .map(String::from)
-                    .collect()
+        };
+        match section {
+            Section::Other => {}
+            Section::Action(i) => {
+                let (a, full, short) = &mut actions[i];
+                match k {
+                    "Name" => a.name = v.to_string(),
+                    "Icon" => a.icon = Some(v.to_string()).filter(|s| !s.is_empty()),
+                    "Exec" => a.exec = v.to_string(),
+                    _ => match localized(k, "Name") {
+                        Some(true) => *full = Some(v.to_string()),
+                        Some(false) => *short = Some(v.to_string()),
+                        None => {}
+                    },
+                }
             }
-            "Type" => e.is_app = v == "Application",
-            _ if !lang_full.is_empty() && k == format!("Name[{lang_full}]") => {
-                name_full = Some(v.to_string())
-            }
-            _ if !lang_short.is_empty() && k == format!("Name[{lang_short}]") => {
-                name_short = Some(v.to_string())
-            }
-            _ => {}
+            Section::Entry => match k {
+                "Name" => e.name = v.to_string(),
+                "Icon" => e.icon = Some(v.to_string()),
+                "Exec" => e.exec = v.to_string(),
+                "TryExec" => e.try_exec = Some(v.to_string()),
+                "Terminal" => e.terminal = v == "true",
+                "NoDisplay" | "Hidden" => e.hidden |= v == "true",
+                "StartupWMClass" => e.wm_class = Some(v.to_string()),
+                "MimeType" => {
+                    e.mime_types = v
+                        .split(';')
+                        .filter(|m| !m.is_empty())
+                        .map(String::from)
+                        .collect()
+                }
+                "Categories" => {
+                    e.categories = v
+                        .split(';')
+                        .filter(|c| !c.is_empty())
+                        .map(String::from)
+                        .collect()
+                }
+                "Actions" => {
+                    listed = v
+                        .split(';')
+                        .map(str::trim)
+                        .filter(|a| !a.is_empty())
+                        .map(String::from)
+                        .collect()
+                }
+                "Type" => e.is_app = v == "Application",
+                _ => match localized(k, "Name") {
+                    Some(true) => name_full = Some(v.to_string()),
+                    Some(false) => name_short = Some(v.to_string()),
+                    None => {}
+                },
+            },
         }
     }
     if let Some(n) = name_full.or(name_short) {
         e.name = n;
     }
+    // Seules les actions listées par `Actions=` comptent (spécification
+    // freedesktop), dans son ordre ; une action sans nom ni commande est ignorée.
+    e.actions = listed
+        .iter()
+        .filter_map(|id| {
+            let (a, full, short) = actions.iter().find(|(a, _, _)| &a.id == id)?;
+            let mut a = a.clone();
+            if let Some(n) = full.clone().or_else(|| short.clone()) {
+                a.name = n;
+            }
+            (!a.name.is_empty() && !a.exec.is_empty()).then_some(a)
+        })
+        .collect();
     (!e.exec.is_empty()).then_some(e)
 }
 
-/// Programme exécutable : chemin absolu exécutable, ou nom trouvé dans le PATH.
+/// Entrée `.desktop` d'une application installée (par son identifiant), lue
+/// dans la langue de l'interface.
+pub fn desktop_entry(id: &str) -> Option<DesktopEntry> {
+    let src = std::fs::read_to_string(find_desktop_file(id)?).ok()?;
+    parse_desktop_entry(&src, &lang())
+}
+
+/// Commande d'une action d'application, prête pour `sh -c` : codes de champ
+/// retirés, dans un terminal si l'application en demande un.
+pub fn action_command(entry: &DesktopEntry, action: &DesktopAction, terminal: &str) -> String {
+    let cmd = strip_field_codes(&action.exec);
+    if entry.terminal {
+        in_terminal(terminal, &cmd)
+    } else {
+        cmd
+    }
+}
+
 pub fn executable(prog: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let runnable = |p: &std::path::Path| {
@@ -552,5 +650,30 @@ mod tests {
         assert!(e("sh -c true", None).available());
         assert!(!e("/usr/bin/hyprdesk-absent-xyz %u", None).available());
         assert!(!e("sh", Some("hyprdesk-absent-xyz")).available());
+    }
+
+    #[test]
+    fn actions_des_applications() {
+        let src = "[Desktop Entry]\nName=Firefox\nExec=firefox %u\nTerminal=false\n\
+                   Actions=new-window;new-private-window;absente;\n\n\
+                   [Desktop Action new-private-window]\nName=New Private Window\n\
+                   Name[fr]=Nouvelle fenêtre de navigation privée\nExec=firefox --private-window %u\n\n\
+                   [Desktop Action new-window]\nName=New Window\nName[fr]=Nouvelle fenêtre\n\
+                   Icon=window-new\nExec=firefox --new-window %u\n\n\
+                   [Desktop Action non-listee]\nName=Cachée\nExec=firefox --x\n";
+        let e = parse_desktop_entry(src, "fr_FR.UTF-8").unwrap();
+        assert_eq!(e.name, "Firefox");
+        let names: Vec<_> = e.actions.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Nouvelle fenêtre", "Nouvelle fenêtre de navigation privée"]
+        );
+        assert_eq!(e.actions[0].icon.as_deref(), Some("window-new"));
+        assert_eq!(
+            action_command(&e, &e.actions[1], "kitty"),
+            "firefox --private-window"
+        );
+        let en = parse_desktop_entry(src, "en_US.UTF-8").unwrap();
+        assert_eq!(en.actions[0].name, "New Window");
     }
 }

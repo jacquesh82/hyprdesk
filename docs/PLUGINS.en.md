@@ -29,7 +29,8 @@ lives in its own folder, laid out the same way:
 
 - **Bar**: `surface.rs` (zones, modules, actions), `layout.rs` (measuring,
   overflow), `motion.rs` (local motion), `style/` (Continuité, Graphite,
-  Island, Convexe), `popover.rs` + `popover/` (drop-down menus).
+  Island, Convexe), `popover.rs` + `popover/` (drop-down menus),
+  `window.rs` (the active window's menu, on its title).
   `src/bar_offer.rs` adds modules shipped later to the configured bar.
 - **Dock**: `surface.rs` (the dock and the window card), `lifecycle.rs`,
   `keyboard.rs`, `motion.rs`, `contrast.rs`. Its page: Content, Appearance
@@ -45,6 +46,14 @@ lives in its own folder, laid out the same way:
 
 These plugins stay under `src/ui/`: they extend `App`, whose fields are
 private to the `ui` module.
+
+**Menus.** One component, `src/ui/menu.rs`: rows, separators, headings,
+icons, pressed state, destructive items in red, keyboard navigation. The
+bar's menus (`popover.rs`) and the right-click card (`src/ui/context.rs`:
+desktop, icons, widgets, dock, launcher grid, sharing a file) use it; a
+plugin menu does the same instead of drawing its own rows. The text-field
+edit menu (`src/ui/edit.rs`) wraps every surface's view: no field has
+anything to declare.
 
 ## 1. Settings packages
 

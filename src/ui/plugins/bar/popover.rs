@@ -7,7 +7,7 @@
 
 use crate::i18n::text;
 use crate::ui::tokens::Shown as _;
-use iced::widget::{Space, button, column, container, mouse_area, row, rule, slider, toggler};
+use iced::widget::{Space, button, column, container, mouse_area, row, slider, toggler};
 use iced::window::Id;
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Vector};
 use iced_layershell::reexport::{
@@ -48,6 +48,8 @@ pub enum Request {
         bus: String,
         menu_path: String,
     },
+    /// Menu de la fenêtre active, sur son titre (MLG-311).
+    Window,
 }
 
 #[cfg(test)]
@@ -286,8 +288,17 @@ mod tests {
 
 #[derive(Debug, Clone)]
 pub enum MenuSource {
-    Lua { widget: String },
-    Tray { bus: String, menu_path: String },
+    Lua {
+        widget: String,
+    },
+    Tray {
+        bus: String,
+        menu_path: String,
+    },
+    /// Fenêtre active (adresse lue à l'ouverture du menu).
+    Window {
+        address: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -450,9 +461,7 @@ fn attached_placement(
 
 /// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
 /// l'ensemble ne tiendrait pas sur une ligne.
-fn stacked(label: &str, detail: Option<&str>) -> bool {
-    detail.is_some_and(|d| d.chars().count() > 22 || label.chars().count() + d.chars().count() > 32)
-}
+use crate::ui::menu::stacked;
 
 /// Hauteur de la carte pour un contenu donné (les surfaces layer-shell ont une taille fixe).
 /// Hauteur d'une section du menu Son : titre, curseur, muet.
@@ -1065,7 +1074,7 @@ impl App {
                             Msg::Repoll,
                         )
                     }
-                    MenuSource::Tray { .. } => Task::none(),
+                    MenuSource::Tray { .. } | MenuSource::Window { .. } => Task::none(),
                 };
                 Task::batch([t, self.close_popover()])
             }
@@ -1118,6 +1127,17 @@ impl App {
                     }
                     MenuSource::Tray { bus, menu_path } => Task::perform(
                         async move { crate::tray::menu_event(&bus, &menu_path, action as i32).await },
+                        |_| Msg::Noop,
+                    ),
+                    MenuSource::Window { address } => Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(e) = super::window::act(&address, action) {
+                                    tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                                }
+                            })
+                            .await
+                        },
                         |_| Msg::Noop,
                     ),
                 };
@@ -1408,55 +1428,26 @@ impl App {
         .into()
     }
 
+    /// Encre des menus de la barre : la palette de la barre convexe, sinon le thème.
+    pub(in crate::ui) fn pop_ink(&self, alpha: f32) -> crate::ui::menu::Ink {
+        let mut ink = self.menu_ink(alpha);
+        if self.convex_options().is_some() {
+            ink.fg = color(self.bar_palette().fg, 1.0);
+        }
+        ink
+    }
+
     pub(in crate::ui) fn pop_header(&self, alpha: f32, label: String) -> Element<'_, Msg> {
-        let dim = color(
-            if self.convex_options().is_some() {
-                self.bar_palette().fg
-            } else {
-                self.cfg.general.theme.fg
-            },
-            0.65 * alpha,
-        );
-        container(
-            text(label)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(11.5))
-                .color(dim)
-                .font(self.ui_font(iced::font::Weight::Semibold)),
-        )
-        .padding(Padding {
-            top: 6.0,
-            right: 10.0,
-            bottom: 4.0,
-            left: 10.0,
-        })
-        .height(26)
-        .into()
+        self.menu_header(self.pop_ink(alpha), label)
     }
 
     pub(in crate::ui) fn pop_separator(&self, alpha: f32) -> Element<'_, Msg> {
-        let line = color(
-            if self.convex_options().is_some() {
-                self.bar_palette().fg
-            } else {
-                self.cfg.general.theme.fg
-            },
-            0.10 * alpha,
-        );
-        container(rule::horizontal(1).style(move |_| rule::Style {
-            color: line,
-            radius: 0.0.into(),
-            fill_mode: rule::FillMode::Full,
-            snap: true,
-        }))
-        .padding([5, 10])
-        .height(11)
-        .into()
+        self.menu_separator(self.pop_ink(alpha))
     }
 
-    /// Ligne de menu à la macOS : surlignage plein en couleur d'accent au survol.
-    /// `enabled` à faux : entrée grisée ; sans action (`clickable` faux) : ligne
-    /// d'information, lisible mais sans survol.
+    /// Ligne de menu (composant commun, `crate::ui::menu`). `enabled` à faux :
+    /// entrée grisée ; sans action (`clickable` faux) : ligne d'information,
+    /// lisible mais sans survol.
     #[allow(clippy::too_many_arguments)]
     fn pop_row<'a>(
         &'a self,
@@ -1468,87 +1459,12 @@ impl App {
         clickable: bool,
         msg: Option<Msg>,
     ) -> Element<'a, Msg> {
-        let th = &self.cfg.general.theme;
-        let (fg, accent) = (
-            color(
-                if self.convex_options().is_some() {
-                    self.bar_palette().fg
-                } else {
-                    th.fg
-                },
-                1.0 * alpha,
-            ),
-            color(th.accent, 1.0 * alpha),
-        );
-        let dim = color(
-            if self.convex_options().is_some() {
-                self.bar_palette().fg
-            } else {
-                th.fg
-            },
-            (if enabled { 0.65 } else { 0.3 }) * alpha,
-        );
-        let font = self.ui_font(iced::font::Weight::Normal);
-        let long = stacked(&label, detail.as_deref());
-        let active = enabled && clickable;
-        let label_el = text(label)
-            .font(self.font)
-            .size(crate::ui::tokens::ts(13.5))
-            .font(font)
-            .wrapping(iced::widget::text::Wrapping::None);
-        let body: Element<'_, Msg> = match detail {
-            Some(d) if long => column![
-                label_el,
-                text(d)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(11.5))
-                    .color(dim)
-                    .font(font)
-                    .wrapping(iced::widget::text::Wrapping::None)
-            ]
-            .spacing(1)
-            .into(),
-            Some(d) => row![
-                label_el.width(Length::Fill),
-                text(d)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim)
-                    .font(font)
-            ]
-            .align_y(Alignment::Center)
-            .into(),
-            None => label_el.into(),
+        let st = crate::ui::menu::RowState {
+            enabled,
+            clickable,
+            ..Default::default()
         };
-        button(
-            row![container(lead).width(18).align_x(Alignment::Center), body]
-                .spacing(8)
-                .align_y(Alignment::Center),
-        )
-        .width(Length::Fill)
-        .height(if long { 44 } else { 30 })
-        .padding([4, 10])
-        .on_press_maybe(if active { msg } else { None })
-        .style(move |_, st| {
-            let hot = active && matches!(st, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: hot.then_some(Background::Color(Color {
-                    a: 0.12 * alpha,
-                    ..accent
-                })),
-                text_color: if !enabled {
-                    Color {
-                        a: 0.35 * alpha,
-                        ..fg
-                    }
-                } else {
-                    fg
-                },
-                border: Border::default().rounded(crate::ui::design::SMALL_RADIUS),
-                ..Default::default()
-            }
-        })
-        .into()
+        self.menu_row(self.pop_ink(alpha), lead, label, detail, st, msg)
     }
 
     fn pop_menu<'a>(

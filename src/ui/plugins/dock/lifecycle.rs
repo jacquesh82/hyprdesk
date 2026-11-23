@@ -70,6 +70,34 @@ pub(in crate::ui) fn screen_anchor(
     local + origin
 }
 
+impl App {
+    /// Coin de la surface d'un menu posé contre le bouton `key` du dock
+    /// (MLG-307), comme sa bulle : `size` comprend `shadow` px d'ombre autour
+    /// de la carte, qui s'arrête à 6 px du bouton.
+    pub(in crate::ui) fn dock_menu_origin(
+        &self,
+        monitor: &str,
+        key: &str,
+        size: Size,
+        shadow: f32,
+    ) -> Option<Point> {
+        let m = self.monitors.iter().find(|m| m.name == monitor)?;
+        let local = self
+            .launcher_runtime
+            .anchors
+            .get(&(monitor.to_string(), key.to_string()))?;
+        let position = self.launcher_bar_position(monitor);
+        // `place_popup` laisse 8 px entre la surface et le bouton.
+        let anchor =
+            self.launcher_screen_anchor(m, *local) + edge_offset(position, shadow - 6.0 + 8.0);
+        Some(
+            place_popup(position, self.launcher_popup_area(m), anchor, size)
+                .bounds
+                .position(),
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(in crate::ui) struct Placement {
     pub bounds: Rectangle,

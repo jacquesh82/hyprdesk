@@ -29,7 +29,8 @@ Chacun tient dans son dossier, rangé de la même façon :
 
 - **Barre** : `surface.rs` (zones, modules, actions), `layout.rs` (mesure,
   débordement), `motion.rs` (mouvement local), `style/` (Continuité,
-  Graphite, Island, Convexe), `popover.rs` + `popover/` (menus déroulants).
+  Graphite, Island, Convexe), `popover.rs` + `popover/` (menus déroulants),
+  `window.rs` (menu de la fenêtre active, sur son titre).
   `src/bar_offer.rs` ajoute à la barre réglée les modules livrés après coup.
 - **Dock** : `surface.rs` (le dock et la carte des fenêtres),
   `lifecycle.rs`, `keyboard.rs`, `motion.rs`, `contrast.rs`. Sa page :
@@ -47,6 +48,15 @@ Chacun tient dans son dossier, rangé de la même façon :
 
 Le code de ces plugins reste sous `src/ui/` : il étend `App`, dont les
 champs sont privés au module `ui`.
+
+**Menus.** Un seul composant, `src/ui/menu.rs` : lignes, séparateurs,
+titres, icônes, état pressé, action destructive en rouge, parcours au
+clavier. Les menus de la barre (`popover.rs`) et la carte du clic droit
+(`src/ui/context.rs` : bureau, icônes, widgets, dock, grille du Lanceur,
+partage d'un fichier) s'en servent ; un menu de plugin fait de même plutôt
+que de redessiner ses lignes. Le menu d'édition des champs de saisie
+(`src/ui/edit.rs`) enveloppe la vue de chaque surface : aucun champ n'a
+rien à déclarer.
 
 ## 1. Paquets de réglages
 

@@ -10,6 +10,27 @@ and this project adheres to
 
 ### Added
 
+- **Menus, after Apple's « Menus and actions » guidelines** (MLG-306 to
+  MLG-311):
+  - one menu component for the bar and every right-click menu: at most
+    three groups split by a line, an icon per item, a pressed state
+    distinct from hover, destructive items in red, keyboard navigation
+    (arrows, Home/End, Enter, Escape);
+  - **dock menu** — right-click an app in the dock: its open windows
+    (with their workspace), New window, the app's own `.desktop` actions
+    (e.g. « New private window »), pin or unpin, close its windows;
+  - **app actions** — the same menu on right-click in the launcher grid,
+    and `.desktop` actions in the menu of an app icon on the desktop;
+  - **edit menu** — right-click in any text field: Cut, Copy, Paste,
+    Select all (Cut/Copy greyed without a selection or in a password
+    field, Paste greyed with an empty clipboard);
+  - **Share…** on desktop files: copy the file (paste it in a file manager
+    or chat), send it by email (`xdg-email`), send it to a phone paired
+    with KDE Connect;
+  - **window menu** — click the active window's title in the bar:
+    minimize, maximize, fullscreen, floating, on all workspaces, move to
+    another workspace, close.
+
 - **Per-screen overrides** (MLG-281): bar height and text scale for one
   screen, chosen by output name or logical resolution (e.g. a 36 px bar on
   a 2570×720 strip) — `screen.<screen>.bar_height` / `.text_scale` keys,
@@ -128,6 +149,8 @@ and this project adheres to
 
 ### Changed
 
+- The Sound page's mute button reads « Couper le son » / « Rétablir le
+  son » (« Mute » / « Unmute »), so that « Couper » is the edit menu's Cut.
 - **The dock is a plugin of its own** (MLG-305): Settings → Dock (Content,
   Appearance with its style — spacing, magnification, auto-hide, active
   marker, formerly in Theme → Components —, Pinned), turned off on its own

@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 156] = [
+const SCENES: [&str; 158] = [
     "desktop",
     "typography",
     "icons",
@@ -76,6 +76,8 @@ const SCENES: [&str; 156] = [
     "bluetooth",
     "menu-icone",
     "proprietes",
+    "menu-dock",
+    "menu-edition",
     "fenetres",
     "connexion",
     "luminosite",
@@ -1677,37 +1679,71 @@ impl Preview {
         if SCENES[self.scene] == "proprietes" {
             // Propriétés d'un vrai fichier (le binaire lui-même).
             let exe = std::env::current_exe().unwrap_or_else(|_| "/etc/hostname".into());
-            self.app.icon_menu = Some(super::context::IconMenu {
-                target: super::context::MenuTarget::Icon,
-                win: iced::window::Id::unique(),
-                desk: iced::window::Id::unique(),
-                catcher: iced::window::Id::unique(),
-                icon: 1,
-                path: Some(exe.clone()),
-                app: None,
-                own: None,
-                rename: None,
-                confirm: false,
-                error: None,
-                props: Some(super::context::path_properties(&exe)),
-            });
+            let mut m = super::context::IconMenu::new(
+                super::context::MenuTarget::Icon,
+                iced::window::Id::unique(),
+            );
+            m.icon = 1;
+            m.path = Some(exe.clone());
+            m.props = Some(super::context::path_properties(&exe));
+            self.app.icon_menu = Some(m);
         } else if SCENES[self.scene] == "menu-icone" {
-            self.app.icon_menu = Some(super::context::IconMenu {
-                target: super::context::MenuTarget::Icon,
-                win: iced::window::Id::unique(),
-                desk: iced::window::Id::unique(),
-                catcher: iced::window::Id::unique(),
-                icon: 1,
-                path: Some("/home/u/Bureau/Rapport.pdf".into()),
-                app: None,
-                own: None,
-                rename: None,
-                confirm: true,
-                error: None,
-                props: None,
-            });
+            let mut m = super::context::IconMenu::new(
+                super::context::MenuTarget::Icon,
+                iced::window::Id::unique(),
+            );
+            m.icon = 1;
+            m.path = Some("/home/u/Bureau/Rapport.pdf".into());
+            m.confirm = true;
+            m.hover = Some(3);
+            self.app.icon_menu = Some(m);
+        } else if SCENES[self.scene] == "menu-dock" {
+            // Menu d'une application du dock (MLG-307) : ses fenêtres, ses
+            // actions `.desktop`, l'épingler, la fermer.
+            let mut m = super::context::IconMenu::new(
+                super::context::MenuTarget::App(super::context::AppRef {
+                    id: Some("firefox".into()),
+                    class: Some("firefox".into()),
+                    name: "Firefox".into(),
+                }),
+                iced::window::Id::unique(),
+            );
+            m.entry = crate::launch::parse_desktop_entry(
+                "[Desktop Entry]\nName=Firefox\nExec=firefox %u\n\
+                 Actions=new-window;new-private-window;\n\
+                 [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window %u\n\
+                 [Desktop Action new-private-window]\nName=Nouvelle fenêtre de navigation privée\n\
+                 Exec=firefox --private-window %u\n",
+                "fr_FR",
+            );
+            m.hover = Some(3);
+            self.app.icon_menu = Some(m);
+        } else if SCENES[self.scene] == "menu-edition" {
+            // Menu d'édition d'un champ (MLG-309), sélection faite.
+            let mut m = super::context::IconMenu::new(
+                super::context::MenuTarget::Edit(super::context::EditRef {
+                    surface: iced::window::Id::unique(),
+                    can_copy: true,
+                    editable: true,
+                    can_paste: true,
+                }),
+                iced::window::Id::unique(),
+            );
+            m.hover = Some(1);
+            self.app.icon_menu = Some(m);
         } else {
             self.app.icon_menu = None;
+        }
+        // Icônes des menus, résolues tout de suite (pas de tâche dans l'aperçu).
+        if let Some(m) = &self.app.icon_menu {
+            for name in super::menu::icons(&self.app.icon_menu_lines(m)) {
+                if !self.app.named_icons.contains_key(&name) {
+                    let path = launch::lookup_icon(&name, None, 32)
+                        .or_else(|| launch::lookup_icon(&name, Some("Adwaita"), 32));
+                    let gen_ = self.app.icons_gen;
+                    let _ = self.app.update_inner(Msg::IconResolved(gen_, name, path));
+                }
+            }
         }
         // Sélecteur de fenêtres (Alt+Tab), la deuxième choisie.
         if SCENES[self.scene] == "fenetres" {

@@ -183,9 +183,13 @@ impl App {
                 .color(fg)
                 .width(48),
             button(
-                text(if n.muted { "Rétablir" } else { "Couper" })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
+                text(if n.muted {
+                    "Rétablir le son"
+                } else {
+                    "Couper le son"
+                })
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
             .on_press(wrap(Msg::Mute(id))),

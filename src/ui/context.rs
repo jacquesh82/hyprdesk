@@ -9,6 +9,13 @@
 //! réglages) et au fond du bureau (aligner les icônes, ajouter un widget,
 //! changer de fond d'écran, réglages du bureau). Une carte du
 //! thème au curseur, un capteur plein écran : un clic à côté ou Échap ferme.
+//!
+//! Il est dessiné par le composant commun des menus (`super::menu`, MLG-306) :
+//! trois groupes au plus, une icône par entrée, corbeille en rouge, flèches et
+//! Entrée au clavier. La même carte sert au dock et à la grille du Lanceur
+//! (une application : ses fenêtres, ses actions `.desktop`, l'épingler, la
+//! fermer ; MLG-307, MLG-308), aux champs de saisie (Couper, Copier, Coller,
+//! Tout sélectionner ; MLG-309) et au partage d'un fichier (MLG-310).
 
 use crate::ui::tokens::Shown as _;
 use std::path::{Path, PathBuf};
@@ -20,14 +27,21 @@ use iced_layershell::reexport::{
     Anchor as LsAnchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
 };
 
+use super::menu::{Item, Line, groups};
 use super::{App, Msg, color};
 use crate::config::IconKind;
 
 const WIDTH: f32 = 260.0;
+/// Largeur d'un menu d'application (titres de fenêtres).
+const APP_WIDTH: f32 = 300.0;
+/// Largeur du menu d'édition d'un champ.
+const EDIT_WIDTH: f32 = 220.0;
 /// Largeur de la carte des propriétés.
 const PROPS_WIDTH: f32 = 400.0;
 const ROW: f32 = 34.0;
 const SHADOW: f32 = 16.0;
+/// Marge intérieure de la carte d'un menu.
+const PAD: f32 = 6.0;
 const INPUT_ID: &str = "hyprdesk-icon-rename";
 
 /// Ce que vise le menu.
@@ -36,6 +50,44 @@ pub enum MenuTarget {
     Icon,
     Widget(String),
     Desktop,
+    /// Application du dock ou de la grille du Lanceur (MLG-307, MLG-308).
+    App(AppRef),
+    /// Champ de saisie sous le curseur (MLG-309).
+    Edit(EditRef),
+}
+
+/// Application visée par un menu du dock ou de la grille du Lanceur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppRef {
+    /// Identifiant `.desktop` (épinglée, grille, ou retrouvé par la classe).
+    pub id: Option<String>,
+    /// Classe de fenêtre (application ouverte).
+    pub class: Option<String>,
+    pub name: String,
+}
+
+/// Champ de saisie visé par le menu d'édition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EditRef {
+    /// Surface qui porte le champ : la commande y est rejouée.
+    pub surface: Id,
+    /// Une sélection à copier (faux dans un champ masqué).
+    pub can_copy: bool,
+    /// Le champ accepte la saisie.
+    pub editable: bool,
+    /// Le presse-papiers a du texte.
+    pub can_paste: bool,
+}
+
+/// Destination de « Partager… » (MLG-310).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Share {
+    /// Fichier copié (`text/uri-list`) : à coller dans une autre application.
+    Copy,
+    /// Pièce jointe d'un nouveau courriel (`xdg-email --attach`).
+    Mail,
+    /// Téléphone appairé par KDE Connect.
+    Phone { id: String, name: String },
 }
 
 pub struct IconMenu {
@@ -59,6 +111,40 @@ pub struct IconMenu {
     pub error: Option<String>,
     /// « Propriétés » : libellé → valeur, à la place des entrées.
     pub props: Option<Vec<(String, String)>>,
+    /// Écran du menu et coin haut-gauche de sa surface (ombre comprise).
+    pub monitor: String,
+    pub origin: Point,
+    /// Entrée choisie au clavier (rang dans les lignes).
+    pub hover: Option<usize>,
+    /// Entrée `.desktop` de l'application visée : ses actions, son terminal.
+    pub entry: Option<crate::launch::DesktopEntry>,
+    /// « Partager… » : les destinations, à la place des entrées.
+    pub share: Option<Vec<Share>>,
+}
+
+impl IconMenu {
+    /// Menu sans surface encore (placé par `spawn_menu`).
+    pub fn new(target: MenuTarget, desk: Id) -> Self {
+        Self {
+            target,
+            win: Id::unique(),
+            desk,
+            catcher: Id::unique(),
+            icon: usize::MAX,
+            path: None,
+            app: None,
+            own: None,
+            rename: None,
+            confirm: false,
+            error: None,
+            props: None,
+            monitor: String::new(),
+            origin: Point::ORIGIN,
+            hover: None,
+            entry: None,
+            share: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +174,19 @@ pub enum CMsg {
     /// Détails utiles (fichier, application, widget, bureau) ; les copier.
     Properties,
     CopyProperties,
+    /// Dock, grille : une fenêtre de l'application au premier plan.
+    Focus(String),
+    /// Application lancée (Ouvrir, Nouvelle fenêtre).
+    Launch,
+    /// Action de l'application (`[Desktop Action]`), par son identifiant.
+    Action(String),
+    /// Fenêtres de l'application fermées.
+    CloseWindows,
+    /// « Partager… », puis la destination choisie.
+    Share,
+    ShareTo(Share),
+    /// Champ de saisie : commande d'édition rejouée dans sa surface.
+    Edit(super::edit::Command),
     Close,
     Done(Result<(), String>),
 }
@@ -132,6 +231,31 @@ fn trash(path: &Path) -> Result<(), String> {
     } else {
         Err(String::from_utf8_lossy(&o.stderr).trim().to_string())
     }
+}
+
+/// Texte coupé à `n` caractères, « … » au bout.
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
+/// `file://` d'un chemin, octets réservés encodés (RFC 3986).
+fn file_uri(p: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut out = String::from("file://");
+    for &b in p.as_os_str().as_bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// Chemin raccourci (~ pour le dossier personnel).
@@ -302,68 +426,469 @@ fn reload_after(r: Result<(), String>) -> Msg {
     }
 }
 
+/// Destinations de partage utilisables pour ce chemin (MLG-310) : copier
+/// (toujours) ; un courriel (fichier, `xdg-email` présent) ; un téléphone
+/// appairé par KDE Connect (`kdeconnect-cli` présent, appareil joignable).
+fn share_targets(path: Option<&Path>) -> Vec<Share> {
+    let mut v = vec![Share::Copy];
+    let file = path.is_some_and(Path::is_file);
+    if file && crate::launch::executable("xdg-email") {
+        v.push(Share::Mail);
+    }
+    if file && crate::launch::executable("kdeconnect-cli") {
+        let out = std::process::Command::new("kdeconnect-cli")
+            .args(["--list-available", "--id-name-only"])
+            .output();
+        if let Ok(o) = out {
+            v.extend(kdeconnect_devices(&String::from_utf8_lossy(&o.stdout)));
+        }
+    }
+    v
+}
+
+/// Lignes « <id> <nom> » de `kdeconnect-cli --id-name-only`.
+fn kdeconnect_devices(out: &str) -> Vec<Share> {
+    out.lines()
+        .filter_map(|l| {
+            let (id, name) = l.trim().split_once(' ')?;
+            Some(Share::Phone {
+                id: id.to_string(),
+                name: name.trim().to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Envoie le fichier à sa destination.
+fn share(p: &Path, t: &Share) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    match t {
+        Share::Copy => {
+            let mut c = Command::new("wl-copy")
+                .args(["--type", "text/uri-list"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            if let Some(i) = c.stdin.as_mut() {
+                use std::io::Write;
+                i.write_all(format!("{}\r\n", file_uri(p)).as_bytes())
+                    .map_err(|e| e.to_string())?;
+            }
+            drop(c.stdin.take());
+            c.wait().map_err(|e| e.to_string())?;
+        }
+        Share::Mail => {
+            Command::new("xdg-email")
+                .arg("--attach")
+                .arg(p)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        Share::Phone { id, .. } => {
+            Command::new("kdeconnect-cli")
+                .args(["--device", id, "--share"])
+                .arg(p)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 impl App {
-    /// Entrées du menu pour l'icône (libellés, messages).
-    fn icon_menu_entries(&self, m: &IconMenu) -> Vec<(&'static str, CMsg)> {
+    /// Lignes du menu : trois groupes au plus, les plus utiles en tête,
+    /// l'action destructive en dernier (HIG Context menus).
+    pub(super) fn icon_menu_lines(&self, m: &IconMenu) -> Vec<Line<CMsg>> {
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        if let Some(targets) = &m.share {
+            return self.share_lines(m, targets);
+        }
         match &m.target {
             MenuTarget::Widget(id) => {
-                let mut v = Vec::new();
-                if self.settings.widgets.iter().any(|w| &w.id == id) {
-                    v.push(("Retirer du bureau", CMsg::RemoveWidget));
-                }
-                v.push(("Réglages du widget…", CMsg::WidgetSettings));
-                v.push(("Propriétés", CMsg::Properties));
-                return v;
+                let own = self.settings.widgets.iter().any(|w| &w.id == id);
+                groups(vec![
+                    vec![
+                        Item::new(
+                            tr("Réglages du widget…"),
+                            "preferences-system-symbolic",
+                            CMsg::WidgetSettings,
+                        )
+                        .into(),
+                        Item::new(
+                            tr("Propriétés"),
+                            "document-properties-symbolic",
+                            CMsg::Properties,
+                        )
+                        .into(),
+                    ],
+                    if own {
+                        vec![
+                            Item::new(
+                                tr("Retirer du bureau"),
+                                "list-remove-symbolic",
+                                CMsg::RemoveWidget,
+                            )
+                            .into(),
+                        ]
+                    } else {
+                        Vec::new()
+                    },
+                ])
             }
             MenuTarget::Desktop => {
-                let mut v = Vec::new();
-                if self.cfg.plugin_on("icons") {
-                    v.push(("Aligner les icônes", CMsg::AlignIcons));
-                }
+                let mut add: Vec<Line<CMsg>> = Vec::new();
                 if self.cfg.plugin_on("widgets") {
-                    v.push(("Ajouter un widget…", CMsg::AddWidget));
+                    add.push(
+                        Item::new(
+                            tr("Ajouter un widget…"),
+                            "list-add-symbolic",
+                            CMsg::AddWidget,
+                        )
+                        .into(),
+                    );
                 }
                 if self.cfg.plugin_on("wallpaper") {
-                    v.push(("Changer de fond d'écran…", CMsg::Wallpapers));
+                    add.push(
+                        Item::new(
+                            tr("Changer de fond d'écran…"),
+                            "preferences-desktop-wallpaper-symbolic",
+                            CMsg::Wallpapers,
+                        )
+                        .into(),
+                    );
                 }
-                v.push(("Réglages du bureau…", CMsg::Settings));
-                v.push(("Propriétés", CMsg::Properties));
-                return v;
+                groups(vec![
+                    if self.cfg.plugin_on("icons") {
+                        vec![
+                            Item::new(
+                                tr("Aligner les icônes"),
+                                "view-grid-symbolic",
+                                CMsg::AlignIcons,
+                            )
+                            .into(),
+                        ]
+                    } else {
+                        Vec::new()
+                    },
+                    add,
+                    vec![
+                        Item::new(
+                            tr("Réglages du bureau…"),
+                            "preferences-system-symbolic",
+                            CMsg::Settings,
+                        )
+                        .into(),
+                        Item::new(
+                            tr("Propriétés"),
+                            "document-properties-symbolic",
+                            CMsg::Properties,
+                        )
+                        .into(),
+                    ],
+                ])
             }
-            MenuTarget::Icon => {}
-        }
-        let mut v = vec![("Ouvrir", CMsg::Open)];
-        if let Some(a) = &m.app
-            && self.cfg.plugin_on("dock")
-        {
-            v.push(if self.pinned().contains(a) {
-                ("Retirer du dock", CMsg::Pin)
-            } else {
-                ("Épingler au dock", CMsg::Pin)
-            });
-        }
-        if m.path.is_none() && m.own.is_some() {
-            v.push(("Renommer…", CMsg::Rename));
-        }
-        if m.path.is_some() {
-            v.push(("Ouvrir le dossier", CMsg::OpenFolder));
-            v.push(("Renommer…", CMsg::Rename));
-            v.push(if m.confirm {
-                ("Confirmer : mettre à la corbeille", CMsg::Trash)
-            } else {
-                ("Mettre à la corbeille", CMsg::Trash)
-            });
-            v.push(("Copier le chemin", CMsg::CopyPath));
-            if m.path.as_deref().is_some_and(is_wallpaper) {
-                v.push(("Définir comme fond d'écran", CMsg::Wallpaper));
+            MenuTarget::App(a) => self.app_lines(m, a),
+            MenuTarget::Edit(e) => groups(vec![
+                vec![
+                    Item::new(
+                        tr("Couper"),
+                        "edit-cut-symbolic",
+                        CMsg::Edit(super::edit::Command::Cut),
+                    )
+                    .enabled(e.can_copy && e.editable)
+                    .into(),
+                    Item::new(
+                        tr("Copier"),
+                        "edit-copy-symbolic",
+                        CMsg::Edit(super::edit::Command::Copy),
+                    )
+                    .enabled(e.can_copy)
+                    .into(),
+                    Item::new(
+                        tr("Coller"),
+                        "edit-paste-symbolic",
+                        CMsg::Edit(super::edit::Command::Paste),
+                    )
+                    .enabled(e.can_paste && e.editable)
+                    .into(),
+                ],
+                vec![
+                    Item::new(
+                        tr("Tout sélectionner"),
+                        "edit-select-all-symbolic",
+                        CMsg::Edit(super::edit::Command::SelectAll),
+                    )
+                    .into(),
+                ],
+            ]),
+            MenuTarget::Icon => {
+                let mut open: Vec<Line<CMsg>> =
+                    vec![Item::new(tr("Ouvrir"), "document-open-symbolic", CMsg::Open).into()];
+                if m.path.is_some() {
+                    open.push(
+                        Item::new(
+                            tr("Ouvrir le dossier"),
+                            "folder-open-symbolic",
+                            CMsg::OpenFolder,
+                        )
+                        .into(),
+                    );
+                }
+                open.extend(self.action_lines(m));
+                let mut keep: Vec<Line<CMsg>> = Vec::new();
+                if m.path.is_some() || m.own.is_some() {
+                    keep.push(
+                        Item::new(tr("Renommer…"), "document-edit-symbolic", CMsg::Rename).into(),
+                    );
+                }
+                if m.path.is_some() {
+                    keep.push(Item::new(tr("Partager…"), "send-to-symbolic", CMsg::Share).into());
+                    keep.push(
+                        Item::new(tr("Copier le chemin"), "edit-copy-symbolic", CMsg::CopyPath)
+                            .into(),
+                    );
+                }
+                if m.path.as_deref().is_some_and(is_wallpaper) {
+                    keep.push(
+                        Item::new(
+                            tr("Définir comme fond d'écran"),
+                            "preferences-desktop-wallpaper-symbolic",
+                            CMsg::Wallpaper,
+                        )
+                        .into(),
+                    );
+                }
+                if let Some(a) = &m.app {
+                    keep.extend(self.pin_line(a));
+                }
+                keep.push(
+                    Item::new(
+                        tr("Propriétés"),
+                        "document-properties-symbolic",
+                        CMsg::Properties,
+                    )
+                    .into(),
+                );
+                keep.push(
+                    Item::new(
+                        tr("Réglages des icônes…"),
+                        "preferences-system-symbolic",
+                        CMsg::Settings,
+                    )
+                    .into(),
+                );
+                let mut remove: Vec<Line<CMsg>> = Vec::new();
+                if m.own.is_some() {
+                    remove.push(
+                        Item::new(
+                            tr("Retirer du bureau"),
+                            "list-remove-symbolic",
+                            CMsg::Remove,
+                        )
+                        .into(),
+                    );
+                }
+                if m.path.is_some() {
+                    remove.push(
+                        Item::new(
+                            if m.confirm {
+                                tr("Confirmer : mettre à la corbeille")
+                            } else {
+                                tr("Mettre à la corbeille")
+                            },
+                            "user-trash-symbolic",
+                            CMsg::Trash,
+                        )
+                        .danger(true)
+                        .into(),
+                    );
+                }
+                groups(vec![open, keep, remove])
             }
         }
-        if m.own.is_some() {
-            v.push(("Retirer du bureau", CMsg::Remove));
+    }
+
+    /// Épingler au dock, ou l'en retirer (plugin Dock actif).
+    fn pin_line(&self, app: &str) -> Option<Line<CMsg>> {
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        self.cfg.plugin_on("dock").then(|| {
+            if self.pinned().iter().any(|p| p == app) {
+                Item::new(tr("Retirer du dock"), "list-remove-symbolic", CMsg::Pin).into()
+            } else {
+                Item::new(tr("Épingler au dock"), "view-pin-symbolic", CMsg::Pin).into()
+            }
+        })
+    }
+
+    /// Actions `.desktop` de l'application visée (MLG-308).
+    fn action_lines(&self, m: &IconMenu) -> Vec<Line<CMsg>> {
+        m.entry
+            .iter()
+            .flat_map(|e| e.actions.iter())
+            .map(|a| {
+                Item::new(
+                    a.name.clone(),
+                    a.icon
+                        .as_deref()
+                        .filter(|i| !i.contains('/'))
+                        .map(|i| format!("{}-symbolic", i.trim_end_matches("-symbolic")))
+                        .as_deref()
+                        .unwrap_or("application-x-executable-symbolic"),
+                    CMsg::Action(a.id.clone()),
+                )
+                .into()
+            })
+            .collect()
+    }
+
+    /// Fenêtres ouvertes de l'application, la plus récente d'abord.
+    pub(super) fn app_windows(&self, a: &AppRef) -> Vec<&crate::hypr::Client> {
+        self.clients
+            .iter()
+            .filter(|c| {
+                a.class.as_deref() == Some(c.class.as_str())
+                    || a.id
+                        .as_deref()
+                        .is_some_and(|id| self.app_matches(id, &c.class))
+            })
+            .collect()
+    }
+
+    /// Menu d'une application (dock, grille) : ses fenêtres ; l'ouvrir et ses
+    /// actions ; l'épingler, fermer ses fenêtres (HIG Dock menus).
+    fn app_lines(&self, m: &IconMenu, a: &AppRef) -> Vec<Line<CMsg>> {
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let wins = self.app_windows(a);
+        let active = self.active_window.as_ref();
+        // Espace affiché de l'écran du menu : les autres sont nommés.
+        let here = self
+            .monitors
+            .iter()
+            .find(|x| x.name == m.monitor)
+            .map(|x| x.workspace.as_str());
+        let windows: Vec<Line<CMsg>> = wins
+            .iter()
+            .map(|c| {
+                let title = if c.title.is_empty() {
+                    c.class.clone()
+                } else {
+                    c.title.clone()
+                };
+                let place = if c.workspace == crate::hypr::MINIMIZED {
+                    Some(tr("réduite"))
+                } else if here.is_some_and(|h| h != c.workspace) && !c.workspace.is_empty() {
+                    Some(crate::tr!("espace {w}", w = c.workspace))
+                } else {
+                    None
+                };
+                Item::new(clip(&title, 34), "", CMsg::Focus(c.address.clone()))
+                    .checked(active.is_some_and(|(cl, t)| cl == &c.class && t == &c.title))
+                    .detail(place)
+                    .into()
+            })
+            .collect();
+        let mut open: Vec<Line<CMsg>> = Vec::new();
+        let own_new = m
+            .entry
+            .as_ref()
+            .is_some_and(|e| e.actions.iter().any(|x| x.id == "new-window"));
+        if a.id.is_some() {
+            if wins.is_empty() {
+                open.push(Item::new(tr("Ouvrir"), "document-open-symbolic", CMsg::Launch).into());
+            } else if !own_new {
+                open.push(
+                    Item::new(tr("Nouvelle fenêtre"), "window-new-symbolic", CMsg::Launch).into(),
+                );
+            }
         }
-        v.push(("Réglages des icônes…", CMsg::Settings));
-        v.push(("Propriétés", CMsg::Properties));
-        v
+        open.extend(self.action_lines(m));
+        let mut keep: Vec<Line<CMsg>> = Vec::new();
+        if let Some(id) = &a.id {
+            keep.extend(self.pin_line(id));
+        }
+        match wins.len() {
+            0 => {}
+            1 => keep.push(
+                Item::new(
+                    tr("Fermer la fenêtre"),
+                    "window-close-symbolic",
+                    CMsg::CloseWindows,
+                )
+                .danger(true)
+                .into(),
+            ),
+            n => keep.push(
+                Item::new(
+                    crate::tr!("Fermer les {n} fenêtres", n = n),
+                    "window-close-symbolic",
+                    CMsg::CloseWindows,
+                )
+                .danger(true)
+                .into(),
+            ),
+        }
+        groups(vec![windows, open, keep])
+    }
+
+    /// Destinations de « Partager… » : seules celles qu'on peut utiliser.
+    fn share_lines(&self, m: &IconMenu, targets: &[Share]) -> Vec<Line<CMsg>> {
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let dir = m.path.as_deref().is_some_and(Path::is_dir);
+        targets
+            .iter()
+            .map(|t| {
+                let (label, icon) = match t {
+                    Share::Copy if dir => (tr("Copier le dossier"), "edit-copy-symbolic"),
+                    Share::Copy => (tr("Copier le fichier"), "edit-copy-symbolic"),
+                    Share::Mail => (tr("Envoyer par e-mail…"), "mail-send-symbolic"),
+                    Share::Phone { name, .. } => (
+                        crate::tr!("Envoyer à {name}", name = name),
+                        "phone-symbolic",
+                    ),
+                };
+                Item::new(label, icon, CMsg::ShareTo(t.clone())).into()
+            })
+            .collect()
+    }
+
+    /// Titre de la carte (vide : pas de titre).
+    fn icon_menu_title(&self, m: &IconMenu) -> String {
+        let name = match &m.target {
+            MenuTarget::Icon => self
+                .icons
+                .get(m.icon)
+                .map(|r| r.label.clone())
+                .unwrap_or_default(),
+            MenuTarget::Widget(id) => {
+                let ty = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| &w.id == id)
+                    .map(|w| w.type_id.clone())
+                    .unwrap_or_default();
+                let name = self
+                    .cfg
+                    .catalog
+                    .iter()
+                    .find(|t| t.id == ty)
+                    .map(|t| t.name.clone())
+                    .unwrap_or(ty);
+                if self.settings.widgets.iter().any(|w| &w.id == id) {
+                    name
+                } else {
+                    crate::tr!("{n} — déclaré dans hyprdesk.lua", n = name)
+                }
+            }
+            MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
+            MenuTarget::App(a) => a.name.clone(),
+            MenuTarget::Edit(_) => String::new(),
+        };
+        if m.share.is_some() && !name.is_empty() {
+            crate::tr!("Partager « {n} »", n = clip(&name, 28))
+        } else {
+            clip(&name, 40)
+        }
     }
 
     fn icon_menu_target(&self) -> Option<MenuTarget> {
@@ -378,12 +903,27 @@ impl App {
             .unwrap_or_else(|| self.cfg.general.launcher.pinned.clone())
     }
 
+    fn icon_menu_width(m: &IconMenu) -> f32 {
+        if m.props.is_some() {
+            return PROPS_WIDTH;
+        }
+        match m.target {
+            MenuTarget::App(_) => APP_WIDTH,
+            MenuTarget::Edit(_) => EDIT_WIDTH,
+            _ => WIDTH,
+        }
+    }
+
     fn icon_menu_height(&self, m: &IconMenu) -> f32 {
         if let Some(props) = &m.props {
             return props_height(props);
         }
-        let rows = self.icon_menu_entries(m).len() as f32 + 1.0;
-        rows * ROW + 24.0 + if m.rename.is_some() { 48.0 } else { 0.0 }
+        let title = if self.icon_menu_title(m).is_empty() {
+            0.0
+        } else {
+            super::menu::HEADER
+        };
+        title + super::menu::height(&self.icon_menu_lines(m)) + 2.0 * PAD
     }
 
     /// Clic droit sur l'icône `idx` de la surface `desk`.
@@ -405,6 +945,7 @@ impl App {
         self.open_menu_with(desk, target, idx, None)
     }
 
+    /// Menu d'une surface du bureau, au curseur.
     fn open_menu_with(
         &mut self,
         desk: Id,
@@ -412,14 +953,13 @@ impl App {
         idx: usize,
         props: Option<Vec<(String, String)>>,
     ) -> Task<Msg> {
-        let mut tasks = vec![self.close_icon_menu()];
         let Some(monitor) = self.surfaces.get(&desk).cloned() else {
-            return Task::batch(tasks);
+            return self.close_icon_menu();
         };
         let def = match target {
             MenuTarget::Icon => match self.cfg.icons.get(idx) {
                 Some(d) => Some(d),
-                None => return Task::batch(tasks),
+                None => return self.close_icon_menu(),
             },
             _ => None,
         };
@@ -442,38 +982,53 @@ impl App {
             .get(&desk)
             .copied()
             .unwrap_or(Point::new(40.0, 40.0));
-        let size = self.sizes.get(&desk).copied();
-        let (catcher, win) = (Id::unique(), Id::unique());
-        let menu = IconMenu {
-            target,
-            win,
-            desk,
-            catcher,
-            icon: idx,
-            path,
-            app,
-            own,
-            rename: None,
-            confirm: false,
-            error: None,
-            props,
-        };
+        let mut menu = IconMenu::new(target, desk);
+        menu.icon = idx;
+        menu.entry = app.as_deref().and_then(crate::launch::desktop_entry);
+        menu.path = path;
+        menu.app = app;
+        menu.own = own;
+        menu.props = props;
+        menu.monitor = monitor;
+        self.spawn_menu(menu, at, false)
+    }
+
+    /// Ouvre la carte : au curseur (`exact` faux : son coin en `at`, ombre
+    /// comprise), ou surface posée en `at` ; dans l'écran, toujours.
+    pub(super) fn spawn_menu(&mut self, mut menu: IconMenu, at: Point, exact: bool) -> Task<Msg> {
+        let mut tasks = vec![self.close_icon_menu()];
         // Taille fixe (renommage compris) : la carte ne change pas de surface.
-        let h = self.icon_menu_height(&menu) + 48.0 + 2.0 * SHADOW;
-        let w = if menu.props.is_some() {
-            PROPS_WIDTH
+        // Icône : place réservée au champ de renommage et à son erreur.
+        let room = if menu.target == MenuTarget::Icon && menu.props.is_none() {
+            48.0 + 30.0
         } else {
-            WIDTH
-        } + 2.0 * SHADOW;
-        let (mut x, mut y) = (at.x - SHADOW, at.y - SHADOW);
-        if let Some(s) = size {
-            x = x.min(s.width - w).max(0.0);
-            y = y.min(s.height - h).max(0.0);
+            0.0
+        };
+        let h = self.icon_menu_height(&menu) + room + 2.0 * SHADOW;
+        let w = Self::icon_menu_width(&menu) + 2.0 * SHADOW;
+        let (mut x, mut y) = if exact {
+            (at.x, at.y)
+        } else {
+            (at.x - SHADOW, at.y - SHADOW)
+        };
+        if let Some(m) = self.monitors.iter().find(|m| m.name == menu.monitor) {
+            x = x.min(m.width as f32 - w).max(0.0);
+            y = y.min(m.height as f32 - h).max(0.0);
+        }
+        menu.origin = Point::new(x, y);
+        menu.win = Id::unique();
+        menu.catcher = Id::unique();
+        // Dock, grille, champs : leur surface peut être au-dessus de la couche
+        // « Top » ; le capteur passe alors par-dessus elle.
+        let over = matches!(menu.target, MenuTarget::App(_) | MenuTarget::Edit(_));
+        let monitor = menu.monitor.clone();
+        for name in super::menu::icons(&self.icon_menu_lines(&menu)) {
+            tasks.push(self.want_icon(&name));
         }
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
                 size: Some((0, 0)),
-                layer: Layer::Top,
+                layer: if over { Layer::Overlay } else { Layer::Top },
                 anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
                 exclusive_zone: Some(-1),
                 keyboard_interactivity: KeyboardInteractivity::None,
@@ -481,7 +1036,7 @@ impl App {
                 namespace: Some("hyprdesk-catcher".into()),
                 ..Default::default()
             },
-            id: catcher,
+            id: menu.catcher,
         }));
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -495,10 +1050,177 @@ impl App {
                 namespace: Some("hyprdesk-icon-menu".into()),
                 ..Default::default()
             },
-            id: win,
+            id: menu.win,
         }));
         self.icon_menu = Some(menu);
         Task::batch(tasks)
+    }
+
+    /// Même menu, autre page (propriétés, partage), au même endroit.
+    fn reopen_icon_menu(&mut self, menu: IconMenu) -> Task<Msg> {
+        let at = menu.origin;
+        self.spawn_menu(menu, at, true)
+    }
+
+    /// Écran et position (logique, dans l'écran) du pointeur, demandés à
+    /// Hyprland : pour les surfaces qui ne couvrent pas l'écran.
+    pub(super) fn pointer_on_screen(&self) -> Option<(String, Point)> {
+        let (x, y) = crate::hypr::cursor_pos()?;
+        let m = self.monitors.iter().find(|m| {
+            x >= m.x && y >= m.y && x < m.x + m.width as f32 && y < m.y + m.height as f32
+        })?;
+        Some((m.name.clone(), Point::new(x - m.x, y - m.y)))
+    }
+
+    /// Menu ouvert sur la grille du Lanceur.
+    pub(super) fn grid_menu_open(&self) -> bool {
+        let grid = self.search.as_ref().map(|s| s.win);
+        self.icon_menu
+            .as_ref()
+            .is_some_and(|m| Some(m.desk) == grid && matches!(m.target, MenuTarget::App(_)))
+    }
+
+    /// Après une application ouverte depuis le menu de la grille : la grille
+    /// se referme, comme après un clic sur sa tuile.
+    fn leave_grid(&mut self, from_grid: bool) -> Task<Msg> {
+        if from_grid && self.search.is_some() {
+            self.close_search()
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Clic droit sur une application de la grille du Lanceur (MLG-308).
+    pub(super) fn open_grid_menu(&mut self, id: String) -> Task<Msg> {
+        let Some(surface) = self.search.as_ref().map(|s| s.win) else {
+            return Task::none();
+        };
+        let Some((monitor, at)) = self.pointer_on_screen() else {
+            return Task::none();
+        };
+        let name = self
+            .apps
+            .iter()
+            .find(|a| a.id == id)
+            .map_or_else(|| id.clone(), |a| a.name.clone());
+        let mut menu = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some(id.clone()),
+                class: None,
+                name,
+            }),
+            surface,
+        );
+        menu.entry = crate::launch::desktop_entry(&id);
+        menu.monitor = monitor;
+        self.spawn_menu(menu, at, false)
+    }
+
+    /// Clic droit sur un bouton du dock (MLG-307) : le menu de son
+    /// application, posé contre le bouton comme sa bulle.
+    pub(super) fn open_dock_menu(&mut self, monitor: &str, key: &str) -> Task<Msg> {
+        let class_app = |class: &str| {
+            self.apps
+                .iter()
+                .find(|a| self.app_matches(&a.id, class))
+                .map(|a| a.id.clone())
+        };
+        let (id, class) = if let Some(id) = key.strip_prefix("dock-pin:") {
+            (Some(id.to_string()), None)
+        } else if let Some(class) = key.strip_prefix("dock-app:") {
+            (class_app(class), Some(class.to_string()))
+        } else if let Some(address) = key.strip_prefix("dock:") {
+            let Some(c) = self.clients.iter().find(|c| c.address == address) else {
+                return Task::none();
+            };
+            (class_app(&c.class), Some(c.class.clone()))
+        } else {
+            return Task::none();
+        };
+        let name = id
+            .as_deref()
+            .and_then(|id| self.apps.iter().find(|a| a.id == id))
+            .map(|a| a.name.clone())
+            .or_else(|| class.clone())
+            .unwrap_or_default();
+        let surface = self
+            .launcher_surfaces
+            .iter()
+            .find(|(_, s)| s.monitor == monitor)
+            .map(|(id, _)| *id)
+            .unwrap_or_else(Id::unique);
+        let mut menu = IconMenu::new(MenuTarget::App(AppRef { id, class, name }), surface);
+        menu.entry = match &menu.target {
+            MenuTarget::App(a) => a.id.as_deref().and_then(crate::launch::desktop_entry),
+            _ => None,
+        };
+        menu.monitor = monitor.to_string();
+        let size = iced::Size::new(
+            Self::icon_menu_width(&menu) + 2.0 * SHADOW,
+            self.icon_menu_height(&menu) + 2.0 * SHADOW,
+        );
+        let Some(at) = self.dock_menu_origin(monitor, key, size, SHADOW) else {
+            return Task::none();
+        };
+        let close = self.close_launcher_popup();
+        Task::batch([close, self.spawn_menu(menu, at, true)])
+    }
+
+    /// Clavier dans un menu ouvert : flèches et Début/Fin choisissent une
+    /// entrée, Entrée (ou Espace) la prend, Échap ferme. Le champ de
+    /// renommage garde ses touches.
+    pub(super) fn icon_menu_key(&mut self, key: &iced::keyboard::Key) -> Option<Task<Msg>> {
+        use iced::keyboard::{Key, key::Named};
+        let m = self.icon_menu.as_ref()?;
+        if m.rename.is_some() || m.props.is_some() {
+            return None;
+        }
+        let lines = self.icon_menu_lines(m);
+        let hover = m.hover;
+        let next = match key {
+            Key::Named(Named::Escape) => return Some(self.close_icon_menu()),
+            Key::Named(Named::ArrowDown | Named::Tab) => super::menu::step(&lines, hover, true),
+            Key::Named(Named::ArrowUp) => super::menu::step(&lines, hover, false),
+            Key::Named(Named::Home | Named::PageUp) => super::menu::edge(&lines, true),
+            Key::Named(Named::End | Named::PageDown) => super::menu::edge(&lines, false),
+            Key::Named(Named::Enter | Named::Space) => {
+                let msg = hover.and_then(|i| match lines.get(i) {
+                    Some(Line::Item(it)) if it.enabled => Some(it.msg.clone()),
+                    _ => None,
+                });
+                return Some(match msg {
+                    Some(msg) => self.icon_menu_update(msg),
+                    None => Task::none(),
+                });
+            }
+            _ => return None,
+        };
+        if let Some(m) = self.icon_menu.as_mut() {
+            m.hover = next;
+        }
+        Some(Task::none())
+    }
+
+    /// Clic droit dans un champ de saisie (MLG-309). Pas dans le champ de
+    /// renommage du menu lui-même : le menu se fermerait sur lui.
+    pub(super) fn open_edit_menu(&mut self, surface: Id, can_copy: bool) -> Task<Msg> {
+        if self.icon_menu.as_ref().is_some_and(|m| m.win == surface) {
+            return Task::none();
+        }
+        let Some((monitor, at)) = self.pointer_on_screen() else {
+            return Task::none();
+        };
+        let mut menu = IconMenu::new(
+            MenuTarget::Edit(EditRef {
+                surface,
+                can_copy,
+                editable: true,
+                can_paste: super::edit::clipboard_has_text(),
+            }),
+            surface,
+        );
+        menu.monitor = monitor;
+        self.spawn_menu(menu, at, false)
     }
 
     pub(super) fn close_icon_menu(&mut self) -> Task<Msg> {
@@ -635,11 +1357,12 @@ impl App {
                 Task::batch([close, self.commit()])
             }
             CMsg::Pin => {
+                let app = match &menu.target {
+                    MenuTarget::App(a) => a.id.clone(),
+                    _ => menu.app.clone(),
+                };
                 let close = self.close_icon_menu();
-                let Some(a) = self.cfg.icons.get(idx).and_then(|d| match &d.kind {
-                    IconKind::App(a) => Some(a.clone()),
-                    _ => None,
-                }) else {
+                let Some(a) = app else {
                     return close;
                 };
                 let mut l = self.pinned();
@@ -759,6 +1482,123 @@ impl App {
                 }
                 close
             }
+            CMsg::Focus(address) => {
+                let grid = self.grid_menu_open();
+                let close = self.close_icon_menu();
+                let leave = self.leave_grid(grid);
+                Task::batch([close, leave, Task::done(Msg::FocusWindow(address))])
+            }
+            CMsg::Launch => {
+                let id = match &menu.target {
+                    MenuTarget::App(a) => a.id.clone(),
+                    _ => None,
+                };
+                let grid = self.grid_menu_open();
+                let close = self.close_icon_menu();
+                let leave = self.leave_grid(grid);
+                match id {
+                    Some(id) => {
+                        if grid {
+                            // Comme une tuile : le lancement compte pour les suggestions.
+                            let rec = id.clone();
+                            std::thread::spawn(move || crate::search::record_launch(&rec));
+                        }
+                        Task::batch([close, leave, Task::done(Msg::LauncherLaunch(id))])
+                    }
+                    None => Task::batch([close, leave]),
+                }
+            }
+            CMsg::Action(action) => {
+                let id = match &menu.target {
+                    MenuTarget::App(a) => a.id.clone(),
+                    _ => menu.app.clone(),
+                };
+                let command = menu.entry.as_ref().and_then(|e| {
+                    let a = e.actions.iter().find(|a| a.id == action)?;
+                    Some(crate::launch::action_command(
+                        e,
+                        a,
+                        &self.cfg.general.terminal,
+                    ))
+                });
+                let grid = self.grid_menu_open();
+                let close = self.close_icon_menu();
+                let Some(command) = command else {
+                    return close;
+                };
+                let close = Task::batch([close, self.leave_grid(grid)]);
+                // Retour du dock (rebond) quand l'application est connue et
+                // qu'aucun lancement n'est déjà suivi ; sinon, lancée telle quelle.
+                match id.filter(|id| !self.launcher_runtime.launches.contains_key(id)) {
+                    Some(id) => {
+                        let feedback = self.launcher_launch_started(id.clone());
+                        let token = self.launcher_runtime.launches[&id].started;
+                        Task::batch([
+                            close,
+                            feedback,
+                            Task::done(Msg::LauncherResolved(id, token, command)),
+                        ])
+                    }
+                    None => Task::batch([close, self.run_from_desktop(command, true)]),
+                }
+            }
+            CMsg::CloseWindows => {
+                let addresses: Vec<String> = match &menu.target {
+                    MenuTarget::App(a) => {
+                        let a = a.clone();
+                        self.app_windows(&a)
+                            .into_iter()
+                            .map(|c| c.address.clone())
+                            .collect()
+                    }
+                    _ => Vec::new(),
+                };
+                let close = self.close_icon_menu();
+                let work = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            for a in addresses {
+                                let _ = crate::hypr::close_window(&a);
+                            }
+                        })
+                        .await
+                    },
+                    |_| Msg::Noop,
+                );
+                Task::batch([close, work])
+            }
+            CMsg::Share => {
+                let Some(mut m) = self.icon_menu.take() else {
+                    return Task::none();
+                };
+                let close =
+                    Task::batch([iced::window::close(m.win), iced::window::close(m.catcher)]);
+                m.share = Some(share_targets(m.path.as_deref()));
+                m.hover = None;
+                m.confirm = false;
+                Task::batch([close, self.reopen_icon_menu(m)])
+            }
+            CMsg::ShareTo(t) => {
+                let close = self.close_icon_menu();
+                let Some(p) = path else {
+                    return close;
+                };
+                if let Err(e) = share(&p, &t) {
+                    super::hypr::notify(0, 5000, &crate::tr!("Partage : {e}", e = e));
+                }
+                close
+            }
+            CMsg::Edit(cmd) => {
+                let surface = match &menu.target {
+                    MenuTarget::Edit(e) => Some(e.surface),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                match surface {
+                    Some(s) => Task::batch([close, super::edit::run(s, cmd)]),
+                    None => close,
+                }
+            }
             CMsg::Close => self.close_icon_menu(),
             CMsg::Done(r) => {
                 if let Err(e) = r {
@@ -866,6 +1706,8 @@ impl App {
                     }),
                 ));
             }
+            // Pas de « Propriétés » dans ces menus.
+            MenuTarget::App(_) | MenuTarget::Edit(_) => {}
             MenuTarget::Desktop => {
                 if let Some(m) = self.monitor(desk) {
                     v.push((
@@ -1026,78 +1868,20 @@ impl App {
         };
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
-        let dim = Color { a: 0.6, ..fg };
-        let accent = color(th.accent, 1.0);
         let bg = color(
             th.bg,
             th.shown(crate::config::Place::Menus).opacity.max(0.97),
         );
-        let name = match &m.target {
-            MenuTarget::Icon => self
-                .icons
-                .get(m.icon)
-                .map(|r| r.label.clone())
-                .unwrap_or_default(),
-            MenuTarget::Widget(id) => {
-                let ty = self
-                    .cfg
-                    .widgets
-                    .iter()
-                    .find(|w| &w.id == id)
-                    .map(|w| w.type_id.clone())
-                    .unwrap_or_default();
-                let name = self
-                    .cfg
-                    .catalog
-                    .iter()
-                    .find(|t| t.id == ty)
-                    .map(|t| t.name.clone())
-                    .unwrap_or(ty);
-                if self.settings.widgets.iter().any(|w| &w.id == id) {
-                    name
-                } else {
-                    crate::tr!("{n} — déclaré dans hyprdesk.lua", n = name)
-                }
-            }
-            MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
-        };
+        let name = self.icon_menu_title(m);
         if let Some(props) = &m.props {
             return self.view_properties(&name, props);
         }
-        let mut col = column![
-            text(name)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0))
-                .color(dim)
-                .height(ROW)
-        ]
-        .spacing(0);
-        for (label, msg) in self.icon_menu_entries(m) {
-            let danger = matches!(msg, CMsg::Trash) && m.confirm;
-            col = col.push(
-                button(
-                    text(crate::i18n::tr(label))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .color(if danger {
-                            crate::ui::tone::danger()
-                        } else {
-                            fg
-                        }),
-                )
-                .padding([6, 10])
-                .width(Length::Fill)
-                .height(ROW)
-                .style(move |_, st| button::Style {
-                    background: matches!(st, button::Status::Hovered)
-                        .then(|| Color { a: 0.14, ..accent }.into()),
-                    border: Border::default().rounded(8),
-                    text_color: fg,
-                    ..Default::default()
-                })
-                .on_press(Msg::IconMenu(msg)),
-            );
+        let ink = self.menu_ink(1.0);
+        let mut col = column![].spacing(0);
+        if !name.is_empty() {
+            col = col.push(self.menu_header(ink, name));
         }
+        col = col.push(self.menu_lines(ink, &self.icon_menu_lines(m), m.hover, Msg::IconMenu));
         if let Some(r) = &m.rename {
             col = col.push(
                 text_input(crate::i18n::tr("Nouveau nom"), r)
@@ -1118,12 +1902,13 @@ impl App {
             );
         }
         let card = container(col)
-            .padding(12)
-            .width(WIDTH)
+            .padding(PAD)
+            .width(Self::icon_menu_width(m))
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
-                    .rounded(super::design::RADIUS)
+                    // Coins concentriques : ceux des lignes plus la marge.
+                    .rounded(super::design::SMALL_RADIUS + PAD)
                     .width(1)
                     .color(Color { a: 0.12, ..fg }),
                 shadow: Shadow {
@@ -1167,6 +1952,143 @@ mod tests {
         assert!(!valid_name("  "));
         assert!(!valid_name("a/b"));
         assert!(!valid_name(".."));
+    }
+
+    fn app() -> App {
+        App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-menus-tests/config.lua"),
+            true,
+        )
+        .0
+    }
+
+    fn items(lines: &[Line<CMsg>]) -> Vec<&super::super::menu::Item<CMsg>> {
+        lines
+            .iter()
+            .filter_map(|l| match l {
+                Line::Item(i) => Some(i),
+                Line::Separator => None,
+            })
+            .collect()
+    }
+
+    /// Fichier du bureau : trois groupes au plus, une icône partout, la
+    /// corbeille en dernier et en rouge ; « Partager… » proposé.
+    #[test]
+    fn menu_d_un_fichier() {
+        let app = app();
+        let mut m = IconMenu::new(MenuTarget::Icon, Id::unique());
+        m.path = Some("/tmp/hyprdesk-menus-tests/Rapport.pdf".into());
+        let lines = app.icon_menu_lines(&m);
+        let seps = lines
+            .iter()
+            .filter(|l| matches!(l, Line::Separator))
+            .count();
+        assert!(seps <= 2, "{seps} séparateurs");
+        assert!(!matches!(lines.first(), Some(Line::Separator)));
+        let it = items(&lines);
+        assert!(it.iter().all(|i| i.icon.is_some()));
+        assert!(
+            it.last()
+                .is_some_and(|i| i.danger && matches!(i.msg, CMsg::Trash))
+        );
+        assert!(it.iter().any(|i| matches!(i.msg, CMsg::Share)));
+        assert_eq!(it.iter().filter(|i| i.danger).count(), 1);
+    }
+
+    /// Application du dock avec deux fenêtres : elles d'abord, la sienne au
+    /// premier plan cochée ; ses actions (sa propre « Nouvelle fenêtre » : pas
+    /// de doublon) ; puis fermer les deux, en rouge.
+    #[test]
+    fn menu_du_dock() {
+        let mut app = app();
+        let c = |a: &str, t: &str, ws: &str| crate::hypr::Client {
+            address: a.into(),
+            class: "firefox".into(),
+            title: t.into(),
+            workspace: ws.into(),
+            monitor: "A".into(),
+        };
+        app.clients = vec![c("0x1", "Un", "1"), c("0x2", "Deux", "2")];
+        app.active_window = Some(("firefox".into(), "Deux".into()));
+        let mut m = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some("firefox".into()),
+                class: None,
+                name: "Firefox".into(),
+            }),
+            Id::unique(),
+        );
+        m.entry = crate::launch::parse_desktop_entry(
+            "[Desktop Entry]\nName=Firefox\nExec=firefox\nActions=new-window;private;\n\
+             [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window\n\
+             [Desktop Action private]\nName=Privée\nExec=firefox --private-window\n",
+            "fr",
+        );
+        let lines = app.icon_menu_lines(&m);
+        let it = items(&lines);
+        assert!(matches!(&it[0].msg, CMsg::Focus(a) if a == "0x1") && !it[0].checked);
+        assert!(matches!(&it[1].msg, CMsg::Focus(a) if a == "0x2") && it[1].checked);
+        assert!(!it.iter().any(|i| matches!(i.msg, CMsg::Launch)));
+        assert_eq!(
+            it.iter()
+                .filter(|i| matches!(i.msg, CMsg::Action(_)))
+                .count(),
+            2
+        );
+        assert!(
+            it.last()
+                .is_some_and(|i| i.danger && matches!(i.msg, CMsg::CloseWindows))
+        );
+        // Application fermée : « Ouvrir », rien à fermer.
+        app.clients.clear();
+        let it2 = app.icon_menu_lines(&m);
+        let it2 = items(&it2);
+        assert!(matches!(it2[0].msg, CMsg::Launch));
+        assert!(!it2.iter().any(|i| matches!(i.msg, CMsg::CloseWindows)));
+    }
+
+    /// Champ de saisie : Couper et Copier grisés sans sélection, Coller sans
+    /// texte à coller ; Tout sélectionner toujours.
+    #[test]
+    fn menu_d_edition() {
+        let app = app();
+        let edit = |can_copy, can_paste| {
+            let m = IconMenu::new(
+                MenuTarget::Edit(EditRef {
+                    surface: Id::unique(),
+                    can_copy,
+                    editable: true,
+                    can_paste,
+                }),
+                Id::unique(),
+            );
+            items(&app.icon_menu_lines(&m))
+                .iter()
+                .map(|i| i.enabled)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(edit(false, true), [false, false, true, true]);
+        assert_eq!(edit(true, false), [true, true, false, true]);
+    }
+
+    #[test]
+    fn partage() {
+        // Un dossier se copie, il ne part pas en pièce jointe.
+        assert_eq!(share_targets(Some(Path::new("/tmp"))), [Share::Copy]);
+        assert_eq!(
+            kdeconnect_devices("abc123 Pixel 8\n\n"),
+            [Share::Phone {
+                id: "abc123".into(),
+                name: "Pixel 8".into()
+            }]
+        );
+        assert_eq!(
+            file_uri(Path::new("/home/u/Mes notes/été #1.txt")),
+            "file:///home/u/Mes%20notes/%C3%A9t%C3%A9%20%231.txt"
+        );
+        assert_eq!(clip("abcdef", 4), "abc…");
+        assert_eq!(clip("abc", 4), "abc");
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub(in crate::ui) mod layout;
 pub(in crate::ui) mod motion;
 pub(in crate::ui) mod popover;
 pub(in crate::ui) mod style;
+pub(in crate::ui) mod window;
 pub(crate) mod surface;
 
 use crate::i18n::text;

@@ -1576,7 +1576,7 @@
 "Réglages de PipeWire (wpctl)." = "PipeWire settings (wpctl)."
 "Son" = "Sound"
 "Sortie et entrée audio, leur volume, et le volume de chaque application." = "Audio output and input, their volume, and each application's volume."
-"Couper" = "Mute"
+"Couper" = "Cut"
 
 # Réglages → Énergie, Date et heure (MLG-18).
 "Assombrir : {dim} · verrouiller : {lock} · éteindre les écrans : {dpms} · mise en veille : {sus}" = "Dim: {dim} · lock: {lock} · screens off: {dpms} · suspend: {sus}"
@@ -4817,3 +4817,24 @@
 "24..64 — hauteur de la barre sur cet écran" = "24..64 — bar height on this screen"
 "Échelle du texte" = "Text scale"
 "0.5..2 — échelle du texte des surfaces de cet écran" = "0.5..2 — text scale of this screen's surfaces"
+
+# Menus (MLG-306 à MLG-311) : clic droit, dock, grille, champs, partage, fenêtre.
+"Agrandir" = "Maximize"
+"Coller" = "Paste"
+"Copier le dossier" = "Copy folder"
+"Copier le fichier" = "Copy file"
+"Déplacer vers l'espace" = "Move to workspace"
+"Envoyer par e-mail…" = "Send by email…"
+"Envoyer à {name}" = "Send to {name}"
+"Espace {n}" = "Workspace {n}"
+"Fermer les {n} fenêtres" = "Close {n} windows"
+"Partage : {e}" = "Sharing: {e}"
+"Partager « {n} »" = "Share “{n}”"
+"Partager…" = "Share…"
+"Réduire" = "Minimize"
+"Sur tous les espaces" = "On all workspaces"
+"Tout sélectionner" = "Select all"
+"espace {w}" = "workspace {w}"
+"réduite" = "minimized"
+"Couper le son" = "Mute"
+"Rétablir le son" = "Unmute"

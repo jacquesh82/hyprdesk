@@ -271,7 +271,7 @@ impl App {
         } else {
             name.clone()
         };
-        button(
+        let tile = button(
             column![
                 self.app_icon(i, icon),
                 text(short)
@@ -297,8 +297,11 @@ impl App {
             style.border.color.a = style.border.color.a.max(if selected { 1.0 } else { 0.0 });
             style
         })
-        .on_press(msg)
-        .into()
+        .on_press(msg);
+        // Clic droit : le menu de l'application (MLG-308).
+        mouse_area(tile)
+            .on_right_press(Msg::GridMenu(self.apps[i].id.clone()))
+            .into()
     }
 
     /// Titre de section du lanceur (« Suggestions », « Toutes les applications »).

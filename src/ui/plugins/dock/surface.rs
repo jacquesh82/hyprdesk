@@ -752,7 +752,9 @@ impl App {
                 popup,
                 index,
             ))))
-            .on_exit(UiMsg::LauncherHover(None));
+            .on_exit(UiMsg::LauncherHover(None))
+            // Menu de l'application (MLG-307) ; rien sur les boutons de commande.
+            .on_right_press(UiMsg::DockMenu(monitor.clone(), key.clone()));
             let area = if local_motion {
                 area
             } else {

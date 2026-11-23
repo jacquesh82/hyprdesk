@@ -21,6 +21,7 @@ mod convex;
 mod curves;
 mod design;
 mod desk_layout;
+mod edit;
 mod engine;
 mod glass;
 mod hyprlists;
@@ -28,6 +29,7 @@ mod hyprset;
 mod icons;
 mod kinetic;
 mod lens;
+mod menu;
 mod mymfa;
 mod mymfa_fenetre;
 pub(crate) mod tokens;
@@ -293,6 +295,12 @@ pub enum Msg {
     WidgetContext(Id, String),
     DeskContext(Id),
     IconMenu(context::CMsg),
+    /// Clic droit dans un champ de saisie : surface, sélection à copier (MLG-309).
+    EditMenu(Id, bool),
+    /// Clic droit sur un bouton du dock : écran, clé du bouton (MLG-307).
+    DockMenu(String, String),
+    /// Clic droit sur une application de la grille du Lanceur (MLG-308).
+    GridMenu(String),
     Switcher(switcher::SwMsg),
     /// Écran « Espaces de travail » (organisation des fenêtres).
     Overview(overview::OMsg),
@@ -4584,6 +4592,13 @@ impl App {
             Msg::Problem(m) => self.problem_update(m),
             Msg::KeyConflict(m) => self.key_conflict_update(m),
             Msg::Wizard(m) => self.wizard_update(m),
+            // Menu ouvert sur la grille : Entrée choisit dans le menu, pas
+            // l'application du champ de recherche (qui garde le clavier).
+            Msg::Search(search::SMsg::Launch(_) | search::SMsg::LaunchApp(_))
+                if self.grid_menu_open() =>
+            {
+                Task::none()
+            }
             Msg::Search(m) => self.search_update(m),
             Msg::HyprSet(m) => self.hyprset_update(m),
             Msg::Curves(m) => self.curves_update(m),
@@ -4600,6 +4615,9 @@ impl App {
                 self.open_desk_menu(win)
             }
             Msg::IconMenu(m) => self.icon_menu_update(m),
+            Msg::EditMenu(surface, can_copy) => self.open_edit_menu(surface, can_copy),
+            Msg::DockMenu(monitor, key) => self.open_dock_menu(&monitor, &key),
+            Msg::GridMenu(id) => self.open_grid_menu(id),
             Msg::Switcher(m) => self.switcher_update(m),
             Msg::Overview(m) => self.overview_update(m),
             Msg::BarOrganize => Task::batch([self.close_popover(), self.open_overview()]),
@@ -4838,6 +4856,31 @@ impl App {
                                 Msg::Noop
                             }
                         })
+                    }
+                    popover::Request::Window => {
+                        let workspaces = self.workspaces.clone();
+                        Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    plugins::bar::window::read(&workspaces)
+                                })
+                                .await
+                                .ok()
+                                .flatten()
+                            },
+                            move |r| match r {
+                                Some((address, entries)) => Msg::PopoverReady(
+                                    request,
+                                    bar_id,
+                                    key.clone(),
+                                    popover::Kind::Menu {
+                                        entries,
+                                        source: popover::MenuSource::Window { address },
+                                    },
+                                ),
+                                None => Msg::Noop,
+                            },
+                        )
                     }
                     popover::Request::Tray { bus, menu_path } => Task::perform(
                         {
@@ -5244,6 +5287,10 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
+                // Menu ouvert : flèches, Entrée et Échap sont à lui (MLG-306).
+                if let Some(t) = self.icon_menu_key(&key) {
+                    return t;
+                }
                 if self.bar_drag.is_some()
                     && key == keyboard::Key::Named(keyboard::key::Named::Escape)
                 {
@@ -5728,6 +5775,11 @@ impl App {
     // -- Vue ---------------------------------------------------------------------
 
     fn view(&self, id: Id) -> Element<'_, Msg> {
+        // Clic droit dans un champ de saisie : menu d'édition (MLG-309).
+        edit::zone(self.view_surface(id), id)
+    }
+
+    fn view_surface(&self, id: Id) -> Element<'_, Msg> {
         // Surcharges de l'écran de cette surface (MLG-272).
         tokens::enter_screen(self.surface_screen(id));
         if self.convex_frames.contains_key(&id) {
@@ -6211,6 +6263,9 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::WidgetContext(..) => "WidgetContext",
         Msg::DeskContext(..) => "DeskContext",
         Msg::IconMenu(..) => "IconMenu",
+        Msg::EditMenu(..) => "EditMenu",
+        Msg::DockMenu(..) => "DockMenu",
+        Msg::GridMenu(..) => "GridMenu",
         Msg::Switcher(..) => "Switcher",
         Msg::CalendarMonth(..) => "CalendarMonth",
         Msg::MenuRefreshed(..) => "MenuRefreshed",
