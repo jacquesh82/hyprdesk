@@ -4838,3 +4838,6 @@
 "réduite" = "minimized"
 "Couper le son" = "Mute"
 "Rétablir le son" = "Unmute"
+"Lancement de {name} impossible : application introuvable." = "Cannot launch {name}: application not found."
+"Lancement de {name} impossible : {e}" = "Cannot launch {name}: {e}"
+"{name} met du temps à s'ouvrir. Si rien ne se lance, cliquez de nouveau sur son icône." = "{name} is taking a while to open. If nothing happens, click its icon again."

@@ -4,6 +4,8 @@
 //! en haut à droite de l'écran actif, sous la barre. Un clic lance l'action
 //! par défaut, les boutons les autres actions, ✕ ferme ; la bulle s'efface
 //! d'elle-même après son délai (jamais pour une notification critique).
+//! Une notification de basse urgence ne montre pas de bulle : livrée
+//! discrètement, elle va à l'historique seul, comme sous Silence.
 //!
 //! Si un autre démon de notifications tient le nom (wayle, mako…), rien
 //! n'est affiché ici : c'est lui qui montre les notifications.
@@ -328,8 +330,10 @@ impl App {
                 } else {
                     self.want_icon(&n.icon)
                 };
-                // Ne pas déranger : dans l'historique seulement, sauf critique.
-                if self.toasts.dnd && n.urgency != Urgency::Critical {
+                // Basse urgence (HIG PAT-06) ou ne pas déranger : dans
+                // l'historique seulement, sauf critique.
+                if n.urgency == Urgency::Low || (self.toasts.dnd && n.urgency != Urgency::Critical)
+                {
                     return app_icon;
                 }
                 // Urgence critique : son repère doit être prêt dès la première image.
@@ -969,6 +973,24 @@ mod tests {
             demandee(&app, "calendar"),
             "l'icône est demandée sous Silence aussi"
         );
+    }
+
+    #[test]
+    fn une_notification_basse_va_a_l_historique_sans_bulle() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(toast(0, -1).n)));
+        assert!(app.toasts.list.is_empty(), "basse urgence : pas de bulle");
+        assert_eq!(
+            app.toasts.history.len(),
+            1,
+            "basse urgence : l'historique garde"
+        );
+        // Hors Silence, la notification normale garde sa bulle.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(toast(1, -1).n)));
+        assert_eq!(app.toasts.list.len(), 1);
     }
 
     /// Une notification « a » avec ou sans action `default`, avec ou sans

@@ -169,6 +169,12 @@ takes it if nobody else holds it. This covers the notification daemon
 already-registered one keeps the session), and the tray's
 StatusNotifierWatcher.
 
+When hyprdesk serves notifications, each one appears at the top right of the
+active screen, in a card of the theme. A critical notification stays there
+until it is closed; a low-urgency notification shows no bubble and goes
+straight to the history (the `notifications` widget), like every notification
+under Do Not Disturb, except the critical one.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night
@@ -176,6 +182,11 @@ light), `hyprshot` and `wf-recorder` (screenshots, recording). The bar,
 dock, and launcher are native too. The Hyprland configuration page reports
 duplicate bars (waybar, ags, eww), and an existing launcher binding is
 taken over.
+
+From the dock or the app grid, the chosen icon pulses until its window
+opens. A refused launch or an application that cannot be found is reported at
+once by a Hyprland notification. With no window at all after five seconds, a
+quieter notification suggests launching the application again.
 
 ## The desktop and its modes
 

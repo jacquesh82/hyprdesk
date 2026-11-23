@@ -172,6 +172,12 @@ ne le tient. Cela vaut pour le démon de notifications (`mako`, `dunst`…
 restent maîtres s'ils tournent), l'agent polkit (un agent déjà enregistré
 garde la session) et le StatusNotifierWatcher de la zone de notification.
 
+Quand hyprdesk tient les notifications, chacune s'affiche en haut à droite de
+l'écran actif, dans une carte du thème. Une notification critique y reste
+jusqu'à ce qu'on la ferme ; une notification de basse urgence ne montre pas de
+bulle et va directement à l'historique (widget `notifications`), comme toute
+notification sous Ne pas déranger, sauf la critique.
+
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
 (l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),
@@ -179,6 +185,12 @@ garde la session) et le StatusNotifierWatcher de la zone de notification.
 le lanceur sont natifs aussi. La page Configuration de Hyprland signale les
 barres en double (waybar, ags, eww), et une liaison de lanceur existante est
 reprise.
+
+Depuis le dock ou la grille des applications, l'icône choisie pulse jusqu'à
+l'ouverture de sa fenêtre. Un lancement refusé, une application introuvable :
+une notification de Hyprland le dit aussitôt. Sans aucune fenêtre au bout de
+cinq secondes, une notification plus discrète propose de relancer
+l'application.
 
 ## Le bureau et ses modes
 

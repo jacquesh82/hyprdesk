@@ -24,7 +24,7 @@ mod motion;
 mod surface;
 
 pub(in crate::ui) use contrast::Backdrop;
-pub(in crate::ui) use lifecycle::{Placement, Runtime};
+pub(in crate::ui) use lifecycle::{LaunchEnd, Placement, Runtime};
 pub(in crate::ui) use surface::{LauncherSurface, Popup, PopupContent, thickness};
 
 use crate::i18n::text;

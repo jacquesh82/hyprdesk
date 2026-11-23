@@ -226,7 +226,8 @@ pub enum Msg {
     LauncherPopupShown(Id),
     LauncherLaunchExpired(String, Instant),
     LauncherResolved(String, Instant, String),
-    LauncherDispatched(String, Instant, bool),
+    /// La commande a été envoyée (`Ok`), ou Hyprland l'a refusée : la cause.
+    LauncherDispatched(String, Instant, Result<(), String>),
     /// Fin du délai de fermeture de la bulle (jeton du survol).
     LauncherPopupClose(u64),
     LauncherPopupHover(bool),
@@ -3549,19 +3550,21 @@ impl App {
         &self,
         cmd: String,
         stays: bool,
-        then: impl FnOnce(bool) -> Msg + Send + 'static,
+        then: impl FnOnce(Result<(), String>) -> Msg + Send + 'static,
     ) -> Task<Msg> {
         self.run_from_desktop_on(cmd, stays, None, then)
     }
 
     /// `target` : écran du bureau d'où l'on lance (son workspace reçoit la
     /// fenêtre, sa taille la dimensionne) ; sinon l'écran qui a le focus.
+    /// `then` reçoit `Err` et la cause quand Hyprland refuse la commande,
+    /// pour qui doit l'annoncer (HIG PAT-08).
     pub(super) fn run_from_desktop_on(
         &self,
         cmd: String,
         stays: bool,
         target: Option<&Monitor>,
-        then: impl FnOnce(bool) -> Msg + Send + 'static,
+        then: impl FnOnce(Result<(), String>) -> Msg + Send + 'static,
     ) -> Task<Msg> {
         let screen = target.or_else(|| self.monitors.iter().find(|m| m.focused));
         let size = (stays && self.cfg.general.float_launched)
@@ -3587,13 +3590,13 @@ impl App {
                 match r {
                     Ok(Err(e)) => {
                         tracing::warn!("{}", crate::tr!("lancement : {e}", e = e));
-                        false
+                        Err(e.to_string())
                     }
                     Err(e) => {
                         tracing::warn!("{}", crate::tr!("lancement : {e}", e = e));
-                        false
+                        Err(e.to_string())
                     }
-                    Ok(Ok(())) => true,
+                    Ok(Ok(())) => Ok(()),
                 }
             },
             then,
@@ -4147,9 +4150,10 @@ impl App {
                     Task::none()
                 }
             }
+            // Fin d'un lancement du dock ou de la grille : annoncée, jamais
+            // en silence (HIG PAT-08, STA-01).
             Msg::LauncherLaunchExpired(id, token) => {
-                self.launcher_launch_expired(&id, token);
-                Task::none()
+                self.launcher_launch_ended(&id, token, plugins::dock::LaunchEnd::NoWindow)
             }
             Msg::LauncherResolved(id, token, command) => {
                 if !self
@@ -4161,19 +4165,21 @@ impl App {
                     return Task::none();
                 }
                 if command.is_empty() {
-                    self.launcher_launch_expired(&id, token);
-                    return Task::none();
+                    return self.launcher_launch_ended(
+                        &id,
+                        token,
+                        plugins::dock::LaunchEnd::Unresolved,
+                    );
                 }
-                self.run_from_desktop_result(command, true, move |ok| {
-                    Msg::LauncherDispatched(id, token, ok)
+                self.run_from_desktop_result(command, true, move |sent| {
+                    Msg::LauncherDispatched(id, token, sent)
                 })
             }
-            Msg::LauncherDispatched(id, token, ok) => {
-                if !ok {
-                    self.launcher_launch_expired(&id, token);
-                }
-                Task::none()
+            Msg::LauncherDispatched(id, token, Err(cause)) => {
+                self.launcher_launch_ended(&id, token, plugins::dock::LaunchEnd::Refused(cause))
             }
+            // Commande partie : le lancement suit sa fenêtre jusqu'au délai.
+            Msg::LauncherDispatched(.., Ok(())) => Task::none(),
             Msg::LauncherPopupClose(token) => self.launcher_popup_timeout(token),
             Msg::LauncherPopupHover(on) => self.launcher_popup_hover(on),
             Msg::LauncherPick(address) => {
