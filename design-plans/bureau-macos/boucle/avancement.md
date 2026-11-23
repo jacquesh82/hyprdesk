@@ -24,6 +24,7 @@
 
 | Date | Itération | Résultat |
 | --- | --- | --- |
+| 2026-11-23 | B1 | SEL-01, DAT-09, NAV-01 traités ; il en reste 54 dans ce couloir |
 
 ### Couloir C
 
@@ -48,8 +49,8 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | LAY-03 | Labels — carte Notifications de la barre | ÉCART | S | haute | fait | b7c6f1f | échec 1 (082561b : clippy), puis réussite : dans la carte Notifications de la barre (`view_notification_history`, `src/ui/toasts.rs`), l'application et le corps passent en couleur secondaire, le titre garde celle du texte ; même opacité 0,65 que la bulle (`DIM`), appliquée à l'alpha de la carte. Le centre de contrôle Continuité utilisait déjà `pal.muted` : non touché. Preuve à HEAD décalée par SYS-01 (`toasts.rs:743-770`). Aucune scène d'aperçu n'ouvre cette carte : vérifiée par relecture, pas par capture. Documentation : rien à mettre à jour. Aucun propriétaire partagé modifié. |
 | PAT-06 | Urgence basse | ÉCART | S | haute | fait | 0dad66c | une notification de basse urgence ne montre pas de bulle : elle va à l'historique seul (`src/ui/toasts.rs`), le chemin déjà pris sous Silence ; test `une_notification_basse_va_a_l_historique_sans_bulle`. Travail commencé par l'itération interrompue par une panne de quota, repris et mis au point. |
 | MENU-02 | Menus contextuels (bureau, icônes, widgets, dock, grille, édition) | ÉCART | S | haute | à faire | — | — |
-| SEL-01 | Champ numérique des listes de règles Hyprland | ÉCART | S | haute | à faire | — | — |
-| NAV-01 | Champ de recherche du lanceur | ÉCART | S | haute | à faire | — | — |
+| SEL-01 | Champ numérique des listes de règles Hyprland | ÉCART | S | haute | fait | 0824a6e | un champ `Field::Num` refuse tout texte qui n'est pas un nombre fini (`inf` et `nan` compris, qui posaient `null`) : la saisie reste au champ, l'erreur (« abc » : nombre attendu) s'affiche sous le champ comme pour les options de Hyprland, l'élément et Hyprland ne changent pas. Même changement que DAT-09. Travail commencé par l'itération interrompue par une panne de quota, repris et mis au point : l'erreur, à droite du champ, passe dessous. Tests `champ_numerique_refuse_le_texte` et `cle_d_un_champ_d_element`. |
+| NAV-01 | Champ de recherche du lanceur | ÉCART | S | haute | fait | cb15560 | les quatre modes (applications, `:f`, `:clip`, `:2fa` et `:mdp`) passent par `launcher_field` (`src/ui/plugins/launcher/grid.rs`) : loupe à gauche, bouton Clear à droite dès que la requête n'est pas vide, avec sa bulle « Effacer la recherche ». Un clic vide la requête, préfixe de mode compris (`:clip` seul s'efface aussi et le lanceur revient aux applications), et rend le focus au champ (`SMsg::Clear`). Travail commencé par l'itération interrompue par une panne de quota, repris et mis au point : la couche du bouton occupe tout le champ, sans quoi l'empilement le posait à gauche, sur la loupe. |
 | NAV-02 | Champ de recherche des Réglages | ÉCART | S | haute | à faire | — | — |
 | NAV-03 | Icône Search | ÉCART | S | haute | à faire | — | — |
 | PAT-09 | Dernier volet des Réglages | ÉCART | S | haute | à faire | — | — |
@@ -130,7 +131,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | DAT-02 | Champs de couleur et de texte des réglages | ÉCART | S | haute | à faire | — | — |
-| DAT-09 | Champs numériques des listes de règles | ÉCART | S | moyenne | à faire | — | — |
+| DAT-09 | Champs numériques des listes de règles | ÉCART | S | moyenne | fait | 0824a6e | même changement que SEL-01 : un champ `Field::Num` n'accepte qu'un nombre fini, la saisie refusée reste au champ et l'erreur s'affiche dessous. |
 | LAY-05 | Labels — textes utiles des réglages | ÉCART | S | haute | à faire | — | — |
 | PRES-04 | Tiroir des Réglages : barres de défilement | ÉCART | S | moyenne | à faire | — | — |
 | SEL-03 | Commutateur « Configuration avancée » | ÉCART | S | moyenne | à faire | — | — |
