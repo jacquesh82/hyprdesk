@@ -245,10 +245,10 @@ impl App {
             self.field(
                 "Thème d'icônes",
                 "icon_theme",
-                pick_list(themes, g.icon_theme.clone(), |t| wrap(Msg::Theme(t)))
+                self.choosable(pick_list(themes, g.icon_theme.clone(), |t| wrap(Msg::Theme(t)))
                     .font(self.font)
                     .placeholder(crate::i18n::tr("Thème du système"))
-                    .width(300),
+                    .width(300)),
             ),
             self.field(
                 "Disposition de ce bureau",

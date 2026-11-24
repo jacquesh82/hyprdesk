@@ -226,13 +226,15 @@ impl App {
                 .into();
         };
         let small = |label: &'static str, m: Msg| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press(wrap(m)),
             )
-            .padding([4, 10])
-            .on_press(wrap(m))
         };
         let mut col = column![
             row![
@@ -249,12 +251,12 @@ impl App {
             self.field(
                 "Wi-Fi",
                 "",
-                toggler(s.wifi).on_toggle(|v| wrap(Msg::Wifi(v)))
+                self.focusable(toggler(s.wifi).on_toggle(|v| wrap(Msg::Wifi(v))))
             ),
             self.field(
                 "Mode avion",
                 "",
-                toggler(s.airplane).on_toggle(|v| wrap(Msg::Airplane(v)))
+                self.focusable(toggler(s.airplane).on_toggle(|v| wrap(Msg::Airplane(v))))
             ),
         ]
         .spacing(10);

@@ -223,18 +223,20 @@ impl App {
                 m.name.clone()
             };
             screens = screens.push(
-                button(
-                    iced::widget::text(label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 12])
-                .style(if on {
-                    button::primary
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::Select(m.name.clone()))),
+                self.focusable(
+                    button(
+                        iced::widget::text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 12])
+                    .style(if on {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::Select(m.name.clone()))),
+                ),
             );
         }
         col = col.push(screens);
@@ -302,12 +304,15 @@ impl App {
                 ),
                 beside_slider(
                     &spec,
-                    button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe(
-                            ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
-                        )
+                    self.focusable_when(
+                        button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
+                            .padding([2, 8])
+                            .style(button::text)
+                            .on_press_maybe(
+                                ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
+                            ),
+                        (v - neutral).abs() >= 1e-3
+                    )
                 ),
             ]
             .spacing(8)
@@ -337,28 +342,33 @@ impl App {
         col = col.push(curves);
         col = col.push(
             row![
-                button(
-                    text("Rétablir cet écran")
+                self.focusable_when(
+                    button(
+                        text("Rétablir cet écran")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .style(button::secondary)
+                    .on_press_maybe((!a.is_default()).then(|| wrap(Msg::ResetScreen))),
+                    !a.is_default()
+                ),
+                self.focusable(
+                    button(
+                        iced::widget::text(if self.monitors.len() > 1 {
+                            crate::tr!(
+                                "Mire plein écran sur les {n} écrans",
+                                n = self.monitors.len()
+                            )
+                        } else {
+                            crate::i18n::tr("Mire plein écran").to_string()
+                        })
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .style(button::secondary)
-                .on_press_maybe((!a.is_default()).then(|| wrap(Msg::ResetScreen))),
-                button(
-                    iced::widget::text(if self.monitors.len() > 1 {
-                        crate::tr!(
-                            "Mire plein écran sur les {n} écrans",
-                            n = self.monitors.len()
-                        )
-                    } else {
-                        crate::i18n::tr("Mire plein écran").to_string()
-                    })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::TestOpen)),
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::TestOpen))
+                ),
             ]
             .spacing(10),
         );
@@ -378,14 +388,19 @@ impl App {
                     .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(Length::Fill),
-                button(
-                    text("Retirer")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press_maybe((!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))),
+                self.focusable_when(
+                    button(
+                        text("Retirer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press_maybe(
+                        (!a.calibration.trim().is_empty()).then(|| wrap(Msg::CalRemove))
+                    ),
+                    !a.calibration.trim().is_empty()
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -397,13 +412,16 @@ impl App {
                     .on_submit(wrap(Msg::CalImport))
                     .padding(6)
                     .size(crate::ui::tokens::ts(13.0)),
-                button(
-                    text("Importer")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press_maybe((!s.cal_input.trim().is_empty()).then(|| wrap(Msg::CalImport))),
+                self.focusable_when(
+                    button(
+                        text("Importer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press_maybe((!s.cal_input.trim().is_empty()).then(|| wrap(Msg::CalImport))),
+                    !s.cal_input.trim().is_empty()
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -498,33 +516,39 @@ impl App {
         }
         let busy = s.stopping;
         let mut buttons = row![
-            button(
-                iced::widget::text(if busy {
-                    crate::i18n::tr("Arrêt…").to_string()
-                } else if s.blockers.len() > 1 {
-                    crate::tr!("Arrêter les {n}", n = s.blockers.len())
-                } else {
-                    crate::tr!("Arrêter {p}", p = s.blockers[0].name)
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0))
-            )
-            .padding([6, 12])
-            .style(button::danger)
-            .on_press_maybe((!busy).then(|| wrap(Msg::Stop(false)))),
+            self.focusable_when(
+                button(
+                    iced::widget::text(if busy {
+                        crate::i18n::tr("Arrêt…").to_string()
+                    } else if s.blockers.len() > 1 {
+                        crate::tr!("Arrêter les {n}", n = s.blockers.len())
+                    } else {
+                        crate::tr!("Arrêter {p}", p = s.blockers[0].name)
+                    })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 12])
+                .style(button::danger)
+                .on_press_maybe((!busy).then(|| wrap(Msg::Stop(false)))),
+                !busy
+            ),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
         if s.blockers.iter().any(|b| b.relaunched()) {
             buttons = buttons.push(
-                button(
-                    text("Arrêter et ne plus lancer")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 12])
-                .style(button::secondary)
-                .on_press_maybe((!busy).then(|| wrap(Msg::Stop(true)))),
+                self.focusable_when(
+                    button(
+                        text("Arrêter et ne plus lancer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 12])
+                    .style(button::secondary)
+                    .on_press_maybe((!busy).then(|| wrap(Msg::Stop(true)))),
+                    !busy,
+                ),
             );
         }
         list = list.push(buttons);
@@ -795,7 +819,8 @@ impl App {
             .map(|(_, n, h)| (n.as_str(), h))
     }
 
-    /// Mire sur un écran, avec les réglages de cet écran en bas.
+    /// Mire sur un écran, avec les réglages de cet écran en bas. Surface
+    /// sans clavier : ses commandes restent hors du parcours (HIG ENT-01).
     pub(in crate::ui) fn view_color_test<'a>(
         &'a self,
         mon: &'a str,
@@ -818,26 +843,32 @@ impl App {
                 .size(crate::ui::tokens::ts(17.0))
                 .color(accent),
             Space::new().width(Length::Fill),
-            button(small(
-                crate::i18n::tr(if self.color_test.span {
-                    "Mire"
-                } else {
-                    "Dégradés étalés"
-                })
-                .to_string()
-            ))
-            .padding([4, 10])
-            .style(button::secondary)
-            .on_press(wrap(Msg::TestSpan)),
-            button(small(
-                crate::i18n::tr(if folded { "Réglages" } else { "Replier" }).to_string()
-            ))
-            .padding([4, 10])
-            .style(button::secondary)
-            .on_press(wrap(Msg::TestFold(mon.to_string()))),
-            button(small(crate::i18n::tr("Fermer la mire").to_string()))
+            iced::Element::from(
+                button(small(
+                    crate::i18n::tr(if self.color_test.span {
+                        "Mire"
+                    } else {
+                        "Dégradés étalés"
+                    })
+                    .to_string()
+                ))
                 .padding([4, 10])
-                .on_press(wrap(Msg::TestClose)),
+                .style(button::secondary)
+                .on_press(wrap(Msg::TestSpan))
+            ),
+            iced::Element::from(
+                button(small(
+                    crate::i18n::tr(if folded { "Réglages" } else { "Replier" }).to_string()
+                ))
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::TestFold(mon.to_string())))
+            ),
+            iced::Element::from(
+                button(small(crate::i18n::tr("Fermer la mire").to_string()))
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::TestClose))
+            ),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -861,18 +892,20 @@ impl App {
                     let v = a.get(key).unwrap_or(*n);
                     let d = step_of(key);
                     let b = |sym: &'static str, delta: f32| {
-                        button(
-                            iced::widget::text(sym)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .color(fg),
+                        iced::Element::from(
+                            button(
+                                iced::widget::text(sym)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .color(fg),
+                            )
+                            .padding([2, 10])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Step(
+                                mon.to_string(),
+                                key.to_string(),
+                                delta,
+                            ))),
                         )
-                        .padding([2, 10])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Step(
-                            mon.to_string(),
-                            key.to_string(),
-                            delta,
-                        )))
                     };
                     c = c.push(
                         row![

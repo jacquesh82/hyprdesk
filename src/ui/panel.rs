@@ -642,6 +642,15 @@ impl App {
         }
     }
 
+    /// Une liste déroulante du tiroir dans le parcours au clavier (HIG
+    /// ENT-01) : les flèches changent l'option, liste fermée.
+    pub(in crate::ui) fn choosable<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+    ) -> Element<'a, Msg> {
+        super::focus::choose(control, self.ink().fg, self.cfg.general.keyboard_access)
+    }
+
     pub(in crate::ui) fn focusable<'a>(
         &self,
         control: impl Into<Element<'a, Msg>>,

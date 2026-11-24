@@ -280,16 +280,18 @@ impl App {
             self.field(
                 "Police de l’interface",
                 "font",
-                pick_list(
-                    self.panel
-                        .as_ref()
-                        .map(|p| p.desktop.fonts.clone())
-                        .unwrap_or_default(),
-                    g.font.clone().or_else(|| Some(crate::fonts::FAMILY.into())),
-                    |f| wrap(Msg::Font(f)),
+                self.choosable(
+                    pick_list(
+                        self.panel
+                            .as_ref()
+                            .map(|p| p.desktop.fonts.clone())
+                            .unwrap_or_default(),
+                        g.font.clone().or_else(|| Some(crate::fonts::FAMILY.into())),
+                        |f| wrap(Msg::Font(f)),
+                    )
+                    .font(self.font)
+                    .width(Length::Fill)
                 )
-                .font(self.font)
-                .width(Length::Fill)
             ),
             container(
                 column![
@@ -346,14 +348,16 @@ impl App {
         };
         let pick = |key: String| {
             let k2 = key.clone();
-            pick_list(
-                FORCED_CHOICES,
-                Some(current(&key)),
-                move |c: ForcedChoice| wrap(Msg::Forced(k2.clone(), c.0)),
+            self.choosable(
+                pick_list(
+                    FORCED_CHOICES,
+                    Some(current(&key)),
+                    move |c: ForcedChoice| wrap(Msg::Forced(k2.clone(), c.0)),
+                )
+                .font(self.font)
+                .text_size(13)
+                .width(220),
             )
-            .font(self.font)
-            .text_size(13)
-            .width(220)
         };
         let mut col = column![
             self.section("Modes imposés"),

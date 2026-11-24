@@ -180,13 +180,15 @@ impl App {
             return column![
                 self.section("Écrans"),
                 small("Aucun écran détecté pour l'instant.".into()),
-                button(
-                    text("Détecter")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::ScreensDetect)),
+                self.focusable(
+                    button(
+                        text("Détecter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::ScreensDetect))
+                ),
             ]
             .spacing(14)
             .into();
@@ -210,21 +212,25 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
-                        button(
-                            text("Rétablir")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .on_press(wrap(Msg::ScreensRevert))
-                        .style(button::secondary),
-                        button(
-                            text("Garder")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .on_press(wrap(Msg::ScreensKeep)),
+                        self.focusable(
+                            button(
+                                text("Rétablir")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .on_press(wrap(Msg::ScreensRevert))
+                            .style(button::secondary)
+                        ),
+                        self.focusable(
+                            button(
+                                text("Garder")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .on_press(wrap(Msg::ScreensKeep))
+                        ),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
@@ -455,14 +461,17 @@ impl App {
         .spacing(6);
         // Réglage fin de l'écran sélectionné : au pixel près (Maj : 10 px).
         let nudge = |label: &'static str, dx: i32, dy: i32| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0)),
+            self.focusable_when(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([3, 10])
+                .style(button::secondary)
+                .on_press_maybe((!sel.is_empty()).then_some(wrap(Msg::Nudge(dx, dy)))),
+                ((!sel.is_empty()).then_some(wrap(Msg::Nudge(dx, dy)))).is_some(),
             )
-            .padding([3, 10])
-            .style(button::secondary)
-            .on_press_maybe((!sel.is_empty()).then_some(wrap(Msg::Nudge(dx, dy))))
         };
         let fine = row![
             small(if sel.is_empty() {
@@ -489,14 +498,16 @@ impl App {
             chips = chips.push(small("Désactivés :".into()));
             for name in off {
                 chips = chips.push(
-                    button(
-                        text(name.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([3, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::ScreenSelect(name))),
+                    self.focusable(
+                        button(
+                            text(name.clone())
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([3, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::ScreenSelect(name))),
+                    ),
                 );
             }
         }
@@ -508,40 +519,53 @@ impl App {
                 .push(chips)
                 .push(
                     row![
-                        button(
-                            text("Disposition automatique")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .on_press(wrap(Msg::ScreensAuto)),
-                        button(
-                            text("Détecter")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::ScreensDetect)),
-                        button(
-                            text("Identifier")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Identify)),
-                        button(
-                            text("Enregistrer")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([5, 12])
-                        .style(button::secondary)
-                        .on_press_maybe(
-                            self.screens_pending
+                        self.focusable(
+                            button(
+                                text("Disposition automatique")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .on_press(wrap(Msg::ScreensAuto))
+                        ),
+                        self.focusable(
+                            button(
+                                text("Détecter")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::ScreensDetect))
+                        ),
+                        self.focusable(
+                            button(
+                                text("Identifier")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Identify))
+                        ),
+                        self.focusable_when(
+                            button(
+                                text("Enregistrer")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([5, 12])
+                            .style(button::secondary)
+                            .on_press_maybe(
+                                self.screens_pending
+                                    .is_none()
+                                    .then_some(wrap(Msg::ScreensKeep)),
+                            ),
+                            (self
+                                .screens_pending
                                 .is_none()
-                                .then_some(wrap(Msg::ScreensKeep)),
+                                .then_some(wrap(Msg::ScreensKeep)))
+                            .is_some()
                         ),
                     ]
                     .spacing(10),
@@ -558,19 +582,20 @@ impl App {
                 if !s.enabled {
                     label.push_str("  (désactivé)");
                 }
-                button(
-                    text(label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
+                self.focusable(
+                    button(
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([5, 12])
+                    .style(if s.name == sel {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::ScreenSelect(s.name.clone()))),
                 )
-                .padding([5, 12])
-                .style(if s.name == sel {
-                    button::primary
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::ScreenSelect(s.name.clone())))
-                .into()
             }))
             .spacing(8)
             .wrap(),
@@ -594,9 +619,11 @@ impl App {
         let is_main = primary.as_deref() == Some(s.name.as_str());
         col = col.push(
             row![
-                toggler(s.enabled)
-                    .label(crate::i18n::tr("Activé"))
-                    .on_toggle(|v| wrap(Msg::ScreenEnable(v))),
+                self.focusable(
+                    toggler(s.enabled)
+                        .label(crate::i18n::tr("Activé"))
+                        .on_toggle(|v| wrap(Msg::ScreenEnable(v)))
+                ),
                 if is_main {
                     Element::from(
                         text("★ Écran principal")
@@ -605,14 +632,15 @@ impl App {
                             .color(accent),
                     )
                 } else {
-                    button(
-                        text("Définir comme écran principal")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
+                    self.focusable(
+                        button(
+                            text("Définir comme écran principal")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        )
+                        .padding([5, 12])
+                        .on_press(wrap(Msg::ScreenPrimary(s.name.clone()))),
                     )
-                    .padding([5, 12])
-                    .on_press(wrap(Msg::ScreenPrimary(s.name.clone())))
-                    .into()
                 },
             ]
             .spacing(24)
@@ -634,18 +662,23 @@ impl App {
                     "",
                     column![
                         row![
-                            pick_list(Side::ALL, Some(side), |v| wrap(Msg::ScreenSide(v)))
-                                .font(self.font)
-                                .width(170),
-                            pick_list(refs, Some(reference), |v| wrap(Msg::ScreenRef(v)))
-                                .font(self.font)
-                                .width(170),
+                            self.choosable(
+                                pick_list(Side::ALL, Some(side), |v| wrap(Msg::ScreenSide(v)))
+                                    .font(self.font)
+                                    .width(170)
+                            ),
+                            self.choosable(
+                                pick_list(refs, Some(reference), |v| wrap(Msg::ScreenRef(v)))
+                                    .font(self.font)
+                                    .width(170)
+                            ),
                         ]
                         .spacing(10),
                         row(aligns.into_iter().map(|a| {
-                            radio(a.label(side), a, Some(align), |v| wrap(Msg::ScreenAlign(v)))
-                                .font(self.font)
-                                .into()
+                            self.focusable(
+                                radio(a.label(side), a, Some(align), |v| wrap(Msg::ScreenAlign(v)))
+                                    .font(self.font),
+                            )
                         }))
                         .spacing(18),
                     ]
@@ -738,12 +771,13 @@ impl App {
                         .into_iter()
                         .map(|pair| {
                             row(pair.into_iter().map(|(d, label)| {
-                                radio(crate::i18n::tr(label), d, Some(rot), |v| {
-                                    wrap(Msg::ScreenRotate(v))
-                                })
-                                .font(self.font)
-                                .width(190)
-                                .into()
+                                self.focusable(
+                                    radio(crate::i18n::tr(label), d, Some(rot), |v| {
+                                        wrap(Msg::ScreenRotate(v))
+                                    })
+                                    .font(self.font)
+                                    .width(190),
+                                )
                             }))
                             .into()
                         })
@@ -751,9 +785,11 @@ impl App {
                     .spacing(8),
                     self.adv(
                         "Mise en miroir de l'image",
-                        toggler(s.flipped())
-                            .label(crate::i18n::tr("Image en miroir"))
-                            .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
+                        self.focusable(
+                            toggler(s.flipped())
+                                .label(crate::i18n::tr("Image en miroir"))
+                                .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
+                        )
                     ),
                 ]
                 .spacing(10),
@@ -770,25 +806,29 @@ impl App {
                 self.field(
                     "Résolution et fréquence",
                     "",
-                    pick_list(modes, Some(s.mode()), |m| wrap(Msg::ScreenMode(m)))
-                        .font(self.font)
-                        .width(240),
+                    self.choosable(
+                        pick_list(modes, Some(s.mode()), |m| wrap(Msg::ScreenMode(m)))
+                            .font(self.font)
+                            .width(240),
+                    ),
                 ),
             )
             .push(
                 self.field(
                     "Échelle",
                     "",
-                    pick_list(scales, Some(scale_label(s.scale)), |label| {
-                        let v = screens::SCALES
-                            .iter()
-                            .copied()
-                            .find(|v| format!("{:.0} %", v * 100.0) == label)
-                            .unwrap_or(1.0);
-                        wrap(Msg::ScreenScale(v))
-                    })
-                    .font(self.font)
-                    .width(140),
+                    self.choosable(
+                        pick_list(scales, Some(scale_label(s.scale)), |label| {
+                            let v = screens::SCALES
+                                .iter()
+                                .copied()
+                                .find(|v| format!("{:.0} %", v * 100.0) == label)
+                                .unwrap_or(1.0);
+                            wrap(Msg::ScreenScale(v))
+                        })
+                        .font(self.font)
+                        .width(140),
+                    ),
                 ),
             )
             .push(small(
@@ -836,17 +876,19 @@ impl App {
                     );
                 }
                 col = col.push(
-                    button(
-                        text("Définir une zone Panorama")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    )
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::PanoramaZone(Some(Zone {
-                        screen: s.name.clone(),
-                        side: "bottom".into(),
-                        size: 0.25,
-                    })))),
+                    self.focusable(
+                        button(
+                            text("Définir une zone Panorama")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::PanoramaZone(Some(Zone {
+                            screen: s.name.clone(),
+                            side: "bottom".into(),
+                            size: 0.25,
+                        })))),
+                    ),
                 );
             }
             Some(z) => {
@@ -855,30 +897,34 @@ impl App {
                     let z1 = z.clone();
                     let z2 = z.clone();
                     row![
-                        radio(
-                            crate::i18n::tr("Horizontale"),
-                            false,
-                            Some(vertical),
-                            move |_| {
-                                wrap(Msg::PanoramaZone(Some(Zone {
-                                    side: "bottom".into(),
-                                    ..z1.clone()
-                                })))
-                            }
-                        )
-                        .text_size(13),
-                        radio(
-                            crate::i18n::tr("Verticale"),
-                            true,
-                            Some(vertical),
-                            move |_| {
-                                wrap(Msg::PanoramaZone(Some(Zone {
-                                    side: "right".into(),
-                                    ..z2.clone()
-                                })))
-                            }
-                        )
-                        .text_size(13),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Horizontale"),
+                                false,
+                                Some(vertical),
+                                move |_| {
+                                    wrap(Msg::PanoramaZone(Some(Zone {
+                                        side: "bottom".into(),
+                                        ..z1.clone()
+                                    })))
+                                }
+                            )
+                            .text_size(13)
+                        ),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Verticale"),
+                                true,
+                                Some(vertical),
+                                move |_| {
+                                    wrap(Msg::PanoramaZone(Some(Zone {
+                                        side: "right".into(),
+                                        ..z2.clone()
+                                    })))
+                                }
+                            )
+                            .text_size(13)
+                        ),
                     ]
                     .spacing(16)
                 };
@@ -892,13 +938,15 @@ impl App {
                 for (id, label) in sides {
                     let zz = z.clone();
                     side_row = side_row.push(
-                        radio(crate::i18n::tr(label), *id, cur, move |v: &'static str| {
-                            wrap(Msg::PanoramaZone(Some(Zone {
-                                side: v.into(),
-                                ..zz.clone()
-                            })))
-                        })
-                        .text_size(13),
+                        self.focusable(
+                            radio(crate::i18n::tr(label), *id, cur, move |v: &'static str| {
+                                wrap(Msg::PanoramaZone(Some(Zone {
+                                    side: v.into(),
+                                    ..zz.clone()
+                                })))
+                            })
+                            .text_size(13),
+                        ),
                     );
                 }
                 let zs = z.clone();
@@ -941,13 +989,15 @@ impl App {
                         .align_y(Alignment::Center),
                     )
                     .push(
-                        button(
-                            text("Retirer la zone Panorama")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        )
-                        .padding([6, 14])
-                        .on_press(wrap(Msg::PanoramaZone(None))),
+                        self.focusable(
+                            button(
+                                text("Retirer la zone Panorama")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0)),
+                            )
+                            .padding([6, 14])
+                            .on_press(wrap(Msg::PanoramaZone(None))),
+                        ),
                     );
             }
         }
@@ -991,24 +1041,26 @@ impl App {
             let on = cur.grid == g;
             let n = name.clone();
             seg = seg.push(
-                button(
-                    text(g.short())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([5, 14])
-                .style(if on {
-                    button::primary
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::ScreenZones(
-                    n,
-                    Split {
-                        grid: g,
-                        first: cur.first,
-                    },
-                ))),
+                self.focusable(
+                    button(
+                        text(g.short())
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([5, 14])
+                    .style(if on {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
+                    .on_press(wrap(Msg::ScreenZones(
+                        n,
+                        Split {
+                            grid: g,
+                            first: cur.first,
+                        },
+                    ))),
+                ),
             );
         }
         col = col.push(seg);
@@ -1023,18 +1075,20 @@ impl App {
             for f in [First::Half, First::Third] {
                 let n = name.clone();
                 r = r.push(
-                    radio(f.id(), f, Some(cur.first()), move |v| {
-                        wrap(Msg::ScreenZones(
-                            n.clone(),
-                            Split {
-                                grid: cur.grid,
-                                first: Some(v),
-                            },
-                        ))
-                    })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(16.0))
-                    .text_size(13),
+                    self.focusable(
+                        radio(f.id(), f, Some(cur.first()), move |v| {
+                            wrap(Msg::ScreenZones(
+                                n.clone(),
+                                Split {
+                                    grid: cur.grid,
+                                    first: Some(v),
+                                },
+                            ))
+                        })
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(16.0))
+                        .text_size(13),
+                    ),
                 );
             }
             col = col.push(r);

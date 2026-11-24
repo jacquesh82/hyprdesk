@@ -311,7 +311,7 @@ on” or “off”; when off, Tab only goes to text fields. In the drawer, Tab a
 the page navigation and its tabs, and the content scrolls to the control it
 reaches; Ctrl + Tab jumps from the navigation to the content and back. On a
 slider, the arrow keys change the value by the setting's step, Enter opens its
-field. The setting lives in
+field; on a pop-up list, they move to the next option without opening it. The setting lives in
 **Settings → Keyboard and mouse → Keyboard** (`keyboard_access`), the shortcut
 in **Settings → Shortcuts** (`keys.keyboard_access`).
 

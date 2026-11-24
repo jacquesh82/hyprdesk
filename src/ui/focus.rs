@@ -83,6 +83,27 @@ pub(in crate::ui) fn adjust_by<'a>(
     )
 }
 
+/// L'enveloppe d'une liste déroulante (`pick_list`) : liste fermée, les
+/// flèches choisissent l'option suivante (bas, droite) ou précédente (haut,
+/// gauche), comme la molette avec Ctrl sur la liste — le menu d'Iced ne se
+/// pilote pas au clavier, il n'est pas ouvert (HIG ENT-01). `on` faux : la
+/// liste telle quelle.
+pub(in crate::ui) fn choose<'a>(
+    child: impl Into<Element<'a, Msg>>,
+    ring: Color,
+    on: bool,
+) -> Element<'a, Msg> {
+    let child = child.into();
+    if !on {
+        return child;
+    }
+    Element::new(Keyboard {
+        child,
+        action: Action::Choose,
+        ring,
+    })
+}
+
 /// Le réglage d'un curseur au clavier : sa valeur, son domaine et son pas
 /// (flèches), le message de chaque valeur et celui qui l'enregistre.
 pub(in crate::ui) struct Steps<'a> {
@@ -137,6 +158,7 @@ enum Action<'a> {
     Press(Msg),
     Adjust(Steps<'a>),
     Click,
+    Choose,
 }
 
 struct Keyboard<'a, R = Renderer> {
@@ -253,6 +275,52 @@ impl<R: renderer::Renderer> Widget<Msg, Theme, R> for Keyboard<'_, R> {
                         self.child.as_widget_mut().update(
                             &mut tree.children[0],
                             &Event::Mouse(e),
+                            layout,
+                            at,
+                            renderer,
+                            clipboard,
+                            &mut sub,
+                            viewport,
+                        );
+                        shell.merge(sub, |m| m);
+                    }
+                    shell.capture_event();
+                    return;
+                }
+                (Action::Choose, Key::Named(name))
+                    if matches!(
+                        name,
+                        Named::ArrowLeft | Named::ArrowRight | Named::ArrowUp | Named::ArrowDown
+                    ) =>
+                {
+                    // La molette, Ctrl tenu, au centre de la liste : la liste
+                    // publie l'option voisine par son propre message. Les
+                    // modificateurs réels lui sont rendus ensuite.
+                    let next = matches!(name, Named::ArrowDown | Named::ArrowRight);
+                    let modifiers = match event {
+                        Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                            modifiers, ..
+                        }) => *modifiers,
+                        _ => iced::keyboard::Modifiers::empty(),
+                    };
+                    let at = mouse::Cursor::Available(layout.bounds().center());
+                    for e in [
+                        Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
+                            iced::keyboard::Modifiers::COMMAND,
+                        )),
+                        Event::Mouse(mouse::Event::WheelScrolled {
+                            delta: mouse::ScrollDelta::Lines {
+                                x: 0.0,
+                                y: if next { -1.0 } else { 1.0 },
+                            },
+                        }),
+                        Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)),
+                    ] {
+                        let mut messages = Vec::new();
+                        let mut sub = Shell::new(&mut messages);
+                        self.child.as_widget_mut().update(
+                            &mut tree.children[0],
+                            &e,
                             layout,
                             at,
                             renderer,
@@ -1025,5 +1093,56 @@ mod tests {
         assert_eq!(focused(&tree), [true, false, false, false]);
         run(&mut el, &mut tree, jump(&GROUPS, true));
         assert_eq!(focused(&tree), [false, false, true, false]);
+    }
+
+    #[test]
+    fn fleches_d_une_liste_deroulante() {
+        // HIG ENT-01 : liste fermée, bas choisit l'option suivante, haut la
+        // précédente ; aux bornes, rien.
+        let arrow = |selected: f32, key: Named| {
+            let mut el: Element<'_, Msg, Theme, ()> = Element::new(Keyboard {
+                child: iced::widget::pick_list(
+                    vec![1.0_f32, 2.0, 3.0],
+                    Some(selected),
+                    Msg::VolumeSet,
+                )
+                .into(),
+                action: Action::Choose,
+                ring: Color::WHITE,
+            });
+            let mut tree = Tree::new(&el);
+            let limits = layout::Limits::new(Size::ZERO, Size::new(240.0, 48.0));
+            let node = el.as_widget_mut().layout(&mut tree, &(), &limits);
+            tree.state.downcast_mut::<Focus>().0 = true;
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            el.as_widget_mut().update(
+                &mut tree,
+                &Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: Key::Named(key),
+                    modified_key: Key::Named(key),
+                    physical_key: Physical::Code(Code::ArrowDown),
+                    location: Location::Standard,
+                    modifiers: Modifiers::empty(),
+                    text: None,
+                    repeat: false,
+                }),
+                Layout::new(&node),
+                mouse::Cursor::Unavailable,
+                &(),
+                &mut clipboard::Null,
+                &mut shell,
+                &Rectangle::with_size(Size::new(240.0, 48.0)),
+            );
+            drop(shell);
+            match messages.as_slice() {
+                [Msg::VolumeSet(v)] => Some(*v),
+                _ => None,
+            }
+        };
+        assert_eq!(arrow(2.0, Named::ArrowDown), Some(3.0));
+        assert_eq!(arrow(2.0, Named::ArrowUp), Some(1.0));
+        assert_eq!(arrow(2.0, Named::ArrowRight), Some(3.0));
+        assert_eq!(arrow(3.0, Named::ArrowDown), None);
     }
 }

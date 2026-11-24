@@ -674,22 +674,26 @@ impl App {
             .cloned();
         let (s1, s2) = (scope.clone(), scope.clone());
         let pickers = row![
-            pick_list(screens, cur_screen, move |p: Pick| {
-                wrap(Msg::Scope(Scope {
-                    monitor: p.value,
-                    ..s1.clone()
-                }))
-            })
-            .font(self.font)
-            .width(200),
-            pick_list(workspaces, cur_ws, move |p: Pick| {
-                wrap(Msg::Scope(Scope {
-                    workspace: p.value,
-                    ..s2.clone()
-                }))
-            })
-            .font(self.font)
-            .width(200),
+            self.choosable(
+                pick_list(screens, cur_screen, move |p: Pick| {
+                    wrap(Msg::Scope(Scope {
+                        monitor: p.value,
+                        ..s1.clone()
+                    }))
+                })
+                .font(self.font)
+                .width(200)
+            ),
+            self.choosable(
+                pick_list(workspaces, cur_ws, move |p: Pick| {
+                    wrap(Msg::Scope(Scope {
+                        workspace: p.value,
+                        ..s2.clone()
+                    }))
+                })
+                .font(self.font)
+                .width(200)
+            ),
         ]
         .spacing(12);
         // Règles réglées ici : un clic y revient.

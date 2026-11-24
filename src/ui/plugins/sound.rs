@@ -204,17 +204,19 @@ impl App {
             // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
             beside_slider(
                 &volume_spec(id),
-                button(
-                    text(if n.muted {
-                        "Rétablir le son"
-                    } else {
-                        "Couper le son"
-                    })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
+                self.focusable(
+                    button(
+                        text(if n.muted {
+                            "Rétablir le son"
+                        } else {
+                            "Couper le son"
+                        })
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Mute(id)))
                 )
-                .padding([4, 10])
-                .on_press(wrap(Msg::Mute(id)))
             ),
         ]
         .spacing(10)
@@ -234,10 +236,12 @@ impl App {
         let current = list.iter().find(|n| n.default).map(|n| n.id);
         for n in list {
             col = col.push(
-                radio(n.name.clone(), n.id, current, |id| wrap(Msg::Default(id)))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(16.0))
-                    .text_size(13),
+                self.focusable(
+                    radio(n.name.clone(), n.id, current, |id| wrap(Msg::Default(id)))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(16.0))
+                        .text_size(13),
+                ),
             );
         }
         if let Some(d) = list.iter().find(|n| n.default) {
@@ -263,13 +267,15 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
-                button(
-                    text("Actualiser")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(wrap(Msg::Refresh)),
+                self.focusable(
+                    button(
+                        text("Actualiser")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Refresh))
+                ),
             ]
             .align_y(Alignment::Center),
             self.section("Sortie"),

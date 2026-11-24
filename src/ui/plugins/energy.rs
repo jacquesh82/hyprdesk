@@ -157,12 +157,14 @@ impl App {
         for (k, (p, _)) in s.profiles.iter().enumerate() {
             let id = p.clone();
             col = col.push(
-                radio(profile_label(p), k, current, move |_| {
-                    wrap(Msg::Profile(id.clone()))
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(16.0))
-                .text_size(13),
+                self.focusable(
+                    radio(profile_label(p), k, current, move |_| {
+                        wrap(Msg::Profile(id.clone()))
+                    })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(16.0))
+                    .text_size(13),
+                ),
             );
         }
         if !s.batteries.is_empty() {
@@ -196,13 +198,15 @@ impl App {
             .color(dim),
         );
         col = col.push(
-            button(
-                text("Régler la veille…")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
-            )
-            .padding([4, 10])
-            .on_press(wrap(Msg::Idle)),
+            self.focusable(
+                button(
+                    text("Régler la veille…")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::Idle)),
+            ),
         );
         col.into()
     }

@@ -313,7 +313,8 @@ bascule partout (`hyprdesk keyboard-access`) et l'affichage à l'écran annonce
 qu'aux champs. Dans le tiroir, Tab passe aussi par la navigation des pages et
 leurs onglets, et le contenu défile jusqu'à la commande atteinte ; Ctrl + Tab
 saute de la navigation au contenu, et retour. Sur un curseur, les flèches
-règlent la valeur au pas du réglage, Entrée ouvre sa saisie.
+règlent la valeur au pas du réglage, Entrée ouvre sa saisie ; sur une liste
+déroulante, elles passent à l'option voisine sans ouvrir la liste.
 Le réglage est dans **Réglages → Clavier et souris → Clavier**
 (`keyboard_access`), le raccourci dans **Réglages → Raccourcis**
 (`keys.keyboard_access`).

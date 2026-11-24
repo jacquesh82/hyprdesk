@@ -354,20 +354,22 @@ impl App {
                 ));
                 let sel = curves.iter().find(|c| c.value == a.curve).cloned();
                 second = second.push(
-                    pick_list(curves.clone(), sel, {
-                        let base = base.clone();
-                        move |c: Choice<String>| {
-                            wrap(Msg::Anim(
-                                name.into(),
-                                Some(Anim {
-                                    curve: c.value,
-                                    ..base.clone()
-                                }),
-                            ))
-                        }
-                    })
-                    .font(self.font)
-                    .width(Length::FillPortion(1)),
+                    self.choosable(
+                        pick_list(curves.clone(), sel, {
+                            let base = base.clone();
+                            move |c: Choice<String>| {
+                                wrap(Msg::Anim(
+                                    name.into(),
+                                    Some(Anim {
+                                        curve: c.value,
+                                        ..base.clone()
+                                    }),
+                                ))
+                            }
+                        })
+                        .font(self.font)
+                        .width(Length::FillPortion(1)),
+                    ),
                 );
                 if !l.styles.is_empty() {
                     let styles: Vec<Choice<String>> = l
@@ -383,20 +385,22 @@ impl App {
                         .find(|c| Some(&c.value) == a.style.as_ref())
                         .cloned();
                     second = second.push(
-                        pick_list(styles, sel, {
-                            let base = base.clone();
-                            move |c: Choice<String>| {
-                                wrap(Msg::Anim(
-                                    name.into(),
-                                    Some(Anim {
-                                        style: Some(c.value),
-                                        ..base.clone()
-                                    }),
-                                ))
-                            }
-                        })
-                        .font(self.font)
-                        .width(Length::FillPortion(1)),
+                        self.choosable(
+                            pick_list(styles, sel, {
+                                let base = base.clone();
+                                move |c: Choice<String>| {
+                                    wrap(Msg::Anim(
+                                        name.into(),
+                                        Some(Anim {
+                                            style: Some(c.value),
+                                            ..base.clone()
+                                        }),
+                                    ))
+                                }
+                            })
+                            .font(self.font)
+                            .width(Length::FillPortion(1)),
+                        ),
                     );
                 }
             }

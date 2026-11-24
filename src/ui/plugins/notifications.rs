@@ -227,11 +227,13 @@ impl App {
             let choices = styles();
             let current = choices.iter().find(|c| c.0 == a.delivery).cloned();
             line = line.push(
-                pick_list(choices, current, move |c| {
-                    wrap(Msg::Style(key.to_string(), c.0))
-                })
-                .font(self.font)
-                .width(Length::Fixed(120.0)),
+                self.choosable(
+                    pick_list(choices, current, move |c| {
+                        wrap(Msg::Style(key.to_string(), c.0))
+                    })
+                    .font(self.font)
+                    .width(Length::Fixed(120.0)),
+                ),
             );
         } else {
             // Sans style tant qu'elle n'est pas autorisée : la place reste, les
@@ -239,11 +241,13 @@ impl App {
             line = line.push(Space::new().width(120));
         }
         line = line.push(
-            toggler(a.granted)
-                .label(crate::i18n::tr("Autoriser"))
-                .text_size(13)
-                .font(self.font)
-                .on_toggle(move |on| wrap(Msg::Allow(key.to_string(), on))),
+            self.focusable(
+                toggler(a.granted)
+                    .label(crate::i18n::tr("Autoriser"))
+                    .text_size(13)
+                    .font(self.font)
+                    .on_toggle(move |on| wrap(Msg::Allow(key.to_string(), on))),
+            ),
         );
         line.into()
     }
@@ -257,23 +261,29 @@ impl App {
         if armed {
             Element::from(
                 row![
-                    button(label("Confirmer : effacer l’historique"))
-                        .padding([6, 14])
-                        .style(button::danger)
-                        .on_press(wrap(Msg::Clear)),
-                    button(label("Annuler"))
-                        .padding([6, 14])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::ClearCancel)),
+                    self.focusable(
+                        button(label("Confirmer : effacer l’historique"))
+                            .padding([6, 14])
+                            .style(button::danger)
+                            .on_press(wrap(Msg::Clear))
+                    ),
+                    self.focusable(
+                        button(label("Annuler"))
+                            .padding([6, 14])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::ClearCancel))
+                    ),
                 ]
                 .spacing(10),
             )
         } else {
-            button(label("Effacer l’historique"))
-                .padding([6, 14])
-                .style(button::secondary)
-                .on_press_maybe((!self.toasts.history.is_empty()).then(|| wrap(Msg::ClearAsk)))
-                .into()
+            self.focusable_when(
+                button(label("Effacer l’historique"))
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press_maybe((!self.toasts.history.is_empty()).then(|| wrap(Msg::ClearAsk))),
+                !self.toasts.history.is_empty(),
+            )
         }
     }
 

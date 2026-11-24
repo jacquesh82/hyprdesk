@@ -216,17 +216,19 @@ impl App {
             ));
             let accel = |label: &'static str, v: &'static str| {
                 let c = cur.clone();
-                radio(
-                    crate::i18n::tr(label),
-                    v,
-                    Some(cur.accel_profile.as_str()),
-                    move |v| {
-                        let mut n = c.clone();
-                        n.accel_profile = v.to_string();
-                        wrap(Msg::Set(Box::new(n)))
-                    },
+                self.focusable(
+                    radio(
+                        crate::i18n::tr(label),
+                        v,
+                        Some(cur.accel_profile.as_str()),
+                        move |v| {
+                            let mut n = c.clone();
+                            n.accel_profile = v.to_string();
+                            wrap(Msg::Set(Box::new(n)))
+                        },
+                    )
+                    .font(self.font),
                 )
-                .font(self.font)
             };
             col = col.push(
                 self.field(
@@ -240,15 +242,22 @@ impl App {
                     .spacing(6),
                 ),
             );
-            col = col.push(self.field(
-                "Défilement naturel (comme sur un téléphone)",
-                "",
-                toggler(cur.natural_scroll).on_toggle(toggle(&cur, |i, v| i.natural_scroll = v)),
-            ));
+            col = col.push(
+                self.field(
+                    "Défilement naturel (comme sur un téléphone)",
+                    "",
+                    self.focusable(
+                        toggler(cur.natural_scroll)
+                            .on_toggle(toggle(&cur, |i, v| i.natural_scroll = v)),
+                    ),
+                ),
+            );
             col = col.push(self.field(
                 "Gaucher (boutons inversés)",
                 "",
-                toggler(cur.left_handed).on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
+                self.focusable(
+                    toggler(cur.left_handed).on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
+                ),
             ));
             let focus = [
                 Choice("0".into(), crate::i18n::tr("Au clic").into()),
@@ -267,16 +276,18 @@ impl App {
                 self.field(
                     "Fenêtre active",
                     "",
-                    pick_list(focus, current, {
-                        let c0 = cur.clone();
-                        move |c: Choice| {
-                            let mut n = c0.clone();
-                            n.follow_mouse = c.0.parse().unwrap_or(1);
-                            wrap(Msg::Set(Box::new(n)))
-                        }
-                    })
-                    .font(self.font)
-                    .width(320),
+                    self.choosable(
+                        pick_list(focus, current, {
+                            let c0 = cur.clone();
+                            move |c: Choice| {
+                                let mut n = c0.clone();
+                                n.follow_mouse = c.0.parse().unwrap_or(1);
+                                wrap(Msg::Set(Box::new(n)))
+                            }
+                        })
+                        .font(self.font)
+                        .width(320),
+                    ),
                 ),
             );
         } else if self.on_subtab(INFO.id, "pave") {
@@ -289,32 +300,46 @@ impl App {
                         .color(dim),
                 );
             }
-            col = col.push(self.field(
-                "Toucher pour cliquer",
-                "",
-                toggler(cur.tp_tap_to_click).on_toggle(toggle(&cur, |i, v| i.tp_tap_to_click = v)),
-            ));
+            col = col.push(
+                self.field(
+                    "Toucher pour cliquer",
+                    "",
+                    self.focusable(
+                        toggler(cur.tp_tap_to_click)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_tap_to_click = v)),
+                    ),
+                ),
+            );
             col = col.push(
                 self.field(
                     "Défilement naturel",
                     "",
-                    toggler(cur.tp_natural_scroll)
-                        .on_toggle(toggle(&cur, |i, v| i.tp_natural_scroll = v)),
+                    self.focusable(
+                        toggler(cur.tp_natural_scroll)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_natural_scroll = v)),
+                    ),
                 ),
             );
             col = col.push(
                 self.field(
                     "Désactiver pendant la frappe",
                     "",
-                    toggler(cur.tp_disable_while_typing)
-                        .on_toggle(toggle(&cur, |i, v| i.tp_disable_while_typing = v)),
+                    self.focusable(
+                        toggler(cur.tp_disable_while_typing)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_disable_while_typing = v)),
+                    ),
                 ),
             );
-            col = col.push(self.field(
-                "Clic droit à deux doigts",
-                "",
-                toggler(cur.tp_clickfinger).on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
-            ));
+            col = col.push(
+                self.field(
+                    "Clic droit à deux doigts",
+                    "",
+                    self.focusable(
+                        toggler(cur.tp_clickfinger)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
+                    ),
+                ),
+            );
             let c = cur.clone();
             col = col.push(self.field(
                 "Vitesse de défilement",
@@ -383,16 +408,18 @@ impl App {
                 self.field(
                     "Variante",
                     "",
-                    pick_list(variants, current, {
-                        let c0 = cur.clone();
-                        move |c: Choice| {
-                            let mut n = c0.clone();
-                            n.kb_variant = c.0;
-                            wrap(Msg::Set(Box::new(n)))
-                        }
-                    })
-                    .font(self.font)
-                    .width(320),
+                    self.choosable(
+                        pick_list(variants, current, {
+                            let c0 = cur.clone();
+                            move |c: Choice| {
+                                let mut n = c0.clone();
+                                n.kb_variant = c.0;
+                                wrap(Msg::Set(Box::new(n)))
+                            }
+                        })
+                        .font(self.font)
+                        .width(320),
+                    ),
                 ),
             );
             col = col.push(
@@ -456,7 +483,7 @@ impl App {
             col = col.push(self.field(
                 "Verr. Num. actif au démarrage",
                 "",
-                toggler(cur.numlock).on_toggle(toggle(&cur, |i, v| i.numlock = v)),
+                self.focusable(toggler(cur.numlock).on_toggle(toggle(&cur, |i, v| i.numlock = v))),
             ));
             col = col.push(
                 text_input(crate::i18n::tr("Essayer ici…"), &s.try_text)

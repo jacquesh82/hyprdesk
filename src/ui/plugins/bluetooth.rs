@@ -200,18 +200,20 @@ impl App {
                 .into();
         };
         let small = |label: &'static str, m: Msg| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press(wrap(m)),
             )
-            .padding([4, 10])
-            .on_press(wrap(m))
         };
         let mut col = column![self.field(
             "Bluetooth",
             "",
-            toggler(on).on_toggle(|v| wrap(Msg::Power(v)))
+            self.focusable(toggler(on).on_toggle(|v| wrap(Msg::Power(v))))
         )]
         .spacing(10);
         if let Some(e) = &s.error {
@@ -277,12 +279,14 @@ impl App {
                 self.section("À proximité"),
                 iced::widget::Space::new().width(Length::Fill),
                 if s.scanning {
+                    // Sans message : hors du parcours au clavier (HIG ENT-01).
                     button(
                         text("Recherche (10 s)…")
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
+                    .into()
                 } else {
                     small("Rechercher", Msg::Scan)
                 },
