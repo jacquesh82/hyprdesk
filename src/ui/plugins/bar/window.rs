@@ -113,21 +113,30 @@ pub(in crate::ui) fn entries(
     others.sort_by_key(|w| w.id);
     others.dedup_by_key(|w| w.id);
     if !others.is_empty() {
+        // Un sous-menu (HIG MENU-03) : sa colonne liste tous les autres
+        // espaces, sans plafond.
         out.push(MenuEntry::Separator);
-        out.push(MenuEntry::Header(tr("Déplacer vers l'espace")));
-        out.extend(others.iter().take(10).map(|w| {
-            item(
-                if w.name == w.id.to_string() {
-                    crate::tr!("Espace {n}", n = w.id)
-                } else {
-                    w.name.clone()
-                },
-                "",
-                None,
-                true,
-                MOVE + w.id,
-            )
-        }));
+        out.push(MenuEntry::Submenu {
+            label: tr("Déplacer vers l'espace"),
+            icon: None,
+            enabled: true,
+            children: others
+                .iter()
+                .map(|w| {
+                    item(
+                        if w.name == w.id.to_string() {
+                            crate::tr!("Espace {n}", n = w.id)
+                        } else {
+                            w.name.clone()
+                        },
+                        "",
+                        None,
+                        true,
+                        MOVE + w.id,
+                    )
+                })
+                .collect(),
+        });
     }
     out.push(MenuEntry::Separator);
     // Toujours à sa place, inactive quand l'application n'a qu'une fenêtre :
@@ -225,7 +234,7 @@ mod tests {
         .unwrap();
         let (address, e) = entries(&v, &[ws(1), ws(2), ws(3), ws(-98)], 1).unwrap();
         assert_eq!(address, "0xabc");
-        let find = |a: i64| {
+        let find_in = |e: &[MenuEntry], a: i64| {
             e.iter().find_map(|x| match x {
                 MenuEntry::Item {
                     action: Some(n),
@@ -236,12 +245,27 @@ mod tests {
                 _ => None,
             })
         };
+        let find = |a: i64| find_in(&e, a);
         // Plein écran coché ; épingler impossible sans flottante.
         assert_eq!(find(FULLSCREEN), Some((Some(true), true)));
         assert_eq!(find(PIN), Some((None, false)));
-        // Les autres espaces normaux seulement (ni l'actuel, ni un spécial).
-        assert!(find(MOVE + 1).is_some() && find(MOVE + 3).is_some());
-        assert!(find(MOVE + 2).is_none() && find(MOVE - 98).is_none());
+        // « Déplacer vers l'espace » est un sous-menu (HIG MENU-03) : les
+        // autres espaces normaux seulement (ni l'actuel, ni un spécial), dans
+        // sa colonne, et non plus dans la liste.
+        let Some(MenuEntry::Submenu {
+            label,
+            enabled,
+            children,
+            ..
+        }) = e.iter().find(|x| matches!(x, MenuEntry::Submenu { .. }))
+        else {
+            panic!("sous-menu attendu");
+        };
+        assert_eq!(label, "Déplacer vers l'espace");
+        assert!(enabled);
+        assert!(find(MOVE + 1).is_none());
+        assert!(find_in(children, MOVE + 1).is_some() && find_in(children, MOVE + 3).is_some());
+        assert!(find_in(children, MOVE + 2).is_none() && find_in(children, MOVE - 98).is_none());
         assert!(matches!(
             e.last(),
             Some(MenuEntry::Item {
@@ -250,6 +274,40 @@ mod tests {
             })
         ));
         assert!(entries(&serde_json::json!({}), &[], 1).is_none());
+    }
+
+    #[test]
+    fn deplacer_vers_l_espace_liste_tous_les_espaces() {
+        let v: Value =
+            serde_json::from_str(r#"{"address":"0xabc","workspace":{"id":1,"name":"1"}}"#).unwrap();
+        // Quinze espaces nommés et deux spéciaux : la colonne en liste quatorze.
+        let mut spaces: Vec<Workspace> = (1..=15)
+            .map(|i| Workspace {
+                name: format!("Projet {i}"),
+                ..ws(i)
+            })
+            .collect();
+        spaces.push(ws(-98));
+        spaces.push(ws(0));
+        let (_, e) = entries(&v, &spaces, 1).unwrap();
+        let Some(MenuEntry::Submenu { children, .. }) =
+            e.iter().find(|x| matches!(x, MenuEntry::Submenu { .. }))
+        else {
+            panic!("sous-menu attendu");
+        };
+        let names: Vec<&str> = children
+            .iter()
+            .map(|c| match c {
+                MenuEntry::Item { label, .. } => label.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(names.len(), 14);
+        assert_eq!(names[0], "Projet 2");
+        assert_eq!(names[13], "Projet 15");
+        // Aucun espace autre : pas de sous-menu du tout.
+        let (_, only) = entries(&v, &[ws(1)], 1).unwrap();
+        assert!(only.iter().all(|x| !matches!(x, MenuEntry::Submenu { .. })));
     }
 
     #[test]

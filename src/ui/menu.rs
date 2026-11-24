@@ -50,6 +50,9 @@ pub(in crate::ui) struct RowState {
     pub danger: bool,
     /// Choisie au clavier : surlignée comme au survol.
     pub selected: bool,
+    /// Ligne d'un sous-menu d'un niveau (HIG menus › Submenus) : un chevron
+    /// suit son libellé.
+    pub submenu: bool,
 }
 
 impl Default for RowState {
@@ -59,9 +62,13 @@ impl Default for RowState {
             clickable: true,
             danger: false,
             selected: false,
+            submenu: false,
         }
     }
 }
+
+/// Chevron d'une ligne de sous-menu : icône du jeu de hyprdesk, repli « › ».
+pub(in crate::ui) const CHEVRON: &str = "go-next-symbolic";
 
 /// Fond d'une ligne : rien au repos, accent léger au survol (ou choisie au
 /// clavier), plus marqué pendant l'appui (HIG Buttons : un état pressé).
@@ -313,11 +320,15 @@ impl App {
         let font = self.ui_font(iced::font::Weight::Normal);
         let long = stacked(&label, detail.as_deref());
         let active = st.enabled && st.clickable;
-        let label_el = text(label)
+        let mut label_el = text(label)
             .font(self.font)
             .size(crate::ui::tokens::ts(13.5))
             .font(font)
             .wrapping(iced::widget::text::Wrapping::None);
+        // Sous-menu : le libellé occupe la ligne, le chevron vient au bord.
+        if st.submenu {
+            label_el = label_el.width(Length::Fill);
+        }
         let body: Element<'_, Msg> = match detail {
             Some(d) if long => column![
                 label_el,
@@ -342,6 +353,14 @@ impl App {
             .into(),
             None => label_el.into(),
         };
+        let body: Element<'_, Msg> = if st.submenu {
+            row![body, self.menu_chevron(ink, st)]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            body
+        };
         let fg = row_text(ink, st);
         button(
             row![container(lead).width(18).align_x(Alignment::Center), body]
@@ -359,6 +378,19 @@ impl App {
             ..Default::default()
         })
         .into()
+    }
+
+    /// Chevron d'une ligne de sous-menu, à la couleur du texte de la ligne
+    /// (rouge si destructive, estompé si indisponible).
+    pub(in crate::ui) fn menu_chevron<'a>(&self, ink: Ink, st: RowState) -> Element<'a, Msg> {
+        let tint = row_text(ink, st);
+        self.icon_named(CHEVRON, 12.0, tint).unwrap_or_else(|| {
+            text("›")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(15.0))
+                .color(tint)
+                .into()
+        })
     }
 
     /// Lignes d'un menu construit dans le code ; `selected` : entrée choisie
@@ -380,6 +412,7 @@ impl App {
                         clickable: true,
                         danger: it.danger,
                         selected: selected == Some(i),
+                        ..Default::default()
                     };
                     self.menu_row(
                         ink,

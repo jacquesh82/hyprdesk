@@ -869,6 +869,16 @@ pub enum MenuEntry {
     },
     Separator,
     Header(String),
+    /// Sous-menu d'un niveau (HIG MENU-03) : chevron après le libellé, ouvert
+    /// au survol. Ses entrées sont des `Item`, `Separator`, `Header`,
+    /// `Image` ; un sous-menu imbriqué n'y est jamais lu.
+    Submenu {
+        label: String,
+        icon: Option<String>,
+        /// Faux : ligne grisée, sa colonne ne s'ouvre pas.
+        enabled: bool,
+        children: Vec<MenuEntry>,
+    },
     /// Image (pochette d'album…) : un fichier local, en tête de menu.
     Image(std::path::PathBuf),
     /// Champ de saisie : Entrée appelle l'action avec le texte (mot de passe

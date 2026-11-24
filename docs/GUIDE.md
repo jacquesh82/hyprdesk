@@ -334,6 +334,13 @@ them.
 These commands also remain where they already were: the window title, the
 control center, the workspace card.
 
+A line followed by a “›” chevron opens a submenu, one level only. It opens on
+hover (on click, on a touchscreen), in a column beside the list, which stays
+in place; near the right edge of the screen, the column opens on the left.
+“Move to workspace”, in the **Window** menu, lists every other workspace
+there. The notification area menus keep the application's first-level submenus
+as submenus; the levels below stay flattened into headers (“File › Recent”).
+
 ### Bar styles
 
 The bar has two styles. Continuité keeps its Unix-style menu bar and separate

@@ -344,6 +344,14 @@ Réglages → Barre ne les déplace pas.
 Ces commandes restent aussi à leur emplacement d'origine : titre de la
 fenêtre, centre de contrôle, carte des espaces.
 
+Une ligne suivie d'un chevron « › » ouvre un sous-menu, à un seul niveau. Il
+s'ouvre au survol (au clic sur un écran tactile), dans une colonne à côté de
+la liste, qui ne bouge pas ; près du bord droit de l'écran, la colonne passe
+à gauche. « Déplacer vers l'espace », dans le menu **Fenêtre**, y liste tous
+les autres espaces. Les menus de la zone de notification gardent en sous-menu
+ceux du premier niveau de l'application ; les niveaux en dessous restent
+aplatis en en-têtes (« Fichier › Récents »).
+
 ### Styles de barre
 
 La barre propose deux styles. Continuité conserve sa barre Unix et son dock

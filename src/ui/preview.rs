@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 162] = [
+const SCENES: [&str; 163] = [
     "desktop",
     "typography",
     "icons",
@@ -114,6 +114,7 @@ const SCENES: [&str; 162] = [
     "bar-menu-closing",
     "bar-menu-shell",
     "bar-menu-workspaces",
+    "bar-menu-window",
     "bar-bottom",
     "bar-overflow",
     "bar-majs-progression",
@@ -2281,6 +2282,55 @@ impl Preview {
                     "menus:workspaces".into(),
                     popover::Kind::Workspaces,
                 );
+            }
+            // Menu « Fenêtre », « Déplacer vers l'espace » ouvert (HIG
+            // MENU-03) : la colonne liste les autres espaces, à côté d'une
+            // liste qui garde sa largeur et sa place. Même idiome : icône
+            // résolue tout de suite, ancre provisoire.
+            if SCENES[self.scene] == "bar-menu-window" {
+                let image = self.app.builtin_icon(crate::ui::menu::CHEVRON);
+                self.app
+                    .named_icons
+                    .insert(crate::ui::menu::CHEVRON.into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:window".into()),
+                    iced::Rectangle::new(iced::Point::new(104.0, 0.0), Size::new(96.0, 44.0)),
+                );
+                let window: serde_json::Value =
+                    serde_json::from_str(r#"{"address":"0xabc","workspace":{"id":2,"name":"2"}}"#)
+                        .unwrap();
+                let spaces: Vec<crate::hypr::Workspace> = (1..=5)
+                    .map(|i| crate::hypr::Workspace {
+                        id: i,
+                        name: i.to_string(),
+                        monitor: crate::i18n::tr("APERÇU").into(),
+                        windows: 1,
+                        fullscreen: false,
+                    })
+                    .collect();
+                if let Some((_, entries)) =
+                    super::plugins::bar::window::entries(&window, &spaces, 2)
+                {
+                    let sub = entries
+                        .iter()
+                        .position(|e| matches!(e, crate::config::MenuEntry::Submenu { .. }));
+                    let _ = self.app.open_popover(
+                        self.bar,
+                        "menus:window".into(),
+                        popover::Kind::Menu {
+                            entries,
+                            source: popover::MenuSource::Window {
+                                address: "0xabc".into(),
+                            },
+                        },
+                    );
+                    if let Some(p) = self.app.popover.as_mut()
+                        && let Some(sub) = sub
+                    {
+                        p.sub = Some(sub);
+                    }
+                    let _ = self.app.refresh_popover_anchor();
+                }
             }
             // Carte Notifications de la barre (HIG LAY-02) : l'historique est
             // groupé par application, une boîte par application. Même idiome :

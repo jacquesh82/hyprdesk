@@ -26,6 +26,12 @@ pub const SHADOW: f32 = 18.0;
 const WIDTH: f32 = 328.0;
 /// Côté d'une image de menu (pochette).
 const IMAGE: f32 = 120.0;
+/// Colonne d'un sous-menu d'un niveau (HIG MENU-03) : largeur, écart à la
+/// liste parente, délai d'ouverture au survol et de fermeture.
+const SUB_W: f32 = 216.0;
+const SUB_GAP: f32 = 8.0;
+const SUB_OPEN: std::time::Duration = std::time::Duration::from_millis(180);
+const SUB_CLOSE: std::time::Duration = std::time::Duration::from_millis(300);
 /// Écart entre la barre et le haut de la carte.
 pub(in crate::ui) const GAP: f32 = 10.0;
 
@@ -288,6 +294,189 @@ mod tests {
         assert!(p.dashboard.is_none());
         assert_eq!(p.size.width, WIDTH + 2.0 * SHADOW);
     }
+
+    /// Une entrée, un trait, le sous-menu « Déplacer vers l'espace » (quatre
+    /// espaces), un trait : de quoi ouvrir une colonne.
+    fn submenu_menu() -> Kind {
+        let item = |label: &str, action: i64| MenuEntry::Item {
+            label: label.into(),
+            detail: None,
+            icon: None,
+            checked: None,
+            enabled: true,
+            action: Some(action),
+            confirm: None,
+        };
+        Kind::Menu {
+            entries: vec![
+                item("Plein écran", 1),
+                MenuEntry::Separator,
+                MenuEntry::Submenu {
+                    label: "Déplacer vers l'espace".into(),
+                    icon: None,
+                    enabled: true,
+                    children: vec![
+                        item("Espace 1", 101),
+                        item("Espace 3", 103),
+                        item("Espace 4", 104),
+                        item("Espace 5", 105),
+                    ],
+                },
+                MenuEntry::Separator,
+            ],
+            source: MenuSource::Window {
+                address: "0xabc".into(),
+            },
+        }
+    }
+
+    fn open_submenu_menu(x: f32) -> App {
+        let (mut app, bar) = app();
+        app.bar_anchors.insert(
+            (bar, "menus:window".into()),
+            Rectangle::new(Point::new(x, 0.0), Size::new(64.0, 44.0)),
+        );
+        let _ = app.open_popover(bar, "menus:window".into(), submenu_menu());
+        app
+    }
+
+    #[test]
+    fn sous_menu_la_colonne_passe_a_gauche_pres_du_bord_droit() {
+        let surface = WIDTH + 2.0 * SHADOW;
+        let extra = SUB_GAP + SUB_W;
+        // (gauche de la surface, largeur, colonne à gauche, largeur de la colonne).
+        assert_eq!(
+            widened(900.0, 12.0, surface, None),
+            (12.0, surface + extra, false, SUB_W)
+        );
+        assert_eq!(
+            widened(900.0, 560.0, surface, None),
+            (560.0 - extra, surface + extra, true, SUB_W)
+        );
+        // Écran de 500 px : la colonne se comprime à la place disponible.
+        assert_eq!(
+            widened(500.0, 12.0, surface, None),
+            (12.0, surface + 130.0, false, 122.0)
+        );
+        // Côté imposé (barre verticale, tiroir) : sans égard à la place.
+        assert_eq!(
+            widened(900.0, 300.0, surface, Some(true)),
+            (300.0 - extra, surface + extra, true, SUB_W)
+        );
+        // La colonne part à la hauteur de sa ligne : une entrée, un trait.
+        let Kind::Menu { entries, .. } = submenu_menu() else {
+            panic!("menu attendu");
+        };
+        assert_eq!(entry_top(&entries, 2, None), 30.0 + 11.0);
+    }
+
+    #[test]
+    fn sous_menu_le_survol_ouvre_apres_un_delai_et_la_colonne_annule_la_fermeture() {
+        let surface = WIDTH + 2.0 * SHADOW;
+        let extra = SUB_GAP + SUB_W;
+        let mut app = open_submenu_menu(300.0);
+        let geometry = |app: &App| {
+            let p = app.popover.as_ref().unwrap();
+            (p.left, p.size.width, p.sub_left, p.sub_width)
+        };
+        // Fermée : la carte ordinaire.
+        assert_eq!(geometry(&app), (150.0, surface, false, 0.0));
+        // Ligne ordinaire survolée avant la fin du délai : l'ouverture en
+        // attente est annulée, le jeton armé n'ouvre rien.
+        let _ = app.popover_update(PMsg::MenuHover(Some(2)));
+        let stale = app.popover.as_ref().unwrap().sub_gen;
+        let _ = app.popover_update(PMsg::MenuHover(None));
+        assert!(app.popover.as_ref().unwrap().sub_timer.is_none());
+        let _ = app.popover_update(PMsg::MenuTick(stale));
+        assert_eq!(app.popover.as_ref().unwrap().sub, None);
+        // Survol de la ligne : rien tout de suite, ouverte au jeton armé.
+        let _ = app.popover_update(PMsg::MenuHover(Some(2)));
+        assert_eq!(geometry(&app), (150.0, surface, false, 0.0));
+        let token = app.popover.as_ref().unwrap().sub_gen;
+        let _ = app.popover_update(PMsg::MenuTick(token - 1));
+        assert_eq!(geometry(&app), (150.0, surface, false, 0.0));
+        let _ = app.popover_update(PMsg::MenuTick(token));
+        assert_eq!(geometry(&app), (150.0, surface + extra, false, SUB_W));
+        assert_eq!(app.popover.as_ref().unwrap().sub, Some(2));
+        // Autre ligne survolée : fermeture en attente ; entrer dans la
+        // colonne l'annule, et le jeton armé ne referme rien.
+        let _ = app.popover_update(PMsg::MenuHover(None));
+        assert_eq!(
+            app.popover.as_ref().unwrap().sub_timer,
+            Some((token + 1, None))
+        );
+        let _ = app.popover_update(PMsg::MenuEnter);
+        assert!(app.popover.as_ref().unwrap().sub_timer.is_none());
+        let _ = app.popover_update(PMsg::MenuTick(token + 1));
+        assert_eq!(app.popover.as_ref().unwrap().sub, Some(2));
+        // Sortie de la carte : fermée au jeton armé, la carte redevient ordinaire.
+        let _ = app.popover_update(PMsg::MenuLeave);
+        let token = app.popover.as_ref().unwrap().sub_gen;
+        let _ = app.popover_update(PMsg::MenuTick(token));
+        assert_eq!(app.popover.as_ref().unwrap().sub, None);
+        assert_eq!(geometry(&app), (150.0, surface, false, SUB_W));
+        // Un clic sur la ligne ouvre aussitôt.
+        let _ = app.popover_update(PMsg::Activate(2));
+        assert_eq!(geometry(&app), (150.0, surface + extra, false, SUB_W));
+        // Près du bord droit : la colonne passe à gauche, la liste ne bouge pas.
+        let mut app = open_submenu_menu(820.0);
+        let _ = app.popover_update(PMsg::Activate(2));
+        assert_eq!(
+            geometry(&app),
+            (542.0 - extra, surface + extra, true, SUB_W)
+        );
+    }
+
+    #[test]
+    fn sous_menu_une_entree_de_la_colonne_rend_son_action() {
+        let mut app = open_submenu_menu(300.0);
+        // Colonne fermée : rien.
+        assert!(app.sub_action(0).is_none());
+        let _ = app.popover_update(PMsg::Activate(2));
+        assert!(matches!(
+            app.sub_action(0),
+            Some((MenuSource::Window { address }, 101)) if address == "0xabc"
+        ));
+        assert!(matches!(app.sub_action(3), Some((_, 105))));
+        // Hors de la colonne : rien.
+        assert!(app.sub_action(4).is_none());
+        // Un menu remplacé referme sa colonne.
+        let _ = app.open_popover(
+            app.popover.as_ref().unwrap().bar,
+            "menus:window".into(),
+            submenu_menu(),
+        );
+        assert_eq!(app.popover.as_ref().unwrap().sub, None);
+        assert!(app.sub_action(0).is_none());
+        // Les icônes du menu : chevron de la ligne de sous-menu comprise.
+        let Kind::Menu { entries, .. } = submenu_menu() else {
+            panic!("menu attendu");
+        };
+        assert_eq!(menu_icons(&entries), [crate::ui::menu::CHEVRON]);
+    }
+}
+
+/// Icônes à résoudre pour ouvrir un menu : celles de ses entrées, colonne de
+/// sous-menu comprise, et le chevron d'une ligne de sous-menu.
+fn menu_icons(entries: &[MenuEntry]) -> Vec<&str> {
+    fn walk<'a>(entries: &'a [MenuEntry], out: &mut Vec<&'a str>) {
+        for e in entries {
+            match e {
+                MenuEntry::Item { icon: Some(i), .. } => out.push(i),
+                MenuEntry::Submenu { icon, children, .. } => {
+                    if let Some(i) = icon {
+                        out.push(i);
+                    }
+                    out.push(crate::ui::menu::CHEVRON);
+                    walk(children, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(entries, &mut out);
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +525,16 @@ pub enum PMsg {
     Input(usize, String),
     /// Entrée validée : l'action reçoit le texte.
     Submit(usize),
+    /// Survol de l'entrée n du menu : une ligne de sous-menu, sinon une ligne
+    /// ordinaire.
+    MenuHover(Option<usize>),
+    /// Le pointeur entre dans la carte d'un menu, ou la quitte.
+    MenuEnter,
+    MenuLeave,
+    /// Échéance d'un changement de sous-menu en attente (jeton armé).
+    MenuTick(u64),
+    /// Clic sur l'entrée n de la colonne du sous-menu ouvert.
+    SubActivate(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -373,6 +572,14 @@ pub struct Popover {
     pub confirm: Option<usize>,
     /// Texte des champs de saisie, par entrée.
     pub inputs: std::collections::HashMap<usize, String>,
+    /// Sous-menu ouvert (HIG MENU-03) : rang de sa ligne dans la liste ;
+    /// colonne à gauche de la liste, sa largeur ; changement en attente
+    /// (jeton armé, cible).
+    pub(in crate::ui) sub: Option<usize>,
+    sub_left: bool,
+    sub_width: f32,
+    pub(in crate::ui) sub_timer: Option<(u64, Option<usize>)>,
+    sub_gen: u64,
 }
 
 impl Popover {
@@ -418,6 +625,32 @@ pub(in crate::ui) fn placement(screen_width: f32, anchor: iced::Rectangle) -> (f
     (left, width + 2.0 * SHADOW, origin)
 }
 
+/// Carte d'un menu élargie de sa colonne de sous-menu (HIG MENU-03). À droite
+/// de la liste tant qu'il reste la place jusqu'au bord de l'écran (12 px),
+/// sinon à gauche ; écran trop étroit : la colonne se comprime du côté le plus
+/// large. `forced` : côté imposé (vrai : à gauche). Renvoie la position et la
+/// largeur de la surface, le côté de la colonne, sa largeur. La liste parente
+/// ne bouge pas.
+fn widened(screen: f32, left: f32, width: f32, forced: Option<bool>) -> (f32, f32, bool, f32) {
+    let card_left = left + SHADOW;
+    let room = |sub_left: bool| {
+        if sub_left {
+            card_left - 12.0
+        } else {
+            screen - 12.0 - (left + width - SHADOW)
+        }
+    };
+    let want = SUB_GAP + SUB_W;
+    let sub_left = forced.unwrap_or_else(|| !(room(false) >= want || room(false) >= room(true)));
+    let sub_width = SUB_W.min((room(sub_left) - SUB_GAP).max(120.0));
+    let extra = SUB_GAP + sub_width;
+    if sub_left {
+        (left - extra, width + extra, true, sub_width)
+    } else {
+        (left, width + extra, false, sub_width)
+    }
+}
+
 fn dashboard_placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
     let width = (screen_width - 16.0).clamp(80.0, 1600.0);
     let left = (screen_width - width) * 0.5;
@@ -432,6 +665,8 @@ fn attached_placement(
     anchor: iced::Rectangle,
     bar: &crate::ui::plugins::bar::surface::BarSurface,
     height: f32,
+    // Élargissement de la colonne d'un sous-menu, vers l'intérieur de l'écran.
+    extra: f32,
 ) -> (f32, Size, Attached) {
     let edge = if anchor.center_x() < screen.width * 0.28 {
         Edge::Left
@@ -442,7 +677,7 @@ fn attached_placement(
     } else {
         Edge::Bottom
     };
-    let width = (WIDTH + 48.0).min(screen.width);
+    let width = (WIDTH + 48.0 + extra).min(screen.width);
     let height = height.min((screen.height - bar.height as f32 - 12.0).max(40.0));
     let left = match edge {
         Edge::Left => 0.0,
@@ -517,27 +752,41 @@ fn card_height(
             let rows: f32 = entries
                 .iter()
                 .enumerate()
-                .map(|(i, e)| match e {
-                    MenuEntry::Header(_) => 26.0,
-                    MenuEntry::Image(_) => IMAGE + 12.0,
-                    MenuEntry::Separator => 11.0,
-                    MenuEntry::Input { label, .. } => {
-                        44.0 + if label.is_some() { 20.0 } else { 0.0 }
-                    }
-                    MenuEntry::Item { label, detail, .. } => {
-                        let base = if stacked(label, detail.as_deref()) {
-                            44.0
-                        } else {
-                            30.0
-                        };
-                        base + if confirm == Some(i) { 40.0 } else { 0.0 }
-                    }
-                })
+                .map(|(i, e)| entry_height(i, e, confirm))
                 .sum();
             rows.max(30.0)
         }
     };
     inner + 12.0
+}
+
+/// Hauteur d'une entrée de menu (`confirm` : entrée en attente de confirmation).
+fn entry_height(i: usize, e: &MenuEntry, confirm: Option<usize>) -> f32 {
+    match e {
+        MenuEntry::Header(_) => 26.0,
+        MenuEntry::Image(_) => IMAGE + 12.0,
+        MenuEntry::Separator => 11.0,
+        MenuEntry::Input { label, .. } => 44.0 + if label.is_some() { 20.0 } else { 0.0 },
+        MenuEntry::Submenu { .. } => 30.0,
+        MenuEntry::Item { label, detail, .. } => {
+            let base = if stacked(label, detail.as_deref()) {
+                44.0
+            } else {
+                30.0
+            };
+            base + if confirm == Some(i) { 40.0 } else { 0.0 }
+        }
+    }
+}
+
+/// Haut de la colonne d'un sous-menu : celui de sa ligne dans la liste.
+fn entry_top(entries: &[MenuEntry], sub: usize, confirm: Option<usize>) -> f32 {
+    entries
+        .iter()
+        .enumerate()
+        .take(sub)
+        .map(|(i, e)| entry_height(i, e, confirm))
+        .sum()
 }
 
 impl App {
@@ -570,37 +819,65 @@ impl App {
             return Task::none();
         };
         if p.attached.is_some() {
+            // Colonne d'un sous-menu ouverte (HIG MENU-03) : le tiroir
+            // s'élargit vers l'intérieur de l'écran.
+            let extra = if p.sub.is_some() {
+                SUB_GAP + SUB_W
+            } else {
+                0.0
+            };
             let (left, size, attached) = attached_placement(
                 Size::new(m.width as f32, m.height as f32),
                 anchor,
                 bar,
                 p.size.height,
+                extra,
             );
             let p = self.popover.as_mut().unwrap();
-            let changed = (p.left - left).abs() > 0.5
-                || p.attached
-                    .is_some_and(|a| (a.top - attached.top).abs() > 0.5);
+            let old = p.attached.unwrap();
+            let moved = (p.left - left).abs() > 0.5 || (old.top - attached.top).abs() > 0.5;
+            let resized = (p.size.width - size.width).abs() > 0.5;
             p.left = left;
             p.size.width = size.width;
-            let old = p.attached.unwrap();
+            p.sub_left = attached.edge == Edge::Right;
+            p.sub_width = if p.sub.is_some() { SUB_W } else { 0.0 };
             p.attached = Some(Attached {
                 height: old.height,
                 from_height: old.from_height,
                 ..attached
             });
-            return if changed {
-                Task::done(Msg::MarginChange {
+            let mut tasks = Vec::new();
+            if moved {
+                tasks.push(Task::done(Msg::MarginChange {
                     id: p.win,
                     margin: p.margin(),
-                })
-            } else {
-                Task::none()
-            };
+                }));
+            }
+            if resized {
+                tasks.push(Task::done(Msg::SizeChange {
+                    id: p.win,
+                    size: (p.size.width as u32, p.size.height as u32),
+                }));
+            }
+            return Task::batch(tasks);
         }
         let (left, width, origin) = if p.dashboard.is_some() {
             dashboard_placement(m.width as f32, anchor)
         } else {
             placement(m.width as f32, anchor)
+        };
+        // Colonne d'un sous-menu ouverte (HIG MENU-03) : la carte s'élargit
+        // sans que la liste bouge. Barre verticale : du côté opposé à la barre.
+        let (left, width, column) = if p.dashboard.is_some() || p.sub.is_none() {
+            (left, width, None)
+        } else {
+            let forced = match bar.position {
+                BarPosition::Left => Some(false),
+                BarPosition::Right => Some(true),
+                _ => None,
+            };
+            let (left, width, sub_left, sub_width) = widened(m.width as f32, left, width, forced);
+            (left, width, Some((sub_left, sub_width)))
         };
         let height = if p.dashboard.is_some() {
             let max_height = (m.height as f32 - bar.height as f32 - 2.0 * GAP).max(80.0);
@@ -609,6 +886,10 @@ impl App {
             p.size.height
         };
         let p = self.popover.as_mut().unwrap();
+        if let Some((sub_left, sub_width)) = column {
+            p.sub_left = sub_left;
+            p.sub_width = sub_width;
+        }
         p.origin = origin;
         let mut tasks = Vec::new();
         if (p.left - left).abs() > 0.5 {
@@ -699,8 +980,13 @@ impl App {
         };
         let mut size = Size::new(width, h);
         let attached = options.map(|_| {
-            let (x, s, a) =
-                attached_placement(Size::new(m.width as f32, m.height as f32), anchor, &b, h);
+            let (x, s, a) = attached_placement(
+                Size::new(m.width as f32, m.height as f32),
+                anchor,
+                &b,
+                h,
+                0.0,
+            );
             left = x;
             size = s;
             a
@@ -749,11 +1035,7 @@ impl App {
             tasks.extend(continuity::ICONS.iter().map(|name| self.want_icon(name)));
         }
         if let Kind::Menu { entries, .. } = &kind {
-            for e in entries {
-                if let MenuEntry::Item { icon: Some(i), .. } = e {
-                    tasks.push(self.want_icon(i));
-                }
-            }
+            tasks.extend(menu_icons(entries).iter().map(|i| self.want_icon(i)));
         }
         if let Some(p) = self
             .popover
@@ -792,6 +1074,11 @@ impl App {
             p.size = size;
             p.max_height = max_height;
             p.confirm = None;
+            // Un menu remplacé referme le sous-menu du précédent.
+            p.sub = None;
+            p.sub_timer = None;
+            p.sub_left = false;
+            p.sub_width = 0.0;
             for input in p.inputs.values_mut() {
                 crate::lock::pam::wipe(input);
             }
@@ -867,11 +1154,7 @@ impl App {
             id: win,
         }));
         if let Kind::Menu { entries, .. } = &kind {
-            for e in entries {
-                if let MenuEntry::Item { icon: Some(i), .. } = e {
-                    tasks.push(self.want_icon(i));
-                }
-            }
+            tasks.extend(menu_icons(entries).iter().map(|i| self.want_icon(i)));
         }
         tasks.push(self.want_icon("object-select-symbolic"));
         self.popover = Some(Popover {
@@ -905,6 +1188,11 @@ impl App {
             max_height,
             confirm: None,
             inputs: Default::default(),
+            sub: None,
+            sub_left: false,
+            sub_width: 0.0,
+            sub_timer: None,
+            sub_gen: 0,
         });
         Task::batch(tasks)
     }
@@ -1093,10 +1381,68 @@ impl App {
                 p.confirm = None;
                 self.resize_popover()
             }
+            PMsg::MenuHover(target) => {
+                // Survol d'une ligne de sous-menu : ouverte après `SUB_OPEN`.
+                // Autre ligne, ou sortie de la carte : fermée (ou changée)
+                // après `SUB_CLOSE`, le temps d'atteindre la colonne.
+                if !matches!(p.kind, Kind::Menu { .. }) || p.sub == target {
+                    p.sub_timer = None;
+                    return Task::none();
+                }
+                let (delay, target) = match (p.sub, target) {
+                    (None, Some(_)) => (SUB_OPEN, target),
+                    (Some(_), _) => (SUB_CLOSE, target),
+                    // Rien d'ouvert : une ouverture en attente est annulée.
+                    (None, None) => {
+                        p.sub_timer = None;
+                        return Task::none();
+                    }
+                };
+                p.sub_gen += 1;
+                let token = p.sub_gen;
+                p.sub_timer = Some((token, target));
+                Task::perform(
+                    // La pause naît dans la tâche : la mise à jour reste hors réacteur.
+                    async move {
+                        tokio::time::sleep(delay).await;
+                    },
+                    move |_| Msg::Popover(PMsg::MenuTick(token)),
+                )
+            }
+            PMsg::MenuLeave => self.popover_update(PMsg::MenuHover(None)),
+            PMsg::MenuEnter => {
+                p.sub_timer = None;
+                Task::none()
+            }
+            PMsg::MenuTick(token) => {
+                if p.sub_timer.is_some_and(|(armed, _)| armed == token)
+                    && let Some((_, target)) = p.sub_timer.take()
+                    && p.sub != target
+                {
+                    p.sub = target;
+                    return self.refresh_popover_anchor();
+                }
+                Task::none()
+            }
             PMsg::Activate(i) => {
                 let Kind::Menu { entries, .. } = &p.kind else {
                     return Task::none();
                 };
+                // Ligne de sous-menu : un clic l'ouvre aussitôt (écran
+                // tactile, clavier).
+                if let Some(MenuEntry::Submenu {
+                    enabled: true,
+                    children,
+                    ..
+                }) = entries.get(i)
+                {
+                    p.sub_timer = None;
+                    if p.sub != Some(i) && !children.is_empty() {
+                        p.sub = Some(i);
+                        return self.refresh_popover_anchor();
+                    }
+                    return Task::none();
+                }
                 let Some(MenuEntry::Item {
                     enabled: true,
                     confirm,
@@ -1123,47 +1469,81 @@ impl App {
                     return self.close_popover();
                 };
                 let action = *action;
-                let t = match source.clone() {
-                    MenuSource::Lua { widget } => {
-                        let lua = self.lua.clone();
-                        Task::perform(
-                            async move {
-                                if let Err(e) = lua.menu_action(action as usize, None).await {
-                                    tracing::warn!("{}", crate::tr!("menu : {e}", e = e));
-                                }
-                                widget
-                            },
-                            Msg::Repoll,
-                        )
-                    }
-                    MenuSource::Tray { bus, menu_path } => Task::perform(
-                        async move { crate::tray::menu_event(&bus, &menu_path, action as i32).await },
-                        |_| Msg::Noop,
-                    ),
-                    MenuSource::Window { address } => Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                if let Err(e) = super::window::act(&address, action) {
-                                    tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
-                                }
-                            })
-                            .await
-                        },
-                        |_| Msg::Noop,
-                    ),
-                    // Menu « hyprdesk » (HIG MENU-01).
-                    MenuSource::Shell => super::menus::act(self, action),
-                    MenuSource::Silence => {
-                        // Fin choisie du Silence (HIG PAT-04) : le rang de
-                        // l'entrée dit la fin.
-                        self.toasts
-                            .command(&crate::ui::toasts::silence_command(action));
-                        Task::none()
-                    }
+                let source = source.clone();
+                self.menu_action(source, action)
+            }
+            PMsg::SubActivate(j) => {
+                let Some((source, action)) = self.sub_action(j) else {
+                    return Task::none();
                 };
-                Task::batch([t, self.close_popover()])
+                self.menu_action(source, action)
             }
         }
+    }
+
+    /// Action de l'entrée n de la colonne ouverte. Rien si la ligne est
+    /// inactive ou sans action ; une confirmation ne s'ouvre que dans la
+    /// liste parente : une telle entrée reste une ligne d'information.
+    fn sub_action(&self, j: usize) -> Option<(MenuSource, i64)> {
+        let p = self.popover.as_ref()?;
+        let Kind::Menu { entries, source } = &p.kind else {
+            return None;
+        };
+        let MenuEntry::Submenu { children, .. } = entries.get(p.sub?)? else {
+            return None;
+        };
+        match children.get(j)? {
+            MenuEntry::Item {
+                enabled: true,
+                action: Some(action),
+                confirm: None,
+                ..
+            } => Some((source.clone(), *action)),
+            _ => None,
+        }
+    }
+
+    /// Lance l'action `action` d'un menu (`source`), puis referme la carte.
+    fn menu_action(&mut self, source: MenuSource, action: i64) -> Task<Msg> {
+        let t = match source {
+            MenuSource::Lua { widget } => {
+                let lua = self.lua.clone();
+                Task::perform(
+                    async move {
+                        if let Err(e) = lua.menu_action(action as usize, None).await {
+                            tracing::warn!("{}", crate::tr!("menu : {e}", e = e));
+                        }
+                        widget
+                    },
+                    Msg::Repoll,
+                )
+            }
+            MenuSource::Tray { bus, menu_path } => Task::perform(
+                async move { crate::tray::menu_event(&bus, &menu_path, action as i32).await },
+                |_| Msg::Noop,
+            ),
+            MenuSource::Window { address } => Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = super::window::act(&address, action) {
+                            tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                        }
+                    })
+                    .await
+                },
+                |_| Msg::Noop,
+            ),
+            // Menu « hyprdesk » (HIG MENU-01).
+            MenuSource::Shell => super::menus::act(self, action),
+            MenuSource::Silence => {
+                // Fin choisie du Silence (HIG PAT-04) : le rang de
+                // l'entrée dit la fin.
+                self.toasts
+                    .command(&crate::ui::toasts::silence_command(action));
+                Task::none()
+            }
+        };
+        Task::batch([t, self.close_popover()])
     }
 
     fn resize_popover(&mut self) -> Task<Msg> {
@@ -1251,7 +1631,10 @@ impl App {
             },
             Kind::Workspaces => self.pop_workspaces(alpha),
             Kind::Overflow(items) => self.pop_overflow(alpha, items),
-            Kind::Menu { entries, .. } => self.pop_menu(alpha, entries, confirm),
+            Kind::Menu { entries, .. } => {
+                let sub = self.popover.as_ref().and_then(|p| p.sub);
+                self.pop_menu_card(alpha, entries, confirm, sub)
+            }
         };
         let fg = color(
             if self.convex_options().is_some() {
@@ -1487,11 +1870,81 @@ impl App {
         self.menu_row(self.pop_ink(alpha), lead, label, detail, st, msg)
     }
 
+    /// Menu et sa colonne de sous-menu ouverte (HIG MENU-03). La liste garde
+    /// sa largeur et sa place ; la colonne part à la hauteur de sa ligne, à
+    /// droite, ou à gauche quand le bord droit de l'écran était trop proche.
+    /// Sans sous-menu dans la liste : la liste seule, inchangée.
+    fn pop_menu_card<'a>(
+        &'a self,
+        alpha: f32,
+        entries: &'a [MenuEntry],
+        confirm: Option<usize>,
+        sub: Option<usize>,
+    ) -> Element<'a, Msg> {
+        let open = sub.is_some_and(|i| {
+            matches!(
+                entries.get(i),
+                Some(MenuEntry::Submenu { children, .. }) if !children.is_empty()
+            )
+        });
+        let sub = sub.filter(|_| open);
+        let list = self.pop_menu(alpha, entries, confirm, sub, false);
+        if !entries
+            .iter()
+            .any(|e| matches!(e, MenuEntry::Submenu { .. }))
+        {
+            return list;
+        }
+        let enter = Msg::Popover(PMsg::MenuEnter);
+        let leave = Msg::Popover(PMsg::MenuLeave);
+        let Some((i, MenuEntry::Submenu { children, .. })) = sub.map(|i| (i, &entries[i])) else {
+            return mouse_area(list).on_enter(enter).on_exit(leave).into();
+        };
+        let p = self.popover.as_ref().expect("carte d'un menu ouvert");
+        let inner = p.size.width
+            - if p.attached.is_some() {
+                72.0
+            } else {
+                24.0 + 2.0 * SHADOW
+            };
+        let column = container(self.pop_menu(alpha, children, None, None, true))
+            .width(p.sub_width)
+            .padding(Padding {
+                top: entry_top(entries, i, confirm),
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            });
+        // Écart de la colonne à la liste, du côté où elles se joignent.
+        let gap = Padding {
+            top: 0.0,
+            right: if p.sub_left { SUB_GAP } else { 0.0 },
+            bottom: 0.0,
+            left: if p.sub_left { 0.0 } else { SUB_GAP },
+        };
+        // La liste garde la largeur qu'elle avait sans colonne.
+        let list_w = inner - SUB_GAP - p.sub_width;
+        let column = container(column).padding(gap);
+        let list = container(list).width(Length::Fixed(list_w));
+        let content: Element<'_, Msg> = if p.sub_left {
+            row![column, list].into()
+        } else {
+            row![list, column].into()
+        };
+        mouse_area(content).on_enter(enter).on_exit(leave).into()
+    }
+
+    /// Liste d'entrées d'un menu. `sub` : ligne de sous-menu ouverte (surlignée
+    /// tant que sa colonne l'est) ; les lignes signalent leur survol. `column`
+    /// : cette liste est la colonne d'un sous-menu (ses entrées s'activent
+    /// par `PMsg::SubActivate`).
     fn pop_menu<'a>(
         &'a self,
         alpha: f32,
         entries: &'a [MenuEntry],
         confirm: Option<usize>,
+        sub: Option<usize>,
+        column: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(
@@ -1514,8 +1967,12 @@ impl App {
                 None,
             ));
         }
+        let hover = !column
+            && entries
+                .iter()
+                .any(|e| matches!(e, MenuEntry::Submenu { .. }));
         for (i, e) in entries.iter().enumerate() {
-            col = col.push(match e {
+            let row: Element<'_, Msg> = match e {
                 MenuEntry::Header(h) => self.pop_header(alpha, h.clone()),
                 MenuEntry::Image(p) => container(
                     iced::widget::image(iced::widget::image::Handle::from_path(p))
@@ -1528,6 +1985,34 @@ impl App {
                 .center_x(Length::Fill)
                 .padding([6, 0])
                 .into(),
+                MenuEntry::Submenu {
+                    label,
+                    icon,
+                    enabled,
+                    children,
+                } => {
+                    let lead: Element<'_, Msg> = icon
+                        .as_deref()
+                        .and_then(|name| self.icon_named(name, 16.0, fg))
+                        .unwrap_or_else(|| Space::new().into());
+                    let live = *enabled && !children.is_empty();
+                    let st = crate::ui::menu::RowState {
+                        enabled: *enabled,
+                        clickable: live,
+                        submenu: true,
+                        // Surlignée tant que sa colonne est ouverte.
+                        selected: sub == Some(i),
+                        ..Default::default()
+                    };
+                    self.menu_row(
+                        self.pop_ink(alpha),
+                        lead,
+                        label.clone(),
+                        None,
+                        st,
+                        live.then_some(Msg::Popover(PMsg::Activate(i))),
+                    )
+                }
                 MenuEntry::Separator => self.pop_separator(alpha),
                 MenuEntry::Input {
                     label,
@@ -1564,8 +2049,12 @@ impl App {
                         label.clone(),
                         detail.clone(),
                         *enabled,
-                        action.is_some(),
-                        Some(Msg::Popover(PMsg::Activate(i))),
+                        action.is_some() && (!column || ask.is_none()),
+                        Some(Msg::Popover(if column {
+                            PMsg::SubActivate(i)
+                        } else {
+                            PMsg::Activate(i)
+                        })),
                     );
                     if confirm == Some(i) {
                         let question = ask.clone().unwrap_or_else(|| "Confirmer ?".into());
@@ -1638,6 +2127,15 @@ impl App {
                         row_el
                     }
                 }
+            };
+            col = col.push(if hover {
+                mouse_area(row)
+                    .on_enter(Msg::Popover(PMsg::MenuHover(
+                        matches!(e, MenuEntry::Submenu { .. }).then_some(i),
+                    )))
+                    .into()
+            } else {
+                row
             });
         }
         col.into()

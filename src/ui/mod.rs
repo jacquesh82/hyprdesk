@@ -4681,6 +4681,14 @@ impl App {
                     && *entries != new
                 {
                     *entries = new;
+                    // Colonne ouverte (HIG MENU-03) : refermée si sa ligne a disparu.
+                    if p.sub.is_some_and(|i| {
+                        !matches!(entries.get(i), Some(config::MenuEntry::Submenu { .. }))
+                    }) {
+                        p.sub = None;
+                        p.sub_timer = None;
+                        return self.refresh_popover_anchor();
+                    }
                 }
                 Task::none()
             }
