@@ -24,7 +24,7 @@
 | 2026-11-24 | A4 | PAT-04 abordé, non terminé : échec 1 de la porte, plan commité, changement conservé en patch ; il en reste 37 dans ce couloir |
 | 2026-11-24 | A5 | PAT-04, SYS-17, ACC-04 traités ; il en reste 34 dans ce couloir |
 | 2026-11-24 | A6 | LAY-02 traité ; il en reste 33 dans ce couloir |
-| 2026-11-24 | A7 | PAT-05 traité ; il en reste 32 dans ce couloir |
+| 2026-11-24 | A7 | PAT-05 traité, plan de SYS-02 écrit ; il en reste 32 dans ce couloir |
 
 ### Couloir B
 
@@ -108,7 +108,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | SYS-18 | Icônes des actions | ABSENT | S | moyenne | fait | 615bd3e | Le serveur déclare la capacité `action-icons` ; `parse_action_icons` (`src/notifications.rs`) lit le hint : une icône par action, dans l'ordre de `actions` (`-` ou vide : aucune ; préfixe `image://` retiré), gardée dans `Notification::action_icons`. À l'arrivée, `want_notif_icons` demande ces icônes ; dans la bulle, le bouton d'action porte son icône après le libellé quand le thème la connaît. `Notification` dépasse 200 octets : l'événement `Shown` porte `#[allow(clippy::large_enum_variant)]`, boxifier la variante toucherait seize sites. Relecture à froid faite (propriétaire partagé `notifications.rs`). Tests : `icones_des_actions`, cas ajouté à `une_notification_sans_icone_prend_celle_de_son_application`. Preuve exacte. |
 | LAY-02 | Lists and tables — historique | ABSENT | M | haute | fait | 16e2399 | `app_groups` et `card_app` (`src/ui/toasts.rs`) découpent l'historique par application (clé : le nom montré en en-tête) ; la carte Notifications de la barre (`view_notification_history`), la carte du centre Continuité (`continuity.rs`, `dashboard_notifications`) et le volet de Panorama (`panes.rs`, `panorama_notifs`) montrent une boîte par application, son nom en en-tête, les plus récentes en haut, un seul niveau de cadre : la boîte. Le nom de l'application quitte les cartes ; à Continuité, les tuiles n'ont plus de fond au repos (survol et clavier conservés) et une notification sans corps n'a plus de ligne de détail. Preuve exacte (numéros de ligne déplacés). Pas de groupe par heure : le modèle n'a pas de date, l'écart ne le retient pas. Dépasse la colonne Correction d'une scène d'aperçu (« bar-notifications »), la carte de la barre n'en avait aucune. Guides et `DESIGN.md` à jour. Plan : `boucle/plans/LAY-02.md`. Tests : `l_historique_est_groupe_par_application`, `une_seule_application_forme_une_boite`, `l_en_tete_d_un_groupe_est_le_nom_de_l_application`. Visuel regardé à 1440 px (`bar-notifications`, `bar-controls`) ; à 640 px, la carte Continuité sort de la capture. |
 | PAT-05 | Niveaux d'interruption | ABSENT | M | haute | fait | 6c97307 | première notification critique d'une application : passage du Silence accordé et expliqué dans sa bulle, refusable (« Bloquer pendant le Silence ») ; décision par application gardée dans l'état (`passage-silence`), oubliée par la remise globale ; une explication par bulle ouverte. Plan `boucle/plans/PAT-05.md`. Reprise du travail interrompu (patch `reprise-A`). |
-| SYS-02 | Compteur de non-lues | ABSENT | M | haute | à faire | — | — |
+| SYS-02 | Compteur de non-lues | ABSENT | M | haute | à faire | — | plan écrit (A7), non exécuté : `boucle/plans/SYS-02.md` |
 | SYS-13 | Barre Island : activité en cours | ABSENT | M | haute | à faire | — | — |
 | PAT-02 | Autorisation des applications | ABSENT | L | haute | à faire | — | — |
 | PAT-07 | Réglages des notifications | ABSENT | L | haute | à faire | — | — |
