@@ -30,7 +30,7 @@ Un champ `family` par widget, à quatre valeurs — `small`, `medium`, `large`, 
 
 ## Changements
 
-Voir « Étapes » ; état : étape 1 faite (d3a58fe), « Rétablir » garde la taille (c'est le contenu du widget, pas sa place), `hd.place` ne pose pas de taille sur un widget à une seule taille ; étape 2 faite (7add7b8, relue à froid : le choix passe par `edit_placement`, donc `hd.place` pour un widget de hyprdesk.lua ; pas de test d'interface, faute de banc pour ce détail) ; prochaine : étape 3.
+Voir « Étapes » ; état : étape 1 faite (d3a58fe), « Rétablir » garde la taille (c'est le contenu du widget, pas sa place), `hd.place` ne pose pas de taille sur un widget à une seule taille ; étape 2 faite (7add7b8, relue à froid : le choix passe par `edit_placement`, donc `hd.place` pour un widget de hyprdesk.lua ; pas de test d'interface, faute de banc pour ce détail) ; étapes 3 et 4 faites (c2f2bcb : `clock_layers`, `calendar_months`, `system_items`, scènes `widgets-tailles` et `widgets-petits`, ajoutées à `verify.sh`) ; prochaine : étape 5.
 
 ## Portée
 
