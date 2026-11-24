@@ -3867,11 +3867,10 @@ impl App {
             }
             // Échéance des bulles : rien à redessiner si aucune n'expire.
             Msg::Toasts(toasts::TMsg::Tick)
-                if !self
-                    .toasts
-                    .list
-                    .iter()
-                    .any(|t| t.lifetime().is_some_and(|l| t.since.elapsed() >= l)) =>
+                if !self.toasts.list.iter().any(|t| {
+                    toasts::lifetime_for(&self.cfg.general, t)
+                        .is_some_and(|l| t.since.elapsed() >= l)
+                }) =>
             {
                 Damage::None
             }

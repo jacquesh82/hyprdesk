@@ -171,7 +171,9 @@ StatusNotifierWatcher.
 
 When hyprdesk serves notifications, each one appears at the top right of the
 active screen, in a card of the theme. A critical notification stays there
-until it is closed; a low-urgency notification shows no bubble and goes
+until it is closed; the others stay at least for the set duration (“Display
+time”): an app can ask for longer, never for less. A low-urgency notification
+shows no bubble and goes
 straight to the history (the `notifications` widget), like every notification
 under Do Not Disturb, except the critical one. An action or a dismissal its
 application did not receive is reported by a Hyprland notification, with its

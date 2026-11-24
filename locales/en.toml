@@ -4782,7 +4782,7 @@
 "Nombre visible" = "Visible count"
 "1..8 — notifications affichées à la fois" = "1..8 — notifications shown at once"
 "Durée d'affichage" = "Display time"
-"2..60 — durée d'affichage (s) sans délai demandé par l'application" = "2..60 — display time (s) when the app asks for none"
+"2..60 — durée d'affichage (s), au moins : une application peut allonger une bulle, pas la raccourcir" = "2..60 — display time (s), at least: an app can keep a bubble longer, never shorten it"
 "Empilement" = "Stacking"
 "down | up — sens d'empilement" = "down | up — stacking direction"
 "Masquer les aperçus" = "Hide previews"

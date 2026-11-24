@@ -175,7 +175,7 @@ pub static OPTIONS: &[Opt] = &[
         Kind::Int(2, 60),
         Def::Num(6.0),
         "Durée d'affichage",
-        "2..60 — durée d'affichage (s) sans délai demandé par l'application",
+        "2..60 — durée d'affichage (s), au moins : une application peut allonger une bulle, pas la raccourcir",
     ),
     opt(
         "notifications",

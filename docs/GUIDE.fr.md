@@ -174,7 +174,9 @@ garde la session) et le StatusNotifierWatcher de la zone de notification.
 
 Quand hyprdesk tient les notifications, chacune s'affiche en haut à droite de
 l'écran actif, dans une carte du thème. Une notification critique y reste
-jusqu'à ce qu'on la ferme ; une notification de basse urgence ne montre pas de
+jusqu'à ce qu'on la ferme ; les autres y restent au moins la durée réglée
+(« Durée d'affichage ») : une application peut demander plus longtemps, jamais
+moins. Une notification de basse urgence ne montre pas de
 bulle et va directement à l'historique (widget `notifications`), comme toute
 notification sous Ne pas déranger, sauf la critique. Une action ou une
 fermeture que son application n'a pas reçue est annoncée par une notification

@@ -219,8 +219,10 @@ impl Toast {
     }
 
     /// Délai d'affichage, `default` quand l'application n'en demande pas
-    /// (réglé : `notifications.timeout`, MLG-279). `None` pour une critique et
-    /// pour le style « Alertes » (HIG SYS-03).
+    /// (réglé : `notifications.timeout`, MLG-279) — et plancher de toute bulle
+    /// non critique : une application peut allonger l'affichage, jamais le
+    /// raccourcir (HIG ACC-07). `None` pour une critique, pour le style
+    /// « Alertes » (HIG SYS-03) et pour un délai nul (reste jusqu'à sa fermeture).
     pub fn lifetime_or(&self, default: Duration) -> Option<Duration> {
         if self.n.urgency == Urgency::Critical || self.alert {
             return None;
@@ -228,9 +230,15 @@ impl Toast {
         match self.n.timeout_ms {
             0 => None,
             t if t < 0 => Some(default),
-            t => Some(Duration::from_millis(t as u64)),
+            t => Some(Duration::from_millis(t as u64).max(default)),
         }
     }
+}
+
+/// Délai d'affichage d'une bulle à la durée réglée (`notifications.timeout`) :
+/// ce que l'échéance des bulles retient, et la surface à redessiner aussi.
+pub(super) fn lifetime_for(g: &crate::config::General, t: &Toast) -> Option<Duration> {
+    t.lifetime_or(Layout::of(g).timeout)
 }
 
 /// Ce que fait un clic sur une carte du centre : l'action `default` quand
@@ -2082,9 +2090,32 @@ mod tests {
     #[test]
     fn duree_d_affichage() {
         assert_eq!(toast(1, -1).lifetime(), Some(DEFAULT_TIMEOUT));
-        assert_eq!(toast(1, 2500).lifetime(), Some(Duration::from_millis(2500)));
+        // La durée réglée est un plancher (HIG ACC-07).
+        assert_eq!(toast(1, 2500).lifetime(), Some(DEFAULT_TIMEOUT));
         assert_eq!(toast(1, 0).lifetime(), None);
         assert_eq!(toast(2, 2500).lifetime(), None, "critique : reste");
+        // Une application allonge une bulle, elle ne la raccourcit pas.
+        let reglee = Duration::from_secs(20);
+        assert_eq!(toast(1, -1).lifetime_or(reglee), Some(reglee));
+        assert_eq!(
+            toast(1, 2500).lifetime_or(reglee),
+            Some(reglee),
+            "demande plus courte que le réglage"
+        );
+        assert_eq!(
+            toast(1, 30_000).lifetime_or(reglee),
+            Some(Duration::from_millis(30_000)),
+            "demande plus longue que le réglage"
+        );
+        assert_eq!(toast(1, 0).lifetime_or(reglee), None, "délai nul : reste");
+        assert_eq!(toast(2, 2500).lifetime_or(reglee), None, "critique : reste");
+        let mut alerte = toast(1, 2500);
+        alerte.alert = true;
+        assert_eq!(
+            alerte.lifetime_or(reglee),
+            None,
+            "style « Alertes » : reste"
+        );
     }
 
     #[test]
