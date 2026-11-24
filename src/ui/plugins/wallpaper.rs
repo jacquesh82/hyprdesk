@@ -572,26 +572,22 @@ impl App {
             }
         }
         if rule.is_some() && kind != Some(WallKind::Color) && !span {
-            let fits = [Fit::Cover, Fit::Contain, Fit::Fill, Fit::Center];
+            // « Étirer » (`Fit::Fill`) n'est plus proposé : il déforme l'œuvre (HIG TYP-18).
+            // Une règle réglée à `fill` (Lua, ligne de commande) garde son rendu.
+            let fits = [
+                (Fit::Cover, crate::i18n::tr("Remplir")),
+                (Fit::Contain, crate::i18n::tr("Ajuster")),
+                (Fit::Center, crate::i18n::tr("Centrer")),
+            ];
             let current = rule.map(|r| r.fit).unwrap_or_default();
             col = col.push(
                 self.field(
                     "Ajustement",
                     "",
-                    row(fits.iter().map(|f| {
-                        radio(
-                            match f {
-                                Fit::Cover => "Remplir",
-                                Fit::Contain => "Ajuster",
-                                Fit::Fill => crate::i18n::tr("Étirer"),
-                                Fit::Center => "Centrer",
-                            },
-                            *f,
-                            Some(current),
-                            |v| wrap(Msg::Fit(v)),
-                        )
-                        .font(self.font)
-                        .into()
+                    row(fits.iter().map(|(f, label)| {
+                        radio(*label, *f, Some(current), |v| wrap(Msg::Fit(v)))
+                            .font(self.font)
+                            .into()
                     }))
                     .spacing(16),
                 ),
