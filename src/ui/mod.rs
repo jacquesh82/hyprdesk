@@ -542,6 +542,8 @@ pub struct App {
     tour_win: Option<Id>,
     /// Assistant de configuration ouvert.
     wizard: Option<wizard::Wizard>,
+    /// Astuces (HIG DAT-07) : montrées, fonctions servies ; `None` en aperçu.
+    tips: Option<crate::tips::State>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
     /// État du démon d'index (loupe du dock : pastille et bulle).
@@ -1109,6 +1111,7 @@ impl App {
             key_conflict_later: false,
             tour_win: None,
             wizard: None,
+            tips: (!preview).then(|| crate::tips::State::load(&crate::tips::state_path())),
             search: None,
             icon_menu: None,
             switcher: None,

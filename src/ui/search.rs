@@ -176,6 +176,8 @@ pub struct Search {
     pub settings: Vec<&'static super::settings_search::Entry>,
     /// Mode fichiers : aperçu du résultat sélectionné, avec son chemin.
     pub apercu: Option<(String, Apercu)>,
+    /// Astuce montrée à cette ouverture (HIG DAT-07).
+    pub tip: Option<&'static crate::tips::Tip>,
 }
 
 impl Search {
@@ -303,6 +305,8 @@ pub enum SMsg {
     Shown,
     /// Bouton Clear du champ : la requête est vidée et le champ reprend le focus.
     Clear,
+    /// Astuce refermée.
+    TipClose,
     /// Aperçu voulu pour ce chemin, après un court délai (une flèche tenue
     /// ne lit pas un fichier par pas) : lu s'il est encore la sélection.
     ApercuVoulu(String),
@@ -522,6 +526,7 @@ impl App {
             mfa: None,
             settings: Vec::new(),
             apercu: None,
+            tip: None,
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -681,6 +686,71 @@ impl App {
         self.file_preview()
     }
 
+    /// Astuce à montrer à l'ouverture de `surface` (HIG DAT-07) : marquée
+    /// montrée, l'état écrit hors du fil de l'interface.
+    pub(super) fn take_tip(
+        &mut self,
+        surface: crate::tips::Surface,
+    ) -> (Option<&'static crate::tips::Tip>, Task<Msg>) {
+        let Some(st) = self.tips.as_mut() else {
+            return (None, Task::none());
+        };
+        // Une autre instance a pu montrer une astuce : le fichier d'abord.
+        st.merge(&crate::tips::State::load(&crate::tips::state_path()));
+        let now = crate::tips::now();
+        let Some(tip) = st.eligible(surface, now) else {
+            return (None, Task::none());
+        };
+        st.mark_shown(tip.id, now);
+        (Some(tip), save_tips(st.clone()))
+    }
+
+    /// La fonction de l'astuce `id` a servi : elle ne sera plus proposée.
+    pub(super) fn tip_used(&mut self, id: &str) -> Task<Msg> {
+        match self.tips.as_mut() {
+            Some(st) => {
+                if st.mark_used(id) {
+                    save_tips(st.clone())
+                } else {
+                    Task::none()
+                }
+            }
+            None => Task::none(),
+        }
+    }
+
+    /// Requête changée : classement et ressources de son mode.
+    fn query_changed(&mut self, q: String) -> Task<Msg> {
+        let (grid, cat) = self
+            .search
+            .as_ref()
+            .map(|s| (s.grid, s.category))
+            .unwrap_or_default();
+        let results = if grid {
+            self.search_rank_in(&q, cat, super::apps_grid::LIMIT)
+        } else {
+            self.search_rank(&q)
+        };
+        let icons: Vec<String> = results
+            .iter()
+            .filter_map(|&i| self.apps[i].icon.clone())
+            .collect();
+        // `:clip`, `:2fa`… changent de vue : le nouveau champ reprend le focus.
+        let mut refocus = false;
+        if let Some(s) = self.search.as_mut() {
+            let before = s.view_kind();
+            s.query = q;
+            s.results = results;
+            s.selected = 0;
+            refocus = s.view_kind() != before;
+        }
+        let mut tasks: Vec<Task<Msg>> = icons.iter().map(|n| self.want_icon(n)).collect();
+        if refocus {
+            tasks.push(iced::widget::operation::focus(INPUT_ID));
+        }
+        Task::batch(tasks)
+    }
+
     /// Mode fichiers : demande l'aperçu de la sélection s'il n'est ni là ni
     /// en route (HIG DAT-03).
     fn file_preview(&mut self) -> Task<Msg> {
@@ -780,6 +850,28 @@ impl App {
     }
 
     pub(super) fn search_update(&mut self, m: SMsg) -> Task<Msg> {
+        // Un préfixe tapé (`:f`, `:r`, `:clip`) : sa fonction est connue, son
+        // astuce ne revient plus (HIG DAT-07). Avant les bras gardés du mode.
+        let used = match &m {
+            SMsg::Query(q) if super::settings_search::query(q).is_some() => {
+                Some("lanceur-reglages")
+            }
+            SMsg::Query(q) => crate::tips::launcher_use(q),
+            _ => None,
+        }
+        .map_or_else(Task::none, |id| {
+            if let Some(s) = self.search.as_mut()
+                && s.tip.is_some_and(|t| t.id == id)
+            {
+                s.tip = None;
+            }
+            self.tip_used(id)
+        });
+        let t = self.search_dispatch(m);
+        Task::batch([used, t])
+    }
+
+    fn search_dispatch(&mut self, m: SMsg) -> Task<Msg> {
         match m {
             SMsg::Close => self.close_search(),
             // Fenêtre myMFA complète (MLG-46) : le lanceur se referme.
@@ -1170,6 +1262,12 @@ impl App {
                     |(p, a)| Msg::Search(SMsg::Apercu(p, a)),
                 )
             }
+            SMsg::TipClose => {
+                if let Some(s) = self.search.as_mut() {
+                    s.tip = None;
+                }
+                Task::none()
+            }
             SMsg::Apercu(path, a) => {
                 if let Some(s) = self.search.as_mut() {
                     s.garde_apercu(path, a);
@@ -1186,7 +1284,25 @@ impl App {
                         f.start = std::time::Instant::now();
                     }
                 }
-                iced::widget::operation::focus(INPUT_ID)
+                // Astuce (HIG DAT-07) choisie à la première image visible,
+                // seulement si le lanceur s'ouvre sans requête (`hyprdesk
+                // search`, `:clip`… la cacheraient) et hors mode convexe (la
+                // bulle ne suivrait pas le tiroir).
+                let libre = self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| s.tip.is_none() && s.query.trim().is_empty())
+                    && !self.convex_options().is_some_and(|o| o.attached_panels);
+                let saved = if libre {
+                    let (tip, saved) = self.take_tip(crate::tips::Surface::Launcher);
+                    if let Some(s) = self.search.as_mut() {
+                        s.tip = tip;
+                    }
+                    saved
+                } else {
+                    Task::none()
+                };
+                Task::batch([saved, iced::widget::operation::focus(INPUT_ID)])
             }
             // Mode réglages (`:r`) : même index et même filtre que le tiroir.
             SMsg::Query(q) if super::settings_search::query(&q).is_some() => {
@@ -1215,36 +1331,7 @@ impl App {
                     Task::none()
                 }
             }
-            SMsg::Query(q) => {
-                let (grid, cat) = self
-                    .search
-                    .as_ref()
-                    .map(|s| (s.grid, s.category))
-                    .unwrap_or_default();
-                let results = if grid {
-                    self.search_rank_in(&q, cat, super::apps_grid::LIMIT)
-                } else {
-                    self.search_rank(&q)
-                };
-                let icons: Vec<String> = results
-                    .iter()
-                    .filter_map(|&i| self.apps[i].icon.clone())
-                    .collect();
-                // `:clip`, `:2fa`… changent de vue : le nouveau champ reprend le focus.
-                let mut refocus = false;
-                if let Some(s) = self.search.as_mut() {
-                    let before = s.view_kind();
-                    s.query = q;
-                    s.results = results;
-                    s.selected = 0;
-                    refocus = s.view_kind() != before;
-                }
-                let mut tasks: Vec<Task<Msg>> = icons.iter().map(|n| self.want_icon(n)).collect();
-                if refocus {
-                    tasks.push(iced::widget::operation::focus(INPUT_ID));
-                }
-                Task::batch(tasks)
-            }
+            SMsg::Query(q) => self.query_changed(q),
             SMsg::Clear => {
                 // Le bouton disparaît avec la requête : le champ reprend le focus.
                 let cleared = self.search_update(SMsg::Query(String::new()));
@@ -1347,6 +1434,48 @@ impl App {
                     .into()
             };
             iced::widget::stack![backdrop(alpha * p), placed].into()
+        };
+        // Astuce de cette ouverture (HIG DAT-07), sans requête : au bas de la
+        // surface du lanceur, hors de la carte (sa hauteur ne change pas),
+        // quel que soit le mode (carte, feuille, convexe).
+        let content = match s.tip.filter(|_| s.query.trim().is_empty()) {
+            Some(t) => {
+                let th = &self.cfg.general.theme;
+                let r = crate::theme::readable(th.fg, th.bg, th.accent);
+                let (fg, dim) = (color(r.fg, 1.0), color(r.dim, 1.0));
+                let bulle = super::glass::card(
+                    container(tip_row(self, t, fg, dim, Msg::Search(SMsg::TipClose))).width(480),
+                    crate::config::Place::Launcher,
+                    10.0,
+                    fg,
+                    self.launcher_tint(color(th.bg, 1.0)),
+                    container::Style {
+                        background: Some(color(th.bg, 0.92).into()),
+                        border: Border::default()
+                            .rounded(10)
+                            .width(1)
+                            .color(Color { a: 0.12, ..fg }),
+                        text_color: Some(fg),
+                        ..Default::default()
+                    },
+                    true,
+                    self.launcher_under(),
+                );
+                // Un clic sur l'astuce ne referme pas le lanceur (voile dessous).
+                let bulle = iced::widget::mouse_area(bulle).on_press(Msg::Noop);
+                iced::widget::stack![
+                    content,
+                    container(bulle)
+                        .center_x(Length::Fill)
+                        .align_bottom(Length::Fill)
+                        .padding(iced::Padding {
+                            bottom: 48.0,
+                            ..iced::Padding::ZERO
+                        })
+                ]
+                .into()
+            }
+            None => content,
         };
         iced::widget::sensor(content)
             .key(format!("{:?}", s.win))
@@ -1982,6 +2111,83 @@ impl App {
             self.launcher_under(),
         )
     }
+}
+
+/// Écrit l'état des astuces hors du fil de l'interface.
+fn save_tips(st: crate::tips::State) -> Task<Msg> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || st.save(&crate::tips::state_path()))
+                .await
+                .map_err(std::io::Error::other)
+                .and_then(|r| r)
+        },
+        |r| {
+            if let Err(e) = r {
+                tracing::warn!("astuces : {e}");
+            }
+            Msg::Noop
+        },
+    )
+}
+
+/// Rangée d'une astuce (HIG DAT-07), en ligne dans sa surface : symbole de
+/// la fonction, une phrase, bouton Fermer. Pas d'accent.
+pub(super) fn tip_row<'a>(
+    app: &App,
+    tip: &'static crate::tips::Tip,
+    fg: Color,
+    dim: Color,
+    close: Msg,
+) -> Element<'a, Msg> {
+    // Glyphes du jeu intégré, comme la loupe et la croix du champ.
+    let glyphe = |name: &str, size: f32| -> Option<Element<'a, Msg>> {
+        crate::ui::icons::get(name).map(|h| {
+            iced::widget::svg(h)
+                .width(size)
+                .height(size)
+                .style(move |_, _| iced::widget::svg::Style { color: Some(dim) })
+                .into()
+        })
+    };
+    let icon = glyphe(tip.icon, 16.0)
+        .unwrap_or_else(|| iced::widget::Space::new().width(16).height(16).into());
+    let fermer = glyphe("window-close", 12.0).unwrap_or_else(|| {
+        text("×")
+            .size(crate::ui::tokens::ts(12.0))
+            .color(dim)
+            .into()
+    });
+    container(
+        row![
+            icon,
+            text(crate::i18n::tr(tip.text))
+                .font(app.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+                .width(Length::Fill),
+            iced::widget::tooltip(
+                button(fermer)
+                    .padding(4)
+                    .style(button::text)
+                    .on_press(close),
+                text(crate::i18n::tr("Fermer l'astuce"))
+                    .font(app.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+                iced::widget::tooltip::Position::Bottom,
+            ),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    )
+    .padding([8, 12])
+    .width(Length::Fill)
+    .style(move |_| container::Style {
+        background: Some(Color { a: 0.06, ..fg }.into()),
+        border: Border::default().rounded(10),
+        ..Default::default()
+    })
+    .into()
 }
 
 /// Voile plein écran derrière le lanceur ; un clic dessus le referme.

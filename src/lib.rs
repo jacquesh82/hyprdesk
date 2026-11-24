@@ -78,6 +78,7 @@ pub mod takeover;
 pub mod theme;
 pub mod theme_engine;
 pub mod tiling;
+pub mod tips;
 pub mod tray;
 pub mod ui;
 pub mod update_progress;

@@ -585,6 +585,10 @@ Le champ de recherche du lanceur porte la loupe dans tous ses modes (`:f`,
 `:clip`, `:2fa`, `:mdp`, `:r` compris) et, dès qu'il contient une requête, un bouton
 Clear à droite : un clic efface la requête et rend la main au champ.
 
+Au bas du lanceur, une astuce d'une phrase présente parfois l'un de ses
+modes (`:f`, `:r`, `:clip`) : au plus une par jour, une seule fois chacune,
+et plus jamais pour un mode que vous avez déjà tapé.
+
 L'index vit en arrière-plan, tenu à jour par inotify et un rescan
 périodique. Il se règle dans **Réglages → Index de fichiers** : racines,
 exclusions par nom ou par expression régulière, extensions et catégories à

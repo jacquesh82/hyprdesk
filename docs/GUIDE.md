@@ -565,6 +565,10 @@ The launcher's search field carries the loupe in every mode (including `:f`,
 `:clip`, `:2fa`, `:mdp`, `:r`) and, as soon as it holds a query, a Clear button on
 the right: one click erases the query and returns to the field.
 
+At the bottom of the launcher, a one-sentence tip sometimes presents one of
+its modes (`:f`, `:r`, `:clip`): at most one a day, each only once, and never
+again for a mode you have already typed.
+
 The index runs in the background, kept fresh by inotify and a periodic
 rescan. Tune it in **Settings → File index**: roots, exclusions by name or
 regular expression, ignored extensions and categories, maximum file size.
