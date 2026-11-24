@@ -210,6 +210,11 @@ pub struct SliderLook {
     /// Écart du curseur à sa valeur : 12 px, sauf le site qui en avait un
     /// autre.
     pub(in crate::ui) spacing: u16,
+    /// Encre de la valeur quand le site la donnait : une valeur secondaire en
+    /// a une propre. Sans elle, l'encre du texte.
+    pub(in crate::ui) value_color: Option<Color>,
+    /// Plafond de largeur (en px) d'un curseur souple.
+    pub(in crate::ui) cap: Option<u16>,
 }
 
 impl SliderLook {
@@ -222,6 +227,8 @@ impl SliderLook {
             value_width: Length::Shrink,
             align_y,
             spacing: 12,
+            value_color: None,
+            cap: None,
         }
     }
 
@@ -234,12 +241,42 @@ impl SliderLook {
             value_width: Length::Fixed(value_width as f32),
             align_y,
             spacing: 12,
+            value_color: None,
+            cap: None,
+        }
+    }
+
+    /// Curseur souple plafonné : il remplit la place que lui laisse la valeur,
+    /// jusqu'à `cap` px — en colonne étroite, il cède sa place plutôt que de
+    /// pousser la valeur. Celle-ci garde sa juste largeur.
+    pub(in crate::ui) const fn capped(size: f32, cap: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fill,
+            value_width: Length::Shrink,
+            align_y,
+            spacing: 12,
+            value_color: None,
+            cap: Some(cap),
         }
     }
 
     /// L'écart que le site mettait déjà entre le curseur et sa valeur.
     pub(in crate::ui) const fn spacing(mut self, spacing: u16) -> Self {
         self.spacing = spacing;
+        self
+    }
+
+    /// L'encre que le site donnait à sa valeur.
+    pub(in crate::ui) const fn ink(mut self, color: Color) -> Self {
+        self.value_color = Some(color);
+        self
+    }
+
+    /// La largeur exacte que le site donnait à sa valeur, quand elle suit
+    /// la croissance du texte.
+    pub(in crate::ui) fn value_width(mut self, width: impl Into<Length>) -> Self {
+        self.value_width = width.into();
         self
     }
 }
@@ -255,12 +292,12 @@ pub struct SliderEdit {
 }
 
 impl SliderEdit {
-    /// Champ ouvert sur la valeur actuelle du curseur : le nombre seul.
+    /// Champ ouvert sur la valeur actuelle du curseur : le nombre seul, ramené
+    /// au pas du curseur — une valeur calculée en `f32` (un volume en pour
+    /// cent) s'ouvre sur « 30 », non sur « 30.000002 ».
     pub(in crate::ui) fn new(spec: SliderSpec, value: f64) -> Self {
-        SliderEdit {
-            spec,
-            draft: nombre(value),
-        }
+        let draft = nombre(au_pas(value, spec.range, spec.step));
+        SliderEdit { spec, draft }
     }
 }
 
@@ -268,7 +305,6 @@ impl SliderEdit {
 /// l'unité qui suit le nombre est ignorée (`72 px`). La valeur est bornée au
 /// domaine, ramenée au pas. Texte illisible : `None`.
 fn slider_value(saisie: &str, range: (f64, f64), step: f64) -> Option<f64> {
-    let (min, max) = (range.0.min(range.1), range.0.max(range.1));
     // Le nombre en tête de la saisie : signe, chiffres, décimales.
     let mut nombre = String::new();
     let mut digits = 0;
@@ -287,14 +323,20 @@ fn slider_value(saisie: &str, range: (f64, f64), step: f64) -> Option<f64> {
         return None;
     }
     let v: f64 = nombre.parse().ok()?;
+    Some(au_pas(v, range, step))
+}
+
+/// La valeur bornée au domaine et ramenée au pas, comptée depuis le minimum.
+/// Six décimales au plus : pas de bruit d'addition flottante.
+fn au_pas(v: f64, range: (f64, f64), step: f64) -> f64 {
+    let (min, max) = (range.0.min(range.1), range.0.max(range.1));
     let step = if step.is_finite() && step > 0.0 {
         step
     } else {
         1.0
     };
-    // Six décimales au plus : pas de bruit d'addition flottante.
     let snapped = min + ((v.clamp(min, max) - min) / step).round() * step;
-    Some((snapped * 1e6).round() / 1e6)
+    (snapped * 1e6).round() / 1e6
 }
 
 /// Nombre seul, sans zéro de fin (`48`, `1.5`) : la saisie proposée à
@@ -1602,6 +1644,15 @@ impl App {
         .step(spec.step as f32)
         .on_release(spec.save.clone())
         .width(look.width);
+        // Curseur plafonné : son contenant prend la place libre jusqu'au
+        // plafond, la valeur reste à sa suite.
+        let slider: Element<'_, Msg> = match look.cap {
+            Some(cap) => container(slider)
+                .width(Length::Fill)
+                .max_width(f32::from(cap))
+                .into(),
+            None => slider.into(),
+        };
         let open = self
             .panel
             .as_ref()
@@ -1621,31 +1672,39 @@ impl App {
                 .size(crate::ui::tokens::ts(look.size))
                 .width(SLIDER_FIELD_W)
                 .into(),
-            None => tooltip(
-                button(
-                    text(affiche(value))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(look.size))
-                        // Un nombre tient sur une ligne, même agrandi.
-                        .wrapping(iced::widget::text::Wrapping::None)
-                        .width(look.value_width),
+            None => {
+                let label = text(affiche(value))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(look.size))
+                    // Un nombre tient sur une ligne, même agrandi.
+                    .wrapping(iced::widget::text::Wrapping::None)
+                    .width(look.value_width);
+                // L'encre du site : une valeur secondaire en a une propre.
+                let label = match look.value_color {
+                    Some(ink) => label.color(ink),
+                    None => label,
+                };
+                tooltip(
+                    button(label)
+                        // Un texte plein, sans la marge d'un bouton : au repos, la
+                        // valeur garde la place et la taille qu'elle avait.
+                        .padding(0)
+                        .style(button::text)
+                        .on_press(Msg::Panel(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                            spec.clone(),
+                            value,
+                        ))))),
+                    crate::i18n::text(crate::i18n::tr("Saisir une valeur")).font(self.font),
+                    // La bulle s'ouvre dessous, sans couvrir le libellé du réglage.
+                    iced::widget::tooltip::Position::Bottom,
                 )
-                // Un texte plein, sans la marge d'un bouton : au repos, la
-                // valeur garde la place et la taille qu'elle avait.
-                .padding(0)
-                .style(button::text)
-                .on_press(Msg::Panel(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
-                    spec.clone(),
-                    value,
-                ))))),
-                crate::i18n::text(crate::i18n::tr("Saisir une valeur")).font(self.font),
-                // La bulle s'ouvre dessous, sans couvrir le libellé du réglage.
-                iced::widget::tooltip::Position::Bottom,
-            )
-            .into(),
+                .into()
+            }
         };
         // La rangée remplit comme son curseur ; un curseur largeur fixe laisse
-        // la rangée se resserrer sur ses deux éléments.
+        // la rangée se resserrer sur ses deux éléments. Un curseur plafonné
+        // garde une rangée souple : resserrée, elle ne lui laisserait aucune
+        // place, et son contenant s'arrête de lui-même au plafond.
         let rangee = match look.width {
             Length::Shrink | Length::Fixed(_) => Length::Shrink,
             souple => souple,
@@ -2299,6 +2358,80 @@ mod tests {
         let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(texte, 1.5))));
         assert!(ouvert(&app, "screen.DP-1.text_scale"));
         assert!(!ouvert(&app, "screen.DP-1.bar_height"));
+    }
+
+    /// Le volume d'un appareil ou d'une application se saisit en pour cent,
+    /// comme il s'affiche (HIG SEL-08) : « 50 % » pose 0,5 au seul nœud visé ;
+    /// hors domaine, la valeur est bornée au plafond du curseur.
+    #[test]
+    fn le_volume_saisi_en_pour_cent_est_pose_au_noeud_vise() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let noeud = |id: u32, volume: f32| plugins::sound::Node {
+            id,
+            name: String::new(),
+            default: false,
+            volume,
+            muted: false,
+        };
+        if let Some(p) = app.panel.as_mut() {
+            p.sound = plugins::sound::State {
+                outputs: vec![noeud(55, 0.45)],
+                inputs: Vec::new(),
+                streams: vec![noeud(78, 0.8)],
+                loaded: true,
+            };
+        }
+        let volume = |app: &App, id: u32| {
+            app.panel
+                .as_ref()
+                .and_then(|p| {
+                    p.sound
+                        .outputs
+                        .iter()
+                        .chain(p.sound.streams.iter())
+                        .find(|n| n.id == id)
+                })
+                .map(|n| n.volume)
+        };
+        // Ouvre le champ du curseur du nœud, tape, valide ; rend le brouillon proposé à l'ouverture.
+        let saisir = |app: &mut App, id: u32, affiche: f64, texte: &str| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::sound::volume_spec(id),
+                affiche,
+            ))));
+            let champ = app
+                .panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone());
+            let _ = app.panel_update(PanelMsg::SliderDraft(texte.into()));
+            let _ = app.panel_update(PanelMsg::SliderSubmit);
+            champ
+        };
+        assert_eq!(
+            saisir(&mut app, 55, f64::from(0.3_f32 * 100.0), "50 %").as_deref(),
+            Some("30"),
+            "le champ s'ouvre sur la valeur affichée, en pour cent, sans bruit flottant"
+        );
+        assert_eq!(volume(&app, 55), Some(0.5), "Entrée pose 50 %");
+        assert_eq!(
+            volume(&app, 78),
+            Some(0.8),
+            "les autres nœuds ne bougent pas"
+        );
+        saisir(&mut app, 55, 50.0, "300");
+        assert_eq!(
+            volume(&app, 55),
+            Some(1.5),
+            "hors domaine : borné au plafond, 150 %"
+        );
     }
 
     /// HIG TYP-08 : la navigation suit le texte agrandi sans vider la colonne

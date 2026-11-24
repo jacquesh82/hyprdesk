@@ -5,7 +5,8 @@ use crate::i18n::text;
 use crate::panorama::design::{Shortcut, Tile};
 use crate::ui::color;
 use crate::ui::color_picker::{Picker, well};
-use iced::widget::{button, column, pick_list, row, slider, text_input, toggler};
+use crate::ui::panel::{SliderLook, SliderSpec};
+use iced::widget::{button, column, pick_list, row, text_input, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,19 +156,18 @@ impl App {
             text(label)
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0)),
-            row![
-                slider(min..=max, v, move |v| wrap(Msg::DesignNumber(
-                    key.into(),
-                    v
-                )))
-                .step(step)
-                .on_release(wrap(Msg::DesignCommit)),
-                text(format!("{v:.2}"))
-                    .size(crate::ui::tokens::ts(12.0))
-                    .width(50)
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center)
+            self.slider(
+                &SliderSpec::new(
+                    key,
+                    (f64::from(min), f64::from(max)),
+                    f64::from(step),
+                    move |v| wrap(Msg::DesignNumber(key.into(), v as f32)),
+                    wrap(Msg::DesignCommit),
+                ),
+                f64::from(v),
+                |v| format!("{v:.2}"),
+                SliderLook::fill(12.0, 50, Alignment::Center),
+            )
         ]
         .spacing(5)
         .into()
@@ -383,20 +383,24 @@ impl App {
                 ("h", "Hauteur (%)", tile.h, 1.0 - tile.y),
             ] {
                 let minimum = if key == "w" || key == "h" { 5.0 } else { 0.0 };
+                let spec = SliderSpec::new(
+                    format!("zone.{key}"),
+                    (f64::from(minimum), f64::from((max * 100.0).max(minimum))),
+                    1.0,
+                    move |n| wrap(Msg::TileNumber(key.into(), (n as f32) / 100.0)),
+                    wrap(Msg::DesignCommit),
+                );
                 col = col.push(
                     column![
-                        text(label).size(crate::ui::tokens::ts(12.0)),
-                        row![
-                            slider(minimum..=(max * 100.0).max(minimum), v * 100.0, move |n| {
-                                wrap(Msg::TileNumber(key.into(), n / 100.0))
-                            })
-                            .step(1.0_f32)
-                            .on_release(wrap(Msg::DesignCommit)),
-                            text(format!("{:.0}", v * 100.0))
-                                .width(36)
-                                .size(crate::ui::tokens::ts(12.0))
-                        ]
-                        .spacing(10)
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                        self.slider(
+                            &spec,
+                            f64::from(v * 100.0),
+                            |n| format!("{n:.0}"),
+                            SliderLook::fill(12.0, 36, Alignment::Start).spacing(10),
+                        )
                     ]
                     .spacing(5),
                 );

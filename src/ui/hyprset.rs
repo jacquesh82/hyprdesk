@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use iced::widget::{Space, button, column, container, pick_list, row, slider, text_input, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row, text_input, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::color_picker::{Picker, PickerMsg, well};
@@ -330,23 +330,19 @@ impl App {
                 };
                 // Curseur extensible, plafonné : en colonne étroite il cède sa
                 // place plutôt que de pousser la valeur sur l'origine.
-                row![
-                    container(
-                        slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
-                            Msg::Drag(store, p.clone(), x as f64)
-                        ))
-                        .step(*step as f32)
-                        .on_release(wrap(Msg::Commit))
-                    )
-                    .width(Length::Fill)
-                    .max_width(240),
-                    text(format!("{}", (v * 100.0).round() / 100.0))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
+                let spec = SliderSpec::new(
+                    format!("{store:?}.{p}"),
+                    (*min, *max),
+                    *step,
+                    move |x| wrap(Msg::Drag(store, p.clone(), x)),
+                    wrap(Msg::Commit),
+                );
+                self.slider(
+                    &spec,
+                    v,
+                    |x| format!("{}", (x * 100.0).round() / 100.0),
+                    SliderLook::capped(13.0, 240, Alignment::Center),
+                )
             }
             Kind::IntChoice(list) => {
                 let choices: Vec<Choice> = list

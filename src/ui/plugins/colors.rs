@@ -11,12 +11,10 @@ use std::collections::BTreeMap;
 
 use crate::colors::{Adjust, FIELDS};
 use crate::i18n::text;
-use iced::widget::{
-    Space, button, column, container, image, pick_list, row, slider, stack, text_input,
-};
+use iced::widget::{Space, button, column, container, image, pick_list, row, stack, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -282,15 +280,20 @@ impl App {
             let k2 = key.to_string();
             let line: Element<'_, UiMsg> = row![
                 container(self.marked(crate::i18n::tr(label), 13, fg, self.font)).width(110),
-                slider(*lo..=*hi, v, move |x| wrap(Msg::Drag(k.clone(), x)))
-                    .step(0.01f32)
-                    .on_release(wrap(Msg::Release))
-                    .width(Length::Fill),
-                iced::widget::text(format!("{v:.2}"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim)
-                    .width(40),
+                self.slider(
+                    &SliderSpec::new(
+                        format!("couleurs.{mon}.{key}"),
+                        (f64::from(*lo), f64::from(*hi)),
+                        0.01,
+                        move |x| wrap(Msg::Drag(k.clone(), x as f32)),
+                        wrap(Msg::Release),
+                    ),
+                    f64::from(v),
+                    |x| format!("{x:.2}"),
+                    SliderLook::fill(12.0, 40, Alignment::Center)
+                        .spacing(8)
+                        .ink(dim),
+                ),
                 button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
                     .padding([2, 8])
                     .style(button::text)

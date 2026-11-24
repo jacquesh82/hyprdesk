@@ -4,9 +4,10 @@
 //! ou ressort (masse, raideur, amortissement). Elles sont écrites dans
 //! `animations.lua` (`crate::genfiles`) et proposées pour chaque élément animé.
 
-use iced::widget::{Space, button, canvas, column, container, row, slider, text_input};
+use iced::widget::{Space, button, canvas, column, container, row, text_input};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Task, mouse};
 
+use super::panel::{SliderLook, SliderSpec};
 use super::{App, Msg as UiMsg, color};
 use crate::fx::CurveDef;
 use crate::i18n::text;
@@ -229,15 +230,18 @@ impl App {
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                             .width(110),
-                        slider(min as f32..=max as f32, v as f32, move |x| wrap(
-                            Msg::Param(n.clone(), i, ((x as f64) / step).round() * step)
-                        ))
-                        .step(step as f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(200),
-                        text(format!("{}", (v * 100.0).round() / 100.0))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
+                        self.slider(
+                            &SliderSpec::new(
+                                format!("{name}#{i}"),
+                                (min, max),
+                                step,
+                                move |x| wrap(Msg::Param(n.clone(), i, (x / step).round() * step)),
+                                wrap(Msg::Commit),
+                            ),
+                            v,
+                            |x| format!("{}", (x * 100.0).round() / 100.0),
+                            SliderLook::fixed(12.0, 200, Alignment::Center).spacing(10),
+                        ),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
