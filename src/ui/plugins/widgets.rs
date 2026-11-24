@@ -50,6 +50,8 @@ pub struct State {
     pub widget_sel: Option<String>,
     /// Widget dont la suppression attend confirmation.
     pub pending_delete: Option<String>,
+    /// Astuce de la page (HIG DAT-07), choisie à son ouverture.
+    pub tip: Option<&'static crate::tips::Tip>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +61,8 @@ pub enum Msg {
     RescanWidgets,
     OpenWidgetDir,
     SelectWidget(String),
+    /// Ferme l'astuce de la page (HIG DAT-07).
+    TipClose,
     WidgetAnchor(Anchor),
     WidgetX(f32),
     WidgetY(f32),
@@ -557,21 +561,20 @@ impl App {
             }
         };
 
+        // Astuce de la page (HIG DAT-07) : le glisser d'un widget sur le
+        // bureau, à la cadence des astuces, plus une ligne figée.
+        let tip = p
+            .widgets
+            .tip
+            .map(|tip| crate::ui::search::tip_row(self, tip, fg, dim, wrap(Msg::TipClose)));
         if self.on_subtab(INFO.id, "bureau") {
-            return column![
-                self.section("Sur ce bureau"),
-                text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                active,
-                editor,
-            ]
-            .spacing(14)
-            .into();
+            return column![self.section("Sur ce bureau"), tip, active, editor,]
+                .spacing(14)
+                .into();
         }
         column![
             self.section("Widgets disponibles"),
+            tip,
             catalog,
             row![
                 self.focusable(
@@ -740,6 +743,10 @@ impl App {
                     true,
                 )
             }
+            Msg::TipClose => {
+                panel.widgets.tip = None;
+                Task::none()
+            }
             Msg::SelectWidget(id) => {
                 panel.widgets.widget_sel = Some(id);
                 Task::none()
@@ -824,6 +831,21 @@ impl App {
                 self.commit_reload()
             }
         }
+    }
+}
+
+impl App {
+    /// Astuce de la page Widgets (HIG DAT-07), à son ouverture : une fois,
+    /// au plus une par jour toutes surfaces confondues.
+    pub(in crate::ui) fn widgets_tip(&mut self) -> Task<UiMsg> {
+        if self.panel.as_ref().is_none_or(|p| p.widgets.tip.is_some()) {
+            return Task::none();
+        }
+        let (tip, saved) = self.take_tip(crate::tips::Surface::Settings);
+        if let Some(p) = self.panel.as_mut() {
+            p.widgets.tip = tip;
+        }
+        saved
     }
 }
 

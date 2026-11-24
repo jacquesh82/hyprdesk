@@ -15,6 +15,8 @@ pub enum Surface {
     Overview,
     /// Bulle du dock, au survol d'une application.
     Dock,
+    /// Page d'un paquet des Réglages.
+    Settings,
 }
 
 /// Une astuce : identifiant stable, surface, symbole de la fonction, texte.
@@ -57,6 +59,12 @@ pub const TIPS: &[Tip] = &[
         surface: Surface::Dock,
         icon: "view-more",
         text: "Faites un clic droit sur une icône pour ses actions : nouvelle fenêtre, épingler au dock ou l'en retirer.",
+    },
+    Tip {
+        id: "reglages-glisser-widget",
+        surface: Surface::Settings,
+        icon: "grip-vertical",
+        text: "Tant que les Réglages sont ouverts, glissez un widget sur le bureau pour le déplacer.",
     },
 ];
 
@@ -220,6 +228,10 @@ mod tests {
         );
         st.mark_used("dock-clic-droit");
         assert!(st.eligible(Surface::Dock, t0 + CADENCE).is_none());
+        assert_eq!(
+            st.eligible(Surface::Settings, t0 + CADENCE).map(|t| t.id),
+            Some("reglages-glisser-widget")
+        );
     }
 
     #[test]

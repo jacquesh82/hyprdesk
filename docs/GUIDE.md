@@ -571,8 +571,9 @@ the right: one click erases the query and returns to the field.
 At the bottom of the launcher, a one-sentence tip sometimes presents one of
 its modes (`:f`, `:r`, `:clip`): at most one a day, each only once, and never
 again for a mode you have already typed. The workspaces screen does the same
-for dragging a window onto another workspace, and so does the hover bubble
-of a dock icon, for its right-click menu.
+for dragging a window onto another workspace, and so do the hover bubble
+of a dock icon, for its right-click menu, and the Widgets page of Settings,
+for dragging a widget on the desktop.
 
 The index runs in the background, kept fresh by inotify and a periodic
 rescan. Tune it in **Settings → File index**: roots, exclusions by name or

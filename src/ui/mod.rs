@@ -5744,7 +5744,12 @@ impl App {
             Msg::Released if self.wdrag.is_some() => {
                 let moved = self.wdrag.take().is_some_and(|d| d.moved);
                 if moved {
-                    self.panel_update(PanelMsg::Commit)
+                    // Le glisser d'un widget a servi : plus d'astuce (HIG DAT-07).
+                    if let Some(p) = self.panel.as_mut() {
+                        p.widgets.tip = None;
+                    }
+                    let used = self.tip_used("reglages-glisser-widget");
+                    Task::batch([used, self.panel_update(PanelMsg::Commit)])
                 } else {
                     Task::none()
                 }

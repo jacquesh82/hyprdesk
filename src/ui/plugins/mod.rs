@@ -776,6 +776,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
             layouts::load_binds(app.config_path.clone()),
         ]),
         "apps" => apps::load_system(),
+        "widgets" => app.widgets_tip(),
         "animations" => animations::load_current(),
         "performance" => Task::batch([animations::load_current(), performance::load()]),
         "sound" => sound::load(),
