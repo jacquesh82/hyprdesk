@@ -131,7 +131,8 @@ const BLUR_DOWNSCALE: u32 = 8;
 /// Glisser-déposer de fichiers sur une surface.
 #[derive(Debug, Clone)]
 pub enum DropEvent {
-    Hover,
+    /// Un fichier survole la surface (le compositeur dit lequel).
+    Hover(PathBuf),
     Left,
     File(PathBuf),
 }
@@ -529,6 +530,9 @@ pub struct App {
     /// posés pendant ce dépôt (pour les ranger côte à côte).
     drop_hover: Option<Id>,
     drop_count: u16,
+    /// Dock survolé par une application qu'il peut épingler (HIG DAT-04) :
+    /// sa surface et l'application.
+    dock_drop: Option<(Id, String)>,
     /// Applications installées (liste des raccourcis, icônes des fenêtres).
     apps: Arc<Vec<AppInfo>>,
     clients: Vec<Client>,
@@ -1120,6 +1124,7 @@ impl App {
             adv_open: Default::default(),
             panel_tab: plugins::desktop::INFO.id,
             drop_hover: None,
+            dock_drop: None,
             drop_count: 0,
             apps: Arc::new(Vec::new()),
             clients: Vec::new(),
@@ -4022,8 +4027,12 @@ impl App {
     /// devient une icône, posée dans la case sous le pointeur (puis les
     /// suivantes pour un dépôt de plusieurs fichiers).
     fn on_drop(&mut self, win: Id, ev: DropEvent) -> Task<Msg> {
+        // Le dock reçoit les siens : une application à épingler (HIG DAT-04).
+        if self.launcher_surfaces.contains_key(&win) {
+            return self.dock_drop_event(win, ev);
+        }
         match ev {
-            DropEvent::Hover => {
+            DropEvent::Hover(_) => {
                 self.drop_hover = Some(win);
                 self.drop_count = 0;
                 Task::none()
@@ -6386,8 +6395,8 @@ impl App {
         // Glisser-déposer de fichiers : toujours écouté ; pendant un survol, la
         // position du pointeur est suivie pour savoir où déposer.
         subs.push(iced::event::listen_with(|e, _, id| match e {
-            Event::Window(iced::window::Event::FileHovered(_)) => {
-                Some(Msg::Drop(id, DropEvent::Hover))
+            Event::Window(iced::window::Event::FileHovered(p)) => {
+                Some(Msg::Drop(id, DropEvent::Hover(p)))
             }
             Event::Window(iced::window::Event::FilesHoveredLeft) => {
                 Some(Msg::Drop(id, DropEvent::Left))

@@ -255,6 +255,9 @@ opens. A refused launch or an application that cannot be found is reported at
 once by a Hyprland notification. With no window at all after five seconds, a
 quieter notification suggests launching the application again.
 
+You can also drag an application from a file manager (its `.desktop` file)
+onto the dock: once dropped, it is pinned at the end of the dock.
+
 ## The desktop and its modes
 
 When your tiled windows fill the screen, press `SUPER + D` twice (dock, then

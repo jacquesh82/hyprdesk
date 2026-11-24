@@ -257,6 +257,9 @@ une notification de Hyprland le dit aussitôt. Sans aucune fenêtre au bout de
 cinq secondes, une notification plus discrète propose de relancer
 l'application.
 
+Une application se glisse aussi depuis un gestionnaire de fichiers (son
+fichier `.desktop`) sur le dock : déposée, elle s'épingle en fin de dock.
+
 ## Le bureau et ses modes
 
 En tuiles, les fenêtres couvrent l'écran : `SUPER + D` (deux fois : le dock,

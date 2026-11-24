@@ -1215,7 +1215,7 @@ impl App {
     }
 
     /// Applications épinglées au dock (réglage en cours, sinon la config).
-    fn pinned(&self) -> Vec<String> {
+    pub(in crate::ui) fn pinned(&self) -> Vec<String> {
         self.settings
             .launcher_pinned
             .clone()

@@ -913,8 +913,13 @@ impl App {
         } else {
             // Vraie réfraction (MLG-275) : le dock ne voit pas le fond derrière
             // lui ; celui de son écran est peint dessous pour la lentille.
-            let style = design::launcher_surface(&self.theme, t, false, base);
+            let mut style = design::launcher_surface(&self.theme, t, false, base);
             let th = &self.cfg.general.theme;
+            // Cible d'un dépôt valable : la bordure d'accent, comme la carte
+            // cible de l'écran des espaces (HIG DAT-04).
+            if self.dock_drop_target(&m.name) {
+                style.border = style.border.width(2).color(color(th.accent, t));
+            }
             let tint = color(
                 crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
                 base * 0.86 * t,
@@ -1708,6 +1713,72 @@ impl App {
     }
 }
 
+/// Application qu'un fichier déposé sur le dock épingle (HIG DAT-04) : un
+/// `.desktop` d'une application connue (son id est le nom du fichier), pas
+/// encore épinglée.
+pub(in crate::ui) fn dock_drop_app(
+    path: &std::path::Path,
+    apps: &[crate::launch::AppInfo],
+    pinned: &[String],
+) -> Option<String> {
+    if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+        return None;
+    }
+    let id = path.file_stem()?.to_str()?;
+    apps.iter()
+        .find(|a| a.id == id)
+        .filter(|a| !pinned.contains(&a.id))
+        .map(|a| a.id.clone())
+}
+
+impl App {
+    /// Le dock de l'écran `monitor` est la cible d'un dépôt valable.
+    fn dock_drop_target(&self, monitor: &str) -> bool {
+        self.dock_drop.as_ref().is_some_and(|(id, _)| {
+            self.launcher_surfaces
+                .get(id)
+                .is_some_and(|s| s.monitor == monitor)
+        })
+    }
+
+    /// Glisser-déposer de fichiers sur le dock `win` (HIG DAT-04) : le
+    /// survol d'une application à épingler allume la cible, le dépôt
+    /// l'épingle en fin de dock ; tout autre fichier est ignoré.
+    pub(in crate::ui) fn dock_drop_event(
+        &mut self,
+        win: iced::window::Id,
+        ev: crate::ui::DropEvent,
+    ) -> Task<UiMsg> {
+        use crate::ui::DropEvent;
+        match ev {
+            DropEvent::Hover(path) => {
+                // Le transport ne lit encore les chemins qu'au dépôt : un
+                // survol au chemin vide n'allume rien (DAT-04, étape 2).
+                if self.dock_drop.as_ref().is_none_or(|(id, _)| *id != win)
+                    && let Some(app) = dock_drop_app(&path, &self.apps, &self.pinned())
+                {
+                    self.dock_drop = Some((win, app));
+                }
+                Task::none()
+            }
+            DropEvent::Left => {
+                self.dock_drop = None;
+                Task::none()
+            }
+            DropEvent::File(path) => {
+                self.dock_drop = None;
+                let mut l = self.pinned();
+                let Some(app) = dock_drop_app(&path, &self.apps, &l) else {
+                    return Task::none();
+                };
+                l.push(app);
+                self.settings.launcher_pinned = Some(l);
+                self.commit()
+            }
+        }
+    }
+}
+
 impl App {
     /// Une fenêtre de classe `class` appartient-elle à l'application `id` ?
     pub(in crate::ui) fn app_matches(&self, id: &str, class: &str) -> bool {
@@ -1920,5 +1991,44 @@ mod tests {
         let here = windows(&all, RunningApps::Workspace, "2");
         assert_eq!(shape(&entries(here, LauncherGroup::App)), ["kitty×2"]);
         assert!(windows(&all, RunningApps::Off, "2").is_empty());
+    }
+
+    /// Seule une application connue et pas encore épinglée se dépose sur le
+    /// dock (HIG DAT-04).
+    #[test]
+    fn le_dock_epingle_un_fichier_desktop_connu() {
+        let app = |id: &str| crate::launch::AppInfo {
+            id: id.into(),
+            name: id.into(),
+            icon: None,
+            wm_class: None,
+            mime_types: Vec::new(),
+            categories: Vec::new(),
+            available: true,
+        };
+        let apps = vec![app("firefox"), app("org.gnome.Nautilus")];
+        let pinned = vec!["org.gnome.Nautilus".to_string()];
+        let p = std::path::Path::new;
+        assert_eq!(
+            dock_drop_app(p("/usr/share/applications/firefox.desktop"), &apps, &pinned),
+            Some("firefox".into())
+        );
+        assert_eq!(
+            dock_drop_app(
+                p("/usr/share/applications/org.gnome.Nautilus.desktop"),
+                &apps,
+                &pinned
+            ),
+            None,
+            "déjà épinglée"
+        );
+        assert_eq!(
+            dock_drop_app(p("/tmp/inconnue.desktop"), &apps, &pinned),
+            None
+        );
+        assert_eq!(
+            dock_drop_app(p("/home/u/firefox.txt"), &apps, &pinned),
+            None
+        );
     }
 }
