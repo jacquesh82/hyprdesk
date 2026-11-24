@@ -4633,7 +4633,7 @@
 "« {v} » : couleur illisible (#rrggbb, #sombre/#clair ou slot du thème comme active)" = "“{v}”: invalid color (#rrggbb, #dark/#light or a theme slot such as active)"
 "« {v} » : ni une couleur, ni un slot de la palette du thème ({slots})" = "“{v}”: neither a colour nor a slot of the theme palette ({slots})"
 "Selon le mode" = "By mode"
-"Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours." = "One colour in dark mode, another in light mode: “Choose…” sets the current mode’s."
+"Donne une couleur au mode sombre, une autre au mode clair." = "Uses one colour in dark mode, another in light mode."
 "Slot « {name} » du thème — suit le mode clair/sombre" = "Theme slot “{name}” — follows light/dark mode"
 
 # Comparer un effet à l'écran (MLG-262).

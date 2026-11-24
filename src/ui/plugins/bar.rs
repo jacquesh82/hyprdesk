@@ -1256,17 +1256,23 @@ impl App {
             let is_open = open.is_some_and(|(k, _)| *k == key);
             let by_mode = matches!(value, Some(ColorRef::Pair { .. }));
             let mode_btn = tooltip(
-                button(text(crate::i18n::tr("Selon le mode")).font(font).size(crate::ui::tokens::ts(12.0)))
-                    .padding([3, 8])
-                    .style(if by_mode {
-                        button::primary
-                    } else {
-                        button::secondary
-                    })
-                    .on_press(wrap(Msg::ToggleByMode(key.clone()))),
+                button(
+                    text(crate::i18n::tr("Selon le mode"))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([3, 8])
+                .style(if by_mode {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::ToggleByMode(key.clone()))),
                 container(
+                    // Une phrase de 75 caractères au plus, qui commence par
+                    // un verbe (HIG DAT-20).
                     text(crate::i18n::tr(
-                        "Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours.",
+                        "Donne une couleur au mode sombre, une autre au mode clair.",
                     ))
                     .font(font)
                     .size(crate::ui::tokens::ts(12.0)),
