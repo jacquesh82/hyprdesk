@@ -163,6 +163,7 @@ impl App {
             monitors: st.screens.clone(),
             login_monitor: st.login_monitor.clone(),
             gnome_keyring: st.status.gnome_keyring,
+            text_scale: (self.cfg.general.text_scale != 1.0).then_some(self.cfg.general.text_scale),
         }
     }
 

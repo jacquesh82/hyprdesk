@@ -44,8 +44,10 @@ pub struct LockState {
     pub fingerprint: bool,
     /// « Mouvement réduit » (`general.reduced_motion`) : le contenu ne dérive
     /// pas (HIG ACC-05).
-    #[serde(default)]
     pub reduced_motion: bool,
+    /// Échelle du texte de l'interface (`general.text_scale`) ; 1 : telle
+    /// quelle (HIG ACC-06).
+    pub text_scale: f32,
 }
 
 /// Part d'une scène étalée pour un écran : sa taille logique et son image.
@@ -79,6 +81,7 @@ impl Default for LockState {
             panel_opacity: panel(),
             fingerprint: g.lock.fingerprint,
             reduced_motion: g.reduced_motion,
+            text_scale: g.text_scale,
             span: false,
             outputs: Vec::new(),
             own_image: false,
@@ -138,6 +141,7 @@ pub fn from_config(cfg: &Config, monitor: &str, workspace: &str) -> LockState {
         panel_opacity: crate::design_options::num(g, "lock.panel_opacity") as f32,
         fingerprint: l.fingerprint,
         reduced_motion: g.reduced_motion,
+        text_scale: g.text_scale,
         span,
         outputs: Vec::new(),
         own_image: own_is_set,
@@ -346,6 +350,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.general.lock.dim = 0.6;
         cfg.general.reduced_motion = true;
+        cfg.general.text_scale = 1.5;
         cfg.wallpapers.push(crate::config::WallpaperRule {
             origin: Default::default(),
             sel: Default::default(),
@@ -362,10 +367,15 @@ mod tests {
             s.reduced_motion,
             "Mouvement réduit transmis au verrou (HIG ACC-05)"
         );
+        assert_eq!(
+            s.text_scale, 1.5,
+            "échelle du texte transmise au verrou (HIG ACC-06)"
+        );
         // Aller-retour JSON, champs manquants complétés.
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<LockState>(&json).unwrap(), s);
         let partial: LockState = serde_json::from_str(r#"{ "blur": false }"#).unwrap();
         assert!(!partial.blur && partial.show_user && !partial.reduced_motion);
+        assert_eq!(partial.text_scale, 1.0, "sans le champ : l'échelle neutre");
     }
 }

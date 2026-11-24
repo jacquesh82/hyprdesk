@@ -72,6 +72,8 @@ enum Msg {
     Avatar(Option<image::Handle>),
     Media(Option<crate::widgets::MediaInfo>),
     PlayPause,
+    /// Touche multimédia « Lecture et pause » : comme le bouton (HIG ACC-08).
+    MediaKey,
     Keyboard(Option<(String, bool)>),
     Activity,
     /// Issue de la vérification d'empreinte (fprintd).
@@ -130,6 +132,13 @@ fn tint(c: Rgba, alpha: f32) -> Color {
 
 fn opaque(c: [u8; 4]) -> Rgba {
     Rgba(c[0], c[1], c[2], 0xff)
+}
+
+/// Corps de texte à l'échelle réglée (`general.text_scale`), comme `tokens::ts`
+/// dans le bureau — sans le rôle du thème, que le verrouillage et l'écran de
+/// connexion ne chargent pas — et jamais sous le minimum lisible (HIG ACC-06).
+pub(crate) fn ts(reference: f32, scale: f32) -> f32 {
+    (reference * scale.clamp(0.75, 2.0)).max(crate::ui::tokens::MIN_TEXT)
 }
 
 /// Ce que le voile du fond doit rendre lisible, et la couleur de ce voile
@@ -602,6 +611,14 @@ impl Lock {
                     None => Task::none(),
                 }
             }
+            Msg::MediaKey => {
+                // Comme le bouton, seulement s'il est montré.
+                if self.st.show_media {
+                    self.update(Msg::PlayPause)
+                } else {
+                    Task::none()
+                }
+            }
             Msg::UnLock => Task::none(),
         }
     }
@@ -640,6 +657,10 @@ impl Lock {
         // Le texte garde toujours son opacité : au repos, seul le voile du fond
         // se renforce (HIG ACC-03). `ink` dit ce que ce voile rend lisible.
         let ink = Ink::of(st);
+        // Corps du texte à l'échelle réglée (HIG ACC-06) ; `k` la porte sur ce
+        // qui enveloppe le texte : champ, icônes.
+        let px = |v: f32| ts(v, st.text_scale);
+        let k = st.text_scale.clamp(0.75, 2.0);
         let fg = rgba(st.fg, 1.0);
         let dim = rgba(st.fg, SECONDARY);
         let accent = rgba(st.accent, 1.0);
@@ -665,11 +686,11 @@ impl Lock {
         let clock = column![
             text(now.format("%H:%M").to_string())
                 .font(self.title_font)
-                .size(120)
+                .size(px(120.0))
                 .color(fg),
             text(now.format_localized("%A %-d %B", locale()).to_string())
                 .font(self.font)
-                .size(22)
+                .size(px(22.0))
                 .color(dim),
         ]
         .align_x(side)
@@ -696,7 +717,7 @@ impl Lock {
             });
             let name = text(self.real_name.clone())
                 .font(self.title_font)
-                .size(18)
+                .size(px(18.0))
                 .color(fg);
             let who: Element<'_, Msg> = if strip {
                 let mut r = row![].spacing(12).align_y(Alignment::Center);
@@ -735,9 +756,9 @@ impl Lock {
         .on_input(Msg::Input)
         .on_submit(Msg::Submit)
         .font(self.font)
-        .size(18)
-        .padding(14)
-        .width(340)
+        .size(px(18.0))
+        .padding(14.0 * k)
+        .width(340.0 * k)
         .style(move |_, status| text_input::Style {
             background: bg.into(),
             border: Border::default().rounded(14).width(2).color(
@@ -764,7 +785,7 @@ impl Lock {
                 l = crate::tr!("Majuscules verrouillées · {l}", l = l);
             }
             if !l.is_empty() {
-                notes = notes.push(text(l).font(self.font).size(13).color(dim));
+                notes = notes.push(text(l).font(self.font).size(px(13.0)).color(dim));
             }
         }
         if let Some(e) = &self.error {
@@ -775,7 +796,7 @@ impl Lock {
                     crate::tr!("{e} ({n} échec)", e = e, n = self.failures)
                 })
                 .font(self.font)
-                .size(14)
+                .size(px(14.0))
                 .color(error),
             );
         }
@@ -783,12 +804,12 @@ impl Lock {
             notes = notes.push(
                 text(crate::tr!("Nouvel essai possible dans {n} s", n = n))
                     .font(self.font)
-                    .size(13)
+                    .size(px(13.0))
                     .color(fg),
             );
         }
         for m in &self.messages {
-            notes = notes.push(text(m.clone()).font(self.font).size(13).color(fg));
+            notes = notes.push(text(m.clone()).font(self.font).size(px(13.0)).color(fg));
         }
         if self.finger {
             notes = notes.push(
@@ -796,7 +817,7 @@ impl Lock {
                     "Ou posez le doigt sur le lecteur d'empreintes.",
                 ))
                 .font(self.font)
-                .size(13)
+                .size(px(13.0))
                 .color(dim),
             );
         }
@@ -824,11 +845,14 @@ impl Lock {
                             "battery-level-{p}{}",
                             if charging { "-charging" } else { "" }
                         ),
-                        16.0,
+                        16.0 * k,
                         dim,
                     )
                     .expect("glyphe de batterie"),
-                    text(format!("{p} %")).font(self.font).size(14).color(dim),
+                    text(format!("{p} %"))
+                        .font(self.font)
+                        .size(px(14.0))
+                        .color(dim),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -852,7 +876,7 @@ impl Lock {
                             } else {
                                 "media-playback-start"
                             },
-                            16.0,
+                            16.0 * k,
                             fg,
                         )
                         .expect("glyphe de lecture"),
@@ -865,7 +889,7 @@ impl Lock {
                         ..Default::default()
                     })
                     .on_press(Msg::PlayPause),
-                    text(label).font(self.font).size(14).color(dim),
+                    text(label).font(self.font).size(px(14.0)).color(dim),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -972,6 +996,15 @@ impl Lock {
                 | iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => Some(Msg::Activity),
                 _ => None,
             }),
+            iced::event::listen_with(|e, _, _| match &e {
+                // La touche maintenue ne bascule pas sans fin.
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key,
+                    repeat: false,
+                    ..
+                }) if is_play_key(key) => Some(Msg::MediaKey),
+                _ => None,
+            }),
             iced::event::listen_with(|e, _, id| match e {
                 iced::Event::Window(iced::window::Event::Resized(size)) => {
                     Some(Msg::Resized(id, size))
@@ -1048,6 +1081,15 @@ fn video_part(
     };
     use iced::futures::StreamExt;
     crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))
+}
+
+/// Touche multimédia « Lecture et pause » (HIG ACC-08) : la seule que
+/// l'écran interprète, comme le bouton du morceau en cours.
+fn is_play_key(key: &iced::keyboard::Key) -> bool {
+    matches!(
+        key,
+        iced::keyboard::Key::Named(iced::keyboard::key::Named::MediaPlayPause)
+    )
 }
 
 /// Dérive du contenu : ±48 px horizontalement sur 97 s, ±10 px (bandeau) ou
@@ -1309,6 +1351,31 @@ mod tests {
         // texte clair qu'il sert.
         let sombre = encre([0xf2, 0xf4, 0xfc, 0xff], [bg.0, bg.1, bg.2, bg.3]);
         assert_eq!(sombre.veil, Rgba(0, 0, 0, 0xff));
+    }
+
+    /// Corps de texte à l'échelle réglée, jamais sous le minimum lisible
+    /// (HIG ACC-06).
+    #[test]
+    fn corps_a_l_echelle() {
+        assert_eq!(ts(13.0, 1.0), 13.0);
+        assert_eq!(ts(13.0, 2.0), 26.0);
+        assert_eq!(ts(120.0, 0.75), 90.0);
+        assert_eq!(ts(6.0, 1.0), crate::ui::tokens::MIN_TEXT);
+        // Échelle hors clous (profil ancien, JSON à la main) : bornée.
+        assert_eq!(ts(13.0, 0.0), crate::ui::tokens::MIN_TEXT);
+        assert_eq!(ts(13.0, 9.0), 26.0);
+    }
+
+    /// Seule la touche multimédia « Lecture et pause » agit, comme le bouton
+    /// (HIG ACC-08).
+    #[test]
+    fn touche_multimedia_lecture_et_pause() {
+        use iced::keyboard::Key;
+        use iced::keyboard::key::Named;
+        assert!(is_play_key(&Key::Named(Named::MediaPlayPause)));
+        assert!(!is_play_key(&Key::Named(Named::MediaPause)));
+        assert!(!is_play_key(&Key::Named(Named::Space)));
+        assert!(!is_play_key(&Key::Character(" ".into())));
     }
 
     /// « Mouvement réduit » fige la dérive du contenu (HIG ACC-05).

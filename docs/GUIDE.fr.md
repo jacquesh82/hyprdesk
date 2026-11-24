@@ -466,7 +466,10 @@ lanceur sont partagées ; aucun second dock flottant n'est créé sur ces
   est un plancher : sur une image comme sur une couleur, le voile monte seul
   jusqu'à un contraste de 4,5:1 avec le texte, et se renforce après 20 s sans
   saisie, sans toucher au texte. À « Mouvement réduit » (Thème →
-  Accessibilité), le contenu ne dérive plus.
+  Accessibilité), le contenu ne dérive plus, et la touche multimédia
+  Lecture et pause agit comme le bouton du morceau en cours. Le texte suit
+  la taille réglée (Thème → Accessibilité), à l'écran de verrouillage comme
+  à l'écran de connexion une fois son profil réinstallé.
 - **Configuration de Hyprland** signale les erreurs, les liaisons ou démarrages
   en double, et les programmes qui font doublon avec les services intégrés.
   « Tout ranger » sauvegarde `hyprland.lua` et applique les corrections sûres.

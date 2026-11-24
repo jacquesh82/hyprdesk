@@ -451,7 +451,10 @@ and no second floating dock is created on these screens.
   over an image as over a colour, the veil rises on its own to a 4.5:1
   contrast with the text, and deepens after 20 s without input, leaving the
   text untouched. With **Reduce motion** (Theme → Accessibility), the content
-  no longer drifts.
+  no longer drifts, and the Play and pause media key acts like the button of
+  the track in progress. The text follows the size you set (Theme →
+  Accessibility), on the lock screen as on the login screen once its profile
+  is installed again.
 - **Hyprland configuration** flags errors, duplicate bindings or startup
   entries, and programs that overlap with built-in services. **Tidy
   everything** backs up `hyprland.lua` and applies the fixes marked safe.

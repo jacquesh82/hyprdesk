@@ -96,6 +96,8 @@ pub struct Greeter {
     font: Font,
     title_font: Font,
     theme: crate::config::Theme,
+    /// Échelle du texte, celle de la session (HIG ACC-06).
+    scale: f32,
     sessions: Vec<Session>,
     session: usize,
     user: String,
@@ -564,6 +566,7 @@ impl Greeter {
                 ..crate::fonts::DEFAULT
             },
             theme,
+            scale: profile.text_scale.unwrap_or(1.0),
             sessions,
             session,
             user: last.user,
@@ -894,6 +897,10 @@ impl Greeter {
 
     pub fn view(&self) -> Element<'_, GMsg> {
         let th = &self.theme;
+        // Corps du texte à l'échelle de la session (HIG ACC-06) ; `k` la porte
+        // sur ce qui enveloppe le texte : formulaire, champs, boutons.
+        let px = |v: f32| crate::lock::ts(v, self.scale);
+        let k = self.scale.clamp(0.75, 2.0);
         let fg = rgba(th.fg, 1.0);
         let dim = rgba(th.fg, 0.65);
         let accent = rgba(th.accent, 1.0);
@@ -910,20 +917,20 @@ impl Greeter {
         let mut col = column![
             text(now.format("%H:%M").to_string())
                 .font(self.title_font)
-                .size(110)
+                .size(px(110.0))
                 .color(fg),
             text(
                 now.format_localized("%A %-d %B", crate::lock::locale())
                     .to_string()
             )
             .font(self.font)
-            .size(22)
+            .size(px(22.0))
             .color(dim),
-            Space::new().height(28),
+            Space::new().height(28.0 * k),
         ]
         .align_x(Alignment::Center)
         .spacing(6)
-        .width(Length::Fixed(380.0));
+        .width(Length::Fixed(380.0 * k));
         let choices: Vec<SessionChoice> = self
             .sessions
             .iter()
@@ -935,8 +942,8 @@ impl Greeter {
         let mut user = text_input(crate::i18n::tr("Identifiant"), &self.user)
             .id(USER_ID)
             .font(self.font)
-            .size(18)
-            .padding(14)
+            .size(px(18.0))
+            .padding(14.0 * k)
             .style(field);
         if user_step {
             user = user.on_input(GMsg::User).on_submit(GMsg::Begin);
@@ -947,7 +954,7 @@ impl Greeter {
             col = col.push(
                 text(m.clone())
                     .font(self.font)
-                    .size(14)
+                    .size(px(14.0))
                     .color(dim)
                     .width(Length::Fill)
                     .align_x(Alignment::Center),
@@ -955,7 +962,7 @@ impl Greeter {
         }
         match &self.phase {
             Phase::Ask(kind, q) => {
-                col = col.push(text(q.clone()).font(self.font).size(14).color(fg));
+                col = col.push(text(q.clone()).font(self.font).size(px(14.0)).color(fg));
                 col = col.push(
                     text_input("", self.answer.as_str())
                         .id(ANSWER_ID)
@@ -963,8 +970,8 @@ impl Greeter {
                         .on_input(GMsg::Answer)
                         .on_submit(GMsg::Send)
                         .font(self.font)
-                        .size(18)
-                        .padding(14)
+                        .size(px(18.0))
+                        .padding(14.0 * k)
                         .style(field),
                 );
             }
@@ -972,7 +979,7 @@ impl Greeter {
                 col = col.push(
                     text(crate::i18n::tr("Vérification…"))
                         .font(self.font)
-                        .size(14)
+                        .size(px(14.0))
                         .color(dim),
                 );
             }
@@ -982,11 +989,11 @@ impl Greeter {
                         row![
                             text(crate::i18n::tr("Se connecter"))
                                 .font(self.title_font)
-                                .size(15)
+                                .size(px(15.0))
                         ]
                         .align_y(Alignment::Center),
                     )
-                    .padding([10, 18])
+                    .padding([10.0 * k, 18.0 * k])
                     .on_press(GMsg::Begin),
                 );
             }
@@ -998,16 +1005,16 @@ impl Greeter {
                     "Démo : rien n'est vérifié ni lancé. Échap pour quitter.",
                 ))
                 .font(self.font)
-                .size(12)
+                .size(px(12.0))
                 .color(dim),
             );
             col = col.push(
                 button(
                     text(crate::i18n::tr("Quitter la démo"))
                         .font(self.font)
-                        .size(13),
+                        .size(px(13.0)),
                 )
-                .padding([6, 14])
+                .padding([6.0 * k, 14.0 * k])
                 .on_press(GMsg::Quit),
             );
         }
@@ -1015,7 +1022,7 @@ impl Greeter {
             col = col.push(
                 text(e.clone())
                     .font(self.font)
-                    .size(14)
+                    .size(px(14.0))
                     .color(Color::from_rgb8(0xff, 0x95, 0x80)),
             );
         }
@@ -1024,10 +1031,10 @@ impl Greeter {
             button(
                 text(crate::i18n::tr(label))
                     .font(self.font)
-                    .size(13)
+                    .size(px(13.0))
                     .color(dim),
             )
-            .padding([6, 14])
+            .padding([6.0 * k, 14.0 * k])
             .style(move |_, status| button::Style {
                 background: Some(
                     Color {
@@ -1057,11 +1064,13 @@ impl Greeter {
                 0.0
             },
         );
-        let card = container(col).padding(28).style(move |_| container::Style {
-            background: Some(veil.into()),
-            border: Border::default().rounded(28),
-            ..Default::default()
-        });
+        let card = container(col)
+            .padding(28.0 * k)
+            .style(move |_| container::Style {
+                background: Some(veil.into()),
+                border: Border::default().rounded(28),
+                ..Default::default()
+            });
         let power_row = container(
             row![
                 power("Veille", "suspend"),
@@ -1130,11 +1139,15 @@ impl Greeter {
         fg: Color,
         dim: Color,
     ) -> Element<'_, GMsg> {
+        // Corps du texte à l'échelle de la session (HIG ACC-06).
+        let px = |v: f32| crate::lock::ts(v, self.scale);
+        let k = self.scale.clamp(0.75, 2.0);
         if choices.len() > 5 {
             return pick_list(choices, current, GMsg::Session)
                 .font(self.font)
+                .text_size(px(16.0))
                 .width(Length::Fill)
-                .padding(10)
+                .padding(10.0 * k)
                 .into();
         }
         let mut chips = row![].spacing(8);
@@ -1142,11 +1155,11 @@ impl Greeter {
             let on = c.0 == self.session;
             let label = text(c.1.clone())
                 .font(if on { self.title_font } else { self.font })
-                .size(13)
+                .size(px(13.0))
                 .color(if on { fg } else { dim });
             chips = chips.push(
                 button(label)
-                    .padding([6, 12])
+                    .padding([6.0 * k, 12.0 * k])
                     .style(move |_, status| {
                         let hover = matches!(status, button::Status::Hovered);
                         button::Style {
@@ -1177,7 +1190,7 @@ impl Greeter {
         column![
             text(crate::i18n::tr("Environnement"))
                 .font(self.font)
-                .size(12)
+                .size(px(12.0))
                 .color(dim),
             chips.wrap()
         ]

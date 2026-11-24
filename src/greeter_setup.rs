@@ -107,6 +107,9 @@ pub struct Profile {
     /// gnome-keyring sert encore (pas remplacé par myMFA) : déverrouillé à
     /// la connexion.
     pub gnome_keyring: bool,
+    /// Échelle du texte de l'interface de la session (`general.text_scale`) ;
+    /// absent : 1, telle quelle (HIG ACC-06).
+    pub text_scale: Option<f32>,
 }
 
 /// Un écran de la disposition (mêmes valeurs que monitors.lua).
@@ -1136,6 +1139,7 @@ pub fn session_profile(config_path: &Path) -> Profile {
         lang: std::env::var("LANG").unwrap_or_default(),
         monitors,
         gnome_keyring: status().gnome_keyring,
+        text_scale: (cfg.general.text_scale != 1.0).then_some(cfg.general.text_scale),
         ..Default::default()
     }
 }
@@ -1201,6 +1205,23 @@ mod tests {
 
     /// En root, seul un hyprdesk installé en root est lancé, paquet d'abord ;
     /// le binaire de l'utilisateur jamais.
+    /// Profil posé avant l'échelle du texte : l'échelle neutre, et non celle
+    /// d'un profil jamais posé (HIG ACC-06).
+    #[test]
+    fn profil_sans_echelle_du_texte() {
+        let p: Profile = serde_json::from_str(r#"{"theme":"Ardoise"}"#).unwrap();
+        assert_eq!(p.text_scale, None);
+        assert_eq!(
+            p.theme(),
+            Profile::default().theme(),
+            "le thème seul change"
+        );
+        let q: Profile = serde_json::from_str(r#"{"theme":"Ardoise","text_scale":1.25}"#).unwrap();
+        assert_eq!(q.text_scale, Some(1.25));
+        // Une échelle changée : des réglages à réinstaller.
+        assert!(!p.same_settings(&q));
+    }
+
     #[test]
     fn binaire_lance_en_root() {
         assert_eq!(pick_root_bin(|_| true), Ok(PACKAGED_BIN));
