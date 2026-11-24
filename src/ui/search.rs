@@ -90,6 +90,9 @@ pub struct Search {
     pub suggested: Vec<usize>,
     /// Mode coffre (`:2fa`, `:mdp`) : le mode chargé et son contenu.
     pub mfa: Option<(crate::mymfa::Mode, MfaList)>,
+    /// Mode réglages (`:r`) : les entrées trouvées dans l'index des réglages,
+    /// les plus parlantes d'abord ; `results` y sont des indices.
+    pub settings: Vec<&'static super::settings_search::Entry>,
 }
 
 impl Search {
@@ -98,8 +101,13 @@ impl Search {
         crate::clipboard::query(&self.query)
     }
 
+    /// Mode réglages (`:r …`) : la requête dans l'index des réglages.
+    pub fn setting_query(&self) -> Option<&str> {
+        super::settings_search::query(&self.query)
+    }
+
     /// Vue de la carte (applications, presse-papiers, fichiers, mots de
-    /// passe) : en changer remplace le champ de saisie.
+    /// passe, réglages) : en changer remplace le champ de saisie.
     fn view_kind(&self) -> u8 {
         if crate::mymfa::query(&self.query).is_some() {
             2
@@ -107,6 +115,8 @@ impl Search {
             1
         } else if crate::fileindex::proto::query(&self.query).is_some() {
             3
+        } else if self.setting_query().is_some() {
+            4
         } else {
             0
         }
@@ -406,6 +416,7 @@ impl App {
             category: None,
             suggested,
             mfa: None,
+            settings: Vec::new(),
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -965,6 +976,36 @@ impl App {
                 );
                 Task::batch([close, copy])
             }
+            // Mode réglages (`:r`) : l'index du tiroir, son filtre de
+            // visibilité — ce que le lanceur trouve, le tiroir le montre
+            // (HIG PAT-13).
+            SMsg::Launch(k)
+                if self
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| s.setting_query().is_some()) =>
+            {
+                let Some((e, q)) = self.search.as_ref().and_then(|s| {
+                    let e = s.settings.get(*s.results.get(k)?)?;
+                    Some((*e, s.setting_query()?.to_string()))
+                }) else {
+                    return Task::none();
+                };
+                // Le lanceur laisse la place au tiroir, ouvert sur le paquet
+                // du réglage. `Search` pose la requête — les mots cherchés y
+                // sont surlignés —, `SearchOpen` quitte la liste des
+                // résultats et montre le paquet : l'ordre compte.
+                let close = self.close_search();
+                let open = self.open_panel();
+                Task::batch([
+                    close,
+                    open,
+                    Task::done(Msg::Panel(super::panel::PanelMsg::Search(q))),
+                    Task::done(Msg::Panel(super::panel::PanelMsg::SearchOpen(
+                        e.page, e.tab,
+                    ))),
+                ])
+            }
             SMsg::Category(c) => {
                 let q = self
                     .search
@@ -994,6 +1035,33 @@ impl App {
                     }
                 }
                 iced::widget::operation::focus(INPUT_ID)
+            }
+            // Mode réglages (`:r`) : même index et même filtre que le tiroir.
+            SMsg::Query(q) if super::settings_search::query(&q).is_some() => {
+                let avant = self
+                    .search
+                    .as_ref()
+                    .map(|s| s.view_kind())
+                    .unwrap_or_default();
+                let mot = super::settings_search::query(&q)
+                    .unwrap_or_default()
+                    .to_string();
+                // Même index et même filtre que le tiroir, classés pour une
+                // liste courte.
+                let found = super::settings_search::launcher(&mot, |id| self.setting_visible(id));
+                let Some(s) = self.search.as_mut() else {
+                    return Task::none();
+                };
+                s.query = q;
+                s.settings = found;
+                s.results = (0..s.settings.len().min(SHOWN)).collect();
+                s.selected = 0;
+                // Changement de vue : le champ reprend le focus.
+                if s.view_kind() != avant {
+                    iced::widget::operation::focus(INPUT_ID)
+                } else {
+                    Task::none()
+                }
             }
             SMsg::Query(q) => {
                 let (grid, cat) = self
@@ -1138,29 +1206,31 @@ impl App {
         if crate::mymfa::query(&s.query).is_some() {
             return self.view_mfa_search(s);
         }
-        if crate::fileindex::proto::query(&s.query).is_some() {
-            // Mode fichiers (`:f`) : la même carte, résultats de l'index.
+        let reglages = s.setting_query();
+        if crate::fileindex::proto::query(&s.query).is_some() || reglages.is_some() {
+            // Mode fichiers (`:f`) ou réglages (`:r`) : la même carte.
             let th = &self.cfg.general.theme;
             let r = crate::theme::readable(th.fg, th.bg, th.accent);
             let (fg, dim, accent) = (color(r.fg, 1.0), color(r.dim, 1.0), color(r.focus, 1.0));
             let bg = color(th.bg, 1.0);
-            let input = self.launcher_field(
-                s,
-                Length::Fill,
-                20.0,
-                crate::i18n::tr("Rechercher un fichier ou un dossier…"),
-            );
-            return container(self.search_card(
-                s,
-                input,
-                self.view_files(s, fg, dim, accent),
-                bg,
-                fg,
-            ))
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .padding(if s.visibility.is_some() { 0.0 } else { SHADOW })
-            .into();
+            let (placeholder, list) = match reglages {
+                // Réglages : l'index du tiroir.
+                Some(q) => (
+                    crate::i18n::tr("Rechercher dans les réglages…"),
+                    self.view_settings(s, q, fg, dim, accent),
+                ),
+                // Fichiers : résultats du démon d'index.
+                None => (
+                    crate::i18n::tr("Rechercher un fichier ou un dossier…"),
+                    self.view_files(s, fg, dim, accent),
+                ),
+            };
+            let input = self.launcher_field(s, Length::Fill, 20.0, placeholder);
+            return container(self.search_card(s, input, list, bg, fg))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .padding(if s.visibility.is_some() { 0.0 } else { SHADOW })
+                .into();
         }
         if s.clip_query().is_none() {
             return if s.grid {
@@ -1178,7 +1248,7 @@ impl App {
             s,
             Length::Fill,
             20.0,
-            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp, :r)"),
         );
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
             .center_x(Length::Fill)
@@ -1382,7 +1452,7 @@ impl App {
             s,
             Length::Fill,
             20.0,
-            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp, :r)"),
         );
         use crate::i18n::tr;
         let mut list = column![].spacing(2);
@@ -1522,6 +1592,90 @@ impl App {
                             .font(self.font)
                             .size(crate::ui::tokens::ts(14.0))
                             .color(fg)
+                    ]
+                    .spacing(14)
+                    .align_y(Alignment::Center),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .height(ROW)
+                .style(move |_, status| {
+                    crate::ui::tokens::item(
+                        accent,
+                        fg,
+                        selected,
+                        status,
+                        f32::from(super::apps_grid::shape().selection_radius).min(10.0),
+                    )
+                })
+                .on_press(Msg::Search(SMsg::Launch(k))),
+            );
+        }
+        list.into()
+    }
+
+    /// Résultats du mode réglages (`:r`) : l'icône du paquet, le libellé du
+    /// réglage — mots cherchés surlignés —, le paquet en texte secondaire.
+    /// Une ligne d'invite sans mot ; rien ne défile, comme les autres modes.
+    fn view_settings<'a>(
+        &'a self,
+        s: &'a Search,
+        q: &str,
+        fg: Color,
+        dim: Color,
+        accent: Color,
+    ) -> Element<'a, Msg> {
+        use crate::i18n::tr;
+        let note = if q.is_empty() {
+            Some(tr("Tapez le nom d'un réglage, d'un onglet ou d'un paquet.").to_string())
+        } else if s.results.is_empty() {
+            Some(crate::tr!("Aucun réglage ne correspond à « {q} ».", q = q))
+        } else {
+            None
+        };
+        if let Some(msg) = note {
+            return text(msg)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .color(dim)
+                .into();
+        }
+        let mut list = column![].spacing(2);
+        for (k, &i) in s.results.iter().enumerate() {
+            let Some(e) = s.settings.get(i) else {
+                continue;
+            };
+            let Some(info) = super::plugins::BUILTIN.iter().find(|p| p.id == e.page) else {
+                continue;
+            };
+            let glyph: Element<'_, Msg> = super::icons::get(info.icon)
+                .map(|h| {
+                    iced::widget::svg(h)
+                        .width(20)
+                        .height(20)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                        .into()
+                })
+                .unwrap_or_else(|| iced::widget::Space::new().width(20).height(20).into());
+            // Une ligne par rangée : un texte long (une aide) est coupé, pour
+            // qu'il tienne à côté du nom du paquet.
+            let label = tr(&e.text);
+            let label = if label.chars().count() > 44 {
+                format!("{}…", label.chars().take(43).collect::<String>())
+            } else {
+                label.to_string()
+            };
+            let selected = k == s.selected;
+            list = list.push(
+                button(
+                    row![
+                        glyph,
+                        self.marked_with(&label, q, 14, fg, self.font),
+                        iced::widget::Space::new().width(Length::Fill),
+                        text(tr(info.label))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(dim),
                     ]
                     .spacing(14)
                     .align_y(Alignment::Center),

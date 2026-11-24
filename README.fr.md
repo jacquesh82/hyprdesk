@@ -199,7 +199,7 @@ désinstallation sont dans le
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
 | `SUPER + SHIFT + D` | Ouvre les Réglages |
 | `SUPER + SHIFT + L` | Ouvre ou referme LYRA, l'assistant IA |
-| `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:clip` l'historique du presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
+| `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
 | `ALT + Tab` | Change de fenêtre |
 | `SUPER + Tab` | Vue des workspaces : glisser les fenêtres d'un workspace à l'autre |
 | `Impr` / `SUPER + Impr` / `ALT + Impr` | Capture une zone, l'écran ou une fenêtre |

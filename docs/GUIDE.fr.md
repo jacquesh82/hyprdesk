@@ -294,7 +294,10 @@ application : `hyprdesk binds generate --write`.
   filtre les réglages dès la frappe ; la colonne de navigation ne garde
   alors que les paquets qui ont une correspondance, avec leur nombre. Dès
   qu'il contient une requête, un bouton Clear à droite l'efface et rend la
-  main au champ.
+  main au champ. Le lanceur les trouve aussi : `:r opacité` (ou `:reglages
+  opacité`) liste les pages, onglets et libellés qui correspondent ; Entrée
+  ou un clic referme le lanceur et ouvre le tiroir sur le paquet, les mots
+  cherchés surlignés.
 - **Faites le bureau vôtre.** Fonds d'écran et diaporamas par écran ou par
   workspace, raccourcis d'applications et de fichiers, thème tiré d'une
   image. Les modules de la barre se réorganisent au glisser, le dock
@@ -470,7 +473,7 @@ nature (fichiers, dossiers, liens) et par catégorie (documents, images,
 vidéos, programmes…).
 
 Le champ de recherche du lanceur porte la loupe dans tous ses modes (`:f`,
-`:clip`, `:2fa`, `:mdp` compris) et, dès qu'il contient une requête, un bouton
+`:clip`, `:2fa`, `:mdp`, `:r` compris) et, dès qu'il contient une requête, un bouton
 Clear à droite : un clic efface la requête et rend la main au champ.
 
 L'index vit en arrière-plan, tenu à jour par inotify et un rescan

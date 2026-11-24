@@ -289,7 +289,10 @@ and disabled bindings are kept. A hand-written file is copied
 - **Find a setting.** The search field in the Settings header filters
   settings as you type; the navigation column then keeps only the packages
   with a match, each with its count. As soon as it holds a query, a Clear
-  button on the right erases it and returns to the field.
+  button on the right erases it and returns to the field. The launcher
+  finds them too: `:r opacity` (or `:reglages opacity`) lists the matching
+  pages, tabs and labels; Enter or a click closes the launcher and opens
+  the drawer on the package, the words highlighted.
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by
@@ -451,7 +454,7 @@ kind (files, folders, links) and by category (documents, images, videos,
 programs…).
 
 The launcher's search field carries the loupe in every mode (including `:f`,
-`:clip`, `:2fa`, `:mdp`) and, as soon as it holds a query, a Clear button on
+`:clip`, `:2fa`, `:mdp`, `:r`) and, as soon as it holds a query, a Clear button on
 the right: one click erases the query and returns to the field.
 
 The index runs in the background, kept fresh by inotify and a periodic

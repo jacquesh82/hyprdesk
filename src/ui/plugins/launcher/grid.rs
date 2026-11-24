@@ -147,7 +147,7 @@ impl App {
             s,
             Length::Fixed(width),
             size,
-            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp)"),
+            crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp, :r)"),
         )
     }
 

@@ -206,11 +206,18 @@ impl App {
     /// affiché (plugin actif, configuration avancée suffisante) ; sinon le
     /// Bureau.
     fn panel_restore(&self) -> Tab {
-        if self.cfg.plugin_on(self.panel_tab) && plugins::visible(self.panel_tab, self.advanced()) {
+        if self.setting_visible(self.panel_tab) {
             self.panel_tab
         } else {
             plugins::desktop::INFO.id
         }
+    }
+
+    /// Paquet dont les réglages se montrent et se trouvent : plugin actif,
+    /// configuration avancée suffisante. Le tiroir et le lanceur (`:r`) ont
+    /// la même liste (HIG PAT-13).
+    pub(in crate::ui) fn setting_visible(&self, id: &str) -> bool {
+        self.cfg.plugin_on(id) && plugins::visible(id, self.advanced())
     }
 
     /// Ouvre le tiroir des réglages sur l'écran principal, dans sa propre
@@ -757,9 +764,7 @@ impl App {
         // Entrée d'un paquet.
         // Recherche en cours : résultats, et leur nombre par paquet.
         let query = p.search.trim().to_string();
-        let found = super::settings_search::search(&query, |id| {
-            self.cfg.plugin_on(id) && plugins::visible(id, adv)
-        });
+        let found = super::settings_search::search(&query, |id| self.setting_visible(id));
         let count = |id: &str| found.iter().filter(|e| e.page == id).count();
         let searching = !query.is_empty();
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
@@ -859,7 +864,7 @@ impl App {
                 .ids
                 .iter()
                 .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
-                .filter(|i| self.cfg.plugin_on(i.id) && plugins::visible(i.id, adv))
+                .filter(|i| self.setting_visible(i.id))
                 .filter(|i| !searching || count(i.id) > 0)
                 .collect();
             if items.is_empty() {
@@ -1262,6 +1267,19 @@ impl App {
         font: iced::Font,
     ) -> Element<'a, Msg> {
         let q = self.search_query();
+        self.marked_with(s, q, size, c, font)
+    }
+
+    /// [`App::marked`] pour la recherche `q` donnée : celle du lanceur
+    /// (`:r`), qui n'est pas celle du tiroir (HIG PAT-13).
+    pub(in crate::ui) fn marked_with<'a>(
+        &self,
+        s: &str,
+        q: &str,
+        size: u32,
+        c: Color,
+        font: iced::Font,
+    ) -> Element<'a, Msg> {
         let hits = if q.is_empty() {
             Vec::new()
         } else {

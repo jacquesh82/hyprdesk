@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 167] = [
+const SCENES: [&str; 168] = [
     "desktop",
     "typography",
     "icons",
@@ -69,6 +69,7 @@ const SCENES: [&str; 167] = [
     "probleme",
     "recherche",
     "presse-papiers",
+    "reglages",
     "son",
     "energie",
     "date-heure",
@@ -1187,6 +1188,13 @@ impl Preview {
                 entry(39, "[[ binary data 48 KiB png 640x480 ]]"),
                 entry(38, "fn main() { println!(\"bonjour\"); }"),
             ]));
+        } else if SCENES[self.scene] == "reglages" {
+            // Lanceur, mode réglages : « :r fond » dans l'index du tiroir.
+            self.app.search = None;
+            let _ = self.app.toggle_search();
+            let _ = self
+                .app
+                .search_update(super::search::SMsg::Query(":r fond".into()));
         } else {
             self.app.search = None;
         }
