@@ -422,7 +422,7 @@ d'applications qu'ouvre son bouton est le paquet `launcher` :
   - `none` : une entrée par fenêtre ;
   - `app` : une entrée par application, c'est-à-dire par classe de fenêtre,
     donc par binaire. Des points indiquent le nombre de fenêtres, et un clic
-    passe de l'une à l'autre ;
+    donne le focus à la plus récemment utilisée ;
   - `workspace` : les fenêtres rangées sous le numéro de leur workspace.
 - **Règle d'or.** L'utiliser ne change jamais le mode du bureau :
   - en `launcher-only`, un clic donne le focus à la fenêtre ;

@@ -410,7 +410,7 @@ application launcher its button opens is the `launcher` package:
   - `none`: one entry per window;
   - `app`: one entry per application, that is, per window class,
     hence per binary. Dots show the number of windows, and a click
-    cycles from one to the next;
+    focuses the most recently used one;
   - `workspace`: windows grouped under their workspace number.
 - **Golden rule.** Using it never changes the desktop mode:
   - in `launcher-only`, a click focuses the window;

@@ -170,12 +170,6 @@ impl App {
                 .font(self.title_font())
                 .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
-            text(crate::i18n::tr(
-                "Le détail ci-dessous peut être copié pour le chercher ou le confier à un assistant."
-            ))
-            .font(self.font)
-            .size(crate::ui::tokens::ts(12.0))
-            .color(dim),
             detail,
             row![
                 text(if p.copied {
@@ -187,19 +181,35 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text(crate::i18n::tr("Fermer")).font(self.font).size(crate::ui::tokens::ts(13.0)))
-                    .padding([8, 16])
-                    .style(button::text)
-                    .on_press(Msg::Problem(PrMsg::Close)),
-                button(text(crate::i18n::tr("Copier")).font(self.font).size(crate::ui::tokens::ts(13.0)))
-                    .padding([8, 16])
-                    .style(if lyra { button::secondary } else { button::primary })
-                    .on_press(Msg::Problem(PrMsg::Copy)),
+                button(
+                    text(crate::i18n::tr("Fermer"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([8, 16])
+                .style(button::text)
+                .on_press(Msg::Problem(PrMsg::Close)),
+                button(
+                    text(crate::i18n::tr("Copier"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([8, 16])
+                .style(if lyra {
+                    button::secondary
+                } else {
+                    button::primary
+                })
+                .on_press(Msg::Problem(PrMsg::Copy)),
             ]
             .push(lyra.then(|| {
-                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(crate::ui::tokens::ts(13.0)))
-                    .padding([8, 16])
-                    .on_press(Msg::Problem(PrMsg::Ask))
+                button(
+                    text(crate::i18n::tr("Demander à LYRA"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([8, 16])
+                .on_press(Msg::Problem(PrMsg::Ask))
             }))
             .spacing(10)
             .align_y(Alignment::Center),

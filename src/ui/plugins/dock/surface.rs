@@ -1691,8 +1691,9 @@ impl App {
         Task::batch([feedback, resolve])
     }
 
-    /// Clic sur une application regroupée : sa fenêtre suivante, à tour de
-    /// rôle. Comme toute action du lanceur, le mode du bureau ne change pas.
+    /// Clic sur une application regroupée : sa fenêtre la plus récemment
+    /// utilisée, comme le Dock de macOS (HIG PRES-08). Comme toute action du
+    /// lanceur, le mode du bureau ne change pas.
     pub(in crate::ui) fn launcher_focus_app(&mut self, monitor: &str, class: &str) -> Task<UiMsg> {
         let workspace = self
             .monitors
@@ -1708,16 +1709,50 @@ impl App {
         if list.is_empty() {
             return Task::none();
         }
-        let n = self.launcher_cycle.entry(class.to_string()).or_insert(0);
-        let address = list[*n % list.len()].clone();
-        *n = n.wrapping_add(1);
-        self.update_inner(UiMsg::FocusWindow(address))
+        // L'ordre du focus vient de Hyprland (`focusHistoryID`), relevé hors
+        // du fil de l'interface.
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    most_recent(&crate::switcher::read_with(false), &list)
+                })
+                .await
+                .unwrap_or_default()
+            },
+            UiMsg::FocusWindow,
+        )
     }
+}
+
+/// Parmi les fenêtres d'une application (`list`), la plus récemment
+/// utilisée selon l'ordre du focus ; sans cet ordre, la première.
+fn most_recent(order: &[crate::switcher::Win], list: &[String]) -> String {
+    order
+        .iter()
+        .find(|w| list.contains(&w.address))
+        .map(|w| w.address.clone())
+        .or_else(|| list.first().cloned())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Clic sur une application regroupée : sa fenêtre la plus récente
+    /// (HIG PRES-08).
+    #[test]
+    fn application_groupee_fenetre_la_plus_recente() {
+        let v = serde_json::json!([
+            {"address":"0xb","class":"kitty","title":"b","workspace":{"name":"1"},"focusHistoryID":2},
+            {"address":"0xf","class":"firefox","title":"f","workspace":{"name":"1"},"focusHistoryID":0},
+            {"address":"0xa","class":"kitty","title":"a","workspace":{"name":"1"},"focusHistoryID":1}
+        ]);
+        let order = crate::switcher::parse_with(&v, false);
+        let list = vec!["0xb".to_string(), "0xa".to_string()];
+        assert_eq!(most_recent(&order, &list), "0xa");
+        assert_eq!(most_recent(&[], &list), "0xb", "sans ordre : la première");
+    }
 
     /// Le survol du dock ne grossit rien sans mouvement possible (HIG FON-07).
     #[test]

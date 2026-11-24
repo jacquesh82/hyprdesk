@@ -641,8 +641,6 @@ pub struct App {
     launcher_popup: Option<plugins::dock::Popup>,
     launcher_popup_token: u64,
     launcher_popup_hover: bool,
-    /// Lanceur regroupé par application : rang de la prochaine fenêtre, par classe.
-    launcher_cycle: HashMap<String, usize>,
     /// Écrans tels que Hyprland les voit, pour l'onglet Écrans.
     screens: Vec<crate::screens::Screen>,
     /// Changement d'écrans appliqué mais pas confirmé : disposition d'avant
@@ -1158,7 +1156,6 @@ impl App {
             fs_held: HashSet::new(),
             float_held: Default::default(),
             click_monitor: None,
-            launcher_cycle: HashMap::new(),
             lyra_rule: None,
             identify: Vec::new(),
             gamma: if preview {
