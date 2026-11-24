@@ -8,7 +8,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::hypr;
@@ -902,30 +902,36 @@ impl App {
                     );
                 }
                 let zs = z.clone();
+                // La pose enregistre à chaque changement : rien à ajouter au
+                // relâchement ni après la saisie.
+                let spec = SliderSpec::new(
+                    "panorama_zone_size",
+                    (10.0, 50.0),
+                    5.0,
+                    move |v| {
+                        wrap(Msg::PanoramaZone(Some(Zone {
+                            size: ((v / 100.0 * 20.0).round() / 20.0) as f32,
+                            ..zs.clone()
+                        })))
+                    },
+                    UiMsg::Noop,
+                );
                 col = col
                     .push(orient)
                     .push(side_row)
                     .push(
                         row![
-                            text(crate::i18n::tr("Taille"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .width(80),
-                            // La pose enregistre à chaque changement : rien à
-                            // ajouter au relâchement ni après la saisie.
+                            // Sur la ligne du curseur, au-dessus de son échelle
+                            // (HIG SEL-09).
+                            beside_slider(
+                                &spec,
+                                text(crate::i18n::tr("Taille"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(80)
+                            ),
                             self.slider(
-                                &SliderSpec::new(
-                                    "panorama_zone_size",
-                                    (10.0, 50.0),
-                                    5.0,
-                                    move |v| {
-                                        wrap(Msg::PanoramaZone(Some(Zone {
-                                            size: ((v / 100.0 * 20.0).round() / 20.0) as f32,
-                                            ..zs.clone()
-                                        })))
-                                    },
-                                    UiMsg::Noop,
-                                ),
+                                &spec,
                                 f64::from(z.size) * 100.0,
                                 |v| format!("{:.0} %", v),
                                 SliderLook::fill(12.0, 48, Alignment::Center).spacing(10),

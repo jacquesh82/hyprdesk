@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 177] = [
+const SCENES: [&str; 178] = [
     "desktop",
     "typography",
     "icons",
@@ -208,6 +208,9 @@ const SCENES: [&str; 177] = [
     // Boîte « Forcer à quitter » et sa confirmation (HIG ENT-10).
     "forcer-quitter",
     "forcer-quitter-confirmation",
+    // Échelle des curseurs des Réglages (HIG SEL-09) : Thème → Composants,
+    // bornes sous chaque curseur, graduations sous ceux de dix pas au plus.
+    "reglages-echelle",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -892,6 +895,7 @@ impl Preview {
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             "reglages-valeur-saisie" => Some("dock"),
+            "reglages-echelle" => Some("theme"),
             "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
@@ -1538,6 +1542,11 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+            // Échelle des curseurs (HIG SEL-09) : les options des composants
+            // du thème, dont des curseurs gradués (colonnes, nombre visible).
+            if SCENES[self.scene] == "reglages-echelle" {
+                self.app.subtabs.insert("theme", "composants");
+            }
             // Valeur d'un curseur saisie (HIG SEL-08) : « Taille des icônes »,
             // Dock → Apparence ; l'aperçu ne peut pas cliquer la valeur.
             if SCENES[self.scene] == "reglages-valeur-saisie"

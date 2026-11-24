@@ -14,7 +14,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, image, pick_list, row, stack, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -278,28 +278,37 @@ impl App {
             let v = a.get(key).unwrap_or(*neutral);
             let k = key.to_string();
             let k2 = key.to_string();
+            let spec = SliderSpec::new(
+                format!("couleurs.{mon}.{key}"),
+                (f64::from(*lo), f64::from(*hi)),
+                0.01,
+                move |x| wrap(Msg::Drag(k.clone(), x as f32)),
+                wrap(Msg::Release),
+            );
+            // Libellé et retour au neutre restent sur la ligne du curseur,
+            // au-dessus de son échelle (HIG SEL-09).
             let line: Element<'_, UiMsg> = row![
-                container(self.marked(crate::i18n::tr(label), 13, fg, self.font)).width(110),
+                beside_slider(
+                    &spec,
+                    container(self.marked(crate::i18n::tr(label), 13, fg, self.font)).width(110)
+                ),
                 self.slider(
-                    &SliderSpec::new(
-                        format!("couleurs.{mon}.{key}"),
-                        (f64::from(*lo), f64::from(*hi)),
-                        0.01,
-                        move |x| wrap(Msg::Drag(k.clone(), x as f32)),
-                        wrap(Msg::Release),
-                    ),
+                    &spec,
                     f64::from(v),
                     |x| format!("{x:.2}"),
                     SliderLook::fill(12.0, 40, Alignment::Center)
                         .spacing(8)
                         .ink(dim),
                 ),
-                button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
-                    .padding([2, 8])
-                    .style(button::text)
-                    .on_press_maybe(
-                        ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
-                    ),
+                beside_slider(
+                    &spec,
+                    button(iced::widget::text("↺").size(crate::ui::tokens::ts(12.0)))
+                        .padding([2, 8])
+                        .style(button::text)
+                        .on_press_maybe(
+                            ((v - neutral).abs() >= 1e-3).then(|| wrap(Msg::ResetField(k2)))
+                        )
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center)

@@ -191,18 +191,50 @@ impl Picker {
         .interaction(iced::mouse::Interaction::Crosshair);
         // Luminosité, sur un dégradé du noir à la teinte choisie.
         let bright = hsv_to_rgb(self.h, self.s, 1.0);
+        let echelle_h = super::panel::scale_line_h();
+        // Place de l'échelle sous le curseur : le libellé et la valeur la
+        // gardent sous eux pour rester sur la ligne du curseur.
+        let sous = iced::Padding {
+            bottom: super::panel::slider_band((0.0, 100.0), 1.0),
+            ..iced::Padding::ZERO
+        };
+        let borne = |t: &'static str| {
+            text(t)
+                .font(font)
+                .size(crate::ui::tokens::ts(11.0))
+                .line_height(iced::widget::text::LineHeight::Absolute(echelle_h.into()))
+                .color(dim)
+        };
         let lum = row![
-            text(crate::i18n::tr("Luminosité"))
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0)),
-            slider(0..=100u32, (self.v * 100.0).round() as u32, move |v| {
-                w5(PickerMsg::Value(v as f32 / 100.0))
-            })
+            container(
+                text(crate::i18n::tr("Luminosité"))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding(sous),
+            column![
+                slider(0..=100u32, (self.v * 100.0).round() as u32, move |v| {
+                    w5(PickerMsg::Value(v as f32 / 100.0))
+                })
+                .width(Length::Fill),
+                // L'échelle (HIG SEL-09) : les bornes sous le curseur.
+                row![
+                    borne("0 %"),
+                    Space::new().width(Length::Fill),
+                    borne("100 %")
+                ],
+            ]
+            .spacing(4)
             .width(Length::Fill),
-            text(format!("{} %", (self.v * 100.0).round() as i32))
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0))
-                .width(40),
+            // La valeur garde sous elle la place de l'échelle : elle reste
+            // sur la ligne du curseur.
+            container(
+                text(format!("{} %", (self.v * 100.0).round() as i32))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .width(40)
+            )
+            .padding(sous),
         ]
         .spacing(10)
         .align_y(Alignment::Center);

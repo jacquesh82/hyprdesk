@@ -35,6 +35,53 @@ const SLIDER_ID: &str = "hyprdesk-panel-slider";
 /// (HIG SEL-08).
 const SLIDER_FIELD_W: f32 = 72.0;
 
+/// Taille de référence des bornes sous un curseur des Réglages (HIG SEL-09) :
+/// la légende, comme les aides du tiroir.
+const SCALE_SIZE: f32 = 11.0;
+/// Écart du curseur à son échelle (px).
+const SCALE_GAP: f32 = 4.0;
+/// Hauteur d'une graduation (px).
+const TICK_H: f32 = 4.0;
+/// Rayon de la poignée d'un curseur du tiroir (style par défaut d'iced) :
+/// la poignée parcourt le rail de `r` à `largeur - r`, les graduations aussi.
+const HANDLE_R: f32 = 7.0;
+
+/// Hauteur d'une ligne de bornes sous un curseur (HIG SEL-09).
+pub(in crate::ui) fn scale_line_h() -> f32 {
+    (crate::ui::tokens::ts(SCALE_SIZE) * 1.3).round()
+}
+
+/// Nombre de pas d'un curseur gradué : dix au plus (HIG SEL-09), sinon aucun.
+fn graduations(range: (f64, f64), step: f64) -> Option<usize> {
+    let n = (range.1 - range.0).abs() / step;
+    let entier = n.round();
+    (step > 0.0 && n.is_finite() && (n - entier).abs() < 1e-6 && (1.0..=10.0).contains(&entier))
+        .then_some(entier as usize)
+}
+
+/// Hauteur que l'échelle ajoute sous un curseur (bornes, et graduations s'il
+/// en a) : la valeur et les voisins d'une rangée centrée la gardent sous eux
+/// pour rester sur la ligne du curseur.
+pub(in crate::ui) fn slider_band(range: (f64, f64), step: f64) -> f32 {
+    let ticks = graduations(range, step).map_or(0.0, |_| TICK_H + SCALE_GAP);
+    scale_line_h() + SCALE_GAP + ticks
+}
+
+/// Un voisin d'un curseur dans une rangée centrée (HIG SEL-09) : libellé,
+/// bouton, interrupteur… garde sous lui la place de l'échelle et reste ainsi
+/// sur la ligne du curseur.
+pub(in crate::ui) fn beside_slider<'a, M: 'a>(
+    spec: &SliderSpec,
+    el: impl Into<Element<'a, M>>,
+) -> Element<'a, M> {
+    container(el)
+        .padding(iced::Padding {
+            bottom: slider_band(spec.range, spec.step),
+            ..iced::Padding::ZERO
+        })
+        .into()
+}
+
 /// Messages du tiroir : ceux de la coquille, et ceux des paquets (enveloppés).
 #[derive(Debug, Clone)]
 pub enum PanelMsg {
@@ -1659,6 +1706,41 @@ impl App {
         .step(spec.step as f32)
         .on_release(spec.save.clone())
         .width(look.width);
+        // L'échelle du curseur (HIG SEL-09) : le minimum à gauche, le maximum
+        // à droite, dans le format du réglage, sous le curseur seul. Hauteur de
+        // ligne fixée : la valeur, à droite, en tient compte pour rester sur la
+        // ligne du curseur.
+        let dim = self.ink().dim;
+        let echelle_h = scale_line_h();
+        let borne = |v: f64| {
+            text(affiche(v))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(SCALE_SIZE))
+                .line_height(iced::widget::text::LineHeight::Absolute(echelle_h.into()))
+                .color(dim)
+                .wrapping(iced::widget::text::Wrapping::None)
+        };
+        let echelle = row![borne(min), Space::new().width(Length::Fill), borne(max)]
+            .spacing(8)
+            .width(look.width);
+        let mut slider = column![slider].spacing(SCALE_GAP).width(look.width);
+        // Dix pas au plus : un trait sous chaque pas, au droit de la poignée.
+        if let Some(n) = graduations(spec.range, spec.step) {
+            let trait_ = || {
+                container(Space::new().width(1).height(TICK_H)).style(move |_| container::Style {
+                    background: Some(dim.into()),
+                    ..container::Style::default()
+                })
+            };
+            let mut ticks = row![trait_()]
+                .width(look.width)
+                .padding(iced::Padding::from([0.0, HANDLE_R - 0.5]));
+            for _ in 0..n {
+                ticks = ticks.push(Space::new().width(Length::Fill)).push(trait_());
+            }
+            slider = slider.push(ticks);
+        }
+        let slider = slider.push(echelle);
         // Curseur plafonné : son contenant prend la place libre jusqu'au
         // plafond, la valeur reste à sa suite.
         let slider: Element<'_, Msg> = match look.cap {
@@ -1724,6 +1806,9 @@ impl App {
             Length::Shrink | Length::Fixed(_) => Length::Shrink,
             souple => souple,
         };
+        // La valeur garde sous elle la place de l'échelle : centrée ou en
+        // haut, elle reste sur la ligne du curseur.
+        let value = beside_slider(spec, value);
         row![slider, value]
             .spacing(f32::from(look.spacing))
             .width(rangee)
@@ -2373,6 +2458,31 @@ mod tests {
         let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(texte, 1.5))));
         assert!(ouvert(&app, "screen.DP-1.text_scale"));
         assert!(!ouvert(&app, "screen.DP-1.bar_height"));
+    }
+
+    /// HIG SEL-09 : un curseur de dix pas au plus est gradué, un pas par
+    /// trait ; au-delà, ou sur un domaine vide, seules ses bornes s'affichent.
+    /// L'échelle d'un curseur gradué est plus haute de la graduation et de son
+    /// écart.
+    #[test]
+    fn un_curseur_de_dix_pas_au_plus_est_gradue() {
+        assert_eq!(graduations((1.0, 6.0), 1.0), Some(5), "passes du flou");
+        assert_eq!(graduations((1.0, 4.0), 1.0), Some(3));
+        assert_eq!(graduations((0.0, 1.0), 0.1), Some(10), "dix pas : gradué");
+        assert_eq!(graduations((0.0, 1.0), 0.05), None, "vingt pas");
+        assert_eq!(graduations((24.0, 96.0), 1.0), None);
+        assert_eq!(graduations((5.0, 5.0), 1.0), None, "domaine vide");
+        assert_eq!(
+            graduations((0.0, 1.0), 0.3),
+            None,
+            "pas qui ne tombe pas juste"
+        );
+        assert_eq!(graduations((0.0, 4.0), 0.0), None, "pas nul");
+        assert_eq!(
+            slider_band((1.0, 6.0), 1.0) - slider_band((24.0, 96.0), 1.0),
+            TICK_H + SCALE_GAP
+        );
+        assert_eq!(slider_band((24.0, 96.0), 1.0), scale_line_h() + SCALE_GAP);
     }
 
     /// Le volume d'un appareil ou d'une application se saisit en pour cent,

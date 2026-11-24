@@ -13,7 +13,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, radio, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{Effect, Mode, Place, Rgba};
@@ -627,14 +627,17 @@ impl App {
         let mut effects = column![].spacing(12);
         for place in Place::ALL {
             let e = th.effect(place);
+            let spec = SliderSpec::new(
+                place.as_str(),
+                (0.0, 100.0),
+                1.0,
+                move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
+                wrap(Msg::Commit),
+            );
+            // Les interrupteurs restent sur la ligne du curseur, au-dessus de
+            // son échelle (HIG SEL-09).
             let mut line = row![self.slider(
-                &SliderSpec::new(
-                    place.as_str(),
-                    (0.0, 100.0),
-                    1.0,
-                    move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
-                    wrap(Msg::Commit),
-                ),
+                &spec,
                 f64::from((e.opacity * 100.0).round() as u32),
                 percent,
                 SliderLook::fill(13.0, 48, Alignment::Center),
@@ -642,24 +645,26 @@ impl App {
             .spacing(12)
             .align_y(Alignment::Center);
             if place.blurrable() {
-                line = line.push(
+                line = line.push(beside_slider(
+                    &spec,
                     toggler(e.blur)
                         .label(crate::i18n::tr("Flou"))
                         .font(font)
                         .on_toggle(move |v| wrap(Msg::Blur(place, v))),
-                );
+                ));
             }
             // Transparence adaptative : les surfaces posées sur le fond
             // d'écran (le lanceur l'est toujours ; menus et Réglages
             // passent devant des fenêtres, invisibles pour hyprdesk).
             let adaptable = matches!(place, Place::Bar | Place::Widgets);
             if adaptable {
-                line = line.push(
+                line = line.push(beside_slider(
+                    &spec,
                     toggler(e.adaptive.is_some())
                         .label(crate::i18n::tr("Adaptatif"))
                         .font(font)
                         .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
-                );
+                ));
             }
             let mut cell = column![line].spacing(4);
             let note = match (place, e.adaptive) {
@@ -721,6 +726,13 @@ impl App {
         }
         // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
         let pack = crate::ui::tokens::design();
+        let text_scale = SliderSpec::new(
+            "text_scale",
+            (75.0, 200.0),
+            1.0,
+            |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
+            wrap(Msg::Commit),
+        );
         let mut access = column![
             toggler(g.reduced_transparency)
                 .label(crate::i18n::tr("Transparence réduite"))
@@ -735,17 +747,15 @@ impl App {
                 .font(font)
                 .on_toggle(|v| wrap(Msg::IncreaseContrast(v))),
             row![
-                text(crate::i18n::tr("Taille du texte"))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(13.0)),
+                // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
+                beside_slider(
+                    &text_scale,
+                    text(crate::i18n::tr("Taille du texte"))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0))
+                ),
                 self.slider(
-                    &SliderSpec::new(
-                        "text_scale",
-                        (75.0, 200.0),
-                        1.0,
-                        |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
-                        wrap(Msg::Commit)
-                    ),
+                    &text_scale,
                     f64::from((g.text_scale * 100.0).round()),
                     affiche_pourcent,
                     SliderLook::fill(13.0, 48, Alignment::Center),
@@ -806,27 +816,33 @@ impl App {
                 ),
             ));
         }
+        let lock_dim = SliderSpec::new(
+            "lock_dim",
+            (0.0, 100.0),
+            1.0,
+            |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
+            wrap(Msg::Commit),
+        );
         effects = effects.push(
             self.field(
                 "Verrouillage",
                 "lock_dim",
                 row![
                     self.slider(
-                        &SliderSpec::new(
-                            "lock_dim",
-                            (0.0, 100.0),
-                            1.0,
-                            |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
-                            wrap(Msg::Commit)
-                        ),
+                        &lock_dim,
                         f64::from((g.lock.dim * 100.0).round()),
                         affiche_pourcent,
                         SliderLook::fill(13.0, 48, Alignment::Center),
                     ),
-                    toggler(g.lock.blur)
-                        .label(crate::i18n::tr("Flou"))
-                        .font(font)
-                        .on_toggle(|v| wrap(Msg::LockBlur(v))),
+                    // Sur la ligne du curseur, au-dessus de son échelle
+                    // (HIG SEL-09).
+                    beside_slider(
+                        &lock_dim,
+                        toggler(g.lock.blur)
+                            .label(crate::i18n::tr("Flou"))
+                            .font(font)
+                            .on_toggle(|v| wrap(Msg::LockBlur(v)))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),

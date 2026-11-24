@@ -7,7 +7,7 @@
 use iced::widget::{Space, button, canvas, column, container, row, text_input};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Task, mouse};
 
-use super::panel::{SliderLook, SliderSpec};
+use super::panel::{SliderLook, SliderSpec, beside_slider};
 use super::{App, Msg as UiMsg, color};
 use crate::fx::CurveDef;
 use crate::i18n::text;
@@ -224,20 +224,26 @@ impl App {
             let mut sliders = column![].spacing(6);
             for (i, (label, v, min, max, step)) in params(def).into_iter().enumerate() {
                 let n = name.clone();
+                let spec = SliderSpec::new(
+                    format!("{name}#{i}"),
+                    (min, max),
+                    step,
+                    move |x| wrap(Msg::Param(n.clone(), i, (x / step).round() * step)),
+                    wrap(Msg::Commit),
+                );
                 sliders = sliders.push(
                     row![
-                        text(crate::i18n::tr(label))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .width(110),
+                        // Sur la ligne du curseur, au-dessus de son échelle
+                        // (HIG SEL-09).
+                        beside_slider(
+                            &spec,
+                            text(crate::i18n::tr(label))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .width(110)
+                        ),
                         self.slider(
-                            &SliderSpec::new(
-                                format!("{name}#{i}"),
-                                (min, max),
-                                step,
-                                move |x| wrap(Msg::Param(n.clone(), i, (x / step).round() * step)),
-                                wrap(Msg::Commit),
-                            ),
+                            &spec,
                             v,
                             |x| format!("{}", (x * 100.0).round() / 100.0),
                             SliderLook::fixed(12.0, 200, Alignment::Center).spacing(10),

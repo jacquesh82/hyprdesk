@@ -8,7 +8,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -201,17 +201,21 @@ impl App {
                     .ink(fg)
                     .value_width(48.0 * crate::ui::tokens::text_growth()),
             ),
-            button(
-                text(if n.muted {
-                    "Rétablir le son"
-                } else {
-                    "Couper le son"
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .on_press(wrap(Msg::Mute(id))),
+            // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
+            beside_slider(
+                &volume_spec(id),
+                button(
+                    text(if n.muted {
+                        "Rétablir le son"
+                    } else {
+                        "Couper le son"
+                    })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::Mute(id)))
+            ),
         ]
         .spacing(10)
         .align_y(Alignment::Center)

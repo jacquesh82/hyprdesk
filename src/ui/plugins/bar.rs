@@ -30,7 +30,7 @@ use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 use crate::config::{BAR_COLOR_SLOTS, Rgba};
 use crate::ui::color_picker::{Picker, PickerMsg, well};
 
-use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -1373,41 +1373,47 @@ impl App {
         // Transparence du fond.
         let theme_opacity = th.effect(crate::config::Place::Bar).opacity;
         let o = b.colors.opacity.unwrap_or(theme_opacity);
+        let spec = SliderSpec::new(
+            "bar_colors_opacity",
+            (0.0, 100.0),
+            1.0,
+            |v| wrap(Msg::Opacity(Some(v.round() as u32 as f32 / 100.0))),
+            wrap(Msg::Commit),
+        );
         col = col.push(
             self.field(
                 "Opacité du fond",
                 "",
                 row![
                     self.slider(
-                        &SliderSpec::new(
-                            "bar_colors_opacity",
-                            (0.0, 100.0),
-                            1.0,
-                            |v| wrap(Msg::Opacity(Some(v.round() as u32 as f32 / 100.0))),
-                            wrap(Msg::Commit),
-                        ),
+                        &spec,
                         f64::from((o * 100.0).round()),
                         en_pour_cent,
                         SliderLook::fill(13.0, 48, Alignment::Center).spacing(10),
                     ),
-                    if b.colors.opacity.is_some() {
-                        Element::from(
-                            button(
-                                text(crate::i18n::tr("Thème"))
-                                    .font(font)
-                                    .size(crate::ui::tokens::ts(12.0)),
+                    // Sur la ligne du curseur, au-dessus de son échelle
+                    // (HIG SEL-09).
+                    beside_slider(
+                        &spec,
+                        if b.colors.opacity.is_some() {
+                            Element::from(
+                                button(
+                                    text(crate::i18n::tr("Thème"))
+                                        .font(font)
+                                        .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([3, 8])
+                                .on_press(wrap(Msg::Opacity(None))),
                             )
-                            .padding([3, 8])
-                            .on_press(wrap(Msg::Opacity(None))),
-                        )
-                    } else {
-                        text(crate::i18n::tr("thème"))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .color(dim)
-                            .width(52)
-                            .into()
-                    },
+                        } else {
+                            text(crate::i18n::tr("thème"))
+                                .font(font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim)
+                                .width(52)
+                                .into()
+                        }
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),

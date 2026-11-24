@@ -11,7 +11,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, container, pick_list, row, toggler};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
@@ -311,7 +311,14 @@ impl App {
                 continue;
             };
             let base = a.clone();
-            let mut line = row![toggler(a.enabled).on_toggle({
+            let speed = SliderSpec::new(
+                format!("anim_speed.{name}"),
+                (1.0, 20.0),
+                0.5,
+                move |x| wrap(Msg::Speed(name.into(), x)),
+                wrap(Msg::Commit),
+            );
+            let interrupteur = toggler(a.enabled).on_toggle({
                 let base = base.clone();
                 move |v| {
                     wrap(Msg::Anim(
@@ -322,20 +329,21 @@ impl App {
                         }),
                     ))
                 }
-            })]
+            });
+            // Avec son curseur, l'interrupteur reste sur la ligne de celui-ci,
+            // au-dessus de son échelle (HIG SEL-09).
+            let mut line = if a.enabled {
+                row![beside_slider(&speed, interrupteur)]
+            } else {
+                row![interrupteur]
+            }
             .spacing(12)
             .align_y(Alignment::Center);
             // Seconde ligne : courbe et style.
             let mut second = row![].spacing(10);
             if a.enabled {
                 line = line.push(self.slider(
-                    &SliderSpec::new(
-                        format!("anim_speed.{name}"),
-                        (1.0, 20.0),
-                        0.5,
-                        move |x| wrap(Msg::Speed(name.into(), x)),
-                        wrap(Msg::Commit),
-                    ),
+                    &speed,
                     a.speed,
                     |x| format!("{x}"),
                     SliderLook::fill(13.0, 30, Alignment::Center),
@@ -388,7 +396,12 @@ impl App {
                     );
                 }
             }
-            line = line.push(self.fx_origin(true, wrap(Msg::Anim(name.into(), None))));
+            let origine = self.fx_origin(true, wrap(Msg::Anim(name.into(), None)));
+            line = line.push(if a.enabled {
+                beside_slider(&speed, origine)
+            } else {
+                origine
+            });
             col = col.push(self.field(l.label, "", column![line, second].spacing(8)));
         }
         col = col.push(

@@ -13,7 +13,7 @@ use iced::widget::{Space, button, column, container, pick_list, row, text_input,
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::color_picker::{Picker, PickerMsg, well};
-use super::panel::{SliderLook, SliderSpec};
+use super::panel::{SliderLook, SliderSpec, slider_band};
 use super::{App, Msg as UiMsg, color};
 use crate::config::Rgba;
 use crate::i18n::text;
@@ -271,6 +271,17 @@ impl App {
                 .color(dim)
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .into()
+        };
+        // À côté d'un curseur, l'origine reste sur la ligne de celui-ci,
+        // au-dessus de son échelle (HIG SEL-09).
+        let origin = match &o.kind {
+            Kind::Num { min, max, step } => container(origin)
+                .padding(iced::Padding {
+                    bottom: slider_band((*min, *max), *step),
+                    ..iced::Padding::ZERO
+                })
+                .into(),
+            _ => origin,
         };
         let mut body = column![
             row![container(control).width(Length::Fill), origin]
