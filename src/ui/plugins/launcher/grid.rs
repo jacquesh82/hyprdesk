@@ -213,7 +213,7 @@ impl App {
             })
             .unwrap_or_else(|| {
                 text("⌕")
-                    .size(crate::ui::tokens::ts(18.0))
+                    .size(crate::ui::tokens::ts(17.0))
                     .color(dim)
                     .into()
             });
@@ -239,7 +239,7 @@ impl App {
                 })
                 .unwrap_or_else(|| {
                     text("×")
-                        .size(crate::ui::tokens::ts(16.0))
+                        .size(crate::ui::tokens::ts(15.0))
                         .color(dim)
                         .into()
                 });
@@ -364,7 +364,7 @@ impl App {
             crate::theme::mix(self.cfg.general.theme.bg, r.focus, 0.10),
             1.0,
         );
-        let mut body = column![container(self.apps_field(s, 560.0, 18.0)).center_x(Length::Fill)]
+        let mut body = column![container(self.apps_field(s, 560.0, 17.0)).center_x(Length::Fill)]
             .spacing(22)
             .align_x(Alignment::Center);
         // Suggestions : les plus lancées, dans un bandeau teinté (sans requête).
@@ -447,7 +447,7 @@ impl App {
             grid = grid.push(
                 text(crate::i18n::tr("Aucune application ne correspond."))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
@@ -558,7 +558,7 @@ impl App {
         let mut body = if convex {
             column![]
         } else {
-            column![self.apps_field(s, spot_width() - 44.0, 20.0)]
+            column![self.apps_field(s, spot_width() - 44.0, 22.0)]
         }
         .spacing(16);
         if !typing && !s.suggested.is_empty() {
@@ -581,7 +581,7 @@ impl App {
             list = list.push(
                 text(crate::i18n::tr("Aucune application ne correspond."))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             );
         }
@@ -600,7 +600,7 @@ impl App {
                             Element::from(
                                 text("↵")
                                     .font(self.font)
-                                    .size(crate::ui::tokens::ts(14.0))
+                                    .size(crate::ui::tokens::ts(13.0))
                                     .color(dim),
                             )
                         } else {
@@ -636,7 +636,7 @@ impl App {
         if convex {
             let body = column![
                 scrollable(body).height(Length::Fill),
-                self.apps_field(s, spot_width() - 80.0, 16.0)
+                self.apps_field(s, spot_width() - 80.0, 15.0)
             ]
             .spacing(16);
             return self.convex_search_surface(

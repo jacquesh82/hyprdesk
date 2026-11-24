@@ -144,7 +144,7 @@ impl App {
                                 row![
                                     text(t.label)
                                         .font(self.title_font())
-                                        .size(crate::ui::tokens::ts(14.0)),
+                                        .size(crate::ui::tokens::ts(13.0)),
                                     status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                                 ]
                                 .spacing(8)
@@ -293,7 +293,7 @@ impl App {
                 row![
                     text(crate::i18n::tr("Applications iced"))
                         .font(self.title_font())
-                        .size(crate::ui::tokens::ts(14.0)),
+                        .size(crate::ui::tokens::ts(13.0)),
                     status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                 ]
                 .spacing(8)

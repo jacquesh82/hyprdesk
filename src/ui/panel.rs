@@ -1459,7 +1459,7 @@ impl App {
             // Titre de page : la seule graisse Bold du tiroir (HIG TYP-05).
             text(plugins::find(p.tab).map_or("", |i| i.label))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(27.0))
+                .size(crate::ui::tokens::ts(26.0))
                 .font(self.page_title_font())
                 .color(fg),
             // Aides, états et comptes : la couleur secondaire du thème,
@@ -1614,7 +1614,7 @@ impl App {
         let mut head = row![].spacing(10).align_y(Alignment::Center);
         let mut titled = false;
         if !label.is_empty() {
-            head = head.push(self.marked(crate::i18n::tr(label), 14, self.ink().dim, self.font));
+            head = head.push(self.marked(crate::i18n::tr(label), 13, self.ink().dim, self.font));
             titled = true;
         }
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
@@ -1751,7 +1751,7 @@ impl App {
         let accent = self.ink().accent;
         column![
             Space::new().height(8),
-            self.marked(crate::i18n::tr(title), 16, accent, self.title_font()),
+            self.marked(crate::i18n::tr(title), 15, accent, self.title_font()),
         ]
         .into()
     }
@@ -1964,7 +1964,7 @@ impl App {
                 col = col.push(
                     button(
                         column![
-                            self.marked(crate::i18n::tr(&e.text), 14, fg, self.font),
+                            self.marked(crate::i18n::tr(&e.text), 13, fg, self.font),
                             iced::widget::text(place)
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(11.0))

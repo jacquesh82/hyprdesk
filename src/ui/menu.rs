@@ -249,7 +249,7 @@ impl App {
         container(
             text(label)
                 .font(self.font)
-                .size(crate::ui::tokens::ts(11.5))
+                .size(crate::ui::tokens::ts(11.0))
                 .color(ink.fg(0.65))
                 .font(self.ui_font(iced::font::Weight::Semibold)),
         )
@@ -322,7 +322,7 @@ impl App {
         let active = st.enabled && st.clickable;
         let mut label_el = text(label)
             .font(self.font)
-            .size(crate::ui::tokens::ts(13.5))
+            .size(crate::ui::tokens::ts(13.0))
             .font(font)
             .wrapping(iced::widget::text::Wrapping::None);
         // Sous-menu : le libellé occupe la ligne, le chevron vient au bord.
@@ -334,7 +334,7 @@ impl App {
                 label_el,
                 text(d)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(11.5))
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim)
                     .font(font)
                     .wrapping(iced::widget::text::Wrapping::None)

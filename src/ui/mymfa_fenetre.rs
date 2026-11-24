@@ -1242,7 +1242,7 @@ impl Fenetre {
 
         let titre = text(crate::i18n::tr("myMFA"))
             .font(app.title_font())
-            .size(crate::ui::tokens::ts(20.0))
+            .size(crate::ui::tokens::ts(22.0))
             .color(fg);
         let onglets = row(Onglet::TOUS.iter().map(|o| {
             let actif = self.onglet == *o;
@@ -1250,7 +1250,7 @@ impl Fenetre {
                 button(
                     text(o.titre())
                         .font(app.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(if actif { on_btn } else { fg }),
                 )
                 .padding([8, 14])
@@ -1394,7 +1394,7 @@ impl Fenetre {
                     &self.recherche,
                 )
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -1491,7 +1491,7 @@ impl Fenetre {
                     column![
                         text(c.label())
                             .font(app.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         text(if c.tag.is_empty() {
                             String::new()
@@ -1595,7 +1595,7 @@ impl Fenetre {
         let mut col = column![
             text(crate::i18n::tr("Nouveau compte").to_string())
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
             saisie(
                 "URI otpauth:// ou clé base32 (JBSWY3DP…)",
@@ -1674,7 +1674,7 @@ impl Fenetre {
                         iced::widget::Space::new().width(Length::Fill),
                         text(code)
                             .font(app.font)
-                            .size(crate::ui::tokens::ts(18.0))
+                            .size(crate::ui::tokens::ts(17.0))
                             .color(accent),
                         bouton_simple(
                             app,
@@ -1727,7 +1727,7 @@ impl Fenetre {
                     &self.recherche,
                 )
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .padding([8, 10])
                 .width(Length::Fill)
                 .style(move |_, status| {
@@ -1790,7 +1790,7 @@ impl Fenetre {
                         column![
                             text(site.clone())
                                 .font(app.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                             text(if user.is_empty() {
                                 if tag.is_empty() {
@@ -2138,7 +2138,7 @@ impl Fenetre {
                 crate::i18n::tr("Modifier le site").to_string()
             })
             .font(app.font)
-            .size(crate::ui::tokens::ts(14.0))
+            .size(crate::ui::tokens::ts(13.0))
             .color(fg),
             champ(
                 "https://exemple.fr (adresse)",
@@ -2401,7 +2401,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Usage sur 30 jours").to_string())
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         let histoire = self
@@ -2467,7 +2467,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Santé des mots de passe").to_string())
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         let Some(a) = &self.audit else {
@@ -2979,7 +2979,7 @@ impl Fenetre {
         col = col.push(
             text(crate::i18n::tr("Synchronisation Google Drive").to_string())
                 .font(app.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         let statut = self.statut_synchro.clone().unwrap_or(Value::Null);

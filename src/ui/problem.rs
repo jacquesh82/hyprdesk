@@ -168,7 +168,7 @@ impl App {
         let col = column![
             text(crate::i18n::tr("Un problème est survenu"))
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(20.0))
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
             text(crate::i18n::tr(
                 "Le détail ci-dessous peut être copié pour le chercher ou le confier à un assistant."
@@ -187,17 +187,17 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text(crate::i18n::tr("Fermer")).font(self.font).size(crate::ui::tokens::ts(14.0)))
+                button(text(crate::i18n::tr("Fermer")).font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([8, 16])
                     .style(button::text)
                     .on_press(Msg::Problem(PrMsg::Close)),
-                button(text(crate::i18n::tr("Copier")).font(self.font).size(crate::ui::tokens::ts(14.0)))
+                button(text(crate::i18n::tr("Copier")).font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([8, 16])
                     .style(if lyra { button::secondary } else { button::primary })
                     .on_press(Msg::Problem(PrMsg::Copy)),
             ]
             .push(lyra.then(|| {
-                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(crate::ui::tokens::ts(14.0)))
+                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([8, 16])
                     .on_press(Msg::Problem(PrMsg::Ask))
             }))

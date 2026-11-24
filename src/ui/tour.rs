@@ -437,7 +437,7 @@ impl App {
                 column![
                     text(crate::i18n::tr("Première visite ?"))
                         .font(self.title_font())
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     text(crate::i18n::tr(
                         "Une visite guidée présente les réglages de hyprdesk, thème par thème."
@@ -598,7 +598,7 @@ impl App {
                 .color(fg),
             raw_text(crate::i18n::tr(s.intro).to_string())
                 .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .line_height(1.35)
                 .color(fg),
             scrollable(grid).height(Length::Fill),

@@ -161,7 +161,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(label_w)
                         .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                     pick_list(choices.clone(), selected, move |c: ScreenChoice| {
@@ -322,15 +322,15 @@ impl App {
         if count.is_some() {
             stepper = stepper.push(
                 row![
-                    button(text("−").font(self.font).size(crate::ui::tokens::ts(16.0)))
+                    button(text("−").font(self.font).size(crate::ui::tokens::ts(15.0)))
                         .padding([2, 12])
                         .on_press_maybe((shown > 1).then(|| step(shown - 1))),
                     text(shown.to_string())
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(16.0))
+                        .size(crate::ui::tokens::ts(15.0))
                         .width(32)
                         .align_x(Alignment::Center),
-                    button(text("+").font(self.font).size(crate::ui::tokens::ts(16.0)))
+                    button(text("+").font(self.font).size(crate::ui::tokens::ts(15.0)))
                         .padding([2, 12])
                         .on_press_maybe((shown < MAX_WORKSPACES).then(|| step(shown + 1))),
                 ]
@@ -381,7 +381,7 @@ impl App {
             let mut name = column![
                 text(app_name(&a.app))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
             ];
             if overridden {
                 name = name.push(
@@ -440,7 +440,7 @@ impl App {
                     row![
                         text(label)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .width(Length::Fill),
                         text(detail)
                             .font(self.font)

@@ -1169,7 +1169,7 @@ impl App {
         let done = self.panorama_feedback(
             button(
                 text(crate::i18n::tr("Terminé").to_string())
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             )
             .padding([8, 18])

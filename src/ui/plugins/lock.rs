@@ -220,7 +220,7 @@ impl App {
                     ),
                     (f64::from(l.dim) * 100.0).round(),
                     |v| format!("{:.0} %", v),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
@@ -360,7 +360,7 @@ impl App {
                 row![
                     text(enroll::finger_label(f))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(200),
                     button(
                         text("Supprimer")
@@ -552,7 +552,7 @@ impl App {
                     ),
                     f64::from(minutes),
                     en_minutes,
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ));
         }

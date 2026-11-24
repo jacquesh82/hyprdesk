@@ -350,7 +350,7 @@ impl App {
                     let head = row![
                         text(title)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(16.0))
+                            .size(crate::ui::tokens::ts(15.0))
                             .color(fg)
                             .width(Length::Fill),
                         button(

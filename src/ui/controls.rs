@@ -154,7 +154,7 @@ impl App {
             column![
                 text(label.to_string())
                     .font(self.ui_font(iced::font::Weight::Medium))
-                    .size(crate::ui::tokens::ts(12.5))
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
                 text(crate::ui::plugins::bar::surface::truncate(
                     &detail.replace('\n', " · "),
@@ -194,7 +194,7 @@ impl App {
         let details = button(
             text("›")
                 .font(self.font)
-                .size(crate::ui::tokens::ts(19.0))
+                .size(crate::ui::tokens::ts(17.0))
                 .color(fg),
         )
         .padding([8, 4])

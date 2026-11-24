@@ -243,7 +243,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(label_w)
                         .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                     pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
@@ -347,7 +347,7 @@ impl App {
                         column![
                             text(crate::i18n::tr(c.label))
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0)),
+                                .size(crate::ui::tokens::ts(13.0)),
                             text(crate::i18n::tr(c.summary))
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(12.0))

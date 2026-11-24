@@ -265,7 +265,7 @@ impl App {
                     ),
                     (f64::from(g.glass_opacity) * 100.0).round(),
                     |v| format!("{:.0} %", v),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             )),
         ]
@@ -295,7 +295,7 @@ impl App {
                 column![
                     text("Le bureau, à votre rythme.")
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(24.0))
+                        .size(crate::ui::tokens::ts(22.0))
                         .font(self.title_font()),
                     text("Aa Bb Cc · 0123456789 · Éàçœ")
                         .font(self.font)
@@ -382,7 +382,7 @@ impl App {
                 row![
                     text(name.clone())
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     pick(name)
                 ]
@@ -402,7 +402,7 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {w}", w = w))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     pick(format!("ws:{w}"))
                 ]
@@ -551,7 +551,7 @@ impl App {
                     column![
                         text(d.name.clone())
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         text(format!("{} — {state}{extra}", d.exec))
                             .font(self.font)
@@ -626,7 +626,7 @@ impl App {
                         column![
                             text(origin.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                             text(crate::tr!(
                                 "tenu par {h} (pid {pid})",
@@ -673,12 +673,12 @@ impl App {
                 row![
                     text(mark)
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(mark_color),
                     column![
                         text(s.dep.name)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         text(format!("{} · {detail}", crate::i18n::tr(s.dep.feature)))
                             .font(self.font)

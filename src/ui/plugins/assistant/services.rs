@@ -650,7 +650,7 @@ impl App {
             let mut info = column![
                 text(&r.name)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 text(state)
                     .font(self.font)
@@ -671,7 +671,7 @@ impl App {
                     icon(None, r.original.as_ref()),
                     text("→")
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                     icon(shown, None),
                     info.width(Length::Fill),

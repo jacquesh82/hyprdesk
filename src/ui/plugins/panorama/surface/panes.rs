@@ -1467,7 +1467,7 @@ impl App {
         let pill = container(
             row![
                 text(format!("♪ {name}"))
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 btn(
                     if paused {

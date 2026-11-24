@@ -724,7 +724,7 @@ impl App {
                 let dragged = self.bar_drag.is_some_and(|(from, _)| from == (z, i));
                 let label = text(label_of(&e.type_id))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0));
+                    .size(crate::ui::tokens::ts(13.0));
                 let label: Element<'_, UiMsg> = if draggable {
                     let grip = iced::widget::svg(
                         super::super::icons::get("grip-vertical").expect("drag grip"),

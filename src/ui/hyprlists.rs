@@ -407,7 +407,7 @@ impl App {
         let mut head = row![
             text(title)
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .width(Length::Fill)
         ]
         .spacing(12)

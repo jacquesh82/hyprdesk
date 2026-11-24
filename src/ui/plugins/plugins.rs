@@ -177,7 +177,7 @@ impl App {
                             row![
                                 text(info.label)
                                     .font(self.title_font())
-                                    .size(crate::ui::tokens::ts(14.0)),
+                                    .size(crate::ui::tokens::ts(13.0)),
                                 // États de la table des termes (HIG TYP-06, TYP-14).
                                 badge(if on { Etat::Active } else { Etat::Inactive }.libelle(), on),
                                 badge(Etat::Integre.libelle(), false),
@@ -220,7 +220,7 @@ impl App {
             let mut head = row![
                 text(t.name.clone())
                     .font(self.title_font())
-                    .size(crate::ui::tokens::ts(14.0)),
+                    .size(crate::ui::tokens::ts(13.0)),
                 badge(
                     if active { Etat::Active } else { Etat::Inactive }.libelle(),
                     active
@@ -362,7 +362,7 @@ impl App {
                 column![
                 text(crate::tr!("Relire « {name} » avant de l'installer", name = q.name))
                     .font(self.ui_font(iced::font::Weight::Medium))
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 text(crate::i18n::tr(
                     "Un plugin s'exécute avec vos droits : il peut lire vos fichiers et lancer des \

@@ -2366,13 +2366,13 @@ impl App {
                             row![
                                 text(question)
                                     .font(self.font)
-                                    .size(crate::ui::tokens::ts(12.5))
+                                    .size(crate::ui::tokens::ts(12.0))
                                     .font(font)
                                     .width(Length::Fill),
                                 button(
                                     text("Annuler")
                                         .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.5))
+                                        .size(crate::ui::tokens::ts(12.0))
                                         .font(font)
                                 )
                                 .padding([4, 10])
@@ -2396,7 +2396,7 @@ impl App {
                                 button(
                                     text("Confirmer")
                                         .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.5))
+                                        .size(crate::ui::tokens::ts(12.0))
                                         .font(font)
                                 )
                                 .padding([4, 10])
@@ -2529,7 +2529,7 @@ impl App {
                 ))
                 .width(Length::Fill),
             text(format!("{:.0} %", v * 100.0))
-                .size(crate::ui::tokens::ts(12.5))
+                .size(crate::ui::tokens::ts(12.0))
                 .font(self.ui_font(iced::font::Weight::Medium))
                 .width(40)
                 .align_x(Alignment::End),
@@ -2572,7 +2572,7 @@ impl App {
                     .width(Length::Fill),
                 text(format!("{:.0} %", v * 100.0))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(12.5))
+                    .size(crate::ui::tokens::ts(12.0))
                     .font(font)
                     .width(40)
                     .align_x(Alignment::End),
@@ -2584,7 +2584,7 @@ impl App {
             row![
                 text("Muet")
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(13.5))
+                    .size(crate::ui::tokens::ts(13.0))
                     .font(self.ui_font(iced::font::Weight::Normal))
                     .width(Length::Fill),
                 toggler(muted)
@@ -2680,7 +2680,7 @@ impl App {
                         .color(fg),
                     text(format_now("%H:%M"))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(12.5))
+                        .size(crate::ui::tokens::ts(12.0))
                         .color(dim)
                         .font(self.ui_font(iced::font::Weight::Normal)),
                 ]
@@ -2740,7 +2740,7 @@ impl App {
             nav("‹", -1),
             text(month)
                 .font(self.ui_font(iced::font::Weight::Semibold))
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
                 .width(Length::Fill)
                 .align_x(Alignment::Center),

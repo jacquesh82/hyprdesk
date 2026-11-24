@@ -208,7 +208,7 @@ impl App {
                         column![
                             text(w.title.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                             text(if w.stashed {
                                 crate::tr!("{c} · cachée par le bureau", c = w.class)

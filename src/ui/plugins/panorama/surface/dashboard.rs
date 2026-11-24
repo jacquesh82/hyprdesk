@@ -464,7 +464,7 @@ impl App {
         } else {
             row![
                 text(crate::i18n::tr("Plateformes"))
-                    .size(16.0 * d.text_scale)
+                    .size(15.0 * d.text_scale)
                     .font(iced::Font {
                         weight: iced::font::Weight::Semibold,
                         ..self.panorama_font()
@@ -833,7 +833,7 @@ impl App {
                     button(
                         container(
                             text(if is_fav { "★" } else { "☆" })
-                                .size(crate::ui::tokens::ts(18.0))
+                                .size(crate::ui::tokens::ts(17.0))
                                 .color(fg)
                         )
                         .center_x(Length::Fill)
@@ -1150,7 +1150,7 @@ impl App {
                     text(crate::i18n::tr(
                         "Ajoutez vos raccourcis dans Réglages → Panorama → Raccourcis.",
                     ))
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 )
                 .height(Length::Fill)
@@ -1195,7 +1195,7 @@ impl App {
                     .icon_named(icon_name, (height * 0.37).min(width * 0.35), fg)
                     .unwrap_or_else(|| {
                         text(s.name.chars().next().unwrap_or('·').to_string())
-                            .size(crate::ui::tokens::ts(24.0))
+                            .size(crate::ui::tokens::ts(22.0))
                             .color(fg)
                             .into()
                     });

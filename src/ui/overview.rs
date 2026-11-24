@@ -776,7 +776,7 @@ impl App {
         let title = container(
             text(crate::i18n::tr("Espaces de travail"))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(20.0))
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
         )
         .height(TITLE_H)
@@ -985,7 +985,7 @@ impl App {
                     .on_input(|s| Msg::Overview(OMsg::RenameDraft(s)))
                     .on_submit(Msg::Overview(OMsg::RenameSubmit))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(4)
                     .width(Length::Fill)
                     .style(move |theme, status| {
@@ -1002,7 +1002,7 @@ impl App {
                 row![
                     text(card.name.clone())
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(16.0))
+                        .size(crate::ui::tokens::ts(15.0))
                         .color(if active { accent } else { fg }),
                     (multi && !card.monitor.is_empty()).then(|| {
                         text(card.monitor.clone())

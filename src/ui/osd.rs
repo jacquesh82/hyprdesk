@@ -166,7 +166,7 @@ impl App {
                 gauge,
                 text(label)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(52),
             ]

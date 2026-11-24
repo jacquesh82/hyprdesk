@@ -1412,7 +1412,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1431,7 +1431,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1504,7 +1504,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr(group.label()))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             );
             for e in CATALOGUE.iter().filter(|e| e.group == group) {
@@ -1800,7 +1800,7 @@ impl App {
                         n = r.issues.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(warn)
                     .width(Length::Fill),
                     self.lyra_button(crate::i18n::tr("Raccourcis"), crate::keymap::lyra_prompt(r)),
@@ -1837,7 +1837,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr("Pris à hyprland.lua par hyprdesk"))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             );
         }

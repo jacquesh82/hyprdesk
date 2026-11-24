@@ -663,7 +663,7 @@ impl App {
                     col = col.push(
                         iced::widget::text(head)
                             .font(self.title_font())
-                            .size(crate::ui::tokens::ts(14.0)),
+                            .size(crate::ui::tokens::ts(13.0)),
                     );
                     for pl in &r.plugins {
                         let name = pl.name.clone();

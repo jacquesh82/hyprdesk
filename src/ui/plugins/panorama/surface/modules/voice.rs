@@ -38,7 +38,7 @@ impl App {
                 .height(side)
                 .opacity(if on { 1.0_f32 } else { 0.45 }),
             text(label)
-                .size(14.0 * t)
+                .size(13.0 * t)
                 .color(if hot { accent } else { fg }),
         ]
         .spacing(10)

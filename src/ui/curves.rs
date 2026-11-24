@@ -267,7 +267,7 @@ impl App {
                         row![
                             text(name.clone())
                                 .font(self.title_font())
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                             // Retrait : le glyphe du jeu (HIG ICO-07), estompé tant que la
                             // courbe est employée.

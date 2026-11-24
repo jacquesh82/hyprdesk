@@ -581,9 +581,9 @@ impl App {
         cols: usize,
     ) -> Element<'_, Msg> {
         let clock = self
-            .dash_label(format_now("%H:%M"), 27.0, pal.fg)
+            .dash_label(format_now("%H:%M"), 26.0, pal.fg)
             .font(self.title_font());
-        let date = self.dash_label(format_now("%A %-d %B"), 14.0, pal.muted);
+        let date = self.dash_label(format_now("%A %-d %B"), 13.0, pal.muted);
         let close = self.dash_icon_button(
             pal,
             ("window-close-symbolic", "×", tr("Fermer")),
@@ -1072,7 +1072,7 @@ impl App {
             })
             .width(size)
             .height(size),
-            self.dash_label(super::super::surface::truncate(title, 32), 21.0, pal.fg)
+            self.dash_label(super::super::surface::truncate(title, 32), 22.0, pal.fg)
                 .font(self.title_font()),
             self.dash_label(super::super::surface::truncate(artist, 40), 13.0, pal.muted),
             center,
@@ -1115,7 +1115,7 @@ impl App {
             36.0,
         );
         let month = self
-            .dash_label(month.to_uppercase(), 14.0, pal.fg)
+            .dash_label(month.to_uppercase(), 13.0, pal.fg)
             .font(self.title_font())
             .width(Length::Fill)
             .align_x(Alignment::Center);
@@ -1149,7 +1149,7 @@ impl App {
                         ..pal.muted
                     }
                 };
-                let label = self.dash_label(date.day().to_string(), 14.0, fg);
+                let label = self.dash_label(date.day().to_string(), 13.0, fg);
                 container(
                     container(label)
                         .center_x(cell_height)
@@ -1216,7 +1216,7 @@ impl App {
                 // comme les autres, au clavier aussi.
                 let press = crate::ui::toasts::card_press(n);
                 let mut caption =
-                    column![self.dash_label(title, 14.0, pal.fg).font(self.title_font())]
+                    column![self.dash_label(title, 13.0, pal.fg).font(self.title_font())]
                         .spacing(2);
                 if let Some(detail) = detail {
                     caption = caption.push(self.dash_label(detail, 12.0, pal.muted));
@@ -1356,9 +1356,9 @@ impl App {
             let max = dashboard.traffic.iter().fold(1.0f32, |max, &v| max.max(v));
             column![
                 row![
-                    self.dash_label(format!("↓ {}", rate(rx)), 14.0, pal.fg)
+                    self.dash_label(format!("↓ {}", rate(rx)), 13.0, pal.fg)
                         .width(Length::Fill),
-                    self.dash_label(format!("↑ {}", rate(tx)), 14.0, pal.fg)
+                    self.dash_label(format!("↑ {}", rate(tx)), 13.0, pal.fg)
                         .align_x(Alignment::End),
                 ],
                 self.dashboard_trace(pal, &dashboard.traffic, max, 37.0)
@@ -1430,7 +1430,7 @@ impl App {
             let cell = self
                 .dash_label(
                     super::super::surface::truncate(&w.name, 4),
-                    14.0,
+                    13.0,
                     if active { pal.ink } else { pal.fg },
                 )
                 .width(Length::Fill)

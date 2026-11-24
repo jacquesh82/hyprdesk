@@ -574,7 +574,7 @@ impl App {
             .id(id)
             .secure(true)
             .font(self.font)
-            .size(crate::ui::tokens::ts(16.0))
+            .size(crate::ui::tokens::ts(15.0))
             .padding(12)
             .width(Length::Fill)
             .style(move |_, status| {
@@ -602,13 +602,13 @@ impl App {
         let title = |t: String| {
             text(t)
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(20.0))
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg)
         };
         let para = |t: String| {
             text(t)
                 .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
         };
         let note = |t: String, c: Color| {
@@ -657,7 +657,7 @@ impl App {
             ..Default::default()
         };
         let actions = |cancel: Option<String>, ok: String, enabled: bool| {
-            let mut ok = button(text(ok).font(self.font).size(crate::ui::tokens::ts(14.0)))
+            let mut ok = button(text(ok).font(self.font).size(crate::ui::tokens::ts(13.0)))
                 .padding([8, 16])
                 .style(ok_style);
             if enabled && !d.busy {
@@ -668,7 +668,7 @@ impl App {
                 .align_y(Alignment::Center);
             if let Some(c) = cancel {
                 r = r.push(
-                    button(text(c).font(self.font).size(crate::ui::tokens::ts(14.0)))
+                    button(text(c).font(self.font).size(crate::ui::tokens::ts(13.0)))
                         .padding([8, 16])
                         .style(cancel_style)
                         .on_press(wrap(MMsg::Cancel)),

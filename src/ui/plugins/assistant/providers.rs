@@ -332,7 +332,7 @@ impl App {
         let mut list = column![card(
             row![
                 column![
-                    text("LYRA").font(self.title_font()).size(crate::ui::tokens::ts(14.0)).color(fg),
+                    text("LYRA").font(self.title_font()).size(crate::ui::tokens::ts(13.0)).color(fg),
                     small(
                         crate::tr!(
                             "Intégrée · abonnement de l'assistant : {sub}",
@@ -402,7 +402,7 @@ impl App {
                 column![
                     text(svc.label())
                         .font(self.title_font())
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     small(detail, dim),
                     key,
@@ -440,7 +440,7 @@ impl App {
                         kind = crate::i18n::tr(d.kind.label()).to_string()
                     ))
                     .font(self.title_font())
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                     self.draft_form(d, None),
                 ]
@@ -639,7 +639,7 @@ impl App {
                     column![
                         text(crate::i18n::tr(c.label))
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         text(crate::i18n::tr(c.summary))
                             .font(self.font)

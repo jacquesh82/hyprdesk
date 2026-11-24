@@ -1497,7 +1497,7 @@ impl App {
         col = col.push(
             text(t.n.summary.clone())
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
                 .wrapping(text::Wrapping::None),
         );
@@ -1632,7 +1632,7 @@ impl App {
         let mut col = column![
             text(crate::i18n::tr("Notifications"))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(16.0))
+                .size(crate::ui::tokens::ts(15.0))
                 .color(fg)
         ]
         .spacing(12);
@@ -1658,7 +1658,7 @@ impl App {
                     column![
                         text(title)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         body.map(|body| {
                             text(body)
@@ -1893,7 +1893,7 @@ impl App {
         block = block.push(
             text(title)
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg),
         );
         if let Some(body) = body {

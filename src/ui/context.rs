@@ -2228,7 +2228,7 @@ impl App {
         let mut col = column![
             text(crate::tr!("Propriétés — {n}", n = name))
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
                 .height(ROW)
         ]
@@ -2378,7 +2378,7 @@ impl App {
                     .on_input(|s| Msg::IconMenu(CMsg::RenameInput(s)))
                     .on_submit(Msg::IconMenu(CMsg::RenameSubmit))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8),
             );
         }

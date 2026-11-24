@@ -422,7 +422,7 @@ impl App {
                 container(
                     text(crate::essentials::pretty(&it.combo))
                         .font(font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(accent)
                 )
                 .padding([3, 8])
@@ -433,7 +433,7 @@ impl App {
                 }),
                 text(crate::i18n::tr(it.label))
                     .font(font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             ]
             .spacing(10)
@@ -526,7 +526,7 @@ impl App {
         let col = column![
             text(crate::i18n::tr("Raccourcis déjà pris"))
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(20.0))
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
             text(crate::i18n::tr(
                 "Ces raccourcis de hyprdesk sont déjà liés dans la configuration de Hyprland. Pour chacun : le prendre pour hyprdesk, garder l'existant, ou choisir une autre combinaison."
@@ -552,7 +552,7 @@ impl App {
                         crate::i18n::tr("Plus tard")
                     })
                     .font(font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([8, 16])
                 .style(if all { button::primary } else { button::text })

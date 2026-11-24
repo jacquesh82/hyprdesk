@@ -1193,18 +1193,18 @@ impl App {
         ));
 
         // Fil de la conversation.
-        let md_settings = markdown::Settings::with_text_size(14, &self.theme);
+        let md_settings = markdown::Settings::with_text_size(13, &self.theme);
         let bubble = |content, mine| bubble(content, mine, fg, accent);
         let mut thread = column![].spacing(14);
         if c.entries.is_empty() && c.ended.is_none() {
             let mut welcome = column![
                 text("On fait quoi, ensemble ?")
                     .font(self.title_font())
-                    .size(crate::ui::tokens::ts(25.0))
+                    .size(crate::ui::tokens::ts(26.0))
                     .color(fg),
                 text("Un bureau à votre image, un souci à résoudre ou une idée à explorer. Je suis là.")
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(dim),
             ].spacing(12);
             for (label, prompt) in [
@@ -1291,7 +1291,7 @@ impl App {
                     let mut body = column![
                         text(t.clone())
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                     ]
                     .spacing(4);
@@ -1318,7 +1318,7 @@ impl App {
                         // Texte sélectionnable : lecture seule, Ctrl+C copie la sélection.
                         Some((_, editor)) => iced::widget::text_editor(editor)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .on_action(|a| Msg::Chat(ChatMsg::EditorAction(a)))
                             .into(),
                         None => {
@@ -1489,7 +1489,7 @@ impl App {
                         label = label.push(
                             text(o.label.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(13.5))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(tc)
                                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                         );
@@ -1624,7 +1624,7 @@ impl App {
             text_input(crate::i18n::tr("Écrire à LYRA…"), &c.input)
                 .id(CHAT_INPUT)
                 .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .padding([12, 14])
                 .style(appearance::input)
                 .on_input(|s| Msg::Chat(ChatMsg::Input(s)))

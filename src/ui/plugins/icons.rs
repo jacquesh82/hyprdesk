@@ -85,7 +85,7 @@ impl App {
                 row![
                     text(name)
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     text(scope)
                         .font(self.font)
@@ -134,7 +134,7 @@ impl App {
                         row![
                             text(a.name.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                             text(a.id.clone())
                                 .font(self.font)
@@ -223,7 +223,7 @@ impl App {
                     &SliderSpec::new("grid.icon_size", (24.0, 128.0), 1.0, |v| wrap(Msg::IconSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
                     f64::from(g.grid.icon_size),
                     |v| format!("{} px", v.round() as u16),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             self.field(
@@ -233,7 +233,7 @@ impl App {
                     &SliderSpec::new("grid.cell", (64.0, 192.0), 1.0, |v| wrap(Msg::CellSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
                     f64::from(g.grid.cell),
                     |v| format!("{} px", v.round() as u16),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             self.field(
@@ -247,7 +247,7 @@ impl App {
             self.field(
                 "Disposition de ce bureau",
                 "",
-                button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(14.0)))
+                button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 12])
                     .on_press(wrap(Msg::ResetLayout)),
             ),

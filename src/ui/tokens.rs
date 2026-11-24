@@ -233,11 +233,15 @@ pub const MIN_TEXT: f32 = 10.0;
 /// suit le rôle du thème et l'échelle de l'écran (MLG-270, MLG-272). Sans
 /// typographie dans le pack, la taille est rendue telle quelle. Le résultat
 /// ne descend jamais sous [`MIN_TEXT`] (HIG TYP-01).
+///
+/// Les tailles écrites suivent l'échelle de la HIG (HIG TYP-04) : légende
+/// 10 et 11, corps 12 et 13, titres 15, 17 et 22, affichage 26 ; plus les
+/// trois affichages nommés de `DESIGN.md` (32, 36, 96).
 pub fn ts(reference: f32) -> f32 {
     let t = TYPE.read().map(|t| *t).unwrap_or(TypeScale::IDENTITY);
     let ratio = if reference < 12.0 {
         t.caption
-    } else if reference < 15.5 {
+    } else if reference < 14.5 {
         t.body
     } else if reference < 24.0 {
         t.title
@@ -703,6 +707,167 @@ mod tests {
         assert!(plain.font_features.features.is_empty());
     }
 
+    /// HIG TYP-04 : un texte de `src/ui` écrit sa taille sur l'échelle de la
+    /// HIG (10, 11, 12, 13, 15, 17, 22, 26 px) ou sur l'un des affichages
+    /// nommés de `DESIGN.md` (32, 36, 96). Les pastilles des commandes
+    /// (`radio`, `checkbox`, `toggler`) ne sont pas du texte.
+    #[test]
+    fn corps_dans_l_echelle_de_la_hig() {
+        const ECHELLE: [f32; 11] = [
+            10.0, 11.0, 12.0, 13.0, 15.0, 17.0, 22.0, 26.0, 32.0, 36.0, 96.0,
+        ];
+        const COMMANDES: [&str; 5] = [
+            "radio(",
+            "checkbox(",
+            "toggler(",
+            "slider(",
+            "vertical_slider(",
+        ];
+        const TEXTES: [&str; 6] = [
+            "text(",
+            "text_input(",
+            "text_editor(",
+            "rich_text",
+            "span(",
+            "selectable(",
+        ];
+        fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, files);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    files.push(p);
+                }
+            }
+        }
+        // Dernière occurrence d'un constructeur, en début de mot.
+        fn last(seg: &str, words: &[&str]) -> Option<usize> {
+            words
+                .iter()
+                .flat_map(|w| seg.match_indices(w).map(|(i, _)| i))
+                .filter(|&i| {
+                    !seg[..i]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                })
+                .max()
+        }
+        // Arguments d'un appel, au premier niveau, jusqu'à sa parenthèse fermante.
+        fn arguments(apres: &str) -> Vec<String> {
+            let (mut args, mut cur, mut prof, mut chaine) = (Vec::new(), String::new(), 0, false);
+            let mut prec = ' ';
+            for c in apres.chars() {
+                if chaine {
+                    chaine = !(c == '"' && prec != '\\');
+                } else {
+                    match c {
+                        '"' => chaine = true,
+                        '(' | '[' | '{' => prof += 1,
+                        ')' | ']' | '}' if prof == 0 => break,
+                        ')' | ']' | '}' => prof -= 1,
+                        ',' if prof == 0 => {
+                            args.push(cur.trim().to_string());
+                            cur.clear();
+                            prec = c;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                cur.push(c);
+                prec = c;
+            }
+            args.push(cur.trim().to_string());
+            args
+        }
+        const AIDES: [(&str, usize); 8] = [
+            ("SliderLook::fixed(", 0),
+            ("SliderLook::fill(", 0),
+            ("dash_label(", 1),
+            ("marked(", 1),
+            ("marked_with(", 2),
+            ("apps_field(", 2),
+            ("launcher_field(", 2),
+            ("with_text_size(", 0),
+        ];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut fichiers = Vec::new();
+        walk(&root, &mut fichiers);
+        let mut hors = Vec::new();
+        for f in &fichiers {
+            let src = std::fs::read_to_string(f).unwrap();
+            let lines: Vec<&str> = src.lines().collect();
+            for (n, line) in lines.iter().enumerate() {
+                for (at, _) in line.match_indices(".size(") {
+                    let rest = line[at + 6..].trim_start();
+                    let rest = [
+                        "crate::ui::tokens::",
+                        "super::super::tokens::",
+                        "super::tokens::",
+                        "tokens::",
+                    ]
+                    .iter()
+                    .find_map(|p| rest.strip_prefix(p))
+                    .unwrap_or(rest);
+                    // `ts(X)`, ou `X * échelle` (modules du Panorama).
+                    let v = match rest.strip_prefix("ts(") {
+                        Some(arg) => arg.split(')').next(),
+                        None => rest.split_once(" * ").map(|(x, _)| x),
+                    };
+                    let Some(v) = v.and_then(|v| v.parse::<f32>().ok()) else {
+                        continue;
+                    };
+                    // Le widget le plus proche en amont : texte ou commande.
+                    let mut texte = None;
+                    for k in (n.saturating_sub(25)..=n).rev() {
+                        let seg = if k == n { &line[..at] } else { lines[k] };
+                        match (last(seg, &COMMANDES), last(seg, &TEXTES)) {
+                            (None, None) => continue,
+                            (c, t) => {
+                                texte = Some(t > c);
+                                break;
+                            }
+                        }
+                    }
+                    if texte == Some(true) && !ECHELLE.contains(&v) {
+                        hors.push(format!("{}:{} : {v} px", f.display(), n + 1));
+                    }
+                }
+            }
+        }
+        // Assistants qui reçoivent la taille du texte en argument.
+        for f in &fichiers {
+            let src = std::fs::read_to_string(f).unwrap();
+            for (nom, rang) in AIDES {
+                for (at, _) in src.match_indices(nom) {
+                    if src[..at].ends_with("fn ")
+                        || src[..at]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    {
+                        continue;
+                    }
+                    let args = arguments(&src[at + nom.len()..]);
+                    let Some(v) = args.get(rang).and_then(|a| a.parse::<f32>().ok()) else {
+                        continue;
+                    };
+                    if !ECHELLE.contains(&v) {
+                        let ligne = src[..at].lines().count();
+                        hors.push(format!("{}:{ligne} : {nom} {v} px", f.display()));
+                    }
+                }
+            }
+        }
+        assert!(
+            hors.is_empty(),
+            "corps hors de l'échelle de la HIG :\n{}",
+            hors.join("\n")
+        );
+    }
+
     /// Les jetons sont globaux : un seul essai les pose, dans l'ordre.
     #[test]
     fn jetons_posés_lus_par_les_surfaces() {
@@ -726,6 +891,8 @@ mod tests {
         set(d);
         assert!((ts(13.0) - 15.6).abs() < 1e-4);
         assert!((ts(11.0) - 11.0).abs() < 1e-4, "légende inchangée");
+        // HIG TYP-04 : 15 px est Title 3, rôle titre (17 px dans ce pack, rapport 1).
+        assert!((ts(15.0) - 15.0).abs() < 1e-4, "15 px : rôle titre");
         // Échelle de l'écran à 50 % : 7,8 px, ramenés au plancher (HIG TYP-01).
         enter_screen(Some(("HDMI-A-1", (2570, 720))));
         assert!((ts(13.0) - MIN_TEXT).abs() < 1e-4, "plancher du corps");

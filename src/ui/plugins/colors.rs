@@ -806,7 +806,7 @@ impl App {
         let mut head = row![
             iced::widget::text(mon.to_string())
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(18.0))
+                .size(crate::ui::tokens::ts(17.0))
                 .color(accent),
             Space::new().width(Length::Fill),
             button(small(
@@ -854,7 +854,7 @@ impl App {
                     let b = |sym: &'static str, delta: f32| {
                         button(
                             iced::widget::text(sym)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                         )
                         .padding([2, 10])

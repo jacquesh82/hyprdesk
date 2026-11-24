@@ -350,7 +350,7 @@ impl App {
                         icon,
                         text(app_name(&a.class, &self.apps))
                             .font(self.font)
-                            .size(ts(14.0))
+                            .size(ts(13.0))
                             .color(fg)
                             .width(Length::Fill)
                             .wrapping(iced::widget::text::Wrapping::WordOrGlyph),

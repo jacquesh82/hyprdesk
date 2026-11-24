@@ -82,7 +82,7 @@ impl App {
                     &fade_spec(),
                     g.fade_ms.min(1000) as f64,
                     |v| format!("{} ms", v.round() as u64),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             self.section("Fonds d'écran"),
@@ -99,7 +99,7 @@ impl App {
                     ),
                     g.crossfade_ms.min(3000) as f64,
                     |v| format!("{} ms", v.round() as u64),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             text("Couleurs, opacité et flou de chaque endroit : paquet Thème.")

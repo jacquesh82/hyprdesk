@@ -231,7 +231,7 @@ impl App {
                         row![
                             text(name)
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                             text(format!("{label} · {from}"))
                                 .font(self.font)
@@ -317,7 +317,7 @@ impl App {
                 let mut c = column![
                     text(crate::tr!("Placement de « {id} »", id = id))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     self.field("Ancrage", "", grid),
                     self.field(

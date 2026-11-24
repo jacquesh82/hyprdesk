@@ -255,7 +255,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     .id(INPUT_ID)
     .secure(!d.echo)
     .font(font)
-    .size(crate::ui::tokens::ts(16.0))
+    .size(crate::ui::tokens::ts(15.0))
     .padding(12)
     .width(Length::Fill)
     .style(move |_, status| {
@@ -281,11 +281,11 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     let mut col = column![
         text(crate::i18n::tr("Authentification requise"))
             .font(title_font)
-            .size(crate::ui::tokens::ts(20.0))
+            .size(crate::ui::tokens::ts(22.0))
             .color(fg),
         text(d.req.message.clone())
             .font(font)
-            .size(crate::ui::tokens::ts(14.0))
+            .size(crate::ui::tokens::ts(13.0))
             .color(fg),
         text(crate::tr!(
             "Compte : {u} · {a}",
@@ -352,7 +352,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
     let mut ok = button(
         text(crate::i18n::tr("Authentifier"))
             .font(font)
-            .size(crate::ui::tokens::ts(14.0)),
+            .size(crate::ui::tokens::ts(13.0)),
     )
     .padding([8, 16])
     .style(ok_style);
@@ -384,7 +384,7 @@ pub fn card<'a>(d: &'a Dialog, look: &Look) -> Element<'a, PMsg> {
             button(
                 text(crate::i18n::tr("Annuler"))
                     .font(font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
             )
             .padding([8, 16])
             .style(cancel_style)

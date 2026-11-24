@@ -306,7 +306,7 @@ impl App {
                     button(
                         text("Parcourir")
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                     )
                     .padding([6, 12])
                     .on_press(wrap(Msg::Browse)),
@@ -342,7 +342,7 @@ impl App {
                             ),
                             secs.clamp(10, 3600) as f64,
                             affiche_rotation,
-                            SliderLook::fixed(14.0, 260, Alignment::Start),
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
                         ),
                     ));
                     col = col.push(self.field(
@@ -461,7 +461,7 @@ impl App {
                                     }
                                 }
                                 None => container(
-                                    text("…").font(self.font).size(crate::ui::tokens::ts(14.0)),
+                                    text("…").font(self.font).size(crate::ui::tokens::ts(13.0)),
                                 )
                                 .center_x(THUMB.0 as f32)
                                 .center_y(THUMB.1 as f32)
@@ -598,7 +598,7 @@ impl App {
                 button(
                     text("Supprimer la règle de cette portée")
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
+                        .size(crate::ui::tokens::ts(13.0)),
                 )
                 .padding([6, 12])
                 .on_press(wrap(Msg::RemoveWall)),

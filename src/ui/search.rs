@@ -1225,7 +1225,7 @@ impl App {
                     self.view_files(s, fg, dim, accent),
                 ),
             };
-            let input = self.launcher_field(s, Length::Fill, 20.0, placeholder);
+            let input = self.launcher_field(s, Length::Fill, 22.0, placeholder);
             return container(self.search_card(s, input, list, bg, fg))
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
@@ -1247,7 +1247,7 @@ impl App {
         let input = self.launcher_field(
             s,
             Length::Fill,
-            20.0,
+            22.0,
             crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp, :r)"),
         );
         container(self.search_card(s, input, self.view_clips(s, fg, dim, accent), bg, fg))
@@ -1413,7 +1413,7 @@ impl App {
                         icon,
                         text(h.name.clone())
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         iced::widget::Space::new().width(Length::Fill),
                         text(detail)
@@ -1451,7 +1451,7 @@ impl App {
         let input = self.launcher_field(
             s,
             Length::Fill,
-            20.0,
+            22.0,
             crate::i18n::tr("Rechercher une application… (:f, :clip, :2fa, :mdp, :r)"),
         );
         use crate::i18n::tr;
@@ -1517,7 +1517,7 @@ impl App {
                         icon,
                         text(label)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg),
                         iced::widget::Space::new().width(Length::Fill),
                         text(detail)
@@ -1590,7 +1590,7 @@ impl App {
                         icon,
                         text(preview)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                     ]
                     .spacing(14)
@@ -1670,7 +1670,7 @@ impl App {
                 button(
                     row![
                         glyph,
-                        self.marked_with(&label, q, 14, fg, self.font),
+                        self.marked_with(&label, q, 13, fg, self.font),
                         iced::widget::Space::new().width(Length::Fill),
                         text(tr(info.label))
                             .font(self.font)

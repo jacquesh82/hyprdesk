@@ -255,7 +255,7 @@ impl App {
         let head = column![
             text("hyprdesk")
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(28.0))
+                .size(crate::ui::tokens::ts(26.0))
                 .color(fg),
             text(format!(
                 "{} {}",
@@ -263,7 +263,7 @@ impl App {
                 env!("CARGO_PKG_VERSION")
             ))
             .font(self.font)
-            .size(crate::ui::tokens::ts(14.0))
+            .size(crate::ui::tokens::ts(13.0))
             .color(accent),
             text(crate::i18n::tr(env!("CARGO_PKG_DESCRIPTION")))
                 .font(self.font)

@@ -208,7 +208,7 @@ impl App {
                             left = left
                         ))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                         button(
                             text("Rétablir")
@@ -458,7 +458,7 @@ impl App {
             button(
                 text(label)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0)),
+                    .size(crate::ui::tokens::ts(13.0)),
             )
             .padding([3, 10])
             .style(button::secondary)
@@ -588,7 +588,7 @@ impl App {
         col = col.push(self.section("Écran sélectionné")).push(
             text(title)
                 .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .font(self.title_font()),
         );
         let is_main = primary.as_deref() == Some(s.name.as_str());
@@ -1533,11 +1533,11 @@ impl App {
                     .color(accent),
                 text(name.clone())
                     .font(self.title_font())
-                    .size(crate::ui::tokens::ts(28.0))
+                    .size(crate::ui::tokens::ts(26.0))
                     .color(fg),
                 text(model)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(Color { a: 0.7, ..fg }),
                 text("Repères d'alignement : Identifier à nouveau pour les retirer.")
                     .font(self.font)

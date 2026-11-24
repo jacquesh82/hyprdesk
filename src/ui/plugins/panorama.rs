@@ -705,7 +705,7 @@ impl App {
                 ),
                 f64::from(v.level),
                 en_pour_cent,
-                SliderLook::fixed(14.0, 260, Alignment::Center),
+                SliderLook::fixed(13.0, 260, Alignment::Center),
             ),
         ));
         let scope = Some(if v.scope == "background" {
@@ -759,7 +759,7 @@ impl App {
                     ),
                     f64::from(v.fade),
                     en_fondu,
-                    SliderLook::fixed(14.0, 260, Alignment::Center),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
             ),
             self.field(
@@ -769,7 +769,7 @@ impl App {
                     &SliderSpec::new("panorama_dim_hover", (0.0, 100.0), 5.0, |n| wrap(Msg::DimHover(n.round() as u8)), wrap(Msg::DimCommit)),
                     f64::from(v.hover),
                     affiche_voile,
-                    SliderLook::fixed(14.0, 260, Alignment::Center),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
             ),
             text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
@@ -813,7 +813,7 @@ impl App {
                 ),
                 f64::from(c.sleep_minutes),
                 affiche_veille,
-                SliderLook::fixed(14.0, 260, Alignment::Start),
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
         ));
         col = col.push(

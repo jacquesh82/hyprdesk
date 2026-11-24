@@ -194,7 +194,7 @@ impl App {
                 row![
                     text(name(id))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
                     small(
@@ -224,7 +224,7 @@ impl App {
                         row![
                             text(a.name.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
                             text(a.id.clone())
                                 .font(self.font)
@@ -280,7 +280,7 @@ impl App {
                     &size_spec(),
                     f64::from(l.size),
                     |v| format!("{} px", v.round() as u16),
-                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
             self.field(
