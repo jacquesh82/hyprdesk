@@ -2344,6 +2344,7 @@ impl Preview {
                     .retain(|c| !(c.workspace == "1" && c.class == "code"));
                 self.app.toasts.list.push(toasts::Toast {
                     n: crate::notifications::Notification {
+                        action_icons: Vec::new(),
                         id: 1,
                         app: "Visual Studio Code".into(),
                         icon: String::new(),

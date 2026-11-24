@@ -702,6 +702,7 @@ pub(crate) mod tests {
     #[test]
     fn etat_des_notifications_relu() {
         let n = crate::notifications::Notification {
+            action_icons: Vec::new(),
             id: 1,
             app: "kitty".into(),
             icon: String::new(),

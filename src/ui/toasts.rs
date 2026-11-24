@@ -646,12 +646,19 @@ impl App {
     }
 
     /// Demande l'icône d'une notification à son arrivée : la sienne, ou
-    /// celle de son application.
+    /// celle de son application ; puis celles de ses actions (HIG SYS-18).
     pub(super) fn want_notif_icons(&mut self, n: &Notification) -> Task<Msg> {
-        match self.notif_icon_name(n) {
-            Some(name) => self.want_icon(&name),
-            None => Task::none(),
-        }
+        let icon = self
+            .notif_icon_name(n)
+            .map(|name| self.want_icon(&name))
+            .into_iter();
+        let actions = n
+            .action_icons
+            .iter()
+            .flatten()
+            .map(|name| self.want_icon(name))
+            .collect::<Vec<_>>();
+        Task::batch(icon.chain(actions))
     }
 
     /// Icône de l'application émettrice, `size` de côté. À défaut, celle de
@@ -759,24 +766,38 @@ impl App {
                     .color(dim),
             );
         }
-        let extra: Vec<&(String, String)> =
+        let extra: Vec<(usize, &(String, String))> =
             t.n.actions
                 .iter()
-                .filter(|(k, _)| k != "default")
+                .enumerate()
+                .filter(|(_, (k, _))| k != "default")
                 .take(3)
                 .collect();
         if !extra.is_empty() {
             // Boutons sans bordure : 12 px d'écart au moins (HIG ACC-10).
             let mut r = row![].spacing(12);
-            for (k, label) in extra {
+            for (i, (k, label)) in extra {
+                let caption = text(label.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(11.0));
+                // Icône de l'action (hint `action-icons`) après le libellé
+                // (HIG SYS-18).
+                let icon =
+                    t.n.action_icons
+                        .get(i)
+                        .and_then(|icon| icon.as_deref())
+                        .and_then(|name| self.icon_named(name, crate::ui::tokens::ts(12.0), fg));
+                let content: Element<'_, Msg> = match icon {
+                    Some(icon) => row![caption, icon]
+                        .spacing(6)
+                        .align_y(Alignment::Center)
+                        .into(),
+                    None => caption.into(),
+                };
                 r = r.push(
-                    button(
-                        text(label.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(11.0)),
-                    )
-                    .padding([2, 10])
-                    .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
+                    button(content)
+                        .padding([2, 10])
+                        .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
                 );
             }
             col = col.push(r);
@@ -1103,6 +1124,33 @@ mod tests {
         let inconnue =
             crate::notifications::build(12, "Inconnue", "", "s", "b", &[], &HashMap::new(), -1);
         assert_eq!(app.notif_icon_name(&inconnue), None);
+
+        // Icônes des actions (HIG SYS-18) : demandées à l'arrivée.
+        let mut icons = HashMap::new();
+        icons.insert(
+            "action-icons".to_string(),
+            zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(vec![
+                "-",
+                "mail-reply-sender",
+            ]))
+            .unwrap(),
+        );
+        let actions = [
+            "default".to_string(),
+            "Ouvrir".to_string(),
+            "reply".to_string(),
+            "Répondre".to_string(),
+        ];
+        let avec = crate::notifications::build(13, "a", "i", "s", "b", &actions, &icons, -1);
+        assert_eq!(
+            avec.action_icons,
+            vec![None, Some("mail-reply-sender".to_string())]
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(avec)));
+        assert!(
+            demandee(&app, "mail-reply-sender"),
+            "l'icône de l'action est demandée"
+        );
     }
 
     /// Titre et corps d'une carte sont bornés, sans saut de ligne (HIG LAY-04).

@@ -54,6 +54,10 @@ pub struct Notification {
     pub body: String,
     /// (clé, libellé) ; `default` : action d'un clic sur la notification.
     pub actions: Vec<(String, String)>,
+    /// Icône de chaque action (hint `action-icons`), dans le même ordre que
+    /// `actions` : nom du thème d'icônes ou chemin d'image ; rien si l'action
+    /// n'en a pas.
+    pub action_icons: Vec<Option<String>>,
     pub urgency: Urgency,
     /// Délai demandé (ms) : -1 au choix du serveur, 0 jamais.
     pub timeout_ms: i32,
@@ -68,6 +72,9 @@ pub struct Notification {
 
 /// Ce que le serveur signale à l'interface.
 #[derive(Debug, Clone, PartialEq)]
+// La notification dépasse 200 octets depuis ses icônes d'actions : l'événement
+// ne circule qu'une fois par notification, sur le canal du serveur.
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     /// Nouvelle notification, ou remplacement (même id).
     Shown(Notification),
@@ -142,6 +149,37 @@ pub fn parse_actions(list: &[String]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Hint `action-icons` : une icône par action, dans le même ordre ; `-` ou
+/// vide : aucune. Le préfixe `image://` introduit le chemin (ou l'adresse)
+/// d'une image : il est retiré, la résolution des icônes lit les chemins.
+/// Rien si le hint n'est pas un tableau.
+pub fn parse_action_icons(h: &HashMap<String, OwnedValue>) -> Vec<Option<String>> {
+    let Some(v) = h.get("action-icons") else {
+        return Vec::new();
+    };
+    let Some(items) = v
+        .try_clone()
+        .ok()
+        .and_then(|v| match zbus::zvariant::Value::from(v) {
+            zbus::zvariant::Value::Array(items) => Some(items),
+            _ => None,
+        })
+    else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .map(|v| match v {
+            zbus::zvariant::Value::Str(s) => {
+                let s = s.as_str();
+                let s = s.strip_prefix("image://").unwrap_or(s);
+                (!s.is_empty() && s != "-").then(|| s.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Construit la notification reçue par `Notify`.
 #[allow(clippy::too_many_arguments)]
 pub fn build(
@@ -166,6 +204,7 @@ pub fn build(
         summary: summary.to_string(),
         body: body.to_string(),
         actions: parse_actions(actions),
+        action_icons: parse_action_icons(hints),
         urgency: hint_urgency(hints),
         timeout_ms,
         resident: hint_bool(hints, "resident"),
@@ -270,9 +309,15 @@ impl Server {
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        ["actions", "body", "icon-static", "persistence"]
-            .map(String::from)
-            .to_vec()
+        [
+            "actions",
+            "action-icons",
+            "body",
+            "icon-static",
+            "persistence",
+        ]
+        .map(String::from)
+        .to_vec()
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
@@ -378,6 +423,53 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.try_clone().unwrap()))
             .collect()
+    }
+
+    /// Icônes des actions (HIG SYS-18) : une par action, `-` pour aucune,
+    /// `image://` devant un chemin.
+    #[test]
+    fn icones_des_actions() {
+        assert_eq!(
+            parse_action_icons(&HashMap::new()),
+            Vec::<Option<String>>::new()
+        );
+        let h = hints(&[(
+            "action-icons",
+            OwnedValue::try_from(zbus::zvariant::Value::from(vec![
+                "mail-reply-sender",
+                "-",
+                "image:///tmp/a.png",
+                "",
+            ]))
+            .unwrap(),
+        )]);
+        assert_eq!(
+            parse_action_icons(&h),
+            vec![
+                Some("mail-reply-sender".to_string()),
+                None,
+                Some("/tmp/a.png".to_string()),
+                None,
+            ]
+        );
+        // Hint d'un autre type : rien, la notification garde ses actions.
+        let h = hints(&[(
+            "action-icons",
+            OwnedValue::try_from(zbus::zvariant::Value::from("x")).unwrap(),
+        )]);
+        assert!(parse_action_icons(&h).is_empty());
+        let n = build(
+            1,
+            "a",
+            "i",
+            "t",
+            "b",
+            &["k".into(), "Libellé".into()],
+            &h,
+            -1,
+        );
+        assert_eq!(n.actions, vec![("k".to_string(), "Libellé".to_string())]);
+        assert!(n.action_icons.is_empty());
     }
 
     #[test]
@@ -528,6 +620,7 @@ mod tests {
             summary: s.into(),
             body: b.into(),
             actions: Vec::new(),
+            action_icons: Vec::new(),
             urgency: Urgency::Normal,
             timeout_ms: -1,
             resident: false,
