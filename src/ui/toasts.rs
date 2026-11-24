@@ -51,6 +51,9 @@ pub(super) const BODY_CHARS: usize = 74;
 const DIM: f32 = 0.65;
 /// Côté du repère d'une notification critique dans la bulle.
 const CRITICAL_MARK: f32 = 10.0;
+/// Cible tactile des boutons d'une bulle (HIG ACC-04) : 28 px — de côté pour
+/// la fermeture, de haut au moins pour les actions.
+const BUTTON_TARGET: f32 = 28.0;
 
 /// Demande de l'interface au serveur.
 #[derive(Debug, Clone)]
@@ -398,13 +401,30 @@ impl Toasts {
     }
 }
 
-fn height(n: usize) -> u32 {
-    height_of(n, VISIBLE)
+/// Surcroît de la carte d'une bulle qui montre un corps et des actions : les
+/// boutons ont 28 px (HIG ACC-04) et la carte de `CARD` ne suffit plus.
+const CARD_BODY_ACTIONS: f32 = 20.0;
+
+/// Hauteur de la carte d'une bulle : `CARD`, plus 20 px quand elle montre à la
+/// fois un corps et des boutons d'action (HIG ACC-04).
+fn card_height(n: &Notification) -> f32 {
+    let actions = n.actions.iter().any(|(k, _)| k != "default");
+    if actions && !n.body.is_empty() {
+        CARD + CARD_BODY_ACTIONS
+    } else {
+        CARD
+    }
 }
 
-fn height_of(n: usize, visible: usize) -> u32 {
-    let n = n.min(visible.max(1)) as f32;
-    (n * CARD + (n - 1.0).max(0.0) * GAP + 2.0 * SHADOW).ceil() as u32
+fn height(list: &[Toast]) -> u32 {
+    height_of(list, VISIBLE)
+}
+
+/// Hauteur de la surface des bulles, chacune à la hauteur de sa carte.
+fn height_of(list: &[Toast], visible: usize) -> u32 {
+    let n = list.len().min(visible.max(1));
+    let cards: f32 = list.iter().take(n).map(|t| card_height(&t.n)).sum();
+    (cards + n.saturating_sub(1) as f32 * GAP + 2.0 * SHADOW).ceil() as u32
 }
 
 /// Notifications réglées (MLG-279) : largeur, nombre visible, coin,
@@ -615,7 +635,7 @@ impl App {
         }
         self.toasts.previous = self.toasts.list.clone();
         let bh = self.cfg.bar.as_ref().map_or(48, |b| b.height) as u32;
-        let h = height(n) + bh + 12;
+        let h = height(&self.toasts.list) + bh + 12;
         if let Some(win) = self.toasts.win {
             if let Some(f) = self.toasts.visibility.as_mut()
                 && f.to == 0.0
@@ -668,14 +688,17 @@ impl App {
                 iced::window::close(win)
             }
             (None, 0) => Task::none(),
-            (Some(win), n) => {
+            (Some(win), _) => {
                 let l = Layout::of(&self.cfg.general);
                 Task::done(Msg::SizeChange {
                     id: win,
-                    size: ((l.width + 2.0 * SHADOW) as u32, height_of(n, l.visible)),
+                    size: (
+                        (l.width + 2.0 * SHADOW) as u32,
+                        height_of(&self.toasts.list, l.visible),
+                    ),
                 })
             }
-            (None, n) => {
+            (None, _) => {
                 let win = Id::unique();
                 self.toasts.win = Some(win);
                 let l = Layout::of(&self.cfg.general);
@@ -708,7 +731,10 @@ impl App {
                 };
                 Task::done(Msg::NewLayerShell {
                     settings: NewLayerShellSettings {
-                        size: Some(((l.width + 2.0 * SHADOW) as u32, height_of(n, l.visible))),
+                        size: Some((
+                            (l.width + 2.0 * SHADOW) as u32,
+                            height_of(&self.toasts.list, l.visible),
+                        )),
                         layer: Layer::Overlay,
                         anchor,
                         exclusive_zone: Some(-1),
@@ -843,7 +869,11 @@ impl App {
                     crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
                         .expect("glyphe de fermeture"),
                 )
-                .padding([0, 6])
+                // Cible de 28 px de côté (HIG ACC-04) : 14 px de glyphe et
+                // 7 px de marge de chaque côté.
+                .padding(crate::ui::tokens::ts(7.0))
+                .width(crate::ui::tokens::ts(BUTTON_TARGET))
+                .height(crate::ui::tokens::ts(BUTTON_TARGET))
                 .style(button::text)
                 .on_press(Msg::Toasts(TMsg::Close(id))),
             );
@@ -917,7 +947,9 @@ impl App {
                 };
                 r = r.push(
                     button(content)
-                        .padding([2, 10])
+                        // 28 px de haut au moins (HIG ACC-04) : 14 px de
+                        // ligne et 7 px de marge en haut comme en bas.
+                        .padding([crate::ui::tokens::ts(7.0), 10.0])
                         .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
                 );
             }
@@ -926,7 +958,7 @@ impl App {
         let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
             .padding([10, 14])
             .width(Layout::of(&self.cfg.general).width)
-            .height(CARD)
+            .height(card_height(&t.n))
             .clip(true)
             .style(move |_| {
                 if convex {
@@ -1158,8 +1190,43 @@ mod tests {
 
     #[test]
     fn hauteur_de_la_surface() {
-        assert_eq!(height(1), (CARD + 2.0 * SHADOW).ceil() as u32);
-        assert_eq!(height(9), height(VISIBLE));
+        let une = [toast(1, -1)];
+        assert_eq!(height(&une), (CARD + 2.0 * SHADOW).ceil() as u32);
+        let neufs: Vec<Toast> = (1..=9).map(|i| toast(i, -1)).collect();
+        assert_eq!(height(&neufs), height_of(&neufs, VISIBLE));
+    }
+
+    /// HIG ACC-04 : les boutons d'une bulle ont 28 px. La carte qui montre un
+    /// corps et des actions gagne 20 px, les autres gardent `CARD`, et la
+    /// surface suit.
+    #[test]
+    fn carte_plus_haute_pour_un_corps_et_des_actions() {
+        let corps = |actions: &[String]| Toast {
+            n: crate::notifications::build(1, "a", "", "s", "b", actions, &HashMap::new(), -1),
+            since: Instant::now(),
+        };
+        let sans = corps(&["default".into(), "Ouvrir".into()]);
+        let avec = corps(&[
+            "default".into(),
+            "Ouvrir".into(),
+            "later".into(),
+            "Plus tard".into(),
+        ]);
+        let deux = [sans, avec];
+        assert_eq!(
+            card_height(&deux[0].n),
+            CARD,
+            "un corps sans action tient dans CARD"
+        );
+        assert_eq!(card_height(&deux[1].n), CARD + CARD_BODY_ACTIONS);
+        assert_eq!(
+            height(&deux[1..]),
+            (CARD + CARD_BODY_ACTIONS + 2.0 * SHADOW).ceil() as u32
+        );
+        assert_eq!(
+            height(&deux),
+            (2.0 * CARD + CARD_BODY_ACTIONS + GAP + 2.0 * SHADOW).ceil() as u32
+        );
     }
 
     #[test]
