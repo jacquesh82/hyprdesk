@@ -318,14 +318,11 @@ pub fn set_polkit_keep(on: bool) -> Result<(), String> {
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(match out.status.code() {
-            Some(126) | Some(127) if err.is_empty() => {
-                crate::i18n::tr("Authentification annulée.").to_string()
-            }
-            _ if err.is_empty() => crate::i18n::tr("Échec, sans message.").to_string(),
-            _ => err,
-        });
+        return Err(crate::polkit::pkexec_failure(
+            crate::i18n::tr("Autorisation des mises à jour"),
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
     }
     let path = polkit_marker();
     if let Some(d) = path.parent() {

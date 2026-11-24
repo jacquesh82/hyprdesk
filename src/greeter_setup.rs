@@ -735,15 +735,12 @@ pub fn run_privileged(action: &str, extra: &[String]) -> Result<(), String> {
     if out.status.success() {
         return Ok(());
     }
-    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    Err(match out.status.code() {
-        // pkexec : authentification refusée ou fenêtre fermée.
-        Some(126) | Some(127) if err.is_empty() => {
-            crate::i18n::tr("Authentification annulée.").to_string()
-        }
-        _ if err.is_empty() => crate::i18n::tr("Échec, sans message.").to_string(),
-        _ => err,
-    })
+    // pkexec : authentification refusée ou fenêtre fermée (126, 127).
+    Err(crate::polkit::pkexec_failure(
+        &crate::tr!("Écran de connexion ({a})", a = action),
+        out.status.code(),
+        &String::from_utf8_lossy(&out.stderr),
+    ))
 }
 
 fn run(argv: &[&str]) -> Result<(), String> {

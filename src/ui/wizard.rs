@@ -130,6 +130,12 @@ pub const ALL: [usize; 10] = [
 /// Performance et Veille gardent leurs réglages par défaut (HIG DAT-01).
 pub const ESSENTIAL: [usize; 5] = [WELCOME, SCREENS, KEYBOARD, APPS, SUMMARY];
 
+/// Le pied d'une étape montre-t-il « Retour » ? Pas au récapitulatif, où
+/// Annuler et Terminé suffisent (HIG PRES-10).
+fn shows_back(step: usize) -> bool {
+    step != SUMMARY
+}
+
 /// Rôles proposés à l'étape Applications.
 const ROLES: [&str; 3] = ["terminal", "browser", "files"];
 /// Applications montrées par rôle.
@@ -1036,21 +1042,25 @@ impl App {
             _ => self.wz_summary(w),
         };
 
-        // Pied : retour, passer, suivant (terminer à la fin).
+        // Pied : retour, passer, suivant (terminer à la fin). Au
+        // récapitulatif, ni Retour à côté d'Annuler et de Terminé (HIG
+        // PRES-10) : les pastilles de l'en-tête et les tuiles du
+        // récapitulatif mènent déjà à chaque étape.
         let last = w.step == SUMMARY;
-        let mut foot = row![
-            button(
-                text("Retour")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-            )
-            .padding([9, 18])
-            .style(button::secondary)
-            .on_press_maybe((w.pos() > 0).then(|| wrap(WMsg::Back))),
-            Space::new().width(Length::Fill),
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
+        let mut foot = row![].spacing(10).align_y(Alignment::Center);
+        if shows_back(w.step) {
+            foot = foot.push(
+                button(
+                    text("Retour")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([9, 18])
+                .style(button::secondary)
+                .on_press_maybe((w.pos() > 0).then(|| wrap(WMsg::Back))),
+            );
+        }
+        foot = foot.push(Space::new().width(Length::Fill));
         if last {
             foot = foot.push(
                 button(
@@ -2768,6 +2778,17 @@ mod tests {
 
     fn step(app: &App) -> usize {
         app.wizard.as_ref().unwrap().step
+    }
+
+    /// HIG PRES-10 : au récapitulatif, Annuler et Terminé, sans Retour.
+    #[test]
+    fn le_recapitulatif_ne_montre_pas_retour() {
+        assert!(!shows_back(SUMMARY));
+        assert!(
+            ALL.iter()
+                .filter(|&&i| i != SUMMARY)
+                .all(|&i| shows_back(i))
+        );
     }
 
     /// Suivant, Passer, Retour et les pastilles restent dans les bornes ;
