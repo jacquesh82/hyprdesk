@@ -153,6 +153,23 @@ pub(in crate::ui) fn truncate(s: &str, n: usize) -> String {
     }
 }
 
+/// Clic sur l'horloge de la barre (HIG SYS-13) : en style Island, la bulle
+/// vivante qui occupe la pilule centrale ouvre sa vue étendue — corps,
+/// actions, carte des notifications ; dans tous les autres cas, le calendrier.
+pub(in crate::ui) fn clock_press(
+    bar: Id,
+    module: &str,
+    style: crate::config::BarStyle,
+    toast: Option<&crate::ui::toasts::Toast>,
+) -> Msg {
+    match (style, toast) {
+        (crate::config::BarStyle::Island, Some(t)) => {
+            Msg::OpenPopover(bar, module.to_string(), Request::Activity { id: t.n.id })
+        }
+        _ => Msg::OpenPopover(bar, module.to_string(), Request::Calendar),
+    }
+}
+
 /// `wpctl get-volume` → (volume 0..1, coupé).
 pub fn parse_volume(out: &str) -> Option<(f32, bool)> {
     let v: f32 = out.split_whitespace().nth(1)?.parse().ok()?;
@@ -2385,7 +2402,8 @@ impl App {
                         // « Dynamic island » : en style Island, la dernière
                         // bulle vivante prend la main sur l'horloge de la
                         // pilule centrale, et lui rend à sa disparition. Le
-                        // clic garde le calendrier.
+                        // clic ouvre sa vue étendue (HIG SYS-13) ; le
+                        // calendrier reste en pied de cette vue.
                         let toast = (style == crate::config::BarStyle::Island)
                             .then(|| self.toasts.list.first())
                             .flatten();
@@ -2421,11 +2439,12 @@ impl App {
                         // info-bulle, dit le compte.
                         let unread = self.toasts.unread();
                         let tip = (unread > 0).then(|| crate::tr!("Non lues : {n}", n = unread));
+                        let press = clock_press(bar_id, id, style, toast);
                         let frame = self.module(
                             bar,
                             alpha,
                             shown,
-                            Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
+                            Some(press),
                             None,
                             None,
                             None,
@@ -2847,5 +2866,41 @@ Video
         assert_eq!(App::badge_label(1), "1");
         assert_eq!(App::badge_label(99), "99");
         assert_eq!(App::badge_label(100), "99+");
+    }
+
+    /// HIG SYS-13 : en style Island, le clic sur la pilule occupée par une
+    /// bulle vivante ouvre la vue étendue de cette bulle ; sans bulle, ou dans
+    /// un autre style, l'horloge garde le calendrier.
+    #[test]
+    fn le_clic_sur_la_pilule_occupee_ouvre_la_vue_etendue() {
+        use crate::config::BarStyle;
+        let bulle = |id: u32| crate::ui::toasts::Toast {
+            n: crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1),
+            since: std::time::Instant::now(),
+        };
+        let calendrier = |style, toast| {
+            matches!(
+                clock_press(Id::unique(), "clock", style, toast),
+                Msg::OpenPopover(_, key, Request::Calendar) if key == "clock"
+            )
+        };
+        let sept = bulle(7);
+        assert!(
+            matches!(
+                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept)),
+                Msg::OpenPopover(_, key, Request::Activity { id }) if key == "clock" && id == 7
+            ),
+            "Island, bulle vivante : la vue étendue de cette bulle"
+        );
+        for style in [BarStyle::Continuite, BarStyle::Graphite, BarStyle::Convexe] {
+            assert!(
+                calendrier(style, Some(&sept)),
+                "un autre style garde le calendrier : {style:?}"
+            );
+        }
+        assert!(
+            calendrier(BarStyle::Island, None),
+            "sans bulle vivante, l'horloge garde le calendrier"
+        );
     }
 }

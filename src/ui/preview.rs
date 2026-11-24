@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 166] = [
+const SCENES: [&str; 167] = [
     "desktop",
     "typography",
     "icons",
@@ -140,6 +140,7 @@ const SCENES: [&str; 166] = [
     "bar-island-pressed",
     "bar-island-switch",
     "bar-island-notif",
+    "bar-island-activity",
     "bar-island-urgent",
     "bar-convex-idle",
     "bar-convex-pressed",
@@ -2059,7 +2060,10 @@ impl Preview {
                 // la pilule la montre, commandes révélées.
                 if !matches!(
                     SCENES[self.scene],
-                    "bar-island-idle" | "bar-island-notif" | "bar-island-bottom"
+                    "bar-island-idle"
+                        | "bar-island-notif"
+                        | "bar-island-activity"
+                        | "bar-island-bottom"
                 ) {
                     self.app.bar_preview = Some((6, false));
                 }
@@ -2079,9 +2083,14 @@ impl Preview {
                     });
                     self.app.urgent.insert("preview-urgent".into());
                 }
-                if SCENES[self.scene] == "bar-island-notif" {
+                if matches!(
+                    SCENES[self.scene],
+                    "bar-island-notif" | "bar-island-activity"
+                ) {
                     // Prise de main : une bulle vivante remplace l'heure de
-                    // la pilule centrale.
+                    // la pilule centrale. Sa vue étendue (HIG SYS-13) montre
+                    // un corps et des actions.
+                    let activity = SCENES[self.scene] == "bar-island-activity";
                     let _ = self.app.want_icon("firefox");
                     self.app.toasts.list = vec![super::toasts::Toast {
                         n: crate::notifications::build(
@@ -2089,8 +2098,25 @@ impl Preview {
                             "Firefox",
                             "firefox",
                             "Téléchargement terminé",
-                            "rapport-annuel.pdf (2,4 Mo)",
-                            &[],
+                            if activity {
+                                "rapport-annuel.pdf (2,4 Mo) est dans le dossier Téléchargements."
+                            } else {
+                                "rapport-annuel.pdf (2,4 Mo)"
+                            },
+                            &if activity {
+                                [
+                                    "default",
+                                    "Ouvrir",
+                                    "show",
+                                    "Afficher le dossier",
+                                    "share",
+                                    "Partager",
+                                ]
+                                .map(String::from)
+                                .to_vec()
+                            } else {
+                                vec![]
+                            },
                             &Default::default(),
                             -1,
                         ),
@@ -2355,6 +2381,24 @@ impl Preview {
                         source: popover::MenuSource::Shell,
                     },
                 );
+            }
+            // Vue étendue d'une activité de la pilule Island (HIG SYS-13) :
+            // le corps et les actions de la bulle vivante, puis la carte des
+            // notifications et le calendrier en pied. Même idiome : l'icône
+            // de l'application résolue tout de suite ; sans ancre relevée,
+            // la carte se centre sous la pilule.
+            if SCENES[self.scene] == "bar-island-activity" {
+                let gen_ = self.app.icons_gen;
+                if !self.app.named_icons.contains_key("firefox") {
+                    let path = launch::lookup_icon("firefox", None, 32)
+                        .or_else(|| launch::lookup_icon("firefox", Some("Adwaita"), 32));
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, "firefox".into(), path));
+                }
+                let _ = self
+                    .app
+                    .open_popover(self.bar, "clock".into(), popover::Kind::Activity(1));
             }
             // Carte Notifications de la barre (HIG LAY-02) : l'historique est
             // groupé par application, une boîte par application. Même idiome :

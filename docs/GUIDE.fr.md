@@ -211,6 +211,13 @@ les listes restent la source. L'état publié
 (`$XDG_RUNTIME_DIR/hyprdesk-notifications.txt`) porte le compte dans sa ligne
 `unread=N` ; `count=N` reste la longueur de l'historique.
 
+En style de barre `island`, une bulle vivante remplace l'horloge de la pilule
+centrale. Un clic sur la pilule ouvre alors la notification en entier — son
+corps et ses actions —, avec « Toutes les notifications » et « Calendrier » en
+pied de carte : une bulle critique occupe la pilule jusqu'à sa fermeture, le
+calendrier de l'horloge reste à portée. Sans bulle vivante, le clic ouvre le
+calendrier.
+
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
 (l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),

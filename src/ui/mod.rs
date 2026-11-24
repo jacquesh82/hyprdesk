@@ -4906,6 +4906,14 @@ impl App {
                         key,
                         popover::Kind::Calendar,
                     )),
+                    // Vue étendue de la bulle de la pilule Island (HIG
+                    // SYS-13) : la notification cliquée, rien à lire.
+                    popover::Request::Activity { id } => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Activity(id),
+                    )),
                     // Choix de la fin du Silence (HIG PAT-04) : la carte de menu.
                     popover::Request::Silence => Task::done(Msg::PopoverReady(
                         request,

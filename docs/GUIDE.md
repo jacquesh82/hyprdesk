@@ -212,6 +212,12 @@ not. Without a clock in the bar, the lists remain the source. The published
 state (`$XDG_RUNTIME_DIR/hyprdesk-notifications.txt`) carries the count in its
 `unread=N` line; `count=N` remains the length of the history.
 
+With the `island` bar style, a living bubble replaces the clock in the central
+pill. A click on the pill then opens the notification in full — its body and
+its actions — with "All notifications" and "Calendar" at the foot of the card:
+a critical bubble holds the pill until it is closed, so the clock's calendar
+stays within reach. Without a living bubble, the click opens the calendar.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night

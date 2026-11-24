@@ -545,6 +545,33 @@ struct Layout {
     timeout: Duration,
 }
 
+/// Bornes de la vue étendue (HIG SYS-13) : le titre tient sur deux lignes, le
+/// corps sur huit ; au-delà, le détail reste dans l'application.
+const ACTIVITY_TITLE_CHARS: usize = 120;
+const ACTIVITY_BODY_CHARS: usize = 480;
+const ACTIVITY_BODY_LINES: usize = 8;
+
+/// Titre et corps de la vue étendue (HIG SYS-13). Aperçus masqués (HIG
+/// SYS-05) : un texte générique au lieu du corps.
+fn activity_text(n: &Notification, hide: bool) -> (String, Option<String>) {
+    let body = if hide {
+        crate::i18n::tr("Notification").to_string()
+    } else {
+        truncate(
+            &n.body
+                .lines()
+                .take(ACTIVITY_BODY_LINES)
+                .collect::<Vec<_>>()
+                .join("\n"),
+            ACTIVITY_BODY_CHARS,
+        )
+    };
+    (
+        truncate(&n.summary, ACTIVITY_TITLE_CHARS),
+        (!n.body.is_empty()).then_some(body),
+    )
+}
+
 impl Layout {
     fn of(g: &crate::config::General) -> Self {
         use crate::design_options::{choice, num};
@@ -569,6 +596,30 @@ impl App {
                     p.kind,
                     crate::ui::plugins::bar::popover::Kind::Notifications
                 ) || p.dashboard.is_some())
+        })
+    }
+
+    /// La notification de la vue étendue `id` (HIG SYS-13) : sa bulle vivante,
+    /// sinon son entrée d'historique — la bulle s'est effacée depuis
+    /// l'ouverture de la vue, qui continue de la montrer.
+    fn activity_notification(&self, id: u32) -> Option<&Notification> {
+        self.toasts
+            .list
+            .iter()
+            .map(|t| &t.n)
+            .chain(self.toasts.history.iter())
+            .find(|n| n.id == id)
+    }
+
+    /// La vue étendue de la bulle `id` est ouverte, et non en train de se
+    /// refermer (HIG SYS-13).
+    fn activity_open(&self, id: u32) -> bool {
+        self.popover.as_ref().is_some_and(|p| {
+            !p.closing()
+                && matches!(
+                    p.kind,
+                    crate::ui::plugins::bar::popover::Kind::Activity(i) if i == id
+                )
         })
     }
 
@@ -685,7 +736,14 @@ impl App {
                 if !resident {
                     self.toasts.list.retain(|t| t.n.id != id);
                 }
-                self.sync_toasts()
+                // La vue étendue de cette bulle (HIG SYS-13) se referme sur
+                // son action.
+                let close = if self.activity_open(id) {
+                    self.close_popover()
+                } else {
+                    Task::none()
+                };
+                Task::batch([close, self.sync_toasts()])
             }
             // Carte du centre : ce qu'elle ouvre, puis le centre se referme.
             TMsg::Card(id) => {
@@ -708,7 +766,14 @@ impl App {
             TMsg::Close(id) => {
                 send(Cmd::Dismiss(id, Reason::Dismissed));
                 self.toasts.list.retain(|t| t.n.id != id);
-                self.sync_toasts()
+                // La vue étendue de cette bulle (HIG SYS-13) se referme avec
+                // elle.
+                let close = if self.activity_open(id) {
+                    self.close_popover()
+                } else {
+                    Task::none()
+                };
+                Task::batch([close, self.sync_toasts()])
             }
             // La bulle refuse le passage du Silence à son application (HIG
             // PAT-05) : décision gardée, explication retirée.
@@ -1079,55 +1144,8 @@ impl App {
                     .color(dim),
             );
         }
-        let extra: Vec<(usize, &(String, String))> =
-            t.n.actions
-                .iter()
-                .enumerate()
-                .filter(|(_, (k, _))| k != "default")
-                .take(3)
-                .collect();
-        if !extra.is_empty() {
-            // Boutons sans bordure : 12 px d'écart au moins (HIG ACC-10).
-            let mut r = row![].spacing(12);
-            for (i, (k, label)) in extra {
-                // Action destructrice (HIG SYS-17) : libellé et icône en
-                // rouge, comme une entrée de menu destructive.
-                let destructive = t.n.is_destructive(i);
-                let mut caption = text(label.clone())
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(11.0));
-                if destructive {
-                    caption = caption.color(action_tone(true, fg));
-                }
-                // Icône de l'action (hint `action-icons`) après le libellé
-                // (HIG SYS-18).
-                let icon =
-                    t.n.action_icons
-                        .get(i)
-                        .and_then(|icon| icon.as_deref())
-                        .and_then(|name| {
-                            self.icon_named(
-                                name,
-                                crate::ui::tokens::ts(12.0),
-                                action_tone(destructive, fg),
-                            )
-                        });
-                let content: Element<'_, Msg> = match icon {
-                    Some(icon) => row![caption, icon]
-                        .spacing(6)
-                        .align_y(Alignment::Center)
-                        .into(),
-                    None => caption.into(),
-                };
-                r = r.push(
-                    button(content)
-                        // 28 px de haut au moins (HIG ACC-04) : 14 px de
-                        // ligne et 7 px de marge en haut comme en bas.
-                        .padding([crate::ui::tokens::ts(7.0), 10.0])
-                        .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
-                );
-            }
-            col = col.push(r);
+        if let Some(actions) = self.action_buttons(&t.n, fg) {
+            col = col.push(actions);
         }
         // Première notification critique de l'application (HIG PAT-05) : la
         // bulle explique son passage du Silence et permet de le refuser. Deux
@@ -1287,6 +1305,201 @@ impl App {
             );
         }
         col.into()
+    }
+
+    /// Actions d'une notification, hors `default` (la carte elle-même) :
+    /// boutons sans bordure, 12 px d'écart au moins (HIG ACC-10) — la bulle
+    /// et la vue étendue les partagent. `None` sans action.
+    fn action_buttons<'a>(&'a self, n: &'a Notification, fg: Color) -> Option<Element<'a, Msg>> {
+        let extra: Vec<(usize, &(String, String))> = n
+            .actions
+            .iter()
+            .enumerate()
+            .filter(|(_, (k, _))| k != "default")
+            .take(3)
+            .collect();
+        if extra.is_empty() {
+            return None;
+        }
+        let id = n.id;
+        // Boutons sans bordure : 12 px d'écart au moins (HIG ACC-10).
+        let mut r = row![].spacing(12);
+        for (i, (k, label)) in extra {
+            // Action destructrice (HIG SYS-17) : libellé et icône en rouge,
+            // comme une entrée de menu destructive.
+            let destructive = n.is_destructive(i);
+            let mut caption = text(label.clone())
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0));
+            if destructive {
+                caption = caption.color(action_tone(true, fg));
+            }
+            // Icône de l'action (hint `action-icons`) après le libellé
+            // (HIG SYS-18).
+            let icon = n
+                .action_icons
+                .get(i)
+                .and_then(|icon| icon.as_deref())
+                .and_then(|name| {
+                    self.icon_named(
+                        name,
+                        crate::ui::tokens::ts(12.0),
+                        action_tone(destructive, fg),
+                    )
+                });
+            let content: Element<'_, Msg> = match icon {
+                Some(icon) => row![caption, icon]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+                    .into(),
+                None => caption.into(),
+            };
+            r = r.push(
+                button(content)
+                    // 28 px de haut au moins (HIG ACC-04) : 14 px de ligne et
+                    // 7 px de marge en haut comme en bas.
+                    .padding([crate::ui::tokens::ts(7.0), 10.0])
+                    .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
+            );
+        }
+        Some(r.into())
+    }
+
+    /// Vue étendue d'une activité de la pilule Island (HIG SYS-13) :
+    /// l'application, le titre, le corps et les actions de la notification
+    /// `id` — ceux de la bulle, le corps moins coupé —, puis le passage à la
+    /// carte des notifications et au calendrier que l'horloge remplace.
+    pub(super) fn view_activity(&self, alpha: f32, id: u32) -> Element<'_, Msg> {
+        let fg = color(self.bar_palette().fg, alpha);
+        let dim = Color {
+            a: alpha * DIM,
+            ..fg
+        };
+        let Some(n) = self.activity_notification(id) else {
+            return text(crate::i18n::tr("Aucune notification"))
+                .font(self.font)
+                .color(fg)
+                .into();
+        };
+        // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
+        let (title, body) = activity_text(
+            n,
+            crate::design_options::flag(&self.cfg.general, "notifications.hide_previews"),
+        );
+        // « Fermer » : la bulle si elle vit encore, la vue se referme avec
+        // elle ; passée à l'historique, la vue seule.
+        let close = if self.toasts.list.iter().any(|t| t.n.id == id) {
+            Msg::Toasts(TMsg::Close(id))
+        } else {
+            Msg::ClosePopover
+        };
+        let mut head = row![].spacing(8).align_y(Alignment::Center);
+        if n.urgency == Urgency::Critical {
+            // Le repère de l'urgence, comme dans la bulle.
+            head = head.push(
+                self.icon_named(URGENT_ICON, CRITICAL_MARK, crate::ui::tone::warning())
+                    .unwrap_or_else(|| {
+                        iced::widget::Space::new()
+                            .width(CRITICAL_MARK)
+                            .height(CRITICAL_MARK)
+                            .into()
+                    }),
+            );
+        }
+        let head = head
+            .push(
+                text(card_app(n))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(dim)
+                    .width(Length::Fill),
+            )
+            // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
+            .push(iced::widget::tooltip(
+                button(
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
+                        .expect("glyphe de fermeture"),
+                )
+                .padding(crate::ui::tokens::ts(7.0))
+                .width(crate::ui::tokens::ts(BUTTON_TARGET))
+                .height(crate::ui::tokens::ts(BUTTON_TARGET))
+                .style(button::text)
+                .on_press(close),
+                text(crate::i18n::tr("Fermer")).font(self.font),
+                iced::widget::tooltip::Position::Left,
+            ));
+        let mut block = column![
+            head,
+            text(title)
+                .font(self.title_font())
+                .size(crate::ui::tokens::ts(14.0))
+                .color(fg),
+        ]
+        .spacing(4)
+        .width(Length::Fill);
+        if let Some(body) = body {
+            block = block.push(
+                text(body)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .line_height(crate::ui::tokens::line_height())
+                    .color(dim),
+            );
+        }
+        let block: Element<'_, Msg> = row![self.notif_icon(n, CARD_ICON, dim), block]
+            .spacing(12)
+            .align_y(Alignment::Start)
+            .into();
+        // Clic sur la notification : action par défaut (si l'application en
+        // propose une), comme la bulle.
+        let block = if n.actions.iter().any(|(k, _)| k == "default") {
+            mouse_area(block)
+                .interaction(iced::mouse::Interaction::Pointer)
+                .on_press(Msg::Toasts(TMsg::Invoke(id, "default".into())))
+                .into()
+        } else {
+            block
+        };
+        let mut col = column![block].spacing(12).width(Length::Fill);
+        if let Some(actions) = self.action_buttons(n, fg) {
+            col = col.push(actions);
+        }
+        // Le pied mène à la carte des notifications et au calendrier de
+        // l'horloge : la bulle critique occupe la pilule jusqu'à sa fermeture.
+        use crate::ui::plugins::bar::popover::PMsg;
+        let foot = row![
+            self.activity_link(
+                crate::i18n::tr("Toutes les notifications").to_string(),
+                fg,
+                Msg::Popover(PMsg::ActivityHistory),
+            ),
+            self.activity_link(
+                crate::i18n::tr("Calendrier").to_string(),
+                fg,
+                Msg::Popover(PMsg::ActivityCalendar),
+            ),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        column![col, self.pop_separator(alpha), foot]
+            .spacing(12)
+            .width(Length::Fill)
+            .into()
+    }
+
+    /// Bouton de texte du pied de la vue étendue : sans bordure, 28 px de
+    /// haut au moins (HIG ACC-04).
+    fn activity_link<'a>(&'a self, label: String, ink: Color, press: Msg) -> Element<'a, Msg> {
+        button(
+            text(label)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(ink),
+        )
+        .padding([crate::ui::tokens::ts(7.0), 10.0])
+        .style(button::text)
+        .on_press(press)
+        .into()
     }
 
     pub(super) fn view_toasts(&self) -> Element<'_, Msg> {
@@ -1830,6 +2043,108 @@ mod tests {
     /// Une notification reçue d'une application, sans corps ni icône.
     fn recue(id: u32, app: &str) -> Notification {
         crate::notifications::build(id, app, "", "s", "", &[], &HashMap::new(), -1)
+    }
+
+    /// HIG SYS-13 : la vue étendue montre la bulle cliquée, puis son entrée
+    /// d'historique quand la bulle s'est effacée ; une action invoquée et
+    /// « Fermer » la referment, fermer une autre bulle la laisse.
+    #[test]
+    fn la_vue_etendue_suit_sa_bulle_puis_son_historique_et_se_referme_sur_son_action() {
+        use crate::ui::plugins::bar::popover::Kind;
+        use crate::ui::plugins::bar::surface::BarSurface;
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        let bar = Id::unique();
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 900,
+            height: 640,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            reserved: (0.0, 44.0, 0.0, 0.0),
+        }];
+        app.bar_surfaces.insert(
+            bar,
+            BarSurface {
+                monitor: "A".into(),
+                ..Default::default()
+            },
+        );
+        app.toasts.list = vec![Toast {
+            n: carte(&["default", "open"], None),
+            since: Instant::now(),
+        }];
+        let _ = app.open_popover(bar, "clock".into(), Kind::Activity(1));
+        assert!(app.activity_open(1), "la vue de la bulle 1 est ouverte");
+        assert!(!app.activity_open(2), "pas celle d'une autre bulle");
+        assert_eq!(app.activity_notification(1).map(|n| n.id), Some(1));
+        // La bulle s'efface : la vue la relit dans l'historique.
+        app.toasts.list.clear();
+        assert!(
+            app.activity_notification(1).is_none(),
+            "sans historique, la notification a disparu"
+        );
+        app.toasts.history = vec![recue(1, "a")];
+        assert_eq!(
+            app.activity_notification(1).map(|n| n.id),
+            Some(1),
+            "l'entrée d'historique"
+        );
+        // Une action de la vue la referme.
+        let _ = app.toasts_update(TMsg::Invoke(1, "open".into()));
+        assert!(!app.activity_open(1), "l'action referme la vue");
+        // Fermer une autre bulle laisse la vue ; « Fermer » referme la vue
+        // de sa bulle.
+        let _ = app.open_popover(bar, "clock".into(), Kind::Activity(1));
+        app.toasts.list = vec![Toast {
+            n: recue(2, "b"),
+            since: Instant::now(),
+        }];
+        let _ = app.toasts_update(TMsg::Close(2));
+        assert!(app.activity_open(1), "fermer une autre bulle laisse la vue");
+        let _ = app.toasts_update(TMsg::Close(1));
+        assert!(
+            !app.activity_open(1),
+            "« Fermer » referme la vue avec sa bulle"
+        );
+        // La vue ne lit rien (HIG SYS-02) : seules les listes le font.
+        app.toasts.history = vec![recue(3, "c")];
+        let _ = app.open_popover(bar, "clock".into(), Kind::Activity(3));
+        assert_eq!(app.toasts.unread(), 1, "la vue étendue n'est pas une liste");
+        // Les bornes de la vue : huit lignes de corps, le titre moins coupé
+        // que dans une carte de l'historique.
+        let long = crate::notifications::build(
+            4,
+            "a",
+            "",
+            &"t".repeat(200),
+            &(0..12)
+                .map(|i| format!("ligne {i}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            &[],
+            &HashMap::new(),
+            -1,
+        );
+        let (titre, corps) = activity_text(&long, false);
+        assert_eq!(
+            titre.chars().count(),
+            ACTIVITY_TITLE_CHARS + 1,
+            "coupé, suivi de « … »"
+        );
+        let corps = corps.expect("un corps");
+        assert_eq!(corps.lines().count(), ACTIVITY_BODY_LINES);
+        assert!(corps.starts_with("ligne 0\n") && corps.contains("ligne 7"));
+        assert!(!corps.contains("ligne 8"));
+        let (_, masque) = activity_text(&long, true);
+        assert_eq!(masque, Some(crate::i18n::tr("Notification").to_string()));
     }
 
     #[test]

@@ -62,6 +62,11 @@ pub enum Request {
     Shell,
     /// Menu « Aide », en dernier des titres de la barre (HIG MENU-05).
     Help,
+    /// Vue étendue de la bulle qui occupe la pilule Island : son corps, ses
+    /// actions, l'accès à la carte des notifications (HIG SYS-13).
+    Activity {
+        id: u32,
+    },
 }
 
 #[cfg(test)]
@@ -652,6 +657,9 @@ pub enum MenuSource {
 #[derive(Debug, Clone)]
 pub enum Kind {
     Notifications,
+    /// Vue étendue de la notification `id`, bulle vivante ou entrée de
+    /// l'historique depuis (HIG SYS-13).
+    Activity(u32),
     Volume,
     Brightness,
     Calendar,
@@ -686,6 +694,12 @@ pub enum PMsg {
     MenuTick(u64),
     /// Clic sur l'entrée n de la colonne du sous-menu ouvert.
     SubActivate(usize),
+    /// « Toutes les notifications », au pied de la vue étendue (HIG SYS-13) :
+    /// la carte Notifications prend sa place, sous la même ancre.
+    ActivityHistory,
+    /// « Calendrier », au pied de la vue étendue : l'horloge que la bulle
+    /// remplace garde son calendrier.
+    ActivityCalendar,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -878,6 +892,9 @@ fn card_height(
 ) -> f32 {
     let inner = match kind {
         Kind::Notifications => 420.0,
+        // Estimation d'ouverture : le capteur de contenu règle la carte sur
+        // son titre, son corps, ses actions et son pied.
+        Kind::Activity(_) => 176.0,
         Kind::Widget(_) => 420.0,
         Kind::Workspaces => 300.0,
         Kind::Overflow(items) => 44.0 + items.len() as f32 * 48.0,
@@ -1491,10 +1508,31 @@ impl App {
     }
 
     pub(in crate::ui) fn popover_update(&mut self, m: PMsg) -> Task<Msg> {
+        // Pied de la vue étendue (HIG SYS-13) : la carte demandée prend la
+        // place de la vue, sous la même ancre — le contenu se fond, et
+        // recliquer sur la pilule referme.
+        if matches!(m, PMsg::ActivityHistory | PMsg::ActivityCalendar) {
+            let open = self
+                .popover
+                .as_ref()
+                .filter(|p| !p.closing())
+                .map(|p| (p.bar, p.key.clone()));
+            return match (open, m) {
+                (Some((bar, key)), PMsg::ActivityHistory) => {
+                    self.open_popover(bar, key, Kind::Notifications)
+                }
+                (Some((bar, key)), PMsg::ActivityCalendar) => {
+                    self.open_popover(bar, key, Kind::Calendar)
+                }
+                _ => Task::none(),
+            };
+        }
         let Some(p) = self.popover.as_mut() else {
             return Task::none();
         };
         match m {
+            // Traités avant la garde : la carte y est forcément ouverte.
+            PMsg::ActivityHistory | PMsg::ActivityCalendar => Task::none(),
             PMsg::Spawn(cmd) => {
                 let t = self.run_from_desktop(cmd, false);
                 Task::batch([t, self.close_popover()])
@@ -1775,6 +1813,7 @@ impl App {
     ) -> Element<'a, Msg> {
         let content = match kind {
             Kind::Notifications => self.view_notification_history(alpha),
+            Kind::Activity(id) => self.view_activity(alpha, *id),
             Kind::Volume => self.pop_volume(alpha),
             Kind::Brightness => self.pop_brightness(alpha),
             Kind::Calendar => self.pop_calendar(alpha),
