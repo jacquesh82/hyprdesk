@@ -43,6 +43,7 @@
 | 2026-11-24 | B11 | SEL-02 traité (écart devenu L, en trois étapes) ; il en reste 37 dans ce couloir |
 | 2026-11-24 | B12 | LAY-08, NAV-07, PAT-16 traités ; il en reste 34 dans ce couloir |
 | 2026-11-24 | B13 | LAY-12, SEL-14 traités (second lot de l'itération B12) ; il en reste 32 dans ce couloir |
+| 2026-11-24 | B14 | plan de PAT-13 écrit, non exécuté (troisième temps de l'itération B12) ; il en reste 32 dans ce couloir |
 
 ### Couloir C
 
@@ -174,7 +175,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | NAV-07 | Recherche des Réglages : colonne de navigation | PISTE | S | moyenne | fait | ce5c806 | pendant la recherche, la navigation ne garde que les paquets qui ont une correspondance, avec leur compte ; l'estompe à 35 % est retirée, un groupe sans correspondance disparaît avec son en-tête (`view_panel`, `panel.rs`). Hors correction, non touchés : le champ reste dans l'en-tête (PAT-13) et les sous-onglets du paquet courant restent affichés. Aucune scène d'aperçu ne porte de requête : vérifié par lecture ; pas de test ajouté (une ligne de vue). |
 | PAT-16 | Titre du tiroir | PISTE | S | haute | fait | ce5c806 | le titre du tiroir est le libellé du paquet affiché (`plugins::find(p.tab)`, traduit par l'enveloppe `text`), « Réglages » passe en surline à la place de « HYPRDESK » (`panel.rs`). `docs/GUIDE.fr.md`, `docs/GUIDE.md` : puce « Savoir où l'on est ». La clé `HYPRDESK` de `locales/en.toml` reste, orpheline. Capture : scène `bureau` (« Settings » sur « Desktop ») à 1440 px. |
 | SEL-14 | Listes déroulantes sans valeur posée | PISTE | S | moyenne | fait | 80d1808 | un texte de substitution quand aucune valeur n'est posée : « Par défaut » sur les options de Hyprland non posées dans hyprland.lua et sur le thème du curseur (`hyprset.rs`), « Choisir… » sur les champs à choix des règles (`hyprlists.rs`, `Field::Choice` et `Field::IntChoice`), comme la liste des périphériques. Les listes toujours pourvues (booléen d'un champ, catégorie et mode d'une permission) n'en reçoivent pas : il ne s'afficherait jamais. Non visitées, hors preuve : les listes déroulantes des autres pages. Chaînes déjà dans `locales/en.toml`. Vérifié par lecture : la substitution n'apparaît que sans valeur ; pas de test ajouté. |
-| PAT-13 | Point d'entrée de la recherche | PISTE | M | haute | à faire | — | — |
+| PAT-13 | Point d'entrée de la recherche | PISTE | M | haute | à faire | — | plan écrit (itération B12, non exécuté faute de temps) : `boucle/plans/PAT-13.md` — un cinquième genre de vue au lanceur, `:r` ou `:reglages`, sur l'index de `settings_search` et le filtre de visibilité du tiroir ; Entrée ferme le lanceur et ouvre le tiroir sur le réglage, la requête surlignée. Relu à froid, sans outil d'agent. Décision laissée au propriétaire, hors de cet écart : montrer aussi les réglages dans les résultats généraux du lanceur, sans préfixe. |
 | SEL-08 | Valeur des curseurs en lecture seule | PISTE | M | haute | à faire | — | — |
 | SEL-09 | Graduations des curseurs à pas discret | PISTE | M | moyenne | à faire | — | — |
 | TYP-08 | Disposition — texte agrandi dans les réglages | PISTE | M | moyenne | à faire | — | — |
