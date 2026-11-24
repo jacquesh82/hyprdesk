@@ -277,6 +277,14 @@ passent d'un contrôle au suivant ; Ctrl+Tab et Ctrl+Maj + Tab sautent au
 premier contrôle du groupe suivant ou précédent ; Page précédente et Page
 suivante font défiler les cartes.
 
+**Le clavier à chaque surface.** Trois raccourcis posent le clavier sur une
+surface du shell, sans en refermer ni changer de mode : `CTRL + F3` va au dock
+de l'écran actif (bureau masqué, il paraît sous les fenêtres, qui restent en
+place), `CTRL + F8` ouvre le centre de notifications, `CTRL + F6` ouvre le
+volet des Réglages et pose le focus sur son premier champ. Pressé deux fois,
+le dock rend le clavier aux fenêtres ; le centre et le volet, qui restent
+ouverts, le gardent.
+
 ## Raccourcis et binds.lua
 
 Partout où hyprdesk écrit un raccourci, les modificateurs viennent dans cet

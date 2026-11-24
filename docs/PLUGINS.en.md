@@ -147,7 +147,7 @@ Keys per package:
 | Package | Keys |
 |---|---|
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
-| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
+| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.focus_dock`, `keys.focus_notifications`, `keys.focus_settings`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `dock` | `running_apps`, `launcher_group` |
 | `launcher` | `apps_style`, `apps_suggestions`, `apps_categories`, `apps_unified`, `launcher.<shape>` |

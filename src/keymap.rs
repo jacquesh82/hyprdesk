@@ -74,6 +74,15 @@ pub const LABELS: &[&str] = &[
     "bureau affiché",
 ];
 
+/// Libellés des raccourcis de focus, un par surface du shell (HIG ENT-02) :
+/// barre, dock, centre de notifications, volet des Réglages.
+pub const FOCUS_LABELS: &[&str] = &[
+    "Clavier à la barre",
+    "Clavier au dock",
+    "Clavier au centre de notifications",
+    "Clavier aux Réglages",
+];
+
 /// Combinaison comparable : (masque des modificateurs, touche en minuscules).
 pub fn norm(combo: &str) -> Option<(u32, String)> {
     parse_combo(combo)
@@ -145,6 +154,36 @@ pub fn actions(k: &Keys) -> Vec<Action> {
         "keys.assistant",
         LABELS[11],
         &k.assistant,
+        Everywhere,
+    );
+    // Un raccourci par surface du shell (HIG ENT-02). Aucun ne bascule de
+    // mode ni ne referme : le clavier va à la surface, qui le garde ou le rend.
+    push(
+        "focus-bar",
+        "keys.focus_bar",
+        FOCUS_LABELS[0],
+        &k.focus_bar,
+        Everywhere,
+    );
+    push(
+        "focus-dock",
+        "keys.focus_dock",
+        FOCUS_LABELS[1],
+        &k.focus_dock,
+        Everywhere,
+    );
+    push(
+        "focus-notifications",
+        "keys.focus_notifications",
+        FOCUS_LABELS[2],
+        &k.focus_notifications,
+        Everywhere,
+    );
+    push(
+        "focus-settings",
+        "keys.focus_settings",
+        FOCUS_LABELS[3],
+        &k.focus_settings,
         Everywhere,
     );
     // Verrouillage non réglé : celui de hyprland.lua hors du bureau, celui
@@ -922,8 +961,37 @@ hl.bind(mainMod .. " + Tab", function()
 
     #[test]
     fn libelles_traduits() {
-        let missing = crate::i18n::untranslated("keymap", LABELS.iter().copied());
+        let missing =
+            crate::i18n::untranslated("keymap", LABELS.iter().chain(FOCUS_LABELS).copied());
         assert!(missing.is_empty(), "{missing:?}");
+    }
+    #[test]
+    fn raccourcis_de_focus() {
+        // HIG ENT-02 : un par surface, partout, sur le modèle de macOS.
+        let acts = actions(&Keys::default());
+        let focus: Vec<(&str, &str, &str)> = acts
+            .iter()
+            .filter(|a| a.id.starts_with("focus-"))
+            .map(|a| (a.id, a.label, a.combo.as_str()))
+            .collect();
+        assert_eq!(
+            focus,
+            [
+                ("focus-bar", FOCUS_LABELS[0], "CTRL + F2"),
+                ("focus-dock", FOCUS_LABELS[1], "CTRL + F3"),
+                ("focus-notifications", FOCUS_LABELS[2], "CTRL + F8"),
+                ("focus-settings", FOCUS_LABELS[3], "CTRL + F6"),
+            ]
+        );
+        assert!(
+            acts.iter()
+                .filter(|a| a.id.starts_with("focus-"))
+                .all(|a| a.scope.outside() && a.scope.desktop())
+        );
+        // Coupé (`none`) : plus aucun raccourci de dock.
+        let mut k = Keys::default();
+        k.focus_dock.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "focus-dock"));
     }
     #[test]
     fn raccourci_absent_des_fichiers() {

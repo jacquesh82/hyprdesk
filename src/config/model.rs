@@ -1500,6 +1500,16 @@ pub struct Keys {
     pub overview: String,
     /// Ouvrir ou refermer LYRA, l'assistant IA (`hyprdesk assistant`).
     pub assistant: String,
+    /// Le clavier va à la barre de l'écran actif (`hyprdesk focus bar`).
+    pub focus_bar: String,
+    /// Le clavier va au dock de l'écran actif (`hyprdesk focus dock`).
+    pub focus_dock: String,
+    /// Le centre de notifications s'ouvre et prend le clavier
+    /// (`hyprdesk focus notifications`).
+    pub focus_notifications: String,
+    /// Le volet des Réglages s'ouvre s'il est fermé et prend le clavier
+    /// (`hyprdesk focus settings`).
+    pub focus_settings: String,
     /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
     /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
     pub take: Vec<String>,
@@ -1527,6 +1537,12 @@ impl Default for Keys {
             search_desktop: String::new(),
             overview: "SUPER + Tab".into(),
             assistant: "SUPER + SHIFT + L".into(),
+            // Un raccourci par surface du shell (HIG ENT-02), sur le modèle
+            // de macOS : Control-F2, F3, F6 ; F8, libre, pour le centre.
+            focus_bar: "CTRL + F2".into(),
+            focus_dock: "CTRL + F3".into(),
+            focus_notifications: "CTRL + F8".into(),
+            focus_settings: "CTRL + F6".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),

@@ -42,6 +42,10 @@ pub enum Command {
     /// Ouvre les Réglages, ou les referme s'ils sont déjà ouverts sur cet
     /// écran (raccourci `keys.settings`).
     ToggleSettings,
+    /// Le clavier va à une surface du shell (raccourcis `keys.focus_*`) :
+    /// `bar`, `dock`, `notifications` ou `settings`. La surface s'ouvre s'il
+    /// le faut et prend le clavier ; rien ne se referme, le mode ne change pas.
+    Focus(String),
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
@@ -110,6 +114,9 @@ impl Command {
             "switch prev" | "switch-prev" => Command::Switch(true),
             "settings" => Command::Settings("desktop".into()),
             "toggle-settings" => Command::ToggleSettings,
+            m if m.starts_with("focus ") && m.len() > 6 => {
+                Command::Focus(m[6..].trim().to_string())
+            }
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
@@ -136,6 +143,7 @@ impl Command {
     pub fn to_line(&self) -> String {
         match self {
             Command::Menu(m) => format!("menu {m}"),
+            Command::Focus(t) => format!("focus {t}"),
             Command::Settings(p) => format!("settings {p}"),
             Command::Osd(l) => format!("osd-show {l}"),
             Command::Problem(t) => format!(
@@ -175,6 +183,7 @@ impl Command {
             Command::Quit => "quit",
             Command::Settings(_) => "settings",
             Command::ToggleSettings => "toggle-settings",
+            Command::Focus(_) => "focus",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
@@ -421,6 +430,7 @@ mod tests {
             Command::Settings("desktop".into()),
             Command::Settings("fond".into()),
             Command::ToggleSettings,
+            Command::Focus("dock".into()),
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,
@@ -433,6 +443,12 @@ mod tests {
             );
         }
         assert_eq!(Command::parse("nope"), None);
+        // HIG ENT-02 : quatre surfaces, et rien d'autre.
+        assert_eq!(
+            Command::parse("focus bar\n"),
+            Some(Command::Focus("bar".into()))
+        );
+        assert_eq!(Command::parse("focus"), None);
         assert_eq!(
             Command::parse("menu network"),
             Some(Command::Menu("network".into()))

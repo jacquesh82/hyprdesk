@@ -2363,21 +2363,35 @@ impl App {
         }
     }
 
-    /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
-    /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
-    fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
+    /// La barre où va le clavier : celle de l'écran actif, sinon la première.
+    fn focused_bar(&self) -> Option<Id> {
         let focused = self
             .monitors
             .iter()
             .find(|m| m.focused)
             .map(|m| m.name.clone());
-        let Some(bar_id) = self
-            .bar_surfaces
+        self.bar_surfaces
             .iter()
             .find(|(_, s)| Some(&s.monitor) == focused.as_ref())
             .or_else(|| self.bar_surfaces.iter().next())
             .map(|(id, _)| *id)
-        else {
+    }
+
+    /// Le centre de notifications s'ouvre sur la barre de l'écran actif et
+    /// prend le clavier (raccourci `keys.focus_notifications`, HIG ENT-02) ;
+    /// déjà ouvert, il reste. Sans barre (bureau masqué), rien à ouvrir : la
+    /// carte est ancrée à la barre.
+    fn focus_notifications(&mut self) -> Task<Msg> {
+        let Some(bar) = self.focused_bar() else {
+            return Task::none();
+        };
+        self.open_popover(bar, "notifications".into(), popover::Kind::Notifications)
+    }
+
+    /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
+    /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
+    fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
+        let Some(bar_id) = self.focused_bar() else {
             return Task::none();
         };
         let items: Vec<config::BarItem> = self
@@ -4047,6 +4061,15 @@ impl App {
                 // Le raccourci fait comme le bouton de la barre : un second
                 // appui referme le tiroir.
                 control::Command::ToggleSettings => self.toggle_panel(),
+                // Le clavier va à une surface du shell (HIG ENT-02). Contrairement
+                // à `toggle-settings`, rien ne se referme et le mode du bureau ne
+                // bascule pas : la surface s'ouvre s'il le faut et prend le clavier.
+                control::Command::Focus(kind) => match kind.as_str() {
+                    "dock" => self.launcher_focus(),
+                    "notifications" => self.focus_notifications(),
+                    "settings" => self.focus_panel(),
+                    _ => Task::none(),
+                },
                 control::Command::Settings(tab) => {
                     let s = Task::none();
                     let o = self.open_panel();
@@ -5383,7 +5406,14 @@ impl App {
                     Task::none()
                 }
             }
-            Msg::KeyboardLeft(id) => self.launcher_keyboard_left(id),
+            Msg::KeyboardLeft(id) => {
+                // Le volet des Réglages ne tient plus le clavier : une fenêtre
+                // l'a repris ; son raccourci le lui rendra (HIG ENT-02).
+                if let Some(p) = self.panel.as_mut().filter(|p| p.surface == id) {
+                    p.keyboard = false;
+                }
+                self.launcher_keyboard_left(id)
+            }
             Msg::Released if self.bar_drag.is_some() => self.update_inner(Msg::BarDragEnd),
             Msg::Released => match self.drag.take() {
                 Some(d) if d.active => {
@@ -7091,6 +7121,36 @@ mod regression_tests {
         assert!(!app.panel_open(), "second appui du raccourci : fermé");
         let _ = app.update_inner(Msg::Control(control::Command::ToggleSettings));
         assert!(app.panel_open(), "troisième appui : rouvert");
+    }
+
+    /// HIG ENT-02 : le raccourci du volet ouvre les Réglages ou, déjà ouverts,
+    /// les laisse ouverts et leur rend le clavier ; le mode ne change pas.
+    #[test]
+    fn the_settings_shortcut_opens_the_drawer_and_never_closes_it() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        let mode = app.mode();
+        let focus = || Msg::Control(control::Command::Focus("settings".into()));
+        let _ = app.update_inner(focus());
+        assert!(app.panel_open(), "fermé : il s'ouvre");
+        let surface = app.panel.as_ref().unwrap().surface;
+        // Pressé deux fois : il tient le clavier, rien à refaire, il ne se referme pas.
+        let _ = app.update_inner(focus());
+        let p = app.panel.as_ref().unwrap();
+        assert!(app.panel_open() && p.keyboard);
+        assert_eq!(p.surface, surface);
+        // Une fenêtre a repris le clavier : le raccourci le rend au volet,
+        // qui renaît (une couche « à la demande » ne le prend qu'à son apparition).
+        let _ = app.update_inner(Msg::KeyboardLeft(surface));
+        assert!(!app.panel.as_ref().unwrap().keyboard);
+        let _ = app.update_inner(focus());
+        let p = app.panel.as_ref().unwrap();
+        assert!(app.panel_open() && p.keyboard);
+        assert_ne!(p.surface, surface);
+        assert_eq!(app.mode(), mode);
     }
 
     #[test]

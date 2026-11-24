@@ -61,6 +61,8 @@ pub enum PanelMsg {
     SliderClose,
     /// Message d'un paquet de réglages.
     Plugin(PluginMsg),
+    /// Le clavier vient au volet : son premier contrôle prend le focus (HIG ENT-02).
+    FocusFirst,
     /// Recherche d'un réglage (texte tapé).
     Search(String),
     /// Résultat choisi : paquet et onglet.
@@ -130,7 +132,15 @@ pub struct Panel {
     /// Valeur d'un curseur en cours de saisie (HIG SEL-08) : un seul à la fois,
     /// le champ se referme en changeant de page.
     pub slider: Option<SliderEdit>,
+    /// Le volet tient le clavier : vrai dès son apparition (Hyprland le donne
+    /// à une couche « à la demande » qui paraît), faux dès qu'une fenêtre le
+    /// reprend (HIG ENT-02).
+    pub keyboard: bool,
 }
+
+/// Identifiant du volet aux opérations de focus : elles y restent bornées,
+/// sans aller aux autres surfaces (HIG ENT-02).
+pub(super) const PANEL_ID: &str = "hyprdesk-panel";
 
 /// Curseur des Réglages dont la valeur se saisit au clavier (HIG SEL-08) :
 /// ce qu'il faut pour poser la valeur tapée comme un glissé puis son
@@ -341,6 +351,7 @@ impl Panel {
             defaults_ask: None,
             defaults_done: None,
             slider: None,
+            keyboard: true,
         }
     }
 
@@ -423,6 +434,47 @@ impl App {
         self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0)
     }
 
+    /// Le clavier va au volet des Réglages (raccourci `keys.focus_settings`,
+    /// HIG ENT-02) : fermé, il s'ouvre ; ouvert, il reste, et garde le clavier
+    /// s'il le tient déjà — le focus reste où il est. Sinon il le reprend : un
+    /// volet ouvert qui ne le tenait plus renaît, Hyprland ne le donnant à une
+    /// couche « à la demande » qu'à son apparition (comme le dock,
+    /// `launcher_grab`). Le focus se pose alors sur son premier contrôle. Le
+    /// mode du bureau ne change pas.
+    pub(super) fn focus_panel(&mut self) -> Task<Msg> {
+        let state = |p: &Panel| (p.surface, p.keyboard);
+        let before = self.panel.as_ref().map(state);
+        let open = self.open_panel();
+        let reborn = self.panel.as_mut().filter(|p| !p.keyboard).map(|p| {
+            let monitor = self.surfaces.get(&p.win).cloned().unwrap_or_default();
+            let old = std::mem::replace(&mut p.surface, Id::unique());
+            p.keyboard = true;
+            (old, p.surface, monitor)
+        });
+        let reborn = match reborn {
+            Some((old, fresh, monitor)) => {
+                Task::batch([iced::window::close(old), self.panel_surface(fresh, monitor)])
+            }
+            None => Task::none(),
+        };
+        // Ouvert et tenant le clavier : rien n'a changé, le focus ne bouge pas.
+        // Au tour suivant : la surface nouvelle existe quand le focus se pose.
+        let first = (self.panel.as_ref().map(state) != before)
+            .then(|| Task::done(Msg::Panel(PanelMsg::FocusFirst)));
+        Task::batch([open, reborn, first.unwrap_or_else(Task::none)])
+    }
+
+    /// Le premier contrôle du volet prend le focus, lui seul : l'opération est
+    /// bornée au volet (HIG ENT-02), les autres surfaces perdent le leur.
+    pub(super) fn panel_focus_first(&self) -> Task<Msg> {
+        use iced::advanced::widget::operation::{self, focusable};
+        let first = operation::scope(iced::widget::Id::new(PANEL_ID), focusable::focus_next());
+        Task::batch([
+            iced::advanced::widget::operate(focusable::unfocus()),
+            iced::advanced::widget::operate(first),
+        ])
+    }
+
     /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son
     /// verre réfracte. Les fenêtres n'y figurent pas, comme sous le dock.
     fn panel_backdrop(&self) -> Option<Element<'_, Msg>> {
@@ -502,6 +554,10 @@ impl App {
             k.overview.clone(),
             k.search_desktop.clone(),
             k.assistant.clone(),
+            k.focus_bar.clone(),
+            k.focus_dock.clone(),
+            k.focus_notifications.clone(),
+            k.focus_settings.clone(),
         ];
         self.panel = Some(p);
         let from = self
@@ -694,6 +750,7 @@ impl App {
                 // Le champ reprend le focus : une nouvelle recherche s'écrit.
                 iced::widget::operation::focus(SEARCH_ID)
             }
+            PanelMsg::FocusFirst => self.panel_focus_first(),
             PanelMsg::Tour(m) => self.tour_update(m),
             PanelMsg::Advanced(v) => {
                 self.settings.advanced_settings = Some(v);
@@ -1405,6 +1462,8 @@ impl App {
             iced::widget::float(mouse_area(card).on_press(Msg::Noop))
                 .translate(move |_, _| iced::Vector::new((1.0 - progress) * 28.0, 0.0)),
         )
+        // Aux opérations, le volet se nomme : le focus y est borné (HIG ENT-02).
+        .id(iced::widget::Id::new(PANEL_ID))
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(Alignment::End)

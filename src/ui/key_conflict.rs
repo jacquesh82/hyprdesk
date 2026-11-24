@@ -251,6 +251,10 @@ impl App {
             "keys.switch" => keys.switch = combo.clone(),
             "keys.overview" => keys.overview = combo.clone(),
             "keys.assistant" => keys.assistant = combo.clone(),
+            "keys.focus_bar" => keys.focus_bar = combo.clone(),
+            "keys.focus_dock" => keys.focus_dock = combo.clone(),
+            "keys.focus_notifications" => keys.focus_notifications = combo.clone(),
+            "keys.focus_settings" => keys.focus_settings = combo.clone(),
             "keys.search_desktop" => keys.search_desktop = combo.clone(),
             _ => return Task::none(),
         }

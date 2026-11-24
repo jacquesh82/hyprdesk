@@ -109,6 +109,8 @@ Commandes :
   settings [paquet[/onglet] | ?mots]
                     ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
   toggle-settings   ouvre les Réglages, ou les referme s'ils sont ouverts (raccourci keys.settings)
+  focus <surface>  le clavier va à une surface du shell : bar (barre), dock, notifications,
+                    settings (volet des Réglages) ; rien ne se referme, le mode ne change pas
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)

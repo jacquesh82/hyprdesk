@@ -275,6 +275,14 @@ one control to the next; Ctrl + Tab and Ctrl + Shift + Tab jump to the first
 control of the next or previous group; Page Up and Page Down scroll the
 cards.
 
+**The keyboard on every surface.** Three shortcuts put the keyboard on a
+shell surface without closing anything or changing mode: `CTRL + F3` goes to
+the dock of the active screen (hidden desktop: it appears under the windows,
+which stay in place), `CTRL + F8` opens the notification center, `CTRL + F6`
+opens the Settings drawer and focuses its first field. Pressed twice, the dock
+returns the keyboard to the windows; the center and the drawer, which stay
+open, keep it.
+
 ## Shortcuts and binds.lua
 
 Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,

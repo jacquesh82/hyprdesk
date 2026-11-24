@@ -703,6 +703,32 @@ pub fn build_keys_lua(
         ("search", &keys.search, "search", "lanceur d'applications"),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
         ("assistant", &keys.assistant, "assistant", "LYRA"),
+        // Un raccourci par surface du shell (HIG ENT-02) : barre, dock,
+        // centre de notifications, volet des Réglages.
+        (
+            "focus-bar",
+            &keys.focus_bar,
+            "focus bar",
+            "clavier à la barre",
+        ),
+        (
+            "focus-dock",
+            &keys.focus_dock,
+            "focus dock",
+            "clavier au dock",
+        ),
+        (
+            "focus-notifications",
+            &keys.focus_notifications,
+            "focus notifications",
+            "clavier au centre de notifications",
+        ),
+        (
+            "focus-settings",
+            &keys.focus_settings,
+            "focus settings",
+            "clavier aux réglages",
+        ),
         ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
@@ -794,6 +820,31 @@ pub fn build_keys_lua(
         ),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
         ("assistant", &keys.assistant, "assistant", "LYRA"),
+        // Le clavier va à chaque surface, bureau affiché aussi (HIG ENT-02).
+        (
+            "focus-bar",
+            &keys.focus_bar,
+            "focus bar",
+            "clavier à la barre",
+        ),
+        (
+            "focus-dock",
+            &keys.focus_dock,
+            "focus dock",
+            "clavier au dock",
+        ),
+        (
+            "focus-notifications",
+            &keys.focus_notifications,
+            "focus notifications",
+            "clavier au centre de notifications",
+        ),
+        (
+            "focus-settings",
+            &keys.focus_settings,
+            "focus settings",
+            "clavier aux réglages",
+        ),
     ] {
         if plan.desktop(id, k) {
             bind(&mut lua, "  ", k, exec(arg), desc);
@@ -2859,6 +2910,24 @@ mod tests {
             2,
             "{lua}"
         );
+    }
+
+    #[test]
+    fn raccourcis_de_focus() {
+        // HIG ENT-02 : un raccourci par surface du shell, posé hors de la
+        // submap comme dedans (la submap reste active).
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        for (combo, arg) in [
+            ("CTRL + F2", "focus bar"),
+            ("CTRL + F3", "focus dock"),
+            ("CTRL + F8", "focus notifications"),
+            ("CTRL + F6", "focus settings"),
+        ] {
+            let bind = format!(r#"hl.bind("{combo}", hl.dsp.exec_cmd("'/bin/hyprdesk' {arg}")"#);
+            assert!(main.contains(&bind) && submap.contains(&bind), "{lua}");
+        }
     }
 
     #[test]

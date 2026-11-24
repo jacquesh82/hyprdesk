@@ -35,7 +35,7 @@
 ---@field shortcuts? { name: string, icon: string, command: string }[]
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, take?: string[]|false, media?: boolean }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, focus_bar?: string|false, focus_dock?: string|false, focus_notifications?: string|false, focus_settings?: string|false, take?: string[]|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field clipboard_history? boolean # clipboard history: hyprdesk runs cliphist (":clip" in search)
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # plugin options (Settings → Plugins → Configure), for every instance except options written on the instance

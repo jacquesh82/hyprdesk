@@ -798,6 +798,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "search_desktop",
                 "overview",
                 "assistant",
+                "focus_bar",
+                "focus_dock",
+                "focus_notifications",
+                "focus_settings",
                 "take",
                 "essentials",
                 "essentials_off",
@@ -897,6 +901,10 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("search_desktop", &mut g.keys.search_desktop),
             ("overview", &mut g.keys.overview),
             ("assistant", &mut g.keys.assistant),
+            ("focus_bar", &mut g.keys.focus_bar),
+            ("focus_dock", &mut g.keys.focus_dock),
+            ("focus_notifications", &mut g.keys.focus_notifications),
+            ("focus_settings", &mut g.keys.focus_settings),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}

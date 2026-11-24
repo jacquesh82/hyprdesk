@@ -78,6 +78,7 @@ Les alias donnent la même commande.
 | `settings <paquet>[/<onglet>]` | ouvre les Réglages sur un paquet (`screens`, `fond`, `bureau/raccourcis`…) |
 | `settings ?<mots>` | ouvre les Réglages sur la recherche |
 | `toggle-settings` | ouvre les Réglages, ou les referme s'ils sont ouverts sur cet écran |
+| `focus <surface>` | donne le clavier à une surface du shell : `dock`, `notifications` (centre), `settings` (volet des Réglages, sur son premier champ) ; rien ne se referme, le mode du bureau ne change pas (raccourcis `keys.focus_*`) |
 | `menu <module>` | ouvre le menu d'un module de la barre (`volume`, `clock`, `network`, `tray`, `session`… ; anciens noms admis : `reseau`, `batterie`…) |
 | `search` | lanceur avec recherche (ouvre ou referme) |
 | `files` | recherche de fichiers (`:f`) |

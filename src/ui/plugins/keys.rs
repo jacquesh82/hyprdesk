@@ -116,6 +116,11 @@ const KEY_LABELS: &[(usize, &str)] = &[
     (10, "Ouvrir LYRA (assistant IA)"),
     (5, "Verrouiller la session"),
     (2, "Sortie de secours (bureau affiché)"),
+    // Un raccourci par surface du shell (HIG ENT-02).
+    (11, crate::keymap::FOCUS_LABELS[0]),
+    (12, crate::keymap::FOCUS_LABELS[1]),
+    (13, crate::keymap::FOCUS_LABELS[2]),
+    (14, crate::keymap::FOCUS_LABELS[3]),
 ];
 
 /// Case de `State::keys` d'une clé de configuration (`keys.toggle`).
@@ -132,6 +137,10 @@ pub(in crate::ui) fn key_index(key: &str) -> Option<usize> {
         "keys.overview" => 8,
         "keys.search_desktop" => 9,
         "keys.assistant" => 10,
+        "keys.focus_bar" => 11,
+        "keys.focus_dock" => 12,
+        "keys.focus_notifications" => 13,
+        "keys.focus_settings" => 14,
         _ => return None,
     })
 }
@@ -149,6 +158,10 @@ fn key_value(k: &crate::config::Keys, i: usize) -> &str {
         7 => &k.switch,
         8 => &k.overview,
         10 => &k.assistant,
+        11 => &k.focus_bar,
+        12 => &k.focus_dock,
+        13 => &k.focus_notifications,
+        14 => &k.focus_settings,
         _ => &k.search_desktop,
     }
 }
@@ -178,7 +191,7 @@ pub struct State {
     pub capture: Option<Target>,
     /// Numéro de la capture : un délai écoulé d'une capture finie est ignoré.
     pub capture_seq: u64,
-    pub keys: [String; 11],
+    pub keys: [String; 15],
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
@@ -253,6 +266,10 @@ pub fn default_key(i: usize) -> String {
         7 => k.switch,
         8 => k.overview,
         10 => k.assistant,
+        11 => k.focus_bar,
+        12 => k.focus_dock,
+        13 => k.focus_notifications,
+        14 => k.focus_settings,
         _ => k.search_desktop,
     }
 }
@@ -559,6 +576,10 @@ impl App {
             7 => &mut s.key_switch,
             8 => &mut s.key_overview,
             10 => &mut s.key_assistant,
+            11 => &mut s.key_focus_bar,
+            12 => &mut s.key_focus_dock,
+            13 => &mut s.key_focus_notifications,
+            14 => &mut s.key_focus_settings,
             _ => &mut s.key_search_desktop,
         };
         *field = v;
@@ -1723,6 +1744,12 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
+            // Le clavier va à chaque surface du shell (HIG ENT-02) : aucun de
+            // ces raccourcis ne referme ni ne bascule de mode.
+            key_field(11, crate::i18n::tr(crate::keymap::FOCUS_LABELS[0]), "keys.focus_bar"),
+            key_field(12, crate::i18n::tr(crate::keymap::FOCUS_LABELS[1]), "keys.focus_dock"),
+            key_field(13, crate::i18n::tr(crate::keymap::FOCUS_LABELS[2]), "keys.focus_notifications"),
+            key_field(14, crate::i18n::tr(crate::keymap::FOCUS_LABELS[3]), "keys.focus_settings"),
             self.adv(
                 "Sortie de secours (bureau affiché)",
                 key_field(2, "", "keys.leave"),
@@ -1939,6 +1966,10 @@ impl App {
                         7 => s.key_switch = None,
                         8 => s.key_overview = None,
                         10 => s.key_assistant = None,
+                        11 => s.key_focus_bar = None,
+                        12 => s.key_focus_dock = None,
+                        13 => s.key_focus_notifications = None,
+                        14 => s.key_focus_settings = None,
                         _ => s.key_search_desktop = None,
                     }
                     self.commit()
@@ -2123,6 +2154,10 @@ impl App {
                     8 => ("keys.overview", &mut keys.overview),
                     9 => ("keys.search_desktop", &mut keys.search_desktop),
                     10 => ("keys.assistant", &mut keys.assistant),
+                    11 => ("keys.focus_bar", &mut keys.focus_bar),
+                    12 => ("keys.focus_dock", &mut keys.focus_dock),
+                    13 => ("keys.focus_notifications", &mut keys.focus_notifications),
+                    14 => ("keys.focus_settings", &mut keys.focus_settings),
                     _ => ("keys.leave", &mut keys.leave),
                 };
                 *target = v.clone();
@@ -2149,6 +2184,10 @@ impl App {
                     8 => self.settings.key_overview = Some(v),
                     9 => self.settings.key_search_desktop = Some(v),
                     10 => self.settings.key_assistant = Some(v),
+                    11 => self.settings.key_focus_bar = Some(v),
+                    12 => self.settings.key_focus_dock = Some(v),
+                    13 => self.settings.key_focus_notifications = Some(v),
+                    14 => self.settings.key_focus_settings = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()

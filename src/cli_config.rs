@@ -559,6 +559,22 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.assistant.clone(),
         |s, v, c| { s.key_assistant = Some(combo(v)?); Ok(()) },
         |s| s.key_assistant = None;
+    "keys.focus_bar", "keys", "raccourci | none — le clavier va à la barre de l'écran actif (CTRL + F2)",
+        |c| c.general.keys.focus_bar.clone(),
+        |s, v, c| { s.key_focus_bar = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_bar = None;
+    "keys.focus_dock", "keys", "raccourci | none — le clavier va au dock de l'écran actif (CTRL + F3)",
+        |c| c.general.keys.focus_dock.clone(),
+        |s, v, c| { s.key_focus_dock = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_dock = None;
+    "keys.focus_notifications", "keys", "raccourci | none — le centre de notifications s'ouvre et prend le clavier (CTRL + F8)",
+        |c| c.general.keys.focus_notifications.clone(),
+        |s, v, c| { s.key_focus_notifications = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_notifications = None;
+    "keys.focus_settings", "keys", "raccourci | none — le volet des Réglages s'ouvre et prend le clavier (CTRL + F6)",
+        |c| c.general.keys.focus_settings.clone(),
+        |s, v, c| { s.key_focus_settings = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_settings = None;
     "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
@@ -2834,6 +2850,12 @@ mod tests {
         );
         assert_eq!(run_s(&p, &["get", "assign.firefox"]).unwrap(), "2 silent");
         assert_eq!(run_s(&p, &["get", "widget.clock"]).unwrap(), "off");
+        // Un raccourci par surface du shell (HIG ENT-02) : lu, réglé, coupé.
+        assert_eq!(run_s(&p, &["get", "keys.focus_dock"]).unwrap(), "CTRL + F3");
+        run_s(&p, &["set", "keys.focus_dock", "CTRL", "+", "F5"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "keys.focus_dock"]).unwrap(), "CTRL + F5");
+        run_s(&p, &["set", "keys.focus_dock", "none"]).unwrap();
+        assert!(run_s(&p, &["get", "keys.focus_dock"]).unwrap().is_empty());
         // Valeurs refusées, clé inconnue, clé fixée par l'utilisateur.
         assert!(run_s(&p, &["set", "show_on", "partout"]).is_err());
         assert!(run_s(&p, &["set", "workspaces", "99"]).is_err());

@@ -369,6 +369,50 @@ mod tests {
         assert_eq!(app.toasts.unread(), 0, "le centre Continuité lit tout");
     }
 
+    /// HIG ENT-02 : le raccourci du centre ouvre la carte Notifications sur la
+    /// barre de l'écran actif ; pressé deux fois, il reste ouvert. Sans barre
+    /// (bureau masqué), rien : la carte est ancrée à la barre.
+    #[test]
+    fn le_raccourci_du_centre_l_ouvre_et_le_garde() {
+        fn focus(app: &mut App) {
+            let _ = app.update_inner(crate::ui::Msg::Control(crate::control::Command::Focus(
+                "notifications".into(),
+            )));
+        }
+        {
+            let (mut app, bar) = app();
+            focus(&mut app);
+            let p = app.popover.as_ref().expect("le raccourci ouvre le centre");
+            assert!(p.bar == bar && matches!(p.kind, Kind::Notifications));
+            assert!(!p.closing());
+            let win = p.win;
+            focus(&mut app);
+            let p = app
+                .popover
+                .as_ref()
+                .expect("pressé deux fois, il reste ouvert");
+            assert_eq!(p.win, win);
+            assert!(!p.closing());
+            // Une autre barre que celle de l'écran actif : celle de l'écran actif.
+            let other = Id::unique();
+            app.bar_surfaces.insert(
+                other,
+                crate::ui::plugins::bar::surface::BarSurface {
+                    monitor: "B".into(),
+                    ..Default::default()
+                },
+            );
+            let _ = app.open_popover(other, "volume".into(), Kind::Volume);
+            focus(&mut app);
+            assert_eq!(app.popover.as_ref().unwrap().bar, bar);
+        }
+        // Sans barre : rien à ouvrir.
+        let (mut app, _) = app();
+        app.bar_surfaces.clear();
+        focus(&mut app);
+        assert!(app.popover.is_none());
+    }
+
     /// Une entrée, un trait, le sous-menu « Déplacer vers l'espace » (quatre
     /// espaces), un trait : de quoi ouvrir une colonne.
     fn submenu_menu() -> Kind {

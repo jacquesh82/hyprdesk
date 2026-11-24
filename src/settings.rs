@@ -224,6 +224,11 @@ pub struct Settings {
     pub key_search_desktop: Option<String>,
     pub key_overview: Option<String>,
     pub key_assistant: Option<String>,
+    /// Un raccourci par surface du shell (HIG ENT-02).
+    pub key_focus_bar: Option<String>,
+    pub key_focus_dock: Option<String>,
+    pub key_focus_notifications: Option<String>,
+    pub key_focus_settings: Option<String>,
     pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
@@ -484,6 +489,11 @@ impl Settings {
             key_search_desktop: has("keys.search_desktop").then(|| g.keys.search_desktop.clone()),
             key_overview: has("keys.overview").then(|| g.keys.overview.clone()),
             key_assistant: has("keys.assistant").then(|| g.keys.assistant.clone()),
+            key_focus_bar: has("keys.focus_bar").then(|| g.keys.focus_bar.clone()),
+            key_focus_dock: has("keys.focus_dock").then(|| g.keys.focus_dock.clone()),
+            key_focus_notifications: has("keys.focus_notifications")
+                .then(|| g.keys.focus_notifications.clone()),
+            key_focus_settings: has("keys.focus_settings").then(|| g.keys.focus_settings.clone()),
             key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -787,6 +797,18 @@ impl Settings {
         );
         set!(key_overview, "keys.overview", g.keys.overview);
         set!(key_assistant, "keys.assistant", g.keys.assistant);
+        set!(key_focus_bar, "keys.focus_bar", g.keys.focus_bar);
+        set!(key_focus_dock, "keys.focus_dock", g.keys.focus_dock);
+        set!(
+            key_focus_notifications,
+            "keys.focus_notifications",
+            g.keys.focus_notifications
+        );
+        set!(
+            key_focus_settings,
+            "keys.focus_settings",
+            g.keys.focus_settings
+        );
         set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
@@ -1255,6 +1277,10 @@ impl Settings {
             ("search_desktop", &self.key_search_desktop),
             ("overview", &self.key_overview),
             ("assistant", &self.key_assistant),
+            ("focus_bar", &self.key_focus_bar),
+            ("focus_dock", &self.key_focus_dock),
+            ("focus_notifications", &self.key_focus_notifications),
+            ("focus_settings", &self.key_focus_settings),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {

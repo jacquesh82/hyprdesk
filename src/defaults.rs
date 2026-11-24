@@ -126,6 +126,7 @@ components! {
     "keys" => [
         key_toggle, key_launcher, key_hide, key_settings, key_lock, key_switch,
         key_search, key_search_desktop, key_overview, key_assistant, key_take, overview_command,
+        key_focus_bar, key_focus_dock, key_focus_notifications, key_focus_settings,
         key_leave, key_media, key_essentials, key_essentials_off,
         key_essential_keys, suspend_binds,
     ] + [Binds];
