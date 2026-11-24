@@ -364,8 +364,91 @@ pub(crate) fn glyph<'a, Message>(
     })
 }
 
-/// Rayon de la tuile d'une icône de remplacement, en fraction de son côté.
-const FALLBACK_RADIUS: f32 = 0.25;
+/// Masque unique des icônes d'application (HIG ICO-04, décision D4) : un
+/// rectangle arrondi dont le rayon vaut 22,37 % du côté, la courbure des
+/// icônes d'application de macOS. L'icône de remplacement le prend aussi.
+pub const APP_ICON_MASK: f32 = 0.2237;
+
+/// Identifiant du découpage injecté dans un SVG d'application.
+const MASK_ID: &str = "hyprdesk-masque-icone";
+
+/// Découpe un SVG d'application au masque unique (HIG ICO-04) : iced ne sait
+/// pas arrondir un SVG, la découpe se fait donc dans sa source, un
+/// `clipPath` en rectangle arrondi autour de tout son contenu. `None` quand
+/// la source ne s'y prête pas (racine introuvable ou auto-fermée, sans
+/// `viewBox` ni dimensions) : l'icône reste alors telle quelle.
+pub fn mask_svg(src: &str, ratio: f32) -> Option<String> {
+    let start = src.find("<svg")?;
+    // Fin de la balise racine : le premier `>` hors guillemets.
+    let mut quote = None;
+    let mut end = None;
+    for (i, c) in src[start..].char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '>') => {
+                end = Some(start + i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let end = end?;
+    let tag = &src[start..end];
+    if tag.ends_with('/') {
+        return None;
+    }
+    let close = src.rfind("</svg>").filter(|c| *c > end)?;
+    let attr = |name: &str| -> Option<&str> {
+        let mut rest = tag;
+        loop {
+            let i = rest.find(name)?;
+            let before = rest[..i].chars().last();
+            let after = rest[i + name.len()..].trim_start();
+            rest = &rest[i + name.len()..];
+            if before.is_some_and(char::is_whitespace)
+                && let Some(v) = after.strip_prefix('=')
+            {
+                let v = v.trim_start();
+                let q = v.chars().next().filter(|q| *q == '"' || *q == '\'')?;
+                let v = &v[1..];
+                return Some(&v[..v.find(q)?]);
+            }
+        }
+    };
+    let num = |s: &str| -> Option<f32> {
+        s.trim()
+            .trim_end_matches("px")
+            .parse::<f32>()
+            .ok()
+            .filter(|v| v.is_finite())
+    };
+    let (x, y, w, h) = match attr("viewBox") {
+        Some(vb) => {
+            let v: Vec<f32> = vb
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|s| !s.is_empty())
+                .filter_map(num)
+                .collect();
+            match v[..] {
+                [x, y, w, h] => (x, y, w, h),
+                _ => return None,
+            }
+        }
+        None => (0.0, 0.0, num(attr("width")?)?, num(attr("height")?)?),
+    };
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let r = w.min(h) * ratio;
+    Some(format!(
+        "{head}<defs><clipPath id=\"{MASK_ID}\"><rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{r}\" ry=\"{r}\"/></clipPath></defs><g clip-path=\"url(#{MASK_ID})\">{body}</g>{tail}",
+        head = &src[..=end],
+        body = &src[end + 1..close],
+        tail = &src[close..],
+    ))
+}
 
 /// Initiale d'une application sans icône : la première lettre de son nom,
 /// en majuscule.
@@ -393,7 +476,7 @@ pub fn fallback_icon<'a, Message: 'a>(
         .center(side)
         .style(move |_| container::Style {
             background: Some(accent.into()),
-            border: Border::default().rounded(side * FALLBACK_RADIUS),
+            border: Border::default().rounded(side * APP_ICON_MASK),
             ..Default::default()
         })
         .into()
@@ -401,6 +484,35 @@ pub fn fallback_icon<'a, Message: 'a>(
 
 #[cfg(test)]
 mod tests {
+    /// Le masque des icônes d'application enveloppe tout le contenu, d'après
+    /// la `viewBox` ou les dimensions ; sinon l'icône reste telle quelle
+    /// (HIG ICO-04).
+    #[test]
+    fn masque_des_icones_d_application() {
+        let m = |s: &str| super::mask_svg(s, 0.25);
+        let out = m(r#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48"/></svg>"#).unwrap();
+        assert!(out.starts_with(r#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><clipPath"#));
+        assert!(out.contains(r#"<rect x="0" y="0" width="48" height="48" rx="12" ry="12"/>"#));
+        assert!(out.ends_with(r#"<rect width="48" height="48"/></g></svg>"#));
+        let out = m(r#"<svg width="64px" height="32" data-x="a>b"><g/></svg>"#).unwrap();
+        assert!(out.contains(r#"width="64" height="32" rx="8""#), "{out}");
+        assert!(
+            out.contains(r#"data-x="a>b"><defs>"#),
+            "le > entre guillemets"
+        );
+        let out = m(r#"<svg viewBox="-2,-2 20 20"><path/></svg>"#).unwrap();
+        assert!(
+            out.contains(r#"x="-2" y="-2" width="20" height="20" rx="5""#),
+            "{out}"
+        );
+        assert!(
+            m(r#"<svg viewBox="0 0 16 16"/>"#).is_none(),
+            "racine auto-fermée"
+        );
+        assert!(m(r#"<svg><path/></svg>"#).is_none(), "sans dimensions");
+        assert!(m("pas un svg").is_none());
+    }
+
     use super::*;
 
     /// Noms d'icônes symboliques écrits dans les sources de l'interface et

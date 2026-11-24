@@ -274,9 +274,10 @@ impl App {
     pub(in crate::ui) fn app_icon<'a>(&'a self, i: usize, size: f32) -> Element<'a, Msg> {
         let (r, _) = self.launcher_palette();
         let a = &self.apps[i];
+        // Clé d'application : le masque unique (HIG ICO-04).
         a.icon
             .as_deref()
-            .and_then(|n| self.icon_named(n, size, color(r.fg, 1.0)))
+            .and_then(|n| self.icon_named(&App::app_icon_key(n), size, color(r.fg, 1.0)))
             .unwrap_or_else(|| {
                 crate::ui::icons::fallback_icon(
                     &a.name,

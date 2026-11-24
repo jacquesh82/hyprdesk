@@ -404,6 +404,10 @@ struct Rot {
     next: Instant,
 }
 
+/// Préfixe des icônes nommées demandées comme icônes d'application
+/// (`App::app_icon_key`, HIG ICO-04).
+const APP_ICON_KEY: &str = "app:";
+
 #[derive(Debug, Clone, Copy)]
 enum IconImg {
     None,
@@ -463,6 +467,9 @@ pub struct App {
     /// Voir `UI_ICONS`.
     ui_imgs: Vec<IconImg>,
     rasters: Vec<image::Handle>,
+    /// Images matricielles qui sont des icônes d'application : rendues au
+    /// masque unique (HIG ICO-04).
+    app_rasters: HashSet<usize>,
     vectors: Vec<svg::Handle>,
     icons_gen: u64,
     values: HashMap<String, widgets::Value>,
@@ -1061,6 +1068,7 @@ impl App {
             icon_imgs: Vec::new(),
             ui_imgs: Vec::new(),
             rasters: Vec::new(),
+            app_rasters: HashSet::new(),
             vectors: Vec::new(),
             icons_gen: 0,
             values: HashMap::new(),
@@ -3650,6 +3658,36 @@ impl App {
         }
     }
 
+    /// Icône d'application (HIG ICO-04) : un SVG est découpé au masque
+    /// unique dans sa source ; une image matricielle est marquée, et rendue
+    /// arrondie par `icon_named` et `img_element`.
+    fn app_handle_for(&mut self, p: Option<&std::path::Path>) -> IconImg {
+        let masked = p
+            .filter(|p| p.extension().is_some_and(|e| e == "svg"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|src| icons::mask_svg(&src, icons::APP_ICON_MASK));
+        if let Some(src) = masked {
+            self.vectors
+                .push(svg::Handle::from_memory(src.into_bytes()));
+            return IconImg::Vector(self.vectors.len() - 1);
+        }
+        let img = self.handle_for(p);
+        if let IconImg::Raster(i) = img {
+            self.app_rasters.insert(i);
+        }
+        img
+    }
+
+    /// Rayon d'une image matricielle de côté `size` : le masque unique si
+    /// c'est une icône d'application (HIG ICO-04).
+    fn raster_radius(&self, i: usize, size: f32) -> f32 {
+        if self.app_rasters.contains(&i) {
+            size * icons::APP_ICON_MASK
+        } else {
+            0.0
+        }
+    }
+
     /// Police de l'interface, à la graisse voulue.
     /// Graisse de la barre et des titres : celle des titres du pack,
     /// semibold par défaut (HIG TYP-05).
@@ -3683,7 +3721,8 @@ impl App {
     ) -> Option<Element<'a, Msg>> {
         match self.named_icons.get(name).copied()? {
             IconImg::Vector(i) => {
-                let symbolic = name.ends_with("-symbolic") || icons::get(name).is_some();
+                let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
+                let symbolic = bare.ends_with("-symbolic") || icons::get(bare).is_some();
                 Some(
                     svg(self.vectors[i].clone())
                         .width(size)
@@ -3698,10 +3737,17 @@ impl App {
                 image(self.rasters[i].clone())
                     .width(size)
                     .height(size)
+                    .border_radius(self.raster_radius(i, size))
                     .into(),
             ),
             IconImg::None => None,
         }
+    }
+
+    /// Clé d'une icône nommée demandée comme icône d'application : elle prend
+    /// le masque unique, le même nom demandé ailleurs non (HIG ICO-04).
+    pub(super) fn app_icon_key(name: &str) -> String {
+        format!("{APP_ICON_KEY}{name}")
     }
 
     /// Résout une icône par nom (une fois), hors du thread UI.
@@ -3710,22 +3756,25 @@ impl App {
             return Task::none();
         }
         // Icône d'interface : le jeu de hyprdesk d'abord (cohérence graphique),
-        // sans passer par le thème d'icônes.
-        let symbolic = name.ends_with("-symbolic") || name.starts_with("hyprdesk-");
-        if symbolic && icons::get(name).is_some() {
-            let img = self.builtin_icon(name);
+        // sans passer par le thème d'icônes ; jugée sur le nom nu, même
+        // demandée comme icône d'application (sans masque alors).
+        let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
+        let symbolic = bare.ends_with("-symbolic") || bare.starts_with("hyprdesk-");
+        if symbolic && icons::get(bare).is_some() {
+            let img = self.builtin_icon(bare);
             self.named_icons.insert(name.to_string(), img);
             return Task::none();
         }
         self.named_pending.insert(name.to_string());
-        let (n, theme, gen_) = (
+        let (key, n, theme, gen_) = (
             name.to_string(),
+            name.strip_prefix(APP_ICON_KEY).unwrap_or(name).to_string(),
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
         );
         Task::perform(
             async move {
-                let n2 = n.clone();
+                let n2 = n;
                 let p = tokio::task::spawn_blocking(move || {
                     // Repli : le thème par défaut. Jamais la version en couleur
                     // d'une icône symbolique : elle détonnerait dans la barre.
@@ -3735,7 +3784,7 @@ impl App {
                 .await
                 .ok()
                 .flatten();
-                (n, p)
+                (key, p)
             },
             move |(n, p)| Msg::IconResolved(gen_, n, p),
         )
@@ -3762,6 +3811,7 @@ impl App {
                     .width(size)
                     .height(size)
                     .opacity(alpha)
+                    .border_radius(self.raster_radius(i, size))
                     .into(),
             ),
             IconImg::Vector(i) => Some(
@@ -4662,7 +4712,7 @@ impl App {
                 if gen_ == self.icons_gen {
                     for (class, p) in list {
                         self.class_pending.remove(&class);
-                        let img = self.handle_for(p.as_deref());
+                        let img = self.app_handle_for(p.as_deref());
                         self.class_imgs.insert(class, img);
                     }
                 }
@@ -4776,10 +4826,30 @@ impl App {
                     return Task::none();
                 }
                 self.rasters.clear();
+                self.app_rasters.clear();
                 self.vectors.clear();
+                // Une application du bureau prend le masque unique (HIG
+                // ICO-04) ; un fichier, un dossier, une commande non.
+                let apps: Vec<bool> = list
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        self.cfg
+                            .icons
+                            .get(i)
+                            .is_some_and(|d| matches!(d.kind, config::IconKind::App(_)))
+                    })
+                    .collect();
                 self.icon_imgs = list
                     .iter()
-                    .map(|r| self.handle_for(r.image.as_deref()))
+                    .zip(apps)
+                    .map(|(r, app)| {
+                        if app {
+                            self.app_handle_for(r.image.as_deref())
+                        } else {
+                            self.handle_for(r.image.as_deref())
+                        }
+                    })
                     .collect();
                 self.ui_imgs = media
                     .iter()
@@ -5064,9 +5134,13 @@ impl App {
             Msg::IconResolved(gen_, name, path) => {
                 if gen_ == self.icons_gen {
                     self.named_pending.remove(&name);
-                    let img = match path {
-                        Some(p) => self.handle_for(Some(&p)),
-                        None => self.builtin_icon(&name),
+                    // Icône demandée comme icône d'application (clé
+                    // `app_icon_key`) : le masque unique (HIG ICO-04) ; le même
+                    // nom demandé ailleurs (notification, statut) reste tel quel.
+                    let img = match (path, name.strip_prefix(APP_ICON_KEY)) {
+                        (Some(p), Some(_)) => self.app_handle_for(Some(&p)),
+                        (Some(p), None) => self.handle_for(Some(&p)),
+                        (None, bare) => self.builtin_icon(bare.unwrap_or(&name)),
                     };
                     self.named_icons.insert(name, img);
                 }
@@ -6851,6 +6925,43 @@ mod regression_tests {
 
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
+    }
+
+    /// Icônes d'application au masque unique (HIG ICO-04) : un SVG est
+    /// découpé, une matricielle marquée ; la même image chargée hors
+    /// application ne l'est pas ; une icône symbolique demandée comme icône
+    /// d'application garde le glyphe de hyprdesk.
+    #[test]
+    fn icones_d_application_au_masque_unique() {
+        let mut app = app();
+        let dir = std::env::temp_dir().join(format!("hyprdesk-masque-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (svg_path, png) = (dir.join("a.svg"), dir.join("a.png"));
+        std::fs::write(
+            &svg_path,
+            r#"<svg viewBox="0 0 16 16"><rect width="16" height="16"/></svg>"#,
+        )
+        .unwrap();
+        std::fs::write(&png, b"").unwrap();
+        let before = app.vectors.len();
+        assert!(matches!(
+            app.app_handle_for(Some(&svg_path)),
+            IconImg::Vector(_)
+        ));
+        assert_eq!(app.vectors.len(), before + 1);
+        let IconImg::Raster(i) = app.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert!((app.raster_radius(i, 48.0) - 48.0 * icons::APP_ICON_MASK).abs() < 0.01);
+        let IconImg::Raster(j) = app.handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert_eq!(app.raster_radius(j, 48.0), 0.0, "hors application");
+        let key = App::app_icon_key("system-file-manager-symbolic");
+        let _ = app.want_icon(&key);
+        assert!(app.named_icons.contains_key(&key), "glyphe aussitôt");
+        assert!(app.icon_named(&key, 16.0, Color::WHITE).is_some());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Les commandes d'interface ont toutes leur glyphe au jeu de hyprdesk :

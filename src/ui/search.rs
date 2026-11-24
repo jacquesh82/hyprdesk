@@ -483,7 +483,7 @@ impl App {
         let icons: Vec<Task<Msg>> = results
             .iter()
             .chain(suggested.iter())
-            .filter_map(|&i| self.apps[i].icon.clone())
+            .filter_map(|&i| self.apps[i].icon.as_deref().map(App::app_icon_key))
             .collect::<Vec<_>>()
             .iter()
             .map(|n| self.want_icon(n))
@@ -738,7 +738,7 @@ impl App {
         };
         let icons: Vec<String> = results
             .iter()
-            .filter_map(|&i| self.apps[i].icon.clone())
+            .filter_map(|&i| self.apps[i].icon.as_deref().map(App::app_icon_key))
             .collect();
         // `:clip`, `:2fa`… changent de vue : le nouveau champ reprend le focus.
         let mut refocus = false;
@@ -1239,7 +1239,7 @@ impl App {
                 let results = self.search_rank_in(&q, c, super::apps_grid::LIMIT);
                 let icons: Vec<String> = results
                     .iter()
-                    .filter_map(|&i| self.apps[i].icon.clone())
+                    .filter_map(|&i| self.apps[i].icon.as_deref().map(App::app_icon_key))
                     .collect();
                 if let Some(s) = self.search.as_mut() {
                     s.category = c;

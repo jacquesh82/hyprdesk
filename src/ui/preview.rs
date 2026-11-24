@@ -535,7 +535,10 @@ impl Preview {
             .map(|d| launch::resolve(d, None, 48, "kitty"))
             .collect();
         let paths: Vec<_> = app.icons.iter().map(|r| r.image.clone()).collect();
-        app.icon_imgs = paths.iter().map(|p| app.handle_for(p.as_deref())).collect();
+        app.icon_imgs = paths
+            .iter()
+            .map(|p| app.app_handle_for(p.as_deref()))
+            .collect();
         app.ui_imgs = UI_ICONS.iter().map(|n| app.builtin_icon(n)).collect();
         for (index, icon) in cfg.icons.iter().enumerate() {
             app.clients.push(Client {
@@ -1453,7 +1456,7 @@ impl Preview {
             let stand_ins: Vec<IconImg> = self.app.icon_imgs.to_vec();
             for (i, c) in self.app.clients.clone().iter().enumerate() {
                 let p = crate::launch::icon_for_class(&c.class, &self.app.apps, None, 48);
-                let img = match self.app.handle_for(p.as_deref()) {
+                let img = match self.app.app_handle_for(p.as_deref()) {
                     IconImg::None => stand_ins.get(i).copied().unwrap_or(IconImg::None),
                     img => img,
                 };
@@ -4166,7 +4169,7 @@ impl Preview {
         ]);
         for a in self.app.apps.clone().iter() {
             let p = crate::launch::icon_for_class(&a.id, &self.app.apps, None, 48);
-            let img = self.app.handle_for(p.as_deref());
+            let img = self.app.app_handle_for(p.as_deref());
             self.app.class_imgs.insert(a.id.clone(), img);
         }
         // État d'ouverture identique pour chaque scène (les choix d'une scène
