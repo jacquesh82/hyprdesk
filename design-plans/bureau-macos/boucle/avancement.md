@@ -43,6 +43,7 @@
 | 2026-11-24 | A23 | TYP-19 traité ; il en reste 10 dans ce couloir |
 | 2026-11-24 | A24 | SYS-06, SYS-07 traités ; il en reste 8 dans ce couloir |
 | 2026-11-24 | A25 | PAT-01 traité (plan écrit et relu, diff relu) ; il en reste 7 dans ce couloir |
+| 2026-11-24 | A26 | SYS-10 traité (plan écrit et relu, diff relu) ; il en reste 6 dans ce couloir |
 
 ### Couloir B
 
@@ -270,7 +271,7 @@ Référence verte : `d2ea20a` (porte complète `scripts/verify.sh` passée le 24
 | DAT-20 | Infobulle du bouton « Selon le mode » | ÉCART | S | haute | à faire | — | — |
 | PAT-01 | Dock en plein écran | ÉCART | M | haute | fait | e7b7e47 | plan `boucle/plans/PAT-01.md`, relu deux fois par un agent indépendant ; quand l'espace affiché compte une fenêtre en vrai plein écran (mode 2, lu dans `clients` : `WindowGeo::fullscreen` ; `hasfullscreen` vaut aussi pour une fenêtre agrandie), le dock est recréé sur le calque `Overlay`, sans zone réservée, réduit à sa bande de rappel de 4 px et révélé au survol du bord (mécanique du dock masqué, MLG-279), puis revient sur `Top` ; pris au clavier il se montre, rendu il se retire ; exclu : Convex masqué hors survol, dont le réveil est sur le cadre (à voir avec PAT-03) |
 | ICO-11 | Icônes de fichiers du bureau | ABSENT | M | moyenne | à faire | — | — |
-| SYS-10 | Widgets de bureau : clic sur le fond | ABSENT | M | haute | à faire | — | — |
+| SYS-10 | Widgets de bureau : clic sur le fond | ABSENT | M | haute | fait | 18318ff | plan `boucle/plans/SYS-10.md`, relu par un agent indépendant, diff relu ; Réglages fermés, le fond d'un widget à contenu lié est une zone de clic (`widget_link`, `Msg::WidgetOpen`) : horloge et calendrier ouvrent la carte Calendrier de la barre active, ancrée à son horloge (`bar_clock_key`) ou au centre ; système, Réglages › Performance ; média, le lecteur au premier plan (`media_raise`, `Raise` MPRIS), aucun lien sans lecteur ; les boutons gardent leur clic ; s'applique aussi aux volets « widget: » du Panorama |
 | SYS-11 | Galerie de widgets : aperçus | ABSENT | M | haute | à faire | — | — |
 | SYS-12 | Centre de contrôle : tailles | ABSENT | M | haute | à faire | — | — |
 | DAT-04 | Dock comme cible de dépôt | ABSENT | L | haute | à faire | — | — |
