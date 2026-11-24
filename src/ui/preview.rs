@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 160] = [
+const SCENES: [&str; 161] = [
     "desktop",
     "typography",
     "icons",
@@ -113,6 +113,7 @@ const SCENES: [&str; 160] = [
     "bar-menu-switch",
     "bar-menu-closing",
     "bar-menu-shell",
+    "bar-menu-workspaces",
     "bar-bottom",
     "bar-overflow",
     "bar-majs-progression",
@@ -2241,6 +2242,25 @@ impl Preview {
                         entries: super::plugins::bar::menus::entries(),
                         source: popover::MenuSource::Shell,
                     },
+                );
+            }
+            // Carte des espaces ouverte du titre « Espaces » (HIG MENU-19) : la
+            // rangée « Organiser les fenêtres… » est celle du composant commun,
+            // après un séparateur. Même idiome : icône résolue tout de suite,
+            // ancre provisoire.
+            if SCENES[self.scene] == "bar-menu-workspaces" {
+                let image = self.app.builtin_icon("workspace-switcher");
+                self.app
+                    .named_icons
+                    .insert("workspace-switcher".into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:workspaces".into()),
+                    iced::Rectangle::new(iced::Point::new(104.0, 0.0), Size::new(96.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:workspaces".into(),
+                    popover::Kind::Workspaces,
                 );
             }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis

@@ -1,6 +1,6 @@
 //! Listes de workspaces et débordement : navigation propre au conteneur de barre.
-use iced::widget::{Space, column, row};
-use iced::{Color, Element, Length};
+use iced::widget::{Space, column};
+use iced::{Color, Element};
 
 use crate::config::BarItem;
 use crate::i18n::text;
@@ -115,39 +115,21 @@ impl App {
             );
         }
         // L'écran d'organisation : les fenêtres à glisser d'un espace à l'autre.
-        col = col.push(
-            iced::widget::button(
-                row![
-                    self.icon_named("workspace-switcher", 16.0, fg)
-                        .unwrap_or_else(|| Space::new().width(16).height(16).into()),
-                    text(crate::i18n::tr("Organiser les fenêtres…"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(fg),
-                ]
-                .spacing(10)
-                .align_y(iced::Alignment::Center),
-            )
-            .padding([6, 10])
-            .width(Length::Fill)
-            .on_press(Msg::BarOrganize)
-            .style(move |_, st| iced::widget::button::Style {
-                background: matches!(
-                    st,
-                    iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed
-                )
-                .then_some(
-                    Color {
-                        a: 0.10 * alpha,
-                        ..fg
-                    }
-                    .into(),
-                ),
-                text_color: fg,
-                border: iced::Border::default().rounded(6),
-                ..Default::default()
-            }),
-        );
-        col.into()
+        // Une rangée du composant commun, après un séparateur qui la distingue
+        // de la liste des espaces (HIG MENU-19).
+        col = col.push(self.pop_separator(alpha));
+        col.push(
+            self.pop_row(
+                alpha,
+                self.icon_named("workspace-switcher", 16.0, fg)
+                    .unwrap_or_else(|| Space::new().width(16).height(16).into()),
+                crate::i18n::tr("Organiser les fenêtres…").to_string(),
+                None,
+                true,
+                true,
+                Some(Msg::BarOrganize),
+            ),
+        )
+        .into()
     }
 }
