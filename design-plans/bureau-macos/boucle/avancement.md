@@ -22,7 +22,7 @@
 | 2026-11-24 | A2 | FON-01, FON-03 traités ; il en reste 43 dans ce couloir |
 | 2026-11-24 | A3 | ICO-07, LAY-04, SYS-14, ICO-03, SYS-05, SYS-18 traités ; il en reste 37 dans ce couloir |
 | 2026-11-24 | A4 | PAT-04 abordé, non terminé : échec 1 de la porte, plan commité, changement conservé en patch ; il en reste 37 dans ce couloir |
-| 2026-11-24 | A5 | PAT-04, SYS-17 traités ; il en reste 35 dans ce couloir |
+| 2026-11-24 | A5 | PAT-04, SYS-17, ACC-04 traités ; il en reste 34 dans ce couloir |
 
 ### Couloir B
 
@@ -112,7 +112,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | ACC-01 | Lecteur d'écran : arbre d'accessibilité (AT-SPI) | ABSENT | L | haute | à faire | — | traiter en dernier ; pont au-dessus de `zbus`, déjà dépendance directe |
 | ACC-02 | Verrouillage : contraste sur l'image de fond | ÉCART | S | haute (mécanisme) ; ratios calculés | à faire | — | — |
 | ACC-03 | Verrouillage : texte estompé au repos | ÉCART | S | moyenne | à faire | — | — |
-| ACC-04 | Bulles de notification : fermeture et actions sous 20 px | ÉCART | S | haute | à faire | — | — |
+| ACC-04 | Bulles de notification : fermeture et actions sous 20 px | ÉCART | S | haute | fait | 950c2e2 | la fermeture « ✕ » de la bulle est une cible de 28 px de côté (14 px de glyphe, marge de 7 px de chaque côté, plancher posé en largeur et en hauteur : `toasts::BUTTON_TARGET`) ; les boutons d'action ont 28 px de haut au moins (même marge en haut et en bas) ; les marges suivent l'échelle de texte (`tokens::ts`). Au-delà de la colonne Correction, requis par le changement : la carte d'une bulle avait une hauteur fixe (`CARD`, 104 px) et la rangée d'action y était rognée — vu sur la capture du premier passage, porte verte — ; `card_height` lui donne 20 px de plus quand elle montre un corps et des actions, et la surface des bulles additionne les cartes (`height_of` reçoit la liste) dans les deux chemins, standard et Convex. Les autres bulles gardent 104 px. L'écart entre boutons (ACC-10) est inchangé. Preuve à HEAD décalée par SYS-01, PAT-04 et SYS-17. Tests `carte_plus_haute_pour_un_corps_et_des_actions`, `hauteur_de_la_surface`. Scène d'aperçu `notifications` : capture à 1440 regardée au second passage (pastilles de 28 px, carte de 124 px). Relecture à froid, sans outil d'agent — le diff fait ce que demande l'écart ; la marge de 7 px est un centreur, (28 − 14) / 2, et non un pas d'espacement, ce que dit `DESIGN.md` ; aucune régression, les bulles sans action gardent leur carte. Reste, préexistant : `CARD` ne suit pas l'échelle de texte. Documentation : `DESIGN.md`. |
 | ACC-05 | Verrouillage : dérive continue malgré « Mouvement réduit » | ÉCART | S | haute | à faire | — | — |
 | ACC-06 | Verrouillage et écran de connexion : texte hors de l'échelle | ÉCART | S | haute | à faire | — | — |
 | ACC-07 | Notifications : délai demandé par l'application, sans plancher | PISTE | S | haute | à faire | — | recouvre SYS-03 et PAT-07 |
