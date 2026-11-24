@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 165] = [
+const SCENES: [&str; 166] = [
     "desktop",
     "typography",
     "icons",
@@ -115,6 +115,7 @@ const SCENES: [&str; 165] = [
     "bar-menu-shell",
     "bar-menu-workspaces",
     "bar-menu-window",
+    "bar-menu-help",
     "bar-bottom",
     "bar-overflow",
     "bar-majs-progression",
@@ -2335,6 +2336,25 @@ impl Preview {
                     }
                     let _ = self.app.refresh_popover_anchor();
                 }
+            }
+            // Menu « Aide » ouvert (HIG MENU-05) : le champ de recherche en
+            // tête, l'aide du shell, « À propos de hyprdesk ». Même idiome :
+            // icône résolue tout de suite, ancre provisoire (quatrième titre).
+            if SCENES[self.scene] == "bar-menu-help" {
+                let image = self.app.builtin_icon("help-about");
+                self.app.named_icons.insert("help-about".into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:help".into()),
+                    iced::Rectangle::new(iced::Point::new(208.0, 0.0), Size::new(52.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:help".into(),
+                    popover::Kind::Menu {
+                        entries: super::plugins::bar::menus::help_entries(),
+                        source: popover::MenuSource::Shell,
+                    },
+                );
             }
             // Carte Notifications de la barre (HIG LAY-02) : l'historique est
             // groupé par application, une boîte par application. Même idiome :

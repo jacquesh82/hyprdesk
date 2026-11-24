@@ -328,8 +328,8 @@ and disabled bindings are kept. A hand-written file is copied
 
 ### Bar menus
 
-The bar starts with three menus, in every style: **hyprdesk**, **Window** and
-**Workspaces**. They belong to the bar, not to the module catalogue: always
+The bar starts with four menus, in every style: **hyprdesk**, **Window**,
+**Workspaces** and **Help**. They belong to the bar, not to the module catalogue: always
 first, never folded into “More commands”, and Settings → Bar does not move
 them.
 
@@ -343,6 +343,12 @@ them.
   “Close all windows” closes the windows of its application; inactive when
   it has only one.
 - **Workspaces** is the workspace card of the screen.
+- **Help** comes last. The search field at its top receives the keyboard:
+  pressing Enter opens the Settings search on the words typed. Then come
+  “Guided tour…” (the tour of Settings), “Keyboard shortcuts” (its shortcuts
+  page) and “Documentation”, which opens the shell guide when the package
+  installed it (`/usr/share/doc/hyprdesk/GUIDE.md`); otherwise it stays
+  visible and inactive. The menu ends with “About hyprdesk”.
 
 These commands also remain where they already were: the window title, the
 control center, the workspace card.

@@ -4883,6 +4883,17 @@ impl App {
                             source: popover::MenuSource::Shell,
                         },
                     )),
+                    // Menu « Aide » (HIG MENU-05) : contenu fixe ; « Documentation »
+                    // ne s'active que si le paquet a installé le guide.
+                    popover::Request::Help => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: plugins::bar::menus::help_entries(),
+                            source: popover::MenuSource::Shell,
+                        },
+                    )),
                     popover::Request::Brightness => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,

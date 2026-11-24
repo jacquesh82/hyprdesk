@@ -339,8 +339,8 @@ application : `hyprdesk binds generate --write`.
 
 ### Menus de la barre
 
-La barre commence par trois menus, dans tous ses styles : **hyprdesk**,
-**Fenêtre** et **Espaces**. Ils font partie de la barre et non du catalogue
+La barre commence par quatre menus, dans tous ses styles : **hyprdesk**,
+**Fenêtre**, **Espaces** et **Aide**. Ils font partie de la barre et non du catalogue
 des modules : toujours en tête, jamais dans « Autres commandes », et la page
 Réglages → Barre ne les déplace pas.
 
@@ -355,6 +355,13 @@ Réglages → Barre ne les déplace pas.
   « Fermer toutes les fenêtres » ferme celles de son application ; inactive
   quand elle n'en a qu'une.
 - **Espaces** est la carte des espaces de travail de l'écran.
+- **Aide** vient en dernier. Son champ de recherche, en tête, reçoit le
+  clavier : la saisie validée (Entrée) ouvre la recherche des Réglages sur ces
+  mots. Suivent « Visite guidée… » (la visite des Réglages), « Raccourcis
+  clavier » (leur page des raccourcis) et « Documentation », qui ouvre le
+  guide du shell quand le paquet l'a installé
+  (`/usr/share/doc/hyprdesk/GUIDE.fr.md`) ; sinon elle reste affichée et
+  inactive. Le menu se termine par « À propos de hyprdesk ».
 
 Ces commandes restent aussi à leur emplacement d'origine : titre de la
 fenêtre, centre de contrôle, carte des espaces.

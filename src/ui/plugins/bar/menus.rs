@@ -2,7 +2,8 @@
 //! toujours présents et hors catalogue. « hyprdesk » vient toujours le
 //! premier : il rassemble les commandes du shell, qui restent par ailleurs
 //! là où elles étaient (titre de la fenêtre, carte des espaces, centre de
-//! contrôle). La carte est celle de tous les menus de la barre.
+//! contrôle). « Aide » vient en dernier (HIG MENU-05). La carte est celle de
+//! tous les menus de la barre.
 
 use std::path::Path;
 
@@ -23,16 +24,87 @@ pub(in crate::ui) const SUSPEND: i64 = 6;
 pub(in crate::ui) const REBOOT: i64 = 7;
 pub(in crate::ui) const POWER_OFF: i64 = 8;
 const TRASH: i64 = 9;
+// Menu « Aide » (HIG MENU-05), à la suite de celles de « hyprdesk ».
+pub(in crate::ui) const HELP_SEARCH: i64 = 10;
+const HELP_TOUR: i64 = 11;
+const HELP_KEYS: i64 = 12;
+const HELP_DOCS: i64 = 13;
+
+/// Dossier des documents du shell, tel que le paquet l'installe.
+const GUIDE_DIR: &str = "/usr/share/doc/hyprdesk";
 
 /// Titres des menus, dans l'ordre de la barre : clef d'ancre de la carte,
 /// libellé, contenu demandé. « Fenêtre » et « Espaces » ouvrent les menus
-/// qui existent déjà ailleurs (titre de la fenêtre, carte des espaces).
+/// qui existent déjà ailleurs (titre de la fenêtre, carte des espaces) ;
+/// « Aide » ferme la barre (HIG MENU-05).
 pub(in crate::ui) fn titles() -> Vec<(&'static str, &'static str, popover::Request)> {
     vec![
         ("menus:hyprdesk", "hyprdesk", popover::Request::Shell),
         ("menus:window", "Fenêtre", popover::Request::Window),
         ("menus:workspaces", "Espaces", popover::Request::Workspaces),
+        ("menus:help", "Aide", popover::Request::Help),
     ]
+}
+
+/// Entrées du menu « Aide » (HIG MENU-05) : le champ de recherche en tête —
+/// la saisie validée ouvre la recherche des Réglages sur ces mots —, puis
+/// l'aide du shell. « Documentation » ouvre le guide installé par le
+/// paquet ; sans lui, elle reste affichée et inactive : jamais un lien vers
+/// un emplacement qui n'existe pas.
+pub(in crate::ui) fn help_entries() -> Vec<MenuEntry> {
+    let tr = |s: &str| crate::i18n::tr(s).to_string();
+    let item = |label: &str, icon: &str, enabled: bool, action: i64| MenuEntry::Item {
+        label: tr(label),
+        detail: None,
+        icon: (!icon.is_empty()).then(|| icon.to_string()),
+        checked: None,
+        enabled,
+        action: Some(action),
+        confirm: None,
+    };
+    vec![
+        MenuEntry::Input {
+            label: None,
+            placeholder: tr("Rechercher dans les réglages"),
+            secret: false,
+            action: Some(HELP_SEARCH),
+        },
+        MenuEntry::Separator,
+        item("Visite guidée…", "", true, HELP_TOUR),
+        item("Raccourcis clavier", "", true, HELP_KEYS),
+        item("Documentation", "", guide().is_some(), HELP_DOCS),
+        MenuEntry::Separator,
+        item("À propos de hyprdesk", "help-about", true, ABOUT),
+    ]
+}
+
+/// Guide du shell installé, dans la langue de l'interface ; l'autre langue
+/// à défaut.
+fn guide_in(dir: &Path, lang: crate::i18n::Lang) -> Option<std::path::PathBuf> {
+    let names = match lang {
+        crate::i18n::Lang::En => ["GUIDE.md", "GUIDE.fr.md"],
+        crate::i18n::Lang::Fr => ["GUIDE.fr.md", "GUIDE.md"],
+    };
+    names.iter().map(|n| dir.join(n)).find(|p| p.is_file())
+}
+
+fn guide() -> Option<std::path::PathBuf> {
+    guide_in(Path::new(GUIDE_DIR), crate::i18n::current())
+}
+
+/// Mots à chercher dans les Réglages pour la saisie `text` du champ d'aide :
+/// rien sur une saisie vide.
+fn help_search(text: &str) -> Option<Command> {
+    let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!words.is_empty()).then(|| Command::Settings(format!("?{words}")))
+}
+
+/// Champ validé du menu « Aide » : `action` reçoit le texte.
+pub(in crate::ui) fn submit(action: i64, text: &str) -> Task<Msg> {
+    match action {
+        HELP_SEARCH => help_search(text).map_or_else(Task::none, |c| Task::done(Msg::Control(c))),
+        _ => Task::none(),
+    }
 }
 
 /// Entrées du menu « hyprdesk ». `selected` : l'icône du bureau sélectionnée
@@ -133,6 +205,17 @@ pub(in crate::ui) fn act(app: &App, action: i64) -> Task<Msg> {
                     }
                 },
             )
+        }
+        // Menu « Aide » : la visite ouvre les Réglages et s'y lance, les
+        // raccourcis en sont une page. Le guide est relu à l'action : sans
+        // lui, rien ne se passe.
+        HELP_TOUR => Task::done(Msg::Control(Command::Tour)),
+        HELP_KEYS => Task::done(Msg::Control(Command::Settings("keys".into()))),
+        HELP_DOCS => {
+            if let Some(p) = guide() {
+                let _ = crate::launch::open_path(&p);
+            }
+            Task::none()
         }
         _ => Task::none(),
     }
@@ -279,16 +362,18 @@ mod tests {
         let t = titles();
         assert_eq!(
             t.iter().map(|x| x.1).collect::<Vec<_>>(),
-            ["hyprdesk", "Fenêtre", "Espaces"]
+            ["hyprdesk", "Fenêtre", "Espaces", "Aide"]
         );
         // « hyprdesk » d'abord ; puis les menus de la fenêtre et des espaces,
-        // tels qu'ils existent déjà ailleurs dans la barre.
+        // tels qu'ils existent déjà ailleurs dans la barre ; « Aide » en
+        // dernier (HIG MENU-05).
         assert!(matches!(
             t.iter().map(|x| &x.2).collect::<Vec<_>>().as_slice(),
             [
                 popover::Request::Shell,
                 popover::Request::Window,
-                popover::Request::Workspaces
+                popover::Request::Workspaces,
+                popover::Request::Help
             ]
         ));
         // La clef d'ancre ne peut pas rencontrer celle d'un module.
@@ -298,5 +383,79 @@ mod tests {
             keys.len(),
             keys.iter().collect::<std::collections::HashSet<_>>().len()
         );
+    }
+
+    #[test]
+    fn menu_aide_commence_par_sa_recherche() {
+        let e = help_entries();
+        // Le champ en tête : sans libellé, en clair, il porte sa propre action.
+        assert!(matches!(
+            e.first(),
+            Some(MenuEntry::Input {
+                label: None,
+                placeholder,
+                secret: false,
+                action: Some(HELP_SEARCH),
+            }) if placeholder == crate::i18n::tr("Rechercher dans les réglages")
+        ));
+        // L'aide du shell, puis « À propos de hyprdesk » seul dans son groupe :
+        // deux traits, comme « À propos » du menu « hyprdesk » (même action).
+        assert_eq!(actions(&e), [HELP_TOUR, HELP_KEYS, HELP_DOCS, ABOUT]);
+        assert_eq!(
+            e.iter()
+                .filter(|x| matches!(x, MenuEntry::Separator))
+                .count(),
+            2
+        );
+        let labels: Vec<_> = e
+            .iter()
+            .filter_map(|x| match x {
+                MenuEntry::Item { label, .. } => Some(label.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                crate::i18n::tr("Visite guidée…"),
+                crate::i18n::tr("Raccourcis clavier"),
+                crate::i18n::tr("Documentation"),
+                crate::i18n::tr("À propos de hyprdesk"),
+            ]
+        );
+        // Les commandes d'aide ne perdent rien : aucune ne demande confirmation.
+        assert!(e.iter().all(|x| match x {
+            MenuEntry::Item { confirm, .. } => confirm.is_none(),
+            _ => true,
+        }));
+    }
+
+    #[test]
+    fn champ_d_aide_ouvre_la_recherche_des_reglages() {
+        // Les mots sont réduits à un espace ; rien sur une saisie blanche.
+        assert_eq!(
+            help_search("  volume   de nuit "),
+            Some(Command::Settings("?volume de nuit".into()))
+        );
+        assert_eq!(help_search(" \t "), None);
+    }
+
+    #[test]
+    fn guide_installe_dans_la_langue_de_l_interface() {
+        use crate::i18n::Lang;
+        let dir = std::env::temp_dir().join(format!("hyprdesk-guide-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Paquet sans guide : rien à ouvrir.
+        assert_eq!(guide_in(&dir, Lang::Fr), None);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("GUIDE.md"), "# hyprdesk").unwrap();
+        // Seul le guide anglais est installé : c'est lui, dans les deux langues.
+        assert_eq!(guide_in(&dir, Lang::Fr), Some(dir.join("GUIDE.md")));
+        assert_eq!(guide_in(&dir, Lang::En), Some(dir.join("GUIDE.md")));
+        std::fs::write(dir.join("GUIDE.fr.md"), "# hyprdesk").unwrap();
+        // Installés tous les deux : celui de la langue de l'interface.
+        assert_eq!(guide_in(&dir, Lang::Fr), Some(dir.join("GUIDE.fr.md")));
+        assert_eq!(guide_in(&dir, Lang::En), Some(dir.join("GUIDE.md")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

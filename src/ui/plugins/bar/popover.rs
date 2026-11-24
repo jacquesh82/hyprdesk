@@ -60,6 +60,8 @@ pub enum Request {
     Window,
     /// Menu du shell « hyprdesk », toujours en tête de la barre (HIG MENU-01).
     Shell,
+    /// Menu « Aide », en dernier des titres de la barre (HIG MENU-05).
+    Help,
 }
 
 #[cfg(test)]
@@ -477,6 +479,81 @@ mod tests {
     }
 
     #[test]
+    fn champ_du_menu_aide_valide_referme_la_carte() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(
+            bar,
+            "menus:help".into(),
+            Kind::Menu {
+                entries: super::super::menus::help_entries(),
+                source: MenuSource::Shell,
+            },
+        );
+        let _ = app.popover_update(PMsg::Input(0, "volume".into()));
+        assert_eq!(
+            app.popover
+                .as_ref()
+                .and_then(|p| p.inputs.get(&0))
+                .map(String::as_str),
+            Some("volume")
+        );
+        // Validé : le texte part avec la commande, il n'en reste rien dans la
+        // carte, qui se referme (HIG MENU-05).
+        let _ = app.popover_update(PMsg::Submit(0));
+        let closed = match app.popover.as_ref() {
+            None => true,
+            Some(p) => p.closing() && !p.inputs.contains_key(&0),
+        };
+        assert!(closed, "la carte du menu « Aide » se referme");
+    }
+
+    #[test]
+    fn seul_un_menu_qui_commence_par_un_champ_prend_le_clavier() {
+        // La recherche ouvre le menu « Aide » : le champ reçoit le clavier.
+        assert!(leads_with_input(&Kind::Menu {
+            entries: super::super::menus::help_entries(),
+            source: MenuSource::Shell,
+        }));
+        // Les menus qui commencent par une ligne, les cartes simples : non.
+        assert!(!leads_with_input(&Kind::Menu {
+            entries: super::super::menus::entries(None),
+            source: MenuSource::Shell,
+        }));
+        assert!(!leads_with_input(&Kind::Menu {
+            entries: vec![
+                crate::config::MenuEntry::Item {
+                    label: "Ligne".into(),
+                    detail: None,
+                    icon: None,
+                    checked: None,
+                    enabled: true,
+                    action: Some(1),
+                    confirm: None,
+                },
+                crate::config::MenuEntry::Input {
+                    label: None,
+                    placeholder: String::new(),
+                    secret: true,
+                    action: Some(2),
+                },
+            ],
+            source: MenuSource::Lua { widget: "w".into() },
+        }));
+        assert!(!leads_with_input(&Kind::Volume));
+        // Un mot de passe en tête d'un menu Lua ne prend pas le clavier tout
+        // seul.
+        assert!(!leads_with_input(&Kind::Menu {
+            entries: vec![crate::config::MenuEntry::Input {
+                label: None,
+                placeholder: String::new(),
+                secret: true,
+                action: Some(2),
+            }],
+            source: MenuSource::Lua { widget: "w".into() },
+        }));
+    }
+
+    #[test]
     fn sous_menu_une_entree_de_la_colonne_rend_son_action() {
         let mut app = open_submenu_menu(300.0);
         // Colonne fermée : rien.
@@ -502,6 +579,31 @@ mod tests {
             panic!("menu attendu");
         };
         assert_eq!(menu_icons(&entries), [crate::ui::menu::CHEVRON]);
+    }
+}
+
+/// Nom du premier champ de saisie d'une carte : lui seul en porte un, c'est
+/// lui qui reçoit le clavier.
+const FIRST_INPUT: &str = "hyprdesk-popover-input-0";
+
+/// Un menu qui commence par un champ en clair — la recherche du menu « Aide »
+/// (HIG MENU-05) — reçoit le clavier sur ce champ dès son ouverture : on y
+/// tape sans y cliquer. Échap le quitte d'abord, puis referme la carte,
+/// comme le renommage d'un espace. Un champ masqué (mot de passe) d'un menu
+/// Lua garde la main : il ne prend le clavier qu'au clic.
+fn leads_with_input(kind: &Kind) -> bool {
+    matches!(
+        kind,
+        Kind::Menu { entries, .. }
+            if matches!(entries.first(), Some(MenuEntry::Input { secret: false, .. }))
+    )
+}
+
+fn focus_first_input(kind: &Kind) -> Task<Msg> {
+    if leads_with_input(kind) {
+        iced::widget::operation::focus(FIRST_INPUT)
+    } else {
+        Task::none()
     }
 }
 
@@ -1137,6 +1239,9 @@ impl App {
                 crate::lock::pam::wipe(input);
             }
             p.inputs.clear();
+            // Même carte, nouveau contenu : le champ existe déjà, il prend le
+            // clavier tout de suite.
+            tasks.push(focus_first_input(&p.kind));
             tasks.push(Task::done(Msg::MarginChange { id: p.win, margin }));
             tasks.push(Task::done(Msg::SizeChange {
                 id: p.win,
@@ -1287,8 +1392,12 @@ impl App {
                     }),
             );
         }
+        // Seul le premier champ porte un nom : c'est lui qui reçoit le clavier
+        // d'un menu qui commence par un champ.
+        let input = iced::widget::text_input(placeholder, value);
+        let input = if i == 0 { input.id(FIRST_INPUT) } else { input };
         col.push(
-            iced::widget::text_input(placeholder, value)
+            input
                 .secure(secret)
                 .on_input(move |s| Msg::Popover(PMsg::Input(i, s)))
                 .on_submit(Msg::Popover(PMsg::Submit(i)))
@@ -1409,7 +1518,7 @@ impl App {
                     return Task::none();
                 };
                 let (action, source) = (*action, source.clone());
-                // Le texte part vers le Lua ; il n'en reste rien ici.
+                // Le texte part avec sa commande ; il n'en reste rien ici.
                 let text = p.inputs.remove(&i).unwrap_or_default();
                 let t = match source {
                     MenuSource::Lua { widget } => {
@@ -1424,10 +1533,12 @@ impl App {
                             Msg::Repoll,
                         )
                     }
-                    MenuSource::Tray { .. }
-                    | MenuSource::Window { .. }
-                    | MenuSource::Shell
-                    | MenuSource::Silence => Task::none(),
+                    // Menu « Aide » : le champ de recherche ouvre celui des
+                    // Réglages sur les mots saisis (HIG MENU-05).
+                    MenuSource::Shell => super::menus::submit(action, &text),
+                    MenuSource::Tray { .. } | MenuSource::Window { .. } | MenuSource::Silence => {
+                        Task::none()
+                    }
                 };
                 Task::batch([t, self.close_popover()])
             }
@@ -1707,14 +1818,19 @@ impl App {
     }
 
     pub(in crate::ui) fn popover_shown(&mut self, id: Id) -> Task<Msg> {
-        if let Some(p) = self.popover.as_mut().filter(|p| p.win == id && !p.shown) {
-            p.shown = true;
-            if p.visibility.to == 1.0 {
-                p.visibility.from = 0.0;
-                p.visibility.start = std::time::Instant::now();
+        // Carte nouvelle : son champ n'existait pas à l'ouverture ; il prend
+        // le clavier une fois la carte affichée.
+        match self.popover.as_mut().filter(|p| p.win == id && !p.shown) {
+            Some(p) => {
+                p.shown = true;
+                if p.visibility.to == 1.0 {
+                    p.visibility.from = 0.0;
+                    p.visibility.start = std::time::Instant::now();
+                }
+                focus_first_input(&p.kind)
             }
+            None => Task::none(),
         }
-        Task::none()
     }
 
     pub(in crate::ui) fn view_popover(&self) -> Element<'_, Msg> {
