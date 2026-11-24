@@ -404,6 +404,28 @@ struct Rot {
     next: Instant,
 }
 
+/// Plus grande taille d'une icône d'application du lanceur (grille 60,
+/// suggestions 64), en pixels logiques (HIG ICO-01).
+const LAUNCHER_ICON_MAX: f32 = 64.0;
+
+/// Taille en pixels réels à chercher dans le thème : la taille affichée à
+/// l'échelle entière de l'écran (HIG ICO-01).
+fn icon_px(display: f32, scale: u16) -> u16 {
+    (display.max(1.0) * f32::from(scale.max(1)))
+        .ceil()
+        .min(1024.0) as u16
+}
+
+/// Échelle entière des icônes : la plus haute des écrans, arrondie au-dessus
+/// (1,6 donne 2), bornée à 1..=3.
+fn icon_scale_of(scales: impl Iterator<Item = f64>) -> u16 {
+    scales
+        .filter(|s| s.is_finite())
+        .fold(1.0_f64, f64::max)
+        .ceil()
+        .clamp(1.0, 3.0) as u16
+}
+
 /// Préfixe des icônes nommées demandées comme icônes d'application
 /// (`App::app_icon_key`, HIG ICO-04).
 const APP_ICON_KEY: &str = "app:";
@@ -470,6 +492,9 @@ pub struct App {
     /// Images matricielles qui sont des icônes d'application : rendues au
     /// masque unique (HIG ICO-04).
     app_rasters: HashSet<usize>,
+    /// Échelle des icônes au dernier chargement : un écran d'une autre
+    /// échelle les fait relire (HIG ICO-01).
+    icon_scale_seen: u16,
     vectors: Vec<svg::Handle>,
     icons_gen: u64,
     values: HashMap<String, widgets::Value>,
@@ -1069,6 +1094,7 @@ impl App {
             ui_imgs: Vec::new(),
             rasters: Vec::new(),
             app_rasters: HashSet::new(),
+            icon_scale_seen: 1,
             vectors: Vec::new(),
             icons_gen: 0,
             values: HashMap::new(),
@@ -1348,10 +1374,15 @@ impl App {
                 tasks.push(Task::done(Msg::Poll));
             }
         }
-        // La taille d'icône ne demande pas de nouvelle recherche : l'image est mise à l'échelle.
         // SmartUI design activé ou coupé : toutes les icônes sont relues.
+        // Taille d'icône du bureau ou du dock changée : relues à la nouvelle
+        // taille, une matricielle agrandie serait floue (HIG ICO-01).
         let icons_changed = old.icons != self.cfg.icons
             || o.icon_theme != n.icon_theme
+            || o.grid.icon_size != n.grid.icon_size
+            || o.launcher.size != n.launcher.size
+            || crate::design_options::num(o, "dock.magnify")
+                != crate::design_options::num(n, "dock.magnify")
             || o.terminal != n.terminal
             || o.launcher.smartui != n.launcher.smartui
             || self.icons_gen == 0;
@@ -2593,6 +2624,9 @@ impl App {
             return Task::none();
         }
         self.class_pending.extend(missing.iter().cloned());
+        // Taille affichée la plus grande (dock grossi au survol), à l'échelle
+        // de l'écran (HIG ICO-01).
+        let px = self.class_icon_px();
         let (apps, theme, gen_) = (
             self.apps.clone(),
             self.cfg.general.icon_theme.clone(),
@@ -2606,7 +2640,7 @@ impl App {
                     missing
                         .into_iter()
                         .map(|c| {
-                            let p = launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
+                            let p = launch::icon_for_class(&c, &apps, theme.as_deref(), px);
                             (c, p)
                         })
                         .collect::<Vec<_>>()
@@ -2662,7 +2696,8 @@ impl App {
         self.icon_imgs.clear();
         self.selected = None;
         self.icons_gen += 1;
-        let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
+        self.icon_scale_seen = self.icon_scale();
+        let (gen_, cfg, scale) = (self.icons_gen, self.cfg.clone(), self.icon_scale());
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -2674,7 +2709,7 @@ impl App {
                             launch::resolve(
                                 d,
                                 g.icon_theme.as_deref(),
-                                g.grid.icon_size,
+                                icon_px(f32::from(g.grid.icon_size), scale),
                                 &g.terminal,
                             )
                         })
@@ -3047,6 +3082,13 @@ impl App {
         }
         let old = std::mem::replace(&mut self.monitors, list);
         let mut tasks = Vec::new();
+        // Échelle des icônes changée (écran branché, échelle réglée) : les
+        // icônes d'application sont relues à la bonne taille (HIG ICO-01).
+        // `reload_icons` vide toutes les poignées à son retour et redemande
+        // classes et icônes nommées.
+        if self.icon_scale() != self.icon_scale_seen {
+            tasks.push(self.reload_icons());
+        }
         // Un espace redevenu actif sur son écran montre ses fenêtres urgentes :
         // leur losange quitte la barre.
         if !self.urgent.is_empty() {
@@ -3744,6 +3786,19 @@ impl App {
         }
     }
 
+    /// Échelle entière des icônes d'après les écrans (HIG ICO-01).
+    pub(super) fn icon_scale(&self) -> u16 {
+        icon_scale_of(self.monitors.iter().map(|m| f64::from(m.scale)))
+    }
+
+    /// Taille cherchée d'une icône de classe : la plus grande affichée (dock
+    /// grossi au survol, 48 au moins), à l'échelle (HIG ICO-01).
+    pub(super) fn class_icon_px(&self) -> u16 {
+        let dock = f32::from(self.cfg.general.launcher.size)
+            * (crate::design_options::num(&self.cfg.general, "dock.magnify") as f32).max(1.0);
+        icon_px(dock.max(48.0), self.icon_scale())
+    }
+
     /// Clé d'une icône nommée demandée comme icône d'application : elle prend
     /// le masque unique, le même nom demandé ailleurs non (HIG ICO-04).
     pub(super) fn app_icon_key(name: &str) -> String {
@@ -3766,6 +3821,16 @@ impl App {
             return Task::none();
         }
         self.named_pending.insert(name.to_string());
+        // Taille en pixels réels (HIG ICO-01) : le lanceur affiche ses
+        // icônes jusqu'à 64, les autres icônes nommées vers 32.
+        let px = icon_px(
+            if name.starts_with(APP_ICON_KEY) {
+                LAUNCHER_ICON_MAX
+            } else {
+                32.0
+            },
+            self.icon_scale(),
+        );
         let (key, n, theme, gen_) = (
             name.to_string(),
             name.strip_prefix(APP_ICON_KEY).unwrap_or(name).to_string(),
@@ -3778,8 +3843,8 @@ impl App {
                 let p = tokio::task::spawn_blocking(move || {
                     // Repli : le thème par défaut. Jamais la version en couleur
                     // d'une icône symbolique : elle détonnerait dans la barre.
-                    launch::lookup_icon(&n2, theme.as_deref(), 32)
-                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), 32))
+                    launch::lookup_icon(&n2, theme.as_deref(), px)
+                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), px))
                 })
                 .await
                 .ok()
@@ -6930,6 +6995,29 @@ mod regression_tests {
 
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
+    }
+
+    /// Icônes cherchées à la taille affichée et à l'échelle entière de
+    /// l'écran (HIG ICO-01).
+    #[test]
+    fn taille_des_icones_a_l_echelle() {
+        let mut a = app();
+        Arc::make_mut(&mut a.cfg).general.launcher.size = 96;
+        let magnify = crate::design_options::num(&a.cfg.general, "dock.magnify").max(1.0);
+        assert_eq!(
+            a.class_icon_px(),
+            (96.0 * magnify as f32).ceil() as u16,
+            "dock grossi"
+        );
+        Arc::make_mut(&mut a.cfg).general.launcher.size = 24;
+        assert!(a.class_icon_px() >= 48, "48 au moins");
+        assert_eq!(icon_scale_of([1.0, 1.6].into_iter()), 2);
+        assert_eq!(icon_scale_of([1.0].into_iter()), 1);
+        assert_eq!(icon_scale_of(std::iter::empty()), 1);
+        assert_eq!(icon_scale_of([3.5, f64::NAN].into_iter()), 3);
+        assert_eq!(icon_px(60.0, 2), 120);
+        assert_eq!(icon_px(LAUNCHER_ICON_MAX, 1), 64);
+        assert_eq!(icon_px(0.0, 0), 1);
     }
 
     /// Icônes d'application au masque unique (HIG ICO-04) : un SVG est

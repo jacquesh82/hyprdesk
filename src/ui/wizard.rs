@@ -567,6 +567,9 @@ impl App {
             return Task::none();
         }
         self.class_pending.extend(missing.iter().cloned());
+        // Même taille que les classes du dock : les poignées sont partagées
+        // (HIG ICO-01).
+        let px = self.class_icon_px();
         let (apps, theme, gen_) = (
             self.apps.clone(),
             self.cfg.general.icon_theme.clone(),
@@ -578,7 +581,7 @@ impl App {
                     missing
                         .into_iter()
                         .map(|c| {
-                            let p = crate::launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
+                            let p = crate::launch::icon_for_class(&c, &apps, theme.as_deref(), px);
                             (c, p)
                         })
                         .collect::<Vec<_>>()
