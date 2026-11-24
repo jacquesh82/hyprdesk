@@ -242,6 +242,28 @@ impl Palette {
         }
     }
 
+    /// Bouton entre ses deux états, `on` de 0 (éteint) à 1 (allumé), fond
+    /// et encre fondus, puis atténué de `beat` (HIG SYS-06, SYS-07).
+    fn button_mix(self, on: f32, beat: f32, radius: f32, status: button::Status) -> button::Style {
+        let (off, lit) = (
+            self.button(false, radius, status),
+            self.button(true, radius, status),
+        );
+        let fill = |s: &button::Style| match s.background {
+            Some(iced::Background::Color(c)) => c,
+            _ => Color::TRANSPARENT,
+        };
+        button::Style {
+            background: Some(
+                crate::ui::design::mix(fill(&off), fill(&lit), on)
+                    .scale_alpha(beat)
+                    .into(),
+            ),
+            text_color: crate::ui::design::mix(off.text_color, lit.text_color, on),
+            ..lit
+        }
+    }
+
     fn scroll(self, theme: &Theme, status: scrollable::Status) -> scrollable::Style {
         let mut style = scrollable::default(theme, status);
         style.vertical_rail.background = None;
@@ -664,13 +686,30 @@ impl App {
         selected: bool,
         action: Option<Msg>,
     ) -> Element<'_, Msg> {
-        let fg = if selected {
-            pal.ink
-        } else if action.is_some() {
+        self.dashboard_pill_mix(
+            pal,
+            (icon, label),
+            (if selected { 1.0 } else { 0.0 }, 1.0),
+            action,
+        )
+    }
+
+    /// Pilule d'une commande à bascule : `on` de 0 à 1 pendant le passage
+    /// d'un état à l'autre (HIG SYS-06), `beat` la pulsation d'une action en
+    /// cours (HIG SYS-07).
+    fn dashboard_pill_mix(
+        &self,
+        pal: Palette,
+        (icon, label): (&str, &str),
+        (on, beat): (f32, f32),
+        action: Option<Msg>,
+    ) -> Element<'_, Msg> {
+        let rest = if action.is_some() || beat < 1.0 {
             pal.fg
         } else {
             pal.muted
         };
+        let fg = crate::ui::design::mix(rest, pal.ink, on).scale_alpha(beat);
         let body = row![
             self.dash_icon(icon, "•", 17.0, fg),
             self.dash_label(label, 13.0, fg)
@@ -678,10 +717,20 @@ impl App {
         ]
         .align_y(Alignment::Center)
         .spacing(7);
-        let button = self
-            .dash_button(pal, body.into(), action.as_ref(), selected, None)
+        let button = button(body)
+            .padding([7, 11])
+            .on_press_maybe(action.clone())
+            .style(move |_, status| {
+                if on <= 0.0 && beat >= 1.0 {
+                    pal.button(false, 15.0, status)
+                } else if on >= 1.0 && beat >= 1.0 {
+                    pal.button(true, 15.0, status)
+                } else {
+                    pal.button_mix(on, beat, 15.0, status)
+                }
+            })
             .height(39);
-        keyboard::press(button, action, if selected { pal.ink } else { pal.fg })
+        keyboard::press(button, action, crate::ui::design::mix(pal.fg, pal.ink, on))
     }
 
     fn dashboard_connection(
@@ -729,16 +778,29 @@ impl App {
                 )
             })
         };
-        let label = if pending {
+        // Pendant l'action, la pilule pulse au lieu de « Wi-Fi … », sauf
+        // sans transition (HIG SYS-07) ; l'état change en fondu (HIG SYS-06).
+        let pulse = if pending {
+            self.pending_pulse(&widget.id)
+        } else {
+            None
+        };
+        let label = if pending && pulse.is_none() {
             format!("{} …", tr(label))
         } else {
             tr(label).into()
         };
+        let on = self.toggle_progress(&widget.id, active);
         // Symbole de la radio Wi-Fi quand son état est connu (HIG SYS-08).
         let icon = crate::ui::controls::radio_symbol(type_id, rich.and_then(|r| r.toggled))
             .or_else(|| rich.and_then(|r| r.icon.as_deref()))
             .unwrap_or(fallback);
-        let pill = self.dashboard_pill(pal, icon, &label, active, (!pending).then_some(action));
+        let pill = self.dashboard_pill_mix(
+            pal,
+            (icon, &label),
+            (on, pulse.unwrap_or(1.0)),
+            (!pending).then_some(action),
+        );
         let detail = error.map(str::to_owned).or_else(|| match value {
             Some(Value::Error(e)) => Some(e.clone()),
             _ => rich.and_then(|r| r.tooltip.clone()),

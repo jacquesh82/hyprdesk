@@ -277,6 +277,11 @@ one control to the next; Ctrl + Tab and Ctrl + Shift + Tab jump to the first
 control of the next or previous group; Page Up and Page Down scroll the
 cards.
 
+**Control center toggles.** Wi-Fi, Bluetooth and the other toggles fade
+from off to on; while a toggle is in progress, the control gently pulses
+until the answer arrives. With the “None” transition (Settings → Animations
+→ Desktop), the change is immediate and the control shows “In progress…”.
+
 **The keyboard on every surface.** Four shortcuts put the keyboard on a
 shell surface without closing anything or changing mode: `CTRL + F2` goes to
 the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it

@@ -343,6 +343,12 @@ pub enum Msg {
     Noop,
 }
 
+/// Pulsation d'une action en cours, `secs` après son début : de 1 à 0,35 et
+/// retour, en 1,2 s ; une variation d'opacité, sans mouvement (HIG SYS-07).
+fn pulse(secs: f32) -> f32 {
+    0.675 + 0.325 * (secs * std::f32::consts::TAU / 1.2).cos()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Fade {
     from: f32,
@@ -546,6 +552,9 @@ pub struct App {
     convex_runtime: convex::Runtime,
     bar_anchors: HashMap<(Id, String), iced::Rectangle>,
     control_actions: HashMap<String, Option<String>>,
+    /// Début de l'action en cours d'une commande à bascule : sa pulsation
+    /// en part (HIG SYS-07).
+    control_since: HashMap<String, Instant>,
     bar_hidden: HashMap<Id, Vec<usize>>,
     bar_full_width: HashMap<Id, u32>,
     /// Barres masquées hors survol : montrée, génération du dernier survol.
@@ -1094,6 +1103,7 @@ impl App {
             convex_runtime: Default::default(),
             bar_anchors: HashMap::new(),
             control_actions: HashMap::new(),
+            control_since: HashMap::new(),
             bar_hidden: HashMap::new(),
             bar_full_width: HashMap::new(),
             bar_reveal: HashMap::new(),
@@ -1293,6 +1303,8 @@ impl App {
                 .any(|(a, b)| !a.same_content(b));
         if widgets_changed {
             self.values.clear();
+            // Plus de valeur : plus de fondu de bascule à suivre (HIG SYS-06).
+            self.hover_fades.retain(|k, _| !k.starts_with("toggle:"));
             self.last_poll.clear();
             if self.visible {
                 tasks.push(Task::done(Msg::Poll));
@@ -2669,6 +2681,8 @@ impl App {
             // Jusqu'à ce que Frame solde le fondu (fermeture comprise).
             || self.panel_fade.is_some()
             || self.hover_fades.values().any(|f| !f.done(Instant::now()))
+            // Une commande à bascule pulse jusqu'à la fin de son action (HIG SYS-07).
+            || (!self.control_since.is_empty() && self.cfg.general.transition != Transition::None)
             || self
                 .popover
                 .as_ref()
@@ -2698,6 +2712,30 @@ impl App {
                 crate::ui::tokens::motion().reduced,
             ))
         }
+    }
+
+    /// Part « allumée » d'une commande à bascule, de 0 à 1 : suit le fondu
+    /// lancé quand son état change (HIG SYS-06).
+    pub(in crate::ui) fn toggle_progress(&self, id: &str, active: bool) -> f32 {
+        self.hover_fades
+            .get(&format!("toggle:{id}"))
+            .map(|f| f.value(Instant::now()))
+            .unwrap_or(if active { 1.0 } else { 0.0 })
+    }
+
+    /// Opacité d'une commande dont l'action est en cours : elle pulse sans
+    /// fin jusqu'à la réponse ; rien sans transition, où le libellé d'attente
+    /// reste (HIG SYS-07).
+    pub(in crate::ui) fn pending_pulse(&self, id: &str) -> Option<f32> {
+        if self.cfg.general.transition == Transition::None {
+            return None;
+        }
+        let since = self.control_since.get(id)?;
+        Some(pulse(
+            Instant::now()
+                .saturating_duration_since(*since)
+                .as_secs_f32(),
+        ))
     }
 
     fn hover_value(&self, key: &str) -> f32 {
@@ -4561,7 +4599,9 @@ impl App {
                 self.bar_zone_extents.clear();
                 self.bar_anchors.clear();
                 self.control_actions.clear();
+                self.control_since.clear();
                 self.values.clear();
+                self.hover_fades.retain(|k, _| !k.starts_with("toggle:"));
                 self.last_poll.clear();
                 self.menu_request += 1;
                 let close = self.destroy_popover();
@@ -4840,6 +4880,34 @@ impl App {
                         .unwrap_or_else(Task::none),
                     _ => Task::none(),
                 };
+                // Bascule : l'état passe en fondu d'un trait à l'autre (HIG SYS-06).
+                let was = match self.values.get(&id) {
+                    Some(widgets::Value::Rich(r)) => r.toggled,
+                    _ => None,
+                };
+                let now = match &v {
+                    widgets::Value::Rich(r) => r.toggled,
+                    _ => None,
+                };
+                let key = format!("toggle:{id}");
+                match (was, now) {
+                    (Some(was), Some(on)) if was != on => {
+                        let from = self.toggle_progress(&id, was);
+                        self.hover_fades.insert(
+                            key,
+                            Fade {
+                                from,
+                                to: if on { 1.0 } else { 0.0 },
+                                start: Instant::now(),
+                                dur: self.motion_duration(),
+                            },
+                        );
+                    }
+                    (_, None) | (None, _) => {
+                        self.hover_fades.remove(&key);
+                    }
+                    _ => {}
+                }
                 self.values.insert(id, v);
                 t
             }
@@ -5180,6 +5248,7 @@ impl App {
                 };
                 let (lua, func, generation) = (self.lua.clone(), *func, self.widget_generation);
                 self.control_actions.insert(id.clone(), None);
+                self.control_since.insert(id.clone(), Instant::now());
                 Task::perform(async move { lua.call(func, None).await }, move |r| {
                     Msg::ControlToggled(generation, id.clone(), r)
                 })
@@ -5188,6 +5257,9 @@ impl App {
                 if generation != self.widget_generation {
                     return Task::none();
                 }
+                // La pulsation s'arrête à la réponse (HIG SYS-07) ; une
+                // nouvelle configuration a déjà tout vidé.
+                self.control_since.remove(&id);
                 match result {
                     Ok(()) => {
                         self.control_actions.remove(&id);
@@ -6999,6 +7071,82 @@ mod regression_tests {
             DesktopMode::FullDesktop,
             "fenêtre hors du bureau : le mode ne change pas"
         );
+    }
+
+    /// Une bascule passe d'un état à l'autre en fondu, et pulse tant que son
+    /// action est en cours ; rien de tout cela sans transition (HIG SYS-06,
+    /// SYS-07).
+    #[test]
+    fn bascule_en_fondu_et_pulsation_pendant_l_action() {
+        assert!((pulse(0.0) - 1.0).abs() < 1e-6, "part de l'état plein");
+        assert!((pulse(0.6) - 0.35).abs() < 1e-4, "creux à mi-période");
+        let mut app = app();
+        Arc::make_mut(&mut app.cfg).general.transition = Transition::Fade;
+        Arc::make_mut(&mut app.cfg).widgets.push(config::WidgetDef {
+            origin: config::Origin::User,
+            sel: config::Selector::default(),
+            id: "wifi".into(),
+            type_id: "network".into(),
+            kind: config::WidgetKind::Calendar,
+            anchor: config::Anchor::Right,
+            x: 0.0,
+            y: 0.0,
+            size: 0.0,
+            interval: Duration::from_secs(60),
+            card: false,
+            in_bar: true,
+            screen: Default::default(),
+            if_missing: Default::default(),
+        });
+        let toggled = |on| {
+            widgets::Value::Rich(config::Rendered {
+                toggled: Some(on),
+                ..Default::default()
+            })
+        };
+        let generation = app.widget_generation;
+        let _ = app.update_inner(Msg::WidgetValue(generation, "wifi".into(), toggled(false)));
+        assert_eq!(
+            app.toggle_progress("wifi", false),
+            0.0,
+            "premier état : pas de fondu"
+        );
+        let _ = app.update_inner(Msg::WidgetValue(generation, "wifi".into(), toggled(true)));
+        let fade = app.hover_fades["toggle:wifi"];
+        assert_eq!((fade.from, fade.to), (0.0, 1.0), "allumé en fondu");
+        assert!(!fade.dur.is_zero());
+        // Action en cours : pulsation, arrêtée par la réponse.
+        app.control_since.insert("wifi".into(), Instant::now());
+        assert!(app.pending_pulse("wifi").is_some());
+        assert!(app.animating(), "la pulsation demande des images");
+        Arc::make_mut(&mut app.cfg).general.transition = Transition::None;
+        assert_eq!(
+            app.pending_pulse("wifi"),
+            None,
+            "sans transition : le libellé reste"
+        );
+        let _ = app.update_inner(Msg::ControlToggled(
+            generation.wrapping_add(1),
+            "wifi".into(),
+            Ok(()),
+        ));
+        assert!(
+            !app.control_since.is_empty(),
+            "réponse d'une ancienne configuration : ignorée"
+        );
+        let _ = app.update_inner(Msg::ControlToggled(generation, "wifi".into(), Ok(())));
+        assert!(
+            app.control_since.is_empty(),
+            "la réponse arrête la pulsation"
+        );
+        // Valeur qui n'est plus une bascule : le fondu s'efface.
+        let _ = app.update_inner(Msg::WidgetValue(
+            generation,
+            "wifi".into(),
+            widgets::Value::Error("x".into()),
+        ));
+        assert!(!app.hover_fades.contains_key("toggle:wifi"));
+        assert_eq!(app.toggle_progress("wifi", false), 0.0);
     }
 
     #[test]

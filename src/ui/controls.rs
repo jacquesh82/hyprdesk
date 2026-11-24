@@ -70,7 +70,16 @@ impl App {
                 _ => None,
             });
         let active = rich.is_some_and(|r| r.toggled == Some(true));
-        let detail = if pending {
+        // Passage d'un état à l'autre en fondu (HIG SYS-06) ; pendant
+        // l'action, la pastille pulse au lieu d'afficher « En cours… »
+        // (HIG SYS-07), sauf sans transition.
+        let on = self.toggle_progress(&w.id, active);
+        let pulse = if pending {
+            self.pending_pulse(&w.id)
+        } else {
+            None
+        };
+        let detail = if pending && pulse.is_none() {
             crate::i18n::tr("En cours…").to_string()
         } else if error.is_some() {
             crate::i18n::tr("Indisponible").to_string()
@@ -86,22 +95,25 @@ impl App {
                 "bluetooth-symbolic"
             });
         let on_accent = design::on_accent(accent, fg, color(self.cfg.general.theme.bg, alpha));
+        let beat = pulse.unwrap_or(1.0);
+        let ink = design::mix(fg, on_accent, on).scale_alpha(beat);
         let orb = container(
-            self.icon_named(glyph, 16.0, if active { on_accent } else { fg })
+            self.icon_named(glyph, 16.0, ink)
                 .unwrap_or_else(|| Space::new().into()),
         )
         .center_x(32)
         .center_y(32)
         .style(move |_| container::Style {
             background: Some(
-                if active {
-                    accent
-                } else {
+                design::mix(
                     Color {
                         a: 0.10 * alpha,
                         ..fg
-                    }
-                }
+                    },
+                    accent,
+                    on,
+                )
+                .scale_alpha(beat)
                 .into(),
             ),
             border: Border::default().rounded(16),
