@@ -2435,7 +2435,7 @@ impl Fenetre {
                             }),
                         text(jour.get(8..10).unwrap_or("").to_string())
                             .font(app.font)
-                            .size(crate::ui::tokens::ts(9.0))
+                            .size(crate::ui::tokens::ts(10.0))
                             .color(dim),
                     ]
                     .spacing(2),

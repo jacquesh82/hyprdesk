@@ -224,10 +224,15 @@ fn with_screen<T>(f: impl FnOnce(&Design, Option<&design::Screen>) -> T) -> T {
     })
 }
 
+/// Plus petit corps rendu, en pixels : le minimum lisible de la HIG, une
+/// unité valant un pixel logique (HIG TYP-01).
+pub const MIN_TEXT: f32 = 10.0;
+
 /// Taille de texte du thème pour une taille écrite dans l'interface : le
 /// rôle se déduit de la taille (légende, corps, titre, affichage), puis
 /// suit le rôle du thème et l'échelle de l'écran (MLG-270, MLG-272). Sans
-/// typographie dans le pack, la taille est rendue telle quelle.
+/// typographie dans le pack, la taille est rendue telle quelle. Le résultat
+/// ne descend jamais sous [`MIN_TEXT`] (HIG TYP-01).
 pub fn ts(reference: f32) -> f32 {
     let t = TYPE.read().map(|t| *t).unwrap_or(TypeScale::IDENTITY);
     let ratio = if reference < 12.0 {
@@ -239,7 +244,7 @@ pub fn ts(reference: f32) -> f32 {
     } else {
         t.display
     };
-    (reference * ratio * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(6.0)
+    (reference * ratio * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(MIN_TEXT)
 }
 
 /// Échelle du texte réglée par l'utilisateur.
@@ -260,7 +265,7 @@ pub fn ts_metric(reference: f32) -> f32 {
 
 fn role(reference: f32, ratio: impl Fn(&design::Typography) -> f32) -> f32 {
     let r = ratio(&design().typography);
-    (reference * r * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(6.0)
+    (reference * r * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(MIN_TEXT)
 }
 
 /// Interligne du thème.
@@ -703,8 +708,18 @@ mod tests {
         set(d);
         assert!((ts(13.0) - 15.6).abs() < 1e-4);
         assert!((ts(11.0) - 11.0).abs() < 1e-4, "légende inchangée");
+        // Échelle de l'écran à 50 % : 7,8 px, ramenés au plancher (HIG TYP-01).
         enter_screen(Some(("HDMI-A-1", (2570, 720))));
-        assert!((ts(13.0) - 7.8).abs() < 1e-4);
+        assert!((ts(13.0) - MIN_TEXT).abs() < 1e-4, "plancher du corps");
+        assert!((ts(11.0) - MIN_TEXT).abs() < 1e-4, "plancher de la légende");
+        assert!(
+            (ts_label(13.0) - MIN_TEXT).abs() < 1e-4,
+            "plancher d'un libellé"
+        );
+        assert!(
+            (ts_metric(13.0) - MIN_TEXT).abs() < 1e-4,
+            "plancher d'une mesure"
+        );
         enter_screen(None);
         let t = Theme::default();
         let launcher = t.effect(Place::Launcher);
@@ -716,6 +731,14 @@ mod tests {
         assert!(t.shown(Place::Bar).opacity >= REDUCED_OPACITY);
         assert_eq!(glass(Place::Bar).highlight, 0.0);
         assert!(motion().reduced);
+        // Échelle de l'utilisateur à 75 % : 8,25 px, ramenés au plancher ; au-dessus,
+        // l'échelle s'applique.
+        set_user(false, false, false, 0.75);
+        assert!((ts(11.0) - MIN_TEXT).abs() < 1e-4, "plancher à 75 %");
+        assert!(
+            (ts(16.0) - 12.0).abs() < 1e-4,
+            "au-dessus du plancher, l'échelle s'applique"
+        );
         set_user(false, false, false, 1.0);
         set(Design::default());
         assert_eq!(ts(13.0), 13.0);

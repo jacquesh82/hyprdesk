@@ -4,7 +4,7 @@ Le bureau est un espace calme, avec des contrôles immédiatement reconnaissable
 
 - Palette par défaut : texte #f2f4fc, surfaces #171b27, accent iris #a69cff. Respecter les couleurs définies en Lua. L’accent sert à la sélection et aux actions, sans remplacer le texte courant.
 - Matières : verre fumé pour les petites cartes et le dock, surface presque opaque pour les réglages. Contour clair discret, une seule ombre douce. Implémentation partagée : `src/ui/design.rs`.
-- Typographie : Mindlog 0.7 par défaut, embarquée et livrée avec le setup (SIL OFL 1.1) ; cinq graisses de Light à Bold. Choix parmi les familles installées dans Réglages → Bureau. Une famille pour toute l’interface ; poids normal, medium et semibold pour la hiérarchie. Échantillon et taille modifiables en direct.
+- Typographie : Mindlog 0.7 par défaut, embarquée et livrée avec le setup (SIL OFL 1.1) ; cinq graisses de Light à Bold. Choix parmi les familles installées dans Réglages → Bureau. Une famille pour toute l’interface ; poids normal, medium et semibold pour la hiérarchie. Échantillon et taille modifiables en direct. Aucun texte sous 10 px, quelle que soit l'échelle du texte.
 - Icônes : thèmes système pour les applications ; icônes symboliques pour les commandes. Secours vectoriels sur une grille 24 px, trait arrondi 1,7 px, dans `src/ui/icons.rs`. Aucun glyphe de police obligatoire.
 - Espacement : base 4 px, petits groupes 8–12 px, sections 20–24 px. Rayons 10 px pour les commandes, 20 px pour les cartes, 24 px pour le panneau.
 - Mouvement : retour visuel au pressage, survol discret, apparition courte sans rebond décoratif. Toujours repartir de la valeur affichée lors d’une interruption. `transition = "none"` désactive les mouvements ajoutés.
