@@ -30,6 +30,7 @@
 | 2026-11-23 | B1 | SEL-01, DAT-09, NAV-01, NAV-02, NAV-03 traités ; il en reste 52 dans ce couloir |
 | 2026-11-24 | B2 | PAT-09, PRES-01, TYP-03 traités ; il en reste 49 dans ce couloir |
 | 2026-11-24 | B3 | TYP-01, TYP-07 traités ; il en reste 47 dans ce couloir |
+| 2026-11-24 | B4 | ACC-10 traité ; il en reste 46 dans ce couloir |
 
 ### Couloir C
 
@@ -106,7 +107,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | ACC-07 | Notifications : délai demandé par l'application, sans plancher | PISTE | S | haute | à faire | — | recouvre SYS-03 et PAT-07 |
 | ACC-08 | Verrouillage : lecture et pause à la souris seulement | PISTE | S | moyenne | à faire | — | — |
 | ACC-09 | Barre : plancher de cible de 16 px | PISTE | S | haute | à faire | — | — |
-| ACC-10 | Boutons sans bordure trop rapprochés | PISTE | S | moyenne | à faire | — | — |
+| ACC-10 | Boutons sans bordure trop rapprochés | PISTE | S | moyenne | fait | 0e7240c | trois écarts portés à 12 px : en-tête des cartes de règles et de variables (« ↑ », « ↓ », « × », `src/ui/hyprlists.rs`), de 6 à 12 px, et « × », qui supprime l'élément, se tient à 24 px de ce qui le précède (12 px de marge gauche en plus), la valeur de la HIG pour les boutons sans bordure ; actions d'une bulle de notification (`src/ui/toasts.rs`), de 8 à 12 px ; « Confirmer » et « Annuler » de la remise par défaut (`src/ui/panel.rs`), de 8 à 12 px. Preuve exacte à HEAD, numéros de ligne décalés ; la croix est depuis ICO-07 le glyphe du jeu, seul l'écart est en cause. Propriétaire partagé `panel.rs` : relu à froid, sans outil d'agent — le diff fait ce que demande l'écart ; `DESIGN.md` (base 4 px) et les conventions du dépôt sont respectés ; aucune régression trouvée ; pas de test, écarts de vue. Porte complète avec captures avant le dernier rebasage : `fenetres-regles` et `environnement` (croix en place, à 12 px du bord de la carte), bulle à deux actions de la scène `fenetres-regles` (elles tiennent dans la bulle) ; aucune scène ne montre « ↑ », « ↓ » et « × » ensemble, ni la confirmation de la remise par défaut. Après rebasage sur les publications des couloirs A et C, porte complète sans captures. |
 
 ## Phase 2 — Menus du shell et clavier
 
