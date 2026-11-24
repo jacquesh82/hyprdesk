@@ -379,10 +379,12 @@ impl App {
             ];
             if overridden {
                 name = name.push(
-                    text("surchargée dans hyprdesk.lua — sans effet ici")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(crate::ui::tone::warning()),
+                    crate::ui::selectable::selectable(
+                        "surchargée dans hyprdesk.lua — sans effet ici",
+                    )
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(crate::ui::tone::warning()),
                 );
             }
             rules = rules.push(

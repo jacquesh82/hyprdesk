@@ -680,10 +680,16 @@ impl App {
                 .filter_map(|c| c.args.first().and_then(|a| a.as_str()).map(str::to_string))
                 .collect();
             if !computed.is_empty() {
-                col = col.push(self.small(crate::tr!(
-                    "Calculées dans hyprland.lua : {list}",
-                    list = computed.join(", ")
-                )));
+                // À sélectionner et à copier (HIG LAY-05).
+                col = col.push(
+                    super::selectable::selectable(crate::tr!(
+                        "Calculées dans hyprland.lua : {list}",
+                        list = computed.join(", ")
+                    ))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(self.ink().dim),
+                );
             }
         }
         col.into()

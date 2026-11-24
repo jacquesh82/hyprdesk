@@ -629,7 +629,8 @@ impl App {
                     Err(e) => (e.clone(), crate::ui::tone::warning()),
                 };
                 Some(
-                    text(msg)
+                    // Chemin de la copie, erreur : à sélectionner et à copier (HIG LAY-05).
+                    super::selectable::selectable(msg)
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(c)
@@ -1195,7 +1196,7 @@ impl App {
         .align_y(Alignment::Center);
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
             head = head.push(
-                text("surchargé dans hyprdesk.lua — sans effet ici")
+                super::selectable::selectable("surchargé dans hyprdesk.lua — sans effet ici")
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),

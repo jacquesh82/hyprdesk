@@ -47,6 +47,7 @@ pub mod preview;
 mod problem;
 mod screens_off;
 mod search;
+mod selectable;
 mod settings_search;
 mod switcher;
 mod toasts;

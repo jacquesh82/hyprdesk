@@ -619,7 +619,7 @@ impl App {
             return None;
         }
         Some(
-            text(crate::tr!(
+            super::selectable::selectable(crate::tr!(
                 "Aussi dans hyprland.lua (lignes {l}) : valeurs calculées, gardées là-bas.",
                 l = lines.join(", ")
             ))
