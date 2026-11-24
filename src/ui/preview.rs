@@ -199,7 +199,7 @@ const SCENES: [&str; 173] = [
     // Menus contextuels (HIG ENT-07) : carte d'espace, carte de notification,
     // module de barre.
     "menu-espace",
-    "menu-notification",
+    "bar-menu-notification",
     "bar-menu-module",
 ];
 
@@ -2489,7 +2489,7 @@ impl Preview {
             // carte se passe d'ancre : elle se centre.
             if matches!(
                 SCENES[self.scene],
-                "bar-notifications" | "menu-notification"
+                "bar-notifications" | "bar-menu-notification"
             ) {
                 let gen_ = self.app.icons_gen;
                 for icon in ["firefox", "signal"] {
@@ -2555,7 +2555,7 @@ impl Preview {
             // Clic droit sur une carte du centre de notifications (HIG ENT-07) :
             // son menu court, « Ouvrir » quand la carte mène quelque part. Même
             // idiome : icônes résolues tout de suite.
-            if SCENES[self.scene] == "menu-notification" {
+            if SCENES[self.scene] == "bar-menu-notification" {
                 let mut m = super::context::IconMenu::new(
                     super::context::MenuTarget::Notification(super::context::NotificationRef {
                         id: 2,

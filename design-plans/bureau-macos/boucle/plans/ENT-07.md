@@ -54,7 +54,7 @@
    - Preserve : clics gauche et milieu, molette, info-bulle, styles de barre, ancrage de la carte.
    - Verify : test `menu_du_module_de_volume_selon_l_etat` ; scènes `bar-menu-module` à 1440, 900 et 640 px.
 5. `src/ui/preview.rs`, `scripts/verify.sh`
-   - Change : scènes `menu-espace`, `menu-notification`, `bar-menu-module`.
+   - Change : scènes `menu-espace`, `bar-menu-notification`, `bar-menu-module`.
    - Verify : les trois scènes capturées aux trois largeurs.
 6. `docs/GUIDE.fr.md`, `docs/GUIDE.md`, `locales/en.toml`
    - Change : une phrase par surface ; traduction anglaise de chaque nouveau libellé (le test `catalogue_complet` y veille).
