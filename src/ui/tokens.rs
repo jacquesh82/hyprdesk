@@ -270,6 +270,12 @@ pub fn ts_metric(reference: f32) -> f32 {
     role(reference, |t| t.metric / design::REF_METRIC)
 }
 
+/// Taille d'une infobulle : rôle `tooltip` du thème, 11 px sans thème
+/// (HIG TYP-19).
+pub fn ts_tooltip(reference: f32) -> f32 {
+    role(reference, |t| t.tooltip / design::REF_TOOLTIP)
+}
+
 fn role(reference: f32, ratio: impl Fn(&design::Typography) -> f32) -> f32 {
     let r = ratio(&design().typography);
     (reference * r * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(MIN_TEXT)

@@ -698,7 +698,9 @@ fn shape_value(v: &toml::Value) -> Option<String> {
 }
 
 /// Rôles de texte de `[fonts.sizes]`.
-pub const FONT_ROLES: [&str; 6] = ["caption", "body", "label", "title", "display", "metric"];
+pub const FONT_ROLES: [&str; 7] = [
+    "caption", "body", "label", "title", "display", "metric", "tooltip",
+];
 
 /// Chemin relatif au dossier du pack, sans remontée.
 pub fn pack_relative(path: &str) -> bool {

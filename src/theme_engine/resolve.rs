@@ -798,7 +798,7 @@ mod tests {
              [effects.bar]\nmaterial = \"transparent\"\n\
              [effects.launcher]\nmaterial = \"glass_regular\"\nfallback = \"content_surface\"\n\
              [effects.content]\nmaterial = \"content_surface\"\n\
-             [fonts.sizes]\nlabel = 14\nmetric = 40\n"
+             [fonts.sizes]\nlabel = 14\nmetric = 40\ntooltip = 12\n"
         ));
         let r = resolve(&[p], "dark").unwrap();
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
@@ -813,8 +813,12 @@ mod tests {
         assert_eq!(r.palette["error"], r.palette["danger"]);
         assert_eq!(r.palette["focus"], Rgba(0x2d, 0xd4, 0xbf, 0xff));
         assert_eq!(
-            (r.design.typography.label, r.design.typography.metric),
-            (14.0, 40.0)
+            (
+                r.design.typography.label,
+                r.design.typography.metric,
+                r.design.typography.tooltip
+            ),
+            (14.0, 40.0, 12.0)
         );
     }
 }

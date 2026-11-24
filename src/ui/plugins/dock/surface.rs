@@ -1445,9 +1445,10 @@ impl App {
             ..Default::default()
         };
         let body: Element<'_, UiMsg> = match &p.content {
+            // Nom au survol : une infobulle, au rôle `tooltip` (HIG TYP-19).
             PopupContent::Label(t) => text(t.clone())
                 .font(self.font)
-                .size(crate::ui::tokens::ts(13.0))
+                .size(crate::ui::tokens::ts_tooltip(11.0))
                 .color(fg)
                 .into(),
             PopupContent::Windows(class) => {
