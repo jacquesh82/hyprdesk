@@ -229,6 +229,8 @@ pub struct Settings {
     pub key_focus_dock: Option<String>,
     pub key_focus_notifications: Option<String>,
     pub key_focus_settings: Option<String>,
+    /// Forcer une application à quitter (HIG ENT-10).
+    pub key_force_quit: Option<String>,
     pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
@@ -494,6 +496,7 @@ impl Settings {
             key_focus_notifications: has("keys.focus_notifications")
                 .then(|| g.keys.focus_notifications.clone()),
             key_focus_settings: has("keys.focus_settings").then(|| g.keys.focus_settings.clone()),
+            key_force_quit: has("keys.force_quit").then(|| g.keys.force_quit.clone()),
             key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -809,6 +812,7 @@ impl Settings {
             "keys.focus_settings",
             g.keys.focus_settings
         );
+        set!(key_force_quit, "keys.force_quit", g.keys.force_quit);
         set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
@@ -1281,6 +1285,7 @@ impl Settings {
             ("focus_dock", &self.key_focus_dock),
             ("focus_notifications", &self.key_focus_notifications),
             ("focus_settings", &self.key_focus_settings),
+            ("force_quit", &self.key_force_quit),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {

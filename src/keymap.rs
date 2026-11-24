@@ -83,6 +83,9 @@ pub const FOCUS_LABELS: &[&str] = &[
     "Clavier aux Réglages",
 ];
 
+/// Libellés des boîtes de dialogue du shell : « Forcer à quitter » (HIG ENT-10).
+pub const DIALOG_LABELS: &[&str] = &["Forcer une application à quitter"];
+
 /// Combinaison comparable : (masque des modificateurs, touche en minuscules).
 pub fn norm(combo: &str) -> Option<(u32, String)> {
     parse_combo(combo)
@@ -184,6 +187,15 @@ pub fn actions(k: &Keys) -> Vec<Action> {
         "keys.focus_settings",
         FOCUS_LABELS[3],
         &k.focus_settings,
+        Everywhere,
+    );
+    // Forcer une application à quitter (HIG ENT-10) : la boîte s'ouvre partout,
+    // le mode du bureau ne change pas.
+    push(
+        "force-quit",
+        "keys.force_quit",
+        DIALOG_LABELS[0],
+        &k.force_quit,
         Everywhere,
     );
     // Verrouillage non réglé : celui de hyprland.lua hors du bureau, celui
@@ -961,8 +973,14 @@ hl.bind(mainMod .. " + Tab", function()
 
     #[test]
     fn libelles_traduits() {
-        let missing =
-            crate::i18n::untranslated("keymap", LABELS.iter().chain(FOCUS_LABELS).copied());
+        let missing = crate::i18n::untranslated(
+            "keymap",
+            LABELS
+                .iter()
+                .chain(FOCUS_LABELS)
+                .chain(DIALOG_LABELS)
+                .copied(),
+        );
         assert!(missing.is_empty(), "{missing:?}");
     }
     #[test]
@@ -992,6 +1010,31 @@ hl.bind(mainMod .. " + Tab", function()
         let mut k = Keys::default();
         k.focus_dock.clear();
         assert!(!actions(&k).iter().any(|a| a.id == "focus-dock"));
+    }
+    #[test]
+    fn raccourci_forcer_a_quitter() {
+        // HIG ENT-10 : le modèle Option-Command-Esc, partout, sous son libellé.
+        let acts = actions(&Keys::default());
+        let a = acts
+            .iter()
+            .find(|a| a.id == "force-quit")
+            .expect("force-quit");
+        assert_eq!(
+            (a.key, a.label, a.combo.as_str()),
+            ("keys.force_quit", DIALOG_LABELS[0], "ALT + SUPER + Escape")
+        );
+        assert!(a.scope.outside() && a.scope.desktop());
+        // Combinaison par défaut libre : aucune autre action de hyprdesk ne la
+        // partage (ni la sortie de secours, ni un raccourci de focus).
+        assert_eq!(
+            acts.iter()
+                .filter(|x| norm(&x.combo) == norm(&a.combo))
+                .count(),
+            1
+        );
+        let mut k = Keys::default();
+        k.force_quit.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "force-quit"));
     }
     #[test]
     fn raccourci_absent_des_fichiers() {

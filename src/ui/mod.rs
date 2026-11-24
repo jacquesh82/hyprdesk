@@ -38,6 +38,7 @@ pub(crate) mod tokens;
 pub(crate) mod tone;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
 mod controls;
+mod force_quit;
 mod key_conflict;
 mod osd;
 mod overview;
@@ -307,6 +308,11 @@ pub enum Msg {
     /// Clic droit sur une application de la grille du Lanceur (MLG-308).
     GridMenu(String),
     Switcher(switcher::SwMsg),
+    /// Boîte « Forcer à quitter » (HIG ENT-10).
+    ForceQuit(force_quit::FqMsg),
+    /// Répétition d'Entrée maintenue : sans effet dans la boîte « Forcer à
+    /// quitter », un appui ordinaire partout ailleurs.
+    EnterRepeat(Id),
     /// Écran « Espaces de travail » (organisation des fenêtres).
     Overview(overview::OMsg),
     /// Ouvre l'écran « Espaces de travail » depuis un menu de la barre.
@@ -540,6 +546,8 @@ pub struct App {
     cal_months: i32,
     /// Sélecteur de fenêtres (Alt+Tab) ouvert.
     switcher: Option<switcher::Switcher>,
+    /// Boîte « Forcer à quitter » ouverte (HIG ENT-10).
+    force_quit: Option<force_quit::ForceQuit>,
     /// Écran « Espaces de travail » ouvert (organisation des fenêtres).
     overview: Option<overview::Overview>,
     /// Menu contextuel d'une icône du bureau ouvert.
@@ -997,6 +1005,13 @@ fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
     match event {
         Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::Cursor(id, position)),
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::Released),
+        // Entrée maintenue : sa répétition est mise à part, pour qu'elle ne
+        // confirme pas ce que le premier appui vient d'armer (HIG ENT-10).
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Enter),
+            repeat: true,
+            ..
+        }) => Some(Msg::EnterRepeat(id)),
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => Some(Msg::Key(id, key)),
         Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::Modifiers(m)),
         Event::Window(iced::window::Event::Unfocused) => Some(Msg::KeyboardLeft(id)),
@@ -1093,6 +1108,7 @@ impl App {
             search: None,
             icon_menu: None,
             switcher: None,
+            force_quit: None,
             overview: None,
             ws_geos: Vec::new(),
             ws_geos_at: None,
@@ -1965,6 +1981,7 @@ impl App {
             || self.chat_shown()
             || self.search.is_some()
             || self.switcher.is_some()
+            || self.force_quit.is_some()
             || self.overview.is_some()
             || self.wizard.is_some()
             || self.mfa_dialog.is_some()
@@ -4110,6 +4127,8 @@ impl App {
                     }
                 }
                 control::Command::Switch(back) => self.switch_windows(back),
+                // Boîte « Forcer à quitter » (HIG ENT-10) : ouvre, ou referme.
+                control::Command::ForceQuit => self.force_quit_toggle(),
                 control::Command::Wizard => self.open_wizard(),
                 control::Command::Tour => {
                     let o = self.open_panel();
@@ -4489,6 +4508,8 @@ impl App {
                 self.urgent.retain(|a| list.iter().any(|c| &c.address == a));
                 tasks.push(self.sync_submap());
                 let lyra_before = self.lyra_window_open();
+                // La boîte « Forcer à quitter » suit les fenêtres (HIG ENT-10).
+                self.force_quit_refresh(&list);
                 self.clients = list;
                 // Fenêtre de LYRA ouverte ou fermée : sa place dans les marges.
                 if self.lyra_window_open() != lyra_before {
@@ -4768,6 +4789,17 @@ impl App {
             Msg::DockMenu(monitor, key) => self.open_dock_menu(&monitor, &key),
             Msg::GridMenu(id) => self.open_grid_menu(id),
             Msg::Switcher(m) => self.switcher_update(m),
+            Msg::ForceQuit(m) => self.force_quit_update(m),
+            Msg::EnterRepeat(id) => {
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    Task::none()
+                } else {
+                    self.update_inner(Msg::Key(
+                        id,
+                        keyboard::Key::Named(keyboard::key::Named::Enter),
+                    ))
+                }
+            }
             Msg::Overview(m) => self.overview_update(m),
             Msg::BarOrganize => Task::batch([self.close_popover(), self.open_overview()]),
             Msg::MenuRefreshed(key, new) => {
@@ -5429,6 +5461,10 @@ impl App {
                     self.switcher = None;
                     return Task::none();
                 }
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    self.force_quit = None;
+                    return Task::none();
+                }
                 if self
                     .icon_menu
                     .as_ref()
@@ -5565,6 +5601,27 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
+                // Boîte « Forcer à quitter » (HIG ENT-10) : sa surface tient le
+                // clavier seule, ses touches lui reviennent d'abord — flèches haut
+                // et bas changent de ligne, Entrée arme puis tue, Échap recule.
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    use keyboard::key::Named;
+                    return match key {
+                        keyboard::Key::Named(Named::Escape) => {
+                            self.force_quit_update(force_quit::FqMsg::Cancel)
+                        }
+                        keyboard::Key::Named(Named::Enter) => {
+                            self.force_quit_update(force_quit::FqMsg::Force)
+                        }
+                        keyboard::Key::Named(Named::ArrowDown) => {
+                            self.force_quit_update(force_quit::FqMsg::Move(true))
+                        }
+                        keyboard::Key::Named(Named::ArrowUp) => {
+                            self.force_quit_update(force_quit::FqMsg::Move(false))
+                        }
+                        _ => Task::none(),
+                    };
+                }
                 // Menu ouvert : flèches, Tab, Entrée et Échap sont à lui (MLG-306).
                 if let Some(t) = self.icon_menu_key(&key, self.mods.shift()) {
                     return t;
@@ -6173,6 +6230,9 @@ impl App {
         if self.switcher.as_ref().is_some_and(|s| s.win == id) {
             return self.view_switcher();
         }
+        if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+            return self.view_force_quit();
+        }
         if self.overview.as_ref().is_some_and(|o| o.win == id) {
             return kinetic::probe(self.view_overview(), id);
         }
@@ -6569,6 +6629,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::DockMenu(..) => "DockMenu",
         Msg::GridMenu(..) => "GridMenu",
         Msg::Switcher(..) => "Switcher",
+        Msg::ForceQuit(..) => "ForceQuit",
+        Msg::EnterRepeat(..) => "EnterRepeat",
         Msg::CalendarMonth(..) => "CalendarMonth",
         Msg::MenuRefreshed(..) => "MenuRefreshed",
         Msg::Modifiers(..) => "Modifiers",
@@ -7559,5 +7621,122 @@ mod regression_tests {
         let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
         assert!(app.session_windows.is_empty());
         assert!(app.in_submap);
+    }
+
+    /// HIG ENT-10 : la boîte « Forcer à quitter » choisit l'application active,
+    /// referme le commutateur, se confirme en deux temps (Échap recule d'abord
+    /// sur la confirmation), suit les fenêtres et ne vise que les siennes.
+    #[test]
+    fn forcer_a_quitter() {
+        let client = |class: &str, address: &str| hypr::Client {
+            address: address.into(),
+            class: class.into(),
+            title: String::new(),
+            workspace: "1".into(),
+            monitor: "DP-1".into(),
+        };
+        let open = |app: &mut App| {
+            let _ = app.update_inner(Msg::Control(control::Command::ForceQuit));
+            app.force_quit
+                .as_ref()
+                .map(|f| f.win)
+                .expect("boîte ouverte")
+        };
+        let press = |app: &mut App, win: Id, key: keyboard::key::Named| {
+            let _ = app.update_inner(Msg::Key(win, keyboard::Key::Named(key)));
+        };
+
+        let mut app = app();
+        app.clients = vec![
+            client("foot", "0x1"),
+            client("firefox", "0x2"),
+            client("foot", "0x3"),
+        ];
+        app.active_window = Some(("firefox".into(), "Titre".into()));
+        app.switcher = Some(switcher::Switcher {
+            win: Id::unique(),
+            wins: Vec::new(),
+            selected: 0,
+            loading: false,
+            back: false,
+        });
+        let win = open(&mut app);
+        // Deux cartes à clavier exclusif ne se superposent pas.
+        assert!(app.switcher.is_none());
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!((f.apps.len(), f.selected, f.confirm), (2, Some(0), false));
+        assert_eq!(f.apps[0].class, "firefox");
+        assert_eq!(force_quit::targets(&app.clients, "firefox"), vec!["0x2"]);
+
+        // Deux temps : Entrée arme, Échap désarme sans refermer.
+        press(&mut app, win, keyboard::key::Named::Enter);
+        assert!(app.force_quit.as_ref().unwrap().confirm);
+        // Entrée maintenue : sa répétition ne confirme pas.
+        let _ = app.update_inner(Msg::EnterRepeat(win));
+        assert!(app.force_quit.as_ref().is_some_and(|f| f.confirm));
+        press(&mut app, win, keyboard::key::Named::Escape);
+        assert!(!app.force_quit.as_ref().unwrap().confirm);
+        // Armer, puis changer de ligne : la confirmation ne tient plus.
+        press(&mut app, win, keyboard::key::Named::Enter);
+        press(&mut app, win, keyboard::key::Named::ArrowDown);
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!(
+            (f.selected, f.confirm, f.apps[1].windows),
+            (Some(1), false, 2)
+        );
+        // Échap referme ; un second appel de la commande aussi.
+        press(&mut app, win, keyboard::key::Named::Escape);
+        assert!(app.force_quit.is_none());
+        open(&mut app);
+        let _ = app.update_inner(Msg::Control(control::Command::ForceQuit));
+        assert!(app.force_quit.is_none());
+
+        // La boîte suit les fenêtres : la ligne choisie reste sur son
+        // application, celle qui n'a plus de fenêtre disparaît.
+        let win = open(&mut app);
+        press(&mut app, win, keyboard::key::Named::ArrowDown);
+        assert_eq!(app.force_quit.as_ref().unwrap().selected, Some(1));
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(
+            vec![client("foot", "0x1")],
+            Vec::new(),
+        )));
+        let f = app.force_quit.as_ref().expect("toujours ouverte");
+        assert_eq!(
+            (f.selected, f.apps.len(), f.apps[0].class.as_str()),
+            (Some(0), 1, "foot")
+        );
+        // Sans fenêtre : la boîte le dit, « Forcer à quitter » est sans effet.
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
+        assert!(app.force_quit.as_ref().unwrap().apps.is_empty());
+        press(&mut app, win, keyboard::key::Named::Enter);
+        assert!(!app.force_quit.as_ref().unwrap().confirm);
+        assert!(app.force_quit.as_ref().unwrap().selected.is_none());
+
+        // Confirmé : la boîte se referme (les fenêtres visées, les siennes
+        // seulement, sont celles de `targets`).
+        app.clients = vec![client("foot", "0x1"), client("firefox", "0x2")];
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(
+            app.clients.clone(),
+            Vec::new(),
+        )));
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!(f.apps.len(), 2);
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Pick(1)));
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Force));
+        assert_eq!(
+            app.force_quit.as_ref().map(|f| (f.selected, f.confirm)),
+            Some((Some(1), true))
+        );
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Force));
+        assert!(app.force_quit.is_none());
+        // Fermée par ailleurs (surface disparue) : plus d'état.
+        let _ = open(&mut app);
+        let w = app.force_quit.as_ref().unwrap().win;
+        let _ = app.update_inner(Msg::Closed(w));
+        assert!(app.force_quit.is_none());
+        // Le commutateur, ouvert ensuite, referme la boîte.
+        let _ = open(&mut app);
+        let _ = app.update_inner(Msg::Control(control::Command::Switch(false)));
+        assert!(app.force_quit.is_none() && app.switcher.is_some());
     }
 }

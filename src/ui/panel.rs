@@ -659,6 +659,7 @@ impl App {
             k.focus_dock.clone(),
             k.focus_notifications.clone(),
             k.focus_settings.clone(),
+            k.force_quit.clone(),
         ];
         self.panel = Some(p);
         let from = self

@@ -191,6 +191,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `CTRL + F3`                               | Give the keyboard to the dock of the active screen (hidden desktop: it appears under the windows)   |
 | `CTRL + F8`                               | Open the notification center and give it the keyboard                                               |
 | `CTRL + F6`                               | Give the keyboard to the Settings drawer: it opens if closed, and never closes                       |
+| `ALT + SUPER + Escape`                    | Open "Force Quit": one row per application, confirmed in two steps, then its windows are killed      |
 | `SUPER + SHIFT + L`                       | Open or close LYRA, the AI assistant                                                                 |
 | `SUPER + R`                               | `:f` searches files, `:r` settings, `:clip` the clipboard history, `:2fa`/`:mdp` the myMFA keyring   |
 | `ALT + Tab`                               | Switch windows                                                                                       |

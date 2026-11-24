@@ -295,6 +295,17 @@ from one activable module to the next: those a left click opens (menus, volume,
 clock…). Enter or Space opens the chosen module; its menu takes the keyboard,
 the bar gets it back when the menu closes; Escape returns it to the windows.
 
+**Force an application to quit.** `ALT + SUPER + Escape` opens the "Force
+Quit" dialog: one row per application — its icon, its name, its number of
+windows —, the active application selected first (`hyprdesk force-quit` from
+the command line). Up and Down arrows move between rows; Enter or the button
+asks for confirmation — "Force “foot” to quit (3 windows)?" — and a second
+Enter kills its windows; Escape or "Cancel" first steps back from the
+confirmation, then closes the dialog. Under Hyprland, an application class
+often gathers several processes: they are all killed, hence the number. The
+shortcut is set in **Settings → Shortcuts** (`keys.force_quit`), in every
+desktop mode.
+
 ## Shortcuts and binds.lua
 
 Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,

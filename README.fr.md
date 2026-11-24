@@ -202,6 +202,7 @@ désinstallation sont dans le
 | `CTRL + F3` | Donne le clavier au dock de l'écran actif (bureau masqué : il paraît sous les fenêtres, en place) |
 | `CTRL + F8` | Ouvre le centre de notifications et lui donne le clavier |
 | `CTRL + F6` | Donne le clavier au volet des Réglages : il s'ouvre s'il est fermé, et ne se referme pas |
+| `ALT + SUPER + Escape` | Ouvre « Forcer à quitter » : une ligne par application, confirmation en deux temps, puis ses fenêtres sont tuées |
 | `SUPER + SHIFT + L` | Ouvre ou referme LYRA, l'assistant IA |
 | `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
 | `ALT + Tab` | Change de fenêtre |

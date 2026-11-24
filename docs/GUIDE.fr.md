@@ -298,6 +298,17 @@ module activable au suivant : ceux qu'ouvre un clic gauche (menus, volume,
 horloge…). Entrée ou Espace ouvrent le module choisi ; son menu prend le
 clavier, la barre le retrouve à sa fermeture ; Échap le rend aux fenêtres.
 
+**Forcer une application à quitter.** `ALT + SUPER + Escape` ouvre la boîte
+« Forcer à quitter » : une ligne par application — son icône, son nom, le
+nombre de ses fenêtres —, l'application active choisie d'abord (`hyprdesk
+force-quit` en ligne de commande). Flèches haut et bas changent de ligne ;
+Entrée ou le bouton demandent la confirmation — « Forcer « foot » à quitter
+(3 fenêtres) ? » — et un second Entrée tue ses fenêtres ; Échap ou
+« Annuler » recule d'abord sur la confirmation, puis referme la boîte. Sous
+Hyprland, une classe d'application rassemble souvent plusieurs processus :
+ils sont tous tués, d'où le nombre. Le raccourci se règle dans
+**Réglages → Raccourcis** (`keys.force_quit`), dans tous les modes du bureau.
+
 ## Raccourcis et binds.lua
 
 Partout où hyprdesk écrit un raccourci, les modificateurs viennent dans cet

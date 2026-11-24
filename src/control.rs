@@ -46,6 +46,9 @@ pub enum Command {
     /// `bar`, `dock`, `notifications` ou `settings`. La surface s'ouvre s'il
     /// le faut et prend le clavier ; rien ne se referme, le mode ne change pas.
     Focus(String),
+    /// Ouvre la boîte « Forcer à quitter », ou la referme (raccourci
+    /// `keys.force_quit`, HIG ENT-10).
+    ForceQuit,
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
@@ -117,6 +120,7 @@ impl Command {
             m if m.starts_with("focus ") && m.len() > 6 => {
                 Command::Focus(m[6..].trim().to_string())
             }
+            "force-quit" => Command::ForceQuit,
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
@@ -184,6 +188,7 @@ impl Command {
             Command::Settings(_) => "settings",
             Command::ToggleSettings => "toggle-settings",
             Command::Focus(_) => "focus",
+            Command::ForceQuit => "force-quit",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
@@ -431,6 +436,7 @@ mod tests {
             Command::Settings("fond".into()),
             Command::ToggleSettings,
             Command::Focus("dock".into()),
+            Command::ForceQuit,
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,
@@ -449,6 +455,9 @@ mod tests {
             Some(Command::Focus("bar".into()))
         );
         assert_eq!(Command::parse("focus"), None);
+        // HIG ENT-10 : la boîte « Forcer à quitter ».
+        assert_eq!(Command::parse("force-quit\n"), Some(Command::ForceQuit));
+        assert_eq!(Command::parse("force-quit apps\n"), None);
         assert_eq!(
             Command::parse("menu network"),
             Some(Command::Menu("network".into()))

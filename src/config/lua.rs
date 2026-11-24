@@ -802,6 +802,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "focus_dock",
                 "focus_notifications",
                 "focus_settings",
+                "force_quit",
                 "take",
                 "essentials",
                 "essentials_off",
@@ -905,6 +906,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("focus_dock", &mut g.keys.focus_dock),
             ("focus_notifications", &mut g.keys.focus_notifications),
             ("focus_settings", &mut g.keys.focus_settings),
+            ("force_quit", &mut g.keys.force_quit),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}

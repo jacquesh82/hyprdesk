@@ -259,6 +259,47 @@ pub fn close_window(address: &str) -> Result<(), ipc::IpcError> {
     Ok(())
 }
 
+/// La commande Lua qui tue une fenêtre désignée par son adresse (HIG ENT-10) :
+/// `kill`, le jumeau brutal de `close` — même désignation, même échappement.
+/// Hyprland 0.57.2 : `hl.dsp.window.kill({ window = … })`, à côté de `close`
+/// et `signal`.
+pub fn kill_window_lua(address: &str) -> String {
+    format!(
+        "hl.dsp.window.kill({{ window = \"address:{}\" }})",
+        ipc::lua_escape(address)
+    )
+}
+
+/// Tue une fenêtre, même si son application s'y refuse : « Forcer à quitter ».
+pub fn kill_window(address: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&kill_window_lua(address))?;
+    if r.trim() != "ok" {
+        tracing::warn!(
+            "{}",
+            crate::tr!("destruction {address} : {r}", address = address, r = r)
+        );
+    }
+    Ok(())
+}
+
+/// Tue des fenêtres une à une (« Forcer à quitter », HIG ENT-10). Chacune est
+/// relue juste avant : une fenêtre déjà disparue — son processus, partagé
+/// avec la précédente, vient d'être tué — n'est plus visée, jamais une autre
+/// à sa place.
+pub fn kill_windows(addresses: &[String]) {
+    for a in addresses {
+        let alive = ipc::query_json("clients")
+            .map(|v| parse_clients(&v))
+            .is_ok_and(|l| l.iter().any(|c| &c.address == a));
+        if alive && let Err(e) = kill_window(a) {
+            tracing::warn!(
+                "{}",
+                crate::tr!("destruction {address} : {r}", address = a, r = e)
+            );
+        }
+    }
+}
+
 /// Ce que le flux d'événements apporte à l'interface.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -729,6 +770,13 @@ pub fn build_keys_lua(
             "focus settings",
             "clavier aux réglages",
         ),
+        // Forcer une application à quitter (HIG ENT-10), partout.
+        (
+            "force-quit",
+            &keys.force_quit,
+            "force-quit",
+            "forcer à quitter",
+        ),
         ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
@@ -844,6 +892,13 @@ pub fn build_keys_lua(
             &keys.focus_settings,
             "focus settings",
             "clavier aux réglages",
+        ),
+        // Forcer une application à quitter, bureau affiché aussi (HIG ENT-10).
+        (
+            "force-quit",
+            &keys.force_quit,
+            "force-quit",
+            "forcer à quitter",
         ),
     ] {
         if plan.desktop(id, k) {
@@ -2928,6 +2983,38 @@ mod tests {
             let bind = format!(r#"hl.bind("{combo}", hl.dsp.exec_cmd("'/bin/hyprdesk' {arg}")"#);
             assert!(main.contains(&bind) && submap.contains(&bind), "{lua}");
         }
+    }
+
+    #[test]
+    fn raccourci_forcer_a_quitter() {
+        // HIG ENT-10 : le modèle Option-Command-Esc, partout — hors de la
+        // submap comme dedans. Coupé (`none`) : plus aucune liaison.
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        let bind =
+            r#"hl.bind("ALT + SUPER + Escape", hl.dsp.exec_cmd("'/bin/hyprdesk' force-quit")"#;
+        assert!(main.contains(bind) && submap.contains(bind), "{lua}");
+        let mut k = k;
+        k.force_quit.clear();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        assert!(!lua.contains("force-quit"), "{lua}");
+    }
+
+    #[test]
+    fn lua_de_destruction() {
+        // HIG ENT-10 : la fenêtre désignée par son adresse, échappée comme
+        // pour `close` ; jamais la fenêtre active par défaut.
+        assert_eq!(
+            kill_window_lua("0x55a1b2c3d4e5"),
+            r#"hl.dsp.window.kill({ window = "address:0x55a1b2c3d4e5" })"#
+        );
+        let l = kill_window_lua("a\"b");
+        assert!(
+            l.starts_with("hl.dsp.window.kill({ window = \"address:a"),
+            "{l}"
+        );
+        assert!(l.ends_with("\" })") && !l.contains(r#"address:a"b"#), "{l}");
     }
 
     #[test]

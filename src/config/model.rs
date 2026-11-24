@@ -1511,6 +1511,9 @@ pub struct Keys {
     /// Le volet des Réglages s'ouvre s'il est fermé et prend le clavier
     /// (`hyprdesk focus settings`).
     pub focus_settings: String,
+    /// Forcer une application à quitter (`hyprdesk force-quit`) : la boîte qui
+    /// liste les applications et tue leurs fenêtres.
+    pub force_quit: String,
     /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
     /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
     pub take: Vec<String>,
@@ -1544,6 +1547,9 @@ impl Default for Keys {
             focus_dock: "CTRL + F3".into(),
             focus_notifications: "CTRL + F8".into(),
             focus_settings: "CTRL + F6".into(),
+            // Forcer une application à quitter (HIG ENT-10), sur le modèle de
+            // macOS : Option-Command-Esc. Les modificateurs dans l'ordre du dépôt.
+            force_quit: "ALT + SUPER + Escape".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),

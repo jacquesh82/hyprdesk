@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 175] = [
+const SCENES: [&str; 177] = [
     "desktop",
     "typography",
     "icons",
@@ -205,6 +205,9 @@ const SCENES: [&str; 175] = [
     "bar-menu-module",
     // Paquet « Notifications » des Réglages (HIG PAT-07).
     "reglages-notifications",
+    // Boîte « Forcer à quitter » et sa confirmation (HIG ENT-10).
+    "forcer-quitter",
+    "forcer-quitter-confirmation",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1351,6 +1354,45 @@ impl Preview {
         if SCENES[self.scene] != "polkit" {
             self.app.polkit = None;
         }
+        // La boîte « Forcer à quitter » n'appartient qu'à ses scènes (HIG ENT-10) :
+        // quatre applications, l'active en tête ; armée dans la seconde.
+        let scene = SCENES[self.scene];
+        self.app.force_quit = if matches!(scene, "forcer-quitter" | "forcer-quitter-confirmation") {
+            let client = |class: &str, address: &str, workspace: &str| Client {
+                address: address.into(),
+                class: class.into(),
+                title: String::new(),
+                workspace: workspace.into(),
+                monitor: "DP-1".into(),
+            };
+            self.app.clients = vec![
+                client("foot", "0x60a1", "2"),
+                client("firefox", "0x60a2", "1"),
+                client("org.gnome.Nautilus", "0x60a3", "1"),
+                client("firefox", "0x60a4", "3"),
+                client("org.gnome.TextEditor", "0x60a5", crate::hypr::STASH),
+                client("foot", "0x60a6", "2"),
+            ];
+            // Une icône par classe, résolue aussitôt (les scènes d'aperçu
+            // n'exécutent pas les tâches) ; à défaut, une image de bureau.
+            let stand_ins: Vec<IconImg> = self.app.icon_imgs.to_vec();
+            for (i, c) in self.app.clients.clone().iter().enumerate() {
+                let p = crate::launch::icon_for_class(&c.class, &self.app.apps, None, 48);
+                let img = match self.app.handle_for(p.as_deref()) {
+                    IconImg::None => stand_ins.get(i).copied().unwrap_or(IconImg::None),
+                    img => img,
+                };
+                self.app.class_imgs.insert(c.class.clone(), img);
+            }
+            Some(super::force_quit::ForceQuit {
+                win: Id::unique(),
+                apps: super::force_quit::group(&self.app.clients, Some("firefox")),
+                selected: Some(0),
+                confirm: scene == "forcer-quitter-confirmation",
+            })
+        } else {
+            None
+        };
         // L'affichage à l'écran n'appartient qu'à sa scène.
         if SCENES[self.scene] != "osd" {
             self.app.osd = None;
@@ -3988,6 +4030,15 @@ impl Preview {
                 .x(p.placement.bounds.x)
                 .y(p.placement.bounds.y)
                 .into(),
+            );
+        }
+        // Boîte « Forcer à quitter » (HIG ENT-10) : carte du calque overlay, au-dessus.
+        if self.app.force_quit.is_some() {
+            layers.push(
+                container(self.app.view_force_quit())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into(),
             );
         }
         let view: Element<'_, Msg> = Stack::with_children(layers)

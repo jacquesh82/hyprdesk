@@ -575,6 +575,10 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.focus_settings.clone(),
         |s, v, c| { s.key_focus_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_focus_settings = None;
+    "keys.force_quit", "keys", "raccourci | none — forcer une application à quitter : la boîte qui liste les applications (ALT + SUPER + Escape)",
+        |c| c.general.keys.force_quit.clone(),
+        |s, v, c| { s.key_force_quit = Some(combo(v)?); Ok(()) },
+        |s| s.key_force_quit = None;
     "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
@@ -2856,6 +2860,11 @@ mod tests {
         assert_eq!(run_s(&p, &["get", "keys.focus_dock"]).unwrap(), "CTRL + F5");
         run_s(&p, &["set", "keys.focus_dock", "none"]).unwrap();
         assert!(run_s(&p, &["get", "keys.focus_dock"]).unwrap().is_empty());
+        // Forcer une application à quitter (HIG ENT-10) : Option-Command-Esc.
+        assert_eq!(
+            run_s(&p, &["get", "keys.force_quit"]).unwrap(),
+            "ALT + SUPER + Escape"
+        );
         // Valeurs refusées, clé inconnue, clé fixée par l'utilisateur.
         assert!(run_s(&p, &["set", "show_on", "partout"]).is_err());
         assert!(run_s(&p, &["set", "workspaces", "99"]).is_err());
