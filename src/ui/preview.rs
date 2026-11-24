@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 161] = [
+const SCENES: [&str; 162] = [
     "desktop",
     "typography",
     "icons",
@@ -186,6 +186,7 @@ const SCENES: [&str; 161] = [
     "panorama-config-shortcuts",
     "panorama-config-lecteur",
     "panorama-config-video",
+    "bar-notifications",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -2272,6 +2273,72 @@ impl Preview {
                     self.bar,
                     "menus:workspaces".into(),
                     popover::Kind::Workspaces,
+                );
+            }
+            // Carte Notifications de la barre (HIG LAY-02) : l'historique est
+            // groupé par application, une boîte par application. Même idiome :
+            // icônes résolues tout de suite (pas de tâche dans l'aperçu). La
+            // carte se passe d'ancre : elle se centre.
+            if SCENES[self.scene] == "bar-notifications" {
+                let gen_ = self.app.icons_gen;
+                for icon in ["firefox", "signal"] {
+                    if !self.app.named_icons.contains_key(icon) {
+                        let path = launch::lookup_icon(icon, None, 32)
+                            .or_else(|| launch::lookup_icon(icon, Some("Adwaita"), 32));
+                        let _ = self
+                            .app
+                            .update_inner(Msg::IconResolved(gen_, icon.into(), path));
+                    }
+                }
+                self.app.toasts.history = [
+                    (
+                        1,
+                        "Firefox",
+                        "firefox",
+                        "Téléchargement terminé",
+                        "rustbook.pdf — 4,2 Mo",
+                    ),
+                    (
+                        2,
+                        "Signal",
+                        "signal",
+                        "Nouveau message",
+                        "Anna : on se voit à 19 h ?",
+                    ),
+                    (
+                        3,
+                        "Firefox",
+                        "firefox",
+                        "Mise à jour disponible",
+                        "Redémarrez pour installer la version 143.",
+                    ),
+                    (
+                        4,
+                        "Hyprdesk",
+                        "",
+                        "Capture enregistrée",
+                        "Copiée dans le presse-papiers",
+                    ),
+                    (5, "Signal", "signal", "Marc a rejoint le groupe", ""),
+                ]
+                .into_iter()
+                .map(|(id, app, icon, title, body)| {
+                    crate::notifications::build(
+                        id,
+                        app,
+                        icon,
+                        crate::i18n::tr(title),
+                        crate::i18n::tr(body),
+                        &[],
+                        &Default::default(),
+                        -1,
+                    )
+                })
+                .collect();
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "notifications".into(),
+                    popover::Kind::Notifications,
                 );
             }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis

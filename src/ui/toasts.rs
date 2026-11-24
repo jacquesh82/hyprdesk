@@ -54,6 +54,12 @@ const CRITICAL_MARK: f32 = 10.0;
 /// Cible tactile des boutons d'une bulle (HIG ACC-04) : 28 px — de côté pour
 /// la fermeture, de haut au moins pour les actions.
 const BUTTON_TARGET: f32 = 28.0;
+/// Notifications de l'historique montrées dans la carte de la barre et le
+/// volet de Panorama (le centre Continuité en montre 12).
+pub(super) const HISTORY_SHOWN: usize = 30;
+/// Fond d'une boîte d'application de l'historique (HIG LAY-02), dans la carte
+/// de la barre : la couleur du texte courant à cette opacité.
+const GROUP_BOX: f32 = 0.06;
 
 /// Demande de l'interface au serveur.
 #[derive(Debug, Clone)]
@@ -216,6 +222,33 @@ pub(super) fn card_text(n: &Notification, hide: bool) -> (String, Option<String>
         truncate(&n.summary, TITLE_CHARS),
         (!n.body.is_empty()).then_some(body),
     )
+}
+
+/// En-tête du groupe d'une application dans l'historique (HIG LAY-02) : son
+/// nom, « Notification » quand elle n'en donne pas, comme la tête d'une bulle.
+pub(super) fn card_app(n: &Notification) -> String {
+    if n.app.is_empty() {
+        crate::i18n::tr("Notification").to_string()
+    } else {
+        n.app.clone()
+    }
+}
+
+/// Groupes d'application d'un historique (les plus récentes d'abord, HIG
+/// LAY-02) : l'en-tête du groupe et, dans l'ordre de l'historique, le rang de
+/// chacune de ses notifications. Les groupes suivent l'ordre de leur
+/// notification la plus récente. Une application se reconnaît à son en-tête
+/// (`card_app`) : celles qui ne donnent pas de nom n'en forment qu'un.
+pub(super) fn app_groups(history: &[Notification]) -> Vec<(String, Vec<usize>)> {
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, n) in history.iter().enumerate() {
+        let name = card_app(n);
+        match groups.iter_mut().find(|(group, _)| *group == name) {
+            Some((_, ranks)) => ranks.push(i),
+            None => groups.push((name, vec![i])),
+        }
+    }
+    groups
 }
 
 /// Ouvre l'application d'origine par son identifiant `desktop-entry`, et
@@ -993,8 +1026,9 @@ impl App {
         }
     }
 
-    /// Carte Notifications de la barre : les dernières notifications. Titre
-    /// dans la couleur du texte, application et corps en secondaire.
+    /// Carte Notifications de la barre : les dernières notifications, une
+    /// boîte par application avec son nom en en-tête (HIG LAY-02). Titre
+    /// dans la couleur du texte, en-tête et corps en secondaire.
     pub(super) fn view_notification_history(&self, alpha: f32) -> Element<'_, Msg> {
         let fg = color(self.bar_palette().fg, alpha);
         let dim = Color {
@@ -1017,42 +1051,71 @@ impl App {
         }
         // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
         let hide = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
-        for n in self.toasts.history.iter().take(30) {
-            let (title, body) = card_text(n, hide);
-            let card: Element<'_, Msg> = row![
-                self.notif_icon(n, CARD_ICON, fg),
-                column![
-                    text(n.app.clone())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(11.0))
-                        .color(dim),
-                    text(title)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .color(fg),
-                    body.map(|body| {
-                        text(body)
+        // Les plus récentes en haut, dans chaque boîte comme entre elles. La
+        // boîte porte le seul cadre : les cartes n'en ont pas.
+        let history = &self.toasts.history;
+        for (app, ranks) in app_groups(&history[..history.len().min(HISTORY_SHOWN)]) {
+            let mut cards = column![].spacing(8).width(Length::Fill);
+            for i in ranks {
+                let n = &history[i];
+                let (title, body) = card_text(n, hide);
+                let card: Element<'_, Msg> = row![
+                    self.notif_icon(n, CARD_ICON, fg),
+                    column![
+                        text(title)
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .line_height(crate::ui::tokens::line_height())
-                            .color(dim)
-                    })
+                            .size(crate::ui::tokens::ts(14.0))
+                            .color(fg),
+                        body.map(|body| {
+                            text(body)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .line_height(crate::ui::tokens::line_height())
+                                .color(dim)
+                        })
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
                 ]
-                .spacing(4)
-                .width(Length::Fill),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Start)
-            .into();
-            // Carte cliquable quand elle mène quelque part : l'action de
-            // l'application, ou l'application elle-même.
-            col = col.push(match card_press(n) {
-                Some(press) => mouse_area(card)
-                    .interaction(iced::mouse::Interaction::Pointer)
-                    .on_press(press)
-                    .into(),
-                None => card,
-            });
+                .spacing(12)
+                .align_y(Alignment::Start)
+                .into();
+                // Carte cliquable quand elle mène quelque part : l'action de
+                // l'application, ou l'application elle-même.
+                cards = cards.push(match card_press(n) {
+                    Some(press) => mouse_area(card)
+                        .interaction(iced::mouse::Interaction::Pointer)
+                        .on_press(press)
+                        .into(),
+                    None => card,
+                });
+            }
+            col = col.push(
+                container(
+                    column![
+                        text(app)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(dim),
+                        cards,
+                    ]
+                    .spacing(8)
+                    .width(Length::Fill),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    background: Some(
+                        Color {
+                            a: alpha * GROUP_BOX,
+                            ..fg
+                        }
+                        .into(),
+                    ),
+                    border: Border::default().rounded(super::design::SMALL_RADIUS),
+                    ..Default::default()
+                }),
+            );
         }
         col.into()
     }
@@ -1394,6 +1457,66 @@ mod tests {
         }
         let acts: Vec<String> = actions.iter().map(|s| s.to_string()).collect();
         crate::notifications::build(1, "a", "", "s", "b", &acts, &h, -1)
+    }
+
+    /// Une notification reçue d'une application, sans corps ni icône.
+    fn recue(id: u32, app: &str) -> Notification {
+        crate::notifications::build(id, app, "", "s", "", &[], &HashMap::new(), -1)
+    }
+
+    #[test]
+    fn l_historique_est_groupe_par_application() {
+        // Les plus récentes d'abord : deux applications alternent, deux
+        // notifications viennent d'applications sans nom.
+        let history = [
+            recue(1, "a"),
+            recue(2, "b"),
+            recue(3, "a"),
+            recue(4, ""),
+            recue(5, "b"),
+            recue(6, ""),
+        ];
+        let groups = app_groups(&history);
+        let names: Vec<&str> = groups.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["a", "b", "Notification"],
+            "l'ordre de la plus récente de chaque application ; sans nom, une seule"
+        );
+        assert_eq!(
+            groups[0].1,
+            [0, 2],
+            "dans une boîte, l'ordre de l'historique"
+        );
+        assert_eq!(groups[1].1, [1, 4]);
+        assert_eq!(groups[2].1, [3, 5]);
+        // Chaque notification est montrée une fois, dans sa boîte.
+        let mut shown: Vec<usize> = groups
+            .iter()
+            .flat_map(|(_, ranks)| ranks.iter().copied())
+            .collect();
+        shown.sort_unstable();
+        assert_eq!(shown, (0..history.len()).collect::<Vec<_>>());
+        assert!(app_groups(&[]).is_empty(), "historique vide : aucune boîte");
+    }
+
+    #[test]
+    fn une_seule_application_forme_une_boite() {
+        let history = [recue(1, "Firefox"), recue(2, "Firefox")];
+        assert_eq!(
+            app_groups(&history),
+            vec![("Firefox".to_string(), vec![0, 1])]
+        );
+    }
+
+    #[test]
+    fn l_en_tete_d_un_groupe_est_le_nom_de_l_application() {
+        assert_eq!(card_app(&recue(1, "Signal")), "Signal");
+        assert_eq!(
+            card_app(&recue(2, "")),
+            crate::i18n::tr("Notification"),
+            "sans nom : le titre générique, pas une boîte sans en-tête"
+        );
     }
 
     #[test]

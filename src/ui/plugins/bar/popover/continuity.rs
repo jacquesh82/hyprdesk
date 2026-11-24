@@ -1115,49 +1115,77 @@ impl App {
         .align_y(Alignment::Center);
         // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
         let masque = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
-        let mut items = column![].spacing(7);
-        for n in self.toasts.history.iter().take(12) {
-            let title = super::super::surface::truncate(&n.summary, 42);
-            let detail = if n.body.is_empty() {
-                n.app.clone()
-            } else if masque {
-                crate::i18n::tr("Notification").to_string()
-            } else {
-                super::super::surface::truncate(&n.body.replace('\n', " "), 74)
-            };
-            // Carte cliquable quand elle mène quelque part : l'action de
-            // l'application, ou l'application elle-même. Une tuile du centre
-            // comme les autres, au clavier aussi.
-            let press = crate::ui::toasts::card_press(n);
-            let card = button(
-                row![
-                    self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
-                    column![
-                        self.dash_label(title, 14.0, pal.fg).font(self.title_font()),
-                        self.dash_label(detail, 12.0, pal.muted)
-                    ]
-                    .spacing(2)
-                ]
-                .align_y(Alignment::Center)
-                .spacing(12),
-            )
-            .width(Length::Fill)
-            .padding([8, 10])
-            .on_press_maybe(press.clone())
-            .style(move |_, status: button::Status| {
-                let bg = if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                    pal.hover
+        let history = &self.toasts.history;
+        let mut items = column![].spacing(8);
+        // Une boîte par application, son nom en en-tête (HIG LAY-02). La boîte
+        // porte le seul cadre : les tuiles n'ont plus de fond au repos.
+        for (app, ranks) in crate::ui::toasts::app_groups(&history[..history.len().min(12)]) {
+            let mut tiles = column![].width(Length::Fill);
+            for i in ranks {
+                let n = &history[i];
+                let title = super::super::surface::truncate(&n.summary, 42);
+                // Détail : le corps seul ; le nom de l'application est en en-tête.
+                let detail = if n.body.is_empty() {
+                    None
+                } else if masque {
+                    Some(crate::i18n::tr("Notification").to_string())
                 } else {
-                    pal.inset
+                    Some(super::super::surface::truncate(
+                        &n.body.replace('\n', " "),
+                        74,
+                    ))
                 };
-                button::Style {
-                    background: Some(bg.into()),
-                    border: Border::default().rounded(12.0),
-                    text_color: pal.fg,
-                    ..Default::default()
+                // Tuile cliquable quand elle mène quelque part : l'action de
+                // l'application, ou l'application elle-même. Une tuile du centre
+                // comme les autres, au clavier aussi.
+                let press = crate::ui::toasts::card_press(n);
+                let mut caption =
+                    column![self.dash_label(title, 14.0, pal.fg).font(self.title_font())]
+                        .spacing(2);
+                if let Some(detail) = detail {
+                    caption = caption.push(self.dash_label(detail, 12.0, pal.muted));
                 }
-            });
-            items = items.push(keyboard::press(card, press, pal.fg));
+                let card = button(
+                    row![
+                        self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
+                        caption
+                    ]
+                    .align_y(Alignment::Center)
+                    .spacing(12),
+                )
+                .width(Length::Fill)
+                .padding([8, 10])
+                .on_press_maybe(press.clone())
+                .style(move |_, status: button::Status| {
+                    // Survol et appui se voient sur le fond de la boîte.
+                    let bg = matches!(status, button::Status::Hovered | button::Status::Pressed)
+                        .then(|| pal.hover.into());
+                    button::Style {
+                        background: bg,
+                        border: Border::default().rounded(12.0),
+                        text_color: pal.fg,
+                        ..Default::default()
+                    }
+                });
+                tiles = tiles.push(keyboard::press(card, press, pal.fg));
+            }
+            items = items.push(
+                container(
+                    column![
+                        container(
+                            self.dash_label(app, 11.0, pal.muted)
+                                .font(self.title_font()),
+                        )
+                        .padding([2, 10]),
+                        tiles,
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
+                )
+                .padding(4)
+                .width(Length::Fill)
+                .style(move |_| pal.surface(pal.inset, 12.0)),
+            );
         }
         let body: Element<'_, Msg> = if self.toasts.history.is_empty() {
             let (icon, label) = if dnd {

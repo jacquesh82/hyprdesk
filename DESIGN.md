@@ -25,6 +25,8 @@ Le bureau est un espace calme, avec des contrôles immédiatement reconnaissable
 
 - Bulles de notification : une action destructive — clé préfixée `destructive:`, convention de hyprdesk, la spécification freedesktop n'en définit pas — prend le ton « danger » pour son libellé et son icône (`toasts::action_tone`), comme une entrée de menu destructive ; les autres actions gardent la teinte du texte. Fermeture et actions sont des cibles de 28 px (`toasts::BUTTON_TARGET`), la cible par défaut de la HIG pour l'accessibilité.
 
+- Historique des notifications : groupé par application (`toasts::app_groups`) — une boîte par application, son nom en en-tête (11 px, couleur secondaire), les plus récentes en haut, dans chaque boîte comme entre elles. La boîte porte le seul cadre : les cartes n'en ont pas. Un seul découpage pour la carte Notifications de la barre, la carte « Notifications » du centre Continuité et le volet de Panorama ; le nom de l'application n'est plus répété dans chaque carte.
+
 ## Vérification visuelle
 
 Panorama : dalle cinématique issue des couleurs du thème, sol en perspective, poussière stellaire et orbites autour d'un cristal 3D projeté. La pochette flotte dans un cadre de verre ; commandes et cartes répondent avec les ressorts locaux de `kinetic`. Changement de page ou de disposition : glissement de 28 px en 240 ms et filet de lumière ; geste abandonné : retour amorti. Le décor orbital avance à 30 images/s pendant la lecture et se fige en pause ; les interactions ne redessinent que leur surface, sans messages d'application par image. Fond statique en cache, aucun flou animé, aucun FX sur le trou vidéo. `transition = "none"` rend les changements immédiats. Les cibles tactiles restent celles du layout.

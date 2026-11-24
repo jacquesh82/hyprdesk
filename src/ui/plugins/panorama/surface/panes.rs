@@ -1696,29 +1696,40 @@ impl App {
             );
         }
         let hide = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
-        for n in history.iter().take(30) {
-            // Titre et corps bornés (HIG LAY-04), masqués sur réglage (HIG SYS-05).
-            let (title, body) = crate::ui::toasts::card_text(n, hide);
-            let mut card = column![
-                text(n.app.clone()).size(size * 0.75).font(font).color(dim),
-                text(title)
-                    .size(crate::ui::tokens::ts(size))
-                    .font(font)
-                    .color(fg),
-            ]
-            .spacing(3);
-            if let Some(body) = body {
-                card = card.push(text(body).size(size * 0.85).font(font).color(fg));
+        // Une boîte par application, son nom en en-tête (HIG LAY-02) : la carte
+        // d'une notification devient celle de son groupe.
+        for (app, ranks) in crate::ui::toasts::app_groups(
+            &history[..history.len().min(crate::ui::toasts::HISTORY_SHOWN)],
+        ) {
+            let mut cards = column![].spacing(size * 0.35);
+            for i in ranks {
+                let n = &history[i];
+                // Titre et corps bornés (HIG LAY-04), masqués sur réglage (HIG SYS-05).
+                let (title, body) = crate::ui::toasts::card_text(n, hide);
+                let mut card = column![
+                    text(title)
+                        .size(crate::ui::tokens::ts(size))
+                        .font(font)
+                        .color(fg),
+                ]
+                .spacing(3);
+                if let Some(body) = body {
+                    card = card.push(text(body).size(size * 0.85).font(font).color(fg));
+                }
+                cards = cards.push(card);
             }
             list = list.push(
-                container(card)
-                    .width(Length::Fill)
-                    .padding([size * 0.5, size * 0.7])
-                    .style(move |_| container::Style {
-                        background: Some(fx::alpha(fg, 0.06).into()),
-                        border: Border::default().rounded(size * 0.6),
-                        ..Default::default()
-                    }),
+                container(
+                    column![text(app).size(size * 0.75).font(font).color(dim), cards,]
+                        .spacing(size * 0.35),
+                )
+                .width(Length::Fill)
+                .padding([size * 0.5, size * 0.7])
+                .style(move |_| container::Style {
+                    background: Some(fx::alpha(fg, 0.06).into()),
+                    border: Border::default().rounded(size * 0.6),
+                    ..Default::default()
+                }),
             );
         }
         let width = (s.w * 0.34).clamp(280.0, 560.0).min(s.w);

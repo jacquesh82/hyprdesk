@@ -542,6 +542,11 @@ hyprdesk en est l'interface :
   copie est faite par le démon lui-même, et un mot de passe copié s'efface
   du presse-papiers au bout de 30 secondes. Une copie refusée est annoncée
   par une notification de Hyprland, avec sa cause.
+
+L'historique se lit dans la carte Notifications de la barre (widget
+`notifications`), la carte « Notifications » du centre de contrôle Continuité
+et le volet droit de Panorama. Il est groupé par application : une boîte par
+application, son nom en en-tête, les plus récentes en haut.
 - **Réglages → Mots de passe** crée le coffre, ou installe la sauvegarde de
   [l'application web myMFA](https://app.mymfa.mindlog.today). Il peut aussi
   reprendre le Secret Service de gnome-keyring (import de ses secrets, puis

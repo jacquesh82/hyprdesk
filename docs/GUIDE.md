@@ -177,6 +177,11 @@ under Do Not Disturb, except the critical one. An action or a dismissal its
 application did not receive is reported by a Hyprland notification, with its
 cause.
 
+The history is read in the bar's Notifications card (the `notifications`
+widget), the Notifications card of the Continuité control centre and Panorama's
+right pane. It is grouped by application: one box per application, its name as
+the heading, the most recent on top.
+
 An action can declare itself destructive — erase, discard — by prefixing its
 key with `destructive:` (`destructive:erase`, for example with `notify-send -A
 "destructive:erase=Erase everything"`): the freedesktop specification defines
