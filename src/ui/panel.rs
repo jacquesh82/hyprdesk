@@ -906,7 +906,11 @@ impl App {
                                 })
                                 .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
                                 .style(move |_, status| button::Style {
-                                    background: if matches!(
+                                    // Onglet courant : le voile de sélection du paquet
+                                    // courant, en permanence (HIG LAY-07).
+                                    background: if active {
+                                        Some(Color { a: 0.16, ..accent }.into())
+                                    } else if matches!(
                                         status,
                                         button::Status::Hovered | button::Status::Pressed
                                     ) {
@@ -914,7 +918,9 @@ impl App {
                                     } else {
                                         None
                                     },
-                                    text_color: if active { ink.accent } else { ink.dim },
+                                    // L'accent sur son propre fond teinté se lit mal :
+                                    // texte plein, comme le paquet choisi.
+                                    text_color: if active { ink.fg } else { ink.dim },
                                     border: Border::default().rounded(8),
                                     ..Default::default()
                                 }),
