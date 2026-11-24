@@ -4817,6 +4817,8 @@
 "32..160 — taille de la pochette (px)" = "32..160 — cover art size (px)"
 "Teinte tirée de la pochette" = "Tint from the cover"
 "on | off — la carte du média prend la teinte de la pochette" = "on | off — the media card takes the cover's tint"
+"Apparence des icônes" = "Icon appearance"
+"auto | default | dark | tinted — apparence des icônes d'application (auto : suit la variante du thème)" = "auto | default | dark | tinted — app icon appearance (auto: follows the theme variant)"
 "Place de l'horloge" = "Clock position"
 "top | center | bottom-left — place de l'horloge de l'écran de verrouillage" = "top | center | bottom-left — lock screen clock position"
 "Densité du panneau" = "Panel density"

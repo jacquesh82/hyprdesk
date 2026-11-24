@@ -27,8 +27,9 @@ use crate::theme_engine::{bridge, paths::Roots, resolve};
 
 use super::{App, Msg};
 
-/// Palette et jetons du pack actif, ou l'erreur à journaliser.
-pub type Outcome = Result<(BTreeMap<String, Rgba>, Design), String>;
+/// Palette, jetons et variante (`dark` ou `light`) du pack actif, ou
+/// l'erreur à journaliser.
+pub type Outcome = Result<(BTreeMap<String, Rgba>, Design, String), String>;
 
 /// Pack et variante actifs vus en dernier par le démon : un changement pose
 /// le fond du pack, le démarrage non (le fond de l'utilisateur reste).
@@ -124,8 +125,9 @@ impl App {
     /// Réponse du moteur.
     pub(super) fn on_theme_engine(&mut self, r: Outcome) -> Task<Msg> {
         match r {
-            Ok((palette, design)) => {
+            Ok((palette, design, variant)) => {
                 super::tokens::set_palette(palette);
+                self.theme_variant = Some(variant);
                 let family = design.typography.family.clone();
                 super::tokens::set(design);
                 // Action, états : le thème iced suit la palette du pack.
@@ -140,6 +142,9 @@ impl App {
                 self.font = self.ui_font(super::tokens::weight(
                     super::tokens::design().typography.weight,
                 ));
+                // Variante ou accent changés : les icônes d'application
+                // reprennent leur apparence (HIG ICO-10).
+                return self.refresh_icon_appearance();
             }
             Err(e) => tracing::warn!("{}", crate::tr!("moteur de thème : {e}", e = e)),
         }
@@ -150,7 +155,7 @@ impl App {
 fn job(moment: Moment, theme: &Theme, config_path: &Path, roots: &Roots) -> Outcome {
     let r = resolution(moment, theme, config_path, roots)?;
     pack_wallpaper(moment, &r, config_path);
-    Ok((r.palette, r.design))
+    Ok((r.palette, r.design, r.variant))
 }
 
 /// Fond du pack quand le pack ou sa variante change (pas au démarrage).
@@ -299,7 +304,7 @@ mod tests {
             },
         )
         .unwrap();
-        let (palette, _) = job(Moment::Start, &Theme::default(), &config, &roots).unwrap();
+        let (palette, _, _) = job(Moment::Start, &Theme::default(), &config, &roots).unwrap();
         assert!(palette.contains_key("warning"));
         // Le miroir porte le pack du moteur.
         let t = thème_des_réglages(&config);

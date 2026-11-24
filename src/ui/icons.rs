@@ -407,6 +407,32 @@ pub(crate) fn glyph<'a, Message>(
     })
 }
 
+/// Apparence des icônes d'application (HIG ICO-10), réglage
+/// `icons.appearance` résolu : `auto` suit la variante du thème.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Appearance {
+    /// L'icône telle quelle.
+    Default,
+    /// Dérivée de l'icône claire, luminance abaissée, mêmes traits.
+    Dark,
+    /// En niveaux de gris, colorée de l'accent du thème.
+    Tinted(crate::config::Rgba),
+}
+
+impl Appearance {
+    /// Résout le réglage (`auto`, `default`, `dark`, `tinted`) selon la
+    /// variante du thème et son accent ; une valeur inconnue vaut `auto`.
+    pub fn resolve(choice: &str, dark: bool, accent: crate::config::Rgba) -> Self {
+        match choice {
+            "default" => Self::Default,
+            "dark" => Self::Dark,
+            "tinted" => Self::Tinted(accent),
+            _ if dark => Self::Dark,
+            _ => Self::Default,
+        }
+    }
+}
+
 /// Masque unique des icônes d'application (HIG ICO-04, décision D4) : un
 /// rectangle arrondi dont le rayon vaut 22,37 % du côté, la courbure des
 /// icônes d'application de macOS. L'icône de remplacement le prend aussi.

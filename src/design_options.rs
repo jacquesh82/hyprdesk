@@ -341,6 +341,15 @@ pub static OPTIONS: &[Opt] = &[
         "Fond en mode sombre",
         "<chemin> — image de fond quand le thème est sombre (vide : celle des règles)",
     ),
+    // Icônes d'application (HIG ICO-10).
+    opt(
+        "icons",
+        "appearance",
+        Kind::Choice(&["auto", "default", "dark", "tinted"]),
+        Def::Str("auto"),
+        "Apparence des icônes",
+        "auto | default | dark | tinted — apparence des icônes d'application (auto : suit la variante du thème)",
+    ),
     // Verrouillage et connexion.
     opt(
         "lock",
@@ -641,6 +650,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{} : {e}", o.name()));
         }
         assert!(find("dock.spacing").is_some());
+        assert_eq!(choice(&General::default(), "icons.appearance"), "auto");
         assert!(find("dock.inconnu").is_none());
         assert!(find("dock.magnify").unwrap().parse("3").is_err());
         assert!(

@@ -496,6 +496,13 @@ pub struct App {
     /// Échelle des icônes au dernier chargement : un écran d'une autre
     /// échelle les fait relire (HIG ICO-01).
     icon_scale_seen: u16,
+    /// Apparence des icônes d'application au dernier chargement : un
+    /// réglage, une variante ou un accent changés les font relire (HIG
+    /// ICO-10).
+    icon_appearance_seen: icons::Appearance,
+    /// Variante du pack actif (`dark` ou `light`), connue à la première
+    /// réponse du moteur de thème.
+    theme_variant: Option<String>,
     vectors: Vec<svg::Handle>,
     icons_gen: u64,
     values: HashMap<String, widgets::Value>,
@@ -1099,6 +1106,8 @@ impl App {
             rasters: Vec::new(),
             app_rasters: HashSet::new(),
             icon_scale_seen: 1,
+            icon_appearance_seen: icons::Appearance::Default,
+            theme_variant: None,
             vectors: Vec::new(),
             icons_gen: 0,
             values: HashMap::new(),
@@ -1390,6 +1399,7 @@ impl App {
                 != crate::design_options::num(n, "dock.magnify")
             || o.terminal != n.terminal
             || o.launcher.smartui != n.launcher.smartui
+            || self.icon_appearance() != self.icon_appearance_seen
             || self.icons_gen == 0;
         if icons_changed {
             tasks.push(self.reload_icons());
@@ -2702,6 +2712,7 @@ impl App {
         self.selected = None;
         self.icons_gen += 1;
         self.icon_scale_seen = self.icon_scale();
+        self.icon_appearance_seen = self.icon_appearance();
         let (gen_, cfg, scale) = (self.icons_gen, self.cfg.clone(), self.icon_scale());
         Task::perform(
             async move {
@@ -3794,6 +3805,33 @@ impl App {
     /// Échelle entière des icônes d'après les écrans (HIG ICO-01).
     pub(super) fn icon_scale(&self) -> u16 {
         icon_scale_of(self.monitors.iter().map(|m| f64::from(m.scale)))
+    }
+
+    /// Apparence des icônes d'application (HIG ICO-10) : le réglage
+    /// `icons.appearance`, `auto` résolu par la variante du pack actif (à
+    /// défaut, la clarté du fond du thème, comme `mode_wallpaper`) ; la
+    /// teinte prend l'accent de la palette en place.
+    pub(super) fn icon_appearance(&self) -> icons::Appearance {
+        let g = &self.cfg.general;
+        let dark = match &self.theme_variant {
+            Some(v) => v == "dark",
+            None => crate::theme_engine::color::luminance(g.theme.bg) <= 0.4,
+        };
+        icons::Appearance::resolve(
+            &crate::design_options::choice(g, "icons.appearance"),
+            dark,
+            tone::rgba("accent"),
+        )
+    }
+
+    /// Relit les icônes d'application déjà chargées si leur apparence a
+    /// changé (variante du thème, accent) ; rien avant le premier chargement.
+    pub(super) fn refresh_icon_appearance(&mut self) -> Task<Msg> {
+        if self.icons_gen > 0 && self.icon_appearance() != self.icon_appearance_seen {
+            self.reload_icons()
+        } else {
+            Task::none()
+        }
     }
 
     /// Taille cherchée d'une icône de classe : la plus grande affichée (dock
@@ -7004,6 +7042,50 @@ mod regression_tests {
 
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
+    }
+
+    /// Apparence des icônes : `auto` suit la variante du thème, les autres
+    /// valeurs s'imposent, la teinte prend l'accent (HIG ICO-10).
+    #[test]
+    fn apparence_des_icones() {
+        use icons::Appearance;
+        let accent = crate::config::Rgba(10, 132, 255, 255);
+        assert_eq!(Appearance::resolve("auto", true, accent), Appearance::Dark);
+        assert_eq!(
+            Appearance::resolve("auto", false, accent),
+            Appearance::Default
+        );
+        assert_eq!(
+            Appearance::resolve("default", true, accent),
+            Appearance::Default
+        );
+        assert_eq!(Appearance::resolve("dark", false, accent), Appearance::Dark);
+        assert_eq!(
+            Appearance::resolve("tinted", true, accent),
+            Appearance::Tinted(accent)
+        );
+        assert_eq!(Appearance::resolve("?", false, accent), Appearance::Default);
+        let mut a = app();
+        a.theme_variant = Some("dark".into());
+        assert_eq!(a.icon_appearance(), Appearance::Dark);
+        a.theme_variant = Some("light".into());
+        assert_eq!(a.icon_appearance(), Appearance::Default);
+    }
+
+    /// Une variante changée relit les icônes d'application déjà chargées,
+    /// une variante identique non (HIG ICO-10).
+    #[test]
+    fn variante_changee_relit_les_icones() {
+        let mut a = app();
+        a.theme_variant = Some("light".into());
+        let _ = a.reload_icons();
+        let before = a.icons_gen;
+        let _ = a.refresh_icon_appearance();
+        assert_eq!(a.icons_gen, before, "rien n'a changé");
+        a.theme_variant = Some("dark".into());
+        let _ = a.refresh_icon_appearance();
+        assert_eq!(a.icons_gen, before + 1, "relues à la nouvelle variante");
+        assert_eq!(a.icon_appearance_seen, icons::Appearance::Dark);
     }
 
     /// Icônes cherchées à la taille affichée et à l'échelle entière de
