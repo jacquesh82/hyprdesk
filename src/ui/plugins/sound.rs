@@ -181,7 +181,10 @@ impl App {
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .color(fg)
-                .width(48),
+                // Un nombre tient sur une ligne, même agrandi ; sa case suit
+                // le texte (HIG TYP-08).
+                .wrapping(iced::widget::text::Wrapping::None)
+                .width(48.0 * crate::ui::tokens::text_growth()),
             button(
                 text(if n.muted {
                     "Rétablir le son"

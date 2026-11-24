@@ -564,6 +564,23 @@ impl Preview {
             }
         }
         let mut cfg = app.settings.apply_to(&cfg);
+        // `HYPRDESK_PREVIEW_TEXT_SCALE=2` : l'échelle de texte de l'utilisateur
+        // (75 à 200 %), pour voir une scène en texte agrandi (HIG TYP-08).
+        if let Some(scale) = std::env::var("HYPRDESK_PREVIEW_TEXT_SCALE")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .filter(|s| s.is_finite())
+        {
+            cfg.general.text_scale = scale;
+        }
+        // Les réglages d'accessibilité de l'utilisateur, posés aux jetons comme
+        // le démon le fait après chaque configuration (`sync_theme_engine`).
+        super::tokens::set_user(
+            cfg.general.reduced_transparency,
+            cfg.general.reduced_motion,
+            cfg.general.increase_contrast,
+            cfg.general.text_scale,
+        );
         // La barre de l'aperçu est posée en dur : sa forme vient des réglages
         // (pack essayé, MLG-277).
         if let (Some(b), Some(sb)) = (cfg.bar.as_mut(), app.settings.bar.as_ref()) {

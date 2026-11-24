@@ -247,6 +247,13 @@ pub fn ts(reference: f32) -> f32 {
     (reference * ratio * SCREEN_TEXT.with(std::cell::Cell::get) * user_text_scale()).max(MIN_TEXT)
 }
 
+/// Croissance du corps du texte depuis sa taille de référence : rôle du
+/// thème, écran et réglage de l'utilisateur compris. Une largeur ou un seuil
+/// écrit pour du texte à 100 % se multiplie par elle (HIG TYP-08).
+pub fn text_growth() -> f32 {
+    ts(design::REF_BODY) / design::REF_BODY
+}
+
 /// Échelle du texte réglée par l'utilisateur.
 fn user_text_scale() -> f32 {
     f32::from_bits(USER_TEXT_SCALE.load(Ordering::Relaxed))
@@ -742,5 +749,10 @@ mod tests {
         set_user(false, false, false, 1.0);
         set(Design::default());
         assert_eq!(ts(13.0), 13.0);
+        // HIG TYP-08 : la croissance du corps suit le réglage de l'utilisateur.
+        assert!((text_growth() - 1.0).abs() < 1e-5, "croissance au repos");
+        set_user(false, false, false, 2.0);
+        assert!((text_growth() - 2.0).abs() < 1e-5, "croissance à 200 %");
+        set_user(false, false, false, 1.0);
     }
 }

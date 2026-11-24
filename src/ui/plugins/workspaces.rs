@@ -145,8 +145,10 @@ impl App {
                 .map(|(m, _)| m.clone())
         };
         // Deux par ligne quand elles tiennent, sinon une : la liste passait
-        // sous la suivante et sa flèche sur le texte.
-        let per_row = if self.detail_width() >= 2.0 * (110.0 + 8.0 + 170.0) + 16.0 {
+        // sous la suivante et sa flèche sur le texte. La case du libellé suit
+        // le texte agrandi (HIG TYP-08).
+        let label_w = 110.0 * crate::ui::tokens::text_growth();
+        let per_row = if self.detail_width() >= 2.0 * (label_w + 8.0 + 170.0) + 16.0 {
             2
         } else {
             1
@@ -160,7 +162,8 @@ impl App {
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
                         .size(crate::ui::tokens::ts(14.0))
-                        .width(110),
+                        .width(label_w)
+                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                     pick_list(choices.clone(), selected, move |c: ScreenChoice| {
                         wrap(Msg::WsMonitor(w.clone(), c.value))
                     })

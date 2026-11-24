@@ -247,7 +247,8 @@ impl App {
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(color(self.cfg.general.theme.accent, 1.0)),
+                    .color(color(self.cfg.general.theme.accent, 1.0))
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                 button(
                     text(crate::i18n::tr("Rétablir"))
                         .font(self.font)
@@ -261,10 +262,13 @@ impl App {
             .align_y(Alignment::Center)
             .into()
         } else {
+            // Chemin et ligne d'origine : un mot plus long que la ligne se
+            // coupe, la rangée grandit en hauteur (HIG TYP-08).
             text(self.opt_origin_text(&path))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .into()
         };
         let mut body = column![
@@ -292,7 +296,8 @@ impl App {
                 text(e.clone())
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(crate::ui::tone::danger()),
+                    .color(crate::ui::tone::danger())
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
             );
         }
         self.field(o.label, "", body)
@@ -658,11 +663,14 @@ pub fn cursor_themes() -> Vec<String> {
 }
 
 impl App {
+    /// Légende d'un réglage : elle enveloppe, même au milieu d'un mot long
+    /// (HIG TYP-08).
     fn small(&self, s: String) -> Element<'_, UiMsg> {
         text(s)
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(self.ink().dim)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
             .into()
     }
 

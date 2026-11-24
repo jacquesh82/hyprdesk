@@ -331,6 +331,30 @@ pub const DRAWER_W: f32 = 936.0;
 /// sur une colonne étroite.
 pub const CHAT_W: f32 = 780.0;
 const DRAWER_GAP: f32 = 12.0;
+/// Largeur de la navigation du tiroir large, texte au repos.
+const NAV_W: f32 = 166.0;
+/// Ce que la colonne des réglages garde au minimum : la navigation élargie
+/// par le texte ne le prend pas (HIG TYP-08).
+const DETAIL_MIN: f32 = 360.0;
+
+/// Largeur de la navigation d'un tiroir de `largeur` dont le texte a grandi
+/// de `croissance` : icônes seules en tiroir étroit ; sinon la largeur du
+/// repos, suivie par le texte — un libellé de paquet et son compteur
+/// tiennent côte à côte à toute échelle —, bornée par [`DETAIL_MIN`]
+/// (HIG TYP-08).
+fn nav_width(largeur: f32, croissance: f32) -> f32 {
+    if largeur < 640.0 {
+        return 46.0;
+    }
+    (NAV_W * croissance)
+        .min((largeur - 2.0 * DRAWER_GAP - 48.0 - 24.0 - 14.0 - DETAIL_MIN).max(46.0))
+}
+
+/// Ligne des actions de l'en-tête à côté du titre : elle y tient tant que le
+/// tiroir est large pour le texte (HIG TYP-08).
+fn header_one_line(largeur: f32, croissance: f32) -> bool {
+    largeur >= 880.0 * croissance
+}
 
 impl Panel {
     pub fn new(win: Id) -> Self {
@@ -973,8 +997,14 @@ impl App {
     /// nombre de colonnes plutôt que de déborder.
     pub(in crate::ui) fn detail_width(&self) -> f32 {
         let w = self.panel_width();
-        let nav = if w >= 640.0 { 166.0 } else { 46.0 };
+        let nav = self.nav_width();
         (w - 2.0 * DRAWER_GAP - 48.0 - nav - 24.0 - 14.0).max(0.0)
+    }
+
+    /// Largeur de la navigation du tiroir, suivie par le texte agrandi
+    /// ([`nav_width`]).
+    fn nav_width(&self) -> f32 {
+        nav_width(self.panel_width(), super::tokens::text_growth())
     }
 
     /// Largeur du tiroir de l'assistant.
@@ -1247,7 +1277,7 @@ impl App {
         }
         let nav = scrollable(nav)
             .height(Length::Fill)
-            .width(if wide { 166 } else { 46 })
+            .width(self.nav_width())
             .direction(iced::widget::scrollable::Direction::Vertical(
                 iced::widget::scrollable::Scrollbar::new()
                     .width(4)
@@ -1268,9 +1298,10 @@ impl App {
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
-        // Tiroir étroit : la ligne des actions ne tient plus à côté du titre
-        // (la recherche passait sur « Réglages ») ; elle passe dessous.
-        let one_line = self.panel_width() >= 880.0;
+        // Tiroir étroit, ou texte agrandi : la ligne des actions ne tient plus
+        // à côté du titre (la recherche passait sur « Réglages ») ; elle passe
+        // dessous.
+        let one_line = header_one_line(self.panel_width(), super::tokens::text_growth());
         // Bouton Clear dans le champ, dès que la requête n'est pas vide.
         let clear = !p.search.is_empty();
         let input = iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
@@ -1534,6 +1565,9 @@ impl App {
         if !titled {
             return control;
         }
+        // L'avis passe sous le libellé quand le texte agrandi (ou une
+        // traduction longue) ne les tient plus côte à côte (HIG TYP-08).
+        let head: Element<'_, Msg> = head.wrap().into();
         column![head, control].spacing(6).into()
     }
 
@@ -1676,6 +1710,7 @@ impl App {
                 .font(font)
                 .size(crate::ui::tokens::ts(size as f32))
                 .color(c)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .into();
         }
         let accent = color(self.cfg.general.theme.accent, 1.0);
@@ -1710,7 +1745,12 @@ impl App {
                     .color(c),
             );
         }
-        iced::widget::rich_text(spans).into()
+        // Libellés et titres de réglage : un mot plus long que la ligne (nom
+        // d'option, chemin, variable) se coupe, la rangée grandit en hauteur
+        // au lieu d'être rognée (HIG TYP-08).
+        iced::widget::rich_text(spans)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+            .into()
     }
 
     /// Bandeau au-dessus d'une page ouverte depuis la recherche.
@@ -2250,5 +2290,46 @@ mod tests {
         let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(texte, 1.5))));
         assert!(ouvert(&app, "screen.DP-1.text_scale"));
         assert!(!ouvert(&app, "screen.DP-1.bar_height"));
+    }
+
+    /// HIG TYP-08 : la navigation suit le texte agrandi sans vider la colonne
+    /// des réglages ; en tiroir très étroit, icônes seules. La ligne des
+    /// actions de l'en-tête passe sous le titre quand le texte ne la tient
+    /// plus à côté.
+    #[test]
+    fn la_navigation_et_letete_suivent_le_texte_agrandi() {
+        const MARGES: f32 = 2.0 * DRAWER_GAP + 48.0 + 24.0 + 14.0;
+        assert_eq!(
+            nav_width(DRAWER_W, 1.0),
+            NAV_W,
+            "au repos : largeur du repos"
+        );
+        assert_eq!(nav_width(DRAWER_W, 2.0), 2.0 * NAV_W, "à 200 % : le double");
+        assert!(
+            DRAWER_W - MARGES - nav_width(DRAWER_W, 2.0) >= DETAIL_MIN,
+            "la colonne des réglages garde sa place"
+        );
+        assert_eq!(
+            nav_width(640.0, 1.0),
+            NAV_W,
+            "tiroir étroit au repos : inchangé"
+        );
+        assert!(
+            (640.0 - MARGES - nav_width(640.0, 2.0) - DETAIL_MIN).abs() < 1e-3,
+            "tiroir étroit et texte agrandi : la colonne garde 360 px"
+        );
+        assert_eq!(
+            nav_width(639.0, 1.0),
+            46.0,
+            "tiroir très étroit : icônes seules"
+        );
+        assert!(
+            header_one_line(DRAWER_W, 1.0),
+            "en-tête sur une ligne au repos"
+        );
+        assert!(
+            !header_one_line(DRAWER_W, 2.0),
+            "à 200 % : les actions passent dessous"
+        );
     }
 }
