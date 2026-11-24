@@ -283,6 +283,27 @@ pub fn status_lines(s: &Status) -> String {
     )
 }
 
+/// Met le lecteur au premier plan (`Raise` de l'interface racine MPRIS) :
+/// clic sur le fond du widget média (HIG SYS-10). Un lecteur qui ne sait
+/// pas le faire (`CanRaise` faux) est seulement journalisé.
+pub async fn media_raise(bus_name: String) {
+    let r = async {
+        let conn = bus().await?;
+        conn.call_method(
+            Some(bus_name.as_str()),
+            "/org/mpris/MediaPlayer2",
+            Some("org.mpris.MediaPlayer2"),
+            "Raise",
+            &(),
+        )
+        .await?;
+        Ok::<_, zbus::Error>(())
+    };
+    if let Err(e) = r.await {
+        tracing::warn!("{}", crate::tr!("MPRIS Raise : {e}", e = e));
+    }
+}
+
 /// Avance ou recule de `secs` secondes (Seek, en microsecondes).
 pub async fn seek(bus_name: &str, secs: i64) -> Result<(), String> {
     let conn = bus().await.map_err(|e| e.to_string())?;

@@ -17,7 +17,7 @@ pub mod plugins;
 pub mod system;
 
 pub use command::run_command;
-pub use media::{media, media_control};
+pub use media::{media, media_control, media_raise};
 pub use system::sample_system;
 
 use crate::config::{Anchor, WidgetSource, WidgetType};

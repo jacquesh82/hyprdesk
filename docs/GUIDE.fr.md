@@ -703,6 +703,10 @@ configuration Lua. Les widgets intégrés sont `clock`, `calendar`, `system`,
 d'une fonction en ligne) et `controls` (le centre de contrôle). Un widget du
 bureau va sur l'écran principal par défaut ; on peut viser un écran précis,
 ou tous, et choisir s'il déménage ou se masque quand l'écran est débranché.
+Un clic sur le fond d'un widget ouvre son contenu : l'horloge et le
+calendrier ouvrent la carte Calendrier de la barre, le widget système
+Réglages → Performance, le widget média le lecteur en cours ; ses boutons
+gardent leur action.
 
 ```lua
 hd.widget("clock", { screen = "DP-2", if_missing = "primary" })

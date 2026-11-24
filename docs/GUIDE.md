@@ -670,7 +670,10 @@ The built-in widgets are `clock`, `calendar`, `system`, `media` (MPRIS),
 `command` (periodic shell output), `lua` (output of an inline function), and
 `controls` (the control center). Desktop widgets default to the primary
 screen. You can target a specific output or all outputs and choose whether a
-widget moves or hides when a screen is unplugged.
+widget moves or hides when a screen is unplugged. Clicking a widget's
+background opens its content: the clock and calendar open the bar's Calendar
+card, the system widget opens Settings → Performance, and the media widget
+brings the current player forward; its buttons keep their action.
 
 ```lua
 hd.widget("clock", { screen = "DP-2", if_missing = "primary" })

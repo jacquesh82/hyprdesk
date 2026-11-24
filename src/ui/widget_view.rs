@@ -21,6 +21,18 @@ fn gauge_alert(ratio: f32, threshold: f64) -> bool {
 impl App {
     /// Un widget du bureau : sa boîte, et où la poser (`desk_layout` la place
     /// sans recouvrir les autres).
+    /// Le widget a un contenu lié qu'un clic sur son fond ouvre : horloge,
+    /// calendrier, système, média en cours (HIG SYS-10).
+    pub(super) fn widget_link(&self, w: &WidgetDef) -> bool {
+        match &w.kind {
+            WidgetKind::Clock { .. } | WidgetKind::Calendar | WidgetKind::System { .. } => true,
+            WidgetKind::Media { .. } => {
+                matches!(self.values.get(&w.id), Some(widgets::Value::Media(Some(_))))
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn view_widget(
         &self,
         win: iced::window::Id,
@@ -306,6 +318,12 @@ impl App {
                 .interaction(mouse::Interaction::Grab)
                 .into()
             }
+            // Réglages fermés : le fond ouvre le contenu lié ; les boutons du
+            // widget gardent leur clic (HIG SYS-10).
+            None if self.widget_link(w) => mouse_area(boxed)
+                .on_press(Msg::WidgetOpen(w.id.clone()))
+                .interaction(mouse::Interaction::Pointer)
+                .into(),
             None => boxed,
         };
         let margin = 32.0;

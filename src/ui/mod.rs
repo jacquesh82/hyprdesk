@@ -338,6 +338,9 @@ pub enum Msg {
     IconPress(Id, usize),
     /// Clic sur un widget, réglages ouverts : sélection et début de glissé.
     WidgetPress(Id, String),
+    /// Clic sur le fond d'un widget, réglages fermés : son contenu lié
+    /// s'ouvre (HIG SYS-10).
+    WidgetOpen(String),
     IconHover(Option<(Id, usize)>),
     Hover(String, bool),
     Launch(usize),
@@ -2425,6 +2428,60 @@ impl App {
             return Task::none();
         };
         self.open_popover(bar, "notifications".into(), popover::Kind::Notifications)
+    }
+
+    /// Clé du module horloge de la barre (l'identifiant de son widget), pour
+    /// y ancrer la carte Calendrier (HIG SYS-10).
+    fn bar_clock_key(&self) -> Option<String> {
+        self.cfg
+            .bar
+            .iter()
+            .flat_map(|b| b.zones.iter().chain(b.portrait.iter().flatten()))
+            .flatten()
+            .find_map(|it| match it {
+                config::BarItem::Widget(id)
+                    if self
+                        .cfg
+                        .widgets
+                        .iter()
+                        .any(|w| &w.id == id && w.type_id == "clock") =>
+                {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+    }
+
+    /// Contenu lié d'un widget du bureau, ouvert d'un clic sur son fond
+    /// (HIG SYS-10) : horloge et calendrier, la carte Calendrier de la barre
+    /// active (ancrée à son horloge si elle en a une) ; système, Réglages ›
+    /// Performance ; média, le lecteur au premier plan.
+    fn widget_open(&mut self, id: &str) -> Task<Msg> {
+        let Some(w) = self.cfg.widgets.iter().find(|w| w.id == id) else {
+            return Task::none();
+        };
+        match &w.kind {
+            WidgetKind::Clock { .. } | WidgetKind::Calendar => {
+                // Ancrée à l'horloge de la barre active si elle en a une
+                // (clé du module : l'identifiant du widget), sinon au centre
+                // de la barre.
+                let Some(bar) = self.focused_bar() else {
+                    return Task::none();
+                };
+                let key = self.bar_clock_key().unwrap_or_else(|| "clock".into());
+                Task::done(Msg::OpenPopover(bar, key, popover::Request::Calendar))
+            }
+            WidgetKind::System { .. } => Task::done(Msg::Control(control::Command::Settings(
+                "performance".into(),
+            ))),
+            WidgetKind::Media { .. } => match self.values.get(id) {
+                Some(widgets::Value::Media(Some(mi))) => {
+                    Task::perform(widgets::media_raise(mi.bus.clone()), |_| Msg::Noop)
+                }
+                _ => Task::none(),
+            },
+            _ => Task::none(),
+        }
     }
 
     /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
@@ -5819,6 +5876,7 @@ impl App {
                 });
                 Task::none()
             }
+            Msg::WidgetOpen(id) => self.widget_open(&id),
             Msg::WidgetPress(win, wid) => {
                 let Some(from) = self
                     .cfg
@@ -7237,6 +7295,69 @@ mod regression_tests {
         ));
         assert!(!app.hover_fades.contains_key("toggle:wifi"));
         assert_eq!(app.toggle_progress("wifi", false), 0.0);
+    }
+
+    /// Réglages fermés, le fond d'un widget qui a un contenu lié s'ouvre
+    /// d'un clic ; les autres restent inertes (HIG SYS-10).
+    #[test]
+    fn le_fond_d_un_widget_ouvre_son_contenu() {
+        let mut app = app();
+        let widget = |id: &str, kind| config::WidgetDef {
+            origin: config::Origin::User,
+            sel: config::Selector::default(),
+            id: id.into(),
+            type_id: id.into(),
+            kind,
+            anchor: config::Anchor::Right,
+            x: 0.0,
+            y: 0.0,
+            size: 0.0,
+            interval: Duration::from_secs(60),
+            card: true,
+            in_bar: false,
+            screen: Default::default(),
+            if_missing: Default::default(),
+        };
+        let calendar = widget("calendar", config::WidgetKind::Calendar);
+        let controls = widget("controls", config::WidgetKind::Controls);
+        assert!(app.widget_link(&calendar));
+        assert!(!app.widget_link(&controls), "fait de commandes");
+        let media = widget(
+            "media",
+            config::WidgetKind::Media {
+                player: String::new(),
+            },
+        );
+        app.values
+            .insert("media".into(), widgets::Value::Media(None));
+        assert!(!app.widget_link(&media), "aucun lecteur : rien à ouvrir");
+        Arc::make_mut(&mut app.cfg).widgets.push(calendar);
+        // La carte Calendrier s'ancre à l'horloge de la barre, s'il y en a une.
+        {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            cfg.widgets.retain(|w| w.type_id != "clock");
+            if let Some(bar) = cfg.bar.as_mut() {
+                for zone in bar.zones.iter_mut() {
+                    zone.retain(|it| !matches!(it, config::BarItem::Widget(_)));
+                }
+            }
+        }
+        assert_eq!(
+            app.bar_clock_key(),
+            None,
+            "pas d'horloge : centre de la barre"
+        );
+        if app.cfg.bar.is_some() {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            let mut clock = widget("horloge", config::WidgetKind::Calendar);
+            clock.type_id = "clock".into();
+            cfg.widgets.push(clock);
+            cfg.bar.as_mut().unwrap().zones[0].push(config::BarItem::Widget("horloge".into()));
+            assert_eq!(app.bar_clock_key().as_deref(), Some("horloge"));
+        }
+        // Sans barre, le calendrier n'a nulle part où s'ouvrir.
+        let _ = app.update_inner(Msg::WidgetOpen("calendar".into()));
+        let _ = app.update_inner(Msg::WidgetOpen("inconnu".into()));
     }
 
     #[test]
