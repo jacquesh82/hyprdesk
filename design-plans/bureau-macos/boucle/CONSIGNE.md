@@ -56,7 +56,9 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
    - Si tu n'es pas sûr : `git rebase --abort`, retirer ton verrou, terminer.
 5. **Synchronisation avec main** : si `git merge-base --is-ancestor main HEAD` échoue, `main` a avancé : `git merge --no-edit main`. En cas de conflit : `git merge --abort`, ajouter « bloqué : conflit avec main » au journal de ton couloir, publier le registre (section 7, étapes c à e), retirer ton verrou, appeler `CronPauseSelf`, terminer.
 6. **Consigne de référence** : `.zcode/hig-boucle/CONSIGNE.md` du dépôt principal fait foi.
-7. **État de référence** : si l'étape 4 ou 5 a changé HEAD, ou s'il s'agit de la première itération de ton couloir, passer la porte complète (section 6.7) avant toute modification. Échec : ne rien traiter, ajouter « référence cassée » au journal de ton couloir, publier le registre, retirer ton verrou, terminer. Troisième échec consécutif de ton couloir : appeler `CronPauseSelf`.
+7. **État de référence** : si l'étape 4 ou 5 a changé le code de ton arbre depuis ta dernière porte verte, ou si ton couloir n'a encore jamais passé la porte sur le code qui s'y trouve, passer la porte complète (section 6.7) avant toute modification. Échec : ne rien traiter, ajouter « référence cassée » au journal de ton couloir, publier le registre, retirer ton verrou, terminer. Troisième échec consécutif de ton couloir : appeler `CronPauseSelf`.
+
+8. **Travail interrompu** : si `.zcode/hig-boucle/reprise-<couloir>.patch` existe, dans le dépôt principal, c'est le travail de ton couloir, interrompu par une panne de quota. Il s'applique après la mise à jour et l'état de référence, jamais avant : appliqué d'abord, il salirait l'index et le rebasage serait refusé. `git apply --3way <chemin du patch>`, puis reprendre là où il s'arrêtait : le mettre au point, pas le refaire. Après avoir publié le lot qu'il vise, supprimer le patch.
 
 ## 5. Choix du lot
 
@@ -107,7 +109,8 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
    - **Porte complète** : `CARGO_BUILD_JOBS=6 bash scripts/verify.sh > /tmp/hig-verify-<couloir>.log 2>&1; echo "exit=$?"`, puis `tail -n 20` du journal en cas d'échec. Le code de sortie doit être 0. Pour un écart visuel, `scripts/verify.sh --visual /tmp/hig-visual-<couloir>` de la même façon, puis regarder les captures des scènes concernées. Les scènes d'aperçu n'exécutent pas les tâches : une icône à résoudre l'est immédiatement, selon l'idiome déjà présent dans `src/ui/preview.rs`.
    - Retenir l'arbre vérifié : `git rev-parse HEAD^{tree}`.
 8. **Relire**. Obligatoire pour un écart M ou L, et dès qu'un propriétaire partagé est modifié (`tokens.rs`, `design.rs`, `menu.rs`, `bar/popover.rs`, `panel.rs`, `src/notifications.rs`). Si l'outil `Agent` est disponible, un agent indépendant relit le diff (`git diff HEAD~1`), en lecture seule. Sinon, le relire soi-même à froid, en écrivant explicitement les réponses. Trois questions : le diff fait-il exactement ce que l'écart demande ? respecte-t-il `DESIGN.md` et les conventions du dépôt ? introduit-il une régression, manque-t-il un test ? Corriger ce qui est réel, puis repasser la porte.
-9. **Échec** : deux tentatives au plus, comptées par échec de la porte complète. Si elle ne passe pas : `git reset --hard HEAD`, statut `à reprendre`, « échec N : la cause » en remarque. Au deuxième échec, `bloqué`.
+9. **Échec** : deux tentatives au plus, une par itération. Une porte qui échoue sur une erreur mince (un test, une traduction, une mise en forme) se corrige et se repasse dans la même itération : jusqu'à trois passages de la porte par lot, sans compter pour une tentative. Si la porte échoue encore après le troisième passage : `git reset --hard HEAD`, statut `à reprendre`, « échec 1 : la cause » en remarque. À la tentative suivante, même chose ; si la porte échoue encore, `bloqué` (« échec 2 »).
+   - Pour ne rien perdre d'un lot ainsi défait, l'orchestrateur en sauvegarde le diff dans `.zcode/hig-boucle/reprise-<couloir>.patch` : c'est son rôle, pas le tien. Ne rien écrire hors de ton worktree et de `.zcode/hig-boucle/`.
 
 ## 7. Publier sur l'intégration
 
@@ -116,12 +119,15 @@ Cette section s'applique à chaque lot, dès qu'il a passé la porte. Une itéra
 a. **Un commit de code par lot**, sur ta branche de couloir, `git add` des seuls fichiers du lot. Message selon `CONTRIBUTING.md` : `Composant : description (HIG SYS-04, SYS-05)`. Ni numéro de ticket, ni mention d'outil, ni co-auteur.
 b. **Rattraper l'intégration** : `git rebase hig/plan-d-action`, comme en 4.4. Si l'arbre a changé depuis la porte verte (`git rev-parse HEAD^{tree}` diffère de l'arbre retenu), repasser la porte complète.
 c. **Mettre à jour le registre** dans ton worktree, puis le committer à part : `design-plans : boucle HIG, registre du couloir <X> (HIG SYS-04)`. Ce commit ne touche que des documents : pas de vérification à relancer. Il contient :
-   - le statut (`fait`, `à reprendre`, `bloqué`, `sans objet`, `en cours`), le hash court du commit de code **après rebasage**, une ligne de remarque par écart ;
+   - le statut (`fait`, `à reprendre`, `bloqué`, `sans objet`, `en cours`), le hash court du commit de code **tel qu'il est sur ta branche après le rebasage de l'étape b** ; le relire par `git log --oneline -5` juste avant d'écrire le registre, un hash d'avant rebasage est faux ; une ligne de remarque par écart ;
    - une ligne au journal de ton couloir : `| date | n° | écarts traités ; il en reste N dans ce couloir |`. Le numéro est celui de ton couloir : `A1`, `A2`, `B1`… (dernier numéro de ton tableau, plus un). Le journal compte un tableau par couloir (`### Couloir A`, `### Couloir B`, `### Couloir C`) ; si le tien manque, le créer sous l'ancien tableau unique, que tu intitules « Avant les couloirs ».
-d. **Publier**, sans qu'un autre couloir puisse passer au même instant :
-   `old=$(git rev-parse refs/heads/hig/plan-d-action) && git update-ref refs/heads/hig/plan-d-action HEAD "$old"`.
-   Succès (aucune sortie) : tu es publié. Échec : un autre couloir a publié entre-temps ; recommencer à l'étape b, trois fois au plus. Passé là, terminer sans publier : ta branche conserve ton travail, la prochaine itération le rebasera.
-e. **Synchroniser le worktree d'intégration**, qui doit refléter la branche : seulement si `git -C ~/.cache/hyprdesk-wt-hig status --porcelain` est vide, `git -C ~/.cache/hyprdesk-wt-hig reset --hard hig/plan-d-action`.
+d. **Publier**, en une seule commande qui vérifie deux conditions avant d'écrire :
+   `first=$(git rev-list --reverse hig/plan-d-action..HEAD | head -1) && git merge-base --is-ancestor hig/plan-d-action HEAD && git update-ref refs/heads/hig/plan-d-action HEAD "$(git rev-parse "${first}^")"`
+   - **Fast-forward seulement** : l'intégration actuelle doit être contenue dans ta branche (`merge-base --is-ancestor`). Sinon un couloir a publié depuis ton rebasage : recommencer à l'étape b.
+   - **Écriture conditionnelle** : la référence n'est mise à jour que si l'intégration vaut encore le commit sur lequel ta branche est bâtie, le parent de ton premier commit local.
+   Succès : publié. Échec : recommencer à l'étape b, trois fois au plus. Passé là, terminer sans publier : ta branche conserve ton travail, la prochaine itération le rebasera.
+   **Ne jamais relancer cette commande sans avoir rebasé.** Lire la pointe de l'intégration au moment de publier, au lieu de la comparer à celle du rebasage, écrase le travail publié entre-temps : c'est ainsi que la publication `SEL-03` du couloir B a été écrasée le 24 novembre.
+e. **Synchroniser le worktree d'intégration**, qui doit refléter la branche. Juste avant la publication (étape d), vérifier que `git -C ~/.cache/hyprdesk-wt-hig status --porcelain` est vide ; sinon, ne pas le synchroniser et le signaler. Après une publication réussie, `git -C ~/.cache/hyprdesk-wt-hig reset --hard hig/plan-d-action`, sans condition : son statut y est forcément non vide, la branche ayant bougé sous lui.
 f. **Fin** : retirer `verrou-<couloir>`. Compte rendu de six lignes au plus.
 g. **Fin de plan** : si `python3 -I .zcode/hig-boucle/prochain.py --bilan` ne compte plus aucun `à faire`, `à reprendre` ni `en cours` dans aucun couloir, faire l'itération de clôture (section 9), publier, puis appeler `CronPauseSelf`. S'il ne reste rien que dans ton couloir, appeler `CronPauseSelf` après avoir publié.
 
@@ -140,6 +146,7 @@ g. **Fin de plan** : si `python3 -I .zcode/hig-boucle/prochain.py --bilan` ne co
 
 - Une erreur d'outil, un dépassement de temps ou une incapacité à finir ne doit rien laisser en suspens : `git reset --hard HEAD` dans ton worktree, puis retirer ton verrou. Les écarts du lot restent à leur statut.
 - Ne jamais laisser ton worktree sale en terminant.
+- **Panne de quota** : si une erreur « Usage limit reached » (code 1308) interrompt ton travail, tout ce qui n'est pas committé est perdu pour toi ; l'orchestrateur le sauvegarde en patch et le confie à ta prochaine itération (section 4.8).
 
 ## 9. Itération de clôture
 
