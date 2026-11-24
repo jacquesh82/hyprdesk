@@ -43,9 +43,12 @@ impl App {
             return Task::none();
         };
         self.bar_keyboard = Some(id);
+        // Une seule surface à la fois : la pile des bulles rend le clavier.
+        let toasts = self.toasts_release();
         // Au tour suivant : la barre est redessinée, ses anneaux avec, quand
         // le focus se pose.
         Task::batch([
+            toasts,
             // Une seule surface à la fois : le dock rend le clavier.
             self.launcher_release(),
             Task::done(Msg::KeyboardInteractivityChange {

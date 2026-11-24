@@ -89,6 +89,12 @@ fn explain_height() -> f32 {
 /// Notifications de l'historique montrées dans la carte de la barre et le
 /// volet de Panorama (le centre Continuité en montre 12).
 pub(super) const HISTORY_SHOWN: usize = 30;
+/// Le périmètre de Tab de la pile des bulles quand elle tient le clavier
+/// (HIG ENT-01).
+pub(super) const BUBBLES_SCOPE: &str = "notifications-bubbles";
+/// Le périmètre de Tab des cartes Notifications et de la vue étendue d'une
+/// activité : Tab et Maj + Tab y restent (HIG ENT-01).
+pub(super) const POPOVER_SCOPE: &str = "notifications-popover";
 /// Fond d'une boîte d'application de l'historique (HIG LAY-02), dans la carte
 /// de la barre : la couleur du texte courant à cette opacité.
 const GROUP_BOX: f32 = 0.06;
@@ -392,6 +398,10 @@ pub enum TMsg {
 #[derive(Default)]
 pub struct Toasts {
     pub win: Option<Id>,
+    /// La pile tient le clavier (raccourci `keys.focus_notifications` avec
+    /// des bulles à l'écran, HIG ENT-01) : Tab va d'une commande à l'autre,
+    /// Échap le rend aux fenêtres.
+    pub keyboard: bool,
     pub list: Vec<Toast>,
     /// hyprdesk tient le service (sinon wayle, mako… affichent).
     pub active: bool,
@@ -1020,6 +1030,9 @@ impl App {
                 self.sync_toasts()
             }
             TMsg::Invoke(id, key) => {
+                // L'action part vers l'application : la pile lui rend le
+                // clavier (HIG ENT-01).
+                let release = self.toasts_release();
                 // Le résumé du Silence (HIG PAT-20) n'est d'aucune application.
                 if !self.toasts.is_summary(id) {
                     send(Cmd::Invoke(id, key));
@@ -1039,7 +1052,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([close, self.sync_toasts()])
+                Task::batch([release, close, self.sync_toasts()])
             }
             // Carte du centre : ce qu'elle ouvre, puis le centre se referme.
             TMsg::Card(id) => {
@@ -1083,9 +1096,10 @@ impl App {
             // retenues — la liste de la barre s'ouvre, qui lit tout (HIG
             // SYS-02) — et la bulle se ferme. Sans barre, elle se ferme seule.
             TMsg::Summary => {
+                let release = self.toasts_release();
                 self.toasts.list.retain(|t| !t.summary);
                 let open = self.open_notifications();
-                Task::batch([open, self.sync_toasts()])
+                Task::batch([release, open, self.sync_toasts()])
             }
             TMsg::Close(id) => {
                 // Le résumé du Silence (HIG PAT-20) n'est d'aucune
@@ -1134,6 +1148,11 @@ impl App {
                 Task::none()
             }
             TMsg::Tick => {
+                // La pile tient le clavier (HIG ENT-01) : les bulles restent
+                // le temps du parcours, l'anneau ne saute pas.
+                if self.toasts.keyboard {
+                    return Task::none();
+                }
                 let default = Layout::of(&self.cfg.general).timeout;
                 let expired: Vec<u32> = self
                     .toasts
@@ -1265,6 +1284,12 @@ impl App {
         })
     }
     pub(super) fn sync_toasts(&mut self) -> Task<Msg> {
+        // Plus de bulle : la pile rend le clavier, quel que soit le style
+        // (HIG ENT-01).
+        if self.toasts.list.is_empty() && self.toasts.keyboard {
+            let release = self.toasts_release();
+            return Task::batch([release, self.sync_toasts()]);
+        }
         if self.convex_options().is_some() {
             return self.sync_convex_toasts();
         }
@@ -1272,6 +1297,8 @@ impl App {
         match (self.toasts.win, n) {
             (Some(win), 0) => {
                 self.toasts.win = None;
+                // La surface s'en va : le clavier revient aux fenêtres.
+                self.toasts.keyboard = false;
                 iced::window::close(win)
             }
             (None, 0) => Task::none(),
@@ -1473,21 +1500,25 @@ impl App {
                 .width(Length::Fill),
             )
             // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
-            .push(iced::widget::tooltip(
-                button(
-                    // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
-                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
-                        .expect("glyphe de fermeture"),
-                )
-                // Cible de 28 px de côté (HIG ACC-04) : 14 px de glyphe et
-                // 7 px de marge de chaque côté.
-                .padding(crate::ui::tokens::ts(7.0))
-                .width(crate::ui::tokens::ts(BUTTON_TARGET))
-                .height(crate::ui::tokens::ts(BUTTON_TARGET))
-                .style(button::text)
-                .on_press(Msg::Toasts(TMsg::Close(id))),
-                text(crate::i18n::tr("Fermer")).font(self.font),
-                iced::widget::tooltip::Position::Left,
+            .push(crate::ui::focus::press(
+                iced::widget::tooltip(
+                    button(
+                        // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
+                        crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
+                            .expect("glyphe de fermeture"),
+                    )
+                    // Cible de 28 px de côté (HIG ACC-04) : 14 px de glyphe et
+                    // 7 px de marge de chaque côté.
+                    .padding(crate::ui::tokens::ts(7.0))
+                    .width(crate::ui::tokens::ts(BUTTON_TARGET))
+                    .height(crate::ui::tokens::ts(BUTTON_TARGET))
+                    .style(button::text)
+                    .on_press(Msg::Toasts(TMsg::Close(id))),
+                    text(crate::i18n::tr("Fermer")).font(self.font),
+                    iced::widget::tooltip::Position::Left,
+                ),
+                Some(Msg::Toasts(TMsg::Close(id))),
+                fg,
             ));
         let mut col = column![head].spacing(4).width(Length::Fill);
         // Demande d'autorisation de l'application (HIG PAT-02) : au-dessus du
@@ -1539,7 +1570,7 @@ impl App {
                     .color(dim)
                     .height(explain_text_height()),
                 )
-                .push(
+                .push(crate::ui::focus::press(
                     button(
                         text(crate::i18n::tr("Bloquer pendant le Silence"))
                             .font(self.font)
@@ -1549,7 +1580,9 @@ impl App {
                     .padding([crate::ui::tokens::ts(7.0), 10.0])
                     .height(crate::ui::tokens::ts(BUTTON_TARGET))
                     .on_press(Msg::Toasts(TMsg::Refuse(id))),
-                );
+                    Some(Msg::Toasts(TMsg::Refuse(id))),
+                    fg,
+                ));
         }
         // Regard d'une carte : fond, filet et ombre du thème ; sous Convexe,
         // rien — la niche peint.
@@ -1582,7 +1615,7 @@ impl App {
             let content = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
                 .width(Length::Fill)
                 .height(Length::Fill);
-            return button(content)
+            let summary = button(content)
                 .padding([10, 14])
                 .width(Layout::of(&self.cfg.general).width)
                 .height(card_height(t, explained))
@@ -1601,8 +1634,8 @@ impl App {
                         ..Default::default()
                     }
                 })
-                .on_press(Msg::Toasts(TMsg::Summary))
-                .into();
+                .on_press(Msg::Toasts(TMsg::Summary));
+            return crate::ui::focus::press(summary, Some(Msg::Toasts(TMsg::Summary)), fg);
         }
         let at_rest = look(edge);
         let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
@@ -1613,9 +1646,10 @@ impl App {
             .style(move |_| at_rest);
         // Clic sur la carte : action par défaut (si l'application en propose une).
         if t.n.actions.iter().any(|(k, _)| k == "default") {
-            mouse_area(card)
-                .on_press(Msg::Toasts(TMsg::Invoke(id, "default".into())))
-                .into()
+            let invoke = Msg::Toasts(TMsg::Invoke(id, "default".into()));
+            // Au clavier, la carte entière d'abord, puis ses commandes (HIG
+            // ENT-01).
+            crate::ui::focus::press(mouse_area(card).on_press(invoke.clone()), Some(invoke), fg)
         } else {
             card.into()
         }
@@ -1650,7 +1684,11 @@ impl App {
         // boîte porte le seul cadre : les cartes n'en ont pas.
         let history = &self.toasts.history;
         for (app, ranks) in app_groups(&history[..history.len().min(HISTORY_SHOWN)]) {
-            let mut cards = column![].spacing(8).width(Length::Fill);
+            // Chaque carte garde 4 px autour de son contenu, l'écart entre
+            // deux cartes et la marge de la boîte en tiennent compte : la mise
+            // en page est celle d'avant, et l'anneau de focus ne touche pas le
+            // texte (HIG ENT-01).
+            let mut cards = column![].width(Length::Fill);
             for i in ranks {
                 let n = &history[i];
                 let (title, body) = card_text(n, hide);
@@ -1674,34 +1712,41 @@ impl App {
                 ]
                 .spacing(12)
                 .align_y(Alignment::Start)
+                .padding([4, 6])
                 .into();
                 // Carte cliquable quand elle mène quelque part : l'action de
                 // l'application, ou l'application elle-même. Un clic droit
                 // partout : son menu court (HIG ENT-07).
                 let menu = Msg::Toasts(TMsg::Menu(n.id));
-                let card: Element<'_, Msg> = match card_press(n) {
+                let press = card_press(n);
+                let card: Element<'_, Msg> = match press.clone() {
                     Some(press) => mouse_area(card)
                         .interaction(iced::mouse::Interaction::Pointer)
                         .on_press(press)
-                        .on_right_press(menu)
+                        .on_right_press(menu.clone())
                         .into(),
-                    None => mouse_area(card).on_right_press(menu).into(),
+                    None => mouse_area(card).on_right_press(menu.clone()).into(),
                 };
-                cards = cards.push(card);
+                // Au clavier, la carte entre dans le parcours de Tab : Entrée
+                // fait ce que fait le clic, ou ouvre son menu court quand elle
+                // ne mène nulle part (HIG ENT-01).
+                cards = cards.push(crate::ui::focus::press(card, press.or(Some(menu)), fg));
             }
             col = col.push(
                 container(
                     column![
-                        text(app)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(11.0))
-                            .color(dim),
+                        container(
+                            text(app)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(11.0))
+                                .color(dim),
+                        )
+                        .padding([4, 6]),
                         cards,
                     ]
-                    .spacing(8)
                     .width(Length::Fill),
                 )
-                .padding([8, 12])
+                .padding([4, 6])
                 .width(Length::Fill)
                 .style(move |_| container::Style {
                     background: Some(
@@ -1716,7 +1761,9 @@ impl App {
                 }),
             );
         }
-        col.into()
+        // Le périmètre de Tab de la carte (HIG ENT-01) : le parcours ne sort
+        // pas du popover.
+        container(col).id(POPOVER_SCOPE).into()
     }
 
     /// Actions d'une notification, hors `default` (la carte elle-même) :
@@ -1766,13 +1813,18 @@ impl App {
                     .into(),
                 None => caption.into(),
             };
-            r = r.push(
+            let invoke = Msg::Toasts(TMsg::Invoke(id, k.clone()));
+            // Au clavier, dans le parcours de Tab de la vue étendue et de la
+            // pile des bulles quand elle tient le clavier (HIG ENT-01).
+            r = r.push(crate::ui::focus::press(
                 button(content)
                     // 28 px de haut au moins (HIG ACC-04) : 14 px de ligne et
                     // 7 px de marge en haut comme en bas.
                     .padding([crate::ui::tokens::ts(7.0), 10.0])
-                    .on_press(Msg::Toasts(TMsg::Invoke(id, k.clone()))),
-            );
+                    .on_press(invoke.clone()),
+                Some(invoke),
+                fg,
+            ));
         }
         Some(r.into())
     }
@@ -1789,15 +1841,19 @@ impl App {
             crate::tr!("{app} veut vous envoyer des notifications.", app = n.app)
         };
         let choice = |label: &'static str, press: Msg| {
-            button(
-                text(crate::i18n::tr(label))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(11.0)),
+            crate::ui::focus::press(
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(11.0)),
+                )
+                // 28 px de haut (HIG ACC-04) : la carte calcule sa hauteur.
+                .padding([crate::ui::tokens::ts(7.0), 10.0])
+                .height(crate::ui::tokens::ts(BUTTON_TARGET))
+                .on_press(press.clone()),
+                Some(press),
+                ink,
             )
-            // 28 px de haut (HIG ACC-04) : la carte calcule sa hauteur.
-            .padding([crate::ui::tokens::ts(7.0), 10.0])
-            .height(crate::ui::tokens::ts(BUTTON_TARGET))
-            .on_press(press)
         };
         column![
             text(ask)
@@ -1867,18 +1923,22 @@ impl App {
                     .width(Length::Fill),
             )
             // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
-            .push(iced::widget::tooltip(
-                button(
-                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
-                        .expect("glyphe de fermeture"),
-                )
-                .padding(crate::ui::tokens::ts(7.0))
-                .width(crate::ui::tokens::ts(BUTTON_TARGET))
-                .height(crate::ui::tokens::ts(BUTTON_TARGET))
-                .style(button::text)
-                .on_press(close),
-                text(crate::i18n::tr("Fermer")).font(self.font),
-                iced::widget::tooltip::Position::Left,
+            .push(crate::ui::focus::press(
+                iced::widget::tooltip(
+                    button(
+                        crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
+                            .expect("glyphe de fermeture"),
+                    )
+                    .padding(crate::ui::tokens::ts(7.0))
+                    .width(crate::ui::tokens::ts(BUTTON_TARGET))
+                    .height(crate::ui::tokens::ts(BUTTON_TARGET))
+                    .style(button::text)
+                    .on_press(close.clone()),
+                    text(crate::i18n::tr("Fermer")).font(self.font),
+                    iced::widget::tooltip::Position::Left,
+                ),
+                Some(close),
+                fg,
             ));
         let mut block = column![head].spacing(4).width(Length::Fill);
         // La bulle porte une demande d'autorisation (HIG PAT-02) : la vue
@@ -1913,10 +1973,14 @@ impl App {
         // Clic sur la notification : action par défaut (si l'application en
         // propose une), comme la bulle.
         let block = if n.actions.iter().any(|(k, _)| k == "default") {
-            mouse_area(block)
-                .interaction(iced::mouse::Interaction::Pointer)
-                .on_press(Msg::Toasts(TMsg::Invoke(id, "default".into())))
-                .into()
+            let invoke = Msg::Toasts(TMsg::Invoke(id, "default".into()));
+            crate::ui::focus::press(
+                mouse_area(block)
+                    .interaction(iced::mouse::Interaction::Pointer)
+                    .on_press(invoke.clone()),
+                Some(invoke),
+                fg,
+            )
         } else {
             block
         };
@@ -1941,25 +2005,91 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        column![col, self.pop_separator(alpha), foot]
-            .spacing(12)
-            .width(Length::Fill)
-            .into()
+        // Le périmètre de Tab de la vue (HIG ENT-01).
+        container(
+            column![col, self.pop_separator(alpha), foot]
+                .spacing(12)
+                .width(Length::Fill),
+        )
+        .id(POPOVER_SCOPE)
+        .into()
     }
 
     /// Bouton de texte du pied de la vue étendue : sans bordure, 28 px de
     /// haut au moins (HIG ACC-04).
     fn activity_link<'a>(&'a self, label: String, ink: Color, press: Msg) -> Element<'a, Msg> {
-        button(
-            text(label)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(11.0))
-                .color(ink),
+        crate::ui::focus::press(
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(ink),
+            )
+            .padding([crate::ui::tokens::ts(7.0), 10.0])
+            .style(button::text)
+            .on_press(press.clone()),
+            Some(press),
+            ink,
         )
-        .padding([crate::ui::tokens::ts(7.0), 10.0])
-        .style(button::text)
-        .on_press(press)
-        .into()
+    }
+
+    /// La pile des bulles prend le clavier (HIG ENT-01) : sa surface devient
+    /// exclusive le temps du parcours, sa première commande est choisie.
+    /// `None` sans bulle à l'écran, ou quand elle le tient déjà.
+    pub(super) fn toasts_focus(&mut self) -> Option<Task<Msg>> {
+        let win = self.toasts.win.filter(|_| !self.toasts.list.is_empty())?;
+        if self.toasts.keyboard {
+            return None;
+        }
+        self.toasts.keyboard = true;
+        let bar = self
+            .bar_keyboard
+            .map_or_else(Task::none, |id| self.bar_release(id));
+        Some(Task::batch([
+            // Une seule surface à la fois : le dock et la barre rendent le
+            // clavier.
+            self.launcher_release(),
+            bar,
+            Task::done(Msg::KeyboardInteractivityChange {
+                id: win,
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+            }),
+            crate::ui::focus::step(iced::advanced::widget::Id::new(BUBBLES_SCOPE), false),
+        ]))
+    }
+
+    /// La pile rend le clavier aux fenêtres ; elle ne le tenait pas : rien.
+    pub(super) fn toasts_release(&mut self) -> Task<Msg> {
+        if !std::mem::take(&mut self.toasts.keyboard) {
+            return Task::none();
+        }
+        match self.toasts.win {
+            Some(win) => Task::batch([
+                Task::done(Msg::KeyboardInteractivityChange {
+                    id: win,
+                    keyboard_interactivity: KeyboardInteractivity::None,
+                }),
+                iced::advanced::widget::operate(iced::advanced::widget::operation::scope(
+                    iced::advanced::widget::Id::new(BUBBLES_SCOPE),
+                    iced::advanced::widget::operation::focusable::unfocus(),
+                )),
+            ]),
+            None => Task::none(),
+        }
+    }
+
+    /// Touche reçue par la pile qui tient le clavier : Tab et Maj + Tab d'une
+    /// commande à l'autre, Échap rend le clavier.
+    pub(super) fn toasts_key(&mut self, key: &iced::keyboard::Key) -> Task<Msg> {
+        use iced::keyboard::{Key, key::Named};
+        match key {
+            Key::Named(Named::Escape) => self.toasts_release(),
+            Key::Named(Named::Tab) => crate::ui::focus::step(
+                iced::advanced::widget::Id::new(BUBBLES_SCOPE),
+                self.mods.shift(),
+            ),
+            _ => Task::none(),
+        }
     }
 
     pub(super) fn view_toasts(&self) -> Element<'_, Msg> {
@@ -1981,6 +2111,8 @@ impl App {
                 col = col.push(self.view_toast(t));
             }
         }
+        // Le périmètre de Tab de la pile (HIG ENT-01).
+        let col = container(col).id(BUBBLES_SCOPE);
         if self.convex_options().is_some() {
             use super::{
                 kinetic::{self, Track},
@@ -2798,6 +2930,80 @@ mod tests {
     /// Une notification reçue d'une application, sans corps ni icône.
     fn recue(id: u32, app: &str) -> Notification {
         crate::notifications::build(id, app, "", "s", "", &[], &HashMap::new(), -1)
+    }
+
+    /// HIG ENT-01 : le raccourci du centre, des bulles à l'écran, donne le
+    /// clavier à leur pile ; pressé encore, il la rend et ouvre le centre.
+    /// Échap le rend ; la dernière bulle partie, la pile ne le tient plus.
+    #[test]
+    fn le_raccourci_du_centre_donne_le_clavier_aux_bulles() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        // Sans bulle : rien à prendre.
+        assert!(app.toasts_focus().is_none());
+        assert!(!app.toasts.keyboard);
+        app.toasts.win = Some(Id::unique());
+        app.toasts.list = vec![Toast {
+            n: carte(&["default", "open"], None),
+            since: Instant::now(),
+            request: None,
+            alert: false,
+            summary: false,
+        }];
+        assert!(app.toasts_focus().is_some());
+        assert!(app.toasts.keyboard, "la pile tient le clavier");
+        assert!(app.toasts_focus().is_none(), "déjà tenu : au centre");
+        let _ = app.toasts_key(&iced::keyboard::Key::Named(
+            iced::keyboard::key::Named::Escape,
+        ));
+        assert!(!app.toasts.keyboard, "Échap le rend");
+        assert!(app.toasts_focus().is_some());
+        // Les bulles restent le temps du parcours.
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(3600);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert_eq!(app.toasts.list.len(), 1, "la pile au clavier n'expire pas");
+        // Une action au clavier rend le clavier à l'application.
+        let _ = app.toasts_update(TMsg::Invoke(1, "open".into()));
+        assert!(!app.toasts.keyboard, "l'action rend le clavier");
+        app.toasts.list = vec![Toast {
+            n: carte(&["default", "open"], None),
+            since: Instant::now(),
+            request: None,
+            alert: false,
+            summary: false,
+        }];
+        app.toasts.win = Some(Id::unique());
+        assert!(app.toasts_focus().is_some());
+        // La barre prend le clavier : la pile le rend.
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 900,
+            height: 640,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            reserved: (0.0, 44.0, 0.0, 0.0),
+        }];
+        app.bar_surfaces.insert(
+            Id::unique(),
+            crate::ui::plugins::bar::surface::BarSurface {
+                monitor: "A".into(),
+                ..Default::default()
+            },
+        );
+        let _ = app.bar_focus();
+        assert!(app.bar_keyboard.is_some());
+        assert!(!app.toasts.keyboard, "une seule surface au clavier");
+        assert!(app.toasts_focus().is_some());
+        app.toasts.list.clear();
+        let _ = app.sync_toasts();
+        assert!(!app.toasts.keyboard, "la surface partie, plus de clavier");
     }
 
     /// HIG SYS-13 : la vue étendue montre la bulle cliquée, puis son entrée

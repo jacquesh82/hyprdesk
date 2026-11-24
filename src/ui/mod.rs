@@ -2486,10 +2486,19 @@ impl App {
     /// déjà ouvert, il reste. Sans barre (bureau masqué), rien à ouvrir : la
     /// carte est ancrée à la barre.
     fn focus_notifications(&mut self) -> Task<Msg> {
+        // Des bulles à l'écran : leur pile prend le clavier d'abord ; pressé
+        // encore, le raccourci la rend et ouvre le centre (HIG ENT-01).
+        if let Some(task) = self.toasts_focus() {
+            return task;
+        }
+        let release = self.toasts_release();
         let Some(bar) = self.focused_bar() else {
-            return Task::none();
+            return release;
         };
-        self.open_popover(bar, "notifications".into(), popover::Kind::Notifications)
+        Task::batch([
+            release,
+            self.open_popover(bar, "notifications".into(), popover::Kind::Notifications),
+        ])
     }
 
     /// Clé du module horloge de la barre (l'identifiant de son widget), pour
@@ -5739,6 +5748,7 @@ impl App {
                 }
                 if self.toasts.win == Some(id) {
                     self.toasts.win = None;
+                    self.toasts.keyboard = false;
                     return Task::none();
                 }
                 if self.problem.as_ref().is_some_and(|p| p.win == id) {
@@ -6019,6 +6029,11 @@ impl App {
                         _ => Task::none(),
                     };
                 }
+                // La pile des bulles tient le clavier (HIG ENT-01) : elle
+                // garde ses touches.
+                if self.toasts.keyboard && self.toasts.win == Some(id) {
+                    return self.toasts_key(&key);
+                }
                 // La barre tient le clavier (raccourci `keys.focus_bar`, HIG
                 // ENT-02) : elle garde ses touches.
                 if self.bar_keyboard == Some(id) {
@@ -6068,6 +6083,23 @@ impl App {
                         &key,
                         self.mods.shift(),
                         self.mods.control(),
+                    );
+                }
+                // Carte Notifications et vue étendue d'une activité : Tab et
+                // Maj + Tab parcourent leurs commandes sans en sortir (HIG
+                // ENT-01).
+                if key == keyboard::Key::Named(keyboard::key::Named::Tab)
+                    && self.popover.as_ref().is_some_and(|p| {
+                        p.win == id
+                            && matches!(
+                                p.kind,
+                                popover::Kind::Notifications | popover::Kind::Activity(_)
+                            )
+                    })
+                {
+                    return focus::step(
+                        iced::advanced::widget::Id::new(toasts::POPOVER_SCOPE),
+                        self.mods.shift(),
                     );
                 }
                 // Le panneau a ses propres champs de saisie : pas de navigation

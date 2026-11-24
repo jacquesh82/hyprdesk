@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 180] = [
+const SCENES: [&str; 181] = [
     "desktop",
     "typography",
     "icons",
@@ -195,6 +195,9 @@ const SCENES: [&str; 180] = [
     "panorama-config-lecteur",
     "panorama-config-video",
     "bar-notifications",
+    // Carte Notifications au clavier : la deuxième carte porte l'anneau
+    // (HIG ENT-01).
+    "bar-notifications-clavier",
     "bar-unread",
     "bar-island-unread",
     "reglages-valeur-saisie",
@@ -671,6 +674,18 @@ impl Preview {
                 | "bar-convex-pressed"
                 | "bar-convex-switch"
         );
+        // L'anneau de focus se pose une fois la carte affichée : deux Tab,
+        // puis la capture (HIG ENT-01).
+        if SCENES[self.scene] == "bar-notifications-clavier" {
+            return Task::batch([
+                Task::perform(tokio::time::sleep(Duration::from_millis(250)), |_| {
+                    PreviewMsg::BarGesture
+                }),
+                Task::perform(tokio::time::sleep(Duration::from_millis(600)), |_| {
+                    PreviewMsg::Capture
+                }),
+            ]);
+        }
         let capture = Task::perform(
             tokio::time::sleep(Duration::from_millis(
                 if SCENES[self.scene].starts_with("panorama-") {
@@ -2761,7 +2776,7 @@ impl Preview {
             // carte se passe d'ancre : elle se centre.
             if matches!(
                 SCENES[self.scene],
-                "bar-notifications" | "bar-menu-notification"
+                "bar-notifications" | "bar-menu-notification" | "bar-notifications-clavier"
             ) {
                 let gen_ = self.app.icons_gen;
                 for icon in ["firefox", "signal"] {
@@ -3482,6 +3497,15 @@ impl Preview {
                     }
                     "bar-menu-closing" => {
                         let _ = self.app.close_popover();
+                    }
+                    "bar-notifications-clavier" => {
+                        let scope =
+                            || iced::advanced::widget::Id::new(super::toasts::POPOVER_SCOPE);
+                        return Task::batch([
+                            super::focus::step(scope(), false),
+                            super::focus::step(scope(), false),
+                        ])
+                        .map(|m| PreviewMsg::Ui(Box::new(m)));
                     }
                     _ => {}
                 }
