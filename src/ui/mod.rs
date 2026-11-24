@@ -639,6 +639,9 @@ pub struct App {
     opt_drafts: HashMap<String, String>,
     /// Saisies refusées : chemin → message.
     opt_errors: HashMap<String, String>,
+    /// Sélecteur de couleur ouvert : option (magasin, chemin) et rang de sa
+    /// couleur dans un dégradé (HIG SEL-02).
+    opt_picker: Option<(hyprset::Store, String, usize, color_picker::Picker)>,
     /// Valeurs en vigueur des options `hypr` (`hl.get_config`).
     hypr_current: std::collections::BTreeMap<String, String>,
     /// Ce que définit hyprland.lua (lignes, valeurs), relu à l'ouverture
@@ -1146,6 +1149,7 @@ impl App {
             locked: false,
             opt_drafts: HashMap::new(),
             opt_errors: HashMap::new(),
+            opt_picker: None,
             hypr_current: Default::default(),
             hypr_source: None,
             preview,

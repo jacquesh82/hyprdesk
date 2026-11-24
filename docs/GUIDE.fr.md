@@ -272,9 +272,10 @@ application : `hyprdesk binds generate --write`.
   regroupe les fenêtres par application. Les modules du thème portent le
   thème jusqu'à kitty et aux applications GTK, Qt et iced.
 - **Choisir une couleur.** Partout où une couleur se règle (thème, barre,
-  fond d'écran), la pastille de la couleur en cours ouvre le sélecteur de
-  couleur : elle se surligne dès le clic, « Appliquer » pose la couleur
-  choisie et « Annuler » referme sans rien changer.
+  fond d'écran, options de Hyprland), la pastille de la couleur en cours
+  ouvre le sélecteur de couleur : elle se surligne dès le clic,
+  « Appliquer » pose la couleur choisie et « Annuler » referme sans rien
+  changer.
 - **Écrans et saisie.** Disposez les écrans, réglez clavier et pavé
   tactile. Un changement de disposition des écrans revient seul au bout de
   12 secondes si vous ne le gardez pas.
