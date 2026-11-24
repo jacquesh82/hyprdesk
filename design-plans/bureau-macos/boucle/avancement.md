@@ -85,6 +85,7 @@
 | 2026-11-24 | B25 | DAT-03 traité (`8e801c3`) : aperçu du résultat de fichier sélectionné, cause d'un échec de xdg-open ; il en reste 2 dans ce couloir |
 | 2026-11-24 | B26 | DAT-07, étape 1 sur 3 (écart devenu L) : moteur d'astuces et astuces du lanceur (`4a6d65a`) ; il en reste 2 dans ce couloir |
 | 2026-11-24 | B27 | DAT-07, étape 2 sur 3 : astuce du glisser dans l'écran des espaces (`cf1f1f8`) ; bloqué : conflit avec main (`git merge main` en conflit dans `src/ui/panel.rs`, un bloc ; fusion annulée, rien d'autre engagé) ; il en reste 9 dans ce couloir (rééquilibrage : DAT-04, DAT-12, DAT-16, DAT-17, DAT-19, PAT-12, TYP-17 reçus du couloir C) |
+| 2026-11-24 | B28 | Conflit avec main résolu sur l'intégration : fusion de `main` (`50a53c6`, MLG-303/304) en `619ddb6`, rangée navigation/contenu du tiroir gardant les groupes de focus (ENT-01) sans l'enveloppe `tokens::content` retirée par main ; il en reste 9 dans ce couloir |
 
 ### Couloir C
 
