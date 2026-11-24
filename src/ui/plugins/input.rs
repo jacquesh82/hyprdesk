@@ -83,6 +83,8 @@ pub enum Msg {
     OptionsDraft(String),
     OptionsSubmit,
     Try(String),
+    /// Accès clavier complet (`general.keyboard_access`, HIG ENT-01).
+    KeyboardAccess(bool),
 }
 
 pub fn load() -> Task<UiMsg> {
@@ -153,19 +155,26 @@ impl App {
             return self.devices_page();
         }
         let dim = self.ink().dim;
-        let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
-            return text("Lecture…")
+        // Onglet Clavier : l'accès clavier complet est un réglage de hyprdesk,
+        // montré même quand Hyprland ne répond pas (encore).
+        let waiting = |note: &'static str| -> Element<'_, UiMsg> {
+            let note = text(note)
                 .font(self.font)
                 .size(crate::ui::tokens::ts(13.0))
-                .color(dim)
-                .into();
+                .color(dim);
+            if self.on_subtab(INFO.id, "clavier") {
+                column![self.keyboard_access_field(), note]
+                    .spacing(12)
+                    .into()
+            } else {
+                note.into()
+            }
+        };
+        let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
+            return waiting("Lecture…");
         };
         let Some(cur) = s.cur.clone() else {
-            return text("Hyprland ne répond pas.")
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0))
-                .color(dim)
-                .into();
+            return waiting("Hyprland ne répond pas.");
         };
         let mut col = column![].spacing(12);
         if self.on_subtab(INFO.id, "souris") {
@@ -329,6 +338,7 @@ impl App {
             ));
         } else {
             // Clavier.
+            col = col.push(self.keyboard_access_field());
             col = col.push(self.section("Disposition"));
             let first = cur
                 .kb_layout
@@ -473,7 +483,47 @@ impl App {
         col.into()
     }
 
+    /// Accès clavier complet (HIG ENT-01) : un réglage de hyprdesk, pas de
+    /// Hyprland ; `keys.keyboard_access` le bascule aussi.
+    fn keyboard_access_field(&self) -> Element<'_, UiMsg> {
+        let combo = &self.cfg.general.keys.keyboard_access;
+        let note = if combo.trim().is_empty() {
+            crate::i18n::tr(
+                "Tab atteint chaque commande des Réglages, Entrée ou Espace l'active. \
+                 Coupé : Tab ne va qu'aux champs de saisie.",
+            )
+            .to_string()
+        } else {
+            crate::tr!(
+                "Tab atteint chaque commande des Réglages, Entrée ou Espace l'active. \
+                 Coupé : Tab ne va qu'aux champs de saisie. {k} le bascule partout.",
+                k = combo
+            )
+        };
+        column![
+            self.section("Navigation au clavier"),
+            self.field(
+                "Accès clavier complet",
+                "keyboard_access",
+                self.focusable(
+                    toggler(self.cfg.general.keyboard_access)
+                        .on_toggle(|v| wrap(Msg::KeyboardAccess(v))),
+                ),
+            ),
+            text(note)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(self.ink().dim),
+        ]
+        .spacing(12)
+        .into()
+    }
+
     pub(in crate::ui) fn input_update(&mut self, m: Msg) -> Task<UiMsg> {
+        if let Msg::KeyboardAccess(v) = m {
+            self.settings.keyboard_access = Some(v);
+            return self.commit();
+        }
         let path = self.config_path.clone();
         let Some(p) = self.panel.as_mut() else {
             return Task::none();
@@ -549,6 +599,7 @@ impl App {
                 s.try_text = v;
                 Task::none()
             }
+            Msg::KeyboardAccess(_) => Task::none(),
         }
     }
 }

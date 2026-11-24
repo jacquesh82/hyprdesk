@@ -127,7 +127,7 @@ components! {
         key_toggle, key_launcher, key_hide, key_settings, key_lock, key_switch,
         key_search, key_search_desktop, key_overview, key_assistant, key_take, overview_command,
         key_focus_bar, key_focus_dock, key_focus_notifications, key_focus_settings,
-        key_force_quit,
+        key_force_quit, key_keyboard_access,
         key_leave, key_media, key_essentials, key_essentials_off,
         key_essential_keys, suspend_binds,
     ] + [Binds];
@@ -170,7 +170,7 @@ components! {
     "layouts" => [tiling];
     "animations" => [fx, fade_ms, transition, crossfade_ms];
     "performance" => [renderer, gpu, hyprland_gpu, worker_threads];
-    "input" => [] + [Inputs];
+    "input" => [keyboard_access] + [Inputs];
     "lock" => [
         lock_blur, lock_dim, lock_image, lock_show_user, lock_show_battery,
         lock_show_media, lock_fingerprint, idle_manage, idle_dim, idle_lock,

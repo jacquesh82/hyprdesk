@@ -124,6 +124,8 @@ const KEY_LABELS: &[(usize, &str)] = &[
     (14, crate::keymap::FOCUS_LABELS[3]),
     // Les boîtes de dialogue du shell (HIG ENT-10).
     (15, crate::keymap::DIALOG_LABELS[0]),
+    // Accès clavier complet (HIG ENT-01).
+    (16, crate::keymap::ACCESS_LABEL),
 ];
 
 /// Case de `State::keys` d'une clé de configuration (`keys.toggle`).
@@ -145,6 +147,7 @@ pub(in crate::ui) fn key_index(key: &str) -> Option<usize> {
         "keys.focus_notifications" => 13,
         "keys.focus_settings" => 14,
         "keys.force_quit" => 15,
+        "keys.keyboard_access" => 16,
         _ => return None,
     })
 }
@@ -167,6 +170,7 @@ fn key_value(k: &crate::config::Keys, i: usize) -> &str {
         13 => &k.focus_notifications,
         14 => &k.focus_settings,
         15 => &k.force_quit,
+        16 => &k.keyboard_access,
         _ => &k.search_desktop,
     }
 }
@@ -196,7 +200,7 @@ pub struct State {
     pub capture: Option<Target>,
     /// Numéro de la capture : un délai écoulé d'une capture finie est ignoré.
     pub capture_seq: u64,
-    pub keys: [String; 16],
+    pub keys: [String; 17],
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
@@ -276,6 +280,7 @@ pub fn default_key(i: usize) -> String {
         13 => k.focus_notifications,
         14 => k.focus_settings,
         15 => k.force_quit,
+        16 => k.keyboard_access,
         _ => k.search_desktop,
     }
 }
@@ -587,6 +592,7 @@ impl App {
             13 => &mut s.key_focus_notifications,
             14 => &mut s.key_focus_settings,
             15 => &mut s.key_force_quit,
+            16 => &mut s.key_keyboard_access,
             _ => &mut s.key_search_desktop,
         };
         *field = v;
@@ -1759,6 +1765,8 @@ impl App {
             key_field(14, crate::i18n::tr(crate::keymap::FOCUS_LABELS[3]), "keys.focus_settings"),
             // La boîte de dialogue « Forcer à quitter » (HIG ENT-10).
             key_field(15, crate::i18n::tr(crate::keymap::DIALOG_LABELS[0]), "keys.force_quit"),
+            // Accès clavier complet (HIG ENT-01) : Tab atteint chaque commande.
+            key_field(16, crate::i18n::tr(crate::keymap::ACCESS_LABEL), "keys.keyboard_access"),
             self.adv(
                 "Sortie de secours (bureau affiché)",
                 key_field(2, "", "keys.leave"),
@@ -1980,6 +1988,7 @@ impl App {
                         13 => s.key_focus_notifications = None,
                         14 => s.key_focus_settings = None,
                         15 => s.key_force_quit = None,
+                        16 => s.key_keyboard_access = None,
                         _ => s.key_search_desktop = None,
                     }
                     self.commit()
@@ -2169,6 +2178,7 @@ impl App {
                     13 => ("keys.focus_notifications", &mut keys.focus_notifications),
                     14 => ("keys.focus_settings", &mut keys.focus_settings),
                     15 => ("keys.force_quit", &mut keys.force_quit),
+                    16 => ("keys.keyboard_access", &mut keys.keyboard_access),
                     _ => ("keys.leave", &mut keys.leave),
                 };
                 *target = v.clone();
@@ -2200,6 +2210,7 @@ impl App {
                     13 => self.settings.key_focus_notifications = Some(v),
                     14 => self.settings.key_focus_settings = Some(v),
                     15 => self.settings.key_force_quit = Some(v),
+                    16 => self.settings.key_keyboard_access = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()

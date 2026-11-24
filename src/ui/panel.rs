@@ -607,12 +607,30 @@ impl App {
 
     /// Une commande du tiroir dans le parcours au clavier (HIG ENT-01) : Tab
     /// l'atteint, l'anneau la montre, Entrée ou Espace l'active. Jamais un
-    /// champ de saisie, déjà focalisable.
+    /// champ de saisie, déjà focalisable. Accès clavier complet coupé
+    /// (`general.keyboard_access`) : la commande est rendue telle quelle, Tab
+    /// ne va plus qu'aux champs.
     pub(in crate::ui) fn focusable<'a>(
         &self,
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
-        super::focus::click(control, self.ink().fg, true)
+        super::focus::click(control, self.ink().fg, self.cfg.general.keyboard_access)
+    }
+
+    /// `hyprdesk keyboard-access` (raccourci `keys.keyboard_access`, HIG
+    /// ENT-01) : bascule l'accès clavier complet, l'enregistre et l'annonce à
+    /// l'écran. L'annonce dit l'état appliqué : une clé fixée dans
+    /// hyprdesk.lua l'emporte sur la bascule.
+    pub(super) fn keyboard_access_toggle(&mut self) -> Task<Msg> {
+        self.settings.keyboard_access = Some(!self.cfg.general.keyboard_access);
+        let saved = self.commit();
+        let note = if self.cfg.general.keyboard_access {
+            "Accès clavier complet : activé"
+        } else {
+            "Accès clavier complet : désactivé"
+        };
+        let shown = self.show_osd_note("input-keyboard-symbolic", crate::i18n::tr(note).into());
+        Task::batch([saved, shown])
     }
 
     /// Le champ de recherche du volet prend le focus, lui seul : les autres
@@ -713,6 +731,7 @@ impl App {
             k.focus_notifications.clone(),
             k.focus_settings.clone(),
             k.force_quit.clone(),
+            k.keyboard_access.clone(),
         ];
         self.panel = Some(p);
         let from = self

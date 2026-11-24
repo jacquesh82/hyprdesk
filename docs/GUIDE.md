@@ -302,6 +302,13 @@ commands of its header (Close, Guided tour, Assistant, clear the search),
 which the focus ring points out and Enter or Space activate; a mouse click
 removes the ring.
 
+**Full Keyboard Access.** On by default, it lets Tab reach every control in
+Settings, not only text fields. `CTRL + F1` toggles it anywhere (`hyprdesk
+keyboard-access`) and the on-screen display announces “Full Keyboard Access:
+on” or “off”; when off, Tab only goes to text fields. The setting lives in
+**Settings → Keyboard and mouse → Keyboard** (`keyboard_access`), the shortcut
+in **Settings → Shortcuts** (`keys.keyboard_access`).
+
 **Keyboard navigation in the bar.** The arrow keys, Tab and Shift + Tab move
 from one activable module to the next: those a left click opens (menus, volume,
 clock…). Enter or Space opens the chosen module; its menu takes the keyboard,

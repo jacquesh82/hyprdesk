@@ -671,6 +671,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "icon_double_click",
             "reduced_transparency",
             "reduced_motion",
+            "keyboard_access",
             "increase_contrast",
             "text_scale",
             "advanced_settings",
@@ -803,6 +804,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "focus_notifications",
                 "focus_settings",
                 "force_quit",
+                "keyboard_access",
                 "take",
                 "essentials",
                 "essentials_off",
@@ -907,6 +909,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("focus_notifications", &mut g.keys.focus_notifications),
             ("focus_settings", &mut g.keys.focus_settings),
             ("force_quit", &mut g.keys.force_quit),
+            ("keyboard_access", &mut g.keys.keyboard_access),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}
@@ -1142,6 +1145,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "reduced_motion", CTX)? {
         g.reduced_motion = v;
+    }
+    if let Some(v) = opt_bool(t, "keyboard_access", CTX)? {
+        g.keyboard_access = v;
     }
     if let Some(v) = opt_bool(t, "increase_contrast", CTX)? {
         g.increase_contrast = v;

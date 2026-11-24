@@ -113,6 +113,8 @@ Commandes :
                     settings (volet des Réglages) ; rien ne se referme, le mode ne change pas
   force-quit        ouvre la boîte « Forcer à quitter » (raccourci keys.force_quit), ou la
                     referme : une ligne par application, confirmation en deux temps
+  keyboard-access   bascule l'accès clavier complet : Tab atteint chaque commande des Réglages
+                    (raccourci keys.keyboard_access)
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)

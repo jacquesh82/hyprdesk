@@ -256,6 +256,7 @@ impl App {
             "keys.focus_notifications" => keys.focus_notifications = combo.clone(),
             "keys.focus_settings" => keys.focus_settings = combo.clone(),
             "keys.force_quit" => keys.force_quit = combo.clone(),
+            "keys.keyboard_access" => keys.keyboard_access = combo.clone(),
             "keys.search_desktop" => keys.search_desktop = combo.clone(),
             _ => return Task::none(),
         }

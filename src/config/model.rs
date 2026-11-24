@@ -1514,6 +1514,9 @@ pub struct Keys {
     /// Forcer une application à quitter (`hyprdesk force-quit`) : la boîte qui
     /// liste les applications et tue leurs fenêtres.
     pub force_quit: String,
+    /// Basculer l'accès clavier complet (`hyprdesk keyboard-access`,
+    /// `general.keyboard_access`, HIG ENT-01).
+    pub keyboard_access: String,
     /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
     /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
     pub take: Vec<String>,
@@ -1550,6 +1553,9 @@ impl Default for Keys {
             // Forcer une application à quitter (HIG ENT-10), sur le modèle de
             // macOS : Option-Command-Esc. Les modificateurs dans l'ordre du dépôt.
             force_quit: "ALT + SUPER + Escape".into(),
+            // Accès clavier complet (HIG ENT-01), sur le modèle de macOS :
+            // Control-F1.
+            keyboard_access: "CTRL + F1".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
             settings: "SUPER + SHIFT + D".into(),
@@ -1637,6 +1643,9 @@ pub struct General {
     /// Mouvement réduit (MLG-271) : ouvertures en fondu court, sans échelle
     /// ni déplacement.
     pub reduced_motion: bool,
+    /// Accès clavier complet (HIG ENT-01) : Tab atteint chaque commande des
+    /// Réglages, pas seulement les champs de saisie.
+    pub keyboard_access: bool,
     /// Contraste renforcé (MLG-282) : texte à 7:1, repères à 4,5:1,
     /// surfaces plus denses et filets marqués.
     pub increase_contrast: bool,
@@ -1766,6 +1775,7 @@ impl Default for General {
             icon_double_click: true,
             reduced_transparency: false,
             reduced_motion: false,
+            keyboard_access: true,
             increase_contrast: false,
             text_scale: 1.0,
             advanced_settings: false,

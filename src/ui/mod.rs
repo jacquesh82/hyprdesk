@@ -4206,6 +4206,8 @@ impl App {
                 control::Command::Switch(back) => self.switch_windows(back),
                 // Boîte « Forcer à quitter » (HIG ENT-10) : ouvre, ou referme.
                 control::Command::ForceQuit => self.force_quit_toggle(),
+                // Accès clavier complet (HIG ENT-01) : bascule, enregistre, annonce.
+                control::Command::KeyboardAccess => self.keyboard_access_toggle(),
                 control::Command::Wizard => self.open_wizard(),
                 control::Command::Tour => {
                     let o = self.open_panel();
@@ -7777,6 +7779,27 @@ mod regression_tests {
         let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
         assert!(app.session_windows.is_empty());
         assert!(app.in_submap);
+    }
+
+    /// HIG ENT-01 : `hyprdesk keyboard-access` bascule l'accès clavier
+    /// complet, l'enregistre dans les réglages et l'annonce à l'écran, sans
+    /// jauge ; une seconde fois, il revient.
+    #[test]
+    fn bascule_de_l_acces_clavier() {
+        let mut app = app();
+        assert!(app.cfg.general.keyboard_access);
+        let _ = app.update_inner(Msg::Control(control::Command::KeyboardAccess));
+        assert!(!app.cfg.general.keyboard_access);
+        assert_eq!(app.settings.keyboard_access, Some(false));
+        let note = app.osd.as_ref().and_then(|o| o.note.clone());
+        assert_eq!(
+            note.map(|n| n.1),
+            Some(crate::i18n::tr("Accès clavier complet : désactivé").to_string())
+        );
+        let _ = app.update_inner(Msg::Control(control::Command::KeyboardAccess));
+        assert!(app.cfg.general.keyboard_access);
+        assert_eq!(app.settings.keyboard_access, Some(true));
+        assert!(app.osd.as_ref().is_some_and(|o| o.note.is_some()));
     }
 
     /// HIG ENT-10 : la boîte « Forcer à quitter » choisit l'application active,

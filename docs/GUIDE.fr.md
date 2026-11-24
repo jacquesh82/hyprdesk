@@ -304,6 +304,14 @@ commandes de son en-tête (Fermer, Visite guidée, Assistant, effacer la
 recherche), que l'anneau de focus désigne et qu'Entrée ou Espace activent ; un
 clic de souris retire l'anneau.
 
+**Accès clavier complet.** Activé par défaut, il fait atteindre au Tab chaque
+commande des Réglages, pas seulement les champs de saisie. `CTRL + F1` le
+bascule partout (`hyprdesk keyboard-access`) et l'affichage à l'écran annonce
+« Accès clavier complet : activé » ou « désactivé » ; coupé, Tab ne va plus
+qu'aux champs. Le réglage est dans **Réglages → Clavier et souris → Clavier**
+(`keyboard_access`), le raccourci dans **Réglages → Raccourcis**
+(`keys.keyboard_access`).
+
 **Navigation au clavier dans la barre.** Flèches, Tab et Maj + Tab passent d'un
 module activable au suivant : ceux qu'ouvre un clic gauche (menus, volume,
 horloge…). Entrée ou Espace ouvrent le module choisi ; son menu prend le

@@ -86,6 +86,9 @@ pub const FOCUS_LABELS: &[&str] = &[
 /// Libellés des boîtes de dialogue du shell : « Forcer à quitter » (HIG ENT-10).
 pub const DIALOG_LABELS: &[&str] = &["Forcer une application à quitter"];
 
+/// Libellé du raccourci de l'accès clavier complet (HIG ENT-01).
+pub const ACCESS_LABEL: &str = "Accès clavier complet";
+
 /// Combinaison comparable : (masque des modificateurs, touche en minuscules).
 pub fn norm(combo: &str) -> Option<(u32, String)> {
     parse_combo(combo)
@@ -196,6 +199,15 @@ pub fn actions(k: &Keys) -> Vec<Action> {
         "keys.force_quit",
         DIALOG_LABELS[0],
         &k.force_quit,
+        Everywhere,
+    );
+    // Accès clavier complet (HIG ENT-01) : bascule partout, sans changer de
+    // mode ; l'affichage à l'écran dit le nouvel état.
+    push(
+        "keyboard-access",
+        "keys.keyboard_access",
+        ACCESS_LABEL,
+        &k.keyboard_access,
         Everywhere,
     );
     // Verrouillage non réglé : celui de hyprland.lua hors du bureau, celui
@@ -979,6 +991,7 @@ hl.bind(mainMod .. " + Tab", function()
                 .iter()
                 .chain(FOCUS_LABELS)
                 .chain(DIALOG_LABELS)
+                .chain(&[ACCESS_LABEL])
                 .copied(),
         );
         assert!(missing.is_empty(), "{missing:?}");
@@ -1035,6 +1048,29 @@ hl.bind(mainMod .. " + Tab", function()
         let mut k = Keys::default();
         k.force_quit.clear();
         assert!(!actions(&k).iter().any(|a| a.id == "force-quit"));
+    }
+    #[test]
+    fn raccourci_acces_clavier() {
+        // HIG ENT-01 : le modèle Control-F1, partout, libre par défaut.
+        let acts = actions(&Keys::default());
+        let a = acts
+            .iter()
+            .find(|a| a.id == "keyboard-access")
+            .expect("keyboard-access");
+        assert_eq!(
+            (a.key, a.label, a.combo.as_str()),
+            ("keys.keyboard_access", ACCESS_LABEL, "CTRL + F1")
+        );
+        assert!(a.scope.outside() && a.scope.desktop());
+        assert_eq!(
+            acts.iter()
+                .filter(|x| norm(&x.combo) == norm(&a.combo))
+                .count(),
+            1
+        );
+        let mut k = Keys::default();
+        k.keyboard_access.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "keyboard-access"));
     }
     #[test]
     fn raccourci_absent_des_fichiers() {

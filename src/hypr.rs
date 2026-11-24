@@ -781,6 +781,13 @@ pub fn build_keys_lua(
             "force-quit",
             "forcer à quitter",
         ),
+        // Accès clavier complet (HIG ENT-01), partout.
+        (
+            "keyboard-access",
+            &keys.keyboard_access,
+            "keyboard-access",
+            "accès clavier complet",
+        ),
         ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
@@ -903,6 +910,13 @@ pub fn build_keys_lua(
             &keys.force_quit,
             "force-quit",
             "forcer à quitter",
+        ),
+        // Accès clavier complet (HIG ENT-01), partout.
+        (
+            "keyboard-access",
+            &keys.keyboard_access,
+            "keyboard-access",
+            "accès clavier complet",
         ),
     ] {
         if plan.desktop(id, k) {
@@ -3024,6 +3038,20 @@ mod tests {
         k.force_quit.clear();
         let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
         assert!(!lua.contains("force-quit"), "{lua}");
+    }
+
+    #[test]
+    fn raccourci_acces_clavier() {
+        // HIG ENT-01 : Control-F1, hors de la submap comme dedans.
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        let bind = r#"hl.bind("CTRL + F1", hl.dsp.exec_cmd("'/bin/hyprdesk' keyboard-access")"#;
+        assert!(main.contains(bind) && submap.contains(bind), "{lua}");
+        let mut k = k;
+        k.keyboard_access.clear();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        assert!(!lua.contains("keyboard-access"), "{lua}");
     }
 
     #[test]

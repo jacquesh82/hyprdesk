@@ -231,6 +231,8 @@ pub struct Settings {
     pub key_focus_settings: Option<String>,
     /// Forcer une application à quitter (HIG ENT-10).
     pub key_force_quit: Option<String>,
+    /// Basculer l'accès clavier complet (HIG ENT-01).
+    pub key_keyboard_access: Option<String>,
     pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
@@ -263,6 +265,7 @@ pub struct Settings {
     pub icon_double_click: Option<bool>,
     pub reduced_transparency: Option<bool>,
     pub reduced_motion: Option<bool>,
+    pub keyboard_access: Option<bool>,
     pub increase_contrast: Option<bool>,
     pub text_scale: Option<f32>,
     pub advanced_settings: Option<bool>,
@@ -497,6 +500,8 @@ impl Settings {
                 .then(|| g.keys.focus_notifications.clone()),
             key_focus_settings: has("keys.focus_settings").then(|| g.keys.focus_settings.clone()),
             key_force_quit: has("keys.force_quit").then(|| g.keys.force_quit.clone()),
+            key_keyboard_access: has("keys.keyboard_access")
+                .then(|| g.keys.keyboard_access.clone()),
             key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -528,6 +533,7 @@ impl Settings {
             icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
             reduced_transparency: has("reduced_transparency").then_some(g.reduced_transparency),
             reduced_motion: has("reduced_motion").then_some(g.reduced_motion),
+            keyboard_access: has("keyboard_access").then_some(g.keyboard_access),
             increase_contrast: has("increase_contrast").then_some(g.increase_contrast),
             text_scale: has("text_scale").then_some(g.text_scale),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
@@ -813,6 +819,11 @@ impl Settings {
             g.keys.focus_settings
         );
         set!(key_force_quit, "keys.force_quit", g.keys.force_quit);
+        set!(
+            key_keyboard_access,
+            "keys.keyboard_access",
+            g.keys.keyboard_access
+        );
         set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
@@ -868,6 +879,7 @@ impl Settings {
             g.reduced_transparency
         );
         set!(reduced_motion, "reduced_motion", g.reduced_motion);
+        set!(keyboard_access, "keyboard_access", g.keyboard_access);
         set!(increase_contrast, "increase_contrast", g.increase_contrast);
         set!(text_scale, "text_scale", g.text_scale);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
@@ -1286,6 +1298,7 @@ impl Settings {
             ("focus_notifications", &self.key_focus_notifications),
             ("focus_settings", &self.key_focus_settings),
             ("force_quit", &self.key_force_quit),
+            ("keyboard_access", &self.key_keyboard_access),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {
@@ -1393,6 +1406,9 @@ impl Settings {
         }
         if let Some(v) = self.reduced_motion {
             cfg.push(format!("reduced_motion = {v}"));
+        }
+        if let Some(v) = self.keyboard_access {
+            cfg.push(format!("keyboard_access = {v}"));
         }
         if let Some(v) = self.increase_contrast {
             cfg.push(format!("increase_contrast = {v}"));

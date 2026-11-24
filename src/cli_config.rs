@@ -579,6 +579,14 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.force_quit.clone(),
         |s, v, c| { s.key_force_quit = Some(combo(v)?); Ok(()) },
         |s| s.key_force_quit = None;
+    "keys.keyboard_access", "keys", "raccourci | none — basculer l'accès clavier complet (CTRL + F1)",
+        |c| c.general.keys.keyboard_access.clone(),
+        |s, v, c| { s.key_keyboard_access = Some(combo(v)?); Ok(()) },
+        |s| s.key_keyboard_access = None;
+    "keyboard_access", "input", "on | off — accès clavier complet : Tab atteint chaque commande des Réglages, pas seulement les champs de saisie",
+        |c| on_off(c.general.keyboard_access),
+        |s, v, c| { s.keyboard_access = Some(parse_bool(v)?); Ok(()) },
+        |s| s.keyboard_access = None;
     "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
@@ -2865,6 +2873,14 @@ mod tests {
             run_s(&p, &["get", "keys.force_quit"]).unwrap(),
             "ALT + SUPER + Escape"
         );
+        // Accès clavier complet (HIG ENT-01) : Control-F1, activé par défaut.
+        assert_eq!(
+            run_s(&p, &["get", "keys.keyboard_access"]).unwrap(),
+            "CTRL + F1"
+        );
+        assert_eq!(run_s(&p, &["get", "keyboard_access"]).unwrap(), "on");
+        run_s(&p, &["set", "keyboard_access", "off"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "keyboard_access"]).unwrap(), "off");
         // Valeurs refusées, clé inconnue, clé fixée par l'utilisateur.
         assert!(run_s(&p, &["set", "show_on", "partout"]).is_err());
         assert!(run_s(&p, &["set", "workspaces", "99"]).is_err());

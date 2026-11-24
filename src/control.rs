@@ -49,6 +49,9 @@ pub enum Command {
     /// Ouvre la boîte « Forcer à quitter », ou la referme (raccourci
     /// `keys.force_quit`, HIG ENT-10).
     ForceQuit,
+    /// Bascule l'accès clavier complet (raccourci `keys.keyboard_access`,
+    /// HIG ENT-01) et l'annonce à l'écran.
+    KeyboardAccess,
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
@@ -121,6 +124,7 @@ impl Command {
                 Command::Focus(m[6..].trim().to_string())
             }
             "force-quit" => Command::ForceQuit,
+            "keyboard-access" => Command::KeyboardAccess,
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
@@ -189,6 +193,7 @@ impl Command {
             Command::ToggleSettings => "toggle-settings",
             Command::Focus(_) => "focus",
             Command::ForceQuit => "force-quit",
+            Command::KeyboardAccess => "keyboard-access",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
@@ -437,6 +442,7 @@ mod tests {
             Command::ToggleSettings,
             Command::Focus("dock".into()),
             Command::ForceQuit,
+            Command::KeyboardAccess,
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,
