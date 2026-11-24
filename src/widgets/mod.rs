@@ -41,6 +41,11 @@ pub struct MediaInfo {
     pub art: Option<std::path::PathBuf>,
     /// Teinte moyenne de la pochette.
     pub tint: Option<crate::config::Rgba>,
+    /// Album (`xesam:album`), position et durée en secondes : couches des
+    /// grandes tailles du widget (HIG SYS-15).
+    pub album: String,
+    pub position: Option<i64>,
+    pub length: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

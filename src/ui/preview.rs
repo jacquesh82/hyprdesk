@@ -724,6 +724,35 @@ impl Preview {
                     .insert(w.id.clone(), preview_system(w.family));
             }
         }
+        // Le média, à la taille de la scène : lecture simulée, sans pochette.
+        if let Some(family) = match SCENES[self.scene] {
+            "widgets-tailles" => Some(crate::config::WidgetFamily::XLarge),
+            "widgets-petits" => Some(crate::config::WidgetFamily::Small),
+            _ => None,
+        } {
+            let id = "preview-module-media";
+            let mut media = widget(
+                id,
+                WidgetKind::Media { player: "*".into() },
+                Anchor::BottomLeft,
+            );
+            media.family = family;
+            cfg.widgets.push(media);
+            self.app.values.insert(
+                id.into(),
+                widgets::Value::Media(Some(widgets::MediaInfo {
+                    bus: "org.mpris.MediaPlayer2.spotify".into(),
+                    title: "Clair de lune".into(),
+                    artist: "Claude Debussy".into(),
+                    playing: true,
+                    art: None,
+                    tint: None,
+                    album: "Suite bergamasque".into(),
+                    position: Some(83),
+                    length: Some(301),
+                })),
+            );
+        }
         if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
             w.kind = WidgetKind::Clock {
                 format: "%a %-d %b  ·  %H:%M".into(),

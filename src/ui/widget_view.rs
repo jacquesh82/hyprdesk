@@ -246,34 +246,87 @@ impl App {
                             }
                             None => Space::new().width(0).into(),
                         };
-                        let info = column![
-                            text(if mi.title.is_empty() {
-                                "—".to_string()
-                            } else {
-                                mi.title.clone()
-                            })
-                            .font(self.font)
-                            .size(size * 1.15)
-                            .color(fg)
-                            .font(self.title_font()),
-                            text(mi.artist.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(size))
-                                .color(dim)
-                                .font(font),
-                            row![
-                                ctl(0, "|<", "Previous"),
-                                if mi.playing {
-                                    ctl(1, "||", "PlayPause")
-                                } else {
-                                    ctl(2, ">", "PlayPause")
-                                },
-                                ctl(3, ">|", "Next")
-                            ]
-                            .spacing(6),
-                        ]
-                        .spacing(4)
-                        .max_width(size * 26.0);
+                        let layers = media_layers(w.family);
+                        let play = if mi.playing {
+                            ctl(1, "||", "PlayPause")
+                        } else {
+                            ctl(2, ">", "PlayPause")
+                        };
+                        // Petit : la pochette et la lecture seules (HIG SYS-15).
+                        let controls = if layers.info {
+                            row![ctl(0, "|<", "Previous"), play, ctl(3, ">|", "Next")]
+                        } else {
+                            row![play]
+                        };
+                        let mut info = column![].spacing(4).max_width(size * 26.0);
+                        if layers.info {
+                            info = info
+                                .push(
+                                    text(if mi.title.is_empty() {
+                                        "—".to_string()
+                                    } else {
+                                        mi.title.clone()
+                                    })
+                                    .font(self.font)
+                                    .size(size * 1.15)
+                                    .color(fg)
+                                    .font(self.title_font()),
+                                )
+                                .push(
+                                    text(mi.artist.clone())
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(size))
+                                        .color(dim)
+                                        .font(font),
+                                );
+                        }
+                        // Très grand : l'album et le lecteur.
+                        if layers.details {
+                            let line = [mi.album.clone(), widgets::media::player_name(&mi.bus)]
+                                .into_iter()
+                                .filter(|s| !s.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            info = info.push(
+                                text(line)
+                                    .size(crate::ui::tokens::ts(size))
+                                    .color(dim)
+                                    .font(font),
+                            );
+                        }
+                        info = info.push(controls.spacing(6));
+                        // Grand : la progression, quand le lecteur la donne.
+                        if layers.progress
+                            && let Some((r, p, l)) = media_progress(mi.position, mi.length)
+                        {
+                            let track = color(th.fg, 0.15 * t);
+                            let small = crate::ui::tokens::ts(size) * 0.85;
+                            info = info.push(
+                                column![
+                                    progress_bar(0.0..=1.0, r)
+                                        .girth(4)
+                                        .length(Length::Fixed(size * 16.0))
+                                        .style(move |_| progress_bar::Style {
+                                            background: track.into(),
+                                            bar: accent.into(),
+                                            border: Border::default().rounded(2),
+                                        }),
+                                    row![
+                                        text(super::plugins::panorama::surface::fmt_time(p))
+                                            .size(small)
+                                            .color(dim)
+                                            .font(font),
+                                        Space::new().width(Length::Fill),
+                                        text(super::plugins::panorama::surface::fmt_time(l))
+                                            .size(small)
+                                            .color(dim)
+                                            .font(font),
+                                    ]
+                                    .width(Length::Fixed(size * 16.0)),
+                                ]
+                                .spacing(4),
+                            );
+                        }
                         row![cover, info]
                             .spacing(12)
                             .align_y(iced::Alignment::Center)
@@ -573,6 +626,33 @@ fn clock_layers(family: WidgetFamily, format: &str, date_option: bool) -> ClockL
     }
 }
 
+/// Ce que montre le widget média selon sa taille (HIG SYS-15).
+#[derive(Debug, PartialEq, Eq)]
+struct MediaLayers {
+    /// Le titre, l'artiste et les commandes précédent et suivant (dès moyen).
+    info: bool,
+    /// La progression, position et durée (dès grand).
+    progress: bool,
+    /// L'album et le lecteur (très grand).
+    details: bool,
+}
+
+fn media_layers(family: WidgetFamily) -> MediaLayers {
+    use WidgetFamily as F;
+    MediaLayers {
+        info: family != F::Small,
+        progress: matches!(family, F::Large | F::XLarge),
+        details: family == F::XLarge,
+    }
+}
+
+/// Progression d'une lecture : la part jouée, la position et la durée, si
+/// elles sont plausibles (un direct annonce parfois une durée absurde).
+fn media_progress(position: Option<i64>, length: Option<i64>) -> Option<(f32, i64, i64)> {
+    let (p, l) = (position?, length?);
+    (l > 0 && l < 48 * 3600 && (0..=l).contains(&p)).then(|| (p as f32 / l as f32, p, l))
+}
+
 /// Mois que montre le calendrier selon sa taille (HIG SYS-15) : aucun en
 /// petit (le jour seul), puis un, deux ou trois à partir du mois en cours.
 fn calendar_months(family: WidgetFamily) -> u32 {
@@ -678,6 +758,18 @@ mod calendar_tests {
         assert_eq!(calendar_months(F::Medium), 1);
         assert_eq!(calendar_months(F::Small), 0);
         assert_eq!(calendar_months(F::Large), 2);
+        let m = |info, progress, details| MediaLayers {
+            info,
+            progress,
+            details,
+        };
+        assert_eq!(media_layers(F::Medium), m(true, false, false));
+        assert_eq!(media_layers(F::Small), m(false, false, false));
+        assert_eq!(media_layers(F::XLarge), m(true, true, true));
+        assert_eq!(media_progress(Some(30), Some(120)), Some((0.25, 30, 120)));
+        assert_eq!(media_progress(Some(30), None), None);
+        assert_eq!(media_progress(Some(200), Some(120)), None);
+        assert_eq!(media_progress(Some(0), Some(0)), None);
         assert_eq!(calendar_months(F::XLarge), 3);
     }
 }

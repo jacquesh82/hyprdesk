@@ -3518,15 +3518,30 @@ impl App {
                     }
                     WidgetKind::Media { player } => {
                         let p = player.clone();
+                        // La position ne sert qu'aux grandes tailles (HIG SYS-15) :
+                        // ailleurs, elle changerait la valeur à chaque relevé et
+                        // redessinerait tout pendant la lecture.
+                        let progress = matches!(
+                            w.family,
+                            crate::config::WidgetFamily::Large
+                                | crate::config::WidgetFamily::XLarge
+                        );
                         Some(Task::perform(
                             async move {
-                                tokio::time::timeout(Duration::from_secs(3), widgets::media(&p))
-                                    .await
-                                    .unwrap_or_else(|_| {
-                                        widgets::Value::Error(
-                                            crate::i18n::tr("MPRIS : délai dépassé").into(),
-                                        )
-                                    })
+                                let mut v = tokio::time::timeout(
+                                    Duration::from_secs(3),
+                                    widgets::media(&p),
+                                )
+                                .await
+                                .unwrap_or_else(|_| {
+                                    widgets::Value::Error(
+                                        crate::i18n::tr("MPRIS : délai dépassé").into(),
+                                    )
+                                });
+                                if !progress && let widgets::Value::Media(Some(mi)) = &mut v {
+                                    mi.position = None;
+                                }
+                                v
                             },
                             move |v| Msg::WidgetValue(generation, wid.clone(), v),
                         ))

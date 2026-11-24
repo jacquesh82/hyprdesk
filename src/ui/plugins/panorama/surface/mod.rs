@@ -544,7 +544,7 @@ pub fn detect_task() -> Task<Msg> {
     )
 }
 
-fn fmt_time(secs: i64) -> String {
+pub(in crate::ui) fn fmt_time(secs: i64) -> String {
     let s = secs.max(0);
     if s >= 3600 {
         format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)

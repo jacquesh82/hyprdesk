@@ -85,7 +85,21 @@ fn media_from_props(bus: &str, props: &HashMap<String, OwnedValue>) -> MediaInfo
         playing,
         art,
         tint,
+        album: text_of(&meta, "xesam:album"),
+        position: int(props.get("Position")).map(|us| us / 1_000_000),
+        length: int(meta.get("mpris:length")).map(|us| us / 1_000_000),
     }
+}
+
+/// Nom lisible d'un lecteur d'après son nom de bus :
+/// `org.mpris.MediaPlayer2.firefox.instance_1_23` donne « Firefox ».
+pub fn player_name(bus: &str) -> String {
+    let short = bus.trim_start_matches(MPRIS_PREFIX);
+    let short = short.split('.').next().unwrap_or(short);
+    let mut c = short.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
 
 /// Teinte moyenne d'une pochette, gardée par fichier (MLG-279).
@@ -219,16 +233,17 @@ fn status_from_props(bus: &str, props: &HashMap<String, OwnedValue>) -> Status {
         .get("Metadata")
         .and_then(|v| HashMap::<String, OwnedValue>::try_from(v.try_clone().ok()?).ok())
         .unwrap_or_default();
+    // Album, position et durée : ceux du widget, lus une fois.
     Status {
         player: bus.trim_start_matches(MPRIS_PREFIX).to_string(),
         bus: bus.to_string(),
         playing: base.playing,
         title: base.title,
         artist: base.artist,
-        album: text_of(&meta, "xesam:album"),
+        album: base.album,
         art: text_of(&meta, "mpris:artUrl"),
-        position: int(props.get("Position")).map(|us| us / 1_000_000),
-        length: int(meta.get("mpris:length")).map(|us| us / 1_000_000),
+        position: base.position,
+        length: base.length,
     }
 }
 
@@ -362,5 +377,16 @@ mod tests {
             status_lines(&s),
             "player=spotify\nstatus=playing\ntitle=Titre sur deux lignes\nartist=A, B\nalbum=Album\nart=file:///tmp/a.png\nposition=83\nlength=\n"
         );
+    }
+
+    /// Lecteur nommé d'après son bus, instance retirée (HIG SYS-15).
+    #[test]
+    fn nom_du_lecteur() {
+        assert_eq!(player_name("org.mpris.MediaPlayer2.spotify"), "Spotify");
+        assert_eq!(
+            player_name("org.mpris.MediaPlayer2.firefox.instance_1_23"),
+            "Firefox"
+        );
+        assert_eq!(player_name("org.mpris.MediaPlayer2."), "");
     }
 }

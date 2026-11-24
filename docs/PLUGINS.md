@@ -310,6 +310,12 @@ identifiants (`bar:<zone>:<n>`) et ne comptent pas.
    génération).
 5. **Rendu** : `ui/widget_view.rs` traduit la valeur (`widgets::Value` : texte,
    lignes système, média, contenu riche) en éléments iced, dans sa carte.
+   L'horloge, le calendrier, le système et le média ont en propre une option
+   `family` (`small`, `medium` par défaut, `large`, `xlarge`) : chaque taille
+   ajoute une couche d'information (`clock_layers`, `calendar_months`,
+   `media_layers`, `widgets::system_items` pour les lignes relevées) au lieu
+   d'agrandir la précédente. Elle n'est pas une option commune : les plugins
+   et les widgets commande ou Lua n'ont qu'une taille.
 
 ### Plugins Lua
 

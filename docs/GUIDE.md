@@ -701,7 +701,21 @@ background opens its content: the clock and calendar open the bar's Calendar
 card, the system widget opens Settings → Performance, and the media widget
 brings the current player forward; its buttons keep their action.
 
+The clock, calendar, system and media widgets come in four sizes (**Widget
+size** in a widget's details, or the `family` option: `small`, `medium`,
+`large`, `xlarge`). Each size adds information instead of enlarging the
+previous one; **Medium**, the default, is the usual layout. **Text size**
+remains a separate setting.
+
+| Widget | Small | Medium | Large | Extra large |
+| --- | --- | --- | --- | --- |
+| Clock | the time | + the date | + day of the year and week | + the month grid |
+| Calendar | the day and its date | the month | + next month | + the next two months |
+| System | the first gauge | the chosen readings | + load and uptime | + the root disk |
+| Media | cover art and play/pause | + title, artist, controls | + progress | + album and player |
+
 ```lua
+hd.widget("clock", { family = "large" })
 hd.widget("clock", { screen = "DP-2", if_missing = "primary" })
 hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 hd.widget("controls", {})

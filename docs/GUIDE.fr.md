@@ -734,7 +734,21 @@ calendrier ouvrent la carte Calendrier de la barre, le widget système
 Réglages → Performance, le widget média le lecteur en cours ; ses boutons
 gardent leur action.
 
+L'horloge, le calendrier, le système et le média ont quatre tailles
+(**Taille du widget** dans le détail d'un widget, ou l'option `family` :
+`small`, `medium`, `large`, `xlarge`). Chaque taille ajoute une information
+sans grossir la précédente ; **Moyen**, par défaut, est l'affichage habituel.
+La **Taille du texte** reste un réglage à part.
+
+| Widget | Petit | Moyen | Grand | Très grand |
+| --- | --- | --- | --- | --- |
+| Horloge | l'heure | + la date | + le jour de l'année et la semaine | + la grille du mois |
+| Calendrier | le jour et sa date | le mois | + le mois suivant | + les deux mois suivants |
+| Système | la première jauge | les mesures choisies | + charge et durée d'allumage | + le disque racine |
+| Média | la pochette et lecture/pause | + titre, artiste, commandes | + la progression | + l'album et le lecteur |
+
 ```lua
+hd.widget("clock", { family = "large" })
 hd.widget("clock", { screen = "DP-2", if_missing = "primary" })
 hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 hd.widget("controls", {})
