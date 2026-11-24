@@ -22,6 +22,7 @@
 | 2026-11-24 | A2 | FON-01, FON-03 traités ; il en reste 43 dans ce couloir |
 | 2026-11-24 | A3 | ICO-07 traité ; il en reste 42 dans ce couloir |
 | 2026-11-24 | A4 | LAY-04, SYS-14, ICO-03 traités ; il en reste 39 dans ce couloir |
+| 2026-11-24 | A5 | SYS-05 traité ; il en reste 38 dans ce couloir |
 
 ### Couloir B
 
@@ -86,8 +87,8 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | LAY-04 | Lists and tables — corps des notifications | ÉCART | S | moyenne | fait | fd091e2 | `card_text` (`src/ui/toasts.rs`, constantes `TITLE_CHARS` = 42 et `BODY_CHARS` = 74) borne le titre et le corps des cartes de la barre et du volet Notifications de Panorama (`panes.rs`), sans saut de ligne, comme le centre Continuité. Preuve exacte. Test : `une_carte_borne_titre_et_corps`. |
 | SYS-14 | Barre Island : icône de l'app | ÉCART | S | haute | fait | fd091e2 | La prise de main Island (`WidgetKind::Clock`, `src/ui/plugins/bar/surface.rs`) affiche la cloche du jeu (`icons::glyph("notifications")`), monochrome, à la place de l'icône de l'application ; capture `bar-island-notif` vérifiée. Preuve exacte. |
 | ICO-03 | Bulle de notification | ABSENT | S | haute | fait | fd091e2 | `notif_icon` (`src/ui/toasts.rs`) prend l'icône envoyée par l'application, sinon celle de son application : `class_icon_name` cherche, parmi les applications installées, l'entrée dont l'identifiant ou la classe correspond au `desktop-entry` ; cette icône est demandée à l'arrivée (`want_notif_icons`), sous Silence aussi ; la cloche reste le dernier repli et le centre Continuité passe par la même fonction. Dépasse la colonne Correction : le nom de l'application sert de classe quand `desktop-entry` manque. Preuve exacte. Test : `une_notification_sans_icone_prend_celle_de_son_application`. |
-| PAT-04 | Durée du Silence | ABSENT | S | haute | à faire | — | — |
-| SYS-05 | Aperçus masquables | ABSENT | S | haute | à faire | — | — |
+| PAT-04 | Durée du Silence | ABSENT | S | haute | à faire | — | plus lourd que l’effort inscrit (A5) : échéance gardée d’une session à l’autre, expiration minutée, choix de la fin dans le centre de contrôle et la ligne de commande ; à traiter comme M, plan d’implantation d’abord |
+| SYS-05 | Aperçus masquables | ABSENT | S | haute | fait | bee562a | Option `notifications.hide_previews` du registre `design_options` (`on` ou `off`, `off` par défaut, libellé « Masquer les aperçus ») : le corps de la bulle, de la carte Notifications de la barre, du centre Continuité et du volet Panorama devient « Notification » (`card_text`, `src/ui/toasts.rs`) ; un corps vide reste vide. Limite assumée : le fichier d'état `hyprdesk-notifications.txt` (module de barre, `hyprdesk notifications`) porte encore le corps, `Toasts::publish` n'a pas accès à la configuration. Relecture à froid faite (propriétaire partagé `continuity.rs`). Test : `une_carte_borne_titre_et_corps`. Preuve exacte. |
 | SYS-17 | Actions destructrices | ABSENT | S | moyenne | à faire | — | — |
 | SYS-18 | Icônes des actions | ABSENT | S | moyenne | à faire | — | — |
 | LAY-02 | Lists and tables — historique | ABSENT | M | haute | à faire | — | — |
